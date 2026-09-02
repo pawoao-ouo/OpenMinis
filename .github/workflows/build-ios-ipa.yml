@@ -40,6 +40,7 @@ jobs:
         run: |
           ./deps/build_lame.sh
           ./deps/build_ffmpeg.sh
+          ./deps/build_rclone_ios.sh
           ./deps/build_ish.sh release
           ./deps/prepare_alpine_rootfs.sh
 
