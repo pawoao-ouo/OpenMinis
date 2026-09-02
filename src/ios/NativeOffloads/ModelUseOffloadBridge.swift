@@ -1040,7 +1040,7 @@ private let logger = AppLogger(category: "ModelUseOffload")
                               let imgObj = part["image_url"] as? [String: Any],
                               let url = imgObj["url"] as? String {
                         // [T-model-use-image-url-resolution] resolveImageURL
-                        // now throws on unresolvable URLs (minis:// to a
+                        // now throws on unresolvable URLs (minis-clone:// to a
                         // missing file, file:// to nonexistent path, http(s)
                         // not yet supported, unknown scheme). Previously it
                         // returned nil silently, so the agent's call would
@@ -1709,13 +1709,13 @@ private let logger = AppLogger(category: "ModelUseOffload")
     /// Supports:
     ///   - `data:<mime>;base64,...` — decode inline base64
     ///   - `file:///path` — read local file, infer MIME from extension
-    ///   - `minis://<scope>/<path>` — resolve to host storage via the
+    ///   - `minis-clone://<scope>/<path>` — resolve to host storage via the
     ///     per-session lookup used by the in-app image preview
     ///     (attachments, workspace, offloads, shared, skills, memory,
     ///     mounts). Active session id is inferred from the calling
     ///     agent's chat context.
     ///   - `/var/minis/<scope>/<path>` — bare Linux paths under
-    ///     `/var/minis/`, mapped to the same scopes as `minis://`.
+    ///     `/var/minis/`, mapped to the same scopes as `minis-clone://`.
     ///   - `/<absolute/host/path>` (other) — fall back to direct iSH
     ///     rootfs lookup.
     ///
@@ -1740,23 +1740,23 @@ private let logger = AppLogger(category: "ModelUseOffload")
             return LLMMessage.ImageAttachment(mimeType: mime, data: data)
         }
 
-        // minis:// — route through the in-app minis URL resolver so
+        // minis-clone:// — route through the in-app minis URL resolver so
         // attachments/workspace/shared/etc. all work without the caller
         // knowing host paths.
-        if url.hasPrefix("minis://") {
+        if url.hasPrefix("minis-clone://") {
             guard let parsed = URL(string: url),
                   let resolved = AIChatViewModel.resolveMinisURL(parsed) else {
-                throw ModelUseError.invalidInput("Could not resolve minis:// URL '\(url)' — file not found in any session scope. Try /var/minis/<scope>/<path> or file:///<host-path>.")
+                throw ModelUseError.invalidInput("Could not resolve minis-clone:// URL '\(url)' — file not found in any session scope. Try /var/minis/<scope>/<path> or file:///<host-path>.")
             }
             guard let data = FileManager.default.contents(atPath: resolved.path) else {
-                throw ModelUseError.invalidInput("minis:// URL '\(url)' resolved to \(resolved.path) but the file is unreadable")
+                throw ModelUseError.invalidInput("minis-clone:// URL '\(url)' resolved to \(resolved.path) but the file is unreadable")
             }
             let mime = Self.imageMimeForExtension(url)
             return LLMMessage.ImageAttachment(mimeType: mime, data: data)
         }
 
         // /var/minis/<scope>/<path> — Linux bare path equivalent of
-        // minis://<scope>/<path>. Rewrite to a minis:// URL and reuse
+        // minis-clone://<scope>/<path>. Rewrite to a minis-clone:// URL and reuse
         // the same resolver so behavior is identical.
         if url.hasPrefix("/var/minis/") {
             let stripped = String(url.dropFirst("/var/minis/".count))
@@ -1768,7 +1768,7 @@ private let logger = AppLogger(category: "ModelUseOffload")
             }
             let scope = parts[0]
             let sub = parts.count > 1 ? parts[1] : ""
-            let minisURLStr = sub.isEmpty ? "minis://\(scope)" : "minis://\(scope)/\(sub)"
+            let minisURLStr = sub.isEmpty ? "minis-clone://\(scope)" : "minis-clone://\(scope)/\(sub)"
             guard let parsed = URL(string: minisURLStr),
                   let resolved = AIChatViewModel.resolveMinisURL(parsed) else {
                 throw ModelUseError.invalidInput("Could not resolve '\(url)' — file not found in scope '\(scope)'. Check the path and that the file exists.")
@@ -1805,10 +1805,10 @@ private let logger = AppLogger(category: "ModelUseOffload")
                 let mime = Self.imageMimeForExtension(url)
                 return LLMMessage.ImageAttachment(mimeType: mime, data: data)
             }
-            throw ModelUseError.invalidInput("Image file not found at '\(url)'. For minis-scope files prefer /var/minis/<scope>/<path> or minis://<scope>/<path>.")
+            throw ModelUseError.invalidInput("Image file not found at '\(url)'. For minis-scope files prefer /var/minis/<scope>/<path> or minis-clone://<scope>/<path>.")
         }
 
-        throw ModelUseError.invalidInput("Unsupported image_url '\(url)'. Use a data: URL, file:///host/path, /var/minis/<scope>/<path>, or minis://<scope>/<path>.")
+        throw ModelUseError.invalidInput("Unsupported image_url '\(url)'. Use a data: URL, file:///host/path, /var/minis/<scope>/<path>, or minis-clone://<scope>/<path>.")
     }
 
     /// Read a file given a Linux-side path. Tries the iSH rootfs data

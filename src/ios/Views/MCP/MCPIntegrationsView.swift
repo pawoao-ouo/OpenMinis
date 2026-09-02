@@ -10,7 +10,7 @@
 import SwiftUI
 
 struct MCPIntegrationsView: View {
-    /// [T-mcp-oauth-deeplink] When set (minis://settings/mcp-servers/<id>),
+    /// [T-mcp-oauth-deeplink] When set (minis-clone://settings/mcp-servers/<id>),
     /// open this server's edit form on appear — that's where the Authorize
     /// button lives. Unknown/deleted ids fall through to the plain list.
     var initialEditServerId: String? = nil

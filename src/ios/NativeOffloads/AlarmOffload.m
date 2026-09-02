@@ -64,7 +64,7 @@ static NSString *const HELP_TEXT =
      "  apple-alarm cancel --all\n"
      "\n"
      "DEEP LINK:\n"
-     "  minis://views/alarm              Open the alarm management page in Minis\n";
+     "  minis-clone://views/alarm              Open the alarm management page in Minis\n";
 
 // ── Duration parsing ──
 
@@ -239,8 +239,8 @@ static int cmd_set_alarmkit(int argc, char **argv, int stdout_fd,
         // Merge fire date into result
         NSMutableDictionary *data = [resultData mutableCopy];
         data[@"time"] = noff_format_date(fireDate);
-        data[@"view_url"] = @"minis://views/alarm";
-        data[@"hint"] = @"Alarm is now visible on the Minis home screen. Open minis://views/alarm to manage alarms.";
+        data[@"view_url"] = @"minis-clone://views/alarm";
+        data[@"hint"] = @"Alarm is now visible on the Minis home screen. Open minis-clone://views/alarm to manage alarms.";
         noff_emit_json(stdout_fd, noff_json_envelope(TOOL_NAME, @"set", data), compact, quiet);
         return NOFF_EXIT_SUCCESS;
     }
@@ -309,8 +309,8 @@ static int cmd_timer_alarmkit(int argc, char **argv, int stdout_fd,
         // Merge computed fires_at
         NSMutableDictionary *data = [resultData mutableCopy];
         data[@"fires_at"] = noff_format_date([NSDate dateWithTimeIntervalSinceNow:duration]);
-        data[@"view_url"] = @"minis://views/alarm";
-        data[@"hint"] = @"Timer is now visible on the Minis home screen. Open minis://views/alarm to manage alarms.";
+        data[@"view_url"] = @"minis-clone://views/alarm";
+        data[@"hint"] = @"Timer is now visible on the Minis home screen. Open minis-clone://views/alarm to manage alarms.";
         noff_emit_json(stdout_fd, noff_json_envelope(TOOL_NAME, @"timer", data), compact, quiet);
         return NOFF_EXIT_SUCCESS;
     }
@@ -354,7 +354,7 @@ static int cmd_list_alarmkit(int argc, char **argv, int stdout_fd,
             @"alarms": items,
             @"count": @(items.count),
             @"backend": @"alarmkit",
-            @"view_url": @"minis://views/alarm",
+            @"view_url": @"minis-clone://views/alarm",
         };
         noff_emit_json(stdout_fd, noff_json_envelope(TOOL_NAME, @"list", data), compact, quiet);
         return NOFF_EXIT_SUCCESS;

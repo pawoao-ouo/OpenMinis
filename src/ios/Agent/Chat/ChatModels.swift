@@ -13,11 +13,11 @@ struct AttachmentMeta: Identifiable, Equatable {
     let size: Int
     let modified: Date
 
-    /// Derive a `minis://` URL from the Linux path.
+    /// Derive a `minis-clone://` URL from the Linux path.
     var minisURL: String {
         guard path.hasPrefix("/var/minis/") else { return path }
         let rel = String(path.dropFirst("/var/minis/".count))
-        return "minis://\(rel)"
+        return "minis-clone://\(rel)"
     }
 
     var fileName: String {

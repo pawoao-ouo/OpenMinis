@@ -2,9 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDisplayName</key>
+	<string>分身版</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.openminis.app.liveactivity-refresh</string>
+		<string>com.openminis.clone.liveactivity-refresh</string>
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
@@ -29,7 +31,7 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.openminis.app.minisbak</string>
+				<string>com.openminis.clone.minisbak</string>
 			</array>
 		</dict>
 	</array>
@@ -153,7 +155,7 @@
 			<string>Claude OAuth Callback</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.openminis.app</string>
+				<string>com.openminis.clone</string>
 			</array>
 		</dict>
 		<dict>
@@ -161,7 +163,7 @@
 			<string>Minis Share</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>minis</string>
+				<string>minis-clone</string>
 			</array>
 		</dict>
 		<dict>
@@ -169,7 +171,7 @@
 			<string>MCP OAuth Callback</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>minis-mcp</string>
+				<string>minis-clone-mcp</string>
 			</array>
 		</dict>
 	</array>
@@ -246,7 +248,7 @@
 			<key>UTTypeDescription</key>
 			<string>Minis Backup</string>
 			<key>UTTypeIdentifier</key>
-			<string>com.openminis.app.minisbak</string>
+			<string>com.openminis.clone.minisbak</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

@@ -1,4 +1,4 @@
-name: Build official OpenMinis iOS IPA
+name: Build OpenMinis clone iOS IPA
 
 on:
   workflow_dispatch:
@@ -56,7 +56,7 @@ jobs:
             -project src/ios/Minis.xcodeproj \
             -scheme Minis
 
-      - name: Archive official OpenMinis app unsigned
+      - name: Archive OpenMinis clone app unsigned
         run: |
           mkdir -p build
           xcodebuild archive \
@@ -78,15 +78,15 @@ jobs:
           mkdir -p build/Payload
           cp -R "$app" build/Payload/OpenMinis.app
           cd build/Payload
-          /usr/bin/zip -qry ../OpenMinis-unsigned.ipa OpenMinis.app
+          /usr/bin/zip -qry ../OpenMinis-clone-unsigned.ipa OpenMinis.app
           cd ../..
-          /usr/bin/file build/OpenMinis-unsigned.ipa
-          /usr/bin/du -h build/OpenMinis-unsigned.ipa
+          /usr/bin/file build/OpenMinis-clone-unsigned.ipa
+          /usr/bin/du -h build/OpenMinis-clone-unsigned.ipa
 
-      - name: Upload official OpenMinis IPA
+      - name: Upload OpenMinis clone IPA
         uses: actions/upload-artifact@v4
         with:
-          name: OpenMinis-iOS-unsigned-${{ github.run_number }}
-          path: build/OpenMinis-unsigned.ipa
+          name: OpenMinis-clone-iOS-unsigned-${{ github.run_number }}
+          path: build/OpenMinis-clone-unsigned.ipa
           if-no-files-found: error
           retention-days: 14

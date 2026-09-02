@@ -147,7 +147,7 @@ enum SoulIconSource {
                 return "no file at \(p)"
             case .outsideAllowedDirs(let p):
                 return "\(p) is outside the directories this tool may read. "
-                     + "Use a minis:// URL (e.g. minis://attachments/icon.png) "
+                     + "Use a minis-clone:// URL (e.g. minis-clone://attachments/icon.png) "
                      + "or a path under the session's minis directories."
             case .badURL(let s):
                 return "couldn't parse '\(s)' as an image source"
@@ -172,7 +172,7 @@ enum SoulIconSource {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.isEmpty { return false }
         if s.hasPrefix("data:") { return true }
-        if s.hasPrefix("minis://") { return true }
+        if s.hasPrefix("minis-clone://") { return true }
         if s.hasPrefix("http://") || s.hasPrefix("https://") { return true }
         if s.hasPrefix("/") || s.hasPrefix("~/") { return true }
         // A bare base64 blob: long, and only base64 characters. The length
@@ -194,7 +194,7 @@ enum SoulIconSource {
         let data: Data
         if s.hasPrefix("data:") {
             data = try decodeDataURI(s)
-        } else if s.hasPrefix("minis://") {
+        } else if s.hasPrefix("minis-clone://") {
             data = try readMinisURL(s)
         } else if s.hasPrefix("http://") || s.hasPrefix("https://") {
             data = try await download(s)
@@ -250,7 +250,7 @@ enum SoulIconSource {
         return d
     }
 
-    /// `minis://` goes through the app's own resolver, which is what enforces
+    /// `minis-clone://` goes through the app's own resolver, which is what enforces
     /// session scoping — this must not reach into another session's files.
     private static func readMinisURL(_ s: String) throws -> Data {
         guard let url = URL(string: s) else { throw SourceError.badURL(s) }

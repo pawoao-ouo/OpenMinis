@@ -3,19 +3,35 @@ import Foundation
 /// Reads and writes PendingShare data to the App Group shared container.
 /// Compiled into both the main app target and the Share Extension target.
 enum SharedContainerStore {
-    static let appGroupID = "group.com.openminis.app"
+    static let appGroupID = "group.com.openminis.clone"
+
+    /// A sideloaded clone may be signed without the App Group capability.
+    /// Fall back to this app's own Application Support directory instead of crashing.
+    static var containerURL: URL {
+        if let group = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupID
+        ) {
+            return group
+        }
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first!.appendingPathComponent("OpenMinisClone", isDirectory: true)
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base
+    }
 
     private static let pendingShareKey = "pendingShare"
 
     static var sharedDefaults: UserDefaults? {
-        UserDefaults(suiteName: appGroupID)
+        guard FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupID
+        ) != nil else { return .standard }
+        return UserDefaults(suiteName: appGroupID)
     }
 
     /// Directory in the shared container for transferring attachment files.
     static var sharedFileDirectory: URL? {
-        FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
-            .appendingPathComponent("ShareExtension", isDirectory: true)
+        containerURL.appendingPathComponent("ShareExtension", isDirectory: true)
     }
 
     // MARK: - Write (called by Share Extension)

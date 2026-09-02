@@ -109,7 +109,7 @@ def _authorize_deeplink(server_name):
     Server names may contain URL-unsafe chars — percent-encode the path
     segment; the iOS/Android deep-link routers decode it back."""
     from urllib.parse import quote
-    return "[Authorize](minis://settings/mcp-servers/%s)" % quote(server_name, safe="")
+    return "[Authorize](minis-clone://settings/mcp-servers/%s)" % quote(server_name, safe="")
 
 
 def _load_oauth_tokens(server_name):

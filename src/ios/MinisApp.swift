@@ -293,7 +293,7 @@ struct MinisApp: App {
                 }
                 // Fullscreen immersive WebView for HTML web-app shortcuts.
                 // Driven by `.openWebAppDeepLink` (posted by DeepLinkRouter
-                // for `minis://open?session=…&path=…`). Mounted at the
+                // for `minis-clone://open?session=…&path=…`). Mounted at the
                 // WindowGroup root so it covers the chat list / draft / any
                 // other foreground state.
                 // [T-ios-remove-open-webapp-shortcut-intent] The
@@ -656,7 +656,7 @@ struct MinisApp: App {
     // MARK: - FileProvider
 
     private static let fileProviderDomain = NSFileProviderDomain(
-        identifier: NSFileProviderDomainIdentifier("com.openminis.app.files"),
+        identifier: NSFileProviderDomainIdentifier("com.openminis.clone.files"),
         displayName: "Minis"
     )
 
@@ -697,7 +697,7 @@ struct MinisApp: App {
         guard previous != current else { return }
         UserDefaults.standard.set(current, forKey: key)
 
-        guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app") else { return }
+        guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.clone") else { return }
         let dir = container.appendingPathComponent("MinisConfig", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("fp-sync-trace.log")
@@ -1045,7 +1045,7 @@ struct MinisApp: App {
     private static func migrateSharedDirToAppGroup() {
         let fm = FileManager.default
         let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let container = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app")!
+        let container = SharedContainerStore.containerURL
 
         let migrations: [(source: URL, dest: URL, label: String)] = [
             // Legacy Library/MinisChat/shared → new shared
@@ -1086,7 +1086,7 @@ struct MinisApp: App {
     /// targets logged during MOUNT setup.
     private static func logFPSyncTracePaths() {
         let fm = FileManager.default
-        let groupID = "group.com.openminis.app"
+        let groupID = "group.com.openminis.clone"
         let containerURL = fm.containerURL(forSecurityApplicationGroupIdentifier: groupID)
         let containerPath = containerURL?.path ?? "<nil>"
         let resolvedContainer = containerURL?.resolvingSymlinksInPath().path ?? "<nil>"
@@ -1125,7 +1125,7 @@ struct MinisApp: App {
     // (`presentWebAppDeepLink`) is the remaining WebApp presentation path.
 
     /// Resolves a transient `WebAppShortcut` reconstructed from a
-    /// `minis://open?session=…&path=…` deep link (openminis.app launcher
+    /// `minis-clone://open?session=…&path=…` deep link (openminis.app launcher
     /// round-trip) and presents the immersive WebView. Does not touch
     /// ChatStore — the launcher URL is fully self-describing.
     @MainActor
