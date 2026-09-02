@@ -19,7 +19,7 @@ jobs:
 
       - name: Install native build tools
         run: |
-          brew install meson ninja llvm libarchive pkg-config
+          brew install meson ninja llvm lld libarchive pkg-config
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
       - name: Prepare provider customization
