@@ -27,6 +27,15 @@ jobs:
           cp src/ios/Configs/ProviderCustomization.xcconfig.example \
              src/ios/Configs/ProviderCustomization.xcconfig
 
+      - name: Patch iSH VDSO linker path for macOS
+        run: |
+          llvm_prefix="$(brew --prefix llvm)"
+          test -x "$llvm_prefix/bin/ld.lld"
+          sed -i '' "s#'-fuse-ld=lld'#'-fuse-ld=$llvm_prefix/bin/ld.lld'#" \
+            deps/ish/vdso/arm64/meson.build
+          grep -F -- "-fuse-ld=$llvm_prefix/bin/ld.lld" \
+            deps/ish/vdso/arm64/meson.build
+
       - name: Build iOS native dependencies
         run: |
           ./deps/build_lame.sh
