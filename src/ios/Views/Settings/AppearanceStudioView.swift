@@ -8,6 +8,8 @@ struct AppearanceStudioView: View {
     @State private var wallpaperItem: PhotosPickerItem?
     @State private var userAvatarItem: PhotosPickerItem?
     @State private var assistantAvatarItem: PhotosPickerItem?
+    @State private var iconPickSlot: QuietIconSlot?
+    @State private var iconItem: PhotosPickerItem?
     @State private var errorText: String?
 
     var body: some View {
@@ -15,13 +17,13 @@ struct AppearanceStudioView: View {
             Section {
                 themePreview
             } header: {
-                Text("Your Look")
+                Text("你的房间")
             } footer: {
-                Text("A warm, quiet palette is used by default. Every color below can be replaced without changing the layout.")
+                Text("默认是安静的暖纸色。下面每一项都可以换，布局不会跟着乱。")
             }
 
             Section {
-                Picker("Palette", selection: $variant) {
+                Picker("色盘", selection: $variant) {
                     ForEach(AppearanceVariant.allCases) { item in
                         Text(item.title).tag(item)
                     }
@@ -42,9 +44,9 @@ struct AppearanceStudioView: View {
                     }
                 }
             } header: {
-                Text("Color Palette")
+                Text("色盘")
             } footer: {
-                Text("These colors flow through every page, card, label, bubble and input field. Light and dark variants switch automatically with system appearance.")
+                Text("这些颜色会流过每一页、卡片、文字、气泡和输入框。浅色和深色会跟着系统外观切换。")
             }
 
             Section {
@@ -56,15 +58,15 @@ struct AppearanceStudioView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button("Restore Default Palette", role: .destructive) {
+                Button("恢复默认色盘", role: .destructive) {
                     studio.resetColors()
                 }
             } header: {
-                Text("Presets")
+                Text("预设")
             }
 
             Section {
-                Picker("Wallpaper For", selection: $wallpaperScope) {
+                Picker("壁纸用于", selection: $wallpaperScope) {
                     ForEach(AppearanceScope.allCases) { item in
                         Text(item.title).tag(item)
                     }
@@ -72,7 +74,7 @@ struct AppearanceStudioView: View {
 
                 ZStack(alignment: .bottomTrailing) {
                     AppearanceBackdrop(scope: wallpaperScope)
-                    Text(studio.hasWallpaper(wallpaperScope) ? "Wallpaper preview" : "Color background")
+                    Text(studio.hasWallpaper(wallpaperScope) ? "壁纸预览" : "纯色背景")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(studio.color(.primaryText, scope: wallpaperScope))
                         .padding(.horizontal, 10)
@@ -89,19 +91,19 @@ struct AppearanceStudioView: View {
                 )
 
                 PhotosPicker(selection: $wallpaperItem, matching: .images) {
-                    Label(studio.hasOwnWallpaper(wallpaperScope) ? "Replace This Wallpaper" : "Choose Wallpaper",
+                    Label(studio.hasOwnWallpaper(wallpaperScope) ? "更换这张壁纸" : "选择壁纸",
                           systemImage: "photo")
                 }
 
                 if studio.hasOwnWallpaper(wallpaperScope) {
-                    Button("Use Inherited Background", role: .destructive) {
+                    Button("改用继承的背景", role: .destructive) {
                         studio.removeWallpaper(wallpaperScope)
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("Wallpaper Tint")
+                        Text("壁纸压色")
                         Spacer()
                         Text("\(Int(studio.wallpaperShade * 100))%")
                             .foregroundStyle(.secondary)
@@ -111,7 +113,7 @@ struct AppearanceStudioView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("Card Opacity")
+                        Text("卡片透明度")
                         Spacer()
                         Text("\(Int(studio.surfaceOpacity * 100))%")
                             .foregroundStyle(.secondary)
@@ -119,40 +121,69 @@ struct AppearanceStudioView: View {
                     Slider(value: $studio.surfaceOpacity, in: 0.35...1, step: 0.01)
                 }
             } header: {
-                Text("Page Backgrounds")
+                Text("页面背景")
             } footer: {
-                Text("Set one image for all pages, then replace it only where you want. Tint protects text contrast; card opacity decides how much of the picture shows through.")
+                Text("可以先给全部页面设一张图，再只换你想单独打扮的那一页。压色保护文字对比；卡片透明度决定图透出来多少。")
             }
 
             Section {
                 pairedAvatarPreview
 
                 PhotosPicker(selection: $userAvatarItem, matching: .images) {
-                    Label("Choose My Avatar", systemImage: "person.crop.square")
+                    Label("选我的头像", systemImage: "person.crop.square")
                 }
                 if !studio.userAvatar.isEmpty {
-                    Button("Remove My Avatar", role: .destructive) {
+                    Button("去掉我的头像", role: .destructive) {
                         studio.removeUserAvatar()
                     }
                 }
 
                 PhotosPicker(selection: $assistantAvatarItem, matching: .images) {
-                    Label("Choose Assistant Avatar", systemImage: "sparkles.rectangle.stack")
+                    Label("选小梦的头像", systemImage: "sparkles.rectangle.stack")
                 }
                 if !SoulStore.cachedMetadata.icon.isEmpty {
-                    Button("Remove Assistant Avatar", role: .destructive) {
+                    Button("去掉小梦的头像", role: .destructive) {
                         do { try studio.removeAssistantAvatar() }
                         catch { errorText = error.localizedDescription }
                     }
                 }
             } header: {
-                Text("Paired Avatars")
+                Text("情头")
             } footer: {
-                Text("Both images are square-cropped and stored on this device. The assistant image also becomes the Soul icon, so every identity surface stays consistent.")
+                Text("两张图都会裁成方的，存在这台手机上。小梦的头像同时就是 Soul 图标，身份不会各处长不一样。")
+            }
+
+            Section {
+                ForEach(QuietIconSlot.allCases) { slot in
+                    HStack(spacing: 12) {
+                        QuietAppIcon(id: slot.id, systemName: slot.systemName, size: 28)
+                        Text(slot.title)
+                        Spacer()
+                        PhotosPicker(selection: Binding(
+                            get: { iconPickSlot == slot ? iconItem : nil },
+                            set: { newValue in
+                                iconPickSlot = slot
+                                iconItem = newValue
+                            }
+                        ), matching: .images) {
+                            Text(studio.customIcon(for: slot.id) == nil ? "上传" : "更换")
+                        }
+                        if studio.customIcon(for: slot.id) != nil {
+                            Button("还原") {
+                                studio.removeIcon(for: slot.id)
+                            }
+                            .foregroundStyle(studio.color(.destructive))
+                        }
+                    }
+                }
+            } header: {
+                Text("图标")
+            } footer: {
+                Text("默认图标跟着色盘走，不再用彩虹圆底。不喜欢系统图标，就在这里换成你自己的图。")
             }
         }
         .appearancePage(.settings)
-        .navigationTitle("Decorate")
+        .navigationTitle("装扮")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: wallpaperItem) { item in
             guard let item else { return }
@@ -171,11 +202,21 @@ struct AppearanceStudioView: View {
                 }
             }
         }
-        .alert("Image Could Not Be Used", isPresented: Binding(
+        .onChange(of: iconItem) { item in
+            guard let item, let slot = iconPickSlot else { return }
+            Task {
+                await importImage(item) { image in
+                    studio.setIcon(image, for: slot.id)
+                }
+                iconItem = nil
+                iconPickSlot = nil
+            }
+        }
+        .alert("这张图用不了", isPresented: Binding(
             get: { errorText != nil },
             set: { if !$0 { errorText = nil } }
         )) {
-            Button("OK", role: .cancel) { errorText = nil }
+            Button("好", role: .cancel) { errorText = nil }
         } message: {
             Text(errorText ?? "")
         }
@@ -185,9 +226,9 @@ struct AppearanceStudioView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("A room you can make yours")
+                    Text("一间可以慢慢变成你的房间")
                         .font(.headline)
-                    Text("Quiet by default. Fully editable when you want it.")
+                    Text("默认安静。想打扮时再动手。")
                         .font(.caption)
                         .foregroundStyle(studio.color(.secondaryText, variant: variant))
                 }
@@ -226,14 +267,14 @@ struct AppearanceStudioView: View {
             Spacer()
             VStack(spacing: 6) {
                 PersonAvatarView(kind: .assistant, size: 54)
-                Text(SoulStore.cachedMetadata.name.isEmpty ? "Assistant" : SoulStore.cachedMetadata.name)
+                Text(SoulStore.cachedMetadata.name.isEmpty ? "小梦" : SoulStore.cachedMetadata.name)
                     .font(.caption)
             }
             Image(systemName: "link")
                 .foregroundStyle(studio.color(.accent))
             VStack(spacing: 6) {
                 PersonAvatarView(kind: .user, size: 54)
-                Text("Me").font(.caption)
+                Text("醒醒").font(.caption)
             }
             Spacer()
         }
@@ -250,7 +291,7 @@ struct AppearanceStudioView: View {
         }
         guard let data = try? await item.loadTransferable(type: Data.self),
               let image = UIImage(data: data) else {
-            errorText = "The selected image could not be read."
+            errorText = "选中的图读不出来。"
             return
         }
         apply(image)

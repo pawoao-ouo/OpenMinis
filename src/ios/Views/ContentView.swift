@@ -7120,12 +7120,16 @@ private struct AppearanceSettingsView: View {
                 NavigationLink {
                     AppearanceStudioView()
                 } label: {
-                    Label("Decorate", systemImage: "paintpalette")
+                    Label {
+                        Text("装扮")
+                    } icon: {
+                        QuietAppIcon(id: QuietIconSlot.decorate.id, systemName: QuietIconSlot.decorate.systemName)
+                    }
                 }
             } header: {
-                Text("Personalize")
+                Text("装扮")
             } footer: {
-                Text("Change every semantic color, set page wallpapers, and choose paired chat avatars.")
+                Text("改色盘、换页面壁纸、换情头，也可以把设置里的图标换成你自己的图。")
             }
 
             Section {
@@ -7472,11 +7476,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Appearance")
                         } icon: {
-                            Image(systemName: "paintbrush.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.indigo, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.appearance.id, systemName: QuietIconSlot.appearance.systemName)
                         }
                     }
                 }
@@ -7488,11 +7488,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Skills")
                         } icon: {
-                            Image(systemName: "puzzlepiece.extension")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.blue, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.skills.id, systemName: QuietIconSlot.skills.systemName)
                         }
                     }
                     NavigationLink {
@@ -7501,11 +7497,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Soul")
                         } icon: {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.pink, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.soul.id, systemName: QuietIconSlot.soul.systemName)
                         }
                     }
                     NavigationLink {
@@ -7514,11 +7506,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Memory")
                         } icon: {
-                            Image(systemName: "brain.head.profile")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.purple, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.memory.id, systemName: QuietIconSlot.memory.systemName)
                         }
                     }
                     NavigationLink {
@@ -7527,11 +7515,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("MCP Integrations")
                         } icon: {
-                            Image(systemName: "square.stack.3d.up")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.teal, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.mcp.id, systemName: QuietIconSlot.mcp.systemName)
                         }
                     }
                     NavigationLink {
@@ -7540,11 +7524,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Environment Variables")
                         } icon: {
-                            Image(systemName: "terminal")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.green, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.env.id, systemName: QuietIconSlot.env.systemName)
                         }
                     }
                 }
@@ -7556,11 +7536,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Storage")
                         } icon: {
-                            Image(systemName: "archivebox")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.blue, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.storage.id, systemName: QuietIconSlot.storage.systemName)
                         }
                     }
                     NavigationLink {
@@ -7569,11 +7545,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Shared Folders")
                         } icon: {
-                            Image(systemName: "folder.fill.badge.person.crop")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.green, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.shared.id, systemName: QuietIconSlot.shared.systemName)
                         }
                     }
                     NavigationLink {
@@ -7582,11 +7554,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Mount External Folders")
                         } icon: {
-                            Image(systemName: "externaldrive.badge.plus")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.orange, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.mounts.id, systemName: QuietIconSlot.mounts.systemName)
                         }
                     }
                     if #available(iOS 17.0, *) {
@@ -7598,11 +7566,7 @@ private struct SettingsSheet: View {
                             Label {
                                 Text("iCloud Sync")
                             } icon: {
-                                Image(systemName: "icloud")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 21, height: 21)
-                                    .background(.cyan, in: Circle())
+                                QuietAppIcon(id: QuietIconSlot.icloud.id, systemName: QuietIconSlot.icloud.systemName)
                             }
                         }
                     }
@@ -7617,11 +7581,7 @@ private struct SettingsSheet: View {
                         } icon: {
                             // arrow.triangle.2.circlepath reads as a round trip
                             // rather than a one-way export.
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.indigo, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.backup.id, systemName: QuietIconSlot.backup.systemName)
                         }
                     }
                 }
@@ -7633,11 +7593,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Permissions")
                         } icon: {
-                            Image(systemName: "lock.shield")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.red, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.permissions.id, systemName: QuietIconSlot.permissions.systemName)
                         }
                     }
                     if BiometricAuth.isAvailable {
@@ -7649,11 +7605,7 @@ private struct SettingsSheet: View {
                             } icon: {
                                 // Match SF Symbol to the device's actual sensor — Touch ID
                                 // devices showed a Face ID glyph here before.
-                                Image(systemName: BiometricAuth.biometryIconName)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 21, height: 21)
-                                    .background(.teal, in: Circle())
+                                QuietAppIcon(id: QuietIconSlot.lock.id, systemName: BiometricAuth.biometryIconName)
                             }
                         }
                     }
@@ -7666,11 +7618,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Logs")
                         } icon: {
-                            Image(systemName: "doc.text")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.gray, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.logs.id, systemName: QuietIconSlot.logs.systemName)
                         }
                     }
                 }
@@ -7682,22 +7630,14 @@ private struct SettingsSheet: View {
                         Label {
                             Text("About Minis")
                         } icon: {
-                            Image(systemName: "info")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.indigo, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.about.id, systemName: QuietIconSlot.about.systemName)
                         }
                     }
                     Link(destination: URL(string: "https://openminis.github.io/privacy-policy.html")!) {
                         Label {
                             Text("Privacy Policy")
                         } icon: {
-                            Image(systemName: "hand.raised")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.teal, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.privacy.id, systemName: QuietIconSlot.privacy.systemName)
                         }
                     }
                     Button {
@@ -7706,11 +7646,7 @@ private struct SettingsSheet: View {
                         Label {
                             Text("Feedback")
                         } icon: {
-                            Image(systemName: "bubble.left.and.bubble.right.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.indigo, in: Circle())
+                            QuietAppIcon(id: QuietIconSlot.feedback.id, systemName: QuietIconSlot.feedback.systemName)
                         }
                     }
                     .foregroundStyle(.primary)

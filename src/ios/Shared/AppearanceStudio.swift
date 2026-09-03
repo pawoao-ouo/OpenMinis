@@ -10,13 +10,13 @@ enum AppearanceScope: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .global: return "All Pages"
-        case .home: return "Home"
-        case .chat: return "Chat"
-        case .settings: return "Settings"
-        case .browser: return "Browser"
-        case .files: return "Files"
-        case .terminal: return "Terminal"
+        case .global: return "全部页面"
+        case .home: return "首页"
+        case .chat: return "聊天"
+        case .settings: return "设置"
+        case .browser: return "浏览器"
+        case .files: return "文件"
+        case .terminal: return "终端"
         }
     }
 }
@@ -24,7 +24,7 @@ enum AppearanceScope: String, CaseIterable, Identifiable {
 enum AppearanceVariant: String, CaseIterable, Identifiable {
     case light, dark
     var id: String { rawValue }
-    var title: String { self == .light ? "Light" : "Dark" }
+    var title: String { self == .light ? "浅色" : "深色" }
 }
 
 enum AppearanceColorRole: String, CaseIterable, Identifiable {
@@ -36,19 +36,19 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .canvas: return "Page Background"
-        case .surface: return "Cards"
-        case .raised: return "Floating Panels"
-        case .mutedSurface: return "Soft Fill"
-        case .primaryText: return "Primary Text"
-        case .secondaryText: return "Secondary Text"
-        case .accent: return "Accent"
-        case .userBubble: return "Your Bubble"
-        case .assistantBubble: return "Assistant Bubble"
-        case .input: return "Input Field"
-        case .border: return "Borders"
-        case .success: return "Success"
-        case .destructive: return "Destructive"
+        case .canvas: return "页面背景"
+        case .surface: return "卡片"
+        case .raised: return "浮层"
+        case .mutedSurface: return "浅底"
+        case .primaryText: return "主文字"
+        case .secondaryText: return "次文字"
+        case .accent: return "强调色"
+        case .userBubble: return "我的气泡"
+        case .assistantBubble: return "小梦气泡"
+        case .input: return "输入框"
+        case .border: return "边线"
+        case .success: return "成功"
+        case .destructive: return "危险"
         }
     }
 }
@@ -62,13 +62,16 @@ final class AppearanceStudio: ObservableObject {
         static let userAvatar = "appearanceStudio.userAvatar.v1"
         static let surfaceOpacity = "appearanceStudio.surfaceOpacity"
         static let wallpaperShade = "appearanceStudio.wallpaperShade"
+        static let icons = "appearanceStudio.icons.v1"
     }
 
     /// Custom values only. Missing values inherit from the built-in palette;
     /// page values inherit from global before falling back to built-in.
     @Published private var customColors: [String: String]
     @Published private(set) var wallpaperRevision = 0
+    @Published private(set) var iconRevision = 0
     @Published private(set) var userAvatar: String
+    @Published private var customIcons: [String: String]
     @Published var surfaceOpacity: Double {
         didSet { UserDefaults.standard.set(surfaceOpacity, forKey: Keys.surfaceOpacity) }
     }
@@ -86,6 +89,12 @@ final class AppearanceStudio: ObservableObject {
             customColors = [:]
         }
         userAvatar = UserDefaults.standard.string(forKey: Keys.userAvatar) ?? ""
+        if let data = UserDefaults.standard.data(forKey: Keys.icons),
+           let value = try? JSONDecoder().decode([String: String].self, from: data) {
+            customIcons = value
+        } else {
+            customIcons = [:]
+        }
         let storedOpacity = UserDefaults.standard.object(forKey: Keys.surfaceOpacity) as? Double
         let storedShade = UserDefaults.standard.object(forKey: Keys.wallpaperShade) as? Double
         surfaceOpacity = storedOpacity ?? 0.88
@@ -270,6 +279,32 @@ final class AppearanceStudio: ObservableObject {
         try SoulStore.save(soul)
     }
 
+    // MARK: Replaceable icons
+
+    func customIcon(for id: String) -> String? {
+        customIcons[id]
+    }
+
+    func setIcon(_ image: UIImage, for id: String) {
+        if case .success(let value) = SoulIconImage.encode(image) {
+            customIcons[id] = value
+            persistIcons()
+        }
+    }
+
+    func removeIcon(for id: String) {
+        customIcons.removeValue(forKey: id)
+        persistIcons()
+    }
+
+    private func persistIcons() {
+        if let data = try? JSONEncoder().encode(customIcons) {
+            UserDefaults.standard.set(data, forKey: Keys.icons)
+        }
+        iconRevision += 1
+        objectWillChange.send()
+    }
+
     // MARK: UIKit-backed surfaces
 
     func configureUIKitSurfaces() {
@@ -314,9 +349,9 @@ enum AppearancePreset: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .warmPaper: return "Warm Paper"
-        case .cleanAir: return "Clean Air"
-        case .nightCocoa: return "Night Cocoa"
+        case .warmPaper: return "暖纸"
+        case .cleanAir: return "清气"
+        case .nightCocoa: return "夜可可"
         }
     }
     var colors: AppearancePalette {
@@ -461,6 +496,84 @@ struct PersonAvatarView: View {
         )
         .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
             soulIcon = SoulStore.cachedMetadata.icon
+        }
+    }
+}
+
+struct QuietAppIcon: View {
+    let id: String
+    let systemName: String
+    var size: CGFloat = 21
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    var body: some View {
+        Group {
+            if let custom = studio.customIcon(for: id) {
+                SoulIconView(icon: custom, size: size)
+            } else {
+                Image(systemName: systemName)
+                    .font(.system(size: max(9, size * 0.42), weight: .medium))
+                    .foregroundStyle(studio.color(.accent))
+                    .frame(width: size, height: size)
+                    .background(studio.color(.mutedSurface), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(studio.color(.border), lineWidth: 0.6)
+                    )
+            }
+        }
+        .id(studio.iconRevision)
+    }
+}
+
+enum QuietIconSlot: String, CaseIterable, Identifiable {
+    case decorate, appearance, skills, soul, memory, mcp, env
+    case storage, shared, mounts, icloud, backup, permissions, lock
+    case logs, about, privacy, feedback
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .decorate: return "装扮"
+        case .appearance: return "外观"
+        case .skills: return "技能"
+        case .soul: return "Soul"
+        case .memory: return "记忆"
+        case .mcp: return "MCP"
+        case .env: return "环境变量"
+        case .storage: return "存储"
+        case .shared: return "共享文件夹"
+        case .mounts: return "外部文件夹"
+        case .icloud: return "iCloud 同步"
+        case .backup: return "备份与恢复"
+        case .permissions: return "权限"
+        case .lock: return "锁定"
+        case .logs: return "日志"
+        case .about: return "关于"
+        case .privacy: return "隐私政策"
+        case .feedback: return "反馈"
+        }
+    }
+    var systemName: String {
+        switch self {
+        case .decorate: return "paintpalette"
+        case .appearance: return "paintbrush"
+        case .skills: return "puzzlepiece.extension"
+        case .soul: return "sparkles"
+        case .memory: return "brain.head.profile"
+        case .mcp: return "square.stack.3d.up"
+        case .env: return "terminal"
+        case .storage: return "archivebox"
+        case .shared: return "folder"
+        case .mounts: return "externaldrive"
+        case .icloud: return "icloud"
+        case .backup: return "arrow.triangle.2.circlepath"
+        case .permissions: return "lock.shield"
+        case .lock: return "lock"
+        case .logs: return "doc.text"
+        case .about: return "info"
+        case .privacy: return "hand.raised"
+        case .feedback: return "bubble.left.and.bubble.right"
         }
     }
 }
