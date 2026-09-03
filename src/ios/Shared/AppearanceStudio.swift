@@ -93,21 +93,8 @@ final class AppearanceStudio: ObservableObject {
         configureUIKitSurfaces()
     }
 
-    private static let lightDefaults: [AppearanceColorRole: String] = [
-        .canvas: "FFF8F4", .surface: "FFFDFC", .raised: "FFFFFF",
-        .mutedSurface: "F8ECE8", .primaryText: "3E312B", .secondaryText: "8D786F",
-        .accent: "D4778B", .userBubble: "F6DDE3", .assistantBubble: "FFFDFC",
-        .input: "FFFBF8", .border: "EADAD3", .success: "6E987A",
-        .destructive: "C75D5D"
-    ]
-
-    private static let darkDefaults: [AppearanceColorRole: String] = [
-        .canvas: "1B1716", .surface: "25201E", .raised: "302925",
-        .mutedSurface: "332824", .primaryText: "F5ECE7", .secondaryText: "BCAAA1",
-        .accent: "E09AAA", .userBubble: "573C43", .assistantBubble: "25201E",
-        .input: "2B2522", .border: "493C37", .success: "8EB69A",
-        .destructive: "E18484"
-    ]
+    fileprivate static let lightDefaults = AppearancePaletteBook.light
+    fileprivate static let darkDefaults = AppearancePaletteBook.dark
 
     private func key(_ role: AppearanceColorRole, scope: AppearanceScope,
                      variant: AppearanceVariant) -> String {
@@ -305,6 +292,23 @@ struct AppearancePalette {
     let dark: [AppearanceColorRole: String]
 }
 
+private enum AppearancePaletteBook {
+    static let light: [AppearanceColorRole: String] = [
+        .canvas: "FFF8F4", .surface: "FFFDFC", .raised: "FFFFFF",
+        .mutedSurface: "F8ECE8", .primaryText: "3E312B", .secondaryText: "8D786F",
+        .accent: "D4778B", .userBubble: "F6DDE3", .assistantBubble: "FFFDFC",
+        .input: "FFFBF8", .border: "EADAD3", .success: "6E987A",
+        .destructive: "C75D5D"
+    ]
+    static let dark: [AppearanceColorRole: String] = [
+        .canvas: "1B1716", .surface: "25201E", .raised: "302925",
+        .mutedSurface: "332824", .primaryText: "F5ECE7", .secondaryText: "BCAAA1",
+        .accent: "E09AAA", .userBubble: "573C43", .assistantBubble: "25201E",
+        .input: "2B2522", .border: "493C37", .success: "8EB69A",
+        .destructive: "E18484"
+    ]
+}
+
 enum AppearancePreset: String, CaseIterable, Identifiable {
     case warmPaper, cleanAir, nightCocoa
     var id: String { rawValue }
@@ -318,7 +322,7 @@ enum AppearancePreset: String, CaseIterable, Identifiable {
     var colors: AppearancePalette {
         switch self {
         case .warmPaper:
-            return AppearancePalette(light: AppearanceStudio.lightPreset, dark: AppearanceStudio.darkPreset)
+            return AppearancePalette(light: AppearancePaletteBook.light, dark: AppearancePaletteBook.dark)
         case .cleanAir:
             return AppearancePalette(
                 light: [.canvas:"F6F8FA",.surface:"FFFFFF",.raised:"FFFFFF",.mutedSurface:"EDF2F5",.primaryText:"26323A",.secondaryText:"6F7E87",.accent:"6F93A8",.userBubble:"DDEAF0",.assistantBubble:"FFFFFF",.input:"FFFFFF",.border:"DCE5E9",.success:"638F76",.destructive:"BC6262"],
@@ -329,11 +333,6 @@ enum AppearancePreset: String, CaseIterable, Identifiable {
                 dark: [.canvas:"171311",.surface:"241E1A",.raised:"2E2621",.mutedSurface:"362B25",.primaryText:"F2E9E1",.secondaryText:"B9A79B",.accent:"C99B84",.userBubble:"513B31",.assistantBubble:"241E1A",.input:"2A231F",.border:"493B33",.success:"91AE8B",.destructive:"D17A7A"])
         }
     }
-}
-
-private extension AppearanceStudio {
-    static var lightPreset: [AppearanceColorRole: String] { lightDefaults }
-    static var darkPreset: [AppearanceColorRole: String] { darkDefaults }
 }
 
 extension Color {
