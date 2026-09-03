@@ -148,6 +148,7 @@ struct FileBrowserView: View {
                 }
             }
         }
+        .appearancePage(.files)
         .navigationTitle("Files")
         .navigationBarTitleDisplayMode(.inline)
         // [T-ios-copy-abs-path-copied-toast] Self-dismissing "Copied" capsule.

@@ -92,7 +92,7 @@ struct ISHTerminalView: View {
                 }
             )
         }
-        .background(Color.black)
+        .background(AppearanceBackdrop(scope: .terminal))
         .navigationTitle("Minis Shell")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

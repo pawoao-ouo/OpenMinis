@@ -6,6 +6,7 @@ import Combine
 struct AssistantBlockView: View {
     @ObservedObject var block: AssistantBlock
     @ObservedObject var message: ChatMessage
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     let isActiveMessage: Bool
     var commandStartTime: Date?
     var onStop: (() -> Void)?
@@ -26,9 +27,14 @@ struct AssistantBlockView: View {
         case .text:
             if !block.content.isEmpty {
                 textBlockView
-                    .padding(.vertical, 2)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                     .background(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(ChatColors.assistantBubble)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
                     )
             }

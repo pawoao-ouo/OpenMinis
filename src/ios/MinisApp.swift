@@ -88,6 +88,7 @@ struct MinisApp: App {
     @AppStorage("appLanguage") private var appLanguage: String = ""
     @StateObject private var shareCoordinator = ShareCoordinator.shared
     @ObservedObject private var fontSettings = FontSettings.shared
+    @StateObject private var appearanceStudio = AppearanceStudio.shared
     @ObservedObject private var configConfirmGate = ConfigConfirmationGate.shared
     /// [review S14] Drives the root-level restore sheet for a `.minisbak`
     /// opened from outside the app.
@@ -184,6 +185,7 @@ struct MinisApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
+                AppearanceBackdrop(scope: .global)
                 ContentView()
                     .overlay(alignment: .top) {
                         BackgroundInterruptionBanner()
@@ -196,6 +198,8 @@ struct MinisApp: App {
                 SpeechPlayerControl()
                 AppLockOverlay()
             }
+                .tint(appearanceStudio.color(.accent))
+                .foregroundStyle(appearanceStudio.color(.primaryText))
                 .onReceive(SessionLockStore.shared.$appIsLocked) { locked in
                     guard !locked, let url = pendingURLWhileLocked else { return }
                     pendingURLWhileLocked = nil

@@ -1,0 +1,467 @@
+import PhotosUI
+import SwiftUI
+import UIKit
+
+// MARK: - Semantic appearance system
+
+enum AppearanceScope: String, CaseIterable, Identifiable {
+    case global, home, chat, settings, browser, files, terminal
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .global: return "All Pages"
+        case .home: return "Home"
+        case .chat: return "Chat"
+        case .settings: return "Settings"
+        case .browser: return "Browser"
+        case .files: return "Files"
+        case .terminal: return "Terminal"
+        }
+    }
+}
+
+enum AppearanceVariant: String, CaseIterable, Identifiable {
+    case light, dark
+    var id: String { rawValue }
+    var title: String { self == .light ? "Light" : "Dark" }
+}
+
+enum AppearanceColorRole: String, CaseIterable, Identifiable {
+    case canvas, surface, raised, mutedSurface
+    case primaryText, secondaryText
+    case accent, userBubble, assistantBubble, input, border
+    case success, destructive
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .canvas: return "Page Background"
+        case .surface: return "Cards"
+        case .raised: return "Floating Panels"
+        case .mutedSurface: return "Soft Fill"
+        case .primaryText: return "Primary Text"
+        case .secondaryText: return "Secondary Text"
+        case .accent: return "Accent"
+        case .userBubble: return "Your Bubble"
+        case .assistantBubble: return "Assistant Bubble"
+        case .input: return "Input Field"
+        case .border: return "Borders"
+        case .success: return "Success"
+        case .destructive: return "Destructive"
+        }
+    }
+}
+
+@MainActor
+final class AppearanceStudio: ObservableObject {
+    static let shared = AppearanceStudio()
+
+    private enum Keys {
+        static let colors = "appearanceStudio.colors.v1"
+        static let userAvatar = "appearanceStudio.userAvatar.v1"
+        static let surfaceOpacity = "appearanceStudio.surfaceOpacity"
+        static let wallpaperShade = "appearanceStudio.wallpaperShade"
+    }
+
+    /// Custom values only. Missing values inherit from the built-in palette;
+    /// page values inherit from global before falling back to built-in.
+    @Published private var customColors: [String: String]
+    @Published private(set) var wallpaperRevision = 0
+    @Published private(set) var userAvatar: String
+    @Published var surfaceOpacity: Double {
+        didSet { UserDefaults.standard.set(surfaceOpacity, forKey: Keys.surfaceOpacity) }
+    }
+    @Published var wallpaperShade: Double {
+        didSet { UserDefaults.standard.set(wallpaperShade, forKey: Keys.wallpaperShade) }
+    }
+
+    private var wallpaperCache: [AppearanceScope: UIImage] = [:]
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: Keys.colors),
+           let value = try? JSONDecoder().decode([String: String].self, from: data) {
+            customColors = value
+        } else {
+            customColors = [:]
+        }
+        userAvatar = UserDefaults.standard.string(forKey: Keys.userAvatar) ?? ""
+        let storedOpacity = UserDefaults.standard.object(forKey: Keys.surfaceOpacity) as? Double
+        let storedShade = UserDefaults.standard.object(forKey: Keys.wallpaperShade) as? Double
+        surfaceOpacity = storedOpacity ?? 0.88
+        wallpaperShade = storedShade ?? 0.08
+        configureUIKitSurfaces()
+    }
+
+    private static let lightDefaults: [AppearanceColorRole: String] = [
+        .canvas: "FFF8F4", .surface: "FFFDFC", .raised: "FFFFFF",
+        .mutedSurface: "F8ECE8", .primaryText: "3E312B", .secondaryText: "8D786F",
+        .accent: "D4778B", .userBubble: "F6DDE3", .assistantBubble: "FFFDFC",
+        .input: "FFFBF8", .border: "EADAD3", .success: "6E987A",
+        .destructive: "C75D5D"
+    ]
+
+    private static let darkDefaults: [AppearanceColorRole: String] = [
+        .canvas: "1B1716", .surface: "25201E", .raised: "302925",
+        .mutedSurface: "332824", .primaryText: "F5ECE7", .secondaryText: "BCAAA1",
+        .accent: "E09AAA", .userBubble: "573C43", .assistantBubble: "25201E",
+        .input: "2B2522", .border: "493C37", .success: "8EB69A",
+        .destructive: "E18484"
+    ]
+
+    private func key(_ role: AppearanceColorRole, scope: AppearanceScope,
+                     variant: AppearanceVariant) -> String {
+        "\(scope.rawValue).\(variant.rawValue).\(role.rawValue)"
+    }
+
+    func hex(_ role: AppearanceColorRole, scope: AppearanceScope = .global,
+             variant: AppearanceVariant) -> String {
+        if let value = customColors[key(role, scope: scope, variant: variant)] { return value }
+        if scope != .global,
+           let value = customColors[key(role, scope: .global, variant: variant)] { return value }
+        return (variant == .light ? Self.lightDefaults : Self.darkDefaults)[role] ?? "808080"
+    }
+
+    func color(_ role: AppearanceColorRole, scope: AppearanceScope = .global,
+               variant: AppearanceVariant? = nil) -> Color {
+        let resolved = variant ?? activeVariant
+        return Color(hex: hex(role, scope: scope, variant: resolved))
+    }
+
+    func uiColor(_ role: AppearanceColorRole, scope: AppearanceScope = .global,
+                 variant: AppearanceVariant? = nil) -> UIColor {
+        UIColor(hex: hex(role, scope: scope, variant: variant ?? activeVariant))
+    }
+
+    var activeVariant: AppearanceVariant {
+        let mode = UserDefaults.standard.integer(forKey: "appearanceMode")
+        if mode == 1 { return .light }
+        if mode == 2 { return .dark }
+        return UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
+    }
+
+    func setColor(_ color: Color, role: AppearanceColorRole,
+                  scope: AppearanceScope, variant: AppearanceVariant) {
+        customColors[key(role, scope: scope, variant: variant)] = UIColor(color).hexRGB
+        persistColors()
+        configureUIKitSurfaces()
+    }
+
+    func colorBinding(_ role: AppearanceColorRole, scope: AppearanceScope,
+                      variant: AppearanceVariant) -> Binding<Color> {
+        Binding(
+            get: { self.color(role, scope: scope, variant: variant) },
+            set: { self.setColor($0, role: role, scope: scope, variant: variant) }
+        )
+    }
+
+    func hasOverride(_ role: AppearanceColorRole, scope: AppearanceScope,
+                     variant: AppearanceVariant) -> Bool {
+        customColors[key(role, scope: scope, variant: variant)] != nil
+    }
+
+    func clearOverride(_ role: AppearanceColorRole, scope: AppearanceScope,
+                       variant: AppearanceVariant) {
+        customColors.removeValue(forKey: key(role, scope: scope, variant: variant))
+        persistColors()
+    }
+
+    func applyPreset(_ preset: AppearancePreset) {
+        let palettes = preset.colors
+        for variant in AppearanceVariant.allCases {
+            let values = variant == .light ? palettes.light : palettes.dark
+            for (role, hex) in values {
+                customColors[key(role, scope: .global, variant: variant)] = hex
+            }
+        }
+        persistColors()
+        configureUIKitSurfaces()
+    }
+
+    func resetColors() {
+        customColors.removeAll()
+        surfaceOpacity = 0.88
+        wallpaperShade = 0.08
+        persistColors()
+        configureUIKitSurfaces()
+    }
+
+    private func persistColors() {
+        if let data = try? JSONEncoder().encode(customColors) {
+            UserDefaults.standard.set(data, forKey: Keys.colors)
+        }
+        objectWillChange.send()
+    }
+
+    // MARK: Wallpaper
+
+    private var appearanceDirectory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first!
+        let dir = base.appendingPathComponent("AppearanceStudio", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func wallpaperURL(_ scope: AppearanceScope) -> URL {
+        appearanceDirectory.appendingPathComponent("wallpaper-\(scope.rawValue).jpg")
+    }
+
+    func hasWallpaper(_ scope: AppearanceScope) -> Bool {
+        if FileManager.default.fileExists(atPath: wallpaperURL(scope).path) { return true }
+        return scope != .global && FileManager.default.fileExists(atPath: wallpaperURL(.global).path)
+    }
+
+    func hasOwnWallpaper(_ scope: AppearanceScope) -> Bool {
+        FileManager.default.fileExists(atPath: wallpaperURL(scope).path)
+    }
+
+    func wallpaper(for scope: AppearanceScope) -> UIImage? {
+        if let cached = wallpaperCache[scope] { return cached }
+        let own = wallpaperURL(scope)
+        let url = FileManager.default.fileExists(atPath: own.path) ? own : wallpaperURL(.global)
+        guard let image = UIImage(contentsOfFile: url.path) else { return nil }
+        wallpaperCache[scope] = image
+        return image
+    }
+
+    func setWallpaper(_ image: UIImage, for scope: AppearanceScope) {
+        guard let data = Self.backgroundJPEG(image) else { return }
+        try? data.write(to: wallpaperURL(scope), options: .atomic)
+        wallpaperCache.removeAll()
+        wallpaperRevision += 1
+    }
+
+    func removeWallpaper(_ scope: AppearanceScope) {
+        try? FileManager.default.removeItem(at: wallpaperURL(scope))
+        wallpaperCache.removeAll()
+        wallpaperRevision += 1
+    }
+
+    private static func backgroundJPEG(_ image: UIImage) -> Data? {
+        guard let cg = image.cgImage else { return nil }
+        let maxEdge: CGFloat = 2200
+        let source = CGSize(width: cg.width, height: cg.height)
+        let scale = min(1, maxEdge / max(source.width, source.height))
+        let size = CGSize(width: max(1, source.width * scale),
+                          height: max(1, source.height * scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            UIColor(hex: lightDefaults[.canvas] ?? "FFF8F4").setFill()
+            UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return rendered.jpegData(compressionQuality: 0.86)
+    }
+
+    // MARK: Paired avatars
+
+    func setUserAvatar(_ image: UIImage) {
+        if case .success(let value) = SoulIconImage.encode(image) {
+            userAvatar = value
+            UserDefaults.standard.set(value, forKey: Keys.userAvatar)
+        }
+    }
+
+    func removeUserAvatar() {
+        userAvatar = ""
+        UserDefaults.standard.removeObject(forKey: Keys.userAvatar)
+    }
+
+    func setAssistantAvatar(_ image: UIImage) throws {
+        guard case .success(let value) = SoulIconImage.encode(image) else { return }
+        var soul = SoulStore.load() ?? SoulFile(metadata: .default, body: "")
+        soul.metadata.icon = value
+        try SoulStore.save(soul)
+    }
+
+    func removeAssistantAvatar() throws {
+        var soul = SoulStore.load() ?? SoulFile(metadata: .default, body: "")
+        soul.metadata.icon = ""
+        try SoulStore.save(soul)
+    }
+
+    // MARK: UIKit-backed surfaces
+
+    func configureUIKitSurfaces() {
+        UITableView.appearance().backgroundColor = .clear
+        UICollectionView.appearance().backgroundColor = .clear
+        let nav = UINavigationBarAppearance()
+        nav.configureWithTransparentBackground()
+        nav.backgroundColor = uiColor(.raised).withAlphaComponent(surfaceOpacity)
+        nav.shadowColor = uiColor(.border).withAlphaComponent(0.65)
+        nav.titleTextAttributes = [.foregroundColor: uiColor(.primaryText)]
+        nav.largeTitleTextAttributes = [.foregroundColor: uiColor(.primaryText)]
+        UINavigationBar.appearance().standardAppearance = nav
+        UINavigationBar.appearance().scrollEdgeAppearance = nav
+        UINavigationBar.appearance().compactAppearance = nav
+    }
+}
+
+struct AppearancePalette {
+    let light: [AppearanceColorRole: String]
+    let dark: [AppearanceColorRole: String]
+}
+
+enum AppearancePreset: String, CaseIterable, Identifiable {
+    case warmPaper, cleanAir, nightCocoa
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .warmPaper: return "Warm Paper"
+        case .cleanAir: return "Clean Air"
+        case .nightCocoa: return "Night Cocoa"
+        }
+    }
+    var colors: AppearancePalette {
+        switch self {
+        case .warmPaper:
+            return AppearancePalette(light: AppearanceStudio.lightPreset, dark: AppearanceStudio.darkPreset)
+        case .cleanAir:
+            return AppearancePalette(
+                light: [.canvas:"F6F8FA",.surface:"FFFFFF",.raised:"FFFFFF",.mutedSurface:"EDF2F5",.primaryText:"26323A",.secondaryText:"6F7E87",.accent:"6F93A8",.userBubble:"DDEAF0",.assistantBubble:"FFFFFF",.input:"FFFFFF",.border:"DCE5E9",.success:"638F76",.destructive:"BC6262"],
+                dark: [.canvas:"151A1D",.surface:"20272B",.raised:"273035",.mutedSurface:"2B353A",.primaryText:"EDF3F5",.secondaryText:"AAB8BE",.accent:"8CB2C5",.userBubble:"334B57",.assistantBubble:"20272B",.input:"252D31",.border:"3B484E",.success:"82AF91",.destructive:"DA8181"])
+        case .nightCocoa:
+            return AppearancePalette(
+                light: [.canvas:"FBF6EF",.surface:"FFFDF8",.raised:"FFFFFF",.mutedSurface:"F2E7DA",.primaryText:"44362E",.secondaryText:"8D7868",.accent:"A77965",.userBubble:"EAD8CE",.assistantBubble:"FFFDF8",.input:"FFFBF5",.border:"E5D7C9",.success:"728E70",.destructive:"B86565"],
+                dark: [.canvas:"171311",.surface:"241E1A",.raised:"2E2621",.mutedSurface:"362B25",.primaryText:"F2E9E1",.secondaryText:"B9A79B",.accent:"C99B84",.userBubble:"513B31",.assistantBubble:"241E1A",.input:"2A231F",.border:"493B33",.success:"91AE8B",.destructive:"D17A7A"])
+        }
+    }
+}
+
+private extension AppearanceStudio {
+    static var lightPreset: [AppearanceColorRole: String] { lightDefaults }
+    static var darkPreset: [AppearanceColorRole: String] { darkDefaults }
+}
+
+extension Color {
+    init(hex: String) {
+        self.init(UIColor(hex: hex))
+    }
+}
+
+extension UIColor {
+    convenience init(hex: String) {
+        let raw = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var value: UInt64 = 0
+        Scanner(string: raw).scanHexInt64(&value)
+        let r, g, b, a: CGFloat
+        switch raw.count {
+        case 8:
+            r = CGFloat((value >> 24) & 0xff) / 255
+            g = CGFloat((value >> 16) & 0xff) / 255
+            b = CGFloat((value >> 8) & 0xff) / 255
+            a = CGFloat(value & 0xff) / 255
+        default:
+            r = CGFloat((value >> 16) & 0xff) / 255
+            g = CGFloat((value >> 8) & 0xff) / 255
+            b = CGFloat(value & 0xff) / 255
+            a = 1
+        }
+        self.init(red: r, green: g, blue: b, alpha: a)
+    }
+
+    var hexRGB: String {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        let resolved = resolvedColor(with: UITraitCollection.current)
+        guard resolved.getRed(&r, green: &g, blue: &b, alpha: &a) else { return "808080" }
+        return String(format: "%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+    }
+}
+
+// MARK: - Theme access and backgrounds
+
+@MainActor
+enum MinisTheme {
+    static func color(_ role: AppearanceColorRole,
+                      scope: AppearanceScope = .global) -> Color {
+        AppearanceStudio.shared.color(role, scope: scope)
+    }
+    static var canvas: Color { color(.canvas) }
+    static var surface: Color { color(.surface).opacity(AppearanceStudio.shared.surfaceOpacity) }
+    static var raised: Color { color(.raised).opacity(AppearanceStudio.shared.surfaceOpacity) }
+    static var mutedSurface: Color { color(.mutedSurface).opacity(AppearanceStudio.shared.surfaceOpacity) }
+    static var primaryText: Color { color(.primaryText) }
+    static var secondaryText: Color { color(.secondaryText) }
+    static var accent: Color { color(.accent) }
+    static var border: Color { color(.border) }
+}
+
+struct AppearanceBackdrop: View {
+    let scope: AppearanceScope
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    var body: some View {
+        ZStack {
+            studio.color(.canvas, scope: scope)
+            if let image = studio.wallpaper(for: scope) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .clipped()
+                studio.color(.canvas, scope: scope)
+                    .opacity(studio.wallpaperShade)
+            }
+        }
+        .id(studio.wallpaperRevision)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+}
+
+private struct AppearancePageModifier: ViewModifier {
+    let scope: AppearanceScope
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    func body(content: Content) -> some View {
+        content
+            .scrollContentBackground(.hidden)
+            .foregroundStyle(studio.color(.primaryText, scope: scope))
+            .tint(studio.color(.accent, scope: scope))
+            .background(AppearanceBackdrop(scope: scope))
+    }
+}
+
+extension View {
+    func appearancePage(_ scope: AppearanceScope) -> some View {
+        modifier(AppearancePageModifier(scope: scope))
+    }
+}
+
+struct PersonAvatarView: View {
+    enum Kind { case user, assistant }
+    let kind: Kind
+    let size: CGFloat
+    @ObservedObject private var studio = AppearanceStudio.shared
+    @State private var soulIcon = SoulStore.cachedMetadata.icon
+
+    var body: some View {
+        Group {
+            let icon = kind == .user ? studio.userAvatar : soulIcon
+            if !icon.isEmpty {
+                SoulIconView(icon: icon, size: size)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+                        .fill(kind == .user
+                              ? studio.color(.userBubble, scope: .chat)
+                              : studio.color(.assistantBubble, scope: .chat))
+                    Image(systemName: kind == .user ? "person.fill" : "sparkles")
+                        .font(.system(size: size * 0.42, weight: .medium))
+                        .foregroundStyle(studio.color(.accent, scope: .chat))
+                }
+                .frame(width: size, height: size)
+            }
+        }
+        .frame(width: size, height: size)
+        .overlay(
+            RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+                .stroke(studio.color(.border, scope: .chat), lineWidth: 0.7)
+        )
+        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
+            soulIcon = SoulStore.cachedMetadata.icon
+        }
+    }
+}

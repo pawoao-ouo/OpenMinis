@@ -67,22 +67,39 @@ private final class CachedViewModel: ObservableObject {
 
 // MARK: - Color Palette (clean light theme)
 
+@MainActor
 enum ChatColors {
-    static let background = Color(UIColor.systemBackground)
-    static let secondaryBg = Color(UIColor.secondarySystemBackground)
-    static let inputIconBg = Color(UIColor.secondarySystemBackground)
-    static let inputIconBorder = Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.35, alpha: 1) : UIColor(white: 0, alpha: 0) })
-    static let inputBg = Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.12, alpha: 1) : .white })
-    static let inputBorder = Color(UIColor.separator)
-    static let primaryText = Color(UIColor.label)
-    static let secondaryText = Color(UIColor.secondaryLabel)
-    static let tertiaryText = Color(UIColor.tertiaryLabel)
-    static let userBubble = Color(UIColor.tertiarySystemFill)
-    static let toolBg = Color(UIColor.tertiarySystemGroupedBackground)
-    static let toolBorder = Color(UIColor.separator).opacity(0.5)
-    static let accent = Color(UIColor.label)
-    static let sendButton = Color(UIColor.label)
-    static let sendButtonDisabled = Color(UIColor.quaternaryLabel)
+    private static var studio: AppearanceStudio { .shared }
+    static var background: Color {
+        studio.hasWallpaper(.chat) ? .clear : studio.color(.canvas, scope: .chat)
+    }
+    static var secondaryBg: Color {
+        studio.color(.surface, scope: .chat).opacity(studio.surfaceOpacity)
+    }
+    static var inputIconBg: Color {
+        studio.color(.mutedSurface, scope: .chat).opacity(studio.surfaceOpacity)
+    }
+    static var inputIconBorder: Color { studio.color(.border, scope: .chat) }
+    static var inputBg: Color {
+        studio.color(.input, scope: .chat).opacity(studio.surfaceOpacity)
+    }
+    static var inputBorder: Color { studio.color(.border, scope: .chat) }
+    static var primaryText: Color { studio.color(.primaryText, scope: .chat) }
+    static var secondaryText: Color { studio.color(.secondaryText, scope: .chat) }
+    static var tertiaryText: Color { studio.color(.secondaryText, scope: .chat).opacity(0.72) }
+    static var userBubble: Color {
+        studio.color(.userBubble, scope: .chat).opacity(studio.surfaceOpacity)
+    }
+    static var assistantBubble: Color {
+        studio.color(.assistantBubble, scope: .chat).opacity(studio.surfaceOpacity)
+    }
+    static var toolBg: Color {
+        studio.color(.mutedSurface, scope: .chat).opacity(studio.surfaceOpacity)
+    }
+    static var toolBorder: Color { studio.color(.border, scope: .chat).opacity(0.75) }
+    static var accent: Color { studio.color(.accent, scope: .chat) }
+    static var sendButton: Color { studio.color(.accent, scope: .chat) }
+    static var sendButtonDisabled: Color { studio.color(.secondaryText, scope: .chat).opacity(0.4) }
 }
 
 // MARK: - System Resource Monitor
@@ -448,6 +465,7 @@ struct AIChatView: View {
     /// `lockStore.isVisuallyLocked(sid)` rather than recomputing the
     /// 4-guard expression independently).
     @ObservedObject private var lockStore = SessionLockStore.shared
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     /// Opacity for the fallback capsule highlight (animated 3× pulse on model switch).
     @State private var fallbackPulseOpacity: Double = 0
 
@@ -674,7 +692,7 @@ struct AIChatView: View {
             // Full-screen kernel boot overlay
             kernelBootOverlay
         }
-        .background(ChatColors.background)
+        .appearancePage(.chat)
         .onDrop(of: [.image, .movie, .fileURL, .data], isTargeted: $isDropTargeted) { providers in
             handleDropProviders(providers)
             return true

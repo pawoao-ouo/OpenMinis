@@ -229,6 +229,7 @@ struct BrowserSheetView: View {
             .onChange(of: pool.selectedTabId) { _ in
                 addressText = manager?.currentURL ?? ""
             }
+            .appearancePage(.browser)
         }
     }
 

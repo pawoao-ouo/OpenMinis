@@ -926,6 +926,7 @@ struct ContentView: View {
     // refresh the rows, not the header pass.
     @ObservedObject private var sidebarBadgeStore = SessionBadgeStore.shared
     @ObservedObject private var sidebarConcurrencyManager = SessionConcurrencyManager.shared
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     @State private var sessions: [ChatSession] = []
     @State private var folders: [ChatFolder] = []
     /// Collapsed folder sections. Pure UI view-state: persisted locally, never
@@ -1280,6 +1281,7 @@ struct ContentView: View {
                 wireMenuActions()
             }
         }
+        .appearancePage(.home)
         .onReceive(
             NotificationCenter.default.publisher(for: .sessionDidCreate),
             perform: handleSessionCreatedForPendingFolder
@@ -2842,7 +2844,7 @@ struct ContentView: View {
                                 if group.folderId != nil {
                                     FolderMemberRowBackground(isLast: sessionId == group.ids.last)
                                 } else {
-                                    Color(.systemBackground)
+                                    Color.clear
                                 }
                             })
                             .contextMenu {
@@ -7115,6 +7117,18 @@ private struct AppearanceSettingsView: View {
     var body: some View {
         List {
             Section {
+                NavigationLink {
+                    AppearanceStudioView()
+                } label: {
+                    Label("Decorate", systemImage: "paintpalette")
+                }
+            } header: {
+                Text("Personalize")
+            } footer: {
+                Text("Change every semantic color, set page wallpapers, and choose paired chat avatars.")
+            }
+
+            Section {
                 Picker("Theme", selection: $appearanceMode) {
                     Text("System").tag(0)
                     Text("Light").tag(1)
@@ -7339,6 +7353,7 @@ private struct AppearanceSettingsView: View {
         }
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
+        .appearancePage(.settings)
         .background(InteractivePopGestureDisabler())
     }
 
@@ -7714,6 +7729,7 @@ private struct SettingsSheet: View {
                 }
 
             }
+            .appearancePage(.settings)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

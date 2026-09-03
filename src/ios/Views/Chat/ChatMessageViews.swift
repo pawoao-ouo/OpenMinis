@@ -167,6 +167,7 @@ private struct PreviewContentSizeKey: PreferenceKey {
 
 struct ChatMessageRow: View {
     @ObservedObject var message: ChatMessage
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     /// Only the actively streaming message needs vm access (for typing indicator & stop button).
     let isActiveMessage: Bool
     var commandStartTime: Date?
@@ -365,8 +366,10 @@ struct ChatMessageRow: View {
     }
 
     private var userRow: some View {
-        HStack {
-            Spacer(minLength: 60)
+        HStack(alignment: .top, spacing: 10) {
+            // Keep the bubble width identical to the original 60pt leading
+            // spacer: 12pt breathing room + 10pt gap + 38pt avatar.
+            Spacer(minLength: 12)
 
             VStack(alignment: .trailing, spacing: 6) {
                 // User-attached files above the text bubble
@@ -458,6 +461,9 @@ struct ChatMessageRow: View {
                 // long-press preview isn't transparent (see MessageContextMenuPreview).
                 MessageContextMenuPreview(text: message.content)
             }
+
+            PersonAvatarView(kind: .user, size: 38)
+                .padding(.top, 2)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
@@ -479,22 +485,13 @@ struct ChatMessageRow: View {
     private var assistantRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Assistant label
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [Color(red: 0.72, green: 0.69, blue: 0.59),
-                                     Color(red: 0.6, green: 0.6, blue: 0.55)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+            HStack(spacing: 10) {
+                PersonAvatarView(kind: .assistant, size: 38)
                 AssistantSoulName()
                     .font(.body.weight(.semibold))
                     .foregroundStyle(ChatColors.primaryText)
             }
-            .padding(.top, 4)
+            .padding(.top, 2)
 
             ForEach(message.blocks) { block in
                 AssistantBlockView(

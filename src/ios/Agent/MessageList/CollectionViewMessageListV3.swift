@@ -225,23 +225,8 @@ private struct BridgedAssistantHeaderV3: View {
     /// is threaded down the same way every other cell callback already is.
     var onOpenSoulSettings: (() -> Void)?
     var body: some View {
-        HStack(spacing: 6) {
-            // [T-soul-custom-icon] Honours a user-chosen emoji or image;
-            // falls back to the gradient sparkle when unset, so headers for
-            // users who never customized are pixel-identical to before.
-            // 18pt keeps the measured 28pt row height below intact — the
-            // icon is square by construction (SoulIconImage.encode crops),
-            // so an image cannot make this row taller than a glyph does.
-            SoulIconView(
-                icon: soulMeta.icon,
-                size: 18,
-                sparkleGradient: LinearGradient(
-                    colors: [Color(red: 0.72, green: 0.69, blue: 0.59),
-                             Color(red: 0.6, green: 0.6, blue: 0.55)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
+        HStack(spacing: 10) {
+            PersonAvatarView(kind: .assistant, size: 38)
             Text(soulMeta.name.isEmpty ? "Minis" : soulMeta.name)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(ChatColors.primaryText)
@@ -2765,8 +2750,8 @@ extension CollectionViewMessageListV3 {
 
                     switch item {
                     case .assistantHeader:
-                        // Header is always a fixed "sparkles Minis" label row (measured: 28pt)
-                        layout.setEstimatedHeight(28, at: i)
+                        // 38pt paired avatar + top padding; keep the estimate at or above render height.
+                        layout.setEstimatedHeight(44, at: i)
 
                     case .assistantFooter:
                         // Prominent banners (error/resume/typing) measure
@@ -3666,7 +3651,7 @@ extension CollectionViewMessageListV3 {
                 case .assistant: return 200
                 }
             case .assistantHeader:
-                return 28
+                return 44
             case .assistantBlock(let msgId, let blockId):
                 guard let msg = messages.first(where: { $0.id == msgId }),
                       let block = msg.blocks.first(where: { $0.id == blockId }) else { return 44 }
