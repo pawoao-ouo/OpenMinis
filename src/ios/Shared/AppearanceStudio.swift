@@ -78,8 +78,12 @@ final class AppearanceStudio: ObservableObject {
     @Published var wallpaperShade: Double {
         didSet { UserDefaults.standard.set(wallpaperShade, forKey: Keys.wallpaperShade) }
     }
+    @Published var themePackRevision = 0
 
     private var wallpaperCache: [AppearanceScope: UIImage] = [:]
+    var cachedThemePack: AppearanceThemePack = .default
+    var themePackLoaded = false
+    let themePackLock = NSLock()
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: Keys.colors),
@@ -99,6 +103,8 @@ final class AppearanceStudio: ObservableObject {
         let storedShade = UserDefaults.standard.object(forKey: Keys.wallpaperShade) as? Double
         surfaceOpacity = storedOpacity ?? 0.88
         wallpaperShade = storedShade ?? 0.08
+        cachedThemePack = loadStoredPackUnlocked()
+        themePackLoaded = true
         configureUIKitSurfaces()
     }
 

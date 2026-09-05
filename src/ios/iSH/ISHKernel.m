@@ -63,6 +63,7 @@
 #import "NFCOffload.h"
 #import "SessionsOffload.h"
 #import "ConfigOffload.h"
+#import "ThemeOffload.h"
 #import "BrowserUseOffload.h"
 #import "DebugOffload.h"
 
@@ -679,6 +680,7 @@ static void handle_process_exit(struct task *task, int code) {
     sessions_offload_register();
     browser_use_offload_register();
     config_offload_register();
+    theme_offload_register();
     // Registered in every build: the `minis-debug logs` subcommand reads the
     // app's own runtime log in-process (OSLogStore + LoggingManager) and must
     // work on Release devices (T-ios-minis-debug-logs-oslogstore). The

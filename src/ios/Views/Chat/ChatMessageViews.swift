@@ -91,7 +91,7 @@ struct MessageContextMenuPreview: View {
 /// highlight and edge that make it read as continuous with the bubble.
 private struct ContextMenuPreviewSurface: ViewModifier {
     private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 18)
+        RoundedRectangle(cornerRadius: MinisThemeShape.userBubbleRadius)
     }
 
     func body(content: Content) -> some View {
@@ -134,7 +134,7 @@ private struct UserBubbleSurface: ViewModifier {
     /// style. A `.continuous` bubble against a circular-arc preview clip would
     /// show the corners subtly change shape as the long-press lift begins.
     private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 18)
+        RoundedRectangle(cornerRadius: MinisThemeShape.userBubbleRadius)
     }
 
     func body(content: Content) -> some View {
@@ -388,6 +388,7 @@ struct ChatMessageRow: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
                             .modifier(UserBubbleSurface(isQueued: message.isQueued))
+                            .id(appearanceStudio.themePackRevision)
 
                         if message.isQueued {
                             if let onWithdraw {
@@ -411,7 +412,7 @@ struct ChatMessageRow: View {
             // otherwise the lifted preview shows square corners while the bubble
             // is RoundedRectangle(cornerRadius: 18). iOS 16+ lets us specify the
             // preview clip shape independently from the interaction shape.
-            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18))
+            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: MinisThemeShape.userBubbleRadius))
             .contextMenu {
                 Button {
                     UIPasteboard.general.string = message.content

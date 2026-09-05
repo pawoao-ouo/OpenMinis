@@ -30,13 +30,14 @@ struct AssistantBlockView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: MinisThemeShape.assistantBubbleRadius, style: .continuous)
                             .fill(ChatColors.assistantBubble)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: MinisThemeShape.assistantBubbleRadius, style: .continuous)
                             .fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
                     )
+                    .id(appearanceStudio.themePackRevision)
             }
         case .thinking:
             ThinkingBlockView(
@@ -720,6 +721,7 @@ final class ThinkingHitchMonitor {
 
 struct ThinkingBlockView: View {
     @ObservedObject var block: AssistantBlock
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     let isStreaming: Bool
 
     // [T-thinking-scroll-followback GH#125] Per-view follow state. Reset on
@@ -754,25 +756,25 @@ struct ThinkingBlockView: View {
                 Image("ThinkingIcon")
                     .resizable()
                     .frame(width: 14, height: 14)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(MinisThemeShape.thinkingAccent)
                 Text(AppLocalized("Deep Thinking"))
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(MinisThemeShape.thinkingAccent)
                 if isStreaming {
                     ProgressView()
                         .controlSize(.mini)
-                        .tint(.blue)
+                        .tint(MinisThemeShape.thinkingAccent)
                 }
                 if block.content.count > 0 || block.thinkingContentBuffer.count > 0 {
                     let charCount = max(block.content.count, block.thinkingContentBuffer.count)
                     Text(charCount > 1000 ? "\(charCount / 1000)K" : "\(charCount)")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.blue.opacity(0.6))
+                        .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.6))
                 }
                 Spacer()
                 Image(systemName: isExpanded.wrappedValue ? "chevron.up" : "chevron.down")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.blue.opacity(0.5))
+                    .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.5))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -935,12 +937,13 @@ struct ThinkingBlockView: View {
         .onDisappear {
             ThinkingHitchMonitor.shared.stop(owner: block.id)
         }
-        .background(Color.blue.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(MinisThemeShape.thinkingFill)
+        .clipShape(RoundedRectangle(cornerRadius: MinisThemeShape.thinkingRadius))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.blue.opacity(0.15), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: MinisThemeShape.thinkingRadius)
+                .stroke(MinisThemeShape.thinkingStroke, lineWidth: 0.5)
         )
+        .id(appearanceStudio.themePackRevision)
         .task(id: block.id) {
             // One-shot per-block auto-expand. Runs when this cell first hosts
             // a given thinking block (block.id is stable across content

@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 
 struct AppearanceStudioView: View {
     @ObservedObject private var studio = AppearanceStudio.shared
@@ -63,6 +64,32 @@ struct AppearanceStudioView: View {
                 }
             } header: {
                 Text("预设")
+            }
+
+            Section {
+                let pack = studio.currentThemePack()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(pack.name)
+                        .font(.headline)
+                    Text("气泡 \(Int(pack.userBubbleRadius))/\(Int(pack.assistantBubbleRadius)) · thinking \(Int(pack.thinkingRadius))")
+                        .font(.caption)
+                        .foregroundStyle(studio.color(.secondaryText))
+                }
+                .id(studio.themePackRevision)
+
+                Button("导出当前主题包到剪贴板") {
+                    exportPackToClipboard()
+                }
+                Button("从剪贴板贴上主题包") {
+                    importPackFromClipboard()
+                }
+                Button("恢复默认主题包", role: .destructive) {
+                    studio.resetThemePack()
+                }
+            } header: {
+                Text("AI 主题包")
+            } footer: {
+                Text("一整套：色、气泡圆角、thinking 卡片、壁纸。小梦也可以用 minis-theme 直接贴上来。")
             }
 
             Section {
@@ -295,5 +322,26 @@ struct AppearanceStudioView: View {
             return
         }
         apply(image)
+    }
+
+    private func exportPackToClipboard() {
+        let pack = studio.exportThemePack(includeWallpaper: true)
+        guard let data = try? JSONSerialization.data(withJSONObject: pack.asJSONObject(), options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            errorText = "主题包写不出来。"
+            return
+        }
+        UIPasteboard.general.string = text
+    }
+
+    private func importPackFromClipboard() {
+        guard let text = UIPasteboard.general.string,
+              let data = text.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let pack = try? AppearanceThemePack.decode(obj) else {
+            errorText = "剪贴板里没有能用的主题包。"
+            return
+        }
+        studio.applyThemePack(pack)
     }
 }
