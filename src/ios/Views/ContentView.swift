@@ -6205,6 +6205,7 @@ private struct MenuKey: Equatable {
 /// was previously duplicated as two identical private computed properties on
 /// the row structs; the composed icon made a third copy untenable.
 /// Pure function — safe to call from the `groupedSessions` aggregation pass.
+@MainActor
 func sessionCategoryIcon(for category: String?) -> (systemName: String, color: Color) {
     MinisThemeList.categoryIcon(for: category)
 }
@@ -6231,6 +6232,7 @@ func sessionCategoryIconBuiltin(for category: String?) -> (systemName: String, c
     }
 }
 
+@MainActor
 fileprivate func minisListIconClip() -> AnyShape {
     switch MinisThemeList.iconShape {
     case .circle: return AnyShape(Circle())
