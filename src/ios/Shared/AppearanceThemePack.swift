@@ -3,8 +3,8 @@ import SwiftUI
 import UIKit
 
 /// Shape + thinking chrome that a theme pack can swap.
-/// Colors stay in AppearanceStudio; this file owns everything the palette
-/// could not reach: radii, thinking card, pack identity.
+/// Colors stay in AppearanceStudio; this file owns radii, bubble style,
+/// thinking card image, pack identity.
 struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var id: String
     var name: String
@@ -14,6 +14,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var thinkingFillHex: String
     var thinkingStrokeHex: String
     var thinkingAccentHex: String
+    var userBubbleStyle: String
+    var assistantBubbleStyle: String
+    var thinkingCardJPEGBase64: String?
+    var thinkingCardImageOpacity: Double
     var wallpaperShade: Double?
     var surfaceOpacity: Double?
     var colorsLight: [String: String]
@@ -21,7 +25,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var wallpaperJPEGBase64: String?
 
     static let currentKey = "appearanceStudio.themePack.v1"
-    static let schemaVersion = 1
+    static let schemaVersion = 2
 
     static let `default` = AppearanceThemePack(
         id: "warm-paper",
@@ -32,12 +36,19 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         thinkingFillHex: "1E88E5",
         thinkingStrokeHex: "1E88E5",
         thinkingAccentHex: "1E88E5",
+        userBubbleStyle: AppearanceBubbleStyle.rounded.rawValue,
+        assistantBubbleStyle: AppearanceBubbleStyle.rounded.rawValue,
+        thinkingCardJPEGBase64: nil,
+        thinkingCardImageOpacity: 0.28,
         wallpaperShade: 0.08,
         surfaceOpacity: 0.88,
         colorsLight: [:],
         colorsDark: [:],
         wallpaperJPEGBase64: nil
     )
+
+    var userStyle: AppearanceBubbleStyle { AppearanceBubbleStyle.parse(userBubbleStyle) }
+    var assistantStyle: AppearanceBubbleStyle { AppearanceBubbleStyle.parse(assistantBubbleStyle) }
 
     func radius(_ kind: AppearanceShapeKind) -> CGFloat {
         switch kind {
@@ -65,12 +76,16 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             "thinkingFillHex": thinkingFillHex,
             "thinkingStrokeHex": thinkingStrokeHex,
             "thinkingAccentHex": thinkingAccentHex,
+            "userBubbleStyle": userStyle.rawValue,
+            "assistantBubbleStyle": assistantStyle.rawValue,
+            "thinkingCardImageOpacity": thinkingCardImageOpacity,
             "colorsLight": colorsLight,
             "colorsDark": colorsDark,
         ]
         if let wallpaperShade { obj["wallpaperShade"] = wallpaperShade }
         if let surfaceOpacity { obj["surfaceOpacity"] = surfaceOpacity }
         if let wallpaperJPEGBase64 { obj["wallpaperJPEGBase64"] = wallpaperJPEGBase64 }
+        if let thinkingCardJPEGBase64 { obj["thinkingCardJPEGBase64"] = thinkingCardJPEGBase64 }
         return obj
     }
 
@@ -104,6 +119,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             thinkingFillHex: normalizeHex(str("thinkingFillHex", fallback: base.thinkingFillHex)),
             thinkingStrokeHex: normalizeHex(str("thinkingStrokeHex", fallback: base.thinkingStrokeHex)),
             thinkingAccentHex: normalizeHex(str("thinkingAccentHex", fallback: base.thinkingAccentHex)),
+            userBubbleStyle: AppearanceBubbleStyle.parse(str("userBubbleStyle", fallback: base.userBubbleStyle)).rawValue,
+            assistantBubbleStyle: AppearanceBubbleStyle.parse(str("assistantBubbleStyle", fallback: base.assistantBubbleStyle)).rawValue,
+            thinkingCardJPEGBase64: raw["thinkingCardJPEGBase64"] as? String,
+            thinkingCardImageOpacity: min(1, max(0.05, num("thinkingCardImageOpacity", fallback: base.thinkingCardImageOpacity))),
             wallpaperShade: raw["wallpaperShade"] == nil ? nil : min(0.65, max(0, num("wallpaperShade", fallback: 0.08))),
             surfaceOpacity: raw["surfaceOpacity"] == nil ? nil : min(1, max(0.35, num("surfaceOpacity", fallback: 0.88))),
             colorsLight: normalizeHexMap(map("colorsLight")),
@@ -118,6 +137,23 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
 
 enum AppearanceShapeKind {
     case userBubble, assistantBubble, thinking
+}
+
+enum AppearanceBubbleStyle: String, CaseIterable, Identifiable {
+    case rounded, squircle, pill, tail, sharp
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .rounded: return "圆角"
+        case .squircle: return "连续圆角"
+        case .pill: return "胶囊"
+        case .tail: return "小尾巴"
+        case .sharp: return "方一点"
+        }
+    }
+    static func parse(_ raw: String) -> AppearanceBubbleStyle {
+        AppearanceBubbleStyle(rawValue: raw) ?? .rounded
+    }
 }
 
 fileprivate func clampRadius(_ value: Double) -> Double {
@@ -138,6 +174,55 @@ fileprivate func normalizeHexMap(_ map: [String: String]) -> [String: String] {
         out[k] = normalizeHex(v)
     }
     return out
+}
+
+/// Chat bubble / thinking card clip. Tail sits on the outer side
+/// (user = trailing, assistant = leading).
+struct MinisBubbleShape: Shape {
+    var style: AppearanceBubbleStyle
+    var radius: CGFloat
+    var tailOnTrailing: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let r = min(max(radius, 4), min(rect.width, rect.height) / 2)
+        switch style {
+        case .rounded:
+            return rounded(rect, r, continuous: false)
+        case .squircle:
+            return rounded(rect, r, continuous: true)
+        case .pill:
+            return rounded(rect, min(rect.height, rect.width) / 2, continuous: true)
+        case .sharp:
+            return rounded(rect, min(6, r * 0.35), continuous: false)
+        case .tail:
+            return tailedPath(in: rect, corner: r)
+        }
+    }
+
+    private func rounded(_ rect: CGRect, _ r: CGFloat, continuous: Bool) -> Path {
+        Path(RoundedRectangle(cornerRadius: r, style: continuous ? .continuous : .circular).path(in: rect).cgPath)
+    }
+
+    private func tailedPath(in rect: CGRect, corner: CGFloat) -> Path {
+        let tail: CGFloat = 7
+        let body = tailOnTrailing
+            ? CGRect(x: rect.minX, y: rect.minY, width: max(1, rect.width - tail), height: rect.height)
+            : CGRect(x: rect.minX + tail, y: rect.minY, width: max(1, rect.width - tail), height: rect.height)
+        var path = rounded(body, corner, continuous: true)
+        let baseY = body.maxY - max(10, corner)
+        if tailOnTrailing {
+            path.move(to: CGPoint(x: body.maxX - 1, y: baseY - 7))
+            path.addLine(to: CGPoint(x: rect.maxX, y: baseY))
+            path.addLine(to: CGPoint(x: body.maxX - 1, y: baseY + 5))
+            path.closeSubpath()
+        } else {
+            path.move(to: CGPoint(x: body.minX + 1, y: baseY - 7))
+            path.addLine(to: CGPoint(x: rect.minX, y: baseY))
+            path.addLine(to: CGPoint(x: body.minX + 1, y: baseY + 5))
+            path.closeSubpath()
+        }
+        return path
+    }
 }
 
 extension AppearanceStudio {
@@ -191,6 +276,11 @@ extension AppearanceStudio {
                   let image = UIImage(data: data) {
             setWallpaper(image, for: .global)
         }
+        if let b64 = pack.thinkingCardJPEGBase64,
+           let data = Data(base64Encoded: b64),
+           let image = UIImage(data: data) {
+            setThinkingCardImage(image)
+        }
         configureUIKitSurfaces()
     }
 
@@ -206,11 +296,16 @@ extension AppearanceStudio {
         } else {
             pack.wallpaperJPEGBase64 = nil
         }
+        if includeWallpaper, let image = thinkingCardImage(),
+           let data = image.jpegData(compressionQuality: 0.82) {
+            pack.thinkingCardJPEGBase64 = data.base64EncodedString()
+        }
         return pack
     }
 
     func resetThemePack() {
         UserDefaults.standard.removeObject(forKey: Self.packKey)
+        removeThinkingCardImage()
         themePackLock.lock()
         cachedThemePack = .default
         themePackLoaded = true
@@ -218,6 +313,57 @@ extension AppearanceStudio {
         themePackRevision += 1
         resetColors()
         objectWillChange.send()
+    }
+
+    func setBubbleStyle(_ style: AppearanceBubbleStyle, user: Bool) {
+        var pack = currentThemePack()
+        if user { pack.userBubbleStyle = style.rawValue }
+        else { pack.assistantBubbleStyle = style.rawValue }
+        persistPack(pack)
+    }
+
+    private func thinkingCardURL() -> URL {
+        appearanceDirectory.appendingPathComponent("thinking-card.jpg")
+    }
+
+    func thinkingCardImage() -> UIImage? {
+        UIImage(contentsOfFile: thinkingCardURL().path)
+    }
+
+    func hasThinkingCardImage() -> Bool {
+        FileManager.default.fileExists(atPath: thinkingCardURL().path)
+    }
+
+    func setThinkingCardImage(_ image: UIImage) {
+        let maxEdge: CGFloat = 1400
+        let size = image.size
+        let scale = min(1, maxEdge / max(size.width, size.height, 1))
+        let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        if let data = rendered.jpegData(compressionQuality: 0.82) {
+            try? data.write(to: thinkingCardURL(), options: .atomic)
+        }
+        var pack = currentThemePack()
+        pack.thinkingCardJPEGBase64 = nil
+        persistPack(pack)
+    }
+
+    func removeThinkingCardImage() {
+        try? FileManager.default.removeItem(at: thinkingCardURL())
+        var pack = currentThemePack()
+        pack.thinkingCardJPEGBase64 = nil
+        persistPack(pack)
+    }
+
+    func setThinkingCardImageOpacity(_ value: Double) {
+        var pack = currentThemePack()
+        pack.thinkingCardImageOpacity = min(1, max(0.05, value))
+        persistPack(pack)
     }
 
     fileprivate func applyPackColors(light: [String: String], dark: [String: String]) {
@@ -249,4 +395,17 @@ enum MinisThemeShape {
     static var thinkingFill: Color { pack.thinkingFill(opacity: 0.06) }
     static var thinkingStroke: Color { pack.thinkingStroke }
     static var thinkingAccent: Color { pack.thinkingAccent }
+    static var userStyle: AppearanceBubbleStyle { pack.userStyle }
+    static var assistantStyle: AppearanceBubbleStyle { pack.assistantStyle }
+    static var thinkingCardOpacity: Double { pack.thinkingCardImageOpacity }
+
+    static var userBubble: MinisBubbleShape {
+        MinisBubbleShape(style: userStyle, radius: userBubbleRadius, tailOnTrailing: true)
+    }
+    static var assistantBubble: MinisBubbleShape {
+        MinisBubbleShape(style: assistantStyle, radius: assistantBubbleRadius, tailOnTrailing: false)
+    }
+    static var thinkingCard: MinisBubbleShape {
+        MinisBubbleShape(style: .squircle, radius: thinkingRadius, tailOnTrailing: false)
+    }
 }

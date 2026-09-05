@@ -11,6 +11,7 @@ struct AppearanceStudioView: View {
     @State private var assistantAvatarItem: PhotosPickerItem?
     @State private var iconPickSlot: QuietIconSlot?
     @State private var iconItem: PhotosPickerItem?
+    @State private var thinkingCardItem: PhotosPickerItem?
     @State private var errorText: String?
 
     var body: some View {
@@ -71,11 +72,41 @@ struct AppearanceStudioView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(pack.name)
                         .font(.headline)
-                    Text("气泡 \(Int(pack.userBubbleRadius))/\(Int(pack.assistantBubbleRadius)) · thinking \(Int(pack.thinkingRadius))")
+                    Text("气泡 \(pack.userStyle.title)/\(pack.assistantStyle.title) · thinking \(Int(pack.thinkingRadius))")
                         .font(.caption)
                         .foregroundStyle(studio.color(.secondaryText))
                 }
                 .id(studio.themePackRevision)
+
+                Picker("我的气泡", selection: userStyleBinding) {
+                    ForEach(AppearanceBubbleStyle.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                Picker("小梦气泡", selection: assistantStyleBinding) {
+                    ForEach(AppearanceBubbleStyle.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+
+                PhotosPicker(selection: $thinkingCardItem, matching: .images) {
+                    Label(studio.hasThinkingCardImage() ? "更换 thinking 卡片图" : "给 thinking 卡片贴图",
+                          systemImage: "photo.on.rectangle")
+                }
+                if studio.hasThinkingCardImage() {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("卡片图浓度")
+                            Spacer()
+                            Text("\(Int(pack.thinkingCardImageOpacity * 100))%")
+                                .foregroundStyle(.secondary)
+                        }
+                        Slider(value: thinkingCardOpacityBinding, in: 0.05...1, step: 0.01)
+                    }
+                    Button("去掉 thinking 卡片图", role: .destructive) {
+                        studio.removeThinkingCardImage()
+                    }
+                }
 
                 Button("导出当前主题包到剪贴板") {
                     exportPackToClipboard()
@@ -89,7 +120,7 @@ struct AppearanceStudioView: View {
             } header: {
                 Text("AI 主题包")
             } footer: {
-                Text("一整套：色、气泡圆角、thinking 卡片、壁纸。小梦也可以用 minis-theme 直接贴上来。")
+                Text("一整套：色、气泡形状、thinking 卡片图、壁纸。小梦也可以用 minis-theme 直接贴上来。")
             }
 
             Section {
@@ -239,6 +270,10 @@ struct AppearanceStudioView: View {
                 iconPickSlot = nil
             }
         }
+        .onChange(of: thinkingCardItem) { item in
+            guard let item else { return }
+            Task { await importImage(item) { studio.setThinkingCardImage($0) } }
+        }
         .alert("这张图用不了", isPresented: Binding(
             get: { errorText != nil },
             set: { if !$0 { errorText = nil } }
@@ -315,6 +350,7 @@ struct AppearanceStudioView: View {
             wallpaperItem = nil
             userAvatarItem = nil
             assistantAvatarItem = nil
+            thinkingCardItem = nil
         }
         guard let data = try? await item.loadTransferable(type: Data.self),
               let image = UIImage(data: data) else {
@@ -322,6 +358,27 @@ struct AppearanceStudioView: View {
             return
         }
         apply(image)
+    }
+
+    private var userStyleBinding: Binding<AppearanceBubbleStyle> {
+        Binding(
+            get: { studio.currentThemePack().userStyle },
+            set: { studio.setBubbleStyle($0, user: true) }
+        )
+    }
+
+    private var assistantStyleBinding: Binding<AppearanceBubbleStyle> {
+        Binding(
+            get: { studio.currentThemePack().assistantStyle },
+            set: { studio.setBubbleStyle($0, user: false) }
+        )
+    }
+
+    private var thinkingCardOpacityBinding: Binding<Double> {
+        Binding(
+            get: { studio.currentThemePack().thinkingCardImageOpacity },
+            set: { studio.setThinkingCardImageOpacity($0) }
+        )
     }
 
     private func exportPackToClipboard() {

@@ -30,13 +30,12 @@ struct AssistantBlockView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(
-                        RoundedRectangle(cornerRadius: MinisThemeShape.assistantBubbleRadius, style: .continuous)
-                            .fill(ChatColors.assistantBubble)
+                        MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: MinisThemeShape.assistantBubbleRadius, style: .continuous)
-                            .fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
+                        MinisThemeShape.assistantBubble.fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
                     )
+                    .clipShape(MinisThemeShape.assistantBubble)
                     .id(appearanceStudio.themePackRevision)
             }
         case .thinking:
@@ -937,11 +936,20 @@ struct ThinkingBlockView: View {
         .onDisappear {
             ThinkingHitchMonitor.shared.stop(owner: block.id)
         }
-        .background(MinisThemeShape.thinkingFill)
-        .clipShape(RoundedRectangle(cornerRadius: MinisThemeShape.thinkingRadius))
+        .background {
+            ZStack {
+                MinisThemeShape.thinkingFill
+                if let image = appearanceStudio.thinkingCardImage() {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .opacity(MinisThemeShape.thinkingCardOpacity)
+                }
+            }
+        }
+        .clipShape(MinisThemeShape.thinkingCard)
         .overlay(
-            RoundedRectangle(cornerRadius: MinisThemeShape.thinkingRadius)
-                .stroke(MinisThemeShape.thinkingStroke, lineWidth: 0.5)
+            MinisThemeShape.thinkingCard.stroke(MinisThemeShape.thinkingStroke, lineWidth: 0.5)
         )
         .id(appearanceStudio.themePackRevision)
         .task(id: block.id) {

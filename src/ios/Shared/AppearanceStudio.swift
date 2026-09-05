@@ -197,7 +197,7 @@ final class AppearanceStudio: ObservableObject {
 
     // MARK: Wallpaper
 
-    private var appearanceDirectory: URL {
+    var appearanceDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory,
                                             in: .userDomainMask).first!
         let dir = base.appendingPathComponent("AppearanceStudio", isDirectory: true)
