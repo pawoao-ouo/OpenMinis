@@ -182,7 +182,7 @@ struct ActiveReachSettingsView: View {
                         .foregroundStyle(studio.color(.secondaryText, scope: .settings))
                 } else {
                     ForEach(store.drafts) { draft in
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 6) {
                             Text(draft.text)
                             HStack {
                                 Text(Self.formatTime(draft.createdAt))
@@ -195,16 +195,27 @@ struct ActiveReachSettingsView: View {
                             Text(draft.wouldBreak ? "会破例 · \(draft.dialogId)" : draft.dialogId)
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                            Button("发送这条") {
+                                Task { await store.sendDraft(id: draft.id) }
+                            }
                         }
+                    }
+                    Button("发送全部待发") {
+                        Task { await store.sendAllPending() }
                     }
                     Button("丢弃全部草稿", role: .destructive) {
                         store.discardAllDrafts()
                     }
                 }
+                if let err = store.lastSendError {
+                    Text(Self.sendErrorLine(err))
+                        .font(.caption)
+                        .foregroundStyle(studio.color(.destructive, scope: .settings))
+                }
             } header: {
                 Text("待发草稿")
             } footer: {
-                Text("只存不发。cap 还没占。没有立即发送。")
+                Text("打分只进草稿。点发送才出通知、才记账。关总闸会拆掉已排的。")
             }
         }
         .appearancePage(.settings)
@@ -248,7 +259,20 @@ struct ActiveReachSettingsView: View {
         case "allowed": return "过门"
         case "drafted": return "草稿"
         case "skipped": return "跳过"
+        case "sent": return "已发"
         default: return "拦住"
+        }
+    }
+
+    private static func sendErrorLine(_ err: String) -> String {
+        switch err {
+        case "masterOff": return "总闸关着，没发。"
+        case "notAuthorized": return "系统通知没开，去设置里开。"
+        case "capExhausted": return "今天额度满了，草稿还在。"
+        case "scheduleFailed": return "通知没排上，没记账。"
+        case "emptyText": return "这句话是空的。"
+        case "missingDraft": return "这条草稿已经不在了。"
+        default: return err
         }
     }
 
@@ -266,6 +290,11 @@ struct ActiveReachSettingsView: View {
         case "wouldConsumeCap": return "会占一条额度"
         case "wouldBreak": return "会破例"
         case "emptyText": return "模型没写出话"
+        case "notAuthorized": return "通知没开权限"
+        case "scheduleFailed": return "通知没排上"
+        case "cap": return "发出去了"
+        case "break": return "破例发出去了"
+        case "missingDraft": return "草稿没了"
         case nil:
             if item.disposition == "drafted" { return "进草稿了" }
             return item.source.isEmpty ? "—" : item.source

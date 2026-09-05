@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// 小梦主动 · 控制面板快照。
-/// 配置即时读写。打分见 ActiveReachScore。不发通知。
+/// 配置即时读写。打分见 ActiveReachScore。发送见 ActiveReachSend。
 ///
 /// 总闸语义：`enabled == false` 时，未来任何唤醒与待发都必须停。
 /// 自然日以设备本地日历 0 点为界；跨日由 `ActiveReachLogic.resetCountsIfNeeded` 清零计数。
@@ -123,6 +123,8 @@ final class ActiveReachStore: ObservableObject {
     @Published private(set) var snapshot: ActiveReachSnapshot
     @Published private(set) var decisions: [ActiveReachDecision]
     @Published private(set) var drafts: [ActiveReachDraft]
+    @Published private(set) var sent: [ActiveReachDraft]
+    @Published var lastSendError: String?
 
     private let defaults: UserDefaults
 
@@ -134,15 +136,17 @@ final class ActiveReachStore: ObservableObject {
         snapshot = loaded
         decisions = ActiveReachWake.loadDecisions(from: defaults)
         drafts = ActiveReachScore.loadDrafts(from: defaults)
+        sent = ActiveReachSend.loadSent(from: defaults)
     }
 
     var isEnabled: Bool { ActiveReachLogic.isEnabled(snapshot) }
     /// 只看总闸。打分/发送还要过 `ActiveReachWake.canProceedToScore`。
     var shouldAllowWake: Bool { ActiveReachLogic.shouldAllowWake(snapshot) }
 
-    /// 总闸关的瞬间清待发。本刀无队列，空实现占位；后续唤醒/通知必须接到这里。
+    /// 总闸关：取消本功能已排/已送达通知，并清草稿。
     func cancelPending() {
-        // Knife 1: no pending wake or notification queue yet.
+        ActiveReachSend.cancelOurs()
+        discardAllDrafts()
     }
 
     /// 唤醒门闩。blocked 才落日志；allowed 交给 runReachCycle 写最终决策。
@@ -201,6 +205,102 @@ final class ActiveReachStore: ObservableObject {
         persistDrafts()
     }
 
+    @discardableResult
+    func sendDraft(
+        id: String,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        scheduler: ((ActiveReachDraft) async -> Result<String, ActiveReachSendError>)? = nil
+    ) async -> Result<SendReceipt, ActiveReachSendError> {
+        lastSendError = nil
+        guard let draft = drafts.first(where: { $0.id == id }) else {
+            lastSendError = ActiveReachSendError.missingDraft.rawValue
+            return .failure(.missingDraft)
+        }
+        var snap = snapshot
+        let prepared = ActiveReachSend.prepareSend(
+            draft: draft, snapshot: &snap, now: now, calendar: calendar)
+        snapshot = snap
+        persist()
+        switch prepared {
+        case .failure(let err):
+            lastSendError = err.rawValue
+            logSend(disposition: "blocked", reason: err.rawValue, draft: draft, now: now)
+            return .failure(err)
+        case .success(let usedBreak):
+            let schedule = scheduler ?? ActiveReachSend.schedule
+            let scheduled = await schedule(draft)
+            switch scheduled {
+            case .failure(let err):
+                lastSendError = err.rawValue
+                logSend(disposition: "blocked", reason: err.rawValue, draft: draft, now: now)
+                return .failure(err)
+            case .success(let nid):
+                ActiveReachSend.applyCount(usedBreak: usedBreak, snapshot: &snap)
+                snapshot = snap
+                drafts.removeAll { $0.id == id }
+                sent = ActiveReachSend.prependSent(draft, onto: sent)
+                persist()
+                persistDrafts()
+                persistSent()
+                logSend(
+                    disposition: "sent",
+                    reason: usedBreak ? "break" : "cap",
+                    draft: draft,
+                    now: now
+                )
+                return .success(SendReceipt(
+                    notificationId: nid,
+                    dialogId: draft.dialogId,
+                    usedBreak: usedBreak,
+                    openFallback: false
+                ))
+            }
+        }
+    }
+
+    @discardableResult
+    func sendAllPending(
+        limit: Int = 20,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) async -> [Result<SendReceipt, ActiveReachSendError>] {
+        let ids = Array(drafts.prefix(limit).map(\.id))
+        var results: [Result<SendReceipt, ActiveReachSendError>] = []
+        for id in ids {
+            results.append(await sendDraft(id: id, now: now, calendar: calendar))
+        }
+        return results
+    }
+
+    private func logSend(
+        disposition: String,
+        reason: String?,
+        draft: ActiveReachDraft,
+        now: Date
+    ) {
+        let entry = ActiveReachDecision(
+            id: UUID().uuidString,
+            time: now.timeIntervalSince1970,
+            source: draft.source,
+            disposition: disposition,
+            reason: reason,
+            enabled: snapshot.enabled,
+            dialogCount: snapshot.dialogIds.count,
+            capCount: snapshot.dailyCapCount,
+            breakCount: snapshot.dailyBreakCount,
+            dialogId: draft.dialogId,
+            emotionScore: draft.emotion,
+            timeScore: draft.timeScore,
+            totalScore: draft.total,
+            wouldBreak: draft.wouldBreak,
+            wouldConsumeCap: !draft.wouldBreak,
+            pickNote: nil
+        )
+        decisions = ActiveReachWake.prepend(entry, onto: decisions)
+        persistDecisions()
+    }
+
     func setEnabled(_ value: Bool) {
         mutate { snap in
             snap.enabled = value
@@ -211,7 +311,6 @@ final class ActiveReachStore: ObservableObject {
         }
         if !value {
             cancelPending()
-            discardAllDrafts()
         }
     }
 
@@ -280,6 +379,12 @@ final class ActiveReachStore: ObservableObject {
     private func persistDrafts() {
         if let data = ActiveReachScore.encodeDrafts(drafts) {
             defaults.set(data, forKey: ActiveReachScore.draftKey)
+        }
+    }
+
+    private func persistSent() {
+        if let data = ActiveReachSend.encodeSent(sent) {
+            defaults.set(data, forKey: ActiveReachSend.sentKey)
         }
     }
 
