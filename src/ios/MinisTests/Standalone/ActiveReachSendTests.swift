@@ -28,7 +28,7 @@ struct ActiveReachDraft {
     var wouldBreak: Bool
 }
 
-enum ActiveReachSendError: String {
+enum ActiveReachSendError: String, Error {
     case masterOff, capExhausted, emptyText
 }
 

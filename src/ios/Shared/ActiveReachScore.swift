@@ -54,6 +54,12 @@ struct ActiveReachDraft: Equatable, Codable, Identifiable {
     var source: String
 }
 
+/// 打分链路的失败侧。`Result` 的 Failure 必须 conform `Error`，
+/// 早期用裸 String 只是 python 断言没抓到（本机无 swift）。
+struct ActiveReachFailure: Error {
+    let reason: String
+}
+
 struct ReachCycleResult: Equatable {
     var disposition: String
     var reason: String?
@@ -76,7 +82,7 @@ protocol ActiveReachSessionReading {
 }
 
 protocol ActiveReachModelCalling {
-    func complete(modelId: String, system: String, user: String) async -> Result<String, String>
+    func complete(modelId: String, system: String, user: String) async -> Result<String, ActiveReachFailure>
 }
 
 enum ActiveReachScore {
@@ -129,7 +135,7 @@ enum ActiveReachScore {
         lastActive: [String: Date],
         now: Date,
         activeHours: Int
-    ) -> Result<DialogPick, String> {
+    ) -> Result<DialogPick, ActiveReachFailure> {
         let window = TimeInterval(max(activeHours, 1) * 3600)
         var fresh: [(String, Date)] = []
         var noMeta: [String] = []
@@ -148,7 +154,7 @@ enum ActiveReachScore {
         if let first = noMeta.first {
             return .success(DialogPick(id: first, note: "pickFallbackFirst", lastActive: nil))
         }
-        return .failure("noActiveDialog")
+        return .failure(ActiveReachFailure(reason: "noActiveDialog"))
     }
 
     static func windowTurns(
@@ -324,8 +330,8 @@ enum ActiveReachScore {
             now: now,
             activeHours: snapshot.dialogActiveHours
         ) {
-        case .failure(let reason):
-            return fail(reason, source: source, snapshot: snapshot)
+        case .failure(let failure):
+            return fail(failure.reason, source: source, snapshot: snapshot)
         case .success(let pick):
             picked = pick
         }
@@ -494,13 +500,13 @@ struct ChatStoreReachReading: ActiveReachSessionReading {
 }
 
 struct ModelUseReachCaller: ActiveReachModelCalling {
-    func complete(modelId: String, system: String, user: String) async -> Result<String, String> {
+    func complete(modelId: String, system: String, user: String) async -> Result<String, ActiveReachFailure> {
         let payload: [String: Any] = [
             "messages": [["role": "user", "content": user]]
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8)
-        else { return .failure("encode failed") }
+        else { return .failure(ActiveReachFailure(reason: "encode failed")) }
         return await withCheckedContinuation { cont in
             ModelUseOffloadBridge.runModel(
                 idOrName: modelId,
@@ -513,12 +519,12 @@ struct ModelUseReachCaller: ActiveReachModelCalling {
                 streamFd: -1
             ) { result, error in
                 if let error {
-                    cont.resume(returning: .failure(error))
+                    cont.resume(returning: .failure(ActiveReachFailure(reason: error)))
                     return
                 }
                 let text = (result?["output_text"] as? String) ?? ""
                 if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    cont.resume(returning: .failure("empty model output"))
+                    cont.resume(returning: .failure(ActiveReachFailure(reason: "empty model output")))
                 } else {
                     cont.resume(returning: .success(text))
                 }

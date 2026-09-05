@@ -6,7 +6,7 @@ import UserNotifications
 /// userInfo.sessionId 复用 ShortcutNotificationDelegate 进会话。
 /// 前缀 `active-reach.` 便于 cancelPending 只拆本功能的通知。
 
-enum ActiveReachSendError: String, Equatable {
+enum ActiveReachSendError: String, Error {
     case masterOff
     case notAuthorized
     case capExhausted
