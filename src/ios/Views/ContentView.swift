@@ -7483,7 +7483,12 @@ private struct SettingsSheet: View {
                         ActiveReachSettingsView()
                     } label: {
                         Label {
-                            Text("小梦主动")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("小梦主动")
+                                Text("主动找你 · 默认关")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         } icon: {
                             QuietAppIcon(id: QuietIconSlot.active.id, systemName: QuietIconSlot.active.systemName)
                         }

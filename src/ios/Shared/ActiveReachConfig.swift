@@ -104,7 +104,8 @@ enum ActiveReachLogic {
         snapshot.enabled
     }
 
-    /// 总闸关 → false。本刀不接真唤醒；后续唤醒路径必须先问这里。
+    /// 只看总闸。完整链路必须再过 `ActiveReachWake.canProceedToScore` / `canSend`
+    ///（指定对话框非空等）。关 → 任何唤醒与待发都停。
     static func shouldAllowWake(_ snapshot: ActiveReachSnapshot) -> Bool {
         snapshot.enabled
     }
@@ -120,6 +121,7 @@ final class ActiveReachStore: ObservableObject {
     static let shared = ActiveReachStore()
 
     @Published private(set) var snapshot: ActiveReachSnapshot
+    @Published private(set) var decisions: [ActiveReachDecision]
 
     private let defaults: UserDefaults
 
@@ -129,14 +131,35 @@ final class ActiveReachStore: ObservableObject {
         ActiveReachLogic.clamp(&loaded)
         ActiveReachLogic.resetCountsIfNeeded(&loaded, now: now)
         snapshot = loaded
+        decisions = ActiveReachWake.loadDecisions(from: defaults)
     }
 
     var isEnabled: Bool { ActiveReachLogic.isEnabled(snapshot) }
+    /// 只看总闸。打分/发送还要过 `ActiveReachWake.canProceedToScore`。
     var shouldAllowWake: Bool { ActiveReachLogic.shouldAllowWake(snapshot) }
 
     /// 总闸关的瞬间清待发。本刀无队列，空实现占位；后续唤醒/通知必须接到这里。
     func cancelPending() {
         // Knife 1: no pending wake or notification queue yet.
+    }
+
+    /// 唤醒信号入口。记日志后停在打分前。
+    @discardableResult
+    func handleWake(source: String, now: Date = Date(), calendar: Calendar = .current) -> WakeDisposition {
+        var snap = snapshot
+        var log = decisions
+        let disposition = ActiveReachWake.handleWake(
+            snapshot: &snap,
+            log: &log,
+            source: source,
+            now: now,
+            calendar: calendar
+        )
+        snapshot = snap
+        decisions = log
+        persist()
+        persistDecisions()
+        return disposition
     }
 
     func setEnabled(_ value: Bool) {
@@ -205,6 +228,12 @@ final class ActiveReachStore: ObservableObject {
     private func persist() {
         if let data = try? JSONEncoder().encode(snapshot) {
             defaults.set(data, forKey: ActiveReachLogic.storageKey)
+        }
+    }
+
+    private func persistDecisions() {
+        if let data = ActiveReachWake.encodeDecisions(decisions) {
+            defaults.set(data, forKey: ActiveReachWake.decisionLogKey)
         }
     }
 

@@ -149,6 +149,32 @@ struct ActiveReachSettingsView: View {
             } footer: {
                 Text("自然日 0 点清零。本刀只记账，不真发。")
             }
+
+            Section {
+                if store.decisions.isEmpty {
+                    Text("还没有唤醒记录。")
+                        .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                } else {
+                    ForEach(store.decisions) { item in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(Self.formatTime(item.time))
+                                    .font(.system(.caption, design: .monospaced))
+                                Spacer()
+                                Text(Self.dispositionLabel(item))
+                                    .font(.caption.weight(.medium))
+                            }
+                            Text(Self.reasonLine(item))
+                                .font(.caption)
+                                .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                        }
+                    }
+                }
+            } header: {
+                Text("最近决策")
+            } footer: {
+                Text("只读。每次唤醒信号都会记，不管过没过门。最多留 50 条。")
+            }
         }
         .appearancePage(.settings)
         .navigationTitle("小梦主动")
@@ -176,6 +202,26 @@ struct ActiveReachSettingsView: View {
                     .foregroundStyle(studio.color(.secondaryText, scope: .settings))
                     .monospacedDigit()
             }
+        }
+    }
+
+    private static func formatTime(_ epoch: TimeInterval) -> String {
+        let date = Date(timeIntervalSince1970: epoch)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private static func dispositionLabel(_ item: ActiveReachDecision) -> String {
+        item.disposition == "allowed" ? "过门" : "拦住"
+    }
+
+    private static func reasonLine(_ item: ActiveReachDecision) -> String {
+        switch item.reason {
+        case "masterOff": return "总闸关"
+        case "noDialogs": return "没指定对话框"
+        case nil: return item.source.isEmpty ? "—" : item.source
+        default: return item.reason ?? item.source
         }
     }
 }

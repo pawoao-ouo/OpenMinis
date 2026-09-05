@@ -247,6 +247,8 @@
 		XMSTYLE002 /* AppearanceStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE102 /* AppearanceStudioView.swift */; };
 		XMREACH001 /* ActiveReachConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMREACH101 /* ActiveReachConfig.swift */; };
 		XMREACH002 /* ActiveReachSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMREACH102 /* ActiveReachSettingsView.swift */; };
+		XMREACH003 /* ActiveReachWake.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMREACH103 /* ActiveReachWake.swift */; };
+		XMREACH004 /* ActiveReachWakeIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMREACH104 /* ActiveReachWakeIntent.swift */; };
 		E5G000004 /* AgentActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5G000014 /* AgentActivityAttributes.swift */; };
 		E5GWF0003 /* GeminiWireFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5GWF0013 /* GeminiWireFormat.swift */; };
 		E5GWF0004 /* GeminiWireFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5GWF0013 /* GeminiWireFormat.swift */; };
@@ -1047,6 +1049,8 @@
 		XMSTYLE102 /* AppearanceStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceStudioView.swift; sourceTree = "<group>"; };
 		XMREACH101 /* ActiveReachConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveReachConfig.swift; sourceTree = "<group>"; };
 		XMREACH102 /* ActiveReachSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveReachSettingsView.swift; sourceTree = "<group>"; };
+		XMREACH103 /* ActiveReachWake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveReachWake.swift; sourceTree = "<group>"; };
+		XMREACH104 /* ActiveReachWakeIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveReachWakeIntent.swift; sourceTree = "<group>"; };
 		E5QA0101 /* QuickActionRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickActionRouter.swift; sourceTree = "<group>"; };
 		E5QA0102 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		E5QA0103 /* QuickActionWorkflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickActionWorkflow.swift; sourceTree = "<group>"; };
@@ -1791,6 +1795,7 @@
 				E5Q000014 /* FontSettings.swift */,
 				XMSTYLE101 /* AppearanceStudio.swift */,
 				XMREACH101 /* ActiveReachConfig.swift */,
+				XMREACH103 /* ActiveReachWake.swift */,
 				E5J000022 /* FileHandleSafeWrite.h */,
 				E5J000021 /* FileHandleSafeWrite.m */,
 				E5J000052 /* ObjCExceptionCatcher.h */,
@@ -1929,6 +1934,7 @@
 				E5SD00019 /* ShortcutRunTracker.swift */,
 				E5T00001A /* RetryRunIntent.swift */,
 				E5T00001B /* UserMessageEntity.swift */,
+				XMREACH104 /* ActiveReachWakeIntent.swift */,
 			);
 			path = Intents;
 			sourceTree = "<group>";
@@ -2953,6 +2959,8 @@
 				XMSTYLE002 /* AppearanceStudioView.swift in Sources */,
 				XMREACH001 /* ActiveReachConfig.swift in Sources */,
 				XMREACH002 /* ActiveReachSettingsView.swift in Sources */,
+				XMREACH003 /* ActiveReachWake.swift in Sources */,
+				XMREACH004 /* ActiveReachWakeIntent.swift in Sources */,
 				E5G000004 /* AgentActivityAttributes.swift in Sources */,
 				E5AT00004 /* AudioTogglePlaybackIntent.swift in Sources */,
 				E5I000001 /* SpeechRecognitionManager.swift in Sources */,
