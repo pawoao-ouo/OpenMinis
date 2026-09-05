@@ -7479,6 +7479,15 @@ private struct SettingsSheet: View {
                             QuietAppIcon(id: QuietIconSlot.appearance.id, systemName: QuietIconSlot.appearance.systemName)
                         }
                     }
+                    NavigationLink {
+                        ActiveReachSettingsView()
+                    } label: {
+                        Label {
+                            Text("小梦主动")
+                        } icon: {
+                            QuietAppIcon(id: QuietIconSlot.active.id, systemName: QuietIconSlot.active.systemName)
+                        }
+                    }
                 }
 
                 Section("Agent Runtime") {
