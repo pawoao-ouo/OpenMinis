@@ -24,13 +24,27 @@ struct ActiveReachDecision: Equatable, Codable, Identifiable {
     var id: String
     var time: TimeInterval
     var source: String
-    /// `"blocked"` / `"allowed"`
+    /// `"blocked"` / `"allowed"` / `"drafted"` / `"skipped"`
     var disposition: String
     var reason: String?
     var enabled: Bool
     var dialogCount: Int
     var capCount: Int
     var breakCount: Int
+    var dialogId: String?
+    var emotionScore: Int?
+    var timeScore: Int?
+    var totalScore: Int?
+    var wouldBreak: Bool?
+    var wouldConsumeCap: Bool?
+    var pickNote: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, time, source, disposition, reason, enabled
+        case dialogCount, capCount, breakCount
+        case dialogId, emotionScore, timeScore, totalScore
+        case wouldBreak, wouldConsumeCap, pickNote
+    }
 }
 
 enum ActiveReachWake {
@@ -76,13 +90,15 @@ enum ActiveReachWake {
     ) -> WakeDisposition {
         ActiveReachLogic.resetCountsIfNeeded(&snapshot, now: now, calendar: calendar)
         let disposition = evaluate(snapshot: snapshot, source: source, now: now)
-        let entry = ActiveReachDecision.make(
-            disposition: disposition,
-            snapshot: snapshot,
-            source: source,
-            now: now
-        )
-        log = prepend(entry, onto: log)
+        if case .blocked = disposition {
+            let entry = ActiveReachDecision.make(
+                disposition: disposition,
+                snapshot: snapshot,
+                source: source,
+                now: now
+            )
+            log = prepend(entry, onto: log)
+        }
         return disposition
     }
 
@@ -134,7 +150,40 @@ extension ActiveReachDecision {
             enabled: snapshot.enabled,
             dialogCount: snapshot.dialogIds.count,
             capCount: snapshot.dailyCapCount,
-            breakCount: snapshot.dailyBreakCount
+            breakCount: snapshot.dailyBreakCount,
+            dialogId: nil,
+            emotionScore: nil,
+            timeScore: nil,
+            totalScore: nil,
+            wouldBreak: nil,
+            wouldConsumeCap: nil,
+            pickNote: nil
+        )
+    }
+
+    static func fromCycle(
+        _ cycle: ReachCycleResult,
+        snapshot: ActiveReachSnapshot,
+        source: String,
+        now: Date
+    ) -> ActiveReachDecision {
+        ActiveReachDecision(
+            id: UUID().uuidString,
+            time: now.timeIntervalSince1970,
+            source: source,
+            disposition: cycle.disposition,
+            reason: cycle.reason,
+            enabled: snapshot.enabled,
+            dialogCount: snapshot.dialogIds.count,
+            capCount: snapshot.dailyCapCount,
+            breakCount: snapshot.dailyBreakCount,
+            dialogId: cycle.dialogId,
+            emotionScore: cycle.emotionScore,
+            timeScore: cycle.timeScore,
+            totalScore: cycle.totalScore,
+            wouldBreak: cycle.wouldBreak,
+            wouldConsumeCap: cycle.wouldConsumeCap,
+            pickNote: cycle.pickNote
         )
     }
 }

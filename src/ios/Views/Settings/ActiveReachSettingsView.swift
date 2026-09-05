@@ -175,6 +175,37 @@ struct ActiveReachSettingsView: View {
             } footer: {
                 Text("只读。每次唤醒信号都会记，不管过没过门。最多留 50 条。")
             }
+
+            Section {
+                if store.drafts.isEmpty {
+                    Text("没有待发草稿。")
+                        .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                } else {
+                    ForEach(store.drafts) { draft in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(draft.text)
+                            HStack {
+                                Text(Self.formatTime(draft.createdAt))
+                                    .font(.system(.caption, design: .monospaced))
+                                Spacer()
+                                Text("情\(draft.emotion) 时\(draft.timeScore) 总\(draft.total)")
+                                    .font(.caption)
+                                    .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                            }
+                            Text(draft.wouldBreak ? "会破例 · \(draft.dialogId)" : draft.dialogId)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                        }
+                    }
+                    Button("丢弃全部草稿", role: .destructive) {
+                        store.discardAllDrafts()
+                    }
+                }
+            } header: {
+                Text("待发草稿")
+            } footer: {
+                Text("只存不发。cap 还没占。没有立即发送。")
+            }
         }
         .appearancePage(.settings)
         .navigationTitle("小梦主动")
@@ -213,14 +244,31 @@ struct ActiveReachSettingsView: View {
     }
 
     private static func dispositionLabel(_ item: ActiveReachDecision) -> String {
-        item.disposition == "allowed" ? "过门" : "拦住"
+        switch item.disposition {
+        case "allowed": return "过门"
+        case "drafted": return "草稿"
+        case "skipped": return "跳过"
+        default: return "拦住"
+        }
     }
 
     private static func reasonLine(_ item: ActiveReachDecision) -> String {
         switch item.reason {
         case "masterOff": return "总闸关"
         case "noDialogs": return "没指定对话框"
-        case nil: return item.source.isEmpty ? "—" : item.source
+        case "noModel": return "没配模型"
+        case "noActiveDialog": return "对话框都不活跃"
+        case "readFailed": return "读会话失败"
+        case "parseFailed": return "模型结果读不懂"
+        case "capExhausted": return "今天额度满了"
+        case "belowThreshold": return "分不够"
+        case "modelDeclined": return "模型说不发"
+        case "wouldConsumeCap": return "会占一条额度"
+        case "wouldBreak": return "会破例"
+        case "emptyText": return "模型没写出话"
+        case nil:
+            if item.disposition == "drafted" { return "进草稿了" }
+            return item.source.isEmpty ? "—" : item.source
         default: return item.reason ?? item.source
         }
     }

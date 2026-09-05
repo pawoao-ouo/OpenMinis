@@ -125,9 +125,11 @@ enum ActiveReachWake {
     ) -> WakeDisposition {
         ActiveReachLogic.resetCountsIfNeeded(&snapshot, now: now, calendar: calendar)
         let disposition = evaluate(snapshot: snapshot, source: source, now: now)
-        let entry = ActiveReachDecision.make(
-            disposition: disposition, snapshot: snapshot, source: source, now: now)
-        log = prepend(entry, onto: log)
+        if case .blocked = disposition {
+            let entry = ActiveReachDecision.make(
+                disposition: disposition, snapshot: snapshot, source: source, now: now)
+            log = prepend(entry, onto: log)
+        }
         return disposition
     }
 
@@ -228,11 +230,9 @@ check("allowed", {
     }
     return false
 }())
-check("logged allowed", log[0].disposition == "allowed" && log[0].reason == nil)
+check("allowed does not log yet", log.isEmpty)
 check("canSend true", ActiveReachWake.canSend(on))
 check("canProceed true", ActiveReachWake.canProceedToScore(on))
-checkEq("dialogCount", log[0].dialogCount, 1)
-checkEq("source", log[0].source, "intent")
 
 print("\ncross-day reset before gate")
 var stale = ActiveReachSnapshot.default
@@ -245,10 +245,10 @@ log = []
 _ = ActiveReachWake.handleWake(snapshot: &stale, log: &log, source: "test", now: now, calendar: cal)
 checkEq("cap reset before allow", stale.dailyCapCount, 0)
 checkEq("break reset", stale.dailyBreakCount, 0)
-checkEq("log capCount after reset", log[0].capCount, 0)
+check("allowed still no log", log.isEmpty)
 
 print("\nring limit")
-var ringSnap = on
+var ringSnap = ActiveReachSnapshot.default
 var ring: [ActiveReachDecision] = []
 for i in 0..<55 {
     _ = ActiveReachWake.handleWake(

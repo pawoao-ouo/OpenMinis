@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// 小梦主动 · 控制面板快照。
-/// 本刀只存配置，不接唤醒 / 打分 / 通知。
+/// 配置即时读写。打分见 ActiveReachScore。不发通知。
 ///
 /// 总闸语义：`enabled == false` 时，未来任何唤醒与待发都必须停。
 /// 自然日以设备本地日历 0 点为界；跨日由 `ActiveReachLogic.resetCountsIfNeeded` 清零计数。
@@ -122,6 +122,7 @@ final class ActiveReachStore: ObservableObject {
 
     @Published private(set) var snapshot: ActiveReachSnapshot
     @Published private(set) var decisions: [ActiveReachDecision]
+    @Published private(set) var drafts: [ActiveReachDraft]
 
     private let defaults: UserDefaults
 
@@ -132,6 +133,7 @@ final class ActiveReachStore: ObservableObject {
         ActiveReachLogic.resetCountsIfNeeded(&loaded, now: now)
         snapshot = loaded
         decisions = ActiveReachWake.loadDecisions(from: defaults)
+        drafts = ActiveReachScore.loadDrafts(from: defaults)
     }
 
     var isEnabled: Bool { ActiveReachLogic.isEnabled(snapshot) }
@@ -143,7 +145,7 @@ final class ActiveReachStore: ObservableObject {
         // Knife 1: no pending wake or notification queue yet.
     }
 
-    /// 唤醒信号入口。记日志后停在打分前。
+    /// 唤醒门闩。blocked 才落日志；allowed 交给 runReachCycle 写最终决策。
     @discardableResult
     func handleWake(source: String, now: Date = Date(), calendar: Calendar = .current) -> WakeDisposition {
         var snap = snapshot
@@ -162,6 +164,43 @@ final class ActiveReachStore: ObservableObject {
         return disposition
     }
 
+    /// 门闩 + 打分。不发通知。草稿入队，cap 不预占。
+    @discardableResult
+    func runReachCycle(
+        source: String,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        sessions: ActiveReachSessionReading = ChatStoreReachReading(),
+        model: ActiveReachModelCalling = ModelUseReachCaller(),
+        memorySnippet: String? = nil
+    ) async -> ReachCycleResult? {
+        let wake = handleWake(source: source, now: now, calendar: calendar)
+        guard case .allowed = wake else { return nil }
+        let memory = memorySnippet ?? ActiveReachMemorySnippet.load(now: now)
+        let cycle = await ActiveReachScore.run(
+            snapshot: snapshot,
+            source: source,
+            now: now,
+            memorySnippet: memory,
+            sessions: sessions,
+            model: model
+        )
+        let entry = ActiveReachDecision.fromCycle(
+            cycle, snapshot: snapshot, source: source, now: now)
+        decisions = ActiveReachWake.prepend(entry, onto: decisions)
+        if let draft = cycle.draft {
+            drafts = ActiveReachScore.prependDraft(draft, onto: drafts)
+        }
+        persistDecisions()
+        persistDrafts()
+        return cycle
+    }
+
+    func discardAllDrafts() {
+        drafts = []
+        persistDrafts()
+    }
+
     func setEnabled(_ value: Bool) {
         mutate { snap in
             snap.enabled = value
@@ -172,6 +211,7 @@ final class ActiveReachStore: ObservableObject {
         }
         if !value {
             cancelPending()
+            discardAllDrafts()
         }
     }
 
@@ -234,6 +274,12 @@ final class ActiveReachStore: ObservableObject {
     private func persistDecisions() {
         if let data = ActiveReachWake.encodeDecisions(decisions) {
             defaults.set(data, forKey: ActiveReachWake.decisionLogKey)
+        }
+    }
+
+    private func persistDrafts() {
+        if let data = ActiveReachScore.encodeDrafts(drafts) {
+            defaults.set(data, forKey: ActiveReachScore.draftKey)
         }
     }
 
