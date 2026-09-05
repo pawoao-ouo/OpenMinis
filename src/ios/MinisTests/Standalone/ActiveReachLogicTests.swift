@@ -23,6 +23,7 @@ struct ActiveReachSnapshot: Equatable, Codable {
     var dialogIds: [String]
     var quietTimeoutMinutes: Int
     var dialogActiveHours: Int
+    var scoreThreshold: Int
     var dailyCapCount: Int
     var dailyBreakCount: Int
     var countsDate: String
@@ -36,10 +37,77 @@ struct ActiveReachSnapshot: Equatable, Codable {
         dialogIds: [],
         quietTimeoutMinutes: 120,
         dialogActiveHours: 24,
+        scoreThreshold: 60,
         dailyCapCount: 0,
         dailyBreakCount: 0,
         countsDate: ""
     )
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, intervalMinutes, dailyCap, dailyBreakCap, modelId, dialogIds
+        case quietTimeoutMinutes, dialogActiveHours, scoreThreshold
+        case dailyCapCount, dailyBreakCount, countsDate
+    }
+
+    init(
+        enabled: Bool,
+        intervalMinutes: Int,
+        dailyCap: Int,
+        dailyBreakCap: Int,
+        modelId: String,
+        dialogIds: [String],
+        quietTimeoutMinutes: Int,
+        dialogActiveHours: Int,
+        scoreThreshold: Int = 60,
+        dailyCapCount: Int,
+        dailyBreakCount: Int,
+        countsDate: String
+    ) {
+        self.enabled = enabled
+        self.intervalMinutes = intervalMinutes
+        self.dailyCap = dailyCap
+        self.dailyBreakCap = dailyBreakCap
+        self.modelId = modelId
+        self.dialogIds = dialogIds
+        self.quietTimeoutMinutes = quietTimeoutMinutes
+        self.dialogActiveHours = dialogActiveHours
+        self.scoreThreshold = scoreThreshold
+        self.dailyCapCount = dailyCapCount
+        self.dailyBreakCount = dailyBreakCount
+        self.countsDate = countsDate
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decode(Bool.self, forKey: .enabled)
+        intervalMinutes = try c.decode(Int.self, forKey: .intervalMinutes)
+        dailyCap = try c.decode(Int.self, forKey: .dailyCap)
+        dailyBreakCap = try c.decode(Int.self, forKey: .dailyBreakCap)
+        modelId = try c.decode(String.self, forKey: .modelId)
+        dialogIds = try c.decode([String].self, forKey: .dialogIds)
+        quietTimeoutMinutes = try c.decode(Int.self, forKey: .quietTimeoutMinutes)
+        dialogActiveHours = try c.decode(Int.self, forKey: .dialogActiveHours)
+        scoreThreshold = try c.decodeIfPresent(Int.self, forKey: .scoreThreshold) ?? 60
+        dailyCapCount = try c.decode(Int.self, forKey: .dailyCapCount)
+        dailyBreakCount = try c.decode(Int.self, forKey: .dailyBreakCount)
+        countsDate = try c.decode(String.self, forKey: .countsDate)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(intervalMinutes, forKey: .intervalMinutes)
+        try c.encode(dailyCap, forKey: .dailyCap)
+        try c.encode(dailyBreakCap, forKey: .dailyBreakCap)
+        try c.encode(modelId, forKey: .modelId)
+        try c.encode(dialogIds, forKey: .dialogIds)
+        try c.encode(quietTimeoutMinutes, forKey: .quietTimeoutMinutes)
+        try c.encode(dialogActiveHours, forKey: .dialogActiveHours)
+        try c.encode(scoreThreshold, forKey: .scoreThreshold)
+        try c.encode(dailyCapCount, forKey: .dailyCapCount)
+        try c.encode(dailyBreakCount, forKey: .dailyBreakCount)
+        try c.encode(countsDate, forKey: .countsDate)
+    }
 }
 
 enum ActiveReachBounds {
@@ -48,6 +116,7 @@ enum ActiveReachBounds {
     static let dailyBreakCap = 0...5
     static let quietTimeoutMinutes = 30...720
     static let dialogActiveHours = 1...168
+    static let scoreThreshold = 20...200
 }
 
 enum ActiveReachLogic {
@@ -84,6 +153,8 @@ enum ActiveReachLogic {
             snapshot.quietTimeoutMinutes, to: ActiveReachBounds.quietTimeoutMinutes)
         snapshot.dialogActiveHours = clampInt(
             snapshot.dialogActiveHours, to: ActiveReachBounds.dialogActiveHours)
+        snapshot.scoreThreshold = clampInt(
+            snapshot.scoreThreshold, to: ActiveReachBounds.scoreThreshold)
         snapshot.dailyCapCount = max(0, snapshot.dailyCapCount)
         snapshot.dailyBreakCount = max(0, snapshot.dailyBreakCount)
         snapshot.modelId = snapshot.modelId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -137,6 +208,7 @@ checkEq("timeout 120", def.quietTimeoutMinutes, 120)
 check("dialogs empty", def.dialogIds.isEmpty)
 check("model empty", def.modelId.isEmpty)
 checkEq("active hours 24", def.dialogActiveHours, 24)
+checkEq("threshold 60", def.scoreThreshold, 60)
 checkEq("storage key", ActiveReachLogic.storageKey, "activeReach.config.v1")
 
 print("\nmaster switch")
@@ -178,6 +250,7 @@ wild.dailyCap = 99
 wild.dailyBreakCap = -3
 wild.quietTimeoutMinutes = 10
 wild.dialogActiveHours = 0
+wild.scoreThreshold = 1
 wild.modelId = "  grok-4.3  "
 wild.dialogIds = ["  ", "aaa", "aaa", " bbb "]
 ActiveReachLogic.clamp(&wild)
@@ -186,6 +259,10 @@ checkEq("cap ceiling 20", wild.dailyCap, 20)
 checkEq("break floor 0", wild.dailyBreakCap, 0)
 checkEq("timeout floor 30", wild.quietTimeoutMinutes, 30)
 checkEq("active hours floor 1", wild.dialogActiveHours, 1)
+checkEq("threshold floor 20", wild.scoreThreshold, 20)
+wild.scoreThreshold = 999
+ActiveReachLogic.clamp(&wild)
+checkEq("threshold ceiling 200", wild.scoreThreshold, 200)
 checkEq("model trimmed", wild.modelId, "grok-4.3")
 checkEq("dialog unique keep order", wild.dialogIds, ["aaa", "bbb"])
 
@@ -206,6 +283,15 @@ checkEq("round-trip enabled", loaded.enabled, true)
 checkEq("round-trip interval", loaded.intervalMinutes, 90)
 checkEq("round-trip dialogs", loaded.dialogIds, ["SID-1"])
 checkEq("round-trip model", loaded.modelId, "entry-abc")
+checkEq("round-trip threshold", loaded.scoreThreshold, 60)
+
+print("\nold archive missing scoreThreshold")
+let oldJSON = """
+{"enabled":false,"intervalMinutes":60,"dailyCap":3,"dailyBreakCap":1,"modelId":"","dialogIds":[],"quietTimeoutMinutes":120,"dialogActiveHours":24,"dailyCapCount":0,"dailyBreakCount":0,"countsDate":""}
+"""
+let oldDecoded = try! JSONDecoder().decode(
+    ActiveReachSnapshot.self, from: oldJSON.data(using: .utf8)!)
+checkEq("old archive defaults 60", oldDecoded.scoreThreshold, 60)
 
 print("\nshipping file agreement")
 let here = URL(fileURLWithPath: #filePath)
@@ -219,9 +305,17 @@ check("enabled default false", source.contains("enabled: false"))
 check("cancelPending hook", source.contains("func cancelPending()"))
 check("shouldAllowWake", source.contains("func shouldAllowWake"))
 check("resetCountsIfNeeded", source.contains("func resetCountsIfNeeded"))
+check("scoreThreshold field", source.contains("var scoreThreshold"))
+check("legacy default 60", source.contains("decodeIfPresent(Int.self, forKey: .scoreThreshold) ?? 60"))
+check("setScoreThreshold", source.contains("func setScoreThreshold"))
+check("setDialogSelected", source.contains("func setDialogSelected"))
 check("no notification call", !source.contains("apple-notification"))
 check("no UNUserNotification", !source.contains("UNUserNotificationCenter"))
 check("no BGTask", !source.contains("BGTaskScheduler"))
+check("scoreThreshold field", source.contains("var scoreThreshold"))
+check("decode default 60", source.contains("decodeIfPresent(Int.self, forKey: .scoreThreshold) ?? 60")
+    || source.contains("scoreThreshold = try c.decodeIfPresent(Int.self, forKey: .scoreThreshold) ?? 60"))
+check("bounds 20...200", source.contains("scoreThreshold = 20...200"))
 
 if failures == 0 {
     print("\nALL PASS")

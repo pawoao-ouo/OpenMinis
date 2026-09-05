@@ -17,6 +17,8 @@ struct ActiveReachSnapshot: Equatable, Codable {
     var dialogIds: [String]
     var quietTimeoutMinutes: Int
     var dialogActiveHours: Int
+    /// 想你的门槛。总分（情绪+时间）低于此不入草稿。旧存档缺字段当 60。
+    var scoreThreshold: Int
     /// 当日已发条数（cap 内）。本刀只存。
     var dailyCapCount: Int
     /// 当日已破例条数。本刀只存。
@@ -33,10 +35,77 @@ struct ActiveReachSnapshot: Equatable, Codable {
         dialogIds: [],
         quietTimeoutMinutes: 120,
         dialogActiveHours: 24,
+        scoreThreshold: 60,
         dailyCapCount: 0,
         dailyBreakCount: 0,
         countsDate: ""
     )
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, intervalMinutes, dailyCap, dailyBreakCap, modelId, dialogIds
+        case quietTimeoutMinutes, dialogActiveHours, scoreThreshold
+        case dailyCapCount, dailyBreakCount, countsDate
+    }
+
+    init(
+        enabled: Bool,
+        intervalMinutes: Int,
+        dailyCap: Int,
+        dailyBreakCap: Int,
+        modelId: String,
+        dialogIds: [String],
+        quietTimeoutMinutes: Int,
+        dialogActiveHours: Int,
+        scoreThreshold: Int = 60,
+        dailyCapCount: Int,
+        dailyBreakCount: Int,
+        countsDate: String
+    ) {
+        self.enabled = enabled
+        self.intervalMinutes = intervalMinutes
+        self.dailyCap = dailyCap
+        self.dailyBreakCap = dailyBreakCap
+        self.modelId = modelId
+        self.dialogIds = dialogIds
+        self.quietTimeoutMinutes = quietTimeoutMinutes
+        self.dialogActiveHours = dialogActiveHours
+        self.scoreThreshold = scoreThreshold
+        self.dailyCapCount = dailyCapCount
+        self.dailyBreakCount = dailyBreakCount
+        self.countsDate = countsDate
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decode(Bool.self, forKey: .enabled)
+        intervalMinutes = try c.decode(Int.self, forKey: .intervalMinutes)
+        dailyCap = try c.decode(Int.self, forKey: .dailyCap)
+        dailyBreakCap = try c.decode(Int.self, forKey: .dailyBreakCap)
+        modelId = try c.decode(String.self, forKey: .modelId)
+        dialogIds = try c.decode([String].self, forKey: .dialogIds)
+        quietTimeoutMinutes = try c.decode(Int.self, forKey: .quietTimeoutMinutes)
+        dialogActiveHours = try c.decode(Int.self, forKey: .dialogActiveHours)
+        scoreThreshold = try c.decodeIfPresent(Int.self, forKey: .scoreThreshold) ?? 60
+        dailyCapCount = try c.decode(Int.self, forKey: .dailyCapCount)
+        dailyBreakCount = try c.decode(Int.self, forKey: .dailyBreakCount)
+        countsDate = try c.decode(String.self, forKey: .countsDate)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(intervalMinutes, forKey: .intervalMinutes)
+        try c.encode(dailyCap, forKey: .dailyCap)
+        try c.encode(dailyBreakCap, forKey: .dailyBreakCap)
+        try c.encode(modelId, forKey: .modelId)
+        try c.encode(dialogIds, forKey: .dialogIds)
+        try c.encode(quietTimeoutMinutes, forKey: .quietTimeoutMinutes)
+        try c.encode(dialogActiveHours, forKey: .dialogActiveHours)
+        try c.encode(scoreThreshold, forKey: .scoreThreshold)
+        try c.encode(dailyCapCount, forKey: .dailyCapCount)
+        try c.encode(dailyBreakCount, forKey: .dailyBreakCount)
+        try c.encode(countsDate, forKey: .countsDate)
+    }
 }
 
 enum ActiveReachBounds {
@@ -45,6 +114,7 @@ enum ActiveReachBounds {
     static let dailyBreakCap = 0...5
     static let quietTimeoutMinutes = 30...720
     static let dialogActiveHours = 1...168
+    static let scoreThreshold = 20...200
 }
 
 enum ActiveReachLogic {
@@ -82,6 +152,8 @@ enum ActiveReachLogic {
             snapshot.quietTimeoutMinutes, to: ActiveReachBounds.quietTimeoutMinutes)
         snapshot.dialogActiveHours = clampInt(
             snapshot.dialogActiveHours, to: ActiveReachBounds.dialogActiveHours)
+        snapshot.scoreThreshold = clampInt(
+            snapshot.scoreThreshold, to: ActiveReachBounds.scoreThreshold)
         snapshot.dailyCapCount = max(0, snapshot.dailyCapCount)
         snapshot.dailyBreakCount = max(0, snapshot.dailyBreakCount)
         snapshot.modelId = snapshot.modelId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -378,6 +450,20 @@ final class ActiveReachStore: ObservableObject {
 
     func setDialogActiveHours(_ value: Int) {
         mutate { $0.dialogActiveHours = value }
+    }
+
+    func setScoreThreshold(_ value: Int) {
+        mutate { $0.scoreThreshold = value }
+    }
+
+    func setDialogSelected(_ id: String, selected: Bool) {
+        mutate { snap in
+            if selected {
+                if !snap.dialogIds.contains(id) { snap.dialogIds.append(id) }
+            } else {
+                snap.dialogIds.removeAll { $0 == id }
+            }
+        }
     }
 
     func addDialogId(_ raw: String) {

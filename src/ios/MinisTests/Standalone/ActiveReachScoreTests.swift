@@ -21,6 +21,7 @@ struct ActiveReachSnapshot {
     var dialogIds: [String]
     var quietTimeoutMinutes: Int
     var dialogActiveHours: Int
+    var scoreThreshold: Int = 60
     var dailyCapCount: Int
     var dailyBreakCount: Int
 }
@@ -155,8 +156,9 @@ enum ActiveReachScore {
         emotionScore: Int,
         wantSend: Bool,
         total: Int,
-        threshold: Int = scoreThreshold
+        threshold: Int? = nil
     ) -> CapDecision {
+        let threshold = threshold ?? snapshot.scoreThreshold
         if !wantSend {
             return CapDecision(
                 shouldDraft: false, wouldConsumeCap: false, wouldBreak: false,
@@ -321,22 +323,38 @@ capD = ActiveReachScore.capDecision(
     snapshot: snap, timedOut: true, emotionScore: 90, wantSend: true, total: 210)
 checkEq("capExhausted", capD.reason, "capExhausted")
 
-print("\nnoModel / noActiveDialog / parseFailed as log reasons")
-func gate(modelId: String, dialogs: [String], lastActive: [String: Date], raw: String?) -> String {
+print("\nnoModel / noActiveDialog / modelFailed / parseFailed")
+func gate(modelId: String, dialogs: [String], lastActive: [String: Date], callFailed: Bool, raw: String?) -> String {
     if modelId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "noModel" }
     switch ActiveReachScore.pickDialog(ids: dialogs, lastActive: lastActive, now: now, activeHours: 24) {
     case .failure(let r): return r
     case .success:
+        if callFailed { return "modelFailed" }
         if let raw, ActiveReachScore.parseModelJSON(raw) == nil { return "parseFailed" }
         return "ok"
     }
 }
-checkEq("noModel", gate(modelId: "", dialogs: ["A"], lastActive: [:], raw: nil), "noModel")
+checkEq("noModel", gate(modelId: "", dialogs: ["A"], lastActive: [:], callFailed: false, raw: nil), "noModel")
 checkEq("noActiveDialog", gate(
     modelId: "m", dialogs: ["A"],
-    lastActive: ["A": now.addingTimeInterval(-100 * 3600)], raw: nil), "noActiveDialog")
+    lastActive: ["A": now.addingTimeInterval(-100 * 3600)], callFailed: false, raw: nil), "noActiveDialog")
+checkEq("modelFailed", gate(
+    modelId: "m", dialogs: ["A"], lastActive: [:], callFailed: true, raw: nil), "modelFailed")
 checkEq("parseFailed", gate(
-    modelId: "m", dialogs: ["A"], lastActive: [:], raw: "nope"), "parseFailed")
+    modelId: "m", dialogs: ["A"], lastActive: [:], callFailed: false, raw: "nope"), "parseFailed")
+
+print("\ncapDecision uses snapshot threshold")
+var threshSnap = ActiveReachSnapshot(
+    enabled: true, dailyCap: 3, dailyBreakCap: 1, modelId: "m",
+    dialogIds: ["A"], quietTimeoutMinutes: 120, dialogActiveHours: 24,
+    scoreThreshold: 200, dailyCapCount: 0, dailyBreakCount: 0)
+var threshCap = ActiveReachScore.capDecision(
+    snapshot: threshSnap, timedOut: false, emotionScore: 40, wantSend: true, total: 115)
+checkEq("custom 200 blocks 115", threshCap.reason, "belowThreshold")
+threshSnap.scoreThreshold = 60
+threshCap = ActiveReachScore.capDecision(
+    snapshot: threshSnap, timedOut: false, emotionScore: 40, wantSend: true, total: 115)
+check("custom 60 allows 115", threshCap.shouldDraft)
 
 print("\nshipping")
 let here = URL(fileURLWithPath: #filePath)
@@ -350,8 +368,9 @@ check("pickDialog", source.contains("func pickDialog"))
 check("noModel", source.contains("noModel"))
 check("noActiveDialog", source.contains("noActiveDialog"))
 check("parseFailed", source.contains("parseFailed"))
+check("modelFailed", source.contains("modelFailed"))
 check("draftLimit 20", source.contains("draftLimit = 20"))
-check("threshold 60", source.contains("scoreThreshold = 60"))
+check("reads snapshot threshold", source.contains("threshold: snapshot.scoreThreshold"))
 check("ModelUseOffloadBridge", source.contains("ModelUseOffloadBridge.runModel"))
 check("ChatStore.loadMessages", source.contains("loadMessages(sessionId"))
 check("no notify", !source.contains("UNUserNotificationCenter") && !source.contains("apple-notification"))

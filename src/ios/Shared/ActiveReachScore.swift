@@ -346,7 +346,7 @@ enum ActiveReachScore {
         switch raw {
         case .failure:
             return fail(
-                "parseFailed", source: source, snapshot: snapshot, dialogId: picked.id,
+                "modelFailed", source: source, snapshot: snapshot, dialogId: picked.id,
                 pickNote: picked.note, time: time)
         case .success(let text):
             output = text
@@ -365,7 +365,8 @@ enum ActiveReachScore {
             timedOut: time.timedOut,
             emotionScore: payload.emotionScore,
             wantSend: payload.wantSend,
-            total: total
+            total: total,
+            threshold: snapshot.scoreThreshold
         )
 
         var draft: ActiveReachDraft?

@@ -4,10 +4,26 @@ struct ActiveReachSettingsView: View {
     @ObservedObject private var store = ActiveReachStore.shared
     @ObservedObject private var studio = AppearanceStudio.shared
     @ObservedObject private var presence = ActiveReachPresence.shared
+    @ObservedObject private var providers = ProviderConfigStore.shared
     @State private var newDialogId = ""
+    @State private var sessions: [ChatSession] = []
+    @State private var showAdvancedId = false
+
+    private var modelChoices: [ModelEntry] {
+        providers.config.modelEntries.filter { !$0.isHidden }
+    }
 
     var body: some View {
         List {
+            Section {
+                Text("总闸默认关。")
+                Text("系统「快捷指令 → 自动化 → 定时」跑「小梦主动唤醒」。")
+                Text("只入草稿，要在本页点发送才通知。")
+                Text("你在前台时我不主动想。")
+            } header: {
+                Text("怎么用")
+            }
+
             Section {
                 Toggle(isOn: Binding(
                     get: { store.snapshot.enabled },
@@ -40,8 +56,6 @@ struct ActiveReachSettingsView: View {
                 Toggle("调试：在场也跑", isOn: $presence.debugRunWhilePresent)
             } header: {
                 Text("小梦主动")
-            } footer: {
-                Text("你在看的时候我不主动想着找你。定时请在系统「快捷指令 → 自动化」里加「到时间执行小梦主动唤醒」。兜底不准点。")
             }
 
             Section {
@@ -65,15 +79,21 @@ struct ActiveReachSettingsView: View {
                     range: ActiveReachBounds.dailyBreakCap,
                     suffix: "条"
                 ) { store.setDailyBreakCap($0) }
+
+                stepperRow(
+                    title: "想你的门槛",
+                    value: store.snapshot.scoreThreshold,
+                    range: ActiveReachBounds.scoreThreshold,
+                    suffix: ""
+                ) { store.setScoreThreshold($0) }
             } header: {
                 Text("节奏")
             } footer: {
-                Text("间隔是多久醒一次去想你。上限和破例分开算，破例更紧。")
+                Text("间隔是多久醒一次去想你。门槛是总分要过多少才入草稿。上限和破例分开算。")
             }
 
             Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("API 模型")
+                if modelChoices.isEmpty {
                     TextField("模型 id 或显示名，空着先不调", text: Binding(
                         get: { store.snapshot.modelId },
                         set: { store.setModelId($0) }
@@ -81,44 +101,91 @@ struct ActiveReachSettingsView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .font(.system(.body, design: .monospaced))
+                } else {
+                    Picker("模型", selection: Binding(
+                        get: { store.snapshot.modelId },
+                        set: { store.setModelId($0) }
+                    )) {
+                        Text("还没选").tag("")
+                        ForEach(modelChoices, id: \.id) { entry in
+                            Text(Self.modelLabel(entry)).tag(entry.id)
+                        }
+                    }
+                    if !store.snapshot.modelId.isEmpty,
+                       !modelChoices.contains(where: { $0.id == store.snapshot.modelId }) {
+                        Text("当前值不在列表里：\(store.snapshot.modelId)")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                    }
+                    TextField("高级：手填 entry id / 显示名", text: Binding(
+                        get: { store.snapshot.modelId },
+                        set: { store.setModelId($0) }
+                    ))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(.caption, design: .monospaced))
                 }
             } header: {
                 Text("模型")
             } footer: {
-                Text("只存名字，不写死、不在这一页调接口。空着等于还没配。")
+                Text(modelChoices.isEmpty
+                     ? "填 Minis 里模型的 entry id 或显示名。空着等于还没配。"
+                     : "从已配置模型里选。仍可手填。")
             }
 
             Section {
-                if store.snapshot.dialogIds.isEmpty {
-                    Text("还没指定。空着就不发。")
+                if sessions.isEmpty {
+                    Text("还没有会话。空着就不发。")
                         .foregroundStyle(studio.color(.secondaryText, scope: .settings))
                 }
-                ForEach(store.snapshot.dialogIds, id: \.self) { id in
-                    HStack {
-                        Text(id)
-                            .font(.system(.caption, design: .monospaced))
-                        Spacer()
-                        Button("删") {
-                            store.removeDialogId(id)
+                ForEach(sessions) { session in
+                    Button {
+                        let on = store.snapshot.dialogIds.contains(session.id)
+                        store.setDialogSelected(session.id, selected: !on)
+                    } label: {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: store.snapshot.dialogIds.contains(session.id)
+                                  ? "checkmark.circle.fill" : "circle")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(Self.sessionTitle(session))
+                                Text(session.id)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                                Text(Self.formatTime(session.updatedAt.timeIntervalSince1970))
+                                    .font(.caption)
+                                    .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                            }
+                            Spacer()
                         }
-                        .foregroundStyle(studio.color(.destructive, scope: .settings))
                     }
+                    .foregroundStyle(studio.color(.primaryText, scope: .settings))
                 }
-                HStack {
-                    TextField("会话 ID", text: $newDialogId)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.system(.body, design: .monospaced))
-                    Button("加") {
-                        store.addDialogId(newDialogId)
-                        newDialogId = ""
+                DisclosureGroup("高级：手动加 ID", isExpanded: $showAdvancedId) {
+                    ForEach(orphanDialogIds, id: \.self) { id in
+                        HStack {
+                            Text(id)
+                                .font(.system(.caption, design: .monospaced))
+                            Spacer()
+                            Button("删") { store.removeDialogId(id) }
+                                .foregroundStyle(studio.color(.destructive, scope: .settings))
+                        }
                     }
-                    .disabled(newDialogId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    HStack {
+                        TextField("会话 ID", text: $newDialogId)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(.body, design: .monospaced))
+                        Button("加") {
+                            store.addDialogId(newDialogId)
+                            newDialogId = ""
+                        }
+                        .disabled(newDialogId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
                 }
             } header: {
                 Text("指定对话框")
             } footer: {
-                Text("只往这里面发。一个都不填，等于不许发。")
+                Text("勾选才会往那儿想。一个都不勾，等于不许发。")
             }
 
             Section {
@@ -166,7 +233,7 @@ struct ActiveReachSettingsView: View {
             } header: {
                 Text("高级")
             } footer: {
-                Text("自然日 0 点清零。本刀只记账，不真发。")
+                Text("自然日 0 点清零。")
             }
 
             Section {
@@ -243,6 +310,14 @@ struct ActiveReachSettingsView: View {
         .onAppear {
             store.resetCountsIfNeeded()
         }
+        .task {
+            sessions = await ChatStore.shared.listSessions()
+        }
+    }
+
+    private var orphanDialogIds: [String] {
+        let known = Set(sessions.map(\.id))
+        return store.snapshot.dialogIds.filter { !known.contains($0) }
     }
 
     private func stepperRow(
@@ -259,11 +334,21 @@ struct ActiveReachSettingsView: View {
             HStack {
                 Text(title)
                 Spacer()
-                Text("\(value) \(suffix)")
+                Text(suffix.isEmpty ? "\(value)" : "\(value) \(suffix)")
                     .foregroundStyle(studio.color(.secondaryText, scope: .settings))
                     .monospacedDigit()
             }
         }
+    }
+
+    private static func sessionTitle(_ session: ChatSession) -> String {
+        let t = session.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return t.isEmpty ? "未命名" : t
+    }
+
+    private static func modelLabel(_ entry: ModelEntry) -> String {
+        let name = entry.model.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? entry.id : name
     }
 
     private static func formatTime(_ epoch: TimeInterval) -> String {
@@ -319,6 +404,7 @@ struct ActiveReachSettingsView: View {
         case "noModel": return "没配模型"
         case "noActiveDialog": return "对话框都不活跃"
         case "readFailed": return "读会话失败"
+        case "modelFailed": return "模型没回上"
         case "parseFailed": return "模型结果读不懂"
         case "capExhausted": return "今天额度满了"
         case "belowThreshold": return "分不够"
