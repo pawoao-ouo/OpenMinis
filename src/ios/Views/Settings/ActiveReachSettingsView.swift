@@ -409,6 +409,7 @@ struct ActiveReachSettingsView: View {
         case "capExhausted": return "今天额度满了"
         case "belowThreshold": return "分不够"
         case "modelDeclined": return "模型说不发"
+        case "quietTimeout": return "超时别打扰（未破例）"
         case "wouldConsumeCap": return "会占一条额度"
         case "wouldBreak": return "会破例"
         case "emptyText": return "模型没写出话"

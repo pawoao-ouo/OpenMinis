@@ -219,12 +219,23 @@ enum ActiveReachScore {
                 shouldDraft: false, wouldConsumeCap: false, wouldBreak: false,
                 reason: "belowThreshold")
         }
+        // 规格：超时默认别骚扰。普通 cap 关闭；仅破例路径可入草稿。
+        if timedOut {
+            let strong = emotionScore >= 80
+            if strong && snapshot.dailyBreakCount < snapshot.dailyBreakCap {
+                return CapDecision(
+                    shouldDraft: true, wouldConsumeCap: false, wouldBreak: true, reason: nil)
+            }
+            return CapDecision(
+                shouldDraft: false, wouldConsumeCap: false, wouldBreak: false,
+                reason: "quietTimeout")
+        }
         if snapshot.dailyCapCount < snapshot.dailyCap {
             return CapDecision(
                 shouldDraft: true, wouldConsumeCap: true, wouldBreak: false, reason: nil)
         }
-        let strong = timedOut || emotionScore >= 80
-        if strong && snapshot.dailyBreakCount < snapshot.dailyBreakCap {
+        // cap 满：情绪很强才破例（超时已在上面处理）
+        if emotionScore >= 80 && snapshot.dailyBreakCount < snapshot.dailyBreakCap {
             return CapDecision(
                 shouldDraft: true, wouldConsumeCap: false, wouldBreak: true, reason: nil)
         }

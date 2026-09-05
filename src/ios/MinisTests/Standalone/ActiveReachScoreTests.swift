@@ -169,12 +169,21 @@ enum ActiveReachScore {
                 shouldDraft: false, wouldConsumeCap: false, wouldBreak: false,
                 reason: "belowThreshold")
         }
+        // quiet window: no normal cap; break only if emotion strong
+        if timedOut {
+            if emotionScore >= 80 && snapshot.dailyBreakCount < snapshot.dailyBreakCap {
+                return CapDecision(
+                    shouldDraft: true, wouldConsumeCap: false, wouldBreak: true, reason: nil)
+            }
+            return CapDecision(
+                shouldDraft: false, wouldConsumeCap: false, wouldBreak: false,
+                reason: "quietTimeout")
+        }
         if snapshot.dailyCapCount < snapshot.dailyCap {
             return CapDecision(
                 shouldDraft: true, wouldConsumeCap: true, wouldBreak: false, reason: nil)
         }
-        let strong = timedOut || emotionScore >= 80
-        if strong && snapshot.dailyBreakCount < snapshot.dailyBreakCap {
+        if emotionScore >= 80 && snapshot.dailyBreakCount < snapshot.dailyBreakCap {
             return CapDecision(
                 shouldDraft: true, wouldConsumeCap: false, wouldBreak: true, reason: nil)
         }
@@ -376,6 +385,25 @@ check("ChatStore.loadMessages", source.contains("loadMessages(sessionId"))
 check("no notify", !source.contains("UNUserNotificationCenter") && !source.contains("apple-notification"))
 check("no BGTask", !source.contains("BGTaskScheduler"))
 check("no hardcoded URL key", !source.contains("sk-") && !source.contains("https://api.openai.com"))
+
+
+# quiet timeout hard gate (retrospect fix)
+do {
+    var snap = ActiveReachSnapshot(
+        enabled: true, dailyCap: 3, dailyBreakCap: 1, modelId: "m",
+        dialogIds: ["a"], quietTimeoutMinutes: 120, dialogActiveHours: 24,
+        scoreThreshold: 60, dailyCapCount: 0, dailyBreakCount: 0)
+    let d1 = ActiveReachScore.capDecision(
+        snapshot: snap, timedOut: true, emotionScore: 40, wantSend: true, total: 160)
+    check("quietTimeout reason", d1.reason == "quietTimeout")
+    check("quiet no draft weak emotion", d1.shouldDraft, false)
+    let d2 = ActiveReachScore.capDecision(
+        snapshot: snap, timedOut: true, emotionScore: 85, wantSend: true, total: 200)
+    check("quiet break strong emotion", d2.shouldDraft && d2.wouldBreak)
+    let d3 = ActiveReachScore.capDecision(
+        snapshot: snap, timedOut: false, emotionScore: 40, wantSend: true, total: 100)
+    check("in-window normal cap", d3.shouldDraft && d3.wouldConsumeCap)
+}
 
 if failures == 0 {
     print("\nALL PASS")

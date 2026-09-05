@@ -170,4 +170,29 @@ enum ActiveReachSend {
     ) -> [ActiveReachDraft] {
         Array(([draft] + list).prefix(limit))
     }
+
+    /// 把主动那句写进目标会话，点开通知才能认领「我说的」。
+    /// 写库失败只打日志，不回滚已成功的通知与 cap（通知已出）。
+    @MainActor
+    static func persistAssistantBubble(sessionId: String, text: String) async {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sessionId.isEmpty, !body.isEmpty else { return }
+        let exists = await ChatStore.shared.getSession(sessionId) != nil
+        guard exists else {
+            // 会话没了就别造气泡，避免脏 id。
+            return
+        }
+        let raw = RawMessage(
+            id: UUID().uuidString.lowercased(),
+            sessionId: sessionId,
+            role: .assistant,
+            parts: [.text(body)],
+            createdAt: Date(),
+            tokenUsage: nil,
+            reasoningContent: nil,
+            streamInterruptCount: 0,
+            sortOrder: 0
+        )
+        await ChatStore.shared.appendMessage(raw)
+    }
 }

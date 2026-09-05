@@ -357,6 +357,9 @@ final class ActiveReachStore: ObservableObject {
                 persist()
                 persistDrafts()
                 persistSent()
+                // 第一原则：通知里的话必须落进对话，点开才能认领「我说的」。
+                await ActiveReachSend.persistAssistantBubble(
+                    sessionId: draft.dialogId, text: draft.text)
                 logSend(
                     disposition: "sent",
                     reason: usedBreak ? "break" : "cap",
@@ -425,6 +428,8 @@ final class ActiveReachStore: ObservableObject {
         }
         if !value {
             cancelPending()
+            // 关闸世界安静：待发草稿也清，避免重开后手滑发出旧句。
+            discardAllDrafts()
         }
     }
 
