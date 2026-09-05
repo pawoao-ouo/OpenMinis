@@ -3,6 +3,7 @@ import SwiftUI
 struct ActiveReachSettingsView: View {
     @ObservedObject private var store = ActiveReachStore.shared
     @ObservedObject private var studio = AppearanceStudio.shared
+    @ObservedObject private var presence = ActiveReachPresence.shared
     @State private var newDialogId = ""
 
     var body: some View {
@@ -26,13 +27,21 @@ struct ActiveReachSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(studio.color(.secondaryText, scope: .settings))
                 }
+                HStack {
+                    Text("在场")
+                    Spacer()
+                    Text(presence.isPresent ? "是" : "否")
+                        .font(.caption)
+                        .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                }
                 Button("立刻跑一轮（只打分入草稿）") {
                     Task { await store.runNow() }
                 }
+                Toggle("调试：在场也跑", isOn: $presence.debugRunWhilePresent)
             } header: {
                 Text("小梦主动")
             } footer: {
-                Text("默认关。定时请在系统「快捷指令 → 自动化」里加「到时间执行小梦主动唤醒」。app 里兜底不准点，还得保活开着。")
+                Text("你在看的时候我不主动想着找你。定时请在系统「快捷指令 → 自动化」里加「到时间执行小梦主动唤醒」。兜底不准点。")
             }
 
             Section {
@@ -305,6 +314,7 @@ struct ActiveReachSettingsView: View {
     private static func reasonLine(_ item: ActiveReachDecision) -> String {
         switch item.reason {
         case "masterOff": return "总闸关"
+        case "sheIsHere": return "你在"
         case "noDialogs": return "没指定对话框"
         case "noModel": return "没配模型"
         case "noActiveDialog": return "对话框都不活跃"

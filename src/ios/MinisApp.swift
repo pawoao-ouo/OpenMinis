@@ -447,6 +447,7 @@ struct MinisApp: App {
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         switch phase {
         case .active:
+            ActiveReachPresence.shared.setPresent(true)
             let remaining = UIApplication.shared.backgroundTimeRemaining
             if let entry = backgroundEntryDate {
                 let elapsed = Date().timeIntervalSince(entry)
@@ -605,6 +606,7 @@ struct MinisApp: App {
             }
 
         case .background:
+            ActiveReachPresence.shared.setPresent(false)
             backgroundEntryDate = Date()
             let remaining = UIApplication.shared.backgroundTimeRemaining
             lifecycleLog.info("[Lifecycle] → Background (remaining: \(Self.formatTimeRemaining(remaining)))")

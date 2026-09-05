@@ -169,7 +169,8 @@ final class ActiveReachStore: ObservableObject {
             log: &log,
             source: source,
             now: now,
-            calendar: calendar
+            calendar: calendar,
+            sheIsHere: ActiveReachPresence.shared.shouldBlockScoring
         )
         snapshot = snap
         decisions = log
@@ -227,7 +228,8 @@ final class ActiveReachStore: ObservableObject {
             intervalMinutes: snapshot.intervalMinutes,
             lastAttemptAt: lastWakeAttemptAt,
             lastKeepAliveAt: lastKeepAliveAt,
-            now: now
+            now: now,
+            isPresent: ActiveReachPresence.shared.shouldBlockScoring
         ) else { return }
         lastKeepAliveAt = now
         defaults.set(now.timeIntervalSince1970, forKey: ActiveReachKeepAlive.lastKeepAliveAtKey)

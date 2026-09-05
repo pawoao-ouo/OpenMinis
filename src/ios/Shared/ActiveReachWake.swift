@@ -5,7 +5,9 @@ import Foundation
 enum WakeBlockReason: String, Equatable, Codable {
     /// 总闸关。优先级最高。
     case masterOff
-    /// 未指定对话框。发送门；本刀与打分入口合并：空列表不准进入打分/发送。
+    /// 她在前台。不调模型、不入草稿。手动发通知不走这条。
+    case sheIsHere
+    /// 未指定对话框。发送门；空列表不准进入打分/发送。
     case noDialogs
 }
 
@@ -70,10 +72,14 @@ enum ActiveReachWake {
     static func evaluate(
         snapshot: ActiveReachSnapshot,
         source: String,
-        now: Date
+        now: Date,
+        sheIsHere: Bool = false
     ) -> WakeDisposition {
         if !shouldAllowWake(snapshot) {
             return .blocked(reason: .masterOff)
+        }
+        if sheIsHere {
+            return .blocked(reason: .sheIsHere)
         }
         if snapshot.dialogIds.isEmpty {
             return .blocked(reason: .noDialogs)
@@ -86,10 +92,12 @@ enum ActiveReachWake {
         log: inout [ActiveReachDecision],
         source: String,
         now: Date,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        sheIsHere: Bool = false
     ) -> WakeDisposition {
         ActiveReachLogic.resetCountsIfNeeded(&snapshot, now: now, calendar: calendar)
-        let disposition = evaluate(snapshot: snapshot, source: source, now: now)
+        let disposition = evaluate(
+            snapshot: snapshot, source: source, now: now, sheIsHere: sheIsHere)
         if case .blocked = disposition {
             let entry = ActiveReachDecision.make(
                 disposition: disposition,

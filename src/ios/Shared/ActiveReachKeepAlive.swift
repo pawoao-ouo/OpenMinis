@@ -19,9 +19,11 @@ enum ActiveReachKeepAlive {
         intervalMinutes: Int,
         lastAttemptAt: Date?,
         lastKeepAliveAt: Date?,
-        now: Date
+        now: Date,
+        isPresent: Bool = false
     ) -> Bool {
         guard enabled else { return false }
+        guard !isPresent else { return false }
         let gap = TimeInterval(thresholdMinutes(intervalMinutes: intervalMinutes) * 60)
         if let last = lastAttemptAt, now.timeIntervalSince(last) < gap {
             return false
