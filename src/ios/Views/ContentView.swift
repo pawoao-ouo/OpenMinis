@@ -6206,6 +6206,10 @@ private struct MenuKey: Equatable {
 /// the row structs; the composed icon made a third copy untenable.
 /// Pure function — safe to call from the `groupedSessions` aggregation pass.
 func sessionCategoryIcon(for category: String?) -> (systemName: String, color: Color) {
+    MinisThemeList.categoryIcon(for: category)
+}
+
+func sessionCategoryIconBuiltin(for category: String?) -> (systemName: String, color: Color) {
     switch category {
     case "code":         return ("terminal.fill", .orange)
     case "writing":      return ("doc.text.fill", .blue)
@@ -6224,6 +6228,14 @@ func sessionCategoryIcon(for category: String?) -> (systemName: String, color: C
     case "support":      return ("gearshape.fill", .brown)
     case "other":        return ("square.grid.2x2.fill", .gray)
     default:             return ("bubble.left.fill", .gray)
+    }
+}
+
+fileprivate func minisListIconClip() -> AnyShape {
+    switch MinisThemeList.iconShape {
+    case .circle: return AnyShape(Circle())
+    case .squircle: return AnyShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    case .rounded: return AnyShape(RoundedRectangle(cornerRadius: 10, style: .circular))
     }
 }
 
@@ -6410,7 +6422,7 @@ private struct SessionRow: View, Equatable {
             providerIcon
                 .frame(width: 44, height: 44)
                 .background(iconBackgroundColor.opacity(isHighlighted ? 0.35 : 0.18))
-                .clipShape(Circle())
+                .clipShape(minisListIconClip())
                 .overlay {
                     if isSuspended {
                         SuspendedRing(color: .yellow)
@@ -6460,7 +6472,7 @@ private struct SessionRow: View, Equatable {
                 highlightedText(
                     session.title ?? "New Chat",
                     font: .system(size: fontSettings.scaledApp(16), weight: .semibold),
-                    color: Color(UIColor.label)
+                    color: MinisThemeList.title
                 )
                 .lineLimit(1)
 
@@ -6473,14 +6485,14 @@ private struct SessionRow: View, Equatable {
                     highlightedText(
                         snippet,
                         font: .system(size: fontSettings.scaledApp(14)),
-                        color: Color(UIColor.secondaryLabel)
+                        color: MinisThemeList.subtitle
                     )
                     .lineLimit(2)
                 } else {
                     highlightedText(
                         session.lastMessage ?? "No messages yet",
                         font: .system(size: fontSettings.scaledApp(14)),
-                        color: Color(UIColor.secondaryLabel)
+                        color: MinisThemeList.subtitle
                     )
                     .lineLimit(1)
                 }
@@ -6506,20 +6518,21 @@ private struct SessionRow: View, Equatable {
                 // Date
                 Text(relativeDate(session.updatedAt))
                     .font(.system(size: fontSettings.scaledApp(13)))
-                    .foregroundStyle(Color(UIColor.tertiaryLabel))
+                    .foregroundStyle(MinisThemeList.meta)
                 if isVisuallyLocked {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(Color(UIColor.tertiaryLabel))
+                        .foregroundStyle(MinisThemeList.meta)
                 } else if session.isPinned {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(Color(UIColor.tertiaryLabel))
+                        .foregroundStyle(MinisThemeList.meta)
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .background(MinisThemeList.rowFill)
         .contentShape(Rectangle())
         #if DEBUG
         // TEMPORARY height probe — confirms List self-sizing jitter source.
@@ -6717,7 +6730,7 @@ private struct RemoteSessionRow: View {
             providerIcon
                 .frame(width: 44, height: 44)
                 .background(iconColor.opacity(0.18))
-                .clipShape(Circle())
+                .clipShape(minisListIconClip())
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: "icloud.fill")
                         .font(.system(size: 7, weight: .bold))
@@ -6731,11 +6744,11 @@ private struct RemoteSessionRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(session.title ?? "Untitled")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(UIColor.label))
+                    .foregroundStyle(MinisThemeList.title)
                     .lineLimit(1)
                 Text(session.updatedAt, style: .relative)
                     .font(.system(size: 14))
-                    .foregroundStyle(Color(UIColor.secondaryLabel))
+                    .foregroundStyle(MinisThemeList.subtitle)
                     .lineLimit(1)
             }
 
@@ -6743,6 +6756,7 @@ private struct RemoteSessionRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .background(MinisThemeList.rowFill)
         .contentShape(Rectangle())
     }
 
@@ -6812,21 +6826,22 @@ struct SessionEditSheet: View {
                 Section("Category") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 12)], spacing: 12) {
                         ForEach(Self.categories, id: \.key) { cat in
+                            let themed = sessionCategoryIcon(for: cat.key)
                             Button {
                                 editCategory = cat.key
                             } label: {
                                 VStack(spacing: 6) {
-                                    Image(systemName: cat.icon)
+                                    Image(systemName: themed.systemName)
                                         .font(.system(size: 20))
-                                        .foregroundStyle(editCategory == cat.key ? .white : cat.color)
+                                        .foregroundStyle(editCategory == cat.key ? .white : themed.color)
                                         .frame(width: 44, height: 44)
                                         .background(
-                                            Circle()
-                                                .fill(editCategory == cat.key ? cat.color : cat.color.opacity(0.12))
+                                            (editCategory == cat.key ? themed.color : themed.color.opacity(0.12))
                                         )
+                                        .clipShape(minisListIconClip())
                                     Text(LocalizedStringKey(cat.label))
                                         .font(.caption2)
-                                        .foregroundStyle(editCategory == cat.key ? cat.color : .secondary)
+                                        .foregroundStyle(editCategory == cat.key ? themed.color : MinisThemeList.subtitle)
                                 }
                             }
                             .buttonStyle(.plain)

@@ -120,7 +120,7 @@ struct AppearanceStudioView: View {
             } header: {
                 Text("AI 主题包")
             } footer: {
-                Text("一整套：色、气泡形状、thinking 卡片图、壁纸。小梦也可以用 minis-theme 直接贴上来。")
+                Text("一整套：色、气泡形状、thinking 卡片图、会话列表、分类图标、壁纸。小梦也可以用 minis-theme 直接贴上来。")
             }
 
             Section {

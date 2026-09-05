@@ -18,6 +18,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var assistantBubbleStyle: String
     var thinkingCardJPEGBase64: String?
     var thinkingCardImageOpacity: Double
+    var listRowFillHex: String?
+    var listIconShape: String
+    var categoryIcons: [String: String]
+    var categoryColors: [String: String]
     var wallpaperShade: Double?
     var surfaceOpacity: Double?
     var colorsLight: [String: String]
@@ -25,7 +29,12 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var wallpaperJPEGBase64: String?
 
     static let currentKey = "appearanceStudio.themePack.v1"
-    static let schemaVersion = 2
+    static let schemaVersion = 3
+    static let categoryKeys = [
+        "code", "writing", "research", "analysis", "creative", "chat", "math",
+        "translation", "health", "finance", "travel", "education", "design",
+        "productivity", "support", "other",
+    ]
 
     static let `default` = AppearanceThemePack(
         id: "warm-paper",
@@ -40,6 +49,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         assistantBubbleStyle: AppearanceBubbleStyle.rounded.rawValue,
         thinkingCardJPEGBase64: nil,
         thinkingCardImageOpacity: 0.28,
+        listRowFillHex: nil,
+        listIconShape: AppearanceListIconShape.circle.rawValue,
+        categoryIcons: [:],
+        categoryColors: [:],
         wallpaperShade: 0.08,
         surfaceOpacity: 0.88,
         colorsLight: [:],
@@ -79,9 +92,13 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             "userBubbleStyle": userStyle.rawValue,
             "assistantBubbleStyle": assistantStyle.rawValue,
             "thinkingCardImageOpacity": thinkingCardImageOpacity,
+            "listIconShape": AppearanceListIconShape.parse(listIconShape).rawValue,
+            "categoryIcons": categoryIcons,
+            "categoryColors": categoryColors,
             "colorsLight": colorsLight,
             "colorsDark": colorsDark,
         ]
+        if let listRowFillHex { obj["listRowFillHex"] = listRowFillHex }
         if let wallpaperShade { obj["wallpaperShade"] = wallpaperShade }
         if let surfaceOpacity { obj["surfaceOpacity"] = surfaceOpacity }
         if let wallpaperJPEGBase64 { obj["wallpaperJPEGBase64"] = wallpaperJPEGBase64 }
@@ -123,6 +140,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             assistantBubbleStyle: AppearanceBubbleStyle.parse(str("assistantBubbleStyle", fallback: base.assistantBubbleStyle)).rawValue,
             thinkingCardJPEGBase64: raw["thinkingCardJPEGBase64"] as? String,
             thinkingCardImageOpacity: min(1, max(0.05, num("thinkingCardImageOpacity", fallback: base.thinkingCardImageOpacity))),
+            listRowFillHex: (raw["listRowFillHex"] as? String).map(normalizeHex),
+            listIconShape: AppearanceListIconShape.parse(str("listIconShape", fallback: base.listIconShape)).rawValue,
+            categoryIcons: filterCategoryMap(map("categoryIcons"), symbols: true),
+            categoryColors: filterCategoryMap(map("categoryColors"), symbols: false),
             wallpaperShade: raw["wallpaperShade"] == nil ? nil : min(0.65, max(0, num("wallpaperShade", fallback: 0.08))),
             surfaceOpacity: raw["surfaceOpacity"] == nil ? nil : min(1, max(0.35, num("surfaceOpacity", fallback: 0.88))),
             colorsLight: normalizeHexMap(map("colorsLight")),
@@ -137,6 +158,33 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
 
 enum AppearanceShapeKind {
     case userBubble, assistantBubble, thinking
+}
+
+enum AppearanceListIconShape: String, CaseIterable, Identifiable {
+    case circle, squircle, rounded
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .circle: return "圆"
+        case .squircle: return "方圆"
+        case .rounded: return "圆角方"
+        }
+    }
+    static func parse(_ raw: String) -> AppearanceListIconShape {
+        AppearanceListIconShape(rawValue: raw) ?? .circle
+    }
+}
+
+fileprivate func filterCategoryMap(_ map: [String: String], symbols: Bool) -> [String: String] {
+    let allowed = Set(AppearanceThemePack.categoryKeys)
+    var out: [String: String] = [:]
+    for (k, v) in map {
+        guard allowed.contains(k) else { continue }
+        let trimmed = v.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { continue }
+        out[k] = symbols ? trimmed : normalizeHex(trimmed)
+    }
+    return out
 }
 
 enum AppearanceBubbleStyle: String, CaseIterable, Identifiable {
@@ -407,5 +455,35 @@ enum MinisThemeShape {
     }
     static var thinkingCard: MinisBubbleShape {
         MinisBubbleShape(style: .squircle, radius: thinkingRadius, tailOnTrailing: false)
+    }
+}
+
+@MainActor
+enum MinisThemeList {
+    static var pack: AppearanceThemePack { AppearanceStudio.shared.loadStoredPack() }
+
+    static var title: Color { AppearanceStudio.shared.color(.primaryText, scope: .home) }
+    static var subtitle: Color { AppearanceStudio.shared.color(.secondaryText, scope: .home) }
+    static var meta: Color { AppearanceStudio.shared.color(.secondaryText, scope: .home).opacity(0.72) }
+    static var accent: Color { AppearanceStudio.shared.color(.accent, scope: .home) }
+    static var rowFill: Color {
+        if let hex = pack.listRowFillHex {
+            return Color(hex: hex).opacity(AppearanceStudio.shared.surfaceOpacity)
+        }
+        return AppearanceStudio.shared.color(.surface, scope: .home)
+            .opacity(AppearanceStudio.shared.surfaceOpacity)
+    }
+    static var iconShape: AppearanceListIconShape {
+        AppearanceListIconShape.parse(pack.listIconShape)
+    }
+
+    static func categoryIcon(for category: String?) -> (systemName: String, color: Color) {
+        let fallback = sessionCategoryIconBuiltin(for: category)
+        let key = category ?? "other"
+        let name = pack.categoryIcons[key] ?? fallback.systemName
+        if let hex = pack.categoryColors[key] {
+            return (name, Color(hex: hex))
+        }
+        return (name, fallback.color)
     }
 }
