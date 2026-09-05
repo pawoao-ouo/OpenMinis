@@ -19,3 +19,5 @@
 "Follow up a ${applicationName} session" = "Follow up a ${applicationName} session";
 "Continue a ${applicationName} session" = "Continue a ${applicationName} session";
 "Open a ${applicationName} session" = "Open a ${applicationName} session";
+"Wake ${applicationName} for Xingxing" = "Wake ${applicationName} for Xingxing";
+"Run ${applicationName} active reach" = "Run ${applicationName} active reach";

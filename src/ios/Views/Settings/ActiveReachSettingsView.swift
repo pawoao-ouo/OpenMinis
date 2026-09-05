@@ -19,10 +19,20 @@ struct ActiveReachSettingsView: View {
                             .foregroundStyle(studio.color(.secondaryText, scope: .settings))
                     }
                 }
+                HStack {
+                    Text("上次唤醒")
+                    Spacer()
+                    Text(Self.lastWakeLine(store.lastWakeAttemptAt, store.lastWakeSource))
+                        .font(.caption)
+                        .foregroundStyle(studio.color(.secondaryText, scope: .settings))
+                }
+                Button("立刻跑一轮（只打分入草稿）") {
+                    Task { await store.runNow() }
+                }
             } header: {
                 Text("小梦主动")
             } footer: {
-                Text("默认关。关的时候不唤醒、不清你对话框，只是我不伸手。")
+                Text("默认关。定时请在系统「快捷指令 → 自动化」里加「到时间执行小梦主动唤醒」。app 里兜底不准点，还得保活开着。")
             }
 
             Section {
@@ -262,6 +272,22 @@ struct ActiveReachSettingsView: View {
         case "sent": return "已发"
         default: return "拦住"
         }
+    }
+
+    private static func lastWakeLine(_ date: Date?, _ source: String) -> String {
+        guard let date else { return "还没有" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm"
+        let t = formatter.string(from: date)
+        let src: String
+        switch source {
+        case "shortcuts": src = "快捷指令"
+        case "keepalive": src = "保活兜底"
+        case "manual": src = "手动"
+        case "intent": src = "Intent"
+        default: src = source.isEmpty ? "—" : source
+        }
+        return "\(t) · \(src)"
     }
 
     private static func sendErrorLine(_ err: String) -> String {

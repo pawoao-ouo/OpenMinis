@@ -16,3 +16,5 @@
 "Follow up a ${applicationName} session" = "跟进${applicationName}会话";
 "Continue a ${applicationName} session" = "继续${applicationName}会话";
 "Open a ${applicationName} session" = "打开${applicationName}会话";
+"Wake ${applicationName} for Xingxing" = "叫醒${applicationName}去想醒醒";
+"Run ${applicationName} active reach" = "运行${applicationName}主动";

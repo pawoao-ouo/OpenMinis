@@ -125,8 +125,12 @@ final class ActiveReachStore: ObservableObject {
     @Published private(set) var drafts: [ActiveReachDraft]
     @Published private(set) var sent: [ActiveReachDraft]
     @Published var lastSendError: String?
+    @Published private(set) var lastWakeAttemptAt: Date?
+    @Published private(set) var lastWakeSource: String
+    @Published private(set) var lastKeepAliveAt: Date?
 
     private let defaults: UserDefaults
+    private var keepAliveTask: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard, now: Date = Date()) {
         self.defaults = defaults
@@ -137,6 +141,11 @@ final class ActiveReachStore: ObservableObject {
         decisions = ActiveReachWake.loadDecisions(from: defaults)
         drafts = ActiveReachScore.loadDrafts(from: defaults)
         sent = ActiveReachSend.loadSent(from: defaults)
+        let attempt = defaults.double(forKey: ActiveReachKeepAlive.lastAttemptAtKey)
+        lastWakeAttemptAt = attempt > 0 ? Date(timeIntervalSince1970: attempt) : nil
+        lastWakeSource = defaults.string(forKey: ActiveReachKeepAlive.lastSourceKey) ?? ""
+        let ka = defaults.double(forKey: ActiveReachKeepAlive.lastKeepAliveAtKey)
+        lastKeepAliveAt = ka > 0 ? Date(timeIntervalSince1970: ka) : nil
     }
 
     var isEnabled: Bool { ActiveReachLogic.isEnabled(snapshot) }
@@ -152,6 +161,7 @@ final class ActiveReachStore: ObservableObject {
     /// 唤醒门闩。blocked 才落日志；allowed 交给 runReachCycle 写最终决策。
     @discardableResult
     func handleWake(source: String, now: Date = Date(), calendar: Calendar = .current) -> WakeDisposition {
+        noteWakeAttempt(source: source, now: now)
         var snap = snapshot
         var log = decisions
         let disposition = ActiveReachWake.handleWake(
@@ -203,6 +213,36 @@ final class ActiveReachStore: ObservableObject {
     func discardAllDrafts() {
         drafts = []
         persistDrafts()
+    }
+
+    /// 设置页点测。只打分入草稿，不发通知。
+    func runNow() async {
+        _ = await runReachCycle(source: "manual")
+    }
+
+    /// 保活心跳调用。总闸关 / 未到点 / 一小时内已补过 → 不跑。
+    func considerKeepAlive(now: Date = Date()) {
+        guard ActiveReachKeepAlive.shouldKeepAlive(
+            enabled: snapshot.enabled,
+            intervalMinutes: snapshot.intervalMinutes,
+            lastAttemptAt: lastWakeAttemptAt,
+            lastKeepAliveAt: lastKeepAliveAt,
+            now: now
+        ) else { return }
+        lastKeepAliveAt = now
+        defaults.set(now.timeIntervalSince1970, forKey: ActiveReachKeepAlive.lastKeepAliveAtKey)
+        guard keepAliveTask == nil else { return }
+        keepAliveTask = Task { [weak self] in
+            _ = await self?.runReachCycle(source: "keepalive", now: now)
+            await MainActor.run { self?.keepAliveTask = nil }
+        }
+    }
+
+    private func noteWakeAttempt(source: String, now: Date) {
+        lastWakeAttemptAt = now
+        lastWakeSource = source
+        defaults.set(now.timeIntervalSince1970, forKey: ActiveReachKeepAlive.lastAttemptAtKey)
+        defaults.set(source, forKey: ActiveReachKeepAlive.lastSourceKey)
     }
 
     @discardableResult
