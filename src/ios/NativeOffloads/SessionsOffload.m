@@ -171,6 +171,31 @@ static NSString *first_positional(int argc, char **argv) {
     return positional.firstObject;
 }
 
+
+// ── current session token ──
+// Resolves `current` / `.` via SessionsOffloadBridge. Returns nil if missing.
+static NSString *resolve_session_token(NSString *raw) {
+    if (!raw || raw.length == 0) return nil;
+    NSString *s = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if ([s isEqualToString:@"current"] || [s isEqualToString:@"."]) {
+        return [SessionsOffloadBridge resolveSessionToken:s];
+    }
+    return s;
+}
+
+
+// ── Subcommand: current ──
+
+static int cmd_current(int argc, char **argv, int stdout_fd, int stderr_fd,
+                       BOOL compact, BOOL quiet) {
+    NSDictionary *data = [SessionsOffloadBridge currentSession];
+    NSDictionary *result = noff_json_envelope(TOOL_NAME, @"current", data);
+    noff_emit_json(stdout_fd, result, compact, quiet);
+    NSNumber *ok = data[@"ok"];
+    if (ok && ![ok boolValue]) return NOFF_EXIT_INVALID_ARGS;
+    return NOFF_EXIT_SUCCESS;
+}
+
 // ── Subcommand: send ──
 
 static int cmd_send(int argc, char **argv, int stdout_fd, int stderr_fd,
@@ -186,7 +211,19 @@ static int cmd_send(int argc, char **argv, int stdout_fd, int stderr_fd,
         return NOFF_EXIT_INVALID_ARGS;
     }
 
-    NSString *sessionId = noff_find_arg(argc, argv, "--session");
+    NSString *sessionRaw = noff_find_arg(argc, argv, "--session");
+    NSString *sessionId = nil;
+    if (sessionRaw && sessionRaw.length > 0) {
+        sessionId = resolve_session_token(sessionRaw);
+        if (!sessionId) {
+            NSDictionary *err = noff_json_error(TOOL_NAME, @"send",
+                                                 NOFF_ERR_INVALID_ARGS,
+                                                 @"no current session. Open a chat, set MINIS_SESSION_ID, "
+                                                  "or pass --session <id>.");
+            noff_emit_json(stdout_fd, err, compact, quiet);
+            return NOFF_EXIT_INVALID_ARGS;
+        }
+    }
     NSString *modelEntryId = noff_find_arg(argc, argv, "--model");
     NSString *sourceTag = noff_find_arg(argc, argv, "--source");
     if (!sourceTag || sourceTag.length == 0) sourceTag = @"cli";
@@ -207,13 +244,21 @@ static int cmd_send(int argc, char **argv, int stdout_fd, int stderr_fd,
 
 static int cmd_retry(int argc, char **argv, int stdout_fd, int stderr_fd,
                      BOOL compact, BOOL quiet) {
-    NSString *sessionId = noff_find_arg(argc, argv, "--session");
-    if (!sessionId || sessionId.length == 0) {
+    NSString *sessionRaw = noff_find_arg(argc, argv, "--session");
+    if (!sessionRaw || sessionRaw.length == 0) {
         noff_emit_help(stderr_fd, HELP_TEXT);
         NSDictionary *err = noff_json_error(TOOL_NAME, @"retry",
                                              NOFF_ERR_INVALID_ARGS,
                                              @"--session <id> is required for retry. "
-                                              "Use 'list' first to find a session ID.");
+                                              "Use current or list to find a session ID.");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_INVALID_ARGS;
+    }
+    NSString *sessionId = resolve_session_token(sessionRaw);
+    if (!sessionId) {
+        NSDictionary *err = noff_json_error(TOOL_NAME, @"retry",
+                                             NOFF_ERR_INVALID_ARGS,
+                                             @"no current session for --session current.");
         noff_emit_json(stdout_fd, err, compact, quiet);
         return NOFF_EXIT_INVALID_ARGS;
     }
@@ -234,12 +279,21 @@ static int cmd_retry(int argc, char **argv, int stdout_fd, int stderr_fd,
 
 static int cmd_status(int argc, char **argv, int stdout_fd, int stderr_fd,
                       BOOL compact, BOOL quiet) {
-    NSString *sessionId = noff_find_arg(argc, argv, "--id");
-    if (!sessionId || sessionId.length == 0) {
+    NSString *sessionRaw = noff_find_arg(argc, argv, "--id");
+    if (!sessionRaw || sessionRaw.length == 0) {
         noff_emit_help(stderr_fd, HELP_TEXT);
         NSDictionary *err = noff_json_error(TOOL_NAME, @"status",
                                              NOFF_ERR_INVALID_ARGS,
-                                             @"--id <session_id> is required for status.");
+                                             @"--id <session_id> is required for status. "
+                                              "Use current or a real id.");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_INVALID_ARGS;
+    }
+    NSString *sessionId = resolve_session_token(sessionRaw);
+    if (!sessionId) {
+        NSDictionary *err = noff_json_error(TOOL_NAME, @"status",
+                                             NOFF_ERR_INVALID_ARGS,
+                                             @"no current session for --id current.");
         noff_emit_json(stdout_fd, err, compact, quiet);
         return NOFF_EXIT_INVALID_ARGS;
     }
@@ -257,16 +311,24 @@ static int cmd_open(int argc, char **argv, int stdout_fd, int stderr_fd,
     // Accept either a positional `<session_id>` (preferred, matches the
     // spec command shape `minis-sessions-cli open <session_id>`) or an
     // explicit `--id <session_id>` for symmetry with `messages`/`status`.
-    NSString *sessionId = first_positional(argc, argv);
-    if (!sessionId || sessionId.length == 0) {
-        sessionId = noff_find_arg(argc, argv, "--id");
+    NSString *sessionRaw = first_positional(argc, argv);
+    if (!sessionRaw || sessionRaw.length == 0) {
+        sessionRaw = noff_find_arg(argc, argv, "--id");
     }
-    if (!sessionId || sessionId.length == 0) {
+    if (!sessionRaw || sessionRaw.length == 0) {
         noff_emit_help(stderr_fd, HELP_TEXT);
         NSDictionary *err = noff_json_error(TOOL_NAME, @"open",
                                              NOFF_ERR_INVALID_ARGS,
                                              @"open requires a session id. "
-                                              "Example: minis-sessions-cli open <session_id>");
+                                              "Example: minis-sessions-cli open current");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_INVALID_ARGS;
+    }
+    NSString *sessionId = resolve_session_token(sessionRaw);
+    if (!sessionId) {
+        NSDictionary *err = noff_json_error(TOOL_NAME, @"open",
+                                             NOFF_ERR_INVALID_ARGS,
+                                             @"no current session for open current.");
         noff_emit_json(stdout_fd, err, compact, quiet);
         return NOFF_EXIT_INVALID_ARGS;
     }
@@ -350,13 +412,21 @@ static int cmd_search(int argc, char **argv, int stdout_fd, int stderr_fd,
 
 static int cmd_messages(int argc, char **argv, int stdout_fd, int stderr_fd,
                         BOOL compact, BOOL quiet) {
-    NSString *sessionId = noff_find_arg(argc, argv, "--id");
-    if (!sessionId || sessionId.length == 0) {
+    NSString *sessionRaw = noff_find_arg(argc, argv, "--id");
+    if (!sessionRaw || sessionRaw.length == 0) {
         noff_emit_help(stderr_fd, HELP_TEXT);
         NSDictionary *err = noff_json_error(TOOL_NAME, @"messages",
                                              NOFF_ERR_INVALID_ARGS,
                                              @"--id <session_id> is required. "
-                                              "Use 'list' first to find session IDs.");
+                                              "Use current or list.");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_INVALID_ARGS;
+    }
+    NSString *sessionId = resolve_session_token(sessionRaw);
+    if (!sessionId) {
+        NSDictionary *err = noff_json_error(TOOL_NAME, @"messages",
+                                             NOFF_ERR_INVALID_ARGS,
+                                             @"no current session for --id current.");
         noff_emit_json(stdout_fd, err, compact, quiet);
         return NOFF_EXIT_INVALID_ARGS;
     }
@@ -412,6 +482,8 @@ static int sessions_handler(int argc, char **argv,
 
     if ([subcmd isEqualToString:@"list"]) {
         return cmd_list(argc, argv, stdout_fd, compact, quiet);
+    } else if ([subcmd isEqualToString:@"current"]) {
+        return cmd_current(argc, argv, stdout_fd, stderr_fd, compact, quiet);
     } else if ([subcmd isEqualToString:@"search"]) {
         return cmd_search(argc, argv, stdout_fd, stderr_fd, compact, quiet);
     } else if ([subcmd isEqualToString:@"messages"]) {

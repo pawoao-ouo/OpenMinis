@@ -248,6 +248,67 @@ private let logger = AppLogger(category: "SessionsOffload")
     /// `--wait` / `--timeout` blocking mode was removed because the iSH
     /// shell is single-threaded and blocking it deadlocked agent loops that
     /// dispatched prompts then tried to do further work.
+    // MARK: - Current session (knife 8 shortcut)
+
+    /// Foreground chat id from `AIChatViewModel.activeSessionId` (set by ContentView).
+    /// Also accepts env `MINIS_SESSION_ID` as fallback when UI has no selection.
+    @objc public static func currentSession() -> NSDictionary {
+        let sem = DispatchSemaphore(value: 0)
+        var output: [String: Any] = [:]
+
+        Task { @MainActor in
+            if let sid = AIChatViewModel.activeSessionId, !sid.isEmpty {
+                var title: String?
+                var lastMessage: String?
+                if let meta = await ChatStore.shared.getSession(sid) {
+                    title = meta.title
+                    lastMessage = meta.lastMessage
+                }
+                var dict: [String: Any] = [
+                    "ok": true,
+                    "session_id": sid,
+                    "source": "activeSessionId",
+                ]
+                if let title { dict["title"] = title }
+                if let lastMessage { dict["preview"] = lastMessage }
+                output = dict
+            } else if let env = ProcessInfo.processInfo.environment["MINIS_SESSION_ID"],
+                      !env.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let sid = env.trimmingCharacters(in: .whitespacesAndNewlines)
+                output = [
+                    "ok": true,
+                    "session_id": sid,
+                    "source": "MINIS_SESSION_ID",
+                ]
+            } else {
+                output = [
+                    "ok": false,
+                    "error": "no_current_session",
+                    "hint": "Open a chat in the app, or set MINIS_SESSION_ID, or pass --session <id>.",
+                ]
+            }
+            sem.signal()
+        }
+        sem.wait()
+        return output as NSDictionary
+    }
+
+    /// Resolve CLI token `current` / `.` to the foreground session id.
+    /// Returns nil when unresolved (caller should surface no_current_session).
+    @objc public static func resolveSessionToken(_ raw: String?) -> String? {
+        guard var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
+            return nil
+        }
+        if s == "current" || s == "." {
+            let cur = currentSession()
+            if let ok = cur["ok"] as? Bool, ok, let sid = cur["session_id"] as? String, !sid.isEmpty {
+                return sid
+            }
+            return nil
+        }
+        return s
+    }
+
     @objc public static func sendPrompt(
         sessionId: String?,
         prompt: String,
