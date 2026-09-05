@@ -370,6 +370,12 @@ extension AppearanceStudio {
         persistPack(pack)
     }
 
+    func setListIconShape(_ shape: AppearanceListIconShape) {
+        var pack = currentThemePack()
+        pack.listIconShape = shape.rawValue
+        persistPack(pack)
+    }
+
     private func thinkingCardURL() -> URL {
         appearanceDirectory.appendingPathComponent("thinking-card.jpg")
     }

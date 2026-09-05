@@ -140,8 +140,8 @@ private struct UserBubbleSurface: ViewModifier {
                 .background(shape.fill(Color.clear))
                 .overlay(
                     shape
-                        .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-                        .foregroundStyle(ChatColors.secondaryText.opacity(0.5))
+                        .stroke(ChatColors.secondaryText.opacity(0.5),
+                                style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
                 )
         } else if #available(iOS 26.0, *) {
             content.glassEffect(.regular, in: shape)

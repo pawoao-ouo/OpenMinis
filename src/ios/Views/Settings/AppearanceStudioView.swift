@@ -88,6 +88,11 @@ struct AppearanceStudioView: View {
                         Text(item.title).tag(item)
                     }
                 }
+                Picker("列表图标", selection: listIconShapeBinding) {
+                    ForEach(AppearanceListIconShape.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
 
                 PhotosPicker(selection: $thinkingCardItem, matching: .images) {
                     Label(studio.hasThinkingCardImage() ? "更换 thinking 卡片图" : "给 thinking 卡片贴图",
@@ -378,6 +383,13 @@ struct AppearanceStudioView: View {
         Binding(
             get: { studio.currentThemePack().thinkingCardImageOpacity },
             set: { studio.setThinkingCardImageOpacity($0) }
+        )
+    }
+
+    private var listIconShapeBinding: Binding<AppearanceListIconShape> {
+        Binding(
+            get: { AppearanceListIconShape.parse(studio.currentThemePack().listIconShape) },
+            set: { studio.setListIconShape($0) }
         )
     }
 

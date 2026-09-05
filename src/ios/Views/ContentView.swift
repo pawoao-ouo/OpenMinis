@@ -2869,7 +2869,7 @@ struct ContentView: View {
                     } else if group.showsGroupsHeader {
                         Text("Groups")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color(UIColor.secondaryLabel))
+                            .foregroundStyle(MinisThemeList.subtitle)
                             .textCase(nil)
                     }
                 }
@@ -3056,7 +3056,7 @@ struct ContentView: View {
                     } else if group.showsGroupsHeader {
                         Text("Groups")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color(UIColor.secondaryLabel))
+                            .foregroundStyle(MinisThemeList.subtitle)
                             .textCase(nil)
                     }
                 }
@@ -4521,7 +4521,7 @@ struct ContentView: View {
             HStack(spacing: 12) {
                 Image(systemName: selectedIds.contains(session.id) ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 22))
-                    .foregroundStyle(selectedIds.contains(session.id) ? Color.accentColor : Color(UIColor.tertiaryLabel))
+                    .foregroundStyle(selectedIds.contains(session.id) ? MinisThemeList.accent : MinisThemeList.meta)
                 SessionRow(session: session)
             }
             .padding(.leading, 16)
@@ -4546,18 +4546,18 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     Image(systemName: allSelected ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 18))
-                        .foregroundStyle(allSelected ? Color.accentColor : Color(UIColor.tertiaryLabel))
+                        .foregroundStyle(allSelected ? MinisThemeList.accent : MinisThemeList.meta)
                     // group.label is a stable English key (used for logic like
                     // == "Pinned"); localize only at display via LocalizedStringKey.
                     // Folder names are user data — render verbatim, not as a key.
                     if group.folderId != nil {
                         Text(group.label)
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color(UIColor.secondaryLabel))
+                            .foregroundStyle(MinisThemeList.subtitle)
                     } else {
                         Text(LocalizedStringKey(group.label))
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color(UIColor.secondaryLabel))
+                            .foregroundStyle(MinisThemeList.subtitle)
                     }
                 }
                 .textCase(nil)
@@ -4568,13 +4568,13 @@ struct ContentView: View {
                 if group.label == "Pinned" {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(Color(UIColor.secondaryLabel))
+                        .foregroundStyle(MinisThemeList.subtitle)
                 }
                 // group.label stays an English key for logic; LocalizedStringKey
                 // resolves the display string per system language.
                 Text(LocalizedStringKey(group.label))
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(UIColor.secondaryLabel))
+                    .foregroundStyle(MinisThemeList.subtitle)
             }
             .textCase(nil)
             .background(
@@ -4691,7 +4691,7 @@ struct ContentView: View {
                     // LocalizedStringKey lookup.
                     Text(group.label)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(UIColor.label))
+                        .foregroundStyle(MinisThemeList.title)
                         .lineLimit(1)
                     Group {
                         if let title = group.summaryTitle {
@@ -4703,7 +4703,7 @@ struct ContentView: View {
                         }
                     }
                     .font(.system(size: 14))
-                    .foregroundStyle(Color(UIColor.secondaryLabel))
+                    .foregroundStyle(MinisThemeList.subtitle)
                     .lineLimit(1)
                 }
 
@@ -4713,17 +4713,17 @@ struct ContentView: View {
                     if let date = group.latestDate {
                         Text(SessionRow.relativeDateImpl(date))
                             .font(.system(size: 13))
-                            .foregroundStyle(Color(UIColor.tertiaryLabel))
+                            .foregroundStyle(MinisThemeList.meta)
                     }
                     HStack(spacing: 4) {
                         if group.isFolderPinned {
                             Image(systemName: "pin.fill")
                                 .font(.system(size: 10))
-                                .foregroundStyle(Color(UIColor.tertiaryLabel))
+                                .foregroundStyle(MinisThemeList.meta)
                         }
                         Image(systemName: "chevron.down")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(UIColor.tertiaryLabel))
+                            .foregroundStyle(MinisThemeList.meta)
                             .rotationEffect(.degrees(group.isCollapsed ? -90 : 0))
                     }
                 }
@@ -6290,13 +6290,14 @@ struct FolderComposedIcon: View {
             // 0.28 vs the session icons' 0.18: a deliberately stronger tint
             // so a group circle reads as a different kind of thing at a
             // glance, while keeping the same size and shape language.
-            Circle()
+            minisListIconClip()
                 .fill(tint.opacity(0.28))
             GroupGlyphShape()
                 .fill(tint, style: FillStyle(eoFill: true))
                 .frame(width: diameter * 0.56, height: diameter * 0.56)
         }
         .frame(width: diameter, height: diameter)
+        .clipShape(minisListIconClip())
     }
 }
 
@@ -6356,6 +6357,7 @@ private struct SessionRow: View, Equatable {
     // the slider. The row's fonts use hardcoded `.system(size:)` which ignore
     // Dynamic Type, so we must explicitly multiply by the App Base scale.
     @ObservedObject private var fontSettings = FontSettings.shared
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
     init(session: ChatSession,
          isHighlighted: Bool = false,
