@@ -93,7 +93,7 @@ struct AssistantBlockView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.triangle.2.circlepath")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.orange.opacity(0.8))
+                            .foregroundStyle(ChatColors.warning.opacity(0.8))
                         Text(switchedLine)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(ChatColors.primaryText.opacity(0.75))
@@ -104,9 +104,9 @@ struct AssistantBlockView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(Color.orange.opacity(0.08))
+            .background(ChatColors.warning.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange.opacity(0.14), lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(ChatColors.warning.opacity(0.14), lineWidth: 0.5))
             .contextMenu {
                 Button {
                     UIPasteboard.general.string = block.content
@@ -392,7 +392,7 @@ struct ToolCapsuleView: View {
                         // padding pins the *layout* footprint back to 18×18 so the
                         // capsule width/height is identical to before.
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(.red)
+                            .fill(ChatColors.destructive)
                             .frame(width: 10, height: 10)
                             .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
@@ -493,7 +493,7 @@ struct ToolCapsuleView: View {
                 } label: {
                     Image(systemName: "info.circle.fill")
                         .font(.system(size: 15))
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(ChatColors.warning)
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, 6)
@@ -1099,7 +1099,7 @@ struct ThinkingLevelSheetView: View {
                 Spacer()
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(ChatColors.accent)
                         .fontWeight(.semibold)
                 }
             }
@@ -1110,7 +1110,7 @@ struct ThinkingLevelSheetView: View {
 // MARK: - Tool Copy Button
 
 private struct ToolCopyButton: View {
-    var accentColor: Color = .green
+    var accentColor: Color = ChatColors.accent
     let content: () -> String
     @State private var copied = false
 

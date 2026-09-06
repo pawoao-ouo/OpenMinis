@@ -647,7 +647,7 @@ struct InlineVoiceInputView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(ChatColors.warning)
                     if let countdown = viewModel.retryCountdown {
                         Text("Network error, retrying in \(countdown)s…")
                             .font(.caption2)
@@ -662,7 +662,7 @@ struct InlineVoiceInputView: View {
                         } label: {
                             Text("Retry", comment: "Manual retry transcription")
                                 .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(ChatColors.warning)
                         }
                         .buttonStyle(.plain)
                     } else {
@@ -675,7 +675,7 @@ struct InlineVoiceInputView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
-                .background(Capsule().fill(Color.orange.opacity(0.12)))
+                .background(Capsule().fill(ChatColors.warning.opacity(0.12)))
                 .transition(.opacity)
             }
             // [voice-correction] Non-error one-off status ("No corrections

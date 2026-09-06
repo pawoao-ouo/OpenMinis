@@ -52,6 +52,8 @@ let studioView = read(here.appendingPathComponent("Views/Settings/AppearanceStud
 let kernel = read(here.appendingPathComponent("iSH/ISHKernel.m"))
 let offload = read(here.appendingPathComponent("NativeOffloads/ThemeOffload.m"))
 let skillStore = read(here.appendingPathComponent("Agent/Session/SkillStore.swift"))
+let markdown = read(here.appendingPathComponent("Views/Chat/SelectableMarkdownView.swift"))
+let toolLive = read(here.appendingPathComponent("Views/Chat/ToolLiveSheet.swift"))
 
 check("pack file", !pack.isEmpty)
 check("storage key", pack.contains("appearanceStudio.themePack.v1"))
@@ -129,6 +131,14 @@ check("slash thinking uses accent", input.contains("thinkingLevel.isEnabled ? Ch
 check("bundled minis-theme skill", skillStore.contains("name: minis-theme"))
 check("bundled skill not PPT", skillStore.contains("不是 PPT"))
 check("cli documents accent", offload.contains("THEME PACK:"))
+check("warning color role", studio.contains("case success, warning, destructive"))
+check("warning title", studio.contains("case .warning: return \"警告\""))
+check("ChatColors.warning", input.contains("static var warning: Color"))
+check("errors use destructive", input.contains("ChatColors.destructive"))
+check("interrupt uses warning", chat.contains("ChatColors.warning"))
+check("markdown links use accent", markdown.contains("uiColor(.accent, scope: .chat)"))
+check("no chat capsule green leftover", !think.contains("accentColor: .green"))
+check("no tool live purple leftover", !toolLive.contains("return .purple"))
 
 if failures == 0 {
     print("\nALL PASS")

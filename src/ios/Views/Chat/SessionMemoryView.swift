@@ -65,7 +65,7 @@ struct SessionMemoryView: View {
     private func row(name: String, detail: String, icon: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .foregroundStyle(.pink)
+                .foregroundStyle(ChatColors.accent)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)

@@ -447,8 +447,8 @@ struct SpeechPlayerControl: View {
     @ViewBuilder
     private func speakerGlyph(size: CGFloat, ring: CGFloat) -> some View {
         // Muted → dimmed slashed speaker; otherwise active accent speaker.
-        let tint: Color = showFailureFlash ? .red
-            : (state.isMuted ? Color.secondary : Color.accentColor)
+        let tint: Color = showFailureFlash ? ChatColors.destructive
+            : (state.isMuted ? Color.secondary : ChatColors.accent)
         Image(systemName: state.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
             .font(.system(size: size, weight: .medium))
             .foregroundStyle(tint)
@@ -601,7 +601,7 @@ private struct RotatingArc: View {
             let angle = Angle(degrees: (t / period).truncatingRemainder(dividingBy: 1) * 360)
             Circle()
                 .trim(from: 0, to: arcFraction)
-                .stroke(Color.blue, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .stroke(ChatColors.accent, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                 .frame(width: diameter, height: diameter)
                 .rotationEffect(angle)
         }

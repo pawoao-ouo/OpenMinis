@@ -380,11 +380,11 @@ Skills use three loading levels:
 Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, etc. The skill should only contain what an AI agent needs to do the job.
 """
 
-    private static let minisThemeVersion = "1.0.0"
+    private static let minisThemeVersion = "1.1.0"
     private static let minisThemeContent = """
 ---
 name: minis-theme
-version: 1.0.0
+version: 1.1.0
 description: 设计并贴上 Minis 分身的 AI 主题包。当用户说做主题、换皮肤、改气泡、改 thinking 卡片、改壁纸、粉嫩主题、minis-theme、AppearanceStudio、主题包 JSON 时使用。不要问这是不是 PPT 或网页。
 ---
 
@@ -404,7 +404,9 @@ description: 设计并贴上 Minis 分身的 AI 主题包。当用户说做主�
 
 不要再写死蓝、绿、青。粉主题就整页粉，不要蓝标题配粉卡。
 
-成功色 `success`、危险色 `destructive` 也是变量。工具跑完的勾、失败的叉走这两条，不要 `.green` / `.red`。
+成功色 `success`、警告色 `warning`、危险色 `destructive` 也是变量。
+工具跑完的勾走 success，排队/中断走 warning，失败的叉走 destructive。
+不要 `.green` / `.orange` / `.red`。报错不能并进强调色，粉主题里也要分得出错。
 
 ## 怎么贴
 

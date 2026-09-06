@@ -99,6 +99,7 @@ enum ChatColors {
     static var toolBorder: Color { studio.color(.border, scope: .chat).opacity(0.75) }
     static var accent: Color { studio.color(.accent, scope: .chat) }
     static var success: Color { studio.color(.success, scope: .chat) }
+    static var warning: Color { studio.color(.warning, scope: .chat) }
     static var destructive: Color { studio.color(.destructive, scope: .chat) }
     static var sendButton: Color { studio.color(.accent, scope: .chat) }
     static var sendButtonDisabled: Color { studio.color(.secondaryText, scope: .chat).opacity(0.4) }
@@ -2268,7 +2269,7 @@ struct AIChatView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Circle()
-                                .fill(isAuthed ? Color.green : Color.orange)
+                                .fill(isAuthed ? ChatColors.success : ChatColors.warning)
                                 .frame(width: 6, height: 6)
                             if isGroupBound {
                                 Image(systemName: "square.stack.3d.up")
@@ -2331,7 +2332,7 @@ struct AIChatView: View {
                                 .font(.system(size: 5, weight: .bold))
                                 .foregroundStyle(.white)
                                 .frame(width: 9, height: 9)
-                                .background(Circle().fill(Color.orange))
+                                .background(Circle().fill(ChatColors.warning))
                                 // Match the row text's descender clearance so
                                 // the badge centers on the same visual band.
                                 .padding(.bottom, legacyLayout ? 1 : 4)
@@ -2395,7 +2396,7 @@ struct AIChatView: View {
             .padding(.vertical, legacyLayout ? 2 : 3)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.red.opacity(0.35 * fallbackPulseOpacity))
+                    .fill(ChatColors.destructive.opacity(0.35 * fallbackPulseOpacity))
             )
             .onChange(of: vm.fallbackTrigger) { _ in
                 // 3× pulse: fade in then out, repeated 3 times
@@ -2554,10 +2555,10 @@ struct AIChatView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.circle.fill")
                         .font(.title2)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(ChatColors.destructive)
                     Text(msg)
                         .font(.subheadline)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(ChatColors.destructive)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)
                 }
@@ -2574,10 +2575,10 @@ struct AIChatView: View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(ChatColors.destructive)
             Text(error)
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(ChatColors.destructive)
                 .lineLimit(2)
             Spacer()
             Button { vm.errorMessage = nil } label: {
@@ -2596,7 +2597,7 @@ struct AIChatView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(Color.red.opacity(0.12))
+        .background(ChatColors.destructive.opacity(0.12))
     }
 
     #if DEBUG
@@ -3421,7 +3422,7 @@ struct AIChatView: View {
             Button { vm.cancel() } label: {
                 Image(systemName: "stop.circle.fill")
                     .font(.system(size: 34))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ChatColors.destructive)
             }
             .accessibilityLabel(Text("Stop generating", comment: "VoiceOver label for the stop button"))
             .accessibilityHint(Text("Stops the reply that is being generated", comment: "VoiceOver hint for the stop button"))
@@ -3659,14 +3660,14 @@ struct AIChatView: View {
             if vm.isSuspended {
                 HStack(spacing: 8) {
                     ProgressView()
-                        .tint(.yellow)
+                        .tint(ChatColors.warning)
                     Text("Waiting for other tasks to complete...")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity)
-                .background(Color.yellow.opacity(0.08))
+                .background(ChatColors.warning.opacity(0.08))
             }
 
             VStack(spacing: 5) {
@@ -4481,7 +4482,7 @@ struct AIChatView: View {
                     // VoiceOver read "checkmark circle fill" / "slash circle".
                     Image(systemName: memoryEnabled ? "checkmark.circle.fill" : "slash.circle")
                         .font(.system(size: 16))
-                        .foregroundStyle(memoryEnabled ? (isSelected ? .white : .green) : (isSelected ? .white.opacity(0.6) : .secondary))
+                        .foregroundStyle(memoryEnabled ? (isSelected ? .white : ChatColors.success) : (isSelected ? .white.opacity(0.6) : .secondary))
                         .accessibilityLabel(Text(
                             memoryEnabled
                                 ? AppLocalized("Memory on", comment: "VoiceOver label for the memory status icon when enabled")
@@ -6024,7 +6025,7 @@ struct CompactSummarySheet: View {
                         .padding(.vertical, 14)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ChatColors.destructive)
                 }
             }
             .navigationTitle("Compact Summary")
@@ -6043,7 +6044,7 @@ struct CompactSummarySheet: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
                     } label: {
                         Image(systemName: copied ? "checkmark.circle.fill" : "doc.on.doc.fill")
-                            .foregroundStyle(copied ? .green : .secondary)
+                            .foregroundStyle(copied ? ChatColors.success : .secondary)
                     }
                 }
             }

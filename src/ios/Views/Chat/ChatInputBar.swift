@@ -305,7 +305,7 @@ private struct AttachmentChip: View {
             VStack(spacing: 4) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 18))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(ChatColors.warning)
                 Text("Failed")
                     .font(.caption2)
                     .foregroundStyle(ChatColors.secondaryText)
@@ -313,7 +313,7 @@ private struct AttachmentChip: View {
             .frame(width: 64, height: 64)
             .background(ChatColors.secondaryBg)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange.opacity(0.5), lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(ChatColors.warning.opacity(0.5), lineWidth: 0.5))
 
             Button {
                 onRemove()
@@ -576,7 +576,7 @@ private struct CodeBlockCopyButton: View {
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(copied ? .green : .white.opacity(0.5))
+                .foregroundStyle(copied ? ChatColors.success : .white.opacity(0.5))
                 .animation(.easeInOut(duration: 0.2), value: copied)
         }
         .buttonStyle(.plain)

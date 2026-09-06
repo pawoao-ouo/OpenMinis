@@ -31,7 +31,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
     case canvas, surface, raised, mutedSurface
     case primaryText, secondaryText
     case accent, userBubble, assistantBubble, input, border
-    case success, destructive
+    case success, warning, destructive
 
     var id: String { rawValue }
     var title: String {
@@ -48,6 +48,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .input: return "输入框"
         case .border: return "边线"
         case .success: return "成功"
+        case .warning: return "警告"
         case .destructive: return "危险"
         }
     }
@@ -339,14 +340,14 @@ private enum AppearancePaletteBook {
         .mutedSurface: "F8ECE8", .primaryText: "3E312B", .secondaryText: "8D786F",
         .accent: "D4778B", .userBubble: "F6DDE3", .assistantBubble: "FFFDFC",
         .input: "FFFBF8", .border: "EADAD3", .success: "6E987A",
-        .destructive: "C75D5D"
+        .warning: "C9956A", .destructive: "C75D5D"
     ]
     static let dark: [AppearanceColorRole: String] = [
         .canvas: "1B1716", .surface: "25201E", .raised: "302925",
         .mutedSurface: "332824", .primaryText: "F5ECE7", .secondaryText: "BCAAA1",
         .accent: "E09AAA", .userBubble: "573C43", .assistantBubble: "25201E",
         .input: "2B2522", .border: "493C37", .success: "8EB69A",
-        .destructive: "E18484"
+        .warning: "D4B07A", .destructive: "E18484"
     ]
 }
 
@@ -366,12 +367,12 @@ enum AppearancePreset: String, CaseIterable, Identifiable {
             return AppearancePalette(light: AppearancePaletteBook.light, dark: AppearancePaletteBook.dark)
         case .cleanAir:
             return AppearancePalette(
-                light: [.canvas:"F6F8FA",.surface:"FFFFFF",.raised:"FFFFFF",.mutedSurface:"EDF2F5",.primaryText:"26323A",.secondaryText:"6F7E87",.accent:"6F93A8",.userBubble:"DDEAF0",.assistantBubble:"FFFFFF",.input:"FFFFFF",.border:"DCE5E9",.success:"638F76",.destructive:"BC6262"],
-                dark: [.canvas:"151A1D",.surface:"20272B",.raised:"273035",.mutedSurface:"2B353A",.primaryText:"EDF3F5",.secondaryText:"AAB8BE",.accent:"8CB2C5",.userBubble:"334B57",.assistantBubble:"20272B",.input:"252D31",.border:"3B484E",.success:"82AF91",.destructive:"DA8181"])
+                light: [.canvas:"F6F8FA",.surface:"FFFFFF",.raised:"FFFFFF",.mutedSurface:"EDF2F5",.primaryText:"26323A",.secondaryText:"6F7E87",.accent:"6F93A8",.userBubble:"DDEAF0",.assistantBubble:"FFFFFF",.input:"FFFFFF",.border:"DCE5E9",.success:"638F76",.warning:"C9A36A",.destructive:"BC6262"],
+                dark: [.canvas:"151A1D",.surface:"20272B",.raised:"273035",.mutedSurface:"2B353A",.primaryText:"EDF3F5",.secondaryText:"AAB8BE",.accent:"8CB2C5",.userBubble:"334B57",.assistantBubble:"20272B",.input:"252D31",.border:"3B484E",.success:"82AF91",.warning:"D4B07A",.destructive:"DA8181"])
         case .nightCocoa:
             return AppearancePalette(
-                light: [.canvas:"FBF6EF",.surface:"FFFDF8",.raised:"FFFFFF",.mutedSurface:"F2E7DA",.primaryText:"44362E",.secondaryText:"8D7868",.accent:"A77965",.userBubble:"EAD8CE",.assistantBubble:"FFFDF8",.input:"FFFBF5",.border:"E5D7C9",.success:"728E70",.destructive:"B86565"],
-                dark: [.canvas:"171311",.surface:"241E1A",.raised:"2E2621",.mutedSurface:"362B25",.primaryText:"F2E9E1",.secondaryText:"B9A79B",.accent:"C99B84",.userBubble:"513B31",.assistantBubble:"241E1A",.input:"2A231F",.border:"493B33",.success:"91AE8B",.destructive:"D17A7A"])
+                light: [.canvas:"FBF6EF",.surface:"FFFDF8",.raised:"FFFFFF",.mutedSurface:"F2E7DA",.primaryText:"44362E",.secondaryText:"8D7868",.accent:"A77965",.userBubble:"EAD8CE",.assistantBubble:"FFFDF8",.input:"FFFBF5",.border:"E5D7C9",.success:"728E70",.warning:"C9A36A",.destructive:"B86565"],
+                dark: [.canvas:"171311",.surface:"241E1A",.raised:"2E2621",.mutedSurface:"362B25",.primaryText:"F2E9E1",.secondaryText:"B9A79B",.accent:"C99B84",.userBubble:"513B31",.assistantBubble:"241E1A",.input:"2A231F",.border:"493B33",.success:"91AE8B",.warning:"D4B07A",.destructive:"D17A7A"])
         }
     }
 }

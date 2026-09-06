@@ -393,7 +393,7 @@ struct ChatMessageRow: View {
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .font(.system(size: 22))
-                                        .foregroundStyle(.red)
+                                        .foregroundStyle(ChatColors.destructive)
                                 }
                             }
                         }
@@ -663,10 +663,10 @@ struct ChatMessageRow: View {
             Text("\(count)")
                 .font(.system(size: 10, design: .monospaced))
         }
-        .foregroundStyle(Color.orange.opacity(0.8))
+        .foregroundStyle(ChatColors.warning.opacity(0.8))
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(Color.orange.opacity(0.12))
+        .background(ChatColors.warning.opacity(0.12))
         .clipShape(Capsule())
     }
 
@@ -702,10 +702,10 @@ struct ChatMessageRow: View {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ChatColors.destructive)
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ChatColors.destructive)
                     .lineLimit(2)
             }
             .contentShape(Rectangle())
@@ -745,7 +745,7 @@ struct ChatMessageRow: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.12))
+        .background(ChatColors.destructive.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -754,7 +754,7 @@ struct ChatMessageRow: View {
             HStack(spacing: 6) {
                 Image(systemName: "pause.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(ChatColors.warning)
                 Text("Interrupted — tap Resume to continue")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -773,14 +773,14 @@ struct ChatMessageRow: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(Color.orange)
+                    .background(ChatColors.warning)
                     .clipShape(Capsule())
                 }
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.08))
+        .background(ChatColors.warning.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
