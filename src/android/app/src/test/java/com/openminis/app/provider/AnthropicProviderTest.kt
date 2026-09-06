@@ -596,6 +596,90 @@ class AnthropicProviderTest {
         assertEquals("summarized", thinking.getString("display"))
     }
 
+    // -- Anthropic-compat adaptive thinking (OpenMinis#311 / #306 problem 2) --
+
+    @Test
+    fun `custom endpoint MiniMax emits adaptive thinking without Claude extras`() = runBlocking {
+        // MiniMax Anthropic-compat docs: omit = off; thinking:{type:"adaptive"} = force on.
+        // MockWebServer basePath is already a custom endpoint in this fixture.
+        provider.model = LLMModel(
+            "MiniMax-M3", "MiniMax M3", "Anthropic",
+            supportsReasoning = true,
+        )
+        server.enqueue(MockResponse().setBody("""{"content":[],"usage":{"input_tokens":0,"output_tokens":0}}"""))
+
+        provider.sendMessage(
+            listOf(LLMMessage(LLMMessage.Role.USER, "hi")), null, 4096,
+            thinkingLevel = ThinkingLevel.MEDIUM,
+        )
+
+        val request = server.takeRequest()
+        val body = JSONObject(request.body.readUtf8())
+        val thinking = body.getJSONObject("thinking")
+        assertEquals("adaptive", thinking.getString("type"))
+        assertTrue("compat adaptive must not invent display", !thinking.has("display"))
+        assertTrue("compat adaptive must not invent budget_tokens", !thinking.has("budget_tokens"))
+        assertTrue("compat adaptive must not invent output_config", !body.has("output_config"))
+        val beta = request.getHeader("anthropic-beta") ?: ""
+        assertTrue("must not send Claude effort beta: $beta", !beta.contains("effort-2025-11-24"))
+        assertTrue("must not send interleaved-thinking beta: $beta", !beta.contains("interleaved-thinking"))
+    }
+
+    @Test
+    fun `custom endpoint MiniMax omits thinking when level is off`() = runBlocking {
+        provider.model = LLMModel(
+            "MiniMax-M3", "MiniMax M3", "Anthropic",
+            supportsReasoning = true,
+        )
+        server.enqueue(MockResponse().setBody("""{"content":[],"usage":{"input_tokens":0,"output_tokens":0}}"""))
+
+        provider.sendMessage(
+            listOf(LLMMessage(LLMMessage.Role.USER, "hi")), null, 4096,
+            thinkingLevel = ThinkingLevel.OFF,
+        )
+
+        val body = JSONObject(server.takeRequest().body.readUtf8())
+        assertTrue("MiniMax off = omit thinking field", !body.has("thinking"))
+    }
+
+    @Test
+    fun `custom endpoint Claude 4_5 still uses legacy budget thinking`() = runBlocking {
+        // Regression: custom base URL must NOT force adaptive onto Claude ≤4.5.
+        provider.model = LLMModel.claudeHaiku45
+        server.enqueue(MockResponse().setBody("""{"content":[],"usage":{"input_tokens":0,"output_tokens":0}}"""))
+
+        provider.sendMessage(
+            listOf(LLMMessage(LLMMessage.Role.USER, "hi")), null, 4096,
+            thinkingLevel = ThinkingLevel.MEDIUM,
+        )
+
+        val thinking = JSONObject(server.takeRequest().body.readUtf8()).getJSONObject("thinking")
+        assertEquals("enabled", thinking.getString("type"))
+        assertTrue(thinking.has("budget_tokens"))
+    }
+
+    @Test
+    fun `shouldEmitCompatAdaptiveThinking only for non-Claude custom endpoints`() {
+        assertTrue(
+            AnthropicProvider.shouldEmitCompatAdaptiveThinking("MiniMax-M3", isCustomEndpoint = true),
+        )
+        assertTrue(
+            AnthropicProvider.shouldEmitCompatAdaptiveThinking("minimax-m3", isCustomEndpoint = true),
+        )
+        assertEquals(
+            false,
+            AnthropicProvider.shouldEmitCompatAdaptiveThinking("MiniMax-M3", isCustomEndpoint = false),
+        )
+        assertEquals(
+            false,
+            AnthropicProvider.shouldEmitCompatAdaptiveThinking("claude-haiku-4-5", isCustomEndpoint = true),
+        )
+        assertEquals(
+            false,
+            AnthropicProvider.shouldEmitCompatAdaptiveThinking("claude-sonnet-4-6", isCustomEndpoint = true),
+        )
+    }
+
     @Test
     fun `OAuth request omits redact-thinking beta so thinking text is not blanked`() = runBlocking {
         // Mirrors iOS 958ee16c (T-anthropic-redact-thinking). The Claude-Code

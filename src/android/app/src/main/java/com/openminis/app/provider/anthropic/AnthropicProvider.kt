@@ -382,6 +382,14 @@ class AnthropicProvider(
                 body.put("output_config", JSONObject().apply {
                     put("effort", thinkingEffort(thinkingLevel))
                 })
+            } else if (shouldEmitCompatAdaptiveThinking(model.id, isCustomEndpoint)) {
+                // [T-anthropic-compat-force-thinking] (OpenMinis#311 / #306 p2)
+                // Anthropic-compat relays that are NOT Claude (e.g. MiniMax M3)
+                // document omit=off and thinking:{type:"adaptive"}=force-on.
+                // The Claude legacy enabled+budget_tokens shape is ignored there,
+                // so the thinking toggle appeared to do nothing. Emit only the
+                // documented MiniMax wire form — no Claude display/effort/betas.
+                body.put("thinking", JSONObject().put("type", "adaptive"))
             } else {
                 val budgetTokens = thinkingBudget(maxTokens, thinkingLevel)
                 if (budgetTokens > 0) {
@@ -818,6 +826,19 @@ class AnthropicProvider(
         }
 
         /**
+         * [T-anthropic-compat-force-thinking] (OpenMinis#311)
+         * On custom Anthropic endpoints, non-Claude model ids (MiniMax-M3, …)
+         * need `thinking:{type:"adaptive"}` when the user enables thinking.
+         * Claude models keep their version-based adaptive/budget split so a
+         * Claude ≤4.5 proxy still gets enabled+budget_tokens.
+         */
+        fun shouldEmitCompatAdaptiveThinking(modelId: String, isCustomEndpoint: Boolean): Boolean {
+            if (!isCustomEndpoint) return false
+            if (modelUsesAdaptiveThinking(modelId)) return false
+            return parseClaudeVersion(modelId) == null
+        }
+
+        /**
          * [T-android-claude-opus48-thinking-toggle] (Sow Sow 38845/38850) True
          * when this Claude model supports extended thinking — i.e. the Deep
          * Thinking toggle should appear for it. Anthropic added extended thinking
@@ -941,7 +962,11 @@ class AnthropicProvider(
         } else if (body.has("thinking")) {
             val isAdaptive = body.optJSONObject("thinking")?.optString("type") == "adaptive"
             if (isAdaptive) {
-                betaFlags.add("effort-2025-11-24")
+                // Claude adaptive pairs effort-2025-11-24 with output_config.effort.
+                // Compat adaptive (MiniMax #311) is bare type=adaptive — skip Claude betas.
+                if (body.has("output_config")) {
+                    betaFlags.add("effort-2025-11-24")
+                }
             } else {
                 betaFlags.add("interleaved-thinking-2025-05-14")
             }
