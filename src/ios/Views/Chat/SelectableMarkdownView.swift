@@ -320,15 +320,15 @@ struct SelectableMarkdownTheme {
     var baseFont: UIFont { AppearanceFontFamily.resolved().uiFont(size: baseFontSize) }
     var labelColor: UIColor { .label }
     var secondaryLabelColor: UIColor { .secondaryLabel }
-    var accentColor: UIColor { AppearanceStudio.shared.uiColor(.warning, scope: .chat) }
-    var linkColor: UIColor { AppearanceStudio.shared.uiColor(.accent, scope: .chat) }
+    var accentColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning) }
+    var linkColor: UIColor { AppearanceStudio.uiColorSnapshot(.accent) }
     var codeBlockBackground: UIColor {
         UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.15, alpha: 1) : .black }
     }
-    var codeBlockTextColor: UIColor { AppearanceStudio.shared.uiColor(.success, scope: .chat) }
+    var codeBlockTextColor: UIColor { AppearanceStudio.uiColorSnapshot(.success) }
     var inlineCodeBackground: UIColor { minisInlineCodeBackgroundColor }
-    var inlineCodeColor: UIColor { AppearanceStudio.shared.uiColor(.warning, scope: .chat) }
-    var blockquoteBarColor: UIColor { AppearanceStudio.shared.uiColor(.warning, scope: .chat).withAlphaComponent(0.5) }
+    var inlineCodeColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning) }
+    var blockquoteBarColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning).withAlphaComponent(0.5) }
     var tableBorderColor: UIColor { UIColor.label.withAlphaComponent(0.25) }
 
     func headingFont(level: Int) -> UIFont {
@@ -1576,7 +1576,7 @@ final class CodeBlockAttachment: NSTextAttachment {
             // content, even after updateExistingView replaced the attributed text.
             UIPasteboard.general.string = codeTextView?.text
             copyButton?.setImage(UIImage(systemName: "checkmark", withConfiguration: iconConfig), for: .normal)
-            copyButton?.tintColor = AppearanceStudio.shared.uiColor(.success, scope: .chat)
+            copyButton?.tintColor = AppearanceStudio.uiColorSnapshot(.success)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 copyButton?.setImage(UIImage(systemName: "doc.on.doc", withConfiguration: iconConfig), for: .normal)
                 copyButton?.tintColor = .white.withAlphaComponent(0.5)
@@ -4560,13 +4560,13 @@ final class AudioAttachment: NSTextAttachment {
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .regular)
         let playBtn = UIButton(type: .system)
         playBtn.setImage(UIImage(systemName: "play.circle.fill", withConfiguration: iconConfig), for: .normal)
-        playBtn.tintColor = AppearanceStudio.shared.uiColor(.accent, scope: .chat)
+        playBtn.tintColor = AppearanceStudio.uiColorSnapshot(.accent)
         playBtn.frame = CGRect(x: 10, y: 30, width: 30, height: 30)
         bg.addSubview(playBtn)
 
         // Slider
         let slider = UISlider()
-        slider.minimumTrackTintColor = AppearanceStudio.shared.uiColor(.accent, scope: .chat)
+        slider.minimumTrackTintColor = AppearanceStudio.uiColorSnapshot(.accent)
         slider.frame = CGRect(x: 46, y: 34, width: maxW - 100, height: 22)
         slider.value = 0
         bg.addSubview(slider)
@@ -5503,7 +5503,7 @@ final class SelectableMarkdownTextView: UITextView, UIGestureRecognizerDelegate 
         let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
 
         let flash = UIView(frame: rect.insetBy(dx: -2, dy: -1))
-        flash.backgroundColor = AppearanceStudio.shared.uiColor(.accent, scope: .chat).withAlphaComponent(0.18)
+        flash.backgroundColor = AppearanceStudio.uiColorSnapshot(.accent).withAlphaComponent(0.18)
         flash.layer.cornerRadius = 4
         flash.isUserInteractionEnabled = false
         addSubview(flash)

@@ -69,6 +69,8 @@ final class AppearanceStudio: ObservableObject {
     /// Custom values only. Missing values inherit from the built-in palette;
     /// page values inherit from global before falling back to built-in.
     @Published private var customColors: [String: String]
+    /// Snapshot for UIKit / off-main reads. Written on persist.
+    nonisolated(unsafe) static var colorSnapshot: [String: String] = [:]
     @Published private(set) var wallpaperRevision = 0
     @Published private(set) var iconRevision = 0
     @Published private(set) var userAvatar: String
@@ -106,6 +108,7 @@ final class AppearanceStudio: ObservableObject {
         wallpaperShade = storedShade ?? 0.08
         cachedThemePack = loadStoredPackUnlocked()
         themePackLoaded = true
+        Self.colorSnapshot = customColors
         configureUIKitSurfaces()
     }
 
@@ -193,7 +196,26 @@ final class AppearanceStudio: ObservableObject {
         if let data = try? JSONEncoder().encode(customColors) {
             UserDefaults.standard.set(data, forKey: Keys.colors)
         }
+        Self.colorSnapshot = customColors
         objectWillChange.send()
+    }
+
+    /// Safe for UIKit callbacks. Resolves chat-scoped roles without hopping the actor.
+    nonisolated static func uiColorSnapshot(_ role: AppearanceColorRole,
+                                            scope: AppearanceScope = .chat) -> UIColor {
+        let variant: AppearanceVariant = {
+            let mode = UserDefaults.standard.integer(forKey: "appearanceMode")
+            if mode == 1 { return .light }
+            if mode == 2 { return .dark }
+            return UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
+        }()
+        let snap = colorSnapshot
+        let scoped = "\(scope.rawValue).\(variant.rawValue).\(role.rawValue)"
+        let global = "\(AppearanceScope.global.rawValue).\(variant.rawValue).\(role.rawValue)"
+        let hex = snap[scoped] ?? snap[global]
+            ?? (variant == .light ? AppearancePaletteBook.light : AppearancePaletteBook.dark)[role]
+            ?? "808080"
+        return UIColor(hex: hex)
     }
 
     // MARK: Wallpaper

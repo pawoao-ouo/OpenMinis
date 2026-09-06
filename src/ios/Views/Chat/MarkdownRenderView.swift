@@ -576,7 +576,7 @@ final class MarkdownRenderView: UIView, UIGestureRecognizerDelegate {
         let rect = textLayoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
 
         let flash = UIView(frame: rect.insetBy(dx: -2, dy: -1))
-        flash.backgroundColor = AppearanceStudio.shared.uiColor(.accent, scope: .chat).withAlphaComponent(0.18)
+        flash.backgroundColor = AppearanceStudio.uiColorSnapshot(.accent).withAlphaComponent(0.18)
         flash.layer.cornerRadius = 4
         flash.isUserInteractionEnabled = false
         addSubview(flash)

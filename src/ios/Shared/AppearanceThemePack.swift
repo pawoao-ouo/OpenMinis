@@ -486,7 +486,7 @@ extension AppearanceStudio {
         pack.colorsDark = exportColors(variant: .dark)
         pack.surfaceOpacity = surfaceOpacity
         pack.wallpaperShade = wallpaperShade
-        let accentHex = hex(.accent, scope: .chat)
+        let accentHex = hex(.accent, scope: .chat, variant: activeVariant)
         pack.thinkingAccentHex = accentHex
         pack.thinkingFillHex = accentHex
         pack.thinkingStrokeHex = accentHex
