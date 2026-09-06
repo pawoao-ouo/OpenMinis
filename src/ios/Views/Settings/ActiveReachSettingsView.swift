@@ -392,6 +392,7 @@ struct ActiveReachSettingsView: View {
         case "scheduleFailed": return "通知没排上，没记账。"
         case "emptyText": return "这句话是空的。"
         case "missingDraft": return "这条草稿已经不在了。"
+        case "sessionGone": return "目标会话已经没了，没发、没记账。"
         default: return err
         }
     }
@@ -418,6 +419,7 @@ struct ActiveReachSettingsView: View {
         case "cap": return "发出去了"
         case "break": return "破例发出去了"
         case "missingDraft": return "草稿没了"
+        case "sessionGone": return "会话没了"
         case nil:
             if item.disposition == "drafted" { return "进草稿了" }
             return item.source.isEmpty ? "—" : item.source
