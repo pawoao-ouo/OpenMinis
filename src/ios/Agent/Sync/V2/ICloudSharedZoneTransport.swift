@@ -1,6 +1,7 @@
 import Foundation
 import CloudKit
-import Security
+// NOTE: no `import Security` — SecTask* is not in the iOS SDK; the
+// entitlement gate reads embedded.mobileprovision instead (see below).
 
 private let logger = AppLogger(category: "SyncTransport")
 
@@ -35,24 +36,33 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
         case unavailable(String)
     }
 
-    /// [T-icloud-resign-entitlement-crash] Read the code-sign entitlement
-    /// before ANY CloudKit object exists. Re-signed clones (ad-hoc /
-    /// third-party re-sign services) commonly lose
-    /// `com.apple.developer.icloud-container-identifiers`, and
-    /// CKContainer(identifier:) in that state raises an ObjC NSException —
-    /// which Swift try/catch cannot stop, so the old probeAccount()
-    /// SIGABRT'd on the toggle-on path and then on every launch.
-    /// SecTask introspection touches no CloudKit machinery, cannot throw,
-    /// and crashes nothing.
+    /// [T-icloud-resign-entitlement-crash] Inspect the re-signed build's
+    /// embedded.mobileprovision before ANY CloudKit object exists.
+    /// Third-party re-sign services rebuild the entitlements from their
+    /// own provisioning profile, and wildcard profiles carry no iCloud
+    /// container entitlement — CKContainer(identifier:) then raises an
+    /// ObjC NSException that Swift try/catch cannot stop, so toggling
+    /// sync crashed immediately and every later launch crashed in the
+    /// probe. SecTask introspection is unavailable on iOS; the embedded
+    /// profile is plain enough XML to string-scan, touches no CloudKit
+    /// machinery, and cannot throw.
     static func hasCloneICloudEntitlement() -> Bool {
-        guard let task = SecTaskCreateFromSelf(nil) else { return false }
-        guard let value = SecTaskCopyValueForEntitlement(
-            task,
-            "com.apple.developer.icloud-container-identifiers" as CFString,
-            nil
-        ) else { return false }
-        guard let ids = value as? [String] else { return false }
-        return ids.contains(containerIdentifier)
+        guard let profilePath = Bundle.main.path(forResource: "embedded", ofType: "mobileprovision"),
+              let data = FileManager.default.contents(atPath: profilePath),
+              let raw = String(data: data, encoding: .isoLatin1) else {
+            return false
+        }
+        // The DER blob wraps an XML plist: grab everything between the
+        // outermost <plist>…</plist> markers and look for the entitlement
+        // containing *our* container id — a wildcard iCloud grant would
+        // still lack this exact string.
+        guard let start = raw.range(of: "<plist"),
+              let end = raw.range(of: "</plist>", range: start.lowerBound..<raw.endIndex) else {
+            return false
+        }
+        let plist = raw[start.lowerBound..<end.upperBound]
+        guard plist.contains("icloud-container-identifiers") else { return false }
+        return plist.contains(containerIdentifier)
     }
 
     /// Never use CKContainer.default() — that is the official app's
