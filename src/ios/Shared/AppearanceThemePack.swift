@@ -130,7 +130,33 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         return obj
     }
 
+    /// Keys that mark JSON as an Appearance theme pack (partial / legacy OK).
+    private static let themePackSignalKeys: Set<String> = [
+        "schema",
+        "userBubbleRadius", "assistantBubbleRadius", "thinkingRadius",
+        "thinkingFillHex", "thinkingStrokeHex", "thinkingAccentHex",
+        "userBubbleStyle", "assistantBubbleStyle",
+        "thinkingCardJPEGBase64", "thinkingCardImageOpacity",
+        "listRowFillHex", "listIconShape",
+        "categoryIcons", "categoryColors", "categoryImages",
+        "inputBarRadius", "inputBarStyle", "inputBarJPEGBase64", "inputBarImageOpacity",
+        "thinkingTitleSize", "thinkingBodySize", "fontFamily",
+        "wallpaperShade", "surfaceOpacity",
+        "colorsLight", "colorsDark", "wallpaperJPEGBase64",
+    ]
+
+    /// True when `raw` carries at least one known theme-pack field.
+    /// Missing fields are filled from `.default` during decode (migrate / upgrade path).
+    static func looksLikeThemePack(_ raw: [String: Any]) -> Bool {
+        raw.keys.contains { themePackSignalKeys.contains($0) }
+    }
+
     static func decode(_ raw: [String: Any]) throws -> AppearanceThemePack {
+        // Old / partial packs: fill missing keys from `.default` and treat as schema 5.
+        // Reject only JSON that does not look like a theme pack at all.
+        guard looksLikeThemePack(raw) else {
+            throw AppearanceThemePackError.notAThemePack
+        }
         func str(_ k: String, fallback: String) -> String {
             (raw[k] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 ? (raw[k] as! String) : fallback
@@ -185,6 +211,17 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         if pack.id.isEmpty { pack.id = base.id }
         if pack.name.isEmpty { pack.name = pack.id }
         return pack
+    }
+}
+
+enum AppearanceThemePackError: LocalizedError {
+    case notAThemePack
+
+    var errorDescription: String? {
+        switch self {
+        case .notAThemePack:
+            return "Not a theme pack."
+        }
     }
 }
 
@@ -380,6 +417,21 @@ extension AppearanceStudio {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let pack = try? AppearanceThemePack.decode(obj) else {
             return .default
+        }
+        // Persist upgraded schema 5 when stored JSON had missing/old schema.
+        // Direct UserDefaults set — avoid persistPack (would re-enter themePackLock).
+        let storedSchema: Int? = {
+            guard let raw = obj["schema"] else { return nil }
+            if let i = raw as? Int { return i }
+            if let d = raw as? Double { return Int(d) }
+            if let s = raw as? String {
+                return Int(s.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            return nil
+        }()
+        if storedSchema != AppearanceThemePack.schemaVersion,
+           let upgraded = try? JSONSerialization.data(withJSONObject: pack.asJSONObject()) {
+            UserDefaults.standard.set(upgraded, forKey: Self.packKey)
         }
         return pack
     }

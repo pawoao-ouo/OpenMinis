@@ -608,11 +608,15 @@ struct AppearanceStudioView: View {
     private func importPackFromClipboard() {
         guard let text = UIPasteboard.general.string,
               let data = text.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let pack = try? AppearanceThemePack.decode(obj) else {
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             errorText = "剪贴板里没有能用的主题包。"
             return
         }
-        studio.applyThemePack(pack)
+        do {
+            let pack = try AppearanceThemePack.decode(obj)
+            studio.applyThemePack(pack)
+        } catch {
+            errorText = error.localizedDescription
+        }
     }
 }
