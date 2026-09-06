@@ -125,6 +125,44 @@ init_submodules() {
 }
 
 # ============================================================================
+# Apply OpenMinis-owned patches on top of the pinned ish-arm64 submodule
+# ============================================================================
+# Patches live in deps/ish-patch/ and are applied idempotently (skip if
+# already present) so repeated builds do not fail. Keep these minimal —
+# prefer landing the change upstream in OpenMinis/ish-arm64 when possible.
+apply_ish_patches() {
+    local patch_dir="$SCRIPT_DIR/ish-patch"
+    if [ ! -d "$patch_dir" ]; then
+        return 0
+    fi
+
+    log_info "Applying ish-patch overlays..."
+    cd "$ISH_DIR"
+
+    local applied=0
+    local skipped=0
+    # Sort for stable order (0001-, 0002-, ...)
+    local patch
+    for patch in $(ls "$patch_dir"/*.patch 2>/dev/null | sort); do
+        local base
+        base=$(basename "$patch")
+        if git apply --check "$patch" >/dev/null 2>&1; then
+            git apply "$patch"
+            log_success "Applied $base"
+            applied=$((applied + 1))
+        elif git apply --reverse --check "$patch" >/dev/null 2>&1; then
+            log_info "Already applied: $base"
+            skipped=$((skipped + 1))
+        else
+            log_error "Failed to apply ish patch: $base"
+        fi
+    done
+
+    cd "$SCRIPT_DIR"
+    log_info "ish-patch: applied=$applied skipped=$skipped"
+}
+
+# ============================================================================
 # Clean Build
 # ============================================================================
 clean_build() {
@@ -437,6 +475,7 @@ main() {
 
     check_prerequisites
     init_submodules
+    apply_ish_patches
     setup_cross_compile
     build_ish
     copy_outputs
