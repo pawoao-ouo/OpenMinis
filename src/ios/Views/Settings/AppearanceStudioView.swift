@@ -126,24 +126,42 @@ struct AppearanceStudioView: View {
                 }
 
                 ForEach(AppearanceThemePack.categoryKeys, id: \.self) { key in
-                    HStack {
-                        Text(key)
-                            .font(.caption)
-                        Spacer()
-                        PhotosPicker(selection: Binding(
-                            get: { categoryImageKey == key ? categoryImageItem : nil },
-                            set: { newValue in
-                                categoryImageKey = key
-                                categoryImageItem = newValue
+                    let themed = MinisThemeList.categoryIcon(for: key)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: themed.systemName)
+                                .foregroundStyle(themed.color)
+                                .frame(width: 22)
+                            Text(key)
+                                .font(.caption)
+                            Spacer()
+                            PhotosPicker(selection: Binding(
+                                get: { categoryImageKey == key ? categoryImageItem : nil },
+                                set: { newValue in
+                                    categoryImageKey = key
+                                    categoryImageItem = newValue
+                                }
+                            ), matching: .images) {
+                                Text(studio.categoryImage(for: key) == nil ? "贴图" : "换图")
                             }
-                        ), matching: .images) {
-                            Text(studio.categoryImage(for: key) == nil ? "贴图" : "换图")
+                            if studio.categoryImage(for: key) != nil {
+                                Button("还原图") { studio.removeCategoryImage(for: key) }
+                                    .foregroundStyle(studio.color(.destructive))
+                            }
                         }
-                        if studio.categoryImage(for: key) != nil {
-                            Button("还原") { studio.removeCategoryImage(for: key) }
-                                .foregroundStyle(studio.color(.destructive))
+                        TextField("SF 名，空着就是默认", text: categorySymbolBinding(key))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(.caption, design: .monospaced))
+                        HStack {
+                            ColorPicker("图标色", selection: categoryColorBinding(key), supportsOpacity: false)
+                            if pack.categoryIcons[key] != nil || pack.categoryColors[key] != nil {
+                                Button("还原图标") { studio.clearCategoryChrome(for: key) }
+                                    .foregroundStyle(studio.color(.destructive))
+                            }
                         }
                     }
+                    .padding(.vertical, 4)
                 }
 
                 PhotosPicker(selection: $thinkingCardItem, matching: .images) {
@@ -504,6 +522,20 @@ struct AppearanceStudioView: View {
         Binding(
             get: { studio.currentThemePack().inputBarRadius },
             set: { studio.setInputBarRadius($0) }
+        )
+    }
+
+    private func categorySymbolBinding(_ key: String) -> Binding<String> {
+        Binding(
+            get: { studio.currentThemePack().categoryIcons[key] ?? "" },
+            set: { studio.setCategorySymbol($0, for: key) }
+        )
+    }
+
+    private func categoryColorBinding(_ key: String) -> Binding<Color> {
+        Binding(
+            get: { MinisThemeList.categoryIcon(for: key).color },
+            set: { studio.setCategoryColor($0, for: key) }
         )
     }
 

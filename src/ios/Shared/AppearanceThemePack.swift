@@ -421,6 +421,33 @@ extension AppearanceStudio {
         persistPack(pack)
     }
 
+    func setCategorySymbol(_ symbol: String, for key: String) {
+        guard AppearanceThemePack.categoryKeys.contains(key) else { return }
+        var pack = currentThemePack()
+        let trimmed = symbol.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            pack.categoryIcons.removeValue(forKey: key)
+        } else {
+            pack.categoryIcons[key] = trimmed
+        }
+        persistPack(pack)
+    }
+
+    func setCategoryColor(_ color: Color, for key: String) {
+        guard AppearanceThemePack.categoryKeys.contains(key) else { return }
+        var pack = currentThemePack()
+        pack.categoryColors[key] = UIColor(color).hexRGB
+        persistPack(pack)
+    }
+
+    func clearCategoryChrome(for key: String) {
+        guard AppearanceThemePack.categoryKeys.contains(key) else { return }
+        var pack = currentThemePack()
+        pack.categoryIcons.removeValue(forKey: key)
+        pack.categoryColors.removeValue(forKey: key)
+        persistPack(pack)
+    }
+
     private func categoryImageURL(_ key: String) -> URL {
         appearanceDirectory.appendingPathComponent("category-\(key).jpg")
     }
