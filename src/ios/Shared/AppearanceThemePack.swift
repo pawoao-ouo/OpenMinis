@@ -24,8 +24,12 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var categoryColors: [String: String]
     var categoryImages: [String: String]
     var inputBarRadius: Double
+    var inputBarStyle: String
+    var inputBarJPEGBase64: String?
+    var inputBarImageOpacity: Double
     var thinkingTitleSize: Double
     var thinkingBodySize: Double
+    var fontFamily: String
     var wallpaperShade: Double?
     var surfaceOpacity: Double?
     var colorsLight: [String: String]
@@ -33,7 +37,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var wallpaperJPEGBase64: String?
 
     static let currentKey = "appearanceStudio.themePack.v1"
-    static let schemaVersion = 4
+    static let schemaVersion = 5
     static let categoryKeys = [
         "code", "writing", "research", "analysis", "creative", "chat", "math",
         "translation", "health", "finance", "travel", "education", "design",
@@ -59,8 +63,12 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         categoryColors: [:],
         categoryImages: [:],
         inputBarRadius: 20,
+        inputBarStyle: AppearanceBubbleStyle.rounded.rawValue,
+        inputBarJPEGBase64: nil,
+        inputBarImageOpacity: 0.28,
         thinkingTitleSize: 13,
         thinkingBodySize: 13,
+        fontFamily: AppearanceFontFamily.system.rawValue,
         wallpaperShade: 0.08,
         surfaceOpacity: 0.88,
         colorsLight: [:],
@@ -105,8 +113,11 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             "categoryColors": categoryColors,
             "categoryImages": categoryImages,
             "inputBarRadius": inputBarRadius,
+            "inputBarStyle": AppearanceBubbleStyle.parse(inputBarStyle).rawValue,
+            "inputBarImageOpacity": inputBarImageOpacity,
             "thinkingTitleSize": thinkingTitleSize,
             "thinkingBodySize": thinkingBodySize,
+            "fontFamily": AppearanceFontFamily.parse(fontFamily).rawValue,
             "colorsLight": colorsLight,
             "colorsDark": colorsDark,
         ]
@@ -115,6 +126,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         if let surfaceOpacity { obj["surfaceOpacity"] = surfaceOpacity }
         if let wallpaperJPEGBase64 { obj["wallpaperJPEGBase64"] = wallpaperJPEGBase64 }
         if let thinkingCardJPEGBase64 { obj["thinkingCardJPEGBase64"] = thinkingCardJPEGBase64 }
+        if let inputBarJPEGBase64 { obj["inputBarJPEGBase64"] = inputBarJPEGBase64 }
         return obj
     }
 
@@ -158,8 +170,12 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             categoryColors: filterCategoryMap(map("categoryColors"), symbols: false),
             categoryImages: filterCategoryMap(map("categoryImages"), symbols: true),
             inputBarRadius: clampRadius(num("inputBarRadius", fallback: base.inputBarRadius)),
+            inputBarStyle: AppearanceBubbleStyle.parse(str("inputBarStyle", fallback: base.inputBarStyle)).rawValue,
+            inputBarJPEGBase64: raw["inputBarJPEGBase64"] as? String,
+            inputBarImageOpacity: min(1, max(0.05, num("inputBarImageOpacity", fallback: base.inputBarImageOpacity))),
             thinkingTitleSize: min(22, max(10, num("thinkingTitleSize", fallback: base.thinkingTitleSize))),
             thinkingBodySize: min(22, max(10, num("thinkingBodySize", fallback: base.thinkingBodySize))),
+            fontFamily: AppearanceFontFamily.parse(str("fontFamily", fallback: base.fontFamily)).rawValue,
             wallpaperShade: raw["wallpaperShade"] == nil ? nil : min(0.65, max(0, num("wallpaperShade", fallback: 0.08))),
             surfaceOpacity: raw["surfaceOpacity"] == nil ? nil : min(1, max(0.35, num("surfaceOpacity", fallback: 0.88))),
             colorsLight: normalizeHexMap(map("colorsLight")),
@@ -201,6 +217,59 @@ fileprivate func filterCategoryMap(_ map: [String: String], symbols: Bool) -> [S
         out[k] = symbols ? trimmed : normalizeHex(trimmed)
     }
     return out
+}
+
+enum AppearanceFontFamily: String, CaseIterable, Identifiable {
+    case system, rounded, serif, mono
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .system: return "系统"
+        case .rounded: return "圆体"
+        case .serif: return "衬线"
+        case .mono: return "等宽"
+        }
+    }
+    var design: Font.Design {
+        switch self {
+        case .system: return .default
+        case .rounded: return .rounded
+        case .serif: return .serif
+        case .mono: return .monospaced
+        }
+    }
+    var uiDesign: UIFontDescriptor.SystemDesign {
+        switch self {
+        case .system: return .default
+        case .rounded: return .rounded
+        case .serif: return .serif
+        case .mono: return .monospaced
+        }
+    }
+    static func parse(_ raw: String) -> AppearanceFontFamily {
+        AppearanceFontFamily(rawValue: raw) ?? .system
+    }
+
+    func uiFont(size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
+        let base = UIFont.systemFont(ofSize: size, weight: weight)
+        if let descriptor = base.fontDescriptor.withDesign(uiDesign) {
+            return UIFont(descriptor: descriptor, size: size)
+        }
+        return base
+    }
+
+    func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: design)
+    }
+
+    static func resolved() -> AppearanceFontFamily {
+        guard let data = UserDefaults.standard.data(forKey: AppearanceThemePack.currentKey),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = obj["fontFamily"] as? String else {
+            return .system
+        }
+        return parse(raw)
+    }
 }
 
 enum AppearanceBubbleStyle: String, CaseIterable, Identifiable {
@@ -330,6 +399,7 @@ extension AppearanceStudio {
         var stored = pack
         stored.wallpaperJPEGBase64 = nil
         stored.thinkingCardJPEGBase64 = nil
+        stored.inputBarJPEGBase64 = nil
         stored.categoryImages = [:]
         persistPack(stored)
         if !pack.colorsLight.isEmpty || !pack.colorsDark.isEmpty {
@@ -348,6 +418,11 @@ extension AppearanceStudio {
            let data = Data(base64Encoded: b64),
            let image = UIImage(data: data) {
             setThinkingCardImage(image)
+        }
+        if let b64 = pack.inputBarJPEGBase64,
+           let data = Data(base64Encoded: b64),
+           let image = UIImage(data: data) {
+            setInputBarImage(image)
         }
         applyCategoryImages(pack.categoryImages)
         configureUIKitSurfaces()
@@ -369,6 +444,10 @@ extension AppearanceStudio {
            let data = image.jpegData(compressionQuality: 0.82) {
             pack.thinkingCardJPEGBase64 = data.base64EncodedString()
         }
+        if includeWallpaper, let image = inputBarImage(),
+           let data = image.jpegData(compressionQuality: 0.82) {
+            pack.inputBarJPEGBase64 = data.base64EncodedString()
+        }
         if includeWallpaper {
             var images: [String: String] = [:]
             for key in AppearanceThemePack.categoryKeys {
@@ -385,6 +464,7 @@ extension AppearanceStudio {
     func resetThemePack() {
         UserDefaults.standard.removeObject(forKey: Self.packKey)
         try? FileManager.default.removeItem(at: thinkingCardURL())
+        try? FileManager.default.removeItem(at: inputBarImageURL())
         wipeCategoryImageFiles()
         themePackLock.lock()
         cachedThemePack = .default
@@ -411,6 +491,18 @@ extension AppearanceStudio {
     func setInputBarRadius(_ value: Double) {
         var pack = currentThemePack()
         pack.inputBarRadius = min(32, max(4, value))
+        persistPack(pack)
+    }
+
+    func setInputBarStyle(_ style: AppearanceBubbleStyle) {
+        var pack = currentThemePack()
+        pack.inputBarStyle = style.rawValue
+        persistPack(pack)
+    }
+
+    func setFontFamily(_ family: AppearanceFontFamily) {
+        var pack = currentThemePack()
+        pack.fontFamily = family.rawValue
         persistPack(pack)
     }
 
@@ -573,6 +665,50 @@ extension AppearanceStudio {
         persistPack(pack)
     }
 
+    private func inputBarImageURL() -> URL {
+        appearanceDirectory.appendingPathComponent("input-bar.jpg")
+    }
+
+    func inputBarImage() -> UIImage? {
+        UIImage(contentsOfFile: inputBarImageURL().path)
+    }
+
+    func hasInputBarImage() -> Bool {
+        FileManager.default.fileExists(atPath: inputBarImageURL().path)
+    }
+
+    func setInputBarImage(_ image: UIImage) {
+        let maxEdge: CGFloat = 1400
+        let size = image.size
+        let scale = min(1, maxEdge / max(size.width, size.height, 1))
+        let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        if let data = rendered.jpegData(compressionQuality: 0.82) {
+            try? data.write(to: inputBarImageURL(), options: .atomic)
+        }
+        var pack = currentThemePack()
+        pack.inputBarJPEGBase64 = nil
+        persistPack(pack)
+    }
+
+    func removeInputBarImage() {
+        try? FileManager.default.removeItem(at: inputBarImageURL())
+        var pack = currentThemePack()
+        pack.inputBarJPEGBase64 = nil
+        persistPack(pack)
+    }
+
+    func setInputBarImageOpacity(_ value: Double) {
+        var pack = currentThemePack()
+        pack.inputBarImageOpacity = min(1, max(0.05, value))
+        persistPack(pack)
+    }
+
     fileprivate func applyPackColors(light: [String: String], dark: [String: String]) {
         func paint(_ map: [String: String], variant: AppearanceVariant) {
             for (raw, hex) in map {
@@ -605,6 +741,9 @@ enum MinisThemeShape {
     static var userStyle: AppearanceBubbleStyle { pack.userStyle }
     static var assistantStyle: AppearanceBubbleStyle { pack.assistantStyle }
     static var thinkingCardOpacity: Double { pack.thinkingCardImageOpacity }
+    static var inputBarStyle: AppearanceBubbleStyle { AppearanceBubbleStyle.parse(pack.inputBarStyle) }
+    static var inputBarImageOpacity: Double { pack.inputBarImageOpacity }
+    static var fontFamily: AppearanceFontFamily { AppearanceFontFamily.parse(pack.fontFamily) }
 
     static var userBubble: MinisBubbleShape {
         MinisBubbleShape(style: userStyle, radius: userBubbleRadius, tailOnTrailing: true)
@@ -614,6 +753,9 @@ enum MinisThemeShape {
     }
     static var thinkingCard: MinisBubbleShape {
         MinisBubbleShape(style: .squircle, radius: thinkingRadius, tailOnTrailing: false)
+    }
+    static var inputBar: MinisBubbleShape {
+        MinisBubbleShape(style: inputBarStyle, radius: inputBarRadius, tailOnTrailing: false)
     }
     static var thinkingTitleSize: CGFloat {
         CGFloat(min(22, max(10, pack.thinkingTitleSize)))

@@ -3676,7 +3676,7 @@ struct AIChatView: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
             }
-            .contentShape(RoundedRectangle(cornerRadius: MinisThemeShape.inputBarRadius))
+            .contentShape(MinisThemeShape.inputBar)
             .onTapGesture { inputFocused = true }
             .onReceive(speechManager.$recognizedText) { text in
                 guard speechManager.state == .recording || !text.isEmpty else { return }
@@ -4655,19 +4655,34 @@ struct AIChatView: View {
 private struct ComposerSurface: ViewModifier {
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: MinisThemeShape.inputBarRadius, style: .continuous)
-    }
+    private var shape: MinisBubbleShape { MinisThemeShape.inputBar }
 
     func body(content: Content) -> some View {
         let _ = appearanceStudio.themePackRevision
+        let fill = ChatColors.inputBg
+        let overlay = Group {
+            if let image = appearanceStudio.inputBarImage() {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .opacity(MinisThemeShape.inputBarImageOpacity)
+            }
+        }
         if #available(iOS 26.0, *) {
             content
+                .background {
+                    overlay.clipShape(shape)
+                }
                 .glassEffect(.regular, in: shape)
                 .clipShape(shape)
         } else {
             content
-                .background(shape.fill(ChatColors.inputBg))
+                .background {
+                    ZStack {
+                        shape.fill(fill)
+                        overlay
+                    }
+                }
                 .clipShape(shape)
                 .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 2)
                 .shadow(color: Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0, alpha: 0.5) : UIColor(white: 0, alpha: 0) }), radius: 8, x: 0, y: -4)

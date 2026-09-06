@@ -317,7 +317,7 @@ struct SelectableMarkdownTheme {
         self.baseFontSize = baseFontSize ?? 16.5
     }
 
-    var baseFont: UIFont { .systemFont(ofSize: baseFontSize) }
+    var baseFont: UIFont { AppearanceFontFamily.resolved().uiFont(size: baseFontSize) }
     var labelColor: UIColor { .label }
     var secondaryLabelColor: UIColor { .secondaryLabel }
     var accentColor: UIColor { .systemOrange }
@@ -344,7 +344,7 @@ struct SelectableMarkdownTheme {
         case 6: size = baseFontSize * 0.85; weight = .semibold
         default: size = baseFontSize; weight = .semibold // H4 and fallback
         }
-        return .systemFont(ofSize: size, weight: weight)
+        return AppearanceFontFamily.resolved().uiFont(size: size, weight: weight)
     }
 
     var inlineCodeFont: UIFont {

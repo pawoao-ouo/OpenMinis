@@ -757,7 +757,7 @@ struct ThinkingBlockView: View {
                     .frame(width: 14, height: 14)
                     .foregroundStyle(MinisThemeShape.thinkingAccent)
                 Text(AppLocalized("Deep Thinking"))
-                    .font(.system(size: MinisThemeShape.thinkingTitleSize, weight: .semibold))
+                    .font(MinisThemeShape.fontFamily.font(size: MinisThemeShape.thinkingTitleSize, weight: .semibold))
                     .foregroundStyle(MinisThemeShape.thinkingAccent)
                 if isStreaming {
                     ProgressView()
@@ -838,7 +838,7 @@ struct ThinkingBlockView: View {
                             // moving is useless anyway — enable it only once
                             // streaming finished.
                             let thinkingText = Text(displayContent)
-                                .font(.system(size: MinisThemeShape.thinkingBodySize))
+                                .font(MinisThemeShape.fontFamily.font(size: MinisThemeShape.thinkingBodySize))
                                 .foregroundStyle(ChatColors.tertiaryText)
                                 .lineSpacing(3)
                             Group {

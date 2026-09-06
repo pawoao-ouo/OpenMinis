@@ -12,6 +12,7 @@ struct AppearanceStudioView: View {
     @State private var iconPickSlot: QuietIconSlot?
     @State private var iconItem: PhotosPickerItem?
     @State private var thinkingCardItem: PhotosPickerItem?
+    @State private var inputBarItem: PhotosPickerItem?
     @State private var categoryImageKey: String?
     @State private var categoryImageItem: PhotosPickerItem?
     @State private var saveName: String = ""
@@ -93,6 +94,16 @@ struct AppearanceStudioView: View {
                 }
                 Picker("列表图标", selection: listIconShapeBinding) {
                     ForEach(AppearanceListIconShape.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                Picker("输入栏形状", selection: inputBarStyleBinding) {
+                    ForEach(AppearanceBubbleStyle.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                Picker("正文字体", selection: fontFamilyBinding) {
+                    ForEach(AppearanceFontFamily.allCases) { item in
                         Text(item.title).tag(item)
                     }
                 }
@@ -180,6 +191,25 @@ struct AppearanceStudioView: View {
                     }
                     Button("去掉 thinking 卡片图", role: .destructive) {
                         studio.removeThinkingCardImage()
+                    }
+                }
+
+                PhotosPicker(selection: $inputBarItem, matching: .images) {
+                    Label(studio.hasInputBarImage() ? "更换输入栏图" : "给输入栏贴图",
+                          systemImage: "photo.on.rectangle")
+                }
+                if studio.hasInputBarImage() {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("输入栏图浓度")
+                            Spacer()
+                            Text("\(Int(pack.inputBarImageOpacity * 100))%")
+                                .foregroundStyle(.secondary)
+                        }
+                        Slider(value: inputBarImageOpacityBinding, in: 0.05...1, step: 0.01)
+                    }
+                    Button("去掉输入栏图", role: .destructive) {
+                        studio.removeInputBarImage()
                     }
                 }
 
@@ -381,6 +411,10 @@ struct AppearanceStudioView: View {
             guard let item else { return }
             Task { await importImage(item) { studio.setThinkingCardImage($0) } }
         }
+        .onChange(of: inputBarItem) { item in
+            guard let item else { return }
+            Task { await importImage(item) { studio.setInputBarImage($0) } }
+        }
         .onChange(of: categoryImageItem) { item in
             guard let item, let key = categoryImageKey else { return }
             Task {
@@ -466,6 +500,7 @@ struct AppearanceStudioView: View {
             userAvatarItem = nil
             assistantAvatarItem = nil
             thinkingCardItem = nil
+            inputBarItem = nil
             categoryImageItem = nil
         }
         guard let data = try? await item.loadTransferable(type: Data.self),
@@ -501,6 +536,27 @@ struct AppearanceStudioView: View {
         Binding(
             get: { AppearanceListIconShape.parse(studio.currentThemePack().listIconShape) },
             set: { studio.setListIconShape($0) }
+        )
+    }
+
+    private var inputBarStyleBinding: Binding<AppearanceBubbleStyle> {
+        Binding(
+            get: { AppearanceBubbleStyle.parse(studio.currentThemePack().inputBarStyle) },
+            set: { studio.setInputBarStyle($0) }
+        )
+    }
+
+    private var fontFamilyBinding: Binding<AppearanceFontFamily> {
+        Binding(
+            get: { AppearanceFontFamily.parse(studio.currentThemePack().fontFamily) },
+            set: { studio.setFontFamily($0) }
+        )
+    }
+
+    private var inputBarImageOpacityBinding: Binding<Double> {
+        Binding(
+            get: { studio.currentThemePack().inputBarImageOpacity },
+            set: { studio.setInputBarImageOpacity($0) }
         )
     }
 
