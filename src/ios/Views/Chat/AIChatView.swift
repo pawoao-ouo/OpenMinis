@@ -1346,6 +1346,17 @@ struct AIChatView: View {
                   let updatedId = note.object as? String,
                   updatedId == sid else { return }
             refreshTitlePillSession()
+            // R2-001: ChatStore.appendMessage (e.g. ActiveReach
+            // persistAssistantBubble) posts .sessionDidUpdate. Previously only
+            // the title pill refreshed, so an open transcript missed the new
+            // bubble until leave/re-enter. Mirror onAppear-reuse: reload from
+            // DB when the live VM is idle. reloadMessagesFromDB also self-
+            // guards / rearms pendingSyncReloadOnIdle if mid-stream.
+            if !vm.isProcessing && !vm.isCompacting {
+                Task { @MainActor in
+                    await vm.reloadMessagesFromDB(reason: "sessionDidUpdate")
+                }
+            }
         }
         .onChange(of: shareCoordinator.bufferVersion) { newVersion in
             // Warm start: user is already in a session when share arrives
