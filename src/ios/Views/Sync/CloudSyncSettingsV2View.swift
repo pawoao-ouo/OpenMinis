@@ -34,7 +34,19 @@ struct CloudSyncSettingsV2View: View {
                 Toggle(isOn: Binding(
                     get: { v2Enabled },
                     set: { newValue in
-                        if #available(iOS 17.0, *) { SyncV2Bootstrap.setEnabled(newValue) }
+                        if #available(iOS 17.0, *) {
+                            // [T-icloud-resign-entitlement-crash] Re-signed
+                            // builds may lack the iCloud container entitlement;
+                            // enabling sync would NSException on the first
+                            // CKContainer and then again on every launch.
+                            // Refuse up front instead of probing-and-crashing.
+                            if newValue, !ICloudSharedZoneTransport.hasCloneICloudEntitlement() {
+                                v2Enabled = false
+                                statusText = "iCloud sync unavailable on this re-signed build"
+                                return
+                            }
+                            SyncV2Bootstrap.setEnabled(newValue)
+                        }
                         v2Enabled = newValue
                     }
                 )) {

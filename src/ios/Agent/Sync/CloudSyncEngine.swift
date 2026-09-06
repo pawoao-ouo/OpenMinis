@@ -457,6 +457,16 @@ final class CloudSyncEngine: ObservableObject {
             syncStatus = .disabled
             return
         }
+        // [T-icloud-resign-entitlement-crash] Re-signed builds may lack
+        // the iCloud container entitlement; CKContainer would NSException.
+        // Gate BEFORE any CloudKit object is constructed (container is
+        // lazy, so until start() touches it nothing has exploded yet).
+        guard ICloudSharedZoneTransport.hasCloneICloudEntitlement() else {
+            logger.error("[CloudSync] iCloud container entitlement missing (re-signed build) — disabling sync so the app stays open")
+            syncStatus = .disabled
+            isEnabled = false
+            return
+        }
         guard syncEngine == nil else { return }
 
         logger.info("[CloudSync] Starting sync engine for device \(DeviceIdentity.zoneName)")

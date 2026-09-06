@@ -1,5 +1,6 @@
 import Foundation
 import CloudKit
+import Security
 
 private let logger = AppLogger(category: "SyncTransport")
 
@@ -34,6 +35,26 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
         case unavailable(String)
     }
 
+    /// [T-icloud-resign-entitlement-crash] Read the code-sign entitlement
+    /// before ANY CloudKit object exists. Re-signed clones (ad-hoc /
+    /// third-party re-sign services) commonly lose
+    /// `com.apple.developer.icloud-container-identifiers`, and
+    /// CKContainer(identifier:) in that state raises an ObjC NSException —
+    /// which Swift try/catch cannot stop, so the old probeAccount()
+    /// SIGABRT'd on the toggle-on path and then on every launch.
+    /// SecTask introspection touches no CloudKit machinery, cannot throw,
+    /// and crashes nothing.
+    static func hasCloneICloudEntitlement() -> Bool {
+        guard let task = SecTaskCreateFromSelf(nil) else { return false }
+        guard let value = SecTaskCopyValueForEntitlement(
+            task,
+            "com.apple.developer.icloud-container-identifiers" as CFString,
+            nil
+        ) else { return false }
+        guard let ids = value as? [String] else { return false }
+        return ids.contains(containerIdentifier)
+    }
+
     /// Never use CKContainer.default() — that is the official app's
     /// container and SIGABRTs the clone when iCloud Sync is on.
     static func cloneContainer() -> CKContainer {
@@ -41,8 +62,12 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
     }
 
     /// Ask CloudKit if this clone container is usable. Failures stay
-    /// off-path so launch still opens.
+    /// off-path so launch still opens. Entitlement gate runs first —
+    /// see hasCloneICloudEntitlement().
     static func probeAccount() async -> AccountProbe {
+        guard hasCloneICloudEntitlement() else {
+            return .unavailable("signature has no iCloud container entitlement (re-signed clone?)")
+        }
         let container = cloneContainer()
         do {
             let status = try await container.accountStatus()
