@@ -656,7 +656,9 @@ private fun ColumnScope.ApiKeyConfigSection(
         // keep requiring a credential. Mirrors iOS AddProviderView.
         enabled = apiKey.isNotBlank() || (
             customBaseURL.isNotBlank() &&
-                (providerType == ProviderType.openAI || providerType == ProviderType.anthropic)
+                (providerType == ProviderType.openAI ||
+                    providerType == ProviderType.openAIResponses ||
+                    providerType == ProviderType.anthropic)
         ),
     ) {
         Text(stringResource(R.string.provider_list_add_provider))
