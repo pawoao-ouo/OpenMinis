@@ -607,10 +607,12 @@ private final class OAuthURLProtocol: URLProtocol, URLSessionDataDelegate {
         }
         mutable.setValue(flags.joined(separator: ","), forHTTPHeaderField: "anthropic-beta")
 
-        // Stainless / CLI fingerprint headers. Versions intentionally pinned
-        // to claude-cli/2.1.195 — bump in lockstep with sub2api when the real
-        // CLI version moves.
-        mutable.setValue("claude-cli/2.1.195 (external, cli)", forHTTPHeaderField: "User-Agent")
+        // Stainless / CLI fingerprint headers. User-Agent intentionally pinned
+        // to claude-cli/2.1.251 — Anthropic gates newer subscription models
+        // (e.g. claude-fable-5-1) on CLI ≥ 2.1.251 (OpenMinis#301). Keep
+        // Stainless values stable unless a real CLI capture shows they must
+        // move; bump UA when Anthropic raises the floor again.
+        mutable.setValue("claude-cli/2.1.251 (external, cli)", forHTTPHeaderField: "User-Agent")
         mutable.setValue("js", forHTTPHeaderField: "X-Stainless-Lang")
         mutable.setValue("0.106.0", forHTTPHeaderField: "X-Stainless-Package-Version")
         mutable.setValue("Linux", forHTTPHeaderField: "X-Stainless-OS")
