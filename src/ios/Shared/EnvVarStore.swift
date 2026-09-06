@@ -309,29 +309,41 @@ final class EnvVarStore: ObservableObject {
         let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !trimmedKey.isEmpty, Self.isValidKey(trimmedKey) else { return }
 
-        // If key changed, delete old keychain entry and check for duplicates
-        if oldKey != trimmedKey {
+        let keyChanged = oldKey != trimmedKey
+        if keyChanged {
             guard !entries.contains(where: { $0.key == trimmedKey && $0.id != id }) else {
                 logger.warning("Cannot rename to duplicate key: \(trimmedKey)")
                 return
             }
-            Self.deleteValue(forKey: oldKey)
         }
 
         let cleanValue = Self.sanitizeValue(value)
-        // Commit the new value FIRST; only mutate the entry (and persist the
-        // key rename) once the Keychain write succeeds, so a failed write
-        // never leaves the list pointing at a blanked value. On key rename the
-        // old value was already migrated/removed above; if the new write
-        // fails, re-log so the caller can retry.
+        // Write under the destination key first (same-key path is update-in-place
+        // inside saveValue). Only after that succeeds do we delete the old
+        // Keychain account on rename — delete-then-write used to lose the
+        // secret if SecItemAdd/Update failed after SecItemDelete.
         guard Self.saveValue(cleanValue, forKey: trimmedKey) else {
-            logger.error("Update env var aborted — Keychain write failed for \(trimmedKey)")
+            logger.error("Update env var aborted — Keychain write failed for \(trimmedKey); prior key \(oldKey) left intact")
             return
         }
+        // Confirm the destination account is readable before dropping the old
+        // one on rename (mirrors the copy-then-delete migration below in
+        // applyRemoteItem).
+        if keyChanged {
+            guard Self.loadValue(forKey: trimmedKey) != nil else {
+                logger.error("Update env var aborted — Keychain verify failed for \(trimmedKey); prior key \(oldKey) left intact")
+                return
+            }
+        }
+
         entries[idx].key = trimmedKey
         if let note { entries[idx].note = note }
         saveEntries()
         markEntryDirty(entryId: entries[idx].id, operation: "upsert")
+
+        if keyChanged {
+            Self.deleteValue(forKey: oldKey)
+        }
         logger.info("Updated env var: \(trimmedKey)")
     }
 
@@ -400,16 +412,29 @@ final class EnvVarStore: ObservableObject {
             // we've ever seen for this id.
             if existing.createdAt > createdAt { entries[idx].createdAt = createdAt }
             if !value.isEmpty {
-                if keyChanged {
-                    Self.deleteValue(forKey: existing.key)
+                // Write new key first; only delete the old account after success
+                // (same race as update() rename — never delete-before-write).
+                if Self.saveValue(value, forKey: key) {
+                    if keyChanged {
+                        Self.deleteValue(forKey: existing.key)
+                    }
+                } else {
+                    logger.error("[EnvVarStore] applyRemoteItem Keychain write failed for \(key); prior key left intact")
+                    if keyChanged {
+                        // Roll back in-memory key so metadata still matches the
+                        // surviving Keychain account.
+                        entries[idx].key = existing.key
+                    }
                 }
-                Self.saveValue(value, forKey: key)
             } else if keyChanged {
                 // Key renamed but no value supplied — migrate the existing
                 // value under the new key so we don't strand it.
-                if let oldVal = Self.loadValue(forKey: existing.key) {
-                    Self.saveValue(oldVal, forKey: key)
+                if let oldVal = Self.loadValue(forKey: existing.key),
+                   Self.saveValue(oldVal, forKey: key) {
                     Self.deleteValue(forKey: existing.key)
+                } else {
+                    logger.error("[EnvVarStore] applyRemoteItem rename migrate failed for \(key); prior key left intact")
+                    entries[idx].key = existing.key
                 }
             }
             saveEntries()

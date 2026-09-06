@@ -32,6 +32,12 @@ enum SoulIconImage {
     /// problem the renderer already solves.
     enum RejectionReason: Error {
         case unreadable
+        /// Encoded data URI exceeds `SoulIconSource.maxStoredChars`.
+        /// Same gate Android's `SoulIcon.encode` applies via `TOO_LARGE` /
+        /// `MAX_DATA_URI_CHARS`, so the Settings picker and the config path
+        /// cannot diverge on what is storable. Associated value is the
+        /// refused URI's character count (for config diagnostics).
+        case tooLarge(Int)
     }
 
     /// Normalize a picked image into the stored form: square, downscaled,
@@ -59,7 +65,14 @@ enum SoulIconImage {
         }
 
         guard let png = scaled.pngData() else { return .failure(.unreadable) }
-        return .success(prefix + png.base64EncodedString())
+        let uri = prefix + png.base64EncodedString()
+        // Cap lives HERE so every caller — Settings picker and SoulIconSource
+        // alike — refuses the same oversized payload. Mirrors Android
+        // `SoulIcon.encode` checking `MAX_DATA_URI_CHARS`.
+        guard uri.count <= SoulIconSource.maxStoredChars else {
+            return .failure(.tooLarge(uri.count))
+        }
+        return .success(uri)
     }
 
     /// Decode a stored data URI back to an image. Returns nil for an emoji
@@ -94,8 +107,9 @@ enum SoulIconImage {
 ///
 /// The picker path is `SoulIconImage.encode` and nothing here re-implements
 /// it: every image source below decodes to a `UIImage` and then goes through
-/// that one function, so alpha rejection, square cropping, the 96px cap and
-/// PNG re-encoding are shared by construction rather than by copy.
+/// that one function, so square cropping, the 96px pixel cap, PNG re-encoding
+/// and the stored-size cap (`maxStoredChars`) are shared by construction
+/// rather than by copy.
 ///
 /// Why resolution happens HERE and not in the field's `writer`:
 /// `ConfigField.write` is synchronous and `@MainActor`, but an https source
@@ -220,12 +234,13 @@ enum SoulIconSource {
         }
 
         // The shared rules. Not reimplemented — this is the picker's function.
+        // Size cap is inside encode (parity with Android), so a success is
+        // already within maxStoredChars; map tooLarge for the config diagnostic.
         switch SoulIconImage.encode(image) {
         case .failure(.unreadable): throw SourceError.unreadable
+        case .failure(.tooLarge(let n)):
+            throw SourceError.storedTooLarge(n)
         case .success(let uri):
-            guard uri.count <= maxStoredChars else {
-                throw SourceError.storedTooLarge(uri.count)
-            }
             return uri
         }
     }

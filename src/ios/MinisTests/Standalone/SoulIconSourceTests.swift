@@ -286,6 +286,17 @@ check("stored cap is 64 KB in shipping code",
       soulSource.contains("maxStoredChars = 64 * 1024"))
 check("resolution reuses SoulIconImage.encode (rules are not duplicated)",
       soulSource.contains("SoulIconImage.encode(image)"))
+// [T-soul-icon-size-cap / #299] Cap must live IN encode so the Settings
+// picker path cannot bypass it (config/resolve previously checked alone).
+check("SoulIconImage.encode enforces maxStoredChars (picker + config share it)",
+      soulSource.contains("uri.count <= SoulIconSource.maxStoredChars"))
+check("encode rejects with tooLarge (Android TOO_LARGE parity)",
+      soulSource.contains("case tooLarge(Int)") || soulSource.contains(".failure(.tooLarge"))
+check("SoulSettingsView surfaces tooLarge distinctly from unreadable",
+      ((try? String(contentsOfFile: URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Views/Settings/SoulSettingsView.swift").path,
+        encoding: .utf8)) ?? "").contains(".failure(.tooLarge)"))
 for needle in ["case 0, 10, 127:", "169 where b == 254", "172 where (16...31)",
                "192 where b == 168", "100 where (64...127)"] {
     check("blocked-host table still contains `\(needle)`", soulSource.contains(needle))

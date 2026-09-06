@@ -497,9 +497,13 @@ object ThinkingRuleResolver {
 
             else -> {
                 // Phase 1: declared for vocabulary completeness, never resolved to on this
-                // path. Reaching here means the registry named a format the OpenAI emitter
-                // cannot produce — a programmer error, not a runtime condition.
-                error("ThinkingWireFormat $format is not emitted on the OpenAI path in Phase 1")
+                // path. Reaching here means a rule named a format the OpenAI emitter cannot
+                // produce (e.g. CustomPath / BooleanToggle). Do not interpolate `$format` —
+                // data-class toString() leaks internal type names into user-visible errors.
+                error(
+                    "This thinking format is not supported for Chat Completions yet. " +
+                        "Pick Reasoning Effort / DeepSeek / Qwen Dual instead.",
+                )
             }
         }
     }

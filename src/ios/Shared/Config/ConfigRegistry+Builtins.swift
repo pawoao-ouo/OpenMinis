@@ -124,8 +124,8 @@ extension ConfigRegistry {
         // An image may be given as a data URI, bare base64, a `minis-clone://`
         // resource, a path inside the minis directories, or an http(s) URL.
         // Whatever the source, it is decoded and pushed through the SAME
-        // `SoulIconImage.encode` the Settings picker uses — alpha check,
-        // square crop, 96px cap, PNG — and the RESULT is stored inline.
+        // `SoulIconImage.encode` the Settings picker uses — square crop,
+        // 96px cap, PNG, and maxStoredChars — and the RESULT is stored inline.
         //
         // An address is an import source only, never the stored value: keeping
         // a path would leave the icon dangling the moment the attachment is

@@ -540,7 +540,15 @@ enum BrowserUseJS {
                 }
                 if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
                     info.inputType = el.type || null;
-                    if (el.value) info.value = el.value.substring(0, 60);
+                    if (el.value) {
+                        var t = (el.type || '').toLowerCase();
+                        var ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+                        var nid = ((el.name || '') + ' ' + (el.id || '')).toLowerCase();
+                        var sensitive = (t === 'password') ||
+                            (ac === 'password' || ac === 'new-password' || ac === 'current-password') ||
+                            /password|secret|token|apikey|api_key/.test(nid);
+                        info.value = sensitive ? '[redacted]' : el.value.substring(0, 60);
+                    }
                     if (el.placeholder) info.placeholder = el.placeholder.substring(0, 60);
                 }
                 var role = el.getAttribute('role');

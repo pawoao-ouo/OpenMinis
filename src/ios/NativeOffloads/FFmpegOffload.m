@@ -498,17 +498,42 @@ static int ffmpeg_handler(int argc, char **argv,
 }
 
 void ffmpeg_offload_register(void) {
-    int err = native_offload_add_handler("ffmpeg", ffmpeg_handler);
+    // [OpenMinis#288] Do NOT register bare basename "ffmpeg".
+    //
+    // Basename matching hijacked EVERY guest execve whose final path component
+    // was "ffmpeg" — Alpine's official apk binary, user scripts named ffmpeg,
+    // copies under /tmp, etc. — while reads (sha1sum/cat) still saw the real
+    // file. Narrow the match to the app-managed stub path only.
+    //
+    // Matching semantics (deps/ish-patch/0001-native-offload-path-scoped-match):
+    //   - guest_name containing '/' → exact guest path match
+    //   - if that path is a real ELF (apk/user binary replaced the stub) →
+    //     native_offload_lookup returns NULL and exec falls through to
+    //     emulation, so official ffmpeg keeps working
+    //   - basename-only names (below) stay available as an explicit escape
+    //     hatch that never collides with apk or user scripts
+    int err = native_offload_add_handler("/usr/bin/ffmpeg", ffmpeg_handler);
     if (err == 0) {
-        NSLog(@"NativeOffloads: ffmpeg handler registered");
+        NSLog(@"NativeOffloads: ffmpeg handler registered for /usr/bin/ffmpeg (path-scoped)");
         // [T-ish-offload-signal-forward] Opt in to guest signal delivery, so a
         // `kill` on a wedged transcode reaches us instead of being queued for a
         // thread that will never look at it.
-        if (native_offload_set_abort_handler("ffmpeg", ffmpeg_abort_requested) == 0)
+        if (native_offload_set_abort_handler("/usr/bin/ffmpeg", ffmpeg_abort_requested) == 0)
             NSLog(@"NativeOffloads: ffmpeg abort handler registered");
         else
             NSLog(@"NativeOffloads: failed to register ffmpeg abort handler");
     } else {
         NSLog(@"NativeOffloads: failed to register ffmpeg handler (err=%d)", err);
+    }
+
+    // Explicit VideoToolbox entry point. Unique basename, so apk add ffmpeg /
+    // ./ffmpeg scripts are unaffected. Agents that need the native offload
+    // after Alpine owns /usr/bin/ffmpeg can call `minis-ffmpeg`.
+    if (native_offload_add_handler("minis-ffmpeg", ffmpeg_handler) == 0) {
+        NSLog(@"NativeOffloads: minis-ffmpeg handler registered");
+        if (native_offload_set_abort_handler("minis-ffmpeg", ffmpeg_abort_requested) != 0)
+            NSLog(@"NativeOffloads: failed to register minis-ffmpeg abort handler");
+    } else {
+        NSLog(@"NativeOffloads: failed to register minis-ffmpeg handler");
     }
 }

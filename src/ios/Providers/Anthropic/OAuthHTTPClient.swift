@@ -607,10 +607,12 @@ private final class OAuthURLProtocol: URLProtocol, URLSessionDataDelegate {
         }
         mutable.setValue(flags.joined(separator: ","), forHTTPHeaderField: "anthropic-beta")
 
-        // Stainless / CLI fingerprint headers. Versions intentionally pinned
-        // to claude-cli/2.1.195 — bump in lockstep with sub2api when the real
-        // CLI version moves.
-        mutable.setValue("claude-cli/2.1.195 (external, cli)", forHTTPHeaderField: "User-Agent")
+        // Stainless / CLI fingerprint headers. User-Agent intentionally pinned
+        // to claude-cli/2.1.251 — Anthropic gates newer subscription models
+        // (e.g. claude-fable-5-1) on CLI ≥ 2.1.251 (OpenMinis#301). Keep
+        // Stainless values stable unless a real CLI capture shows they must
+        // move; bump UA when Anthropic raises the floor again.
+        mutable.setValue("claude-cli/2.1.251 (external, cli)", forHTTPHeaderField: "User-Agent")
         mutable.setValue("js", forHTTPHeaderField: "X-Stainless-Lang")
         mutable.setValue("0.106.0", forHTTPHeaderField: "X-Stainless-Package-Version")
         mutable.setValue("Linux", forHTTPHeaderField: "X-Stainless-OS")
@@ -1219,7 +1221,14 @@ enum RequestBodyPatcher {
               var json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return }
 
         let modelId = (json["model"] as? String) ?? ""
-        let useAdaptive = AnthropicProvider.modelUsesAdaptiveThinking(modelId)
+        // Claude 4.6+ always uses adaptive. On Anthropic-compat relays, non-Claude
+        // ids (MiniMax-M3 etc., OpenMinis#311) also need type=adaptive when thinking
+        // is on — their docs treat omit as off and only adaptive as force-on.
+        // Claude ≤4.5 keeps the legacy budget path via parseClaudeVersion != nil.
+        let useClaudeAdaptive = AnthropicProvider.modelUsesAdaptiveThinking(modelId)
+        let useCompatAdaptive = AnthropicProvider.parseClaudeVersion(modelId) == nil
+            && (effort != nil || budget > 0)
+        let useAdaptive = useClaudeAdaptive || useCompatAdaptive
 
         // [T-ios-thinking-flag-cross-request] Honour the disable intent only if
         // it was computed for THIS model. The flags are process-global and are
@@ -1265,14 +1274,22 @@ enum RequestBodyPatcher {
         if let existing = request.value(forHTTPHeaderField: "anthropic-beta"), !existing.isEmpty {
             betas = existing.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         }
-        if useAdaptive {
+        if useClaudeAdaptive {
             if !betas.contains("effort-2025-11-24") { betas.append("effort-2025-11-24") }
-        } else {
+        } else if !useCompatAdaptive {
             if !betas.contains("interleaved-thinking-2025-05-14") { betas.append("interleaved-thinking-2025-05-14") }
         }
-        request.setValue(betas.joined(separator: ","), forHTTPHeaderField: "anthropic-beta")
+        // Compat adaptive (MiniMax #311): bare type=adaptive, no Claude betas.
+        if !betas.isEmpty {
+            request.setValue(betas.joined(separator: ","), forHTTPHeaderField: "anthropic-beta")
+        }
 
-        if useAdaptive {
+        if useCompatAdaptive && !useClaudeAdaptive {
+            // [T-anthropic-compat-force-thinking] (OpenMinis#311 / #306 p2)
+            // MiniMax and similar Anthropic-compat relays: only documented form is
+            // thinking:{type:"adaptive"}. Do not invent display/effort/budget.
+            json["thinking"] = ["type": "adaptive"]
+        } else if useAdaptive {
             // Adaptive: thinking.type=adaptive, no budget_tokens; effort goes
             // under output_config.effort. If the caller only set a budget
             // (legacy code path), default to "medium" so we still get thinking.
@@ -1311,9 +1328,11 @@ enum RequestBodyPatcher {
         // but Claude >= 4.6 rejects the temperature parameter entirely
         // (see AnthropicProvider.modelRejectsTemperature). Adaptive thinking
         // models all fall under that rejection rule.
+        // Compat adaptive (MiniMax #311) does not document a temperature
+        // requirement — leave whatever the SDK already put on the body.
         if AnthropicProvider.modelRejectsTemperature(modelId) {
             json.removeValue(forKey: "temperature")
-        } else {
+        } else if !useCompatAdaptive {
             json["temperature"] = 1
         }
 

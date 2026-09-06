@@ -224,6 +224,11 @@ class ProviderRepository(private val context: Context) {
                     "[ProviderStore] initial load failed; leaving config unloaded for retry: ${e.message}",
                 )
             }
+            // Prime the resolver's custom-rule cache here as well: ensureConfigLoaded()
+            // early-returns once _configLoaded is true, and on a cold start THIS loader is
+            // what flips that flag, so its warm-up call never runs. Mirrors iOS
+            // ProviderConfigStore.adoptDB → reloadThinkingRuleCache().
+            warmThinkingRuleCache()
             // Completed in every path, including the failure one: awaitConfigLoaded()
             // callers (refreshAllModelsIfNeeded) would otherwise suspend forever.
             if (!configLoadComplete.isCompleted) configLoadComplete.complete(Unit)
@@ -1640,11 +1645,26 @@ class ProviderRepository(private val context: Context) {
 
     /** Warm the resolver cache with every instance's custom rules (called on config load). */
     fun loadAllThinkingRulesIntoCache() {
+        runBlocking { warmThinkingRuleCache() }
+    }
+
+    /** Suspend twin for callers already on a coroutine (the init loader). */
+    private suspend fun warmThinkingRuleCache() {
         runCatching {
-            val rows = runBlocking { providerDao.loadAllThinkingRules() }
+            val rows = providerDao.loadAllThinkingRules()
             val byInstance = rows.groupBy { it.providerInstanceId }
                 .mapValues { (_, rs) -> rs.sortedBy { it.sortOrder }.map { ThinkingRuleCoding.toRule(it) } }
             ThinkingRuleResolver.setAllCustomRules(byInstance)
+            android.util.Log.i(
+                "ProviderRepo",
+                "[ThinkingRules] resolver cache warmed: ${byInstance.values.sumOf { it.size }} " +
+                    "custom rule(s) across ${byInstance.size} instance(s)",
+            )
+        }.onFailure { e ->
+            android.util.Log.w(
+                "ProviderRepo",
+                "[ThinkingRules] cache warm failed; resolving with built-ins only: ${e.message}",
+            )
         }
     }
 

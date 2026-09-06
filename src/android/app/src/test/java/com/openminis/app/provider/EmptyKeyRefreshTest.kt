@@ -60,6 +60,16 @@ class EmptyKeyRefreshTest {
         )
     }
 
+    @Test
+    fun `self-hosted Responses API endpoint may have an empty key`() {
+        // iOS ProviderType.openAIResponses; Android keeps the type for sync /
+        // import parity (issue #218 Responses + custom gateway).
+        assertTrue(
+            instance(ProviderType.openAIResponses, ProviderCredential.apiKey, "https://opencode.ai/zen/go/v1")
+                .allowsEmptyAPIKey,
+        )
+    }
+
     // ── Cases that must KEEP requiring a key ──────────────────────────────
 
     @Test
@@ -94,7 +104,7 @@ class EmptyKeyRefreshTest {
     @Test
     fun `non OpenAI-compatible families are not covered`() {
         // Gemini and OpenRouter authenticate differently and have no
-        // keyless self-hosted story; the gate stays {openAI, anthropic}.
+        // keyless self-hosted story; the gate stays {openAI, openAIResponses, anthropic}.
         for (type in listOf(ProviderType.gemini, ProviderType.openRouter)) {
             assertFalse(
                 "expected $type to require a key",

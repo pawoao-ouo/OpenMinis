@@ -2890,12 +2890,24 @@ class OpenAIProvider private constructor(
         // this layer we don't have one, so we hash the first user message —
         // re-sent verbatim every turn of the same chat → stable across turns,
         // distinct between chats. iOS does the same in
-        // OpenAIAgentProvider.swift:325 + derivePromptCacheKey() at line 515.
+        // OpenAIAgentProvider.swift + derivePromptCacheKey().
         // Without this, each turn was treated as a separate prompt by the
         // Responses-API cache regardless of how byte-stable the prefix was —
         // that's the missing piece between Android (~70%) and iOS (90%+) on
         // the Codex OAuth / forceResponsesAPI path.
-        body.put("prompt_cache_key", derivePromptCacheKey(messages))
+        //
+        // [T-android-prompt-cache-key-400] Gated as of this fix (mirrors iOS
+        // [T-ios-prompt-cache-key-400] / OpenMinis#247). The original version
+        // sent the key UNCONDITIONALLY on the assumption that vendors which
+        // don't recognise it would ignore it as a harmless extra key. That
+        // assumption is false: strict-schema third-party gateways reject
+        // unknown request fields outright with
+        // `400 UNKNOWN_FIELD: 未知请求字段：prompt_cache_key`, which fails the
+        // whole request rather than degrading to an uncached one. Only the
+        // allowlisted bases get the key — see [shouldSendPromptCacheKey].
+        if (shouldSendPromptCacheKey()) {
+            body.put("prompt_cache_key", derivePromptCacheKey(messages))
+        }
         // T-responses-include: `include: ["reasoning.encrypted_content"]` is a
         // ChatGPT-backend-only field. Third-party Responses-API-compatible
         // proxies (non-OpenAI) don't recognize it and reject the request with
@@ -3338,8 +3350,53 @@ class OpenAIProvider private constructor(
     }
 
     /**
+     * [T-android-prompt-cache-key-400] Whether this provider may receive the
+     * `prompt_cache_key` request field.
+     *
+     * ALLOWLIST, not blanket — mirrors iOS
+     * `OpenAIAgentProvider.shouldSendPromptCacheKey(for:)`. The field is a pure
+     * cache-locality hint with no behavioural meaning, so the cost of omitting
+     * it is a weaker cache hit rate, while the cost of sending it to a vendor
+     * that doesn't know it can be total request failure: strict-schema
+     * gateways answer `400 UNKNOWN_FIELD: 未知请求字段：prompt_cache_key`
+     * (OpenMinis#247 / self-hosted deepseek-v4 / NVIDIA NIM) instead of
+     * ignoring the extra key. That asymmetry is why the default must be
+     * "don't send".
+     *
+     * Allowed:
+     *   • official OpenAI base (non-Azure) — Android has no separate
+     *     `customBaseURL`; the factory/Codex OAuth ctor default
+     *     `https://api.openai.com/v1` is the `customBaseURL == nil` equivalent.
+     *     Required on GPT-5.6+ for reliable prefix matching.
+     *   • `useResponsesAPI` relays — Android's `forceResponsesAPI` equivalent;
+     *     an explicit user opt-in declaring the base speaks the Responses API
+     *     (sub2api and friends). These need the key because they synthesize no
+     *     server-side fallback (Wei-Shaw/sub2api#1134).
+     *
+     * Everyone else — plain custom-base OpenAI-compatible endpoints, Azure —
+     * gets the field omitted, which is the pre-regression behaviour.
+     *
+     * TODO: if a specific non-`useResponsesAPI` gateway is later confirmed to
+     * handle the field correctly, add it here by base-URL match rather than
+     * widening the default.
+     */
+    internal fun shouldSendPromptCacheKey(): Boolean {
+        if (!isAzure && isOfficialOpenAIBasePath()) return true
+        return useResponsesAPI
+    }
+
+    /**
+     * `customBaseURL == nil` stand-in for Android: official/Codex providers are
+     * constructed with the default `https://api.openai.com/v1` basePath.
+     */
+    private fun isOfficialOpenAIBasePath(): Boolean {
+        val normalized = basePath.trimEnd('/').lowercase()
+        return normalized == "https://api.openai.com/v1"
+    }
+
+    /**
      * Derives a stable per-conversation `prompt_cache_key` for the Responses
-     * API. Mirrors iOS derivePromptCacheKey (OpenAIAgentProvider.swift:515).
+     * API. Mirrors iOS derivePromptCacheKey (OpenAIAgentProvider.swift).
      * The first user message is re-sent verbatim on every turn → its hash is
      * stable across turns within the same chat, distinct between chats.
      * Falls back to a random UUID when there is no user text yet (first

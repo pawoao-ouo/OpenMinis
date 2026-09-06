@@ -572,13 +572,18 @@ private struct SoulIconEditing: ViewModifier {
         }
         // [T-soul-icon-opaque-rounded] Opaque images are accepted now — the
         // transparency requirement was a presentation concern and moved to
-        // `SoulIconView`, which clips every image to a rounded rectangle. Only
-        // an undecodable image is refused here, so this path and the
-        // `minis-config` path apply exactly the same rule.
+        // `SoulIconView`, which clips every image to a rounded rectangle.
+        // Encode also enforces `SoulIconSource.maxStoredChars` (parity with
+        // Android `SoulIcon.encode`), so picker and `minis-config` share the
+        // same refusals.
         switch SoulIconImage.encode(image) {
         case .success(let uri):
             await MainActor.run { icon = uri }
-        case .failure:
+        case .failure(.tooLarge(_)):
+            await MainActor.run {
+                iconError = AppLocalized("That image is too large to store. Try a simpler one.")
+            }
+        case .failure(.unreadable):
             await MainActor.run {
                 iconError = AppLocalized("That image couldn't be read.")
             }

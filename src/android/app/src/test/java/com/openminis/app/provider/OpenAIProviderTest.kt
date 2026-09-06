@@ -14,6 +14,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -436,5 +437,101 @@ class OpenAIProviderTest {
         // No declaration: untouched (pre-existing behavior).
         assertEquals("xhigh", provider.clampEffort("xhigh", null))
         assertEquals("xhigh", provider.clampEffort("xhigh", emptyList()))
+    }
+
+    // -- [T-android-prompt-cache-key-400] Responses prompt_cache_key allowlist --
+
+    private fun responsesBodyFor(
+        basePath: String,
+        useResponsesAPI: Boolean = false,
+        isAzure: Boolean = false,
+    ): JSONObject {
+        val p = OpenAIProvider(
+            apiKey = "test-key",
+            model = LLMModel.gpt4oMini,
+            basePath = basePath,
+            useResponsesAPI = useResponsesAPI,
+            isAzure = isAzure,
+            azureBase = if (isAzure) basePath else null,
+        )
+        return p.buildResponsesAPIBody(
+            messages = listOf(LLMMessage(LLMMessage.Role.USER, "Hello cache key")),
+            systemPrompt = null,
+            maxTokens = 128,
+            stream = true,
+        )
+    }
+
+    @Test
+    fun `Responses prompt_cache_key sent on official OpenAI base`() {
+        val body = responsesBodyFor("https://api.openai.com/v1")
+        assertTrue("official OpenAI must send prompt_cache_key: $body", body.has("prompt_cache_key"))
+        assertTrue(body.getString("prompt_cache_key").startsWith("minis-"))
+    }
+
+    @Test
+    fun `Responses prompt_cache_key omitted on plain custom base`() {
+        // Strict gateways (NVIDIA NIM / DeepSeek self-host) 400 on unknown fields.
+        val body = responsesBodyFor("https://integrate.api.nvidia.com/v1")
+        assertFalse(
+            "custom base without useResponsesAPI must omit prompt_cache_key: $body",
+            body.has("prompt_cache_key"),
+        )
+    }
+
+    @Test
+    fun `Responses prompt_cache_key sent when useResponsesAPI opt-in on custom base`() {
+        // Mirrors iOS forceResponsesAPI keep-the-key for sub2api relays.
+        val body = responsesBodyFor(
+            "https://relay.example.com/v1",
+            useResponsesAPI = true,
+        )
+        assertTrue(
+            "useResponsesAPI custom relay must send prompt_cache_key: $body",
+            body.has("prompt_cache_key"),
+        )
+    }
+
+    @Test
+    fun `Responses prompt_cache_key omitted on Azure without useResponsesAPI`() {
+        val body = responsesBodyFor(
+            "https://my-resource.openai.azure.com",
+            useResponsesAPI = false,
+            isAzure = true,
+        )
+        assertFalse(
+            "Azure without Responses opt-in must omit prompt_cache_key: $body",
+            body.has("prompt_cache_key"),
+        )
+    }
+
+    @Test
+    fun `shouldSendPromptCacheKey allowlist matches iOS policy`() {
+        val official = OpenAIProvider(
+            apiKey = "k", model = LLMModel.gpt4oMini,
+            basePath = "https://api.openai.com/v1",
+        )
+        assertTrue(official.shouldSendPromptCacheKey())
+
+        val custom = OpenAIProvider(
+            apiKey = "k", model = LLMModel.gpt4oMini,
+            basePath = "https://api.deepseek.com/v1",
+        )
+        assertFalse(custom.shouldSendPromptCacheKey())
+
+        val forced = OpenAIProvider(
+            apiKey = "k", model = LLMModel.gpt4oMini,
+            basePath = "https://api.deepseek.com/v1",
+            useResponsesAPI = true,
+        )
+        assertTrue(forced.shouldSendPromptCacheKey())
+
+        val azure = OpenAIProvider(
+            apiKey = "k", model = LLMModel.gpt4oMini,
+            basePath = "https://my-resource.openai.azure.com",
+            isAzure = true,
+            azureBase = "https://my-resource.openai.azure.com",
+        )
+        assertFalse(azure.shouldSendPromptCacheKey())
     }
 }
