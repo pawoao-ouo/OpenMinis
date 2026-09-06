@@ -49,20 +49,14 @@ final class AnthropicProvider: LLMProvider {
     /// which is compiled into the binary. The value is deliberately NOT stored
     /// in Info.plist. That xcconfig is tracked in the private repo (filled in)
     /// but excluded from the public mirror, which ships only
-    /// `ProviderCustomization.xcconfig.example` with an empty value — so a build
-    /// there generates an empty string and fails here the first time an OAuth
-    /// (Claude Code) request needs the prompt, by design.
+    /// `ProviderCustomization.xcconfig.example` with an empty value.
+    ///
+    /// Empty is allowed for building (see the example xcconfig). The first
+    /// Claude OAuth request then fails soft via `resolveSystemPrompt` with
+    /// `LLMError.providerError` — never `fatalError` / process crash. API-key
+    /// Anthropic paths never read this value.
     static let claudeCodeSystemPrompt: String = {
-        let value = ProviderCustomizationGenerated.anthropicOAuthIdentifierPrompt
-        guard !value.isEmpty else {
-            fatalError(
-                "ANTHROPIC_OAUTH_IDENTIFIER_PROMPT is not configured. Copy "
-                + "Configs/ProviderCustomization.xcconfig.example to "
-                + "Configs/ProviderCustomization.xcconfig and set "
-                + "ANTHROPIC_OAUTH_IDENTIFIER_PROMPT before building with Claude Code OAuth."
-            )
-        }
-        return value
+        ProviderCustomizationGenerated.anthropicOAuthIdentifierPrompt
     }()
 
     /// Parse the `-<major>-<minor>` (or `-<major>.<minor>`) version out of a Claude model id.
@@ -213,10 +207,22 @@ final class AnthropicProvider: LLMProvider {
     /// Build the effective system prompt.
     /// For Claude Code OAuth, uses array format with the required prefix as a separate text block.
     /// This ensures Anthropic's server-side check sees the exact Claude Code prompt as the first block.
-    func resolveSystemPrompt(_ userPrompt: String?) -> MessageParameter.System? {
+    /// When the build-time OAuth identifier prompt is empty, throws `LLMError.providerError`
+    /// instead of crashing — clean clone builds stay alive; API-key paths are unaffected.
+    func resolveSystemPrompt(_ userPrompt: String?) throws -> MessageParameter.System? {
         if isClaudeCode {
+            let prefix = Self.claudeCodeSystemPrompt
+            guard !prefix.isEmpty else {
+                throw LLMError.providerError(
+                    message: "Claude OAuth is not configured for this build. "
+                        + "Copy Configs/ProviderCustomization.xcconfig.example to "
+                        + "Configs/ProviderCustomization.xcconfig, set "
+                        + "ANTHROPIC_OAUTH_IDENTIFIER_PROMPT, then rebuild. "
+                        + "API keys are unaffected."
+                )
+            }
             // OAuth (Claude Code): two blocks — base system prompt + user system prompt with cache
-            let base = MessageParameter.Cache(text: Self.claudeCodeSystemPrompt, cacheControl: nil)
+            let base = MessageParameter.Cache(text: prefix, cacheControl: nil)
             guard let extra = userPrompt, !extra.isEmpty else {
                 return .list([base])
             }
@@ -242,7 +248,7 @@ final class AnthropicProvider: LLMProvider {
             model: .other(model.id),
             messages: messages.map { $0.toAnthropicMessage() },
             maxTokens: maxTokens,
-            system: resolveSystemPrompt(systemPrompt),
+            system: try resolveSystemPrompt(systemPrompt),
             temperature: effectiveTemperature(temperature)
         )
 
@@ -289,7 +295,7 @@ final class AnthropicProvider: LLMProvider {
             model: .other(model.id),
             messages: messages.map { $0.toAnthropicMessage() },
             maxTokens: maxTokens,
-            system: resolveSystemPrompt(systemPrompt),
+            system: try resolveSystemPrompt(systemPrompt),
             temperature: effectiveTemperature(temperature)
         )
 
