@@ -1305,6 +1305,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         var setNames: [String] = []
         var domainsTouched = Set<String>()
         var failures: [String] = []
+        var skippedSameSite: [String] = []
 
         for raw in cookies {
             // Accept the field-name variants that common cookie exports use
@@ -1347,10 +1348,12 @@ final class BrowserUseManager: NSObject, ObservableObject {
                 properties[.expires] = Date(timeIntervalSince1970: expires)
             }
             // sameSite is accepted (Lax / Strict / None, any case) so exports
-            // that include it aren't rejected, but is NOT yet applied: HTTPCookie
-            // has no public SameSite property key honored by WKHTTPCookieStore.
-            // TODO [set-cookies-samesite]: wire through once a write path exists.
-            _ = str(["sameSite", "same_site"])
+            // that include it aren't rejected, but is NOT applied: public
+            // HTTPCookie / WKHTTPCookieStore has no reliable SameSite write path
+            // (do not use private APIs). Track requested SameSite and report skip.
+            // TODO [set-cookies-samesite]: wire through once a public write path exists.
+            let requestedSameSite = str(["sameSite", "same_site"])
+            let wantsSameSite = requestedSameSite.map { !$0.isEmpty } ?? false
 
             guard let cookie = HTTPCookie(properties: properties) else {
                 failures.append(name)
@@ -1359,6 +1362,9 @@ final class BrowserUseManager: NSObject, ObservableObject {
             await store.setCookie(cookie)
             setNames.append(name)
             domainsTouched.insert(domain)
+            if wantsSameSite {
+                skippedSameSite.append(name)
+            }
         }
 
         if setNames.isEmpty {
@@ -1371,6 +1377,11 @@ final class BrowserUseManager: NSObject, ObservableObject {
         var text = "Set \(setNames.count) cookie(s) for \(domainLabel): \(setNames.joined(separator: ", "))"
         if !failures.isEmpty {
             text += "\nSkipped \(failures.count) invalid entry(ies): \(failures.joined(separator: ", "))"
+        }
+        if !skippedSameSite.isEmpty {
+            text += "\nSameSite was requested but skipped (not applied) for: "
+                + skippedSameSite.joined(separator: ", ")
+                + " — WKHTTPCookieStore cannot set SameSite."
         }
         return BrowserActionResult(text: text, pageURL: pageURL.absoluteString)
     }
