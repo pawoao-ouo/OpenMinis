@@ -208,12 +208,21 @@ fun ProviderDetailScreen(
                             keyVisible = false
                         },
                         onSave = {
-                            providerRepository.saveApiKey(instanceId, editKeyValue)
+                            // [T-empty-key-compat-endpoints] Mirror AddProvider /
+                            // iOS detail: never persist an empty string — usableApiKey()
+                            // treats absent as the keyless-valid case for custom-base
+                            // endpoints. Clearing the field deletes the stored key.
+                            val trimmed = editKeyValue.trim()
+                            if (trimmed.isNotEmpty()) {
+                                providerRepository.saveApiKey(instanceId, trimmed)
+                            } else {
+                                providerRepository.deleteApiKey(instanceId)
+                            }
                             // [T-android-provider-apikey-save-stale] Reflect the
                             // just-saved value in UI state immediately rather than
                             // re-reading the async-written prefs on recomposition.
-                            storedKey = editKeyValue
-                            AppLogger.info(TAG, "Saved API key for ${instance.id}")
+                            storedKey = trimmed
+                            AppLogger.info(TAG, "Saved API key for ${instance.id} (len=${trimmed.length})")
                             isEditingKey = false
                             editKeyValue = ""
                             keyVisible = false
@@ -968,7 +977,9 @@ private fun ApiKeyCredentialBlock(
                 Text(stringResource(R.string.common_cancel))
             }
             Spacer(modifier = Modifier.width(8.dp))
-            MinisSmallButton(onClick = onSave, enabled = editValue.isNotBlank()) {
+            // [T-empty-key-compat-endpoints] Allow saving empty key for
+            // third-party keyless endpoints (ollama, OpenCode Zen free, etc.)
+            MinisSmallButton(onClick = onSave) {
                 Text(stringResource(R.string.provider_detail_save_key))
             }
         }
