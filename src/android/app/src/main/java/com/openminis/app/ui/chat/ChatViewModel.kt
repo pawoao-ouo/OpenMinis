@@ -11520,38 +11520,95 @@ Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended,
         }
 
         // Case 1: cancel during tool execution. Flip in-flight tool blocks to
-        // CANCELLED and persist matching tool_result rows.
+        // CANCELLED and close unanswered tool_uses in agentHistory so the next
+        // Continue/resume call stays pairable (OpenMinis#293).
+        //
+        // STREAMING = args still arriving; the assistant tool_use may not be in
+        // agentHistory yet. Mark those UI blocks cancelled but do NOT persist
+        // orphan tool_results (iOS Case 2 drops streaming blocks instead).
+        // PENDING/RUNNING = assistant tool_use is already committed; synthesise
+        // cancelled tool_results into agentHistory + DB, matching iOS
+        // ConcurrentTools which always finishes the round before cleanup so
+        // Case 1 sees lastHistoryIsToolResult == true.
         val cancelledIds = mutableListOf<Pair<String, String>>() // (toolUseId, toolName)
-        val updatedBlocks = last.toolBlocks.map { b ->
+        val historyToolUseIds = agentHistory
+            .flatMap { it.contentParts.filterIsInstance<AgentContentPart.ToolUse>() }
+            .map { it.id }
+            .toSet()
+        val updatedBlocks = last.toolBlocks.mapNotNull { b ->
             val s = b.toolStatus
             if (s == ToolBlockStatus.STREAMING || s == ToolBlockStatus.PENDING || s == ToolBlockStatus.RUNNING) {
-                if (b.kind == "tool_use") cancelledIds.add(b.id to b.toolName)
+                if (b.kind == "tool_use") {
+                    cancelledIds.add(b.id to b.toolName)
+                    // STREAMING args that never committed to agentHistory are
+                    // incomplete — drop the UI card (iOS Case 2 removes
+                    // streaming tool blocks) instead of leaving a cancelled
+                    // ghost that has no pairable tool_use in history.
+                    if (s == ToolBlockStatus.STREAMING && b.id !in historyToolUseIds) {
+                        return@mapNotNull null
+                    }
+                }
                 b.copy(toolStatus = ToolBlockStatus.CANCELLED)
             } else b
         }
         val hadInflightTools = cancelledIds.isNotEmpty()
         if (hadInflightTools) {
-            msgs[lastIdx] = last.copy(toolBlocks = updatedBlocks)
+            last = last.copy(toolBlocks = updatedBlocks)
+            msgs[lastIdx] = last
             _messages.value = msgs
-            val parts = cancelledIds.map { (id, name) ->
-                AgentContentPart.ToolResult(
-                    id = id,
-                    name = name,
-                    content = CANCELLED_MARKER,
-                    isError = true,
+            // Only close tool_uses that already exist in agentHistory — never
+            // invent role=tool rows for STREAMING ghosts (#293).
+            val parts = com.openminis.app.agent.InterruptToolHistory.cancelledResultsForUnanswered(
+                history = agentHistory,
+                candidateIds = cancelledIds,
+                cancelledMarker = CANCELLED_MARKER,
+            )
+            if (parts.isNotEmpty()) {
+                // Synchronously pair history BEFORE resume() can run. The old
+                // path only wrote the DB asynchronously, so Continue saw a
+                // trailing assistant(tool_use), injected a text reminder, and
+                // the provider 400'd on tool messages after that user text.
+                agentHistory.add(
+                    LLMMessage(
+                        role = LLMMessage.Role.USER,
+                        content = "",
+                        contentParts = parts,
+                    )
                 )
+                viewModelScope.launch(Dispatchers.IO) {
+                    val dbId = persistToolResultMessage(parts)
+                    if (dbId != null) {
+                        val idx = agentHistory.indexOfLast { msg ->
+                            msg.role == LLMMessage.Role.USER &&
+                                msg.dbMessageId == null &&
+                                msg.contentParts.any { it is AgentContentPart.ToolResult }
+                        }
+                        if (idx >= 0) {
+                            agentHistory[idx] = agentHistory[idx].copy(dbMessageId = dbId)
+                        }
+                    }
+                }
+                // [T-android-group-pause-badge-restamp] A LIVE interruption just
+                // happened: this is a real entry into the paused state, so the
+                // badge's 24h freshness stamp must be refreshed. Cancel any
+                // unconsumed re-detection mark left by a prior load so it cannot
+                // suppress the re-stamp here.
+                markLiveInterruption()
+                _canResume.value = true
+                return
             }
-            viewModelScope.launch(Dispatchers.IO) {
-                persistToolResultMessage(parts)
+            val tailIsToolResult =
+                agentHistory.lastOrNull()?.role == LLMMessage.Role.USER &&
+                    agentHistory.lastOrNull()?.contentParts?.any { it is AgentContentPart.ToolResult } == true
+            if (tailIsToolResult) {
+                // Tools already closed in history (e.g. cancel raced after the
+                // dispatch loop appended results); UI flip above is enough.
+                markLiveInterruption()
+                _canResume.value = true
+                return
             }
-            // [T-android-group-pause-badge-restamp] A LIVE interruption just
-            // happened: this is a real entry into the paused state, so the
-            // badge's 24h freshness stamp must be refreshed. Cancel any
-            // unconsumed re-detection mark left by a prior load so it cannot
-            // suppress the re-stamp here.
-            markLiveInterruption()
-            _canResume.value = true
-            return
+            // STREAMING-only ghosts: UI marked cancelled, nothing to pair.
+            // Fall through to Case 0 / Case 2 without setting canResume yet.
         }
 
         // Case 2: cancel during text streaming. If partial assistant text
@@ -11673,6 +11730,31 @@ Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended,
         // streams — ChatScreen would otherwise leave the placeholder
         // behind the input bar.
         _forceScrollToBottom.tryEmit(Unit)
+
+        // [OpenMinis#293] Belt-and-suspenders: if a prior cancel left a
+        // trailing assistant(tool_use) without tool_results (or Case 1 raced
+        // before history was closed), synthesise cancelled results NOW so we
+        // never send tool rows after a plain continue-reminder user turn.
+        // Mirrors iOS ConcurrentTools finishing the round before resume().
+        if (com.openminis.app.agent.InterruptToolHistory.trailingAssistantHasUnansweredToolUses(agentHistory)) {
+            val parts = com.openminis.app.agent.InterruptToolHistory.cancelledResultsForUnanswered(
+                history = agentHistory,
+                cancelledMarker = CANCELLED_MARKER,
+            )
+            if (parts.isNotEmpty()) {
+                agentHistory.add(
+                    LLMMessage(
+                        role = LLMMessage.Role.USER,
+                        content = "",
+                        contentParts = parts,
+                    )
+                )
+                viewModelScope.launch(Dispatchers.IO) {
+                    persistToolResultMessage(parts)
+                }
+                AppLogger.warning(TAG, "resume: closed ${parts.size} unanswered tool_use(s) before continue (#293)")
+            }
+        }
 
         // If history ends with assistant (Case 2: text-cancel committed a
         // partial assistant turn), append a continue reminder as a user
