@@ -82,4 +82,85 @@ import UIKit
         sem.wait()
         return result as NSDictionary
     }
+
+    @objc public static func saveCurrent(name: String) -> NSDictionary {
+        let sem = DispatchSemaphore(value: 0)
+        var result: [String: Any] = [:]
+        Task { @MainActor in
+            let item = AppearanceStudio.shared.saveCurrentTheme(name: name)
+            result = [
+                "ok": true,
+                "saved": true,
+                "id": item.id,
+                "name": item.name,
+            ]
+            sem.signal()
+        }
+        sem.wait()
+        return result as NSDictionary
+    }
+
+    @objc public static func listSaved() -> NSDictionary {
+        let sem = DispatchSemaphore(value: 0)
+        var result: [String: Any] = [:]
+        Task { @MainActor in
+            let items = AppearanceStudio.shared.savedThemes().map { item -> [String: Any] in
+                [
+                    "id": item.id,
+                    "name": item.name,
+                    "savedAt": ISO8601DateFormatter().string(from: item.savedAt),
+                ]
+            }
+            result = [
+                "ok": true,
+                "count": items.count,
+                "themes": items,
+            ]
+            sem.signal()
+        }
+        sem.wait()
+        return result as NSDictionary
+    }
+
+    @objc public static func applySaved(id: String) -> NSDictionary {
+        let sem = DispatchSemaphore(value: 0)
+        var result: [String: Any] = [:]
+        Task { @MainActor in
+            let ok = AppearanceStudio.shared.applySavedTheme(id: id)
+            result = ok
+                ? ["ok": true, "applied": true, "id": id]
+                : ["ok": false, "error": "not_found", "message": "No saved theme \(id)"]
+            sem.signal()
+        }
+        sem.wait()
+        return result as NSDictionary
+    }
+
+    @objc public static func deleteSaved(id: String) -> NSDictionary {
+        let sem = DispatchSemaphore(value: 0)
+        var result: [String: Any] = [:]
+        Task { @MainActor in
+            let ok = AppearanceStudio.shared.deleteSavedTheme(id: id)
+            result = ok
+                ? ["ok": true, "deleted": true, "id": id]
+                : ["ok": false, "error": "not_found", "message": "No saved theme \(id)"]
+            sem.signal()
+        }
+        sem.wait()
+        return result as NSDictionary
+    }
+
+    @objc public static func renameSaved(id: String, name: String) -> NSDictionary {
+        let sem = DispatchSemaphore(value: 0)
+        var result: [String: Any] = [:]
+        Task { @MainActor in
+            let ok = AppearanceStudio.shared.renameSavedTheme(id: id, name: name)
+            result = ok
+                ? ["ok": true, "renamed": true, "id": id, "name": name]
+                : ["ok": false, "error": "not_found", "message": "Rename failed"]
+            sem.signal()
+        }
+        sem.wait()
+        return result as NSDictionary
+    }
 }

@@ -246,6 +246,7 @@
 		XMSTYLE001 /* AppearanceStudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE101 /* AppearanceStudio.swift */; };
 		XMSTYLE002 /* AppearanceStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE102 /* AppearanceStudioView.swift */; };
 		XMSTYLE003 /* AppearanceThemePack.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE103 /* AppearanceThemePack.swift */; };
+		XMSTYLE007 /* AppearanceThemeLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE107 /* AppearanceThemeLibrary.swift */; };
 		XMSTYLE004 /* ThemeOffload.m in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE104 /* ThemeOffload.m */; };
 		XMSTYLE005 /* ThemeOffloadBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE105 /* ThemeOffloadBridge.swift */; };
 		XMREACH001 /* ActiveReachConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMREACH101 /* ActiveReachConfig.swift */; };
@@ -1055,6 +1056,7 @@
 		XMSTYLE101 /* AppearanceStudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceStudio.swift; sourceTree = "<group>"; };
 		XMSTYLE102 /* AppearanceStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceStudioView.swift; sourceTree = "<group>"; };
 		XMSTYLE103 /* AppearanceThemePack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceThemePack.swift; sourceTree = "<group>"; };
+		XMSTYLE107 /* AppearanceThemeLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceThemeLibrary.swift; sourceTree = "<group>"; };
 		XMSTYLE104 /* ThemeOffload.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ThemeOffload.m; sourceTree = "<group>"; };
 		XMSTYLE105 /* ThemeOffloadBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeOffloadBridge.swift; sourceTree = "<group>"; };
 		XMSTYLE106 /* ThemeOffload.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ThemeOffload.h; sourceTree = "<group>"; };
@@ -1811,6 +1813,7 @@
 				E5Q000014 /* FontSettings.swift */,
 				XMSTYLE101 /* AppearanceStudio.swift */,
 				XMSTYLE103 /* AppearanceThemePack.swift */,
+				XMSTYLE107 /* AppearanceThemeLibrary.swift */,
 				XMREACH101 /* ActiveReachConfig.swift */,
 				XMREACH103 /* ActiveReachWake.swift */,
 				XMREACH105 /* ActiveReachScore.swift */,
@@ -2982,6 +2985,7 @@
 				XMSTYLE001 /* AppearanceStudio.swift in Sources */,
 				XMSTYLE002 /* AppearanceStudioView.swift in Sources */,
 				XMSTYLE003 /* AppearanceThemePack.swift in Sources */,
+				XMSTYLE007 /* AppearanceThemeLibrary.swift in Sources */,
 				XMSTYLE004 /* ThemeOffload.m in Sources */,
 				XMSTYLE005 /* ThemeOffloadBridge.swift in Sources */,
 				XMREACH001 /* ActiveReachConfig.swift in Sources */,

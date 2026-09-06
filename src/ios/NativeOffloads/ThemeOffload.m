@@ -19,6 +19,11 @@
 + (NSDictionary * _Nonnull)applyJSON:(NSString * _Nonnull)json;
 + (NSDictionary * _Nonnull)exportJSONWithIncludeWallpaper:(BOOL)includeWallpaper;
 + (NSDictionary * _Nonnull)resetPack;
++ (NSDictionary * _Nonnull)saveCurrentWithName:(NSString * _Nonnull)name;
++ (NSDictionary * _Nonnull)listSaved;
++ (NSDictionary * _Nonnull)applySavedWithId:(NSString * _Nonnull)id;
++ (NSDictionary * _Nonnull)deleteSavedWithId:(NSString * _Nonnull)id;
++ (NSDictionary * _Nonnull)renameSavedWithId:(NSString * _Nonnull)id name:(NSString * _Nonnull)name;
 @end
 #endif
 
@@ -35,10 +40,17 @@ static NSString *const HELP_TEXT =
      "  apply     Apply a theme pack from --file or stdin JSON\n"
      "  export    Dump the current pack as JSON\n"
      "  reset     Restore the default warm-paper pack\n"
+     "  save      Save the current pack into the theme library\n"
+     "  list      List saved themes\n"
+     "  use       Apply a saved theme by --id\n"
+     "  rename    Rename a saved theme --id --name\n"
+     "  delete    Delete a saved theme by --id\n"
      "\n"
      "OPTIONS:\n"
      "  --file <path>         JSON theme pack (guest path)\n"
      "  --wallpaper           export: include wallpaper JPEG as base64\n"
+     "  --name <text>         save/rename display name\n"
+     "  --id <uuid>           saved theme id\n"
      "  --help, -h            Show this help\n"
      "  --compact             Minimize JSON output\n"
      "  -q, --quiet           Output only data field\n"
@@ -46,8 +58,9 @@ static NSString *const HELP_TEXT =
      "EXAMPLES:\n"
      "  minis-theme get\n"
      "  minis-theme apply --file /var/minis/workspace/theme.json\n"
-     "  cat theme.json | minis-theme apply\n"
-     "  minis-theme export --wallpaper\n"
+     "  minis-theme save --name 奶霜莓粉\n"
+     "  minis-theme list\n"
+     "  minis-theme use --id <uuid>\n"
      "  minis-theme reset\n";
 
 static NSDictionary *strip_ok(NSDictionary *raw) {
@@ -131,6 +144,51 @@ static int cmd_reset(int stdout_fd, BOOL compact, BOOL quiet) {
     return emit_bridge(raw, @"reset", stdout_fd, compact, quiet);
 }
 
+static int cmd_save(int argc, char **argv, int stdout_fd, BOOL compact, BOOL quiet) {
+    NSString *name = noff_find_arg(argc, argv, "--name") ?: @"";
+    NSDictionary *raw = [ThemeOffloadBridge saveCurrentWithName:name];
+    return emit_bridge(raw, @"save", stdout_fd, compact, quiet);
+}
+
+static int cmd_list(int stdout_fd, BOOL compact, BOOL quiet) {
+    NSDictionary *raw = [ThemeOffloadBridge listSaved];
+    return emit_bridge(raw, @"list", stdout_fd, compact, quiet);
+}
+
+static int cmd_use(int argc, char **argv, int stdout_fd, BOOL compact, BOOL quiet) {
+    NSString *sid = noff_find_arg(argc, argv, "--id");
+    if (sid.length == 0) {
+        NSDictionary *err = noff_json_error(TOOL_NAME, @"use", NOFF_ERR_INVALID_ARGS, @"Need --id");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_INVALID_ARGS;
+    }
+    NSDictionary *raw = [ThemeOffloadBridge applySavedWithId:sid];
+    return emit_bridge(raw, @"use", stdout_fd, compact, quiet);
+}
+
+static int cmd_delete(int argc, char **argv, int stdout_fd, BOOL compact, BOOL quiet) {
+    NSString *sid = noff_find_arg(argc, argv, "--id");
+    if (sid.length == 0) {
+        NSDictionary *err = noff_json_error(TOOL_NAME, @"delete", NOFF_ERR_INVALID_ARGS, @"Need --id");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_INVALID_ARGS;
+    }
+    NSDictionary *raw = [ThemeOffloadBridge deleteSavedWithId:sid];
+    return emit_bridge(raw, @"delete", stdout_fd, compact, quiet);
+}
+
+static int cmd_rename(int argc, char **argv, int stdout_fd, BOOL compact, BOOL quiet) {
+    NSString *sid = noff_find_arg(argc, argv, "--id");
+    NSString *name = noff_find_arg(argc, argv, "--name");
+    if (sid.length == 0 || name.length == 0) {
+        NSDictionary *err = noff_json_error(TOOL_NAME, @"rename", NOFF_ERR_INVALID_ARGS, @"Need --id and --name");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_INVALID_ARGS;
+    }
+    NSDictionary *raw = [ThemeOffloadBridge renameSavedWithId:sid name:name];
+    return emit_bridge(raw, @"rename", stdout_fd, compact, quiet);
+}
+
 static int theme_handler(int argc, char **argv,
                          int stdin_fd, int stdout_fd, int stderr_fd) {
     if (noff_has_flag(argc, argv, "--help") || noff_has_flag(argc, argv, "-h")) {
@@ -150,12 +208,22 @@ static int theme_handler(int argc, char **argv,
         return cmd_export(argc, argv, stdout_fd, compact, quiet);
     } else if ([subcmd isEqualToString:@"reset"]) {
         return cmd_reset(stdout_fd, compact, quiet);
+    } else if ([subcmd isEqualToString:@"save"]) {
+        return cmd_save(argc, argv, stdout_fd, compact, quiet);
+    } else if ([subcmd isEqualToString:@"list"]) {
+        return cmd_list(stdout_fd, compact, quiet);
+    } else if ([subcmd isEqualToString:@"use"]) {
+        return cmd_use(argc, argv, stdout_fd, compact, quiet);
+    } else if ([subcmd isEqualToString:@"delete"]) {
+        return cmd_delete(argc, argv, stdout_fd, compact, quiet);
+    } else if ([subcmd isEqualToString:@"rename"]) {
+        return cmd_rename(argc, argv, stdout_fd, compact, quiet);
     }
 
     noff_emit_help(stderr_fd, HELP_TEXT);
     NSDictionary *err = noff_json_error(TOOL_NAME, subcmd, NOFF_ERR_INVALID_ARGS,
                                          [NSString stringWithFormat:
-                                          @"Unknown command '%@'. Valid: get, apply, export, reset.", subcmd]);
+                                          @"Unknown command '%@'. Valid: get, apply, export, reset, save, list, use, rename, delete.", subcmd]);
     noff_emit_json(stdout_fd, err, compact, quiet);
     return NOFF_EXIT_INVALID_ARGS;
 }

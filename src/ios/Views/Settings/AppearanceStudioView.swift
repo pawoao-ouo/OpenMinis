@@ -12,6 +12,7 @@ struct AppearanceStudioView: View {
     @State private var iconPickSlot: QuietIconSlot?
     @State private var iconItem: PhotosPickerItem?
     @State private var thinkingCardItem: PhotosPickerItem?
+    @State private var saveName: String = ""
     @State private var errorText: String?
 
     var body: some View {
@@ -126,6 +127,38 @@ struct AppearanceStudioView: View {
                 Text("AI 主题包")
             } footer: {
                 Text("一整套：色、气泡形状、thinking 卡片图、会话列表、分类图标、壁纸。小梦也可以用 minis-theme 直接贴上来。")
+            }
+
+            Section {
+                TextField("给这套起个名字", text: $saveName)
+                Button("保存当前主题") {
+                    let item = studio.saveCurrentTheme(name: saveName)
+                    saveName = ""
+                    _ = item
+                }
+                let saved = studio.savedThemes()
+                if saved.isEmpty {
+                    Text("还没有存过的主题。")
+                        .foregroundStyle(studio.color(.secondaryText))
+                } else {
+                    ForEach(saved) { item in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.name)
+                                Text(item.pack.userStyle.title + " · " + item.pack.assistantStyle.title)
+                                    .font(.caption)
+                                    .foregroundStyle(studio.color(.secondaryText))
+                            }
+                            Spacer()
+                            Button("应用") { _ = studio.applySavedTheme(id: item.id) }
+                            Button("删", role: .destructive) { _ = studio.deleteSavedTheme(id: item.id) }
+                        }
+                    }
+                }
+            } header: {
+                Text("主题库")
+            } footer: {
+                Text("保存是另存一份，不会冲掉正在用的。应用才换上去。最多四十套。")
             }
 
             Section {
