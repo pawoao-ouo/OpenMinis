@@ -98,6 +98,8 @@ enum ChatColors {
     }
     static var toolBorder: Color { studio.color(.border, scope: .chat).opacity(0.75) }
     static var accent: Color { studio.color(.accent, scope: .chat) }
+    static var success: Color { studio.color(.success, scope: .chat) }
+    static var destructive: Color { studio.color(.destructive, scope: .chat) }
     static var sendButton: Color { studio.color(.accent, scope: .chat) }
     static var sendButtonDisabled: Color { studio.color(.secondaryText, scope: .chat).opacity(0.4) }
 }
@@ -4445,13 +4447,13 @@ struct AIChatView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         let isThinkingActive = cmd.id == "thinking" && thinkingLevel.isEnabled && thinkingSupported
                         let titleColor: Color = isThinkingActive
-                            ? .blue : (isSelected ? .white : ChatColors.primaryText)
+                            ? ChatColors.accent : (isSelected ? .white : ChatColors.primaryText)
                         let subtitleText = (cmd.id == "thinking" && !thinkingSupported)
                             ? AppLocalized("Not supported by current model")
                             : cmd.subtitle
                         let subtitleColor: Color = (cmd.id == "thinking" && !thinkingSupported)
                             ? .secondary
-                            : (isThinkingActive ? .blue.opacity(0.7) : (isSelected ? .white.opacity(0.7) : ChatColors.secondaryText))
+                            : (isThinkingActive ? ChatColors.accent.opacity(0.7) : (isSelected ? .white.opacity(0.7) : ChatColors.secondaryText))
                         // [T-slash-picker-product-rules] Title + subtitle
                         // each clamped to a single line. Long skill names
                         // and descriptions used to wrap and pump the row
@@ -4500,7 +4502,7 @@ struct AIChatView: View {
                 return isSelected ? .white.opacity(0.8) : ChatColors.secondaryText
             }
             if !thinkingSupported { return .secondary }
-            return thinkingLevel.isEnabled ? .blue : (isSelected ? .white.opacity(0.8) : ChatColors.secondaryText)
+            return thinkingLevel.isEnabled ? ChatColors.accent : (isSelected ? .white.opacity(0.8) : ChatColors.secondaryText)
         }
 
         private var thinkingLevelPicker: some View {
@@ -4527,8 +4529,8 @@ struct AIChatView: View {
                     .background(
                         isHighlighted
                             ? (isClampedHighlight
-                                ? Color.orange.opacity(0.75)
-                                : Color.blue)
+                                ? ChatColors.destructive.opacity(0.75)
+                                : ChatColors.accent)
                             : Color.clear
                     )
                     .contentShape(Rectangle())

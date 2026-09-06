@@ -61,7 +61,12 @@ static NSString *const HELP_TEXT =
      "  minis-theme save --name 奶霜莓粉\n"
      "  minis-theme list\n"
      "  minis-theme use --id <uuid>\n"
-     "  minis-theme reset\n";
+     "  minis-theme reset\n"
+     "\n"
+     "THEME PACK:\n"
+     "  colorsLight.accent drives thinking title, tool capsules, slash thinking.\n"
+     "  Do not hardcode blue/green. Pink theme stays pink.\n"
+     "  Skill `minis-theme` documents the JSON. This is an app skin, not a PPT.\n";
 
 static NSDictionary *strip_ok(NSDictionary *raw) {
     if (![raw isKindOfClass:[NSDictionary class]]) return raw;

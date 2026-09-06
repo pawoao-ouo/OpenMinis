@@ -50,9 +50,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         userBubbleRadius: 18,
         assistantBubbleRadius: 16,
         thinkingRadius: 12,
-        thinkingFillHex: "1E88E5",
-        thinkingStrokeHex: "1E88E5",
-        thinkingAccentHex: "1E88E5",
+        thinkingFillHex: "D4778B",
+        thinkingStrokeHex: "D4778B",
+        thinkingAccentHex: "D4778B",
         userBubbleStyle: AppearanceBubbleStyle.rounded.rawValue,
         assistantBubbleStyle: AppearanceBubbleStyle.rounded.rawValue,
         thinkingCardJPEGBase64: nil,
@@ -486,6 +486,10 @@ extension AppearanceStudio {
         pack.colorsDark = exportColors(variant: .dark)
         pack.surfaceOpacity = surfaceOpacity
         pack.wallpaperShade = wallpaperShade
+        let accentHex = hex(.accent, scope: .chat)
+        pack.thinkingAccentHex = accentHex
+        pack.thinkingFillHex = accentHex
+        pack.thinkingStrokeHex = accentHex
         if includeWallpaper, let image = wallpaper(for: .global),
            let data = image.jpegData(compressionQuality: 0.82) {
             pack.wallpaperJPEGBase64 = data.base64EncodedString()
@@ -787,9 +791,9 @@ enum MinisThemeShape {
     static var userBubbleRadius: CGFloat { pack.radius(.userBubble) }
     static var assistantBubbleRadius: CGFloat { pack.radius(.assistantBubble) }
     static var thinkingRadius: CGFloat { pack.radius(.thinking) }
-    static var thinkingFill: Color { pack.thinkingFill(opacity: 0.06) }
-    static var thinkingStroke: Color { pack.thinkingStroke }
-    static var thinkingAccent: Color { pack.thinkingAccent }
+    static var thinkingFill: Color { AppearanceStudio.shared.color(.accent, scope: .chat).opacity(0.06) }
+    static var thinkingStroke: Color { AppearanceStudio.shared.color(.accent, scope: .chat).opacity(0.15) }
+    static var thinkingAccent: Color { AppearanceStudio.shared.color(.accent, scope: .chat) }
     static var userStyle: AppearanceBubbleStyle { pack.userStyle }
     static var assistantStyle: AppearanceBubbleStyle { pack.assistantStyle }
     static var thinkingCardOpacity: Double { pack.thinkingCardImageOpacity }

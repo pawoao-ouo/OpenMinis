@@ -45,31 +45,31 @@ struct AssistantBlockView: View {
             )
             .padding(.vertical, 2)
         case .shellTool:
-            ToolCapsuleView(block: block, icon: "terminal", accentColor: .green,
+            ToolCapsuleView(block: block, icon: "terminal", accentColor: ChatColors.accent,
                             commandStartTime: commandStartTime, onStop: onStop, browserPool: browserPool,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
         case .fileReadTool:
-            ToolCapsuleView(block: block, icon: "doc.text", accentColor: .cyan,
+            ToolCapsuleView(block: block, icon: "doc.text", accentColor: ChatColors.accent,
                             commandStartTime: commandStartTime, onStop: onStop,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
         case .fileWriteTool:
-            ToolCapsuleView(block: block, icon: "doc.text.fill", accentColor: .blue,
+            ToolCapsuleView(block: block, icon: "doc.text.fill", accentColor: ChatColors.accent,
                             commandStartTime: commandStartTime, onStop: onStop,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
         case .fileEditTool:
-            ToolCapsuleView(block: block, icon: "square.and.pencil", accentColor: .orange,
+            ToolCapsuleView(block: block, icon: "square.and.pencil", accentColor: ChatColors.accent,
                             commandStartTime: commandStartTime, onStop: onStop,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
         case .browserTool:
-            ToolCapsuleView(block: block, icon: "globe", accentColor: .blue,
+            ToolCapsuleView(block: block, icon: "globe", accentColor: ChatColors.accent,
                             commandStartTime: commandStartTime, onStop: onStop, browserPool: browserPool,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
         case .readImageTool:
-            ToolCapsuleView(block: block, icon: "photo", accentColor: .purple,
+            ToolCapsuleView(block: block, icon: "photo", accentColor: ChatColors.accent,
                             commandStartTime: commandStartTime, onStop: onStop,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
         case .memoryTool:
-            ToolCapsuleView(block: block, icon: "brain.head.profile", accentColor: .pink,
+            ToolCapsuleView(block: block, icon: "brain.head.profile", accentColor: ChatColors.accent,
                             commandStartTime: commandStartTime, onStop: onStop,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
         case .info:
@@ -200,6 +200,7 @@ struct ShimmerOverlay: View {
 
 struct ToolCapsuleView: View {
     @ObservedObject var block: AssistantBlock
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     let icon: String
     let accentColor: Color
     var commandStartTime: Date?
@@ -565,9 +566,9 @@ struct ToolCapsuleView: View {
 
     private var iconColor: Color {
         switch block.toolStatus {
-        case .success: return .green
-        case .failed: return .red
-        case .cancelled: return .yellow
+        case .success: return ChatColors.success
+        case .failed: return ChatColors.destructive
+        case .cancelled: return ChatColors.secondaryText
         default: return accentColor
         }
     }

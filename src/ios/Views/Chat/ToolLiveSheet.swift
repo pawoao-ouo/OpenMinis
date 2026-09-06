@@ -157,6 +157,7 @@ fileprivate func sanitizeForDisplay(_ text: String) -> String {
     return wrapped
 }
 
+@MainActor
 fileprivate func attributedShellLine(_ text: String) -> AttributedString {
     // Build the AttributedString from an NSAttributedString so we can use
     // absolute NSRange offsets from NSDataDetector directly. This avoids
@@ -182,7 +183,7 @@ fileprivate func attributedShellLine(_ text: String) -> AttributedString {
         mutable.addAttributes([
             .link: url,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
-            .foregroundColor: UIColor.cyan,
+            .foregroundColor: UIColor(ChatColors.accent),
         ], range: m.range)
     }
     return AttributedString(mutable)

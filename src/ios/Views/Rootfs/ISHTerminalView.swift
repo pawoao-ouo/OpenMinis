@@ -477,6 +477,7 @@ class ISHTerminalViewModel: ObservableObject {
 // MARK: - Quick Command Button
 
 struct QuickCommandButton: View {
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     let label: String
     let icon: String
     var isActive: Bool = false
@@ -492,8 +493,8 @@ struct QuickCommandButton: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(isActive ? Color.blue : Color(white: 0.25))
-            .foregroundColor(isActive ? .white : .green)
+            .background(isActive ? AppearanceStudio.shared.color(.accent, scope: .terminal) : Color(white: 0.25))
+            .foregroundColor(isActive ? .white : AppearanceStudio.shared.color(.success, scope: .terminal))
             .cornerRadius(6)
         }
     }

@@ -380,13 +380,118 @@ Skills use three loading levels:
 Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, etc. The skill should only contain what an AI agent needs to do the job.
 """
 
+    private static let minisThemeVersion = "1.0.0"
+    private static let minisThemeContent = """
+---
+name: minis-theme
+version: 1.0.0
+description: 设计并贴上 Minis 分身的 AI 主题包。当用户说做主题、换皮肤、改气泡、改 thinking 卡片、改壁纸、粉嫩主题、minis-theme、AppearanceStudio、主题包 JSON 时使用。不要问这是不是 PPT 或网页。
+---
+
+# Minis 主题包
+
+分身有整套皮肤。用户说「做主题」就是这份，不是 PPT、不是网页。
+
+## 你能改什么
+
+色、气泡形状、thinking 卡片、输入栏、正文字体、会话列表、分类图标、壁纸。改完立刻生效。
+
+色是全局变量。强调色（accent）会带着：
+- thinking 标题「深度思考」、图标、字数
+- 工具胶囊（终端/读文件/浏览器那些小条）
+- 斜杠菜单里思考开着时的字
+- 工具输出里的链接
+
+不要再写死蓝、绿、青。粉主题就整页粉，不要蓝标题配粉卡。
+
+成功色 `success`、危险色 `destructive` 也是变量。工具跑完的勾、失败的叉走这两条，不要 `.green` / `.red`。
+
+## 怎么贴
+
+1. 写一份 JSON 主题包。
+2. `minis-theme apply --file /var/minis/workspace/theme.json`
+3. `minis-theme save --name 短名` 收进主题库。
+4. 不确定当前皮：`minis-theme get`。
+5. 还原：`minis-theme reset`。
+
+装扮页「AI 主题包」也能剪贴板导入。工房里的色板、形状、贴图和 JSON 是同一套。
+
+## JSON 骨架
+
+```json
+{
+  "schema": 5,
+  "id": "sakura-milk",
+  "name": "奶霜樱",
+  "colorsLight": {
+    "canvas": "FFF8F4",
+    "surface": "FFFDFC",
+    "raised": "FFFFFF",
+    "mutedSurface": "F8ECE8",
+    "primaryText": "3E312B",
+    "secondaryText": "8D786F",
+    "accent": "D4778B",
+    "userBubble": "F6DDE3",
+    "assistantBubble": "FFFDFC",
+    "input": "FFFBF8",
+    "border": "EADAD3",
+    "success": "6E987A",
+    "destructive": "C75D5D"
+  },
+  "colorsDark": {
+    "canvas": "1B1716",
+    "surface": "25201E",
+    "accent": "E09AAA",
+    "userBubble": "573C43",
+    "assistantBubble": "25201E",
+    "primaryText": "F5ECE7",
+    "secondaryText": "BCAAA1",
+    "success": "8EB69A",
+    "destructive": "E18484"
+  },
+  "userBubbleStyle": "rounded",
+  "assistantBubbleStyle": "rounded",
+  "userBubbleRadius": 18,
+  "assistantBubbleRadius": 16,
+  "thinkingRadius": 12,
+  "inputBarStyle": "rounded",
+  "inputBarRadius": 20,
+  "fontFamily": "rounded",
+  "thinkingTitleSize": 13,
+  "thinkingBodySize": 13,
+  "surfaceOpacity": 0.88,
+  "wallpaperShade": 0.08
+}
+```
+
+形状五档：`rounded` `squircle` `pill` `tail` `sharp`。字体四档：`system` `rounded` `serif` `mono`。
+
+thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天强调色走。旧包缺字段会按 schema 5 补齐，不会拒收。
+
+壁纸、thinking 卡、输入栏图、分类图标：JPEG base64 可打进包（`wallpaperJPEGBase64`、`thinkingCardJPEGBase64`、`inputBarJPEGBase64`、`categoryImages`）。落地后剥掉存文件，不进 UserDefaults。导出加 `--wallpaper`。
+
+## 设计时
+
+先问一句她要什么感觉（粉嫩、暗、纸、赛博……），不要问 PPT 还是网页。
+给 1 套完整包，颜色少、互相衬，不要彩虹。
+改完 `minis-theme apply`，让她看真机。没真机就说未真机。
+官方仓和 `main` 不许动。只动分身主题。
+
+"""
+
     private func installBundledSkills() {
-        let bundledId = "skill-creator"
-        if let existing = skills.first(where: { $0.id == bundledId }) {
-            // Upgrade if the bundled version is newer
-            guard existing.version < Self.skillCreatorVersion else { return }
+        let bundled: [(String, String)] = [
+            (Self.skillCreatorVersion, Self.skillCreatorContent),
+            (Self.minisThemeVersion, Self.minisThemeContent),
+        ]
+        for (version, content) in bundled {
+            let parsed = Self.parse(skillMD: content)
+            let id = Self.slugify(parsed.name)
+            if let existing = skills.first(where: { $0.id == id }) {
+                guard existing.version < version else { continue }
+            }
+            _ = try? importSkill(content: content, source: .bundled)
         }
-        _ = try? importSkill(content: Self.skillCreatorContent, source: .bundled)
     }
 
     // MARK: - One-time Migration: re-sync skills with bundled files
