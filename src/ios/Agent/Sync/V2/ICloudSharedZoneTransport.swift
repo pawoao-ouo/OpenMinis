@@ -29,6 +29,42 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
 
     static let containerIdentifier = "iCloud.com.openminis.clone"
 
+    enum AccountProbe {
+        case available
+        case unavailable(String)
+    }
+
+    /// Never use CKContainer.default() — that is the official app's
+    /// container and SIGABRTs the clone when iCloud Sync is on.
+    static func cloneContainer() -> CKContainer {
+        CKContainer(identifier: containerIdentifier)
+    }
+
+    /// Ask CloudKit if this clone container is usable. Failures stay
+    /// off-path so launch still opens.
+    static func probeAccount() async -> AccountProbe {
+        let container = cloneContainer()
+        do {
+            let status = try await container.accountStatus()
+            switch status {
+            case .available:
+                return .available
+            case .noAccount:
+                return .unavailable("no iCloud account")
+            case .restricted:
+                return .unavailable("iCloud restricted")
+            case .couldNotDetermine:
+                return .unavailable("could not determine iCloud account")
+            case .temporarilyUnavailable:
+                return .unavailable("iCloud temporarily unavailable")
+            @unknown default:
+                return .unavailable("unknown account status \(status.rawValue)")
+            }
+        } catch {
+            return .unavailable(String(describing: error))
+        }
+    }
+
     /// Fixed zone names. Never include device id.
     static let sharedZoneName  = "minis-shared"
     static let devicesZoneName = "minis-devices"
@@ -1890,7 +1926,7 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
         pendingV1Deletions.removeFirst(batch.count)
         v1DeleteInFlight = true
         Self.republishV1DeletePending(pendingV1Deletions.count)
-        let db = CKContainer.default().privateCloudDatabase
+        let db = container.privateCloudDatabase
         let op = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: batch)
         op.savePolicy = .changedKeys
         // Per-record completion lets us classify .unknownItem (already

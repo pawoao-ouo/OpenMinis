@@ -50,7 +50,7 @@ struct CloudSyncSettingsV2View: View {
                     }
                 }
             } footer: {
-                Text("Toggle takes effect on next app launch.")
+                Text("Uses this clone's own iCloud container, not the official Minis one. If CloudKit is unavailable, sync turns itself off so the app still opens.")
                     .font(.caption)
             }
 

@@ -147,6 +147,20 @@ enum SyncV2Bootstrap {
 
         logger.info("[SyncCore] v2 startup STEP=begin")
 
+        // Clone builds use iCloud.com.openminis.clone. CKContainer.default()
+        // and a missing/unavailable container used to SIGABRT on launch
+        // after the user flipped iCloud Sync on. Probe first; on failure
+        // stay off so the app still opens.
+        let account = await ICloudSharedZoneTransport.probeAccount()
+        switch account {
+        case .available:
+            logger.info("[SyncCore] v2 startup STEP=account available")
+        case .unavailable(let reason):
+            logger.error("[SyncCore] v2 iCloud unavailable (\(reason)) — disabling sync so launch can continue")
+            UserDefaults.standard.set(false, forKey: "cloudSync.v2.enabled")
+            return
+        }
+
         // 1. Register all Syncable types.
         SyncedTypesBootstrap.registerAll()
         logger.info("[SyncCore] v2 startup STEP=typesRegistered count=\(SyncableTypeRegistry.shared.count)")
