@@ -50,7 +50,8 @@ data class ThinkingRuleEditorRequest(
  *
  * User-selectable wire formats are a deliberate SUBSET (the Chat-Completions family):
  * Gemini/Anthropic formats are model-generation dependent and would only build broken
- * rules on this path, so they are not offered.
+ * rules on this path, so they are not offered. Within Chat Completions, the picker
+ * further restricts to formats [ThinkingRuleResolver] can actually emit.
  */
 @Composable
 fun ThinkingRuleEditorDialog(
@@ -157,12 +158,17 @@ fun ThinkingRuleEditorDialog(
                         Text(stringResource(choice.titleRes))
                     }
                     DropdownMenu(expanded = formatMenuOpen, onDismissRequest = { formatMenuOpen = false }) {
-                        FormatChoice.entries.forEach { c ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(c.titleRes)) },
-                                onClick = { choice = c; formatMenuOpen = false },
-                            )
-                        }
+                        // Only offer formats the OpenAI Chat Completions emitter supports.
+                        // Keep the current choice visible even if unsupported so the user
+                        // can see it and switch away (e.g. CUSTOM_PATH from an old rule).
+                        FormatChoice.entries
+                            .filter { it.supportedOnChatCompletions || it == choice }
+                            .forEach { c ->
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(c.titleRes)) },
+                                    onClick = { choice = c; formatMenuOpen = false },
+                                )
+                            }
                     }
                 }
                 Text(
@@ -246,16 +252,26 @@ fun ThinkingRuleEditorDialog(
     )
 }
 
-/** The user-selectable wire formats (a subset — Gemini/Anthropic families excluded). */
-enum class FormatChoice(val titleRes: Int, val explanationRes: Int) {
+/**
+ * The user-selectable wire formats (a subset — Gemini/Anthropic families excluded).
+ *
+ * [supportedOnChatCompletions] mirrors what [ThinkingRuleResolver] emit() can produce
+ * on the OpenAI path. Unsupported choices stay in the enum so existing saved rules
+ * still round-trip in the editor, but are filtered out of the picker for new selection.
+ */
+enum class FormatChoice(
+    val titleRes: Int,
+    val explanationRes: Int,
+    val supportedOnChatCompletions: Boolean = true,
+) {
     OMIT(R.string.thinking_fmt_omit_title, R.string.thinking_fmt_omit_desc),
     REASONING_EFFORT(R.string.thinking_fmt_effort_title, R.string.thinking_fmt_effort_desc),
     REASONING_EFFORT_NESTED(R.string.thinking_fmt_effort_nested_title, R.string.thinking_fmt_effort_nested_desc),
-    BOOLEAN_TOGGLE(R.string.thinking_fmt_bool_title, R.string.thinking_fmt_bool_desc),
-    EXTRA_BODY_TOGGLE(R.string.thinking_fmt_extrabody_title, R.string.thinking_fmt_extrabody_desc),
+    BOOLEAN_TOGGLE(R.string.thinking_fmt_bool_title, R.string.thinking_fmt_bool_desc, supportedOnChatCompletions = false),
+    EXTRA_BODY_TOGGLE(R.string.thinking_fmt_extrabody_title, R.string.thinking_fmt_extrabody_desc, supportedOnChatCompletions = false),
     DEEPSEEK_SIBLING(R.string.thinking_fmt_deepseek_title, R.string.thinking_fmt_deepseek_desc),
     QWEN_DUAL(R.string.thinking_fmt_qwen_title, R.string.thinking_fmt_qwen_desc),
-    CUSTOM_PATH(R.string.thinking_fmt_custom_title, R.string.thinking_fmt_custom_desc);
+    CUSTOM_PATH(R.string.thinking_fmt_custom_title, R.string.thinking_fmt_custom_desc, supportedOnChatCompletions = false);
 
     companion object {
         fun from(fmt: ThinkingWireFormat?): FormatChoice = when (fmt) {
