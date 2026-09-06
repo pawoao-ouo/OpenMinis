@@ -1,1 +1,1 @@
-/workspace/patch/ThinkingRuleResolver.kt
+@/workspace/patch/ThinkingRuleResolver.kt
