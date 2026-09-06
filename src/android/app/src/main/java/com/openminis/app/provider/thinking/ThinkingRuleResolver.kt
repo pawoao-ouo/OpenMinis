@@ -1,1 +1,1 @@
-file:///workspace/patch/ThinkingRuleResolver.kt
+@/workspace/patch/mcp_args/CONTENT_ONLY.kt
