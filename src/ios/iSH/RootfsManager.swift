@@ -384,6 +384,45 @@ class RootfsManager {
         let avgCopyMs = fileCount > 0 ? copyTotalMs / Double(fileCount) : 0
         let avgMetaMs = fileCount > 0 ? metaDbTotalMs / Double(fileCount) : 0
         logger.info("[DefaultMount] Done. \(fileCount) file(s) overlaid in \(String(format: "%.1f", totalMs))ms — copy: \(String(format: "%.1f", copyTotalMs))ms (avg \(String(format: "%.2f", avgCopyMs))ms/file), metaDB: \(String(format: "%.1f", metaDbTotalMs))ms (avg \(String(format: "%.2f", avgMetaMs))ms/file), marker: \(String(format: "%.1f", markerMs))ms")
+
+        // [OpenMinis#288] Seed the path-scoped ffmpeg stub only when absent.
+        // Never overwrite: apk add ffmpeg / user binaries at /usr/bin/ffmpeg
+        // must win. default_mount always replaces files, so the stub cannot
+        // live there.
+        ensureNativeFfmpegStubIfNeeded()
+    }
+
+    /// Install a non-ELF placeholder at `/usr/bin/ffmpeg` when missing so PATH
+    /// can resolve `ffmpeg` and the path-scoped native offload can claim it.
+    ///
+    /// [OpenMinis#288] Real ELF binaries (Alpine apk, user builds) are left
+    /// alone — `native_offload_lookup` also refuses to hijack ELFs at this
+    /// path. The stub content is never executed when offload is active; it
+    /// only needs to exist and not look like an ELF.
+    func ensureNativeFfmpegStubIfNeeded() {
+        let relativePath = "/usr/bin/ffmpeg"
+        // Match applyDefaultMountOverlay path join (relativePath keeps leading "/").
+        let destURL = dataPath.appendingPathComponent(relativePath)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destURL.path) {
+            return
+        }
+        do {
+            try fm.createDirectory(at: destURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let stub = """
+            #!/bin/sh
+            # MINIS_NATIVE_FFMPEG_STUB — placeholder for path-scoped FFmpegOffload.
+            # If you see this message, native offload did not intercept execve.
+            echo "minis: ffmpeg native offload unavailable; try minis-ffmpeg or apk add ffmpeg" >&2
+            exit 127
+            """
+            try stub.write(to: destURL, atomically: true, encoding: .utf8)
+            ensureParentDirsInMetaDB(for: relativePath)
+            ensureFakefsMetadata(for: relativePath, isDirectory: false, mode: 0o100755)
+            logger.info("[DefaultMount] seeded native ffmpeg stub at \(relativePath)")
+        } catch {
+            logger.error("[DefaultMount] failed to seed ffmpeg stub: \(error)")
+        }
     }
 
     /// Remove the PEP 668 EXTERNALLY-MANAGED marker file from all Python versions.
