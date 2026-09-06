@@ -3029,14 +3029,14 @@ struct ContentView: View {
                                                     topTrailingRadius: 0,
                                                     style: .continuous
                                                 )
-                                                .fill(Color(red: 183/255.0, green: 175/255.0, blue: 150/255.0).opacity(0.3))
+                                                .fill(MinisThemeList.accent.opacity(0.3))
                                                 .padding(.horizontal, 6)
                                                 .padding(.bottom, isLast ? 4 : 0)
                                             }
                                         } else {
                                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                                 .fill(isSessionHighlighted(session.id)
-                                                      ? Color(red: 183/255.0, green: 175/255.0, blue: 150/255.0).opacity(0.3)
+                                                      ? MinisThemeList.accent.opacity(0.3)
                                                       : Color.clear)
                                                 .padding(.horizontal, 6)
                                                 .padding(.vertical, 2)
@@ -4174,33 +4174,15 @@ struct ContentView: View {
     /// glass fragment, so the two morph instead of cross-fading (iOS 26+).
     @Namespace private var fabGlassNamespace
 
-    /// Brand fill for the new-chat FAB. On iOS 26 this becomes the glass TINT
-    /// rather than an opaque fill, so the button keeps its colour identity while
-    /// the system material supplies the depth. Below 26 it stays the flat fill
-    /// it has always been.
-    private static let newChatBrandColor = Color(UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 80/255, green: 76/255, blue: 66/255, alpha: 1)
-        : UIColor(red: 183/255, green: 175/255, blue: 150/255, alpha: 1) })
+    /// Brand fill for the new-chat FAB. Driven by the home-scope theme accent
+    /// (`MinisThemeList.accent` → `AppearanceStudio.color(.accent, scope: .home)`),
+    /// which already resolves light/dark via the studio. On iOS 26 this becomes
+    /// the glass TINT rather than an opaque fill; below 26 it stays the flat fill.
+    private var newChatBrandColor: Color { MinisThemeList.accent }
 
-    /// Glass TINT for the new-chat FAB — deliberately NOT `newChatBrandColor`.
-    ///
-    /// Tinting with the raw brand colour at full strength produced an opaque
-    /// disc with no refraction at all (measured on device: ring pixel std 1.1
-    /// against ~20 for untinted glass), which is what read as "not glass".
-    /// Simply lowering that colour's alpha fixed light mode but vanished in
-    /// dark: the dark brand value (80/76/66) sits so close to the near-black
-    /// page that 0.15–0.25 alpha yielded a warmth (R−B) of only 1.6–3.1,
-    /// indistinguishable from the untinted button.
-    ///
-    /// So the dark variant is lifted and warmed rather than just faded. At
-    /// alpha 0.30 the measured result is better than the old opaque version on
-    /// BOTH axes in dark mode — warmth 22.6 vs 14.0 (more brand identity) with
-    /// ring std 9.3 vs 1.1 (real show-through) — and light mode keeps a warm
-    /// cast (warmth 9.9) while staying visibly translucent.
-    /// `Glass.tint` honours the colour's alpha, so the strength is baked in here.
-    private static let newChatGlassTint = Color(UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 196/255, green: 176/255, blue: 120/255, alpha: 0.30)
-        : UIColor(red: 183/255, green: 175/255, blue: 150/255, alpha: 0.30) })
+    /// Glass TINT for the new-chat FAB — same theme accent at ~0.30 alpha so
+    /// `Glass.tint` keeps refraction. Light/dark follow the studio accent.
+    private var newChatGlassTint: Color { MinisThemeList.accent.opacity(0.30) }
 
     /// Clear/dismiss control inside the expanded search capsule.
     ///
@@ -4385,8 +4367,8 @@ struct ContentView: View {
                 if !fabDidDrag { openSession(Self.makeNewSessionId()) }
             } label: {
                 fabCircleSurface(
-                    tint: Self.newChatGlassTint,
-                    fallbackFill: Self.newChatBrandColor,
+                    tint: newChatGlassTint,
+                    fallbackFill: newChatBrandColor,
                     fallbackShadowOpacity: 0.2
                 ) {
                     Image(systemName: {
