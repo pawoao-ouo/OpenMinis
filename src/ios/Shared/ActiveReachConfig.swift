@@ -324,12 +324,31 @@ final class ActiveReachStore: ObservableObject {
         id: String,
         now: Date = Date(),
         calendar: Calendar = .current,
-        scheduler: ((ActiveReachDraft) async -> Result<String, ActiveReachSendError>)? = nil
+        scheduler: ((ActiveReachDraft) async -> Result<String, ActiveReachSendError>)? = nil,
+        sessionExists: ((String) async -> Bool)? = nil
     ) async -> Result<SendReceipt, ActiveReachSendError> {
         lastSendError = nil
         guard let draft = drafts.first(where: { $0.id == id }) else {
             lastSendError = ActiveReachSendError.missingDraft.rawValue
             return .failure(.missingDraft)
+        }
+        // R2-002：坟会话不发——删掉的 dialog 拦在 prepare/schedule/cap 之前。
+        let exists: Bool
+        if let sessionExists {
+            exists = await sessionExists(draft.dialogId)
+        } else {
+            exists = await ChatStore.shared.sessionExists(id: draft.dialogId)
+        }
+        if !exists {
+            lastSendError = ActiveReachSendError.sessionGone.rawValue
+            drafts.removeAll { $0.id == id }
+            persistDrafts()
+            // 白名单里的孤儿 ID 一并摘掉，避免设置页一直挂坟。
+            if snapshot.dialogIds.contains(draft.dialogId) {
+                removeDialogId(draft.dialogId)
+            }
+            logSend(disposition: "blocked", reason: ActiveReachSendError.sessionGone.rawValue, draft: draft, now: now)
+            return .failure(.sessionGone)
         }
         var snap = snapshot
         let prepared = ActiveReachSend.prepareSend(

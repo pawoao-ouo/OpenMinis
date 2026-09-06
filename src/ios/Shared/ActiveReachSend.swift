@@ -13,6 +13,8 @@ enum ActiveReachSendError: String, Error {
     case emptyText
     case scheduleFailed
     case missingDraft
+    /// 目标会话已删 / 不存在：拦发送，不记账、不排通知。
+    case sessionGone
 }
 
 struct SendReceipt: Equatable {
