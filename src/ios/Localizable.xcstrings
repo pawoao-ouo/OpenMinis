@@ -4068,6 +4068,29 @@
         }
       }
     },
+    "That image is too large to store. Try a simpler one." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That image is too large to store. Try a simpler one."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这张图片太大，无法存储，请换一张更简单的。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這張圖片太大，無法儲存，請換一張較簡單的。"
+          }
+        }
+      }
+    },
     "These files' contents are not in the backup — it records that they existed, at these sizes." : {
       "extractionState" : "manual",
       "localizations" : {
