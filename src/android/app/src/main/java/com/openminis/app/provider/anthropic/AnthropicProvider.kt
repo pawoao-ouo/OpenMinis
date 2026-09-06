@@ -956,10 +956,11 @@ class AnthropicProvider(
             builder.header("anthropic-beta", betaFlags.joinToString(","))
         }
 
-        // Stainless / CLI fingerprint headers — only on OAuth; bump in lockstep
-        // with sub2api when the real CLI version moves.
+        // Stainless / CLI fingerprint headers — only on OAuth. UA pinned to
+        // claude-cli/2.1.251 for Anthropic model version gates (OpenMinis#301);
+        // leave Stainless values alone unless a real CLI capture requires a move.
         if (isOAuth) {
-            builder.header("User-Agent", "claude-cli/2.1.195 (external, cli)")
+            builder.header("User-Agent", "claude-cli/2.1.251 (external, cli)")
             builder.header("X-Stainless-Lang", "js")
             builder.header("X-Stainless-Package-Version", "0.106.0")
             builder.header("X-Stainless-OS", "Linux")
@@ -989,11 +990,11 @@ class AnthropicProvider(
         // [T-provider-custom-user-agent] Applied last so a non-blank override
         // wins over the OAuth claude-cli UA above. null/blank → fall back to
         // the branded Minis UA on the regular apiKey path, but on the OAuth
-        // path keep the claude-cli/2.1.195 fingerprint set at line ~779 (the
+        // path keep the claude-cli/2.1.251 fingerprint set above (the
         // Anthropic OAuth backend pairs UA + X-Stainless-* and rejects calls
-        // whose UA doesn't match the registered client identity). T-android-
-        // default-ua: pass defaultUserAgent=null on OAuth, branded default
-        // everywhere else.
+        // whose UA doesn't match the registered client identity; #301 needs
+        // ≥2.1.251 for gated models). T-android-default-ua: pass
+        // defaultUserAgent=null on OAuth, branded default everywhere else.
         builder.applyUserAgentOverride(
             customUserAgent,
             defaultUserAgent = if (isOAuth) null else com.openminis.app.provider.MinisUserAgent.DEFAULT,
