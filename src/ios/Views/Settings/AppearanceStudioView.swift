@@ -12,6 +12,8 @@ struct AppearanceStudioView: View {
     @State private var iconPickSlot: QuietIconSlot?
     @State private var iconItem: PhotosPickerItem?
     @State private var thinkingCardItem: PhotosPickerItem?
+    @State private var categoryImageKey: String?
+    @State private var categoryImageItem: PhotosPickerItem?
     @State private var saveName: String = ""
     @State private var errorText: String?
 
@@ -95,6 +97,55 @@ struct AppearanceStudioView: View {
                     }
                 }
 
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("thinking 标题字")
+                        Spacer()
+                        Text("\(Int(pack.thinkingTitleSize))")
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: thinkingTitleSizeBinding, in: 10...22, step: 1)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("thinking 正文字")
+                        Spacer()
+                        Text("\(Int(pack.thinkingBodySize))")
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: thinkingBodySizeBinding, in: 10...22, step: 1)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("输入栏圆角")
+                        Spacer()
+                        Text("\(Int(pack.inputBarRadius))")
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: inputBarRadiusBinding, in: 4...32, step: 1)
+                }
+
+                ForEach(AppearanceThemePack.categoryKeys, id: \.self) { key in
+                    HStack {
+                        Text(key)
+                            .font(.caption)
+                        Spacer()
+                        PhotosPicker(selection: Binding(
+                            get: { categoryImageKey == key ? categoryImageItem : nil },
+                            set: { newValue in
+                                categoryImageKey = key
+                                categoryImageItem = newValue
+                            }
+                        ), matching: .images) {
+                            Text(studio.categoryImage(for: key) == nil ? "贴图" : "换图")
+                        }
+                        if studio.categoryImage(for: key) != nil {
+                            Button("还原") { studio.removeCategoryImage(for: key) }
+                                .foregroundStyle(studio.color(.destructive))
+                        }
+                    }
+                }
+
                 PhotosPicker(selection: $thinkingCardItem, matching: .images) {
                     Label(studio.hasThinkingCardImage() ? "更换 thinking 卡片图" : "给 thinking 卡片贴图",
                           systemImage: "photo.on.rectangle")
@@ -145,7 +196,7 @@ struct AppearanceStudioView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.name)
-                                Text(item.pack.userStyle.title + " · " + item.pack.assistantStyle.title)
+                                Text(item.userStyleTitle + " · " + item.assistantStyleTitle)
                                     .font(.caption)
                                     .foregroundStyle(studio.color(.secondaryText))
                             }
@@ -312,6 +363,14 @@ struct AppearanceStudioView: View {
             guard let item else { return }
             Task { await importImage(item) { studio.setThinkingCardImage($0) } }
         }
+        .onChange(of: categoryImageItem) { item in
+            guard let item, let key = categoryImageKey else { return }
+            Task {
+                await importImage(item) { studio.setCategoryImage($0, for: key) }
+                categoryImageItem = nil
+                categoryImageKey = nil
+            }
+        }
         .alert("这张图用不了", isPresented: Binding(
             get: { errorText != nil },
             set: { if !$0 { errorText = nil } }
@@ -389,6 +448,7 @@ struct AppearanceStudioView: View {
             userAvatarItem = nil
             assistantAvatarItem = nil
             thinkingCardItem = nil
+            categoryImageItem = nil
         }
         guard let data = try? await item.loadTransferable(type: Data.self),
               let image = UIImage(data: data) else {
@@ -423,6 +483,27 @@ struct AppearanceStudioView: View {
         Binding(
             get: { AppearanceListIconShape.parse(studio.currentThemePack().listIconShape) },
             set: { studio.setListIconShape($0) }
+        )
+    }
+
+    private var thinkingTitleSizeBinding: Binding<Double> {
+        Binding(
+            get: { studio.currentThemePack().thinkingTitleSize },
+            set: { studio.setThinkingFont(title: $0) }
+        )
+    }
+
+    private var thinkingBodySizeBinding: Binding<Double> {
+        Binding(
+            get: { studio.currentThemePack().thinkingBodySize },
+            set: { studio.setThinkingFont(body: $0) }
+        )
+    }
+
+    private var inputBarRadiusBinding: Binding<Double> {
+        Binding(
+            get: { studio.currentThemePack().inputBarRadius },
+            set: { studio.setInputBarRadius($0) }
         )
     }
 

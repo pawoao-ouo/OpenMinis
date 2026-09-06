@@ -22,6 +22,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var listIconShape: String
     var categoryIcons: [String: String]
     var categoryColors: [String: String]
+    var categoryImages: [String: String]
+    var inputBarRadius: Double
+    var thinkingTitleSize: Double
+    var thinkingBodySize: Double
     var wallpaperShade: Double?
     var surfaceOpacity: Double?
     var colorsLight: [String: String]
@@ -29,7 +33,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var wallpaperJPEGBase64: String?
 
     static let currentKey = "appearanceStudio.themePack.v1"
-    static let schemaVersion = 3
+    static let schemaVersion = 4
     static let categoryKeys = [
         "code", "writing", "research", "analysis", "creative", "chat", "math",
         "translation", "health", "finance", "travel", "education", "design",
@@ -53,6 +57,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         listIconShape: AppearanceListIconShape.circle.rawValue,
         categoryIcons: [:],
         categoryColors: [:],
+        categoryImages: [:],
+        inputBarRadius: 20,
+        thinkingTitleSize: 13,
+        thinkingBodySize: 13,
         wallpaperShade: 0.08,
         surfaceOpacity: 0.88,
         colorsLight: [:],
@@ -95,6 +103,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             "listIconShape": AppearanceListIconShape.parse(listIconShape).rawValue,
             "categoryIcons": categoryIcons,
             "categoryColors": categoryColors,
+            "categoryImages": categoryImages,
+            "inputBarRadius": inputBarRadius,
+            "thinkingTitleSize": thinkingTitleSize,
+            "thinkingBodySize": thinkingBodySize,
             "colorsLight": colorsLight,
             "colorsDark": colorsDark,
         ]
@@ -144,6 +156,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             listIconShape: AppearanceListIconShape.parse(str("listIconShape", fallback: base.listIconShape)).rawValue,
             categoryIcons: filterCategoryMap(map("categoryIcons"), symbols: true),
             categoryColors: filterCategoryMap(map("categoryColors"), symbols: false),
+            categoryImages: filterCategoryMap(map("categoryImages"), symbols: true),
+            inputBarRadius: clampRadius(num("inputBarRadius", fallback: base.inputBarRadius)),
+            thinkingTitleSize: min(22, max(10, num("thinkingTitleSize", fallback: base.thinkingTitleSize))),
+            thinkingBodySize: min(22, max(10, num("thinkingBodySize", fallback: base.thinkingBodySize))),
             wallpaperShade: raw["wallpaperShade"] == nil ? nil : min(0.65, max(0, num("wallpaperShade", fallback: 0.08))),
             surfaceOpacity: raw["surfaceOpacity"] == nil ? nil : min(1, max(0.35, num("surfaceOpacity", fallback: 0.88))),
             colorsLight: normalizeHexMap(map("colorsLight")),
@@ -311,7 +327,11 @@ extension AppearanceStudio {
     }
 
     func applyThemePack(_ pack: AppearanceThemePack, wallpaper: UIImage? = nil) {
-        persistPack(pack)
+        var stored = pack
+        stored.wallpaperJPEGBase64 = nil
+        stored.thinkingCardJPEGBase64 = nil
+        stored.categoryImages = [:]
+        persistPack(stored)
         if !pack.colorsLight.isEmpty || !pack.colorsDark.isEmpty {
             applyPackColors(light: pack.colorsLight, dark: pack.colorsDark)
         }
@@ -329,6 +349,7 @@ extension AppearanceStudio {
            let image = UIImage(data: data) {
             setThinkingCardImage(image)
         }
+        applyCategoryImages(pack.categoryImages)
         configureUIKitSurfaces()
     }
 
@@ -348,12 +369,23 @@ extension AppearanceStudio {
            let data = image.jpegData(compressionQuality: 0.82) {
             pack.thinkingCardJPEGBase64 = data.base64EncodedString()
         }
+        if includeWallpaper {
+            var images: [String: String] = [:]
+            for key in AppearanceThemePack.categoryKeys {
+                if let image = categoryImage(for: key),
+                   let data = image.jpegData(compressionQuality: 0.86) {
+                    images[key] = data.base64EncodedString()
+                }
+            }
+            pack.categoryImages = images
+        }
         return pack
     }
 
     func resetThemePack() {
         UserDefaults.standard.removeObject(forKey: Self.packKey)
-        removeThinkingCardImage()
+        try? FileManager.default.removeItem(at: thinkingCardURL())
+        wipeCategoryImageFiles()
         themePackLock.lock()
         cachedThemePack = .default
         themePackLoaded = true
@@ -374,6 +406,100 @@ extension AppearanceStudio {
         var pack = currentThemePack()
         pack.listIconShape = shape.rawValue
         persistPack(pack)
+    }
+
+    func setInputBarRadius(_ value: Double) {
+        var pack = currentThemePack()
+        pack.inputBarRadius = min(32, max(4, value))
+        persistPack(pack)
+    }
+
+    func setThinkingFont(title: Double? = nil, body: Double? = nil) {
+        var pack = currentThemePack()
+        if let title { pack.thinkingTitleSize = min(22, max(10, title)) }
+        if let body { pack.thinkingBodySize = min(22, max(10, body)) }
+        persistPack(pack)
+    }
+
+    private func categoryImageURL(_ key: String) -> URL {
+        appearanceDirectory.appendingPathComponent("category-\(key).jpg")
+    }
+
+    func categoryImage(for key: String) -> UIImage? {
+        UIImage(contentsOfFile: categoryImageURL(key).path)
+    }
+
+    func setCategoryImage(_ image: UIImage, for key: String) {
+        guard AppearanceThemePack.categoryKeys.contains(key) else { return }
+        let maxEdge: CGFloat = 256
+        let size = image.size
+        let scale = min(1, maxEdge / max(size.width, size.height, 1))
+        let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        if let data = rendered.jpegData(compressionQuality: 0.86) {
+            try? data.write(to: categoryImageURL(key), options: .atomic)
+        }
+        var pack = currentThemePack()
+        pack.categoryImages[key] = "file"
+        persistPack(pack)
+    }
+
+    func removeCategoryImage(for key: String) {
+        try? FileManager.default.removeItem(at: categoryImageURL(key))
+        var pack = currentThemePack()
+        pack.categoryImages.removeValue(forKey: key)
+        persistPack(pack)
+    }
+
+    private func wipeCategoryImageFiles() {
+        for key in AppearanceThemePack.categoryKeys {
+            try? FileManager.default.removeItem(at: categoryImageURL(key))
+        }
+    }
+
+    private func applyCategoryImages(_ map: [String: String]) {
+        var kept: [String: String] = [:]
+        for key in AppearanceThemePack.categoryKeys {
+            guard let value = map[key], !value.isEmpty else {
+                try? FileManager.default.removeItem(at: categoryImageURL(key))
+                continue
+            }
+            if value == "file" {
+                if FileManager.default.fileExists(atPath: categoryImageURL(key).path) {
+                    kept[key] = "file"
+                }
+                continue
+            }
+            guard let data = Data(base64Encoded: value), let image = UIImage(data: data) else {
+                continue
+            }
+            writeCategoryImageFile(image, for: key)
+            kept[key] = "file"
+        }
+        var pack = currentThemePack()
+        pack.categoryImages = kept
+        persistPack(pack)
+    }
+
+    private func writeCategoryImageFile(_ image: UIImage, for key: String) {
+        let maxEdge: CGFloat = 256
+        let size = image.size
+        let scale = min(1, maxEdge / max(size.width, size.height, 1))
+        let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        if let data = rendered.jpegData(compressionQuality: 0.86) {
+            try? data.write(to: categoryImageURL(key), options: .atomic)
+        }
     }
 
     private func thinkingCardURL() -> URL {
@@ -461,6 +587,15 @@ enum MinisThemeShape {
     }
     static var thinkingCard: MinisBubbleShape {
         MinisBubbleShape(style: .squircle, radius: thinkingRadius, tailOnTrailing: false)
+    }
+    static var thinkingTitleSize: CGFloat {
+        CGFloat(min(22, max(10, pack.thinkingTitleSize)))
+    }
+    static var thinkingBodySize: CGFloat {
+        CGFloat(min(22, max(10, pack.thinkingBodySize)))
+    }
+    static var inputBarRadius: CGFloat {
+        CGFloat(min(32, max(4, pack.inputBarRadius)))
     }
 }
 

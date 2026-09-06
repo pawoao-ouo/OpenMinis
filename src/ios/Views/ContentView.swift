@@ -6641,10 +6641,18 @@ private struct SessionRow: View, Equatable {
     @ViewBuilder
     private var providerIcon: some View {
         let icon = categoryIcon
-        let size: CGFloat = (icon.systemName == "bubble.left.fill" || icon.systemName == "terminal.fill") ? 18 : 20
-        Image(systemName: icon.systemName)
-            .font(.system(size: size))
-            .foregroundStyle(icon.color)
+        let key = session.category ?? "other"
+        if let image = AppearanceStudio.shared.categoryImage(for: key) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 44, height: 44)
+        } else {
+            let size: CGFloat = (icon.systemName == "bubble.left.fill" || icon.systemName == "terminal.fill") ? 18 : 20
+            Image(systemName: icon.systemName)
+                .font(.system(size: size))
+                .foregroundStyle(icon.color)
+        }
     }
 
     private var iconBackgroundColor: Color {
@@ -6727,6 +6735,7 @@ private struct LockedRowEffect: ViewModifier {
 /// Row for a session synced from another device, with an iCloud badge on the icon.
 private struct RemoteSessionRow: View {
     let session: ChatSession
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
     var body: some View {
         HStack(spacing: 8) {
@@ -6773,10 +6782,18 @@ private struct RemoteSessionRow: View {
     @ViewBuilder
     private var providerIcon: some View {
         let icon = categoryIcon
-        let size: CGFloat = (icon.systemName == "bubble.left.fill" || icon.systemName == "terminal.fill") ? 18 : 20
-        Image(systemName: icon.systemName)
-            .font(.system(size: size))
-            .foregroundStyle(icon.color)
+        let key = session.category ?? "other"
+        if let image = AppearanceStudio.shared.categoryImage(for: key) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 44, height: 44)
+        } else {
+            let size: CGFloat = (icon.systemName == "bubble.left.fill" || icon.systemName == "terminal.fill") ? 18 : 20
+            Image(systemName: icon.systemName)
+                .font(.system(size: size))
+                .foregroundStyle(icon.color)
+        }
     }
 }
 
@@ -6795,6 +6812,7 @@ private struct SuspendedRing: View {
 struct SessionEditSheet: View {
     let session: ChatSession
     let onSave: (String, String?) -> Void
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
     @Environment(\.dismiss) private var dismiss
     @State private var editTitle: String = ""
@@ -6835,14 +6853,23 @@ struct SessionEditSheet: View {
                                 editCategory = cat.key
                             } label: {
                                 VStack(spacing: 6) {
-                                    Image(systemName: themed.systemName)
-                                        .font(.system(size: 20))
-                                        .foregroundStyle(editCategory == cat.key ? .white : themed.color)
-                                        .frame(width: 44, height: 44)
-                                        .background(
-                                            (editCategory == cat.key ? themed.color : themed.color.opacity(0.12))
-                                        )
-                                        .clipShape(minisListIconClip())
+                                    Group {
+                                        if let image = AppearanceStudio.shared.categoryImage(for: cat.key) {
+                                            Image(uiImage: image)
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 44, height: 44)
+                                        } else {
+                                            Image(systemName: themed.systemName)
+                                                .font(.system(size: 20))
+                                                .foregroundStyle(editCategory == cat.key ? .white : themed.color)
+                                                .frame(width: 44, height: 44)
+                                                .background(
+                                                    (editCategory == cat.key ? themed.color : themed.color.opacity(0.12))
+                                                )
+                                        }
+                                    }
+                                    .clipShape(minisListIconClip())
                                     Text(LocalizedStringKey(cat.label))
                                         .font(.caption2)
                                         .foregroundStyle(editCategory == cat.key ? themed.color : MinisThemeList.subtitle)

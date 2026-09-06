@@ -3676,7 +3676,7 @@ struct AIChatView: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 20))
+            .contentShape(RoundedRectangle(cornerRadius: MinisThemeShape.inputBarRadius))
             .onTapGesture { inputFocused = true }
             .onReceive(speechManager.$recognizedText) { text in
                 guard speechManager.state == .recording || !text.isEmpty else { return }
@@ -4653,11 +4653,14 @@ struct AIChatView: View {
 /// fill and BOTH shadows byte-for-byte, including the dark-mode-only top shadow
 /// that lifts the bar off the message list.
 private struct ComposerSurface: ViewModifier {
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
+
     private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
+        RoundedRectangle(cornerRadius: MinisThemeShape.inputBarRadius, style: .continuous)
     }
 
     func body(content: Content) -> some View {
+        let _ = appearanceStudio.themePackRevision
         if #available(iOS 26.0, *) {
             content
                 .glassEffect(.regular, in: shape)
