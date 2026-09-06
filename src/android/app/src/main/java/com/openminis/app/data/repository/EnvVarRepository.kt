@@ -92,19 +92,45 @@ class EnvVarRepository(private val context: Context) {
         // Check for duplicate (excluding self)
         if (isDuplicateKey(normalizedKey, excludeId = id)) return false
 
-        // Delete old Keychain entry if key changed
-        if (current.key != normalizedKey) {
-            encryptedPrefs.edit().remove(current.key).apply()
+        val keyChanged = current.key != normalizedKey
+        val cleanValue = sanitizeValue(newValue)
+
+        // Write under the destination key first (same-key path is update-in-place).
+        // Only after that succeeds do we delete the old EncryptedSharedPreferences
+        // entry on rename — delete-then-put used to lose the secret if the put
+        // failed after remove. Prefer commit() (existing ProviderRepository pattern)
+        // so we know the write landed before dropping the old key.
+        val written = encryptedPrefs.edit().putString(normalizedKey, cleanValue).commit()
+        if (!written) {
+            Log.e(
+                TAG,
+                "Update env var aborted — encrypted prefs write failed for $normalizedKey; " +
+                    "prior key ${current.key} left intact",
+            )
+            return false
+        }
+        // Confirm the destination is readable before dropping the old key on rename
+        // (mirrors iOS EnvVarStore.update write+loadValue-verify then delete).
+        if (keyChanged) {
+            if (encryptedPrefs.getString(normalizedKey, null) == null) {
+                Log.e(
+                    TAG,
+                    "Update env var aborted — encrypted prefs verify failed for $normalizedKey; " +
+                        "prior key ${current.key} left intact",
+                )
+                return false
+            }
         }
 
-        // Update metadata
+        // Update metadata only after the value is safely under the destination key
         _entries.value = _entries.value.map {
             if (it.id == id) it.copy(key = normalizedKey, note = newNote.trim()) else it
         }
-
-        // Save new value
-        encryptedPrefs.edit().putString(normalizedKey, sanitizeValue(newValue)).apply()
         saveMetadata()
+
+        if (keyChanged) {
+            encryptedPrefs.edit().remove(current.key).apply()
+        }
         Log.i(TAG, "Updated env var: ${current.key} → $normalizedKey")
         return true
     }
