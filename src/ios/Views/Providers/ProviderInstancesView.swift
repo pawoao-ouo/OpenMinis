@@ -154,15 +154,13 @@ struct ProviderInstancesView: View {
                 AddProviderView()
             }
         }
-        .fileImporter(isPresented: $showImportFile, allowedContentTypes: [.json]) { result in
-            switch result {
-            case .success(let url):
-                guard url.startAccessingSecurityScopedResource() else {
-                    importMessage = AppLocalized("Cannot access the selected file.")
-                    showImportResult = true
-                    return
-                }
-                defer { url.stopAccessingSecurityScopedResource() }
+        .sheet(isPresented: $showImportFile) {
+            // [T-sideload-fileimport] copy-mode picker: resigned builds
+            // silently fail open-in-place security-scope grants.
+            DocumentCopyPicker(contentTypes: [.json], allowsMultipleSelection: false) { urls in
+                guard let url = urls.first else { return }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                 guard let data = try? Data(contentsOf: url),
                       let json = String(data: data, encoding: .utf8) else {
                     importMessage = AppLocalized("Failed to read file.")
@@ -175,8 +173,8 @@ struct ProviderInstancesView: View {
                     importMessage = AppLocalized("Invalid provider configuration file.")
                 }
                 showImportResult = true
-            case .failure:
-                break
+            } onDone: {
+                showImportFile = false
             }
         }
         // [T-provider-group-swipe-actions] Swipe-Edit lands on the very screen

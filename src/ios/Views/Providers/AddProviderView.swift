@@ -341,8 +341,15 @@ struct AddProviderView: View {
                 }
             }
         }
-        .fileImporter(isPresented: $showImportFile, allowedContentTypes: [.json]) { result in
-            handleImport(result)
+        .sheet(isPresented: $showImportFile) {
+            // [T-sideload-fileimport] copy-mode picker: resigned builds
+            // silently fail open-in-place security-scope grants.
+            DocumentCopyPicker(contentTypes: [.json], allowsMultipleSelection: false) { urls in
+                guard let url = urls.first else { return }
+                handleImport(.success(url))
+            } onDone: {
+                showImportFile = false
+            }
         }
         .alert(AppLocalized("Import"), isPresented: $showImportResult) {
             Button("OK") {
@@ -362,12 +369,11 @@ struct AddProviderView: View {
         importSucceeded = false
         switch result {
         case .success(let url):
-            guard url.startAccessingSecurityScopedResource() else {
-                importMessage = AppLocalized("Cannot access the selected file.")
-                showImportResult = true
-                return
-            }
-            defer { url.stopAccessingSecurityScopedResource() }
+            // asCopy picker URLs are plain files in our tmp — no security
+            // scope to acquire. startAccessingSecurityScopedResource() is
+            // safe to call but may return false for them, so don't gate on it.
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard let data = try? Data(contentsOf: url),
                   let json = String(data: data, encoding: .utf8) else {
                 importMessage = AppLocalized("Failed to read file.")

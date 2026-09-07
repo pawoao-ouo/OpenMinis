@@ -1207,19 +1207,26 @@ struct AIChatView: View {
                 }
             }
         }
-        .fileImporter(
-            isPresented: $showDocumentPicker,
-            allowedContentTypes: [.image, .pdf, .plainText, .json, .sourceCode, .presentation, .spreadsheet, .data],
-            allowsMultipleSelection: true
-        ) { result in
-            switch result {
-            case .success(let urls):
+        .sheet(isPresented: $showDocumentPicker) {
+            // [T-sideload-fileimport] SwiftUI .fileImporter / open-in-place
+            // pickers need a FileProvider security-scoped grant that iOS
+            // silently denies on resigned (sideloaded) builds — the user picks
+            // a file, Open does nothing, no error. asCopy: true makes the
+            // picker hand us a copy in our tmp dir instead, no security scope
+            // involved. (Known fix pattern in other sideloaded apps, e.g.
+            // Empo/ios-local-llm.) We copy to our own cache immediately in
+            // addFileAttachment, so the temp URL's short lifetime is fine.
+            DocumentCopyPicker(
+                contentTypes: [.image, .pdf, .plainText, .json, .sourceCode, .presentation, .spreadsheet, .data],
+                allowsMultipleSelection: true
+            ) { urls in
                 for url in urls {
                     vm.addFileAttachment(from: url)
                 }
-            case .failure(let error):
-                minisLogger.error("File import failed: \(error.localizedDescription)")
+            } onDone: {
+                showDocumentPicker = false
             }
+            .ignoresSafeArea(edges: .bottom)
         }
         .onAppear {
             let sinceInit = (CFAbsoluteTimeGetCurrent() - AIChatViewModel.onAppearTimestamp) * 1000

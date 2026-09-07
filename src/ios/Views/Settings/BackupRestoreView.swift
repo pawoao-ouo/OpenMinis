@@ -91,14 +91,16 @@ struct BackupRestoreView: View {
         }
         .modifier(StandaloneTitle(title: AppLocalized("Restore"),
                                  active: !embedded))
-        .fileImporter(isPresented: $showPicker,
-                      allowedContentTypes: [BackupDelivery.contentType, .data],
-                      allowsMultipleSelection: false) { result in
-            switch result {
-            case .success(let urls):
+        .sheet(isPresented: $showPicker) {
+            // [T-sideload-fileimport] open-in-place pickers need a security
+            // scope that resigned builds don't get; asCopy sidesteps it.
+            DocumentCopyPicker(
+                contentTypes: [BackupDelivery.contentType, .data],
+                allowsMultipleSelection: false
+            ) { urls in
                 if let url = urls.first { load(url) }
-            case .failure(let error):
-                errorText = error.localizedDescription
+            } onDone: {
+                showPicker = false
             }
         }
         .sheet(isPresented: $showServerPicker) {
