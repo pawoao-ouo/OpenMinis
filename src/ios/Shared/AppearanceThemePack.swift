@@ -32,6 +32,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var fontFamily: String
     var wallpaperShade: Double?
     var surfaceOpacity: Double?
+    /// 聊天气泡自己的透明度——和卡片拆开（规则四：视觉层能改的都进包）。
+    /// nil 时沿用宿主当前值，主题包不硬压。
+    var bubbleOpacity: Double?
     var colorsLight: [String: String]
     var colorsDark: [String: String]
     var wallpaperJPEGBase64: String?
@@ -71,6 +74,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         fontFamily: AppearanceFontFamily.system.rawValue,
         wallpaperShade: 0.08,
         surfaceOpacity: 0.88,
+        bubbleOpacity: 0.88,
         colorsLight: [:],
         colorsDark: [:],
         wallpaperJPEGBase64: nil
@@ -124,6 +128,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         if let listRowFillHex { obj["listRowFillHex"] = listRowFillHex }
         if let wallpaperShade { obj["wallpaperShade"] = wallpaperShade }
         if let surfaceOpacity { obj["surfaceOpacity"] = surfaceOpacity }
+        if let bubbleOpacity { obj["bubbleOpacity"] = bubbleOpacity }
         if let wallpaperJPEGBase64 { obj["wallpaperJPEGBase64"] = wallpaperJPEGBase64 }
         if let thinkingCardJPEGBase64 { obj["thinkingCardJPEGBase64"] = thinkingCardJPEGBase64 }
         if let inputBarJPEGBase64 { obj["inputBarJPEGBase64"] = inputBarJPEGBase64 }
@@ -141,7 +146,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "categoryIcons", "categoryColors", "categoryImages",
         "inputBarRadius", "inputBarStyle", "inputBarJPEGBase64", "inputBarImageOpacity",
         "thinkingTitleSize", "thinkingBodySize", "fontFamily",
-        "wallpaperShade", "surfaceOpacity",
+        "wallpaperShade", "surfaceOpacity", "bubbleOpacity",
         "colorsLight", "colorsDark", "wallpaperJPEGBase64",
     ]
 
@@ -204,6 +209,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             fontFamily: AppearanceFontFamily.parse(str("fontFamily", fallback: base.fontFamily)).rawValue,
             wallpaperShade: raw["wallpaperShade"] == nil ? nil : min(0.65, max(0, num("wallpaperShade", fallback: 0.08))),
             surfaceOpacity: raw["surfaceOpacity"] == nil ? nil : min(1, max(0.35, num("surfaceOpacity", fallback: 0.88))),
+            bubbleOpacity: raw["bubbleOpacity"] == nil ? nil : min(1, max(0.35, num("bubbleOpacity", fallback: 0.88))),
             colorsLight: normalizeHexMap(map("colorsLight")),
             colorsDark: normalizeHexMap(map("colorsDark")),
             wallpaperJPEGBase64: raw["wallpaperJPEGBase64"] as? String
@@ -458,6 +464,7 @@ extension AppearanceStudio {
             applyPackColors(light: pack.colorsLight, dark: pack.colorsDark)
         }
         if let opacity = pack.surfaceOpacity { surfaceOpacity = opacity }
+        if let opacity = pack.bubbleOpacity { bubbleOpacity = opacity }
         if let shade = pack.wallpaperShade { wallpaperShade = shade }
         if let wallpaper {
             setWallpaper(wallpaper, for: .global)
@@ -485,6 +492,7 @@ extension AppearanceStudio {
         pack.colorsLight = exportColors(variant: .light)
         pack.colorsDark = exportColors(variant: .dark)
         pack.surfaceOpacity = surfaceOpacity
+        pack.bubbleOpacity = bubbleOpacity
         pack.wallpaperShade = wallpaperShade
         let accentHex = hex(.accent, scope: .chat, variant: activeVariant)
         pack.thinkingAccentHex = accentHex

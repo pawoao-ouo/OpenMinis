@@ -466,15 +466,15 @@ struct ChatMessageRow: View {
                         Label(AppLocalized("Branch From Here"), systemImage: "arrow.triangle.branch")
                     }
                 }
+                if onDeleteFrom != nil || onDeleteSingle != nil || onCompact != nil {
+                    Divider()
+                }
                 if onDeleteSingle != nil {
                     Button(role: .destructive) {
                         showDeleteSingleConfirm = true
                     } label: {
                         Label(AppLocalized("Delete This Message"), systemImage: "minus.circle")
                     }
-                }
-                if onDeleteFrom != nil || onCompact != nil {
-                    Divider()
                 }
                 if onDeleteFrom != nil {
                     Button(role: .destructive) {

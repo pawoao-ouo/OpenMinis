@@ -3277,7 +3277,7 @@ actor ChatStore {
                 id: UUID().uuidString,
                 sessionId: branch.id,
                 role: src.role,
-                parts: src.parts,
+                parts: src.parts.map { clonePartForBranch($0, from: sourceSessionId, to: branch.id) },
                 createdAt: src.createdAt,
                 tokenUsage: src.tokenUsage,
                 reasoningContent: src.reasoningContent,
@@ -3293,6 +3293,41 @@ actor ChatStore {
         appendMessages(copies)
         logger.info("[Branch] sid=\(sourceSessionId.prefix(8)) → branch=\(branch.id.prefix(8)) copied=\(copies.count)")
         return branch
+    }
+
+    /// Branched messages must own their media — otherwise deleting the source
+    /// session (which physically removes `<minis>/<sourceSid>/…`) would break
+    /// every image/file the branch still references. For each mediaRef whose
+    /// file lives under the source session's folder, copy it into the branch's
+    /// folder at the same sub-path and rewrite `relativePath`. `linuxPath`
+    /// points at iSH-visible shared storage that is NOT session-scoped, so it
+    /// stays as-is.
+    private func clonePartForBranch(_ part: ContentPart, from sourceSid: String, to branchSid: String) -> ContentPart {
+        guard case .mediaRef(let ref) = part else { return part }
+        guard ref.relativePath.hasPrefix(sourceSid + "/") else { return part }
+        let tail = String(ref.relativePath.dropFirst(sourceSid.count + 1))
+        let srcURL = minisBaseURL.appendingPathComponent(ref.relativePath)
+        let dstRel = "\(branchSid)/\(tail)"
+        let dstURL = minisBaseURL.appendingPathComponent(dstRel)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: srcURL.path) else { return part }
+        try? fm.createDirectory(at: dstURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            if !fm.fileExists(atPath: dstURL.path) {
+                try fm.copyItem(at: srcURL, to: dstURL)
+            }
+        } catch {
+            // Copy failed (disk pressure / io) — keep the source reference.
+            // Branch still renders while the source session lives.
+            return part
+        }
+        return .mediaRef(MediaRef(
+            id: ref.id,
+            relativePath: dstRel,
+            mimeType: ref.mimeType,
+            originalFileName: ref.originalFileName,
+            linuxPath: ref.linuxPath
+        ))
     }
 
     /// [SingleDelete] Delete ONE message row by id. Marks an iCloud tombstone
