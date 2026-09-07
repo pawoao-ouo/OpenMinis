@@ -798,6 +798,10 @@ final class MigrationEngine {
     /// permanent failure. [T-ios-icloud-v1v2-migration-fails]
     @available(iOS 17.0, *)
     private static func countCloudSessionsV2() async -> Int? {
+        guard ICloudSharedZoneTransport.hasCloneICloudEntitlement() else {
+            logger.warning("[SyncMigration] countCloudSessionsV2 skipped: no iCloud entitlement")
+            return nil
+        }
         let container = CKContainer(identifier: ICloudSharedZoneTransport.containerIdentifier)
         let zoneID = CKRecordZone.ID(zoneName: ICloudSharedZoneTransport.sharedZoneName)
         let query = CKQuery(recordType: "SessionV2", predicate: NSPredicate(value: true))
@@ -835,6 +839,11 @@ enum MigrationError: Error, LocalizedError {
     case pushDidNotDrain(remaining: Int)
     case v1FetchFailed(reason: String)
     case zoneDeleteFailed(zone: String, reason: String)
+    /// The build's signature doesn't grant the iCloud container — every
+    /// CKContainer init would NSException. Thrown INSTEAD of touching
+    /// CloudKit, so a re-signed clone degrades to "sync off" instead of
+    /// crashing. [T-icloud-resign-entitlement-crash]
+    case missingEntitlement
     /// Sentinel: the current phase didn't finish in its window but is
     /// still making progress in the background (CK-throttled). Caller
     /// should suspend the state machine and resume on next app launch.
@@ -849,6 +858,8 @@ enum MigrationError: Error, LocalizedError {
             return "v1 fetch failed: \(r)"
         case .zoneDeleteFailed(let z, let r):
             return "Failed to delete v1 zone \(z): \(r)"
+        case .missingEntitlement:
+            return "This build has no iCloud container entitlement (re-signed clones can't sync)"
         case .deferredUntilNextLaunch(let n):
             return "Deferred — \(n) records still in queue, will resume on next launch"
         }
@@ -911,6 +922,9 @@ enum V1FetcherShim {
     /// stay on the server. Returns 0 if the zone is gone.
     @available(iOS 17.0, *)
     static func countOwnZone() async throws -> Int {
+        guard ICloudSharedZoneTransport.hasCloneICloudEntitlement() else {
+            throw MigrationError.missingEntitlement
+        }
         let myDeviceId = DeviceIdentity.deviceId
         let zoneID = CKRecordZone.ID(zoneName: "device-\(myDeviceId)")
         let container = CKContainer(identifier: ICloudSharedZoneTransport.containerIdentifier)
@@ -1001,6 +1015,9 @@ enum V1FetcherShim {
 
     static func deleteOwnZone(zoneName: String) async throws {
         if #available(iOS 17.0, *) {
+            guard ICloudSharedZoneTransport.hasCloneICloudEntitlement() else {
+                throw MigrationError.missingEntitlement
+            }
             let container = CKContainer(identifier: ICloudSharedZoneTransport.containerIdentifier)
             let zoneID = CKRecordZone.ID(zoneName: zoneName)
             do {
@@ -1028,6 +1045,9 @@ enum V1FetcherShim {
     /// the "iCloud Zones" inventory + per-zone delete control.
     @available(iOS 17.0, *)
     static func listAllZones() async throws -> [ZoneInfo] {
+        guard ICloudSharedZoneTransport.hasCloneICloudEntitlement() else {
+            throw MigrationError.missingEntitlement
+        }
         let container = CKContainer(identifier: ICloudSharedZoneTransport.containerIdentifier)
         let zones = try await container.privateCloudDatabase.allRecordZones()
         let myDeviceId = DeviceIdentity.deviceId

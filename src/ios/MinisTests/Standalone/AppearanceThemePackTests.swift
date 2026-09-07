@@ -56,6 +56,7 @@ let markdown = read(here.appendingPathComponent("Views/Chat/SelectableMarkdownVi
 let toolLive = read(here.appendingPathComponent("Views/Chat/ToolLiveSheet.swift"))
 let transport = read(here.appendingPathComponent("Agent/Sync/V2/ICloudSharedZoneTransport.swift"))
 let engine = read(here.appendingPathComponent("Agent/Sync/CloudSyncEngine.swift"))
+let migration = read(here.appendingPathComponent("Agent/Sync/V2/MigrationEngine.swift"))
 let bootstrap = read(here.appendingPathComponent("Agent/Sync/V2/SyncV2Bootstrap.swift"))
 let entitlements = read(here.appendingPathComponent("Minis.entitlements"))
 
@@ -151,6 +152,7 @@ check("v1 delete uses clone container", transport.contains("let db = container.p
 check("entitlement gate exists", transport.contains("hasCloneICloudEntitlement"))
 check("probe gated on entitlement", transport.contains("guard hasCloneICloudEntitlement() else"))
 check("v1 gated on entitlement", engine.contains("guard ICloudSharedZoneTransport.hasCloneICloudEntitlement() else"))
+check("migration shim gated ×4", migration.components(separatedBy: "hasCloneICloudEntitlement()").count > 4)
 check("entitlements clone icloud", entitlements.contains("iCloud.com.openminis.clone"))
 check("entitlements not official icloud", !entitlements.contains("iCloud.com.openminis.app"))
 

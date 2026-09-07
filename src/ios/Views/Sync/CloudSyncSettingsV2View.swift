@@ -17,6 +17,7 @@ struct CloudSyncSettingsV2View: View {
     @State private var maxFileSizeMB: Int = 1
     @State private var remoteDevices: [SyncDevice] = []
     @State private var statusText: String = ""
+    @State private var icloudBlockedNotice: String = ""
     // [T-ios-migration-timer-sessionlist-uaf-crash] 5s refresh cadence is driven by
     // a `.task` async loop (see refreshLoop), NOT a process-lived
     // `Timer.publish(every:5).autoconnect()` + `.onReceive`. A graph-bound Combine
@@ -42,15 +43,21 @@ struct CloudSyncSettingsV2View: View {
                             // Refuse up front instead of probing-and-crashing.
                             if newValue, !ICloudSharedZoneTransport.hasCloneICloudEntitlement() {
                                 v2Enabled = false
-                                statusText = "iCloud sync unavailable on this re-signed build"
+                                icloudBlockedNotice = "iCloud sync is unavailable on this re-signed build — its signature has no CloudKit container entitlement."
                                 return
                             }
+                            icloudBlockedNotice = ""
                             SyncV2Bootstrap.setEnabled(newValue)
                         }
                         v2Enabled = newValue
                     }
                 )) {
                     Text("Enable iCloud Sync")
+                }
+                if !icloudBlockedNotice.isEmpty {
+                    Text(icloudBlockedNotice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 if !statusText.isEmpty {
                     NavigationLink {
