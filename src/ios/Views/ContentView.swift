@@ -869,6 +869,7 @@ enum ToolSheet: String, Identifiable {
     case browserManagement
     case syncMigrationDetail
     case littleRoom
+    case workshop
     var id: String { rawValue }
 }
 
@@ -1477,6 +1478,15 @@ struct ContentView: View {
             case .littleRoom:
                 NavigationStack {
                     AnniversaryRoomView()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { activeToolSheet = nil }
+                            }
+                        }
+                }
+            case .workshop:
+                NavigationStack {
+                    GroupChatView()
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button("Done") { activeToolSheet = nil }
@@ -3375,6 +3385,14 @@ struct ContentView: View {
                             .font(.system(size: 15))
                     }
                     .accessibilityLabel(Text("Little Room"))
+                    // 工坊（群聊）——叫副智能体干活的地方。
+                    Button {
+                        activeToolSheet = .workshop
+                    } label: {
+                        Image(systemName: "person.3.fill")
+                            .font(.system(size: 15))
+                    }
+                    .accessibilityLabel(Text("Workshop"))
                 }
             }
         }

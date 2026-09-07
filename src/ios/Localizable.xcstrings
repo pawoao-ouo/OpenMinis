@@ -4773,6 +4773,22 @@
         }
       }
     },
+    "@名字": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@名字"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@名字"
+          }
+        }
+      }
+    },
     "A": {
       "localizations": {
         "es": {
@@ -47115,6 +47131,22 @@
         }
       }
     },
+    "Members": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Members"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名册成员"
+          }
+        }
+      }
+    },
     "Memories from %@": {
       "localizations": {
         "de": {
@@ -53645,6 +53677,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "沒有與「%@」匹配的 MCP 服務器。"
+          }
+        }
+      }
+    },
+    "No agents yet — add one with the roster button up top.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agents yet — add one with the roster button up top."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有 agent——点上面的加号加一个。"
           }
         }
       }
@@ -66805,7 +66853,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "移除"
+            "value": "删除"
           }
         },
         "zh-Hant": {
@@ -101549,6 +101597,22 @@
         }
       }
     },
+    "人设": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人设"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人设"
+          }
+        }
+      }
+    },
     "你好，这是语音预览。": {
       "extractionState": "stale",
       "localizations": {
@@ -101724,6 +101788,150 @@
         }
       }
     },
+    "删除": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除"
+          }
+        }
+      }
+    },
+    "取消": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "名册": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名册"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名册"
+          }
+        }
+      }
+    },
+    "名字": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名字"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名字"
+          }
+        }
+      }
+    },
+    "品牌色": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "品牌色"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "品牌色"
+          }
+        }
+      }
+    },
+    "基本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "基本"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "基本"
+          }
+        }
+      }
+    },
+    "好了": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好了"
+          }
+        }
+      }
+    },
+    "它的记忆": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它的记忆"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它的记忆"
+          }
+        }
+      }
+    },
+    "工坊": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工坊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工坊"
+          }
+        }
+      }
+    },
     "拍照": {
       "localizations": {
         "de": {
@@ -101778,6 +101986,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "拍照"
+          }
+        }
+      }
+    },
+    "挑一张图": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挑一张图"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挑一张图"
+          }
+        }
+      }
+    },
+    "新 Agent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新 Agent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建 Agent"
           }
         }
       }
@@ -102014,6 +102254,54 @@
         }
       }
     },
+    "模型": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型"
+          }
+        }
+      }
+    },
+    "点 '@名字' 就单派，不点就全员上…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点 '@名字' 就单派，不点就全员上…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点 @名字 就单派，不点就全员上…"
+          }
+        }
+      }
+    },
+    "编辑 Agent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑 Agent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑 Agent"
+          }
+        }
+      }
+    },
     "设置闹钟": {
       "localizations": {
         "de": {
@@ -102068,6 +102356,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "設置鬧鐘"
+          }
+        }
+      }
+    },
+    "跟随默认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随默认"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随默认"
           }
         }
       }
