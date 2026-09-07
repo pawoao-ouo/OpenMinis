@@ -230,6 +230,8 @@
 		E5F200004 /* ChatMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200014 /* ChatMessageViews.swift */; };
 		E5F200005 /* ChatInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200015 /* ChatInputBar.swift */; };
 		E5F200041 /* DocumentCopyPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200051 /* DocumentCopyPicker.swift */; };
+		E5R000041 /* RoomStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000051 /* RoomStore.swift */; };
+		E5R000042 /* AnniversaryRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000052 /* AnniversaryRoomView.swift */; };
 		E5F200006 /* ModelSelectionEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200016 /* ModelSelectionEntity.swift */; };
 		E5F2000FA /* TextFadeAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F2000FB /* TextFadeAnimator.swift */; };
 		E5F2009A1 /* EquatableContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F2009B1 /* EquatableContextMenu.swift */; };
@@ -900,6 +902,8 @@
 		E5F200014 /* ChatMessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageViews.swift; sourceTree = "<group>"; };
 		E5F200015 /* ChatInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInputBar.swift; sourceTree = "<group>"; };
 		E5F200051 /* DocumentCopyPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentCopyPicker.swift; sourceTree = "<group>"; };
+		E5R000051 /* RoomStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomStore.swift; sourceTree = "<group>"; };
+		E5R000052 /* AnniversaryRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnniversaryRoomView.swift; sourceTree = "<group>"; };
 		E5F200016 /* ModelSelectionEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSelectionEntity.swift; sourceTree = "<group>"; };
 		E5F2000FB /* TextFadeAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFadeAnimator.swift; sourceTree = "<group>"; };
 		E5F2009B1 /* EquatableContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquatableContextMenu.swift; sourceTree = "<group>"; };
@@ -1759,8 +1763,18 @@
 				F1V00016 /* Skills */,
 				F1VMCPG0 /* MCP */,
 				EAB000060 /* Sync */,
+				E5R000001 /* Rooms */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		E5R000001 /* Rooms */ = {
+			isa = PBXGroup;
+			children = (
+				E5R000051 /* RoomStore.swift */,
+				E5R000052 /* AnniversaryRoomView.swift */,
+			);
+			path = Rooms;
 			sourceTree = "<group>";
 		};
 		E5E000030 /* ShareExtension */ = {
@@ -2805,6 +2819,8 @@
 				E5F200AA1 /* MemoryWriteRevoker.swift in Sources */,
 				E5F200005 /* ChatInputBar.swift in Sources */,
 				E5F200041 /* DocumentCopyPicker.swift in Sources */,
+				E5R000041 /* RoomStore.swift in Sources */,
+				E5R000042 /* AnniversaryRoomView.swift in Sources */,
 				E5F2000FA /* TextFadeAnimator.swift in Sources */,
 				F1M00012 /* AudioPlayback.swift in Sources */,
 				F1M00014 /* VideoPlayer.swift in Sources */,

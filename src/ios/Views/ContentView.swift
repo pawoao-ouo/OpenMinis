@@ -868,6 +868,7 @@ enum ToolSheet: String, Identifiable {
     case browser
     case browserManagement
     case syncMigrationDetail
+    case littleRoom
     var id: String { rawValue }
 }
 
@@ -1467,6 +1468,15 @@ struct ContentView: View {
             case .syncMigrationDetail:
                 NavigationStack {
                     SyncMigrationDetailView()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { activeToolSheet = nil }
+                            }
+                        }
+                }
+            case .littleRoom:
+                NavigationStack {
+                    AnniversaryRoomView()
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button("Done") { activeToolSheet = nil }
@@ -3351,10 +3361,20 @@ struct ContentView: View {
                     selectedIds.removeAll()
                 }
             } else {
-                Button {
-                    activeToolSheet = .settings
-                } label: {
-                    Image(systemName: "gear")
+                HStack(spacing: 14) {
+                    Button {
+                        activeToolSheet = .settings
+                    } label: {
+                        Image(systemName: "gear")
+                    }
+                    // 小房间的门。第一版只有一间（纪念日），从这儿进。
+                    Button {
+                        activeToolSheet = .littleRoom
+                    } label: {
+                        Image(systemName: "door.left.hand.closed")
+                            .font(.system(size: 15))
+                    }
+                    .accessibilityLabel(Text("Little Room"))
                 }
             }
         }
