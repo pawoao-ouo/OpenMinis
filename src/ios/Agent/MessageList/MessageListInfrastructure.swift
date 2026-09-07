@@ -1148,6 +1148,12 @@ final class CellStateBridgeV2: ObservableObject {
     @Published var onRetry: (() -> Void)?
     @Published var onEdit: (() -> Void)?
     @Published var onDeleteFrom: (() -> Void)?
+    /// [SingleDelete] Delete JUST this user bubble (not everything below it).
+    /// Gate identical to onDeleteFrom.
+    @Published var onDeleteSingle: (() -> Void)?
+    /// Branch this user message into a new session (copies up-to-and-including,
+    /// leaves the current session untouched). Same gating as onDeleteFrom.
+    @Published var onBranch: (() -> Void)?
     @Published var onWithdraw: (() -> Void)?
     @Published var autoRetryAttempt: Int = 0
     @Published var autoRetryCountdown: Int = 0

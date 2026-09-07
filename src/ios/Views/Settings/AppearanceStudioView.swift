@@ -315,10 +315,20 @@ struct AppearanceStudioView: View {
                     }
                     Slider(value: $studio.surfaceOpacity, in: 0.35...1, step: 0.01)
                 }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("气泡透明度")
+                        Spacer()
+                        Text("\(Int(studio.bubbleOpacity * 100))%")
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: $studio.bubbleOpacity, in: 0.35...1, step: 0.01)
+                }
             } header: {
                 Text("页面背景")
             } footer: {
-                Text("可以先给全部页面设一张图，再只换你想单独打扮的那一页。压色保护文字对比；卡片透明度决定图透出来多少。")
+                Text("可以先给全部页面设一张图，再只换你想单独打扮的那一页。压色保护文字对比；卡片透明度控制整页卡片，气泡透明度专门对聊天气泡；拉高看字、拉低看底。")
             }
 
             Section {

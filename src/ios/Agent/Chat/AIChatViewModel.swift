@@ -3427,6 +3427,106 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         rebuildToolSnapshotsFromMessages()
     }
 
+    /// [SingleDelete] Delete exactly ONE user bubble — the tapped message
+    /// itself, nothing else. Distinct from deleteFromMessage's trailing-suffix
+    /// wipe.
+    ///
+    /// Anchors identically to deleteFromMessage (count user bubbles up to the
+    /// tap → find that-th user entry in agentHistory) and then:
+    ///   - drops the UI bubble,
+    ///   - drops the agentHistory entry,
+    ///   - deletes its DB row by id.
+    /// Removing one entry from BOTH lists keeps every future user-count anchor
+    /// consistent, so a later editFrom/retry/branch lands on the right row.
+    ///
+    /// USER BUBBLES ONLY. Assistant/tool folds are not single-row: deleting a
+    /// mid-loop row orphans its tool_use/tool_result pair and providers 400
+    /// on the next turn. Stay off that minefield.
+    func deleteSingleMessage(_ messageId: UUID) {
+        guard !isProcessing, let sessionId else { return }
+        guard let idx = messages.firstIndex(where: { $0.id == messageId }),
+              messages[idx].role == .user, !messages[idx].isQueued else { return }
+
+        // Anchor: which user bubble is this?
+        let nthUser = messages[0...idx].filter { $0.role == .user }.count
+        var usersSeen = 0
+        var historyIdx = -1
+        for (i, entry) in agentHistory.enumerated() where Self.isUserBubbleEntry(entry) {
+            usersSeen += 1
+            if usersSeen == nthUser { historyIdx = i; break }
+        }
+        guard historyIdx >= 0 else {
+            logger.error("[SingleDelete] anchor MISS nthUser=\(nthUser) history=\(agentHistory.count) — aborting delete")
+            return
+        }
+        let dbId = agentHistory[historyIdx].dbMessageId
+
+        isTruncatingForRetry = true      // suppress mid-delete reload resurrections
+        messages.remove(at: idx)
+        agentHistory.remove(at: historyIdx)
+        if !transitionSuspended { objectWillChange.send() }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let dbId {
+                await ChatStore.shared.deleteMessage(id: dbId)
+            } else {
+                // No dbMessageId → the row never persisted (edge: deleted
+                // before the write landed). Nothing to delete; just unlock.
+                logger.warning("[SingleDelete] no dbMessageId at historyIdx=\(historyIdx) — UI drop only")
+            }
+            self.isTruncatingForRetry = false
+        }
+        logger.info("[SingleDelete] removed UI bubble + history entry (nthUser=\(nthUser), dbId=\(dbId?.prefix(8) ?? "nil"))")
+    }
+
+    /// Branch the conversation from `messageId` into a NEW session: copy the
+    /// message and everything before it verbatim, leave this session
+    /// untouched, then hop to the branch.
+    ///
+    /// keepCount mirrors retry/deleteFromMessage's user-bubble anchor:
+    /// messages up to AND INCLUDING the tapped user bubble stay. The count is
+    /// pinned against `agentHistory` user entries (not raw message indices)
+    /// because agent rows and UI bubbles aren't 1:1 (tool calls, tool results
+    /// and bridge rows render differently).
+    func branchFromMessage(_ messageId: UUID) {
+        guard !isProcessing, let sessionId else { return }
+        guard let idx = messages.firstIndex(where: { $0.id == messageId }),
+              messages[idx].role == .user else { return }
+
+        // Count the user bubble at idx and everything above it, then find the
+        // same-th user entry in agentHistory; everything up to and INCLUDING
+        // that entry is the branch payload.
+        let keepUserCount = messages[0...idx].filter { $0.role == .user }.count
+        var usersSeen = 0
+        var branchCutIndex = -1   // agentHistory index of the tapped user entry
+        for (i, entry) in agentHistory.enumerated() where Self.isUserBubbleEntry(entry) {
+            usersSeen += 1
+            if usersSeen == keepUserCount {
+                branchCutIndex = i
+                break
+            }
+        }
+        // Fail-open like deleteFromMessage: an anchor miss falls back to the
+        // FULL history rather than a wrong cut — a too-long branch is a
+        // cosmetic problem, a too-short one loses context.
+        let keepCount = branchCutIndex >= 0 ? branchCutIndex + 1 : agentHistory.count
+
+        logger.info("[Branch] branchFromMessage idx=\(idx) keepUser=\(keepUserCount) keepCount=\(keepCount) totalHistory=\(self.agentHistory.count)")
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let branch = await ChatStore.shared.branchSession(from: sessionId, keepCount: keepCount)
+            guard let branch else { return }
+            // Same hand-off path as URL/shortcut session routing.
+            NotificationCenter.default.post(
+                name: .openSessionFromIntent,
+                object: nil,
+                userInfo: ["sessionId": branch.id]
+            )
+        }
+    }
+
     /// Rebuild `toolSnapshots` to only those still referenced by a tool_use
     /// block in the (post-truncation) messages list. Shared by the user-
     /// message retry path and the tool-block re-run path.

@@ -173,6 +173,12 @@ struct ChatMessageRow: View {
     /// [T-ios-delete-from-message] Delete this user message and everything
     /// after it. Only set for non-queued user bubbles when idle.
     var onDeleteFrom: (() -> Void)?
+    /// [SingleDelete] Delete JUST this user bubble, nothing below it.
+    var onDeleteSingle: (() -> Void)?
+    /// [Branch] Fork this user message into a NEW session — copies the bubble
+    /// and everything above it, leaves this session alone. Same gating as
+    /// onDeleteFrom (user bubbles only, idle, not queued).
+    var onBranch: (() -> Void)?
     var onWithdraw: (() -> Void)?
     var autoRetryAttempt: Int = 0
     var autoRetryCountdown: Int = 0
@@ -196,6 +202,8 @@ struct ChatMessageRow: View {
     @State private var showCompactSummary = false
     /// [T-ios-delete-from-message] Confirmation gate for the suffix delete.
     @State private var showDeleteFromConfirm = false
+    /// [SingleDelete] Confirmation gate for the single-row delete (destructive).
+    @State private var showDeleteSingleConfirm = false
     /// Two-phase token usage reveal: space expands first, then content fades in.
     @State private var usageContentVisible = false
     /// Row frame in window coordinates — used to gate token-usage tap to bottom zone.
@@ -451,6 +459,20 @@ struct ChatMessageRow: View {
                 } label: {
                     Label(AppLocalized("翻译"), systemImage: "translate")
                 }
+                if let onBranch {
+                    Button {
+                        onBranch()
+                    } label: {
+                        Label(AppLocalized("Branch From Here"), systemImage: "arrow.triangle.branch")
+                    }
+                }
+                if onDeleteSingle != nil {
+                    Button(role: .destructive) {
+                        showDeleteSingleConfirm = true
+                    } label: {
+                        Label(AppLocalized("Delete This Message"), systemImage: "minus.circle")
+                    }
+                }
                 if onDeleteFrom != nil || onCompact != nil {
                     Divider()
                 }
@@ -489,6 +511,16 @@ struct ChatMessageRow: View {
             }
         } message: {
             Text("This message and all messages after it will be deleted. This cannot be undone.")
+        }
+        // [SingleDelete] Its own alert — lower blast radius than the suffix
+        // wipe but still destructive, so still gated.
+        .alert(AppLocalized("Delete This Message?"), isPresented: $showDeleteSingleConfirm) {
+            Button(AppLocalized("Cancel"), role: .cancel) {}
+            Button(AppLocalized("Delete"), role: .destructive) {
+                onDeleteSingle?()
+            }
+        } message: {
+            Text("Only this one message will be removed. The rest of the conversation stays.")
         }
     }
 

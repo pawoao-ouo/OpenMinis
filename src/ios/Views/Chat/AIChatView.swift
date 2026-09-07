@@ -88,10 +88,10 @@ enum ChatColors {
     static var secondaryText: Color { studio.color(.secondaryText, scope: .chat) }
     static var tertiaryText: Color { studio.color(.secondaryText, scope: .chat).opacity(0.72) }
     static var userBubble: Color {
-        studio.color(.userBubble, scope: .chat).opacity(studio.surfaceOpacity)
+        studio.color(.userBubble, scope: .chat).opacity(studio.bubbleOpacity)
     }
     static var assistantBubble: Color {
-        studio.color(.assistantBubble, scope: .chat).opacity(studio.surfaceOpacity)
+        studio.color(.assistantBubble, scope: .chat).opacity(studio.bubbleOpacity)
     }
     static var toolBg: Color {
         studio.color(.mutedSurface, scope: .chat).opacity(studio.surfaceOpacity)
@@ -2685,6 +2685,8 @@ struct AIChatView: View {
                     inputFocused = true
                 },
                 onDeleteFrom: { vm.deleteFromMessage($0) },
+                onDeleteSingle: { vm.deleteSingleMessage($0) },
+                onBranch: { vm.branchFromMessage($0) },
                 onWithdraw: { vm.withdrawQueuedMessage($0) },
                 onResume: { vm.resume(); vm.forceScrollToBottom.send() },
                 onStop: { vm.stopCurrentCommand() },

@@ -45,6 +45,10 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
     var onOpenSoulSettings: (() -> Void)?
     var onEdit: ((UUID) -> Void)?
     var onDeleteFrom: ((UUID) -> Void)?
+    /// [SingleDelete] Delete JUST this user bubble (not the trailing suffix).
+    var onDeleteSingle: ((UUID) -> Void)?
+    /// Branch this user message into a new session (copy, non-destructive).
+    var onBranch: ((UUID) -> Void)?
     var onWithdraw: ((UUID) -> Void)?
     var onResume: (() -> Void)?
     var onStop: (() -> Void)?
@@ -86,6 +90,8 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
         coord.onRetryLast = onRetryLast
         coord.onEdit = onEdit
         coord.onDeleteFrom = onDeleteFrom
+        coord.onDeleteSingle = onDeleteSingle
+        coord.onBranch = onBranch
         coord.onWithdraw = onWithdraw
         coord.onResume = onResume
         coord.onStop = onStop
@@ -658,6 +664,8 @@ private struct BridgedWholeMessageV3: View {
             onRetry: bridge.onRetry,
             onEdit: bridge.onEdit,
             onDeleteFrom: bridge.onDeleteFrom,
+            onDeleteSingle: bridge.onDeleteSingle,
+            onBranch: bridge.onBranch,
             onWithdraw: bridge.onWithdraw,
             autoRetryAttempt: 0,
             autoRetryCountdown: 0,
@@ -701,6 +709,8 @@ extension CollectionViewMessageListV3 {
         var onRetryLast: (() -> Void)?
         var onEdit: ((UUID) -> Void)?
         var onDeleteFrom: ((UUID) -> Void)?
+        var onDeleteSingle: ((UUID) -> Void)?
+        var onBranch: ((UUID) -> Void)?
         var onWithdraw: ((UUID) -> Void)?
         var onResume: (() -> Void)?
         var onStop: (() -> Void)?
@@ -1489,6 +1499,8 @@ extension CollectionViewMessageListV3 {
             let retryLast = onRetryLast
             let edit = onEdit
             let deleteFrom = onDeleteFrom
+            let deleteSingle = onDeleteSingle
+            let branch = onBranch
             let compact = onCompact
             let forceSync = onForceSync
             bridge.onForceSync = forceSync
@@ -1508,6 +1520,8 @@ extension CollectionViewMessageListV3 {
             if message.isCompactedHistory || message.role == .compactDivider || message.role == .systemInfo {
                 bridge.onRetry = nil; bridge.onEdit = nil; bridge.onCompact = nil
                 bridge.onDeleteFrom = nil
+                bridge.onDeleteSingle = nil
+                bridge.onBranch = nil
             } else if !vm.isProcessing && !vm.isCompacting {
                 if message.role == .user {
                     bridge.onRetry = { retryMsg?(message.id) }
@@ -1524,10 +1538,22 @@ extension CollectionViewMessageListV3 {
                 // its removal path, so this stays off for it.
                 bridge.onDeleteFrom = (message.role == .user && !message.isQueued)
                     ? { deleteFrom?(message.id) } : nil
+                // [SingleDelete] Same gate as DeleteFrom — user bubbles only,
+                // idle state, never queued / compacted. This one's the "just
+                // this row" twin of the trailing-suffix wipe.
+                bridge.onDeleteSingle = (message.role == .user && !message.isQueued)
+                    ? { deleteSingle?(message.id) } : nil
+                // [Branch] Identical gate — the anchor math is the same
+                // user-bubble counting as deleteFrom, so it shares every
+                // exclusion: compacted history, queued bubbles, busy vm.
+                bridge.onBranch = (message.role == .user && !message.isQueued)
+                    ? { branch?(message.id) } : nil
                 bridge.onCompact = { compact?(message.id) }
             } else {
                 bridge.onRetry = nil; bridge.onEdit = nil; bridge.onCompact = nil
                 bridge.onDeleteFrom = nil
+                bridge.onDeleteSingle = nil
+                bridge.onBranch = nil
             }
 
             // [T-ios-plaf-cache-footer-staleness] If the footer's rendered SHAPE

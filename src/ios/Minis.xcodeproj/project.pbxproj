@@ -230,6 +230,7 @@
 		E5F200004 /* ChatMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200014 /* ChatMessageViews.swift */; };
 		E5F200005 /* ChatInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200015 /* ChatInputBar.swift */; };
 		E5F200041 /* DocumentCopyPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200051 /* DocumentCopyPicker.swift */; };
+		E5HL0001 /* CodeBlockSyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5HL0002 /* CodeBlockSyntaxHighlighter.swift */; };
 		E5R000041 /* RoomStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000051 /* RoomStore.swift */; };
 		E5CA0041 /* CharacterStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0051 /* CharacterStore.swift */; };
 		E5CA0042 /* CharacterListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0052 /* CharacterListView.swift */; };
@@ -913,6 +914,7 @@
 		E5F200014 /* ChatMessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageViews.swift; sourceTree = "<group>"; };
 		E5F200015 /* ChatInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInputBar.swift; sourceTree = "<group>"; };
 		E5F200051 /* DocumentCopyPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentCopyPicker.swift; sourceTree = "<group>"; };
+		E5HL0002 /* CodeBlockSyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeBlockSyntaxHighlighter.swift; sourceTree = "<group>"; };
 		E5R000051 /* RoomStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomStore.swift; sourceTree = "<group>"; };
 		E5CA0051 /* CharacterStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterStore.swift; sourceTree = "<group>"; };
 		E5CA0052 /* CharacterListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterListView.swift; sourceTree = "<group>"; };
@@ -2277,6 +2279,7 @@
 				E5F200AB1 /* MemoryWriteRevoker.swift */,
 				E5F200015 /* ChatInputBar.swift */,
 				E5F200051 /* DocumentCopyPicker.swift */,
+				E5HL0002 /* CodeBlockSyntaxHighlighter.swift */,
 				E5F2000FB /* TextFadeAnimator.swift */,
 				E5I000012 /* AudioWaveformView.swift */,
 				E5M000017 /* MarkdownRenderView.swift */,
@@ -2859,6 +2862,7 @@
 				E5F200AA1 /* MemoryWriteRevoker.swift in Sources */,
 				E5F200005 /* ChatInputBar.swift in Sources */,
 				E5F200041 /* DocumentCopyPicker.swift in Sources */,
+				E5HL0001 /* CodeBlockSyntaxHighlighter.swift in Sources */,
 				E5R000041 /* RoomStore.swift in Sources */,
 				E5CA0041 /* CharacterStore.swift in Sources */,
 				E5CA0042 /* CharacterListView.swift in Sources */,

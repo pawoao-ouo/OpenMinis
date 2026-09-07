@@ -1524,11 +1524,9 @@ final class CodeBlockAttachment: NSTextAttachment {
         let codeStyle = NSMutableParagraphStyle()
         codeStyle.lineSpacing = 4
         codeStyle.lineBreakMode = .byClipping
-        let codeAttr = NSAttributedString(string: code, attributes: [
-            .font: theme.codeBlockFont,
-            .foregroundColor: theme.codeBlockTextColor,
-            .paragraphStyle: codeStyle,
-        ])
+        let codeAttr = CodeBlockSyntaxHighlighter.highlight(
+            code: code, language: language,
+            font: theme.codeBlockFont, paragraphStyle: codeStyle)
         codeTextView.attributedText = codeAttr
 
         // Measure content size (unconstrained width)
@@ -1625,11 +1623,9 @@ final class CodeBlockAttachment: NSTextAttachment {
         let codeStyle = NSMutableParagraphStyle()
         codeStyle.lineSpacing = 4
         codeStyle.lineBreakMode = .byClipping
-        let codeAttr = NSAttributedString(string: code, attributes: [
-            .font: theme.codeBlockFont,
-            .foregroundColor: theme.codeBlockTextColor,
-            .paragraphStyle: codeStyle,
-        ])
+        let codeAttr = CodeBlockSyntaxHighlighter.highlight(
+            code: code, language: language,
+            font: theme.codeBlockFont, paragraphStyle: codeStyle)
         codeTextView.attributedText = codeAttr
 
         let fitting = codeTextView.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))

@@ -62,6 +62,7 @@ final class AppearanceStudio: ObservableObject {
         static let colors = "appearanceStudio.colors.v1"
         static let userAvatar = "appearanceStudio.userAvatar.v1"
         static let surfaceOpacity = "appearanceStudio.surfaceOpacity"
+        static let bubbleOpacity = "appearanceStudio.bubbleOpacity"
         static let wallpaperShade = "appearanceStudio.wallpaperShade"
         static let icons = "appearanceStudio.icons.v1"
     }
@@ -77,6 +78,12 @@ final class AppearanceStudio: ObservableObject {
     @Published private var customIcons: [String: String]
     @Published var surfaceOpacity: Double {
         didSet { UserDefaults.standard.set(surfaceOpacity, forKey: Keys.surfaceOpacity) }
+    }
+    /// 聊天气泡自己的透明度——和卡片透明度拆开：泡跟卡片是两个面（一个跟着消息走、
+    /// 一个托整页），合一个滑杆的时候总有一个不对。默认跟卡片一致（0.88），
+    /// tooltip 上再独立。范围 clamp 让气泡永远不会全透明（全透明=看不见字）。
+    @Published var bubbleOpacity: Double {
+        didSet { UserDefaults.standard.set(bubbleOpacity, forKey: Keys.bubbleOpacity) }
     }
     @Published var wallpaperShade: Double {
         didSet { UserDefaults.standard.set(wallpaperShade, forKey: Keys.wallpaperShade) }
@@ -104,8 +111,10 @@ final class AppearanceStudio: ObservableObject {
         }
         let storedOpacity = UserDefaults.standard.object(forKey: Keys.surfaceOpacity) as? Double
         let storedShade = UserDefaults.standard.object(forKey: Keys.wallpaperShade) as? Double
+        let storedBubble = UserDefaults.standard.object(forKey: Keys.bubbleOpacity) as? Double
         surfaceOpacity = storedOpacity ?? 0.88
         wallpaperShade = storedShade ?? 0.08
+        bubbleOpacity = storedBubble ?? 0.88
         cachedThemePack = loadStoredPackUnlocked()
         themePackLoaded = true
         Self.colorSnapshot = customColors
@@ -187,6 +196,7 @@ final class AppearanceStudio: ObservableObject {
     func resetColors() {
         customColors.removeAll()
         surfaceOpacity = 0.88
+        bubbleOpacity = 0.88
         wallpaperShade = 0.08
         persistColors()
         configureUIKitSurfaces()

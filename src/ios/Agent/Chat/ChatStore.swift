@@ -3244,6 +3244,76 @@ actor ChatStore {
         }
     }
 
+    /// Create a branching session: a NEW session holding copies of the source
+    /// session's first `keepCount` messages (canonical order). The source is
+    /// untouched — this is a copy, not a move. Returns nil when there is
+    /// nothing to copy (empty session / keepCount <= 0).
+    ///
+    /// [Branch] Message ids are re-generated for the branch so the two
+    /// sessions never share rows (iCloud sync keys deletes by id — sharing
+    /// would let a tombstone in one branch nuke the other). Token usage /
+    /// reasoning / attribution travel verbatim: they describe what happened,
+    /// not where it happened. sort_order re-mints dense 0..n in the branch.
+    @discardableResult
+    func branchSession(from sourceSessionId: String, keepCount: Int) -> ChatSession? {
+        guard keepCount > 0 else { return nil }
+        guard let source = getSession(sourceSessionId) else { return nil }
+        let all = loadMessages(sessionId: sourceSessionId)
+        guard !all.isEmpty else { return nil }
+        let kept = Array(all.prefix(keepCount))
+        guard !kept.isEmpty else { return nil }
+
+        let modelId = source.modelId
+        let title: String = {
+            let base = source.title ?? AppLocalized("Chat")
+            return "\(base) ↣"
+        }()
+        let branch = createSession(modelId: modelId, title: title, source: "branch")
+
+        var copies: [RawMessage] = []
+        copies.reserveCapacity(kept.count)
+        for src in kept {
+            var copy = RawMessage(
+                id: UUID().uuidString,
+                sessionId: branch.id,
+                role: src.role,
+                parts: src.parts,
+                createdAt: src.createdAt,
+                tokenUsage: src.tokenUsage,
+                reasoningContent: src.reasoningContent,
+                streamInterruptCount: src.streamInterruptCount
+            )
+            copy.errorInfo = src.errorInfo
+            copy.modelId = src.modelId
+            copy.modelDisplayName = src.modelDisplayName
+            copy.providerType = src.providerType
+            copy.providerInstanceId = src.providerInstanceId
+            copies.append(copy)
+        }
+        appendMessages(copies)
+        logger.info("[Branch] sid=\(sourceSessionId.prefix(8)) → branch=\(branch.id.prefix(8)) copied=\(copies.count)")
+        return branch
+    }
+
+    /// [SingleDelete] Delete ONE message row by id. Marks an iCloud tombstone
+    /// before the local delete, mirroring deleteMessagesAfter. Used by the
+    /// per-message "Delete This Message" context-menu action — unaffected
+    /// rows keep their sort_order (a gap is harmless; nothing depends on
+    /// density except deleteMessagesAfter's boundary math, which counts rows,
+    /// not values).
+    func deleteMessage(id: String) {
+        invalidateSessionListCache()
+        markDirty(recordType: "Message", recordId: id, operation: "delete")
+        var stmt: OpaquePointer?
+        let sql = "DELETE FROM messages WHERE id = ?"
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+            sqlite3_step(stmt)
+            logger.info("[SingleDelete] deleted id=\(id.prefix(8)) rows=\(sqlite3_changes(db))")
+        }
+        sqlite3_finalize(stmt)
+    }
+
     // MARK: - Media File Management
 
     /// Save media data to disk, return a MediaRef.
