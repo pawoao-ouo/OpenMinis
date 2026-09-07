@@ -3691,6 +3691,36 @@ struct AIChatView: View {
         vm.inputCaret = caret
     }
 
+    /// kelivo 输入栏上方小件行——把每天要用但藏三层的动作接到指尖。
+    /// 顺序跟着使用频率排：模型 / 思考 / MCP / 技能 / 记忆 / 用量。
+    /// 前提：每项目前都已存在对应 sheet，本行只做入口不改状态。
+    private var toolstripItems: [ChatToolstripItem] {
+        [
+            ChatToolstripItem(id: "model", systemImage: "cpu") {
+                showModelPicker = true
+            },
+            ChatToolstripItem(
+                id: "thinking",
+                systemImage: "brain.head.profile",
+                isSelected: vm.currentThinkingLevel.isEnabled
+            ) {
+                showThinkingLevelSheet = true
+            },
+            ChatToolstripItem(id: "mcp", systemImage: "hammer") {
+                showSessionMCPs = true
+            },
+            ChatToolstripItem(id: "skills", systemImage: "wand.and.stars") {
+                showSessionSkills = true
+            },
+            ChatToolstripItem(id: "memory", systemImage: "book") {
+                showSessionMemory = true
+            },
+            ChatToolstripItem(id: "usage", systemImage: "chart.bar") {
+                showTokenUsage = true
+            },
+        ]
+    }
+
     private var inputBar: some View {
         VStack(spacing: 0) {
             if vm.isSuspended {
@@ -3719,6 +3749,11 @@ struct AIChatView: View {
                     .onPreferenceChange(AttachmentGridHeightKey.self) { attachmentGridHeight = $0 }
                     .padding(.top, 8)
                 }
+
+                // kelivo 输入栏上方的 Quick Action 行：模型 / 思考 / MCP / 技能 /
+                // 记忆 / 用量。打开的都是已存在的 sheet，这里只是给它一个连招入口，
+                // 不然每次都要去一层一层设置里territory找。
+                ChatInputToolstrip(items: toolstripItems)
 
                 inputFieldOrWaveform
 
