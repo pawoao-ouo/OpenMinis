@@ -1191,14 +1191,12 @@ actor ChatStore {
         return String(decoding: UnsafeBufferPointer(start: ptr, count: len), as: UTF8.self)
     }
 
-    /// 工坊/人物卡频道：以 characterId -> "character:<uuid>" 拿受会话。不走
-    /// listSessions 缓存（人物卡里就几十条， 查询一条专用小 SQL 就行）。
-    @MainActor
-    func listSessionsForCharacter(characterId: UUID) -> [ChatSession] {
+    /// 工坊/人物卡/群聊频道：按 source 前缀拉专属会话。不走 listSessions
+    /// 缓存——人物卡/群聊里就几十条，独立小 SQL 够快，也不挤主列表的缓存。
+    func listSessionsBySourcePrefix(_ sourcePrefix: String) -> [ChatSession] {
         guard let db else { return [] }
-        let target = "character:\(characterId.uuidString)"
         let sql = """
-        SELECT id, title, model_id, created_at, updated_at
+        SELECT id, title, model_id, created_at, updated_at, source
           FROM sessions
          WHERE source = ?
          ORDER BY updated_at DESC
@@ -1206,17 +1204,18 @@ actor ChatStore {
         var stmt: OpaquePointer?
         var out: [ChatSession] = []
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (target as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 1, (sourcePrefix as NSString).utf8String, -1, nil)
             while sqlite3_step(stmt) == SQLITE_ROW {
                 let id = Self.colText(stmt, 0)
                 let title = Self.colTextOpt(stmt, 1)
                 let modelId = Self.colText(stmt, 2)
                 let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
                 let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
+                let source = Self.colTextOpt(stmt, 5)
                 out.append(ChatSession(
                     id: id, title: title, category: nil, modelId: modelId,
                     createdAt: createdAt, updatedAt: updatedAt,
-                    lastMessage: nil, source: target, lastSyncedAt: nil,
+                    lastMessage: nil, source: source, lastSyncedAt: nil,
                     remoteDeviceId: nil, remoteDeviceName: nil,
                     pinnedAt: nil, folderId: nil
                 ))
@@ -1224,6 +1223,16 @@ actor ChatStore {
         }
         sqlite3_finalize(stmt)
         return out
+    }
+
+    /// 工坊/人物卡频道：以 characterId -> "character:<uuid>" 拿受会话。
+    func listSessionsForCharacter(characterId: UUID) -> [ChatSession] {
+        listSessionsBySourcePrefix("character:\(characterId.uuidString)")
+    }
+
+    /// 群聊频道：groupId -> "group:<uuid>"。
+    func listSessionsForGroup(groupId: UUID) -> [ChatSession] {
+        listSessionsBySourcePrefix("group:\(groupId.uuidString)")
     }
 
     func listSessions() -> [ChatSession] {
@@ -1339,6 +1348,7 @@ actor ChatStore {
             -- 主列表只放醒醒本人的会话（聊天/语音/快捷指令/分享……），
             -- 其余一律由专用入口进。这是窄门——先保证不再堆成一团。
             WHERE COALESCE(s.source, '') NOT LIKE 'character:%'
+              AND COALESCE(s.source, '') NOT LIKE 'group:%'
             ORDER BY s.updated_at DESC
             """
             // Note: `remote_tombstoned_at` column still exists on the

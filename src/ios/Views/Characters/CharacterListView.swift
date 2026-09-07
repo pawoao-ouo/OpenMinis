@@ -8,7 +8,11 @@ import SwiftUI
 struct CharacterListView: View {
 
     @ObservedObject private var store = CharacterStore.shared
+    @ObservedObject private var groups = GroupStore.shared
     @State private var showNewCharacter = false
+    @State private var showNewGroup = false
+    // kelivo 的 Assistants/Topics 两 tab 的翻版——人物 或 群聊
+    @State private var showsGroups = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 140), spacing: 12)
@@ -16,42 +20,81 @@ struct CharacterListView: View {
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(store.characters) { character in
-                    NavigationLink(value: character.id) {
-                        CharacterCardView(character: character)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button(AppLocalized("删角色"), role: .destructive) {
-                            store.remove(id: character.id)
-                        } label: {}
+            VStack(spacing: 10) {
+                Picker("", selection: $showsGroups) {
+                    Text(AppLocalized("人物")).tag(false)
+                    Text(AppLocalized("群聊")).tag(true)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 12)
+
+                LazyVGrid(columns: columns, spacing: 12) {
+                    if !showsGroups {
+                        ForEach(store.characters) { character in
+                            NavigationLink(value: NavTarget.character(character.id)) {
+                                CharacterCardView(character: character)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button(AppLocalized("删角色"), role: .destructive) {
+                                    store.remove(id: character.id)
+                                }
+                            }
+                        }
+                    } else {
+                        ForEach(groups.groups) { group in
+                            NavigationLink(value: NavTarget.group(group.id)) {
+                                GroupCardView(group: group)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button(AppLocalized("删群"), role: .destructive) {
+                                    groups.remove(id: group.id)
+                                }
+                            }
+                        }
                     }
                 }
+                .padding(.horizontal, 12)
             }
-            .padding(12)
+            .padding(.vertical, 12)
         }
         .background(AppearanceStudio.shared.color(.canvas, scope: .chat))
         .navigationTitle(AppLocalized("人物卡"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showNewCharacter = true } label: {
+                Button {
+                    if showsGroups { showNewGroup = true } else { showNewCharacter = true }
+                } label: {
                     Image(systemName: "plus")
                 }
             }
         }
         .sheet(isPresented: $showNewCharacter) {
-            NavigationStack {
-                CharacterEditorView(character: nil)
-            }
-            .presentationDetents([.large])
+            NavigationStack { CharacterEditorView(character: nil) }
+                .presentationDetents([.large])
         }
-        .navigationDestination(for: UUID.self) { characterId in
-            if let c = store.characters.first(where: { $0.id == characterId }) {
-                CharacterConversationsView(character: c)
+        .sheet(isPresented: $showNewGroup) {
+            NavigationStack { GroupEditorView(group: nil) }
+        }
+        .navigationDestination(for: NavTarget.self) { target in
+            switch target {
+            case .character(let id):
+                if let c = store.characters.first(where: { $0.id == id }) {
+                    CharacterConversationsView(character: c)
+                }
+            case .group(let id):
+                if let g = groups.groups.first(where: { $0.id == id }) {
+                    GroupConversationsView(group: g)
+                }
             }
         }
+    }
+
+    private enum NavTarget: Hashable {
+        case character(UUID)
+        case group(UUID)
     }
 }
 
@@ -117,6 +160,55 @@ private struct AvatarSquareView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+    }
+}
+
+/// 群卡（列表里的长样）：叠 2 个成员脸 + 群名 + 成员数
+private struct GroupCardView: View {
+    let group: GroupCard
+    @ObservedObject private var chars = CharacterStore.shared
+
+    var body: some View {
+        VStack(spacing: 8) {
+            avatars
+                .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+            Text(group.name)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(ChatColors.primaryText)
+                .lineLimit(1)
+            Text("\(group.memberIds.count) 人")
+                .font(.caption2)
+                .foregroundStyle(ChatColors.secondaryText)
+        }
+        .timerFramePadding()
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(AppearanceStudio.shared.color(.surface, scope: .chat))
+        )
+    }
+
+    @ViewBuilder private var avatars: some View {
+        let members = chars.characters.filter { group.memberIds.contains($0.id) }
+        HStack(spacing: -10) {
+            ForEach(members.prefix(3)) { c in
+                ZStack {
+                    Circle().fill(Color(hue: c.hue, saturation: 0.55, brightness: 0.85))
+                    Text(String(c.name.prefix(1)))
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 48, height: 48)
+                .overlay(Circle().stroke(Color(uiColor: .systemBackground), lineWidth: 2))
+            }
+            if members.count > 3 {
+                Text("+\(members.count - 3)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(Color.gray))
+            }
+        }
+        .frame(height: 52)
     }
 }
 

@@ -235,6 +235,10 @@
 		E5CA0042 /* CharacterListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0052 /* CharacterListView.swift */; };
 		E5CA0043 /* CharacterConversationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0053 /* CharacterConversationsView.swift */; };
 		E5CA0044 /* CharacterEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0054 /* CharacterEditorView.swift */; };
+		E5CA0061 /* GroupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0071 /* GroupStore.swift */; };
+		E5CA0062 /* GroupChatLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0072 /* GroupChatLoader.swift */; };
+		E5CA0063 /* GroupEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0073 /* GroupEditorView.swift */; };
+		E5CA0064 /* GroupConversationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0074 /* GroupConversationsView.swift */; };
 		E5R000042 /* AnniversaryRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000052 /* AnniversaryRoomView.swift */; };
 		E5F200006 /* ModelSelectionEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200016 /* ModelSelectionEntity.swift */; };
 		E5F2000FA /* TextFadeAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F2000FB /* TextFadeAnimator.swift */; };
@@ -910,7 +914,11 @@
 		E5CA0051 /* CharacterStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterStore.swift; sourceTree = "<group>"; };
 		E5CA0052 /* CharacterListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterListView.swift; sourceTree = "<group>"; };
 		E5CA0053 /* CharacterConversationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterConversationsView.swift; sourceTree = "<group>"; };
-		E5CA0054 /* CharacterEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterEditorView.swift; sourceTree = "<group>"; }; lastKnownFileType = sourcecode.swift; path = GroupChatStore.swift; sourceTree = "<group>"; }; lastKnownFileType = sourcecode.swift; path = GroupChatOrchestrator.swift; sourceTree = "<group>"; }; lastKnownFileType = sourcecode.swift; path = GroupChatView.swift; sourceTree = "<group>"; }; lastKnownFileType = sourcecode.swift; path = GroupBubbleRow.swift; sourceTree = "<group>"; }; lastKnownFileType = sourcecode.swift; path = ChatAgentEditor.swift; sourceTree = "<group>"; }; lastKnownFileType = sourcecode.swift; path = GroupChatStore.swift; sourceTree = "<group>"; }; lastKnownFileType = sourcecode.swift; path = GroupChatOrchestrator.swift; sourceTree = "<group>"; }; lastKnownFileType = sourcecode.swift; path = GroupChatView.swift; sourceTree = "<group>"; }; lastKnownFileType = sourcecode.swift; path = GroupBubbleRow.swift; sourceTree = "<group>"; }; lastKnownFileType = sourcecode.swift; path = ChatAgentEditor.swift; sourceTree = "<group>"; };
+		E5CA0054 /* CharacterEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterEditorView.swift; sourceTree = "<group>"; };
+		E5CA0071 /* GroupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupStore.swift; sourceTree = "<group>"; };
+		E5CA0072 /* GroupChatLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatLoader.swift; sourceTree = "<group>"; };
+		E5CA0073 /* GroupEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditorView.swift; sourceTree = "<group>"; };
+		E5CA0074 /* GroupConversationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupConversationsView.swift; sourceTree = "<group>"; };
 		E5R000052 /* AnniversaryRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnniversaryRoomView.swift; sourceTree = "<group>"; };
 		E5F200016 /* ModelSelectionEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSelectionEntity.swift; sourceTree = "<group>"; };
 		E5F2000FB /* TextFadeAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFadeAnimator.swift; sourceTree = "<group>"; };
@@ -1793,6 +1801,10 @@
 				E5CA0052 /* CharacterListView.swift */,
 				E5CA0053 /* CharacterConversationsView.swift */,
 				E5CA0054 /* CharacterEditorView.swift */,
+				E5CA0071 /* GroupStore.swift */,
+				E5CA0072 /* GroupChatLoader.swift */,
+				E5CA0073 /* GroupEditorView.swift */,
+				E5CA0074 /* GroupConversationsView.swift */,
 			);
 			path = Characters;
 			sourceTree = "<group>";
@@ -2843,10 +2855,10 @@
 				E5CA0042 /* CharacterListView.swift in Sources */,
 				E5CA0043 /* CharacterConversationsView.swift in Sources */,
 				E5CA0044 /* CharacterEditorView.swift in Sources */,
-				E5G000042 /* GroupChatOrchestrator.swift in Sources */,
-				E5G000043 /* GroupChatView.swift in Sources */,
-				E5G000044 /* GroupBubbleRow.swift in Sources */,
-				E5G000045 /* ChatAgentEditor.swift in Sources */,
+				E5CA0061 /* GroupStore.swift in Sources */,
+				E5CA0062 /* GroupChatLoader.swift in Sources */,
+				E5CA0063 /* GroupEditorView.swift in Sources */,
+				E5CA0064 /* GroupConversationsView.swift in Sources */,
 				E5R000042 /* AnniversaryRoomView.swift in Sources */,
 				E5F2000FA /* TextFadeAnimator.swift in Sources */,
 				F1M00012 /* AudioPlayback.swift in Sources */,

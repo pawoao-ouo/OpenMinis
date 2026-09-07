@@ -101538,6 +101538,23 @@
         }
       }
     },
+    "个成员": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个成员"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个成员"
+          }
+        }
+      }
+    },
     "中文语音": {
       "extractionState": "stale",
       "localizations": {
@@ -101593,6 +101610,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "中文語音"
+          }
+        }
+      }
+    },
+    "人物": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人物"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人物"
           }
         }
       }
@@ -101804,6 +101838,23 @@
         }
       }
     },
+    "删群": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删群"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删群"
+          }
+        }
+      }
+    },
     "删角色": {
       "localizations": {
         "en": {
@@ -101848,6 +101899,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "历次对话"
+          }
+        }
+      }
+    },
+    "历次群聊": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "历次群聊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "历次群聊"
           }
         }
       }
@@ -102086,6 +102154,23 @@
         }
       }
     },
+    "挑成员（至少两个）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挑成员（至少两个）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挑成员（至少两个）"
+          }
+        }
+      }
+    },
     "换头像": {
       "localizations": {
         "en": {
@@ -102130,6 +102215,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新人物"
+          }
+        }
+      }
+    },
+    "新群聊": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新群聊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新群聊"
           }
         }
       }
@@ -102462,6 +102564,91 @@
         }
       }
     },
+    "编辑群聊": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑群聊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑群聊"
+          }
+        }
+      }
+    },
+    "群名字": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群名字"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群名字"
+          }
+        }
+      }
+    },
+    "群名片": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群名片"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群名片"
+          }
+        }
+      }
+    },
+    "群聊": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群聊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群聊"
+          }
+        }
+      }
+    },
+    "群规 / 氛围": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群规 / 氛围"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群规 / 氛围"
+          }
+        }
+      }
+    },
     "让这个角色在聊天页换谁。别太长，越调越准。": {
       "localizations": {
         "en": {
@@ -102584,6 +102771,23 @@
         }
       }
     },
+    "还没有人物。先去新人物。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有人物。先去新人物。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有人物。先去新人物。"
+          }
+        }
+      }
+    },
     "还没有对话。点上面那个开一个。": {
       "localizations": {
         "en": {
@@ -102644,6 +102848,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "长什么样"
+          }
+        }
+      }
+    },
+    "随群走、进入 system 的 overlay。例：叫做什么、今晚是什么场景、说话口气像什么。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随群走、进入 system 的 overlay。例：叫做什么、今晚是什么场景、说话口气像什么。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随群走、进入 system 的 overlay。例：叫做什么、今晚是什么场景、说话口气像什么。"
           }
         }
       }

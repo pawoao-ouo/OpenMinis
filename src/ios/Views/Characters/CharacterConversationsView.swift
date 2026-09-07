@@ -41,7 +41,7 @@ struct CharacterConversationsView: View {
                     .onDelete { offsets in
                         for i in offsets {
                             let sid = sessions[i].id
-                            Task { try? await ChatStore.shared.deleteSession(id: sid) }
+                            Task { await ChatStore.shared.deleteSession(sid) }
                         }
                         sessions.remove(atOffsets: offsets)
                     }
@@ -69,13 +69,12 @@ struct CharacterConversationsView: View {
     }
 
     private func reload() async {
-        let all = await Task { @MainActor in ChatStore.shared.listSessionsForCharacter(characterId: character.id) }.value
-        sessions = all
+        sessions = await ChatStore.shared.listSessionsForCharacter(characterId: character.id)
     }
 
     private func startNewConversation() {
         Task { @MainActor in
-            let session = ChatStore.shared.createSession(
+            let session = await ChatStore.shared.createSession(
                 modelId: character.modelEntryId ?? "default",
                 title: character.name,
                 source: "character:\(character.id.uuidString)"
