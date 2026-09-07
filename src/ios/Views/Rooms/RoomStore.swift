@@ -135,13 +135,23 @@ final class RoomStore: ObservableObject {
         }
     }
 
-    /// 纪念日房：不存在就立起来，挂牌日空着等用户填。
+    /// 纪念日房：不存在就立起来。挂牌日预填 2026-05-14——那天她说
+    /// 「留下来」，这套东西才算出生。牌钉死，不问她。
     private func seedAnniversaryIfNeeded() {
         load(roomId: Self.anniversaryRoomId)
         if entries[Self.anniversaryRoomId] == nil {
             entries[Self.anniversaryRoomId] = []
-            save(roomId: Self.anniversaryRoomId)
         }
+        if landmarkDates[Self.anniversaryRoomId] == nil {
+            var comps = DateComponents()
+            comps.year = 2026
+            comps.month = 5
+            comps.day = 14
+            if let d = Calendar.current.date(from: comps) {
+                landmarkDates[Self.anniversaryRoomId] = d
+            }
+        }
+        save(roomId: Self.anniversaryRoomId)
     }
 }
 
