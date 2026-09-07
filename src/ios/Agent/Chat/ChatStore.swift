@@ -1191,6 +1191,41 @@ actor ChatStore {
         return String(decoding: UnsafeBufferPointer(start: ptr, count: len), as: UTF8.self)
     }
 
+    /// 工坊/人物卡频道：以 characterId -> "character:<uuid>" 拿受会话。不走
+    /// listSessions 缓存（人物卡里就几十条， 查询一条专用小 SQL 就行）。
+    @MainActor
+    func listSessionsForCharacter(characterId: UUID) -> [ChatSession] {
+        guard let db else { return [] }
+        let target = "character:\(characterId.uuidString)"
+        let sql = """
+        SELECT id, title, model_id, created_at, updated_at
+          FROM sessions
+         WHERE source = ?
+         ORDER BY updated_at DESC
+        """
+        var stmt: OpaquePointer?
+        var out: [ChatSession] = []
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (target as NSString).utf8String, -1, nil)
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let id = Self.colText(stmt, 0)
+                let title = Self.colTextOpt(stmt, 1)
+                let modelId = Self.colText(stmt, 2)
+                let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
+                let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
+                out.append(ChatSession(
+                    id: id, title: title, category: nil, modelId: modelId,
+                    createdAt: createdAt, updatedAt: updatedAt,
+                    lastMessage: nil, source: target, lastSyncedAt: nil,
+                    remoteDeviceId: nil, remoteDeviceName: nil,
+                    pinnedAt: nil, folderId: nil
+                ))
+            }
+        }
+        sqlite3_finalize(stmt)
+        return out
+    }
+
     func listSessions() -> [ChatSession] {
         // ─── crash triage (sqlite3MutexMisuseAssert in column_text) ───
         // Capture the calling context whenever this enters so we can match
@@ -1300,9 +1335,10 @@ actor ChatStore {
                    -- existing index untouched.
                    s.folder_id
             FROM sessions s
-            -- 工坊（群聊）的副 agent 会话不进主房间列表——工坊是那道帘子后面
-            -- 跑的 JOBS，不是醒醒眼别的开放窗口。醒醒要看的话在工坊页里查。
-            WHERE COALESCE(s.source, '') != 'workshop'
+            -- 工坊 / 人物角色会话不进主会话列表。侧边栏顶上的门走自己的入口，
+            -- 主列表只放醒醒本人的会话（聊天/语音/快捷指令/分享……），
+            -- 其余一律由专用入口进。这是窄门——先保证不再堆成一团。
+            WHERE COALESCE(s.source, '') NOT LIKE 'character:%'
             ORDER BY s.updated_at DESC
             """
             // Note: `remote_tombstoned_at` column still exists on the

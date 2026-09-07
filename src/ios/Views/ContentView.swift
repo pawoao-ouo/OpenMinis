@@ -869,7 +869,7 @@ enum ToolSheet: String, Identifiable {
     case browserManagement
     case syncMigrationDetail
     case littleRoom
-    case workshop
+    case characterCards
     var id: String { rawValue }
 }
 
@@ -1484,9 +1484,9 @@ struct ContentView: View {
                             }
                         }
                 }
-            case .workshop:
+            case .characterCards:
                 NavigationStack {
-                    GroupChatView()
+                    CharacterListView()
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button("Done") { activeToolSheet = nil }
@@ -3385,14 +3385,14 @@ struct ContentView: View {
                             .font(.system(size: 15))
                     }
                     .accessibilityLabel(Text("Little Room"))
-                    // 工坊（群聊）——叫副智能体干活的地方。
+                    // 人物卡：SillyTavern 那种可以随意自建角色的小角落。
                     Button {
-                        activeToolSheet = .workshop
+                        activeToolSheet = .characterCards
                     } label: {
-                        Image(systemName: "person.3.fill")
+                        Image(systemName: "person.2")
                             .font(.system(size: 15))
                     }
-                    .accessibilityLabel(Text("Workshop"))
+                    .accessibilityLabel(Text("Characters"))
                 }
             }
         }

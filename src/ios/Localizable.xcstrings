@@ -101597,6 +101597,22 @@
         }
       }
     },
+    "人物卡": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人物卡"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人物卡"
+          }
+        }
+      }
+    },
     "人设": {
       "localizations": {
         "en": {
@@ -101788,6 +101804,22 @@
         }
       }
     },
+    "删角色": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删角色"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删角色"
+          }
+        }
+      }
+    },
     "删除": {
       "localizations": {
         "en": {
@@ -101800,6 +101832,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "删除"
+          }
+        }
+      }
+    },
+    "历次对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "历次对话"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "历次对话"
           }
         }
       }
@@ -101916,6 +101964,22 @@
         }
       }
     },
+    "完成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        }
+      }
+    },
     "工坊": {
       "localizations": {
         "en": {
@@ -101928,6 +101992,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "工坊"
+          }
+        }
+      }
+    },
+    "开一个新对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开一个新对话"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开一个新对话"
           }
         }
       }
@@ -102006,6 +102086,22 @@
         }
       }
     },
+    "换头像": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "换头像"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "换头像"
+          }
+        }
+      }
+    },
     "新 Agent": {
       "localizations": {
         "en": {
@@ -102018,6 +102114,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "新建 Agent"
+          }
+        }
+      }
+    },
+    "新人物": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新人物"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新人物"
           }
         }
       }
@@ -102080,6 +102192,22 @@
         }
       }
     },
+    "是谁": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "是谁"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "是谁"
+          }
+        }
+      }
+    },
     "智能家居": {
       "localizations": {
         "de": {
@@ -102134,6 +102262,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "智能家居"
+          }
+        }
+      }
+    },
+    "未命名对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未命名对话"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未命名对话"
           }
         }
       }
@@ -102302,6 +102446,54 @@
         }
       }
     },
+    "编辑人物": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑人物"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑人物"
+          }
+        }
+      }
+    },
+    "让这个角色在聊天页换谁。别太长，越调越准。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让这个角色在聊天页换谁。别太长，越调越准。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让这个角色在聊天页换谁。别太长，越调越准。"
+          }
+        }
+      }
+    },
+    "记忆": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记忆"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记忆"
+          }
+        }
+      }
+    },
     "设置闹钟": {
       "localizations": {
         "de": {
@@ -102360,6 +102552,22 @@
         }
       }
     },
+    "跟随聊天里的当前默认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随聊天里的当前默认"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随聊天里的当前默认"
+          }
+        }
+      }
+    },
     "跟随默认": {
       "localizations": {
         "en": {
@@ -102372,6 +102580,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "跟随默认"
+          }
+        }
+      }
+    },
+    "还没有对话。点上面那个开一个。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有对话。点上面那个开一个。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有对话。点上面那个开一个。"
+          }
+        }
+      }
+    },
+    "还没记忆": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没记忆"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没记忆"
+          }
+        }
+      }
+    },
+    "里面写什么她下回还记着（角色私享，不经主记忆）。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "里面写什么她下回还记着（角色私享，不经主记忆）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "里面写什么她下回还记着（角色私享，不经主记忆）。"
+          }
+        }
+      }
+    },
+    "长什么样": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长什么样"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长什么样"
+          }
+        }
+      }
+    },
+    "默认模型": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认模型"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认模型"
           }
         }
       }

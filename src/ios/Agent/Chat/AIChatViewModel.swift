@@ -529,6 +529,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// since the composer was last cleared" and flip the remembered
     /// input-mode preference back to "text".
     var voiceUsedInComposition = false
+    /// [角色卡-人设缝合] 工坊/角色会话专用。工坊给 VM 塞的 overlay
+    /// （人设 + 该角色私有记忆 + 在场名册）先行进 system prompt，
+    /// 不会融进主会话/SOUL.md，不写 DB。AIChatView 出厂默认空。
+    var soulOverlay: String? = nil
+
     @Published var inputText = "" {
         didSet {
             if inputText.isEmpty && !oldValue.isEmpty {
@@ -4784,6 +4789,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         let tools = makeAgentTools()
 
         var userSystemPrompt = baseSystemPrompt
+        // [角色卡-人设缝合] 工坊/角色会话里 AIChatView 会把 persona+memory
+        // 填到 vm.soulOverlay。这是 per-session、不进 DB、不清泄露——
+        // 纯粹是“在场的都是谁”的一层皮，别的一切都按主 agent 的规则跑。
+        if let overlay = soulOverlay, !overlay.isEmpty {
+            userSystemPrompt += "\n\n[THIS SESSION'S IDENTITY]\n" + overlay
+        }
         let activeModel = ProviderConfigStore.shared.entry(for: entry.id)?.model ?? selectedModel
         if let capFragment = activeModel.capabilityPromptFragment {
             userSystemPrompt += "\n\n" + capFragment
