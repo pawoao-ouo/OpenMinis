@@ -10,14 +10,8 @@ struct AnniversaryRoomView: View {
     @ObservedObject private var store = RoomStore.shared
     @State private var draftText: String = ""
     @State private var draftOwner: RoomOwner = .user
-    @State private var editingDate: Date
-    @State private var hasDate: Bool
-
-    init() {
-        let initial = RoomStore.shared.landmarkDate(in: RoomStore.anniversaryRoomId)
-        _editingDate = State(initialValue: initial ?? Date())
-        _hasDate = State(initialValue: initial != nil)
-    }
+    @State private var editingDate: Date = Date()
+    @State private var hasDate: Bool = false
 
     private var entries: [RoomEntry] {
         store.entries(in: RoomStore.anniversaryRoomId)
@@ -107,6 +101,12 @@ struct AnniversaryRoomView: View {
         .navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden)
         .background(.background)
+        .onAppear {
+            if let d = store.landmarkDate(in: RoomStore.anniversaryRoomId) {
+                editingDate = d
+                hasDate = true
+            }
+        }
     }
 
     private func daysLine(for date: Date) -> String {
