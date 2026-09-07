@@ -206,6 +206,8 @@ struct ChatMessageRow: View {
     /// The tool block whose detail sheet is currently presented.
     /// Lifted out of ToolCapsuleView so ForEach item changes don't reset it.
     @State private var detailBlock: AssistantBlock?
+    /// kelivo 长按菜单——系统级翻译 sheet
+    @State private var showTranslation = false
 
     /// All text block contents joined, for "Copy All".
     private var fullReplyText: String {
@@ -267,6 +269,14 @@ struct ChatMessageRow: View {
             systemDividerRow(icon: message.isCompactLoading ? nil : (message.systemIcon ?? "info.circle"),
                              loading: message.isCompactLoading, compact: false)
         }
+        // 系统翻译面板（iOS 17.4+）：长按菜单里那个"翻译"指向这里
+        .translationPresentation(isPresented: $showTranslation, text: translationText)
+    }
+
+    /// 投喂系统翻译板的内容。用户气泡 = 原话；助手气泡 = 全部文字块拼一起
+    /// （跟 Copy All 同一源）。
+    private var translationText: String {
+        message.role == .assistant ? fullReplyText : message.content
     }
 
     // MARK: Compact Divider Row
@@ -435,6 +445,11 @@ struct ChatMessageRow: View {
                     } label: {
                         Label("Retry", systemImage: "arrow.counterclockwise")
                     }
+                }
+                Button {
+                    showTranslation = true
+                } label: {
+                    Label(AppLocalized("翻译"), systemImage: "translate")
                 }
                 if onDeleteFrom != nil || onCompact != nil {
                     Divider()
@@ -622,6 +637,11 @@ struct ChatMessageRow: View {
                             } label: {
                                 Label("Compact Above", systemImage: "arrow.down.right.and.arrow.up.left")
                             }
+                        }
+                        Button {
+                            showTranslation = true
+                        } label: {
+                            Label(AppLocalized("翻译"), systemImage: "translate")
                         }
                     }
                     .equatable()
