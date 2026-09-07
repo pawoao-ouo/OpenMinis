@@ -356,6 +356,7 @@ struct AIChatView: View {
     @State private var showCamera = false
     @State private var showPhotoPicker = false
     @State private var showDocumentPicker = false
+    @State private var showQuickPhraseSheet = false
     @State private var showMoveToSheet = false
     @State private var showClearChatConfirm = false
     /// [T-new-chat-menu-entry] Confirmation gate for "New Chat" from the "…"
@@ -3242,6 +3243,16 @@ struct AIChatView: View {
                 Button { showPhotoPicker = true } label: { Label("Choose Photos & Videos", systemImage: "photo.on.rectangle") }
                 Button { showDocumentPicker = true } label: { Label("Add File", systemImage: "doc") }
             }
+            .sheet(isPresented: $showQuickPhraseSheet) {
+                QuickPhraseSheet { picked in
+                    // 放后面加个空格接草稿——短语起头，后面补具体的话
+                    if vm.inputText.isEmpty {
+                        vm.inputText = picked
+                    } else {
+                        vm.inputText += (vm.inputText.hasSuffix("\n") || vm.inputText.hasSuffix(" ") ? "" : "\n") + picked
+                    }
+                }
+            }
         }
     }
 
@@ -3252,6 +3263,7 @@ struct AIChatView: View {
         let row = HStack(spacing: 12) {
             attachmentMenuButton
             slashMenuButton
+            quickPhraseButton
             if vm.editingMessageIndex != nil { editExitButton }
             Spacer()
             // Mutually exclusive with editExitButton: while editing a past
@@ -3330,6 +3342,21 @@ struct AIChatView: View {
                : AppLocalized("Off", comment: "VoiceOver value for the read-replies toggle when disabled")
         ))
         .accessibilityHint(Text("Toggles reading replies aloud", comment: "VoiceOver hint for the read-replies toggle"))
+    }
+
+    /// 「常用短语」按钮——跟 slash 那对是一挂的，点开短语库，点一条就塞进输入框。
+    private var quickPhraseButton: some View {
+        Button {
+            showQuickPhraseSheet = true
+        } label: {
+            Image(systemName: "bookmark")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(ChatColors.secondaryText)
+                .frame(width: 34, height: 34)
+                .background(ChatColors.inputIconBg)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
+        }
     }
 
     /// `/` button that opens the slash command menu.
