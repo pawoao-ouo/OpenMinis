@@ -1299,7 +1299,11 @@ actor ChatStore {
                    -- by index, so a new column goes at the end to leave every
                    -- existing index untouched.
                    s.folder_id
-            FROM sessions s ORDER BY s.updated_at DESC
+            FROM sessions s
+            -- 工坊（群聊）的副 agent 会话不进主房间列表——工坊是那道帘子后面
+            -- 跑的 JOBS，不是醒醒眼别的开放窗口。醒醒要看的话在工坊页里查。
+            WHERE COALESCE(s.source, '') != 'workshop'
+            ORDER BY s.updated_at DESC
             """
             // Note: `remote_tombstoned_at` column still exists on the
             // table for legacy rows but is no longer consulted. Peer-side

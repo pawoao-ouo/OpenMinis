@@ -98,7 +98,7 @@ struct GroupChatView: View {
                     draft = ""
                     isSending = true
                     Task { @MainActor in
-                        _ = await GroupChatOrchestrator.shared.dispatch(userText: text, in: GroupChatStore.shared)
+                        _ = await GroupChatOrchestrator.shared.dispatch(userText: text)
                         isSending = false
                     }
                 } label: {
