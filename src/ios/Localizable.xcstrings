@@ -102868,6 +102868,57 @@
           }
         }
       }
+    },
+    "还没聊过呢，点下面那团圆开一个。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没聊过呢，点下面那团圆开一个。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没聊过呢，点下面那团圆开一个。"
+          }
+        }
+      }
+    },
+    "和谁聊": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "和谁聊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "和谁聊"
+          }
+        }
+      }
+    },
+    "管理人物": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理人物"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理人物"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

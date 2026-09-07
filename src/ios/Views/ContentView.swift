@@ -998,6 +998,13 @@ struct ContentView: View {
     /// reading it from the row closure costs nothing per frame. Rebuilt only
     /// when `sessions` changes (see .onChange below).
     @State private var sessionsByIdCache: [String: ChatSession] = [:]
+    // MARK: - kelivo 联动：侧栏「谁在聊」两级
+    /// 当前侧栏选中谁在聊——main = 默认小梦（现在这些 session）；character/group
+    /// = 单人卡或群聊。选择期间列表、新建会话的归属都跟着换。
+    @State private var sidebarScope: SidebarAssistantScope =
+        SidebarAssistantScope(rawValue: UserDefaults.standard.string(forKey: "sidebar.scope") ?? "main")
+    /// scoped 模式下的会话列表（不参与文件夹/置顶那套，单源、简单排）。
+    @State private var scopedSessions: [ChatSession] = []
     /// Soul name shown as the sidebar title. Sourced from SOUL.md, falls
     /// back to "Minis". Refreshed whenever SoulStore posts .soulMdChanged.
     @State private var soulName: String = SoulStore.cachedMetadata.name.isEmpty
@@ -2119,6 +2126,20 @@ struct ContentView: View {
                             AIChatView(sessionId: String(parts[2]), remoteDeviceId: String(parts[1]))
                                 .id(id)
                         }
+                    } else if let target = scopedTarget(for: id) {
+                        // scoped 会话必须过 Loader 拿人设 overlay
+                        // （角色 persona + 记忆 / 群名册），裸 AIChatView 会以
+                        // 主 persona 开口。onAppear/onDisappear 和隔壁主列表
+                        // 分支干的事一样：挂 tracker + 摘未读角标。
+                        ScopedChatDestination(sessionId: id, target: target)
+                            .id(id)
+                            .onAppear {
+                                if currentStackSessionId != id {
+                                    currentStackSessionId = id
+                                    previousStackSessionId = id
+                                }
+                                SessionBadgeStore.shared.remove(.unread, for: id)
+                            }
                     } else {
                         AIChatView(sessionId: Self.isNewSessionId(id) ? nil : id, draftId: Self.isNewSessionId(id) ? id : nil, initialGroupId: Self.extractGroupId(from: id))
                             .id(id)
@@ -2156,7 +2177,12 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        if let id = selectedSessionId {
+        if let id = selectedSessionId,
+           let target = scopedTarget(for: id) {
+            // iPad 同样走 scoped loader，不然开群聊/人物卡会话会用人设外的默认壳
+            ScopedChatDestination(sessionId: id, target: target)
+                .id(id)
+        } else if let id = selectedSessionId {
             // Draft sessions always pass nil — the VM creates a real session internally
             // on first send. The .id() ensures each draft gets its own View lifecycle.
             let isDraft = Self.isNewSessionId(id)
@@ -2188,8 +2214,33 @@ struct ContentView: View {
 
     /// Sessions filtered by active search query, or all sessions if not searching.
     private var filteredSessions: [ChatSession] {
+        // scoped（某张人物卡/某个群）：不混全局搜索索引，本地按标题过就行。
+        if sidebarScope != .main {
+            guard isSearching, !searchText.isEmpty else { return scopedSessions }
+            return scopedSessions.filter {
+                ($0.title ?? "").localizedCaseInsensitiveContains(searchText)
+            }
+        }
         guard let matchedIds = searchMatchedIds else { return sessions }
         return sessions.filter { matchedIds.contains($0.id) }
+    }
+
+    /// 「侧栏当前该显示谁的会话」——main 用主列表，scoped 用 scopedSessions。
+    private var sidebarSessions: [ChatSession] {
+        sidebarScope == .main ? sessions : scopedSessions
+    }
+
+    /// scoped 模式下重拉当前范围的对话。main 模式是 no-op。
+    @MainActor
+    private func reloadScopedSessions() async {
+        switch sidebarScope {
+        case .main:
+            scopedSessions = []
+        case .character(let id):
+            scopedSessions = await ChatStore.shared.listSessionsForCharacter(characterId: id)
+        case .group(let id):
+            scopedSessions = await ChatStore.shared.listSessionsForGroup(groupId: id)
+        }
     }
 
     /// Group sessions by date period for section display, with pinned sessions at the top.
@@ -2686,9 +2737,70 @@ struct ContentView: View {
     /// so the iPad split list still resolves the New-Chat placeholder row.
     private func sessionForRow(_ id: String) -> ChatSession? {
         if let cached = sessionsByIdCache[id] { return cached }
+        // scoped（人物卡/群聊）会话不进 sessionsByIdCache，先扫 scopedSessions。
+        if let scoped = scopedSessions.first(where: { $0.id == id }) { return scoped }
         // Draft proxy / placeholder rows live only in displaySessions, never in
         // `sessions` — fall back to a linear scan of that (tiny: base + 1).
         return displaySessions.first(where: { $0.id == id })
+    }
+
+    /// 点开一个会话时判断：scoped 会话（人物卡/群聊）要过对应的 Loader 拿人设
+    /// overlay，主会话保持命本件 AIChatView 不变。返回 nil = 不是 scoped 或查不到。
+    private func scopedTarget(for sessionId: String) -> SidebarAssistantScope? {
+        guard !Self.isNewSessionId(sessionId) else { return nil }
+        guard let source = sessionForRow(sessionId)?.source else { return nil }
+        if source.hasPrefix("character:") {
+            if let uid = UUID(uuidString: String(source.dropFirst("character:".count))),
+               CharacterStore.shared.characters.contains(where: { $0.id == uid }) {
+                return .character(uid)
+            }
+        } else if source.hasPrefix("group:") {
+            if let uid = UUID(uuidString: String(source.dropFirst("group:".count))),
+               GroupStore.shared.groups.contains(where: { $0.id == uid }) {
+                return .group(uid)
+            }
+        }
+        return nil
+    }
+
+    /// FAB/新建：main 走原草稿流程；scoped 直接建带 source 的真会话再导航过去，
+    /// 跟 CharacterConversationsView 的"开一个新对话"同源。
+    private func startConversationForCurrentScope() {
+        switch sidebarScope {
+        case .main:
+            openSession(Self.makeNewSessionId())
+        case .character(let cid):
+            guard let c = CharacterStore.shared.characters.first(where: { $0.id == cid }) else {
+                // 参考物没了——回主列表再建，别新建个孤儿会话
+                sidebarScope = .main
+                openSession(Self.makeNewSessionId())
+                return
+            }
+            Task { @MainActor in
+                let session = await ChatStore.shared.createSession(
+                    modelId: c.modelEntryId ?? "default",
+                    title: c.name,
+                    source: "character:\(cid.uuidString)"
+                )
+                await reloadScopedSessions()
+                openSession(session.id)
+            }
+        case .group(let gid):
+            guard let g = GroupStore.shared.groups.first(where: { $0.id == gid }) else {
+                sidebarScope = .main
+                openSession(Self.makeNewSessionId())
+                return
+            }
+            Task { @MainActor in
+                let session = await ChatStore.shared.createSession(
+                    modelId: "default",
+                    title: g.name,
+                    source: "group:\(gid.uuidString)"
+                )
+                await reloadScopedSessions()
+                openSession(session.id)
+            }
+        }
     }
 
     /// Sessions to display in the sidebar. Prepends a placeholder entry
@@ -2739,6 +2851,27 @@ struct ContentView: View {
             } else {
                 splitList
             }
+        }
+        // kelivo 的「当前助手」贴片——钉在会话列表正上方，选人/换群入口。
+        // 藏在多选后面，全选模式是事排内的，贴片片就退位，不占地方
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !isSelecting {
+                AssistantScopeTile(scope: $sidebarScope, soulName: soulName) {
+                    activeToolSheet = .characterCards
+                }
+            }
+        }
+        .onChange(of: sidebarScope) { newScope in
+            UserDefaults.standard.set(newScope.rawValue, forKey: "sidebar.scope")
+            // 换人了别还停在旧列表的选区/详情——scoped 换掉详情问题（iPad）
+            selectedIds.removeAll()
+            withAnimation(.easeInOut(duration: 0.15)) { isSelecting = false }
+            if isWideLayout { selectedSessionId = nil }
+            Task { @MainActor in await reloadScopedSessions() }
+        }
+        .task(id: sidebarScope) {
+            // 冷启动进 scoped 时先拉一轮（refreshSessionList 也会再拉）
+            await reloadScopedSessions()
         }
         // Hardware ⌘F → focus search, available while the session list is on
         // screen (iPad/Mac keyboards). A zero-opacity button carries the
@@ -2905,7 +3038,11 @@ struct ContentView: View {
         .modifier(ScrollPhaseProbe())
         #endif
         .opacity(didInitialLoad ? 1 : 0)
-        .overlay { if didInitialLoad, filteredSessions.isEmpty, !isSearching { emptyState } }
+        .overlay {
+            if didInitialLoad, filteredSessions.isEmpty, !isSearching {
+                if sidebarScope == .main { emptyState } else { scopedEmptyState }
+            }
+        }
         .overlay(alignment: .top) { folderMiniBarOverlay(scrollProxy) }
         .safeAreaInset(edge: .bottom) { if isSelecting { selectionToolbar } else { fabRow } }
         // [T-home-fab-keyboard-inset] Mirror of the voice panel's structural
@@ -3086,7 +3223,11 @@ struct ContentView: View {
         .listStyle(.plain)
         .navigationSplitViewColumnWidth(min: 340, ideal: 380, max: 500)
         .opacity(didInitialLoad ? 1 : 0)
-        .overlay { if didInitialLoad, displaySessions.isEmpty, !isSearching { emptyState } }
+        .overlay {
+            if didInitialLoad, displaySessions.isEmpty, !isSearching {
+                if sidebarScope == .main { emptyState } else { scopedEmptyState }
+            }
+        }
         .overlay(alignment: .top) { folderMiniBarOverlay(scrollProxy) }
         .safeAreaInset(edge: .bottom) { if isSelecting { selectionToolbar } else { fabRow } }
         // [T-home-fab-keyboard-inset] Same structural immunity as the compact
@@ -3398,11 +3539,11 @@ struct ContentView: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             if isSelecting {
-                Button(selectedIds.count == sessions.count ? "Deselect All" : "Select All") {
-                    if selectedIds.count == sessions.count {
+                Button(selectedIds.count == filteredSessions.count ? "Deselect All" : "Select All") {
+                    if selectedIds.count == filteredSessions.count {
                         selectedIds.removeAll()
                     } else {
-                        selectedIds = Set(sessions.map(\.id))
+                        selectedIds = Set(filteredSessions.map(\.id))
                     }
                 }
             } else if hasAlarms {
@@ -3799,6 +3940,9 @@ struct ContentView: View {
             case .forcePull(let sid):
                 runForcePullOnSession(sid)
             case .select(let sid):
+                // scoped 列表（人物卡/群聊）不进多选——多选工具栏是围绕主
+                // 列表的文件夹/归档设计的，scoped 会话进去会把选择带进黑盒。
+                guard sidebarScope == .main else { return }
                 isSelecting = true
                 selectedIds = [sid]
                 scrollToId = sid
@@ -3960,6 +4104,25 @@ struct ContentView: View {
     @StateObject private var providerStore = ProviderConfigStore.shared
     @State private var showAddProvider = false
     @State private var showSelectModels = false
+
+    /// scoped（人物卡/群聊）空着的轻提示。不是 onboarding——那个人物/群
+    /// 只是还没开过聊，给一句温和指引就行。
+    private var scopedEmptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "bubble.left.and.text.bubble.right")
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+            Text(AppLocalized("还没聊过呢，点下面那团圆开一个。"))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Spacer()
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
     private var emptyState: some View {
         let hasProviders = !providerStore.instances.isEmpty
@@ -4181,6 +4344,8 @@ struct ContentView: View {
         Task(priority: .utility) { @MainActor in
             sessions = await ChatStore.shared.listSessions()
             folders = await ChatStore.shared.listFolders()
+            // kelivo 范围栏：scoped 模式随主列表一起刷新
+            await reloadScopedSessions()
             sessionRefreshInFlight = false
             if sessionRefreshPending {
                 sessionRefreshPending = false
@@ -4402,7 +4567,7 @@ struct ContentView: View {
                 dragOffset: $fabDragOffset,
                 didDrag: $fabDidDrag
             ) {
-                if !fabDidDrag { openSession(Self.makeNewSessionId()) }
+                if !fabDidDrag { startConversationForCurrentScope() }
             } label: {
                 fabCircleSurface(
                     tint: newChatGlassTint,

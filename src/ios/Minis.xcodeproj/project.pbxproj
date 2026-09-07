@@ -235,6 +235,7 @@
 		E5CA0042 /* CharacterListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0052 /* CharacterListView.swift */; };
 		E5CA0043 /* CharacterConversationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0053 /* CharacterConversationsView.swift */; };
 		E5CA0044 /* CharacterEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0054 /* CharacterEditorView.swift */; };
+		E5CA0045 /* AssistantScopeTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0055 /* AssistantScopeTile.swift */; };
 		E5CA0061 /* GroupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0071 /* GroupStore.swift */; };
 		E5CA0062 /* GroupChatLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0072 /* GroupChatLoader.swift */; };
 		E5CA0063 /* GroupEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0073 /* GroupEditorView.swift */; };
@@ -915,6 +916,7 @@
 		E5CA0052 /* CharacterListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterListView.swift; sourceTree = "<group>"; };
 		E5CA0053 /* CharacterConversationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterConversationsView.swift; sourceTree = "<group>"; };
 		E5CA0054 /* CharacterEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterEditorView.swift; sourceTree = "<group>"; };
+		E5CA0055 /* AssistantScopeTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantScopeTile.swift; sourceTree = "<group>"; };
 		E5CA0071 /* GroupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupStore.swift; sourceTree = "<group>"; };
 		E5CA0072 /* GroupChatLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatLoader.swift; sourceTree = "<group>"; };
 		E5CA0073 /* GroupEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditorView.swift; sourceTree = "<group>"; };
@@ -1801,6 +1803,7 @@
 				E5CA0052 /* CharacterListView.swift */,
 				E5CA0053 /* CharacterConversationsView.swift */,
 				E5CA0054 /* CharacterEditorView.swift */,
+				E5CA0055 /* AssistantScopeTile.swift */,
 				E5CA0071 /* GroupStore.swift */,
 				E5CA0072 /* GroupChatLoader.swift */,
 				E5CA0073 /* GroupEditorView.swift */,
@@ -2855,6 +2858,7 @@
 				E5CA0042 /* CharacterListView.swift in Sources */,
 				E5CA0043 /* CharacterConversationsView.swift in Sources */,
 				E5CA0044 /* CharacterEditorView.swift in Sources */,
+				E5CA0045 /* AssistantScopeTile.swift in Sources */,
 				E5CA0061 /* GroupStore.swift in Sources */,
 				E5CA0062 /* GroupChatLoader.swift in Sources */,
 				E5CA0063 /* GroupEditorView.swift in Sources */,
