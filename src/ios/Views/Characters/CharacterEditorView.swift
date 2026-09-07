@@ -4,7 +4,7 @@ import SwiftUI
 /// 新建/编辑一个人物卡。
 ///
 /// 模式题来自 kelivo 的 assistant 编辑页 + 醒醒常说的「软件要做，不能像
-/// 填表」——这里只保留：名字、头像、品牌色、人设、记忆入口、模型绑定。
+/// 填表」——这里只保留：名字、头像、喜欢的颜色、人设、记忆入口、模型绑定。
 /// 别的不显示，放少宁坏多。
 struct CharacterEditorView: View {
 
@@ -46,7 +46,7 @@ struct CharacterEditorView: View {
                         PhotosPicker(selection: $pickedPhoto, matching: .images) {
                             Label(AppLocalized("换头像"), systemImage: "photo")
                         }
-                        ColorPicker(AppLocalized("品牌色"), selection: Binding(
+                        ColorPicker(AppLocalized("喜欢的颜色"), selection: Binding(
                             get: { Color(hue: hue, saturation: 0.7, brightness: 0.85) },
                             set: { c in
                                 var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
@@ -62,7 +62,7 @@ struct CharacterEditorView: View {
             Section(AppLocalized("是谁")) {
                 TextField(AppLocalized("名字"), text: $name)
                 Picker(AppLocalized("默认模型"), selection: $modelEntryId) {
-                    Text(AppLocalized("跟随聊天里的当前默认")).tag(String?.none)
+                    Text(AppLocalized("跟着聊天页选的那个走")).tag(String?.none)
                     ForEach(modelChoices, id: \.id) { entry in
                         Text(Self.modelLabel(entry)).tag(String?.some(entry.id))
                     }
@@ -72,7 +72,7 @@ struct CharacterEditorView: View {
             Section(AppLocalized("人设") + " (system prompt)") {
                 TextEditor(text: $persona)
                     .frame(minHeight: 140)
-                Text(AppLocalized("让这个角色在聊天页换谁。别太长，越调越准。"))
+                Text(AppLocalized("她在这场聊天里是谁。一两句就够，越具体越像。"))
                     .font(.caption)
                     .foregroundStyle(ChatColors.secondaryText)
             }
@@ -80,7 +80,7 @@ struct CharacterEditorView: View {
             Section(AppLocalized("记忆")) {
                 TextEditor(text: $memory)
                     .frame(minHeight: 100)
-                Text(AppLocalized("里面写什么她下回还记着（角色私享，不经主记忆）。"))
+                Text(AppLocalized("写在这儿的她下回还记得（只有这个角色知道，不进主记忆）。"))
                     .font(.caption)
                     .foregroundStyle(ChatColors.secondaryText)
             }

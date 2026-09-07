@@ -14,7 +14,7 @@ internal struct GroupCard: Identifiable, Codable, Equatable {
     var name: String
     /// 参与的 CharacterCard.id 集合
     var memberIds: [UUID]
-    /// 品牌色（用于头像 fallback）
+    /// 喜欢的颜色（用于头像 fallback）
     var hue: Double
     /// 自定义头像文件（可选；没有就用成员首字拼图）
     var avatarImageFile: String?

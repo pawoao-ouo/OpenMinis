@@ -50,9 +50,9 @@ struct GroupEditorView: View {
                 TextField(AppLocalized("群名字"), text: $name)
             }
 
-            Section(AppLocalized("挑成员（至少两个）")) {
+            Section(AppLocalized("叫上谁（至少两个）")) {
                 if charStore.characters.isEmpty {
-                    Text(AppLocalized("还没有人物。先去新人物。"))
+                    Text(AppLocalized("还没有人呢，先去捏一个。"))
                         .foregroundStyle(ChatColors.secondaryText)
                 } else {
                     ForEach(charStore.characters) { c in
@@ -71,10 +71,10 @@ struct GroupEditorView: View {
                 }
             }
 
-            Section(AppLocalized("群规 / 氛围")) {
+            Section(AppLocalized("这个群的氛围")) {
                 TextEditor(text: $brief)
                     .frame(minHeight: 100)
-                Text(AppLocalized("随群走、进入 system 的 overlay。例：叫做什么、今晚是什么场景、说话口气像什么。"))
+                Text(AppLocalized("写给这群人的氛围。比如：今晚在露营，大家说话都懒洋洋的。"))
                     .font(.caption)
                     .foregroundStyle(ChatColors.secondaryText)
             }

@@ -11,19 +11,19 @@ struct GroupConversationsView: View {
         List {
             Section {
                 Button { startNewConversation() } label: {
-                    Label(AppLocalized("开一个新对话"), systemImage: "square.and.pencil")
+                    Label(AppLocalized("聊个新的"), systemImage: "square.and.pencil")
                 }
             }
-            Section(header: Text(AppLocalized("历次群聊"))) {
+            Section(header: Text(AppLocalized("聊过的"))) {
                 if sessions.isEmpty {
-                    Text(AppLocalized("还没有对话。点上面那个开一个。"))
+                    Text(AppLocalized("还没聊过呢，点上面开个头。"))
                         .foregroundStyle(ChatColors.secondaryText)
                 } else {
                     ForEach(sessions, id: \.id) { session in
                         NavigationLink(value: session.id) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(session.title?.isEmpty == false
-                                     ? session.title! : AppLocalized("未命名对话"))
+                                     ? session.title! : AppLocalized("没起名的聊天"))
                                     .foregroundStyle(ChatColors.primaryText)
                                     .lineLimit(1)
                                 Text(session.updatedAt, style: .relative)

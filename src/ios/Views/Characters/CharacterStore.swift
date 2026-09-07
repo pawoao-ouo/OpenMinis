@@ -13,7 +13,7 @@ internal struct CharacterCard: Identifiable, Codable, Equatable {
     var name: String
     /// 在 characters/avatars/<id>.jpg；没图就用圆底 + 首字
     var avatarImageFile: String?
-    /// 品牌色 hue(0...1)，id 哈希落地，用户能换
+    /// 喜欢的颜色 hue(0...1)，id 哈希落地，用户能换
     var hue: Double
     /// 人设注入（into user-message prefix）
     var persona: String

@@ -101838,39 +101838,6 @@
         }
       }
     },
-    "删群": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删群"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删群"
-          }
-        }
-      }
-    },
-    "删角色": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删角色"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删角色"
-          }
-        }
-      }
-    },
     "删除": {
       "localizations": {
         "en": {
@@ -101883,39 +101850,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "删除"
-          }
-        }
-      }
-    },
-    "历次对话": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "历次对话"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "历次对话"
-          }
-        }
-      }
-    },
-    "历次群聊": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "历次群聊"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "历次群聊"
           }
         }
       }
@@ -101964,22 +101898,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "名字"
-          }
-        }
-      }
-    },
-    "品牌色": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "品牌色"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "品牌色"
           }
         }
       }
@@ -102064,22 +101982,6 @@
         }
       }
     },
-    "开一个新对话": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "开一个新对话"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "开一个新对话"
-          }
-        }
-      }
-    },
     "拍照": {
       "localizations": {
         "de": {
@@ -102150,23 +102052,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "挑一张图"
-          }
-        }
-      }
-    },
-    "挑成员（至少两个）": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "挑成员（至少两个）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "挑成员（至少两个）"
           }
         }
       }
@@ -102364,22 +102249,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "智能家居"
-          }
-        }
-      }
-    },
-    "未命名对话": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未命名对话"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未命名对话"
           }
         }
       }
@@ -102632,39 +102501,6 @@
         }
       }
     },
-    "群规 / 氛围": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "群规 / 氛围"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "群规 / 氛围"
-          }
-        }
-      }
-    },
-    "让这个角色在聊天页换谁。别太长，越调越准。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "让这个角色在聊天页换谁。别太长，越调越准。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "让这个角色在聊天页换谁。别太长，越调越准。"
-          }
-        }
-      }
-    },
     "记忆": {
       "localizations": {
         "en": {
@@ -102739,22 +102575,6 @@
         }
       }
     },
-    "跟随聊天里的当前默认": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "跟随聊天里的当前默认"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "跟随聊天里的当前默认"
-          }
-        }
-      }
-    },
     "跟随默认": {
       "localizations": {
         "en": {
@@ -102767,71 +102587,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "跟随默认"
-          }
-        }
-      }
-    },
-    "还没有人物。先去新人物。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还没有人物。先去新人物。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还没有人物。先去新人物。"
-          }
-        }
-      }
-    },
-    "还没有对话。点上面那个开一个。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还没有对话。点上面那个开一个。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还没有对话。点上面那个开一个。"
-          }
-        }
-      }
-    },
-    "还没记忆": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还没记忆"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还没记忆"
-          }
-        }
-      }
-    },
-    "里面写什么她下回还记着（角色私享，不经主记忆）。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "里面写什么她下回还记着（角色私享，不经主记忆）。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "里面写什么她下回还记着（角色私享，不经主记忆）。"
           }
         }
       }
@@ -102852,23 +102607,6 @@
         }
       }
     },
-    "随群走、进入 system 的 overlay。例：叫做什么、今晚是什么场景、说话口气像什么。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "随群走、进入 system 的 overlay。例：叫做什么、今晚是什么场景、说话口气像什么。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "随群走、进入 system 的 overlay。例：叫做什么、今晚是什么场景、说话口气像什么。"
-          }
-        }
-      }
-    },
     "默认模型": {
       "localizations": {
         "en": {
@@ -102881,6 +102619,252 @@
           "stringUnit": {
             "state": "translated",
             "value": "默认模型"
+          }
+        }
+      }
+    },
+    "聊个新的": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开一个新对话"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊个新的"
+          }
+        }
+      }
+    },
+    "聊过的": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "历次群聊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊过的"
+          }
+        }
+      }
+    },
+    "还没聊过呢，点上面开个头。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有对话。点上面那个开一个。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没聊过呢，点上面开个头。"
+          }
+        }
+      }
+    },
+    "叫上谁（至少两个）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挑成员（至少两个）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "叫上谁（至少两个）"
+          }
+        }
+      }
+    },
+    "还没有人呢，先去捏一个。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有人物。先去新人物。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有人呢，先去捏一个。"
+          }
+        }
+      }
+    },
+    "这个群的氛围": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群规 / 氛围"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个群的氛围"
+          }
+        }
+      }
+    },
+    "写给这群人的氛围。比如：今晚在露营，大家说话都懒洋洋的。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随群走、进入 system 的 overlay。例：叫做什么、今晚是什么场景、说话口气像什么。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写给这群人的氛围。比如：今晚在露营，大家说话都懒洋洋的。"
+          }
+        }
+      }
+    },
+    "她在这场聊天里是谁。一两句就够，越具体越像。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让这个角色在聊天页换谁。别太长，越调越准。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "她在这场聊天里是谁。一两句就够，越具体越像。"
+          }
+        }
+      }
+    },
+    "写在这儿的她下回还记得（只有这个角色知道，不进主记忆）。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "里面写什么她下回还记着（角色私享，不经主记忆）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写在这儿的她下回还记得（只有这个角色知道，不进主记忆）。"
+          }
+        }
+      }
+    },
+    "跟着聊天页选的那个走": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随聊天里的当前默认"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟着聊天页选的那个走"
+          }
+        }
+      }
+    },
+    "喜欢的颜色": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "品牌色"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "喜欢的颜色"
+          }
+        }
+      }
+    },
+    "还什么都没记下": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没记忆"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还什么都没记下"
+          }
+        }
+      }
+    },
+    "没起名的聊天": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未命名对话"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没起名的聊天"
+          }
+        }
+      }
+    },
+    "删掉这个角色": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删角色"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删掉这个角色"
+          }
+        }
+      }
+    },
+    "删掉这个群": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删群"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删掉这个群"
           }
         }
       }

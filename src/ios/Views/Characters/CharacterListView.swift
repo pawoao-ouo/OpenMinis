@@ -36,7 +36,7 @@ struct CharacterListView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                Button(AppLocalized("删角色"), role: .destructive) {
+                                Button(AppLocalized("删掉这个角色"), role: .destructive) {
                                     store.remove(id: character.id)
                                 }
                             }
@@ -48,7 +48,7 @@ struct CharacterListView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                Button(AppLocalized("删群"), role: .destructive) {
+                                Button(AppLocalized("删掉这个群"), role: .destructive) {
                                     groups.remove(id: group.id)
                                 }
                             }
@@ -106,7 +106,7 @@ private struct CharacterCardView: View {
 
     private var memoryExcerpt: String {
         let memory = character.memory.trimmingCharacters(in: .whitespacesAndNewlines)
-        if memory.isEmpty { return AppLocalized("还没记忆") }
+        if memory.isEmpty { return AppLocalized("还什么都没记下") }
         let firstLine = memory.split(separator: "\n").first.map(String.init) ?? memory
         return String(firstLine.prefix(20))
     }
