@@ -3268,7 +3268,11 @@ actor ChatStore {
             let base = source.title ?? AppLocalized("Chat")
             return "\(base) ↣"
         }()
-        let branch = createSession(modelId: modelId, title: title, source: "branch")
+        // Inherit the source's scope so a branch of a character/group
+        // conversation stays inside that character/group (branch is a
+        // continuation of that identity, not a fresh main-list chat).
+        // Plain (source==nil / "main") sessions branch as plain too.
+        let branch = createSession(modelId: modelId, title: title, source: source.source)
 
         var copies: [RawMessage] = []
         copies.reserveCapacity(kept.count)
