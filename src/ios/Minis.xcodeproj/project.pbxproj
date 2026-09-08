@@ -1805,13 +1805,13 @@
 				F1V00016 /* Skills */,
 				F1VMCPG0 /* MCP */,
 				EAB000060 /* Sync */,
-				E5R000001 /* Rooms */,
+				E5RG0001 /* Rooms */,
 				E5CA0001 /* Characters */,
 			);
 			path = Views;
 			sourceTree = "<group>";
 		};
-		E5R000001 /* Rooms */ = {
+		E5RG0001 /* Rooms */ = {
 			isa = PBXGroup;
 			children = (
 				E5R000051 /* RoomStore.swift */,
