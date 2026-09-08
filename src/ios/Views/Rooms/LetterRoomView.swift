@@ -60,6 +60,9 @@ struct LetterRoomView: View {
                     }
                     ForEach(entries) { entry in
                         LetterCard(entry: entry, fromCharacterName: character.name)
+                            .roomEntryContextMenu(roomId: roomId, entry: entry) { editing in
+                                editingEntry = editing
+                            }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -81,6 +84,9 @@ struct LetterRoomView: View {
             NavigationStack {
                 LetterComposeView(roomId: roomId, character: character)
             }
+        }
+        .sheet(item: $editingEntry) { entry in
+            NavigationStack { RoomEntryEditorView(roomId: roomId, entry: entry) }
         }
         .sheet(isPresented: $showHersWriting) {
             NavigationStack {

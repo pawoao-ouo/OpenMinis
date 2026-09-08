@@ -11,6 +11,7 @@ struct DiaryRoomView: View {
     @State private var expandedIds: Set<UUID> = []
     @State private var showEditor = false
     @State private var showGenerate = false
+    @State private var editingEntry: RoomEntry? = nil
 
     private var entries: [RoomEntry] {
         store.entries(in: roomId).sorted { $0.createdAt > $1.createdAt }
@@ -36,6 +37,9 @@ struct DiaryRoomView: View {
                         },
                         fromName: entry.owner == .assistant ? character.name : AppLocalized("我")
                     )
+                    .roomEntryContextMenu(roomId: roomId, entry: entry) { editing in
+                        editingEntry = editing
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -66,6 +70,9 @@ struct DiaryRoomView: View {
             NavigationStack {
                 DiaryEditorView(roomId: roomId, owner: .user)
             }
+        }
+        .sheet(item: $editingEntry) { entry in
+            NavigationStack { RoomEntryEditorView(roomId: roomId, entry: entry) }
         }
         .sheet(isPresented: $showGenerate) {
             NavigationStack {

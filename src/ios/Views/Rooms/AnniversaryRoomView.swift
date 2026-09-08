@@ -15,6 +15,7 @@ struct AnniversaryRoomView: View {
     @State private var draftOwner: RoomOwner = .user
     @State private var editingDate: Date = Date()
     @State private var hasDate: Bool = false
+    @State private var editingEntry: RoomEntry? = nil
 
     private var entries: [RoomEntry] {
         store.entries(in: roomId)
@@ -71,6 +72,9 @@ struct AnniversaryRoomView: View {
                                 .foregroundStyle(ChatColors.primaryText)
                         }
                         .padding(.vertical, 2)
+                        .roomEntryContextMenu(roomId: roomId, entry: entry) { editing in
+                            editingEntry = editing
+                        }
                     }
                     .onDelete { offsets in
                         for idx in offsets {
@@ -104,7 +108,13 @@ struct AnniversaryRoomView: View {
         .navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden)
         .background(.background)
+        .sheet(item: $editingEntry) { entry in
+            NavigationStack {
+                RoomEntryEditorView(roomId: roomId, entry: entry)
+            }
+        }
         .onAppear {
+            store.loadIfNeeded(roomId: roomId)
             if let d = store.landmarkDate(in: roomId) {
                 editingDate = d
                 hasDate = true

@@ -128,6 +128,16 @@ final class RoomStore: ObservableObject {
         return entry
     }
 
+    /// 覆盖改一行的字。保住 id/owner/createdAt，只换 text。
+    /// 她在场外说了句想改,挂进来；装回现有的房间，不产生新条目。
+    func update(id: UUID, text: String, in roomId: String) {
+        var list = entries[roomId] ?? []
+        guard let idx = list.firstIndex(where: { $0.id == id }) else { return }
+        list[idx].text = text
+        entries[roomId] = list
+        save(roomId: roomId)
+    }
+
     func delete(id: UUID, in roomId: String) {
         var list = entries[roomId] ?? []
         list.removeAll { $0.id == id }

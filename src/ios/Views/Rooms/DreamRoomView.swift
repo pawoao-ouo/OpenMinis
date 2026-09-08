@@ -12,6 +12,7 @@ struct DreamRoomView: View {
 
     @ObservedObject private var store = RoomStore.shared
     @State private var showGenerateSheet = false
+    @State private var editingEntry: RoomEntry? = nil
 
     private var entries: [RoomEntry] {
         store.entries(in: roomId).sorted { $0.createdAt > $1.createdAt }
@@ -67,6 +68,9 @@ struct DreamRoomView: View {
 
                 ForEach(entries) { entry in
                     DreamCard(entry: entry)
+                        .roomEntryContextMenu(roomId: roomId, entry: entry) { editing in
+                            editingEntry = editing
+                        }
                 }
             }
             .padding(.horizontal, 16)
@@ -75,6 +79,9 @@ struct DreamRoomView: View {
         .background(ChatColors.background.ignoresSafeArea())
         .navigationTitle(AppLocalized("梦境"))
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $editingEntry) { entry in
+            NavigationStack { RoomEntryEditorView(roomId: roomId, entry: entry) }
+        }
         .sheet(isPresented: $showGenerateSheet) {
             NavigationStack {
                 DreamGenerateView(roomId: roomId, character: character)
