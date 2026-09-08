@@ -60,6 +60,15 @@ final class RoomContentGenerator {
         return nil
     }
 
+    /// 生成/入库用的成品上下文。两个入口：
+    ///   1. 宏：传 `conversationOverride` 过来（比如聊天页菜单点一下）
+    ///   2. 野：什么都不传就继续抄 ChatStore 老路
+    /// 均以"我们和她谁聊的最多就是谁" 为准：有传以 override，无传用最近会话。
+    private func materialText(characterId: UUID, conversationOverride: String? = nil) async -> String {
+        if let o = conversationOverride { return o }
+        return await fetchRecentConversationText(characterId: characterId)
+    }
+
     /// 拉这个角色最近的对话作素材。用 ChatStore.listSessionsForCharacter →
     /// 最新一个会话 → 只拿最后 N 条（文本部分，别想 puzzle 那些媒体）。
     private func fetchRecentConversationText(characterId: UUID, maxTurns: Int = 20) async -> String {
@@ -80,19 +89,23 @@ final class RoomContentGenerator {
     }
 
     /// 更高层的入口：自动解析该角色该用的模型，找不到就是 “set a model first” 的错。
-    func generate(kind: Kind, character: CharacterCard) async -> Result {
+    /// `conversationOverride`：来自聊天页顶部菜单——那个会话的全量对话直接上线，
+    /// 不再走"翻最近的一段"那条路，因为只有聊天对话框自己知道在聊什么。
+    func generate(kind: Kind, character: CharacterCard,
+                  conversationOverride: String? = nil) async -> Result {
         guard let entry = await resolveGenerationEntry(character: character) else {
             return Result(succeeded: false, error: "这个角色没绑模型，且没有默认的模型组可用来生成。", raw: "")
         }
-        return await generate(kind: kind, character: character, entry: entry)
+        return await generate(kind: kind, character: character, entry: entry, conversationOverride: conversationOverride)
     }
 
     /// 生成内容。参数当前用哪个模型 entry 由调用方决定（没拿到就用默认组，
     /// 这里不管 fallback 逻辑，挑不出来就老实报错）。
-    func generate(kind: Kind, character: CharacterCard, entry: ModelEntry) async -> Result {
+    func generate(kind: Kind, character: CharacterCard, entry: ModelEntry,
+                  conversationOverride: String? = nil) async -> Result {
         do {
             let provider = await makeAgentProviderForGeneration(entry: entry)
-            let conversation = await fetchRecentConversationText(characterId: character.id)
+            let conversation = await materialText(characterId: character.id, conversationOverride: conversationOverride)
             let persona = character.persona.isEmpty == false ? character.persona : "一个温柔的角色"
             let memory = CharacterStore.shared.memory(for: character.id)
 
@@ -130,6 +143,8 @@ final class RoomContentGenerator {
     /// 把生成的正文存进房间，然后推本地通知。
     /// 存完就推，不在她眼前弹、不进 chat、不是 push token。
     func commit(kind: Kind, roomId: String, character: CharacterCard, raw: String) {
+        // 聊天页进来的话这房间可能从没加载过——先补齐，不然 append+save 会把磁盘旧记录盖掉
+        RoomStore.shared.loadIfNeeded(roomId: roomId)
         let entry = RoomStore.shared.append(
             owner: .assistant,
             text: raw,

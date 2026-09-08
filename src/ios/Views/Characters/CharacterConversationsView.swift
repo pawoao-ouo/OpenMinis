@@ -100,6 +100,27 @@ struct CharacterChatLoader: View {
 
     var body: some View {
         AIChatView(sessionId: sessionId)
+            .toolbar {
+                // 右上角她给自己干活的入口。单个小屋菜单，
+                // 列日记/梦/信三个动作。
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button { generateRoom(.diary) } label: {
+                            Label(AppLocalized("今天的日记写一页"), systemImage: "book")
+                        }
+                        Button { generateRoom(.dream) } label: {
+                            Label(AppLocalized("记述一个梦"), systemImage: "moon.stars")
+                        }
+                        Button { generateRoom(.letter) } label: {
+                            Label(AppLocalized("写一封信给你"), systemImage: "envelope")
+                        }
+                    } label: {
+                        Image(systemName: "door.left.hand.open")
+                            .font(.system(size: 15))
+                    }
+                    .accessibilityLabel(Text(AppLocalized("小屋")))
+                }
+            }
             .onAppear {
                 // 人设+记忆前缀推进 system 层（裸量缝在 build 里包 UI 层,这层视图
                 // 是package 弃用 seal pull）
@@ -111,6 +132,56 @@ struct CharacterChatLoader: View {
                 // 滚动条答完——拆成一轮它自己说的话进记忆
                 rememberLatest()
             }
+            .alert(item: $roomFeedback) { fb in
+                Alert(title: Text(fb.title), message: Text(fb.body))
+            }
+    }
+
+    @State private var roomFeedback: RoomFeedback? = nil
+
+    private struct RoomFeedback: Identifiable {
+        let id = UUID()
+        let title: String
+        let body: String
+    }
+
+    /// 让这个角色基于**当前会话**生成房间内容。
+    /// 畜点：dialogue 是本页的、patch 用的不是"最近几条"而是这页的完整对话，
+    /// 所以人格/记忆/当下感受全在上面,不是放空模型去瞎编。
+    private func generateRoom(_ kind: RoomContentGenerator.Kind) {
+        let conversation = vm.messages
+            .filter { !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { m in
+                let who = (m.role == .user ? "我" : "她")
+                return "\(who)：\(m.content)"
+            }
+            .joined(separator: "\n")
+        Task { @MainActor in
+            let res = await RoomContentGenerator.shared.generate(
+                kind: kind,
+                character: character,
+                conversationOverride: conversation
+            )
+            if res.succeeded {
+                let roomId = RoomStore.roomId(kind: kind.roomKind, characterId: character.id)
+                RoomContentGenerator.shared.commit(kind: kind, roomId: roomId, character: character, raw: res.raw)
+                let what: String
+                switch kind {
+                case .dream: what = AppLocalized("梦见你了")
+                case .diary: what = AppLocalized("写了一页日记")
+                case .letter: what = AppLocalized("写了一封信")
+                }
+                roomFeedback = RoomFeedback(
+                    title: AppLocalized("她") + " \(character.name) \(what)",
+                    body: AppLocalized("存在小屋里了。")
+                )
+            } else {
+                roomFeedback = RoomFeedback(
+                    title: AppLocalized("写不出来"),
+                    body: res.error ?? ""
+                )
+            }
+        }
     }
 
     private func buildOverlay() -> String {
