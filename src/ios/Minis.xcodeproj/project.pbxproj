@@ -1845,7 +1845,8 @@
 			);
 			path = Characters;
 			sourceTree = "<group>";
-		};	E5E000030 /* ShareExtension */ = {
+		};
+		E5E000030 /* ShareExtension */ = {
 			isa = PBXGroup;
 			children = (
 				E5E000011 /* ShareViewController.swift */,
