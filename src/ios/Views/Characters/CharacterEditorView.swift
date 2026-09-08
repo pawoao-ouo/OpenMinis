@@ -19,6 +19,9 @@ struct CharacterEditorView: View {
     @State private var hue: Double
     @State private var memory: String
     @State private var modelEntryId: String?
+    @State private var thinkingLevelRaw: String?   // ThinkingLevel.rawValue
+    @State private var temperatureText: String     // "" = 不发
+    @State private var maxTokensText: String       // "" = 跟随全局
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var avatarImage: UIImage?
 
@@ -28,6 +31,9 @@ struct CharacterEditorView: View {
         _persona = State(initialValue: character?.persona ?? "")
         _hue = State(initialValue: character?.hue ?? Double.random(in: 0...1))
         _memory = State(initialValue: character == nil ? "" : CharacterStore.shared.memory(for: character!.id))
+        _thinkingLevelRaw = State(initialValue: character?.thinkingLevel)
+        _temperatureText = State(initialValue: character?.temperature.map { String(format: "%.1f", $0) } ?? "")
+        _maxTokensText = State(initialValue: character?.maxOutputTokens.map(String.init) ?? "")
         _modelEntryId = State(initialValue: character?.modelEntryId)
     }
 
@@ -81,6 +87,34 @@ struct CharacterEditorView: View {
                 TextEditor(text: $memory)
                     .frame(minHeight: 100)
                 Text(AppLocalized("写在这儿的她下回还记得（只有这个角色知道，不进主记忆）。"))
+                    .font(.caption)
+                    .foregroundStyle(ChatColors.secondaryText)
+            }
+
+            Section(AppLocalized("说话的方式")) {
+                Picker(AppLocalized("思考强度"), selection: $thinkingLevelRaw) {
+                    Text(AppLocalized("跟着聊天页的设置走")).tag(String?.none)
+                    ForEach(ThinkingLevel.allCases, id: \.self) { lvl in
+                        Text(lvl.displayName).tag(String?.some(lvl.rawValue))
+                    }
+                }
+                HStack {
+                    Text(AppLocalized("温度"))
+                    Spacer()
+                    TextField(AppLocalized("不发"), text: $temperatureText)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
+                }
+                HStack {
+                    Text(AppLocalized("单次最多写多长"))
+                    Spacer()
+                    TextField(AppLocalized("自动"), text: $maxTokensText)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
+                }
+                Text(AppLocalized("留空就是跟着聊天页全局的设置走。填了就在这个角色的会话里生效。"))
                     .font(.caption)
                     .foregroundStyle(ChatColors.secondaryText)
             }
@@ -148,6 +182,11 @@ struct CharacterEditorView: View {
         updated.persona = persona
         updated.hue = hue
         updated.modelEntryId = modelEntryId
+        updated.thinkingLevel = thinkingLevelRaw
+        let t = Double(temperatureText.trimmingCharacters(in: .whitespaces))
+        updated.temperature = (t != nil && t! >= 0 && t! <= 2) ? t : nil
+        let m = Int(maxTokensText.trimmingCharacters(in: .whitespaces))
+        updated.maxOutputTokens = (m != nil && m! > 0) ? m : nil
         store.upsert(updated)
         // 记忆单独走文件——implify ugly on display plus detail edit:
         let memURL = FileManager.default

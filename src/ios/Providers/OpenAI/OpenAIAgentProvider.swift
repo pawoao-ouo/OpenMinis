@@ -44,12 +44,13 @@ final class OpenAIAgentProvider: AgentProvider {
         systemPrompt: String?,
         tools: [AgentToolDefinition],
         maxTokens: Int,
-        thinkingLevel: ThinkingLevel
+        thinkingLevel: ThinkingLevel,
+        temperature: Double?
     ) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
         if provider.usesChatCompletionsAPI {
-            return try await streamChatCompletions(messages: messages, systemPrompt: systemPrompt, tools: tools, maxTokens: maxTokens, thinkingLevel: thinkingLevel)
+            return try await streamChatCompletions(messages: messages, systemPrompt: systemPrompt, tools: tools, maxTokens: maxTokens, thinkingLevel: thinkingLevel, temperature: temperature)
         } else {
-            return try await streamResponsesAPI(messages: messages, systemPrompt: systemPrompt, tools: tools, maxTokens: maxTokens, thinkingLevel: thinkingLevel)
+            return try await streamResponsesAPI(messages: messages, systemPrompt: systemPrompt, tools: tools, maxTokens: maxTokens, thinkingLevel: thinkingLevel, temperature: temperature)
         }
     }
 
@@ -60,7 +61,8 @@ final class OpenAIAgentProvider: AgentProvider {
         systemPrompt: String?,
         tools: [AgentToolDefinition],
         maxTokens: Int,
-        thinkingLevel: ThinkingLevel = .off
+        thinkingLevel: ThinkingLevel = .off,
+        temperature: Double? = nil
     ) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
         let openAIMessages = flattenChatCompletionsMessages(messages, thinkingLevel: thinkingLevel)
         let openAITools = convertToolsChatCompletions(tools)
@@ -94,6 +96,9 @@ final class OpenAIAgentProvider: AgentProvider {
             "messages": allMessages,
             "stream": true,
         ]
+        if let temperature {
+            body["temperature"] = temperature
+        }
         // [T-codex-prompt-cache-headers] Same stable per-conversation key the
         // Responses path sends. OpenAI's prompt-caching guide states that on
         // GPT-5.6+ you *must* set `prompt_cache_key` to get the more reliable
@@ -423,7 +428,8 @@ final class OpenAIAgentProvider: AgentProvider {
         systemPrompt: String?,
         tools: [AgentToolDefinition],
         maxTokens: Int,
-        thinkingLevel: ThinkingLevel = .off
+        thinkingLevel: ThinkingLevel = .off,
+        temperature: Double? = nil
     ) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
         let inputMessages = convertMessagesResponsesAPI(messages)
         let responsesTools = convertToolsResponsesAPI(tools)
@@ -437,6 +443,9 @@ final class OpenAIAgentProvider: AgentProvider {
             "parallel_tool_calls": true,
             "input": inputMessages,
         ]
+        if let temperature {
+            body["temperature"] = temperature
+        }
         // Stable per-conversation key so the Responses API can hit prompt cache
         // across turns. Codex CLI sets this to its conversation_id; we don't have
         // one at this layer, so we derive a stable hash from the first user

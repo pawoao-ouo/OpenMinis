@@ -53,7 +53,8 @@ final class AnthropicAgentProvider: AgentProvider {
         systemPrompt: String?,
         tools: [AgentToolDefinition],
         maxTokens: Int,
-        thinkingLevel: ThinkingLevel
+        thinkingLevel: ThinkingLevel,
+        temperature: Double?
     ) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
         pendingToolResultImages.removeAll()
         #if DEBUG
@@ -111,6 +112,11 @@ final class AnthropicAgentProvider: AgentProvider {
             // model) may reach the wire between this set and its take.
             RequestBodyPatcher.setThinkingDisabled(modelId: model.id)
             logger.info("Thinking explicitly DISABLED (adaptive default-on model, level=off) model=\(self.model.id)")
+        }
+        // 会话/角色层温度——只在调用方显式给了值时打补丁；没给就不打，
+        // body 与温 patcher 立即归零，与旧代码逐字节一致。
+        if let temperature {
+            RequestBodyPatcher.setSamplingTemperature(temperature, modelId: model.id)
         }
 
         // Anthropic-compat proxies (e.g. DeepSeek's deepseek-v4-pro endpoint

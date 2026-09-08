@@ -47,7 +47,8 @@ extension AIChatViewModel {
                 }
             }
             do {
-                var thinkLvl = sessionId.flatMap { ProviderConfigStore.shared.inferenceConfig(for: $0)?.thinkingLevel } ?? .off
+                let sessCfg = sessionId.flatMap { ProviderConfigStore.shared.inferenceConfig(for: $0) }
+                var thinkLvl = sessCfg?.thinkingLevel ?? .off
                 // [T-fallback-thinking-preclamp] Clamp to the CURRENT entry's
                 // effective max BEFORE building the request — the session's
                 // persisted level may exceed what this (possibly re-resolved)
@@ -56,12 +57,17 @@ extension AIChatViewModel {
                 if let entry = resolveCurrentEntry() {
                     thinkLvl = min(thinkLvl, entry.effectiveMaxThinkingLevel)
                 }
+                // Session knob overrides (from character defaults): capped by
+                // the dynamic context headroom so a fat user value can never
+                // overflow the window.
+                let effectiveMax = sessCfg?.maxOutputTokens.map { min($0, maxTokens) } ?? maxTokens
                 let stream = try await currentProvider.streamAgentMessage(
                     messages: messages,
                     systemPrompt: systemPrompt,
                     tools: tools,
-                    maxTokens: maxTokens,
-                    thinkingLevel: thinkLvl
+                    maxTokens: effectiveMax,
+                    thinkingLevel: thinkLvl,
+                    temperature: sessCfg?.temperature
                 )
                 self.autoRetryAttempt = 0
                 return stream
@@ -121,7 +127,16 @@ extension AIChatViewModel {
                 // First attempt: call provider directly (no auto-retry) so we can
                 // distinguish fallbackable errors from network errors.
                 let currentModel = currentEntryId.flatMap { ProviderConfigStore.shared.entry(for: $0)?.model } ?? model
-                let maxTok = dynamicMaxTokens(provider: currentProvider, model: currentModel, lastContextTokens: lastContextTokens)
+                let maxTok: Int = {
+                    let dyn = dynamicMaxTokens(provider: currentProvider, model: currentModel, lastContextTokens: lastContextTokens)
+                    guard let sid = sessionId,
+                          let override = ProviderConfigStore.shared.inferenceConfig(for: sid)?.maxOutputTokens
+                    else { return dyn }
+                    return min(override, dyn)
+                }()
+                let sessTemperature: Double? = sessionId.flatMap {
+                    ProviderConfigStore.shared.inferenceConfig(for: $0)?.temperature
+                }
                 var thinkLvl = sessionId.flatMap { ProviderConfigStore.shared.inferenceConfig(for: $0)?.thinkingLevel } ?? .off
                 // [T-fallback-thinking-preclamp] When falling back (e.g. a
                 // Responses-API primary at xhigh → a Chat-API seed model that
@@ -139,7 +154,8 @@ extension AIChatViewModel {
                     systemPrompt: currentSystemPrompt,
                     tools: tools,
                     maxTokens: maxTok,
-                    thinkingLevel: thinkLvl
+                    thinkingLevel: thinkLvl,
+                    temperature: sessTemperature
                 )
                 // Success — update binding if we fell back to a different entry
                 let prevEntryId = activeEntryId

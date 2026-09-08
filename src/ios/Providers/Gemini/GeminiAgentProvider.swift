@@ -21,7 +21,8 @@ final class GeminiAgentProvider: AgentProvider {
         systemPrompt: String?,
         tools: [AgentToolDefinition],
         maxTokens: Int,
-        thinkingLevel: ThinkingLevel
+        thinkingLevel: ThinkingLevel,
+        temperature: Double?
     ) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
         let geminiContents = convertMessages(messages)
         let geminiTools = convertTools(tools)
@@ -33,7 +34,8 @@ final class GeminiAgentProvider: AgentProvider {
                 systemPrompt: systemPrompt,
                 maxTokens: maxTokens,
                 tools: geminiTools,
-                thinkingLevel: thinkingLevel
+                thinkingLevel: thinkingLevel,
+                temperature: temperature
             )
         } catch {
             throw provider.mapError(error)

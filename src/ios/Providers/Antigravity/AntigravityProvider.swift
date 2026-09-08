@@ -116,7 +116,8 @@ final class AntigravityProvider: LLMProvider {
         systemPrompt: String?,
         maxTokens: Int,
         tools: [[String: Any]],
-        thinkingLevel: ThinkingLevel = .off
+        thinkingLevel: ThinkingLevel = .off,
+        temperature: Double? = nil
     ) async throws -> AsyncThrowingStream<GeminiStreamEvent, Error> {
         var inner: [String: Any] = ["contents": contents]
 
@@ -126,7 +127,7 @@ final class AntigravityProvider: LLMProvider {
 
         var genConfig: [String: Any] = [
             "maxOutputTokens": maxTokens,
-            "temperature": 0.7,
+            "temperature": temperature ?? 0.7,
         ]
         let thinkCfg = thinkingLevel.isEnabled ? elevatedThinkingConfig(level: thinkingLevel) : minimalThinkingConfig()
         if !thinkCfg.isEmpty { genConfig["thinkingConfig"] = thinkCfg }

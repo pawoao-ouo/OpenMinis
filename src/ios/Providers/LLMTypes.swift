@@ -914,9 +914,14 @@ extension LLMModel {
     }
 }
 
-/// Per-session inference settings (thinking toggle, etc.).
+/// Per-session inference settings (thinking toggle, sampling overrides).
+/// temperature/maxOutputTokens 只在显式设置时写入请求；nil = 请求体保持原样。
 struct SessionInferenceConfig: Codable, Hashable {
     var thinkingLevel: ThinkingLevel = .off
+    /// 采样温度（0–2）。nil 表示完全不发该字段。
+    var temperature: Double?
+    /// 本会话单次最大输出 token。nil 表示跟随全局 dynamic 推断。
+    var maxOutputTokens: Int?
 
     /// Convenience — true when thinking is enabled at any level.
     var thinkingEnabled: Bool { thinkingLevel.isEnabled }
@@ -931,6 +936,8 @@ struct SessionInferenceConfig: Codable, Hashable {
         } else {
             thinkingLevel = .off
         }
+        temperature = try container.decodeIfPresent(Double.self, forKey: .temperature)
+        maxOutputTokens = try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
     }
 
     init() { thinkingLevel = .off }
@@ -938,10 +945,12 @@ struct SessionInferenceConfig: Codable, Hashable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(thinkingLevel, forKey: .thinkingLevel)
+        try container.encodeIfPresent(temperature, forKey: .temperature)
+        try container.encodeIfPresent(maxOutputTokens, forKey: .maxOutputTokens)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case thinkingLevel, thinkingEnabled
+        case thinkingLevel, thinkingEnabled, temperature, maxOutputTokens
     }
 }
 

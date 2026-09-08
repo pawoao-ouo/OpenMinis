@@ -647,6 +647,7 @@ private final class OAuthURLProtocol: URLProtocol, URLSessionDataDelegate {
         // Inject thinking config (budget_tokens + beta header) when enabled
         RequestBodyPatcher.injectThinkingConfig(into: mutable)
         RequestBodyPatcher.injectThinkingBlocksForCompatProxy(into: mutable)
+        RequestBodyPatcher.injectSamplingConfig(into: mutable)
         #if DEBUG
         AgentRequestTrace.shared.step("urlprotocol.afterPatchers", detail: "httpBody=\(mutable.httpBody?.count ?? -1)")
         #endif
@@ -1032,6 +1033,31 @@ enum RequestBodyPatcher {
     /// intent was computed for; "" means unstamped (legacy callers).
     private static var _thinkingDisabledModelId: String = ""
 
+    /// 用户采样温度，已按模型盖章（同 thinkingDisabled 的 cross-request 防护）。
+    /// nil = 不打补丁，body 保持原样。
+    private static var _samplingTemperature: Double? = nil
+    private static var _samplingTemperatureModelId: String = ""
+
+    /// Set a user-requested sampling temperature for the next Anthropic request.
+    /// Consumed single-shot by injectSamplingConfig. modelId stamps the intent
+    /// so a stray request on another model never inherits it.
+    static func setSamplingTemperature(_ temperature: Double?, modelId: String = "") {
+        thinkingLock.lock()
+        _samplingTemperature = temperature
+        _samplingTemperatureModelId = modelId
+        thinkingLock.unlock()
+    }
+
+    private static func takeSamplingTemperature() -> (Double?, String) {
+        thinkingLock.lock()
+        defer { thinkingLock.unlock() }
+        let t = _samplingTemperature
+        let m = _samplingTemperatureModelId
+        _samplingTemperature = nil
+        _samplingTemperatureModelId = ""
+        return (t, m)
+    }
+
     /// Set thinking budget tokens for the next request (0 = disabled).
     /// Used for legacy Claude models (<= 4.5) that take `thinking.type="enabled"`
     /// + `budget_tokens`.
@@ -1341,6 +1367,30 @@ enum RequestBodyPatcher {
         }
     }
 
+    /// Injects the user-requested sampling `temperature` when set. Runs AFTER
+    /// injectThinkingConfig — legacy thinking forces temperature=1 and adaptive
+    /// models reject the field outright, so we only write when the body carries
+    /// no thinking intent at all. Like every patcher state this is single-shot
+    /// and model-stamped: an intent set for model A never lands on model B.
+    static func injectSamplingConfig(into request: NSMutableURLRequest) {
+        let (temp, forModel) = takeSamplingTemperature()
+        guard let temperature = temp, !forModel.isEmpty else { return }
+        guard let body = request.httpBody,
+              var json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return }
+        let modelId = (json["model"] as? String) ?? ""
+        guard modelId == forModel else {
+            logger.info("[Sampling] dropped cross-request temperature intent set for \(forModel) — this request is \(modelId)")
+            return
+        }
+        guard !AnthropicProvider.modelRejectsTemperature(modelId) else { return }
+        // Thinking on? Back away — legacy forces 1, adaptive-reject handled above.
+        if json["thinking"] != nil { return }
+        json["temperature"] = temperature
+        if let newBody = try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]) {
+            request.httpBody = newBody
+        }
+    }
+
     /// Injects `"ttl": "1h"` into every `cache_control` object in messages and system prompt.
     static func injectCacheTTL(into request: NSMutableURLRequest) {
         guard extendedCacheTTLEnabled else { return }
@@ -1420,6 +1470,7 @@ private final class EagerStreamingURLProtocol: URLProtocol, URLSessionDataDelega
         RequestBodyPatcher.injectCacheTTL(into: mutable)
         RequestBodyPatcher.injectThinkingConfig(into: mutable)
         RequestBodyPatcher.injectThinkingBlocksForCompatProxy(into: mutable)
+        RequestBodyPatcher.injectSamplingConfig(into: mutable)
 
         // Remove stale Content-Length — URLSession will recalculate from httpBody
         mutable.setValue(nil, forHTTPHeaderField: "Content-Length")
@@ -1610,6 +1661,7 @@ private final class DualAuthURLProtocol: URLProtocol, URLSessionDataDelegate {
         RequestBodyPatcher.injectCacheTTL(into: mutable)
         RequestBodyPatcher.injectThinkingConfig(into: mutable)
         RequestBodyPatcher.injectThinkingBlocksForCompatProxy(into: mutable)
+        RequestBodyPatcher.injectSamplingConfig(into: mutable)
         mutable.setValue(nil, forHTTPHeaderField: "Content-Length")
 
         #if DEBUG

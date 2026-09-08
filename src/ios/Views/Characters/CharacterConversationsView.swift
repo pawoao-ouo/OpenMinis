@@ -104,6 +104,7 @@ struct CharacterChatLoader: View {
                 // 人设+记忆前缀推进 system 层（裸量缝在 build 里包 UI 层,这层视图
                 // 是package 弃用 seal pull）
                 vm.soulOverlay = buildOverlay()
+                applyParameterDefaults()
             }
             .onChange(of: vm.isProcessing) { isProcessing in
                 guard !isProcessing else { return }
@@ -122,6 +123,33 @@ struct CharacterChatLoader: View {
             s += "\n你的专属记忆（仅你知道、只有你所有）：\n" + memory
         }
         return s
+    }
+
+    /// 把角色卡上的思考/温度/Token 默认灌输进这个会话的 inference 配置。
+    /// 规则：**会话从未动过推理配置 → 整份默认写进；已动过 → 只补用户没设的 nil 位**。
+    /// thinking 那格只要 inferenceConfig 一存在就视为「用户已表态」，不再覆盖。
+    private func applyParameterDefaults() {
+        let store = ProviderConfigStore.shared
+        let existing = store.inferenceConfig(for: sessionId)
+        let fresh = (existing == nil)
+        var cfg = existing ?? SessionInferenceConfig()
+        var changed = false
+
+        if fresh, let tl = character.thinkingLevel {
+            cfg.thinkingLevel = ThinkingLevel.decoded(tl)
+            changed = true
+        }
+        if cfg.temperature == nil, let t = character.temperature {
+            cfg.temperature = t
+            changed = true
+        }
+        if cfg.maxOutputTokens == nil, let m = character.maxOutputTokens {
+            cfg.maxOutputTokens = m
+            changed = true
+        }
+        if changed {
+            store.setInferenceConfig(cfg, for: sessionId)
+        }
     }
 
     private func rememberLatest() {

@@ -183,12 +183,15 @@ protocol AgentProvider {
     /// Provider-specific streaming implementation. Receives a thinking level
     /// that has already been clamped to the model's effective max by the
     /// protocol extension — implementations should NOT re-clamp.
+    /// `temperature`: nil means "send nothing" — the request body stays
+    /// byte-identical to the pre-override behaviour.
     func streamAgentMessageClamped(
         messages: [AgentMessage],
         systemPrompt: String?,
         tools: [AgentToolDefinition],
         maxTokens: Int,
-        thinkingLevel: ThinkingLevel
+        thinkingLevel: ThinkingLevel,
+        temperature: Double?
     ) async throws -> AsyncThrowingStream<AgentStreamEvent, Error>
 }
 
@@ -198,12 +201,14 @@ extension AgentProvider {
         systemPrompt: String?,
         tools: [AgentToolDefinition],
         maxTokens: Int,
-        thinkingLevel: ThinkingLevel
+        thinkingLevel: ThinkingLevel,
+        temperature: Double? = nil
     ) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
         let clamped = min(thinkingLevel, model.catalogMaxThinkingLevel)
         return try await streamAgentMessageClamped(
             messages: messages, systemPrompt: systemPrompt,
-            tools: tools, maxTokens: maxTokens, thinkingLevel: clamped
+            tools: tools, maxTokens: maxTokens, thinkingLevel: clamped,
+            temperature: temperature
         )
     }
 

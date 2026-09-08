@@ -21,6 +21,12 @@ internal struct CharacterCard: Identifiable, Codable, Equatable {
     var memory: String
     /// 人物默认绑的模型入口 id；nil 跟当前会话模型
     var modelEntryId: String?
+    /// 默认思考档位（ThinkingLevel.rawValue）；nil = 跟随会话/全局
+    var thinkingLevel: String?
+    /// 采样温度；nil = 不发给 provider（行为与现状完全一致）
+    var temperature: Double?
+    /// 单次回答最大输出 token；nil = 跟随模型/全局推断
+    var maxOutputTokens: Int?
     var createdAt: Date
 
     var placeholderGlyph: String {
@@ -38,6 +44,9 @@ internal struct CharacterCard: Identifiable, Codable, Equatable {
         persona: String = "",
         memory: String = "",
         modelEntryId: String? = nil,
+        thinkingLevel: String? = nil,
+        temperature: Double? = nil,
+        maxOutputTokens: Int? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -47,6 +56,9 @@ internal struct CharacterCard: Identifiable, Codable, Equatable {
         self.persona = persona
         self.memory = memory
         self.modelEntryId = modelEntryId
+        self.thinkingLevel = thinkingLevel
+        self.temperature = temperature
+        self.maxOutputTokens = maxOutputTokens
         self.createdAt = createdAt
     }
 }
