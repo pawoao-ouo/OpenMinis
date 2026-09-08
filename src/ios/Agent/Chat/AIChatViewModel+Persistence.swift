@@ -287,6 +287,10 @@ extension AIChatViewModel {
             }
 
             if raw.role == .assistant {
+                // 群聊：换人发言就断开合并链，不然 B 的话会并进 A 的气泡。
+                if (currentAssistant?.speakerId ?? "") != (raw.speakerId ?? "") {
+                    currentAssistant = nil
+                }
                 if let assistant = currentAssistant {
                     // Continuation of an agent loop — append new blocks to
                     // existing assistant message AND extend the source-sort
@@ -1370,6 +1374,8 @@ extension AIChatViewModel {
     /// leaves the row unattributed (rendered as "estimated") rather than
     /// recording a guess.
     func buildRawMessage(_ msg: AgentMessage, tokenUsage: TokenUsage? = nil, snapshots: [String: (toolName: String, snapshot: ToolSnapshot)] = [:], thoughtSignatures: [String: String] = [:], reasoningContent: String? = nil, streamInterruptCount: Int = 0, toolStatuses: [String: String] = [:], modelEntryId: String? = nil) async -> RawMessage? {
+        // 群聊：发言者从 AgentMessage 上带下来（send 轮值时 mark）。
+
         await ensureSession()
         guard let sessionId else { return nil }
 
@@ -1437,6 +1443,7 @@ extension AIChatViewModel {
                 .instance(for: entry.providerInstanceId)?.providerType.rawValue
             raw.providerInstanceId = entry.providerInstanceId
         }
+        raw.speakerId = msg.speakerId   // 群聊发言者（nil 在普通会话）
         return raw
     }
 

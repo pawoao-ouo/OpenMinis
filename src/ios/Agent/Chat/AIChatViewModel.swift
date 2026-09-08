@@ -534,6 +534,20 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// 不会融进主会话/SOUL.md，不写 DB。AIChatView 出厂默认空。
     var soulOverlay: String? = nil
 
+    // MARK: - 群聊轮值（QQ 式多角色）
+
+    /// 这一轮应该开口的成员（顺序即轮值顺序）。nil/空 = 普通单聊，不影响。
+    /// GroupChatLoader 在输入变化时刷新；send() 里按名单挨个跑 runAgentLoop。
+    var groupRoster: [CharacterCard]? = nil
+    /// 群名/氛围简介，进每个成员的系统提示。
+    var groupHeaderPrompt: String? = nil
+    /// 正在发话的成员。非空时：流式气泡挂名、agentHistory 落的 assistant
+    /// 消息带 speakerId、历史打包时给别的成员加「**名字**」前缀。
+    var activeGroupSpeakerId: String? = nil
+    /// 成员自己资料里挑的模型优先于会话绑定；nil 就照旧走
+    /// resolveCurrentEntry()（角色没选模型时用会话当前模型）。
+    var groupModelEntryOverride: ModelEntry? = nil
+
     @Published var inputText = "" {
         didSet {
             if inputText.isEmpty && !oldValue.isEmpty {
@@ -2677,8 +2691,51 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
             defer { concurrency.releaseSlot(sessionId: sid) }
 
+            // 群聊：按名册轮值。每个成员各自跑一整轮 runAgentLoop——
+            // 独立 system overlay（自己人设+自己记忆）、独立模型（成员资料里
+            // 挑的优先）、独立气泡（speakerId）。某个成员失败只影响他自己，
+            // 剩下的人照说。醒醒中途喊停（userDidCancel）就全员刹车。
             do {
-                try await self.runAgentLoop()
+                if let roster = self.groupRoster, !roster.isEmpty, self.activeGroupSpeakerId == nil {
+                    let header = self.groupHeaderPrompt ?? ""
+                    for member in roster {
+                        if self.userDidCancel { break }
+                        self.applyGroupTurn(for: member, header: header, roster: roster)
+                        do {
+                            try await self.runAgentLoop()
+                        } catch is CancellationError {
+                            break   // 接力让出去就停
+                        } catch {
+                            // 单人失败：记日志、气泡上克错误、继续下一位
+                            let desc = String(describing: error)
+                            logger.error("[GroupTurn] member \(member.name) failed: \(desc)")
+                            if let last = self.messages.last(where: { $0.role == .assistant }) {
+                                last.error = Self.friendlyErrorMessage((error as? LocalizedError)?.errorDescription ?? desc)
+                            }
+                        }
+                        // 收割：这个成员这轮说的话，进它自己的 memory.md。
+                        // 只在这个会话内当场收——不碰 DB 扫库，不跨重启重复。
+                        if let mine = self.messages.last(where: { $0.role == .assistant && $0.speakerId == member.id.uuidString }),
+                           mine.error == nil {
+                            let texts = mine.blocks.compactMap { b -> String? in
+                                b.kind == .text ? b.content : nil
+                            }.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                             .filter { !$0.isEmpty }
+                            if !texts.isEmpty {
+                                let stamp = ISO8601DateFormatter().string(from: Date())
+                                CharacterStore.shared.appendMemory(
+                                    "\(stamp) 群「\(self.groupHeaderPrompt?.replacingOccurrences(of: "\n", with: " ") ?? "群")」里我说：\(texts.joined(separator: " / ").prefix(200))",
+                                    to: member.id
+                                )
+                            }
+                        }
+                        self.activeGroupSpeakerId = nil
+                        self.groupModelEntryOverride = nil
+                    }
+                    self.soulOverlay = nil
+                } else {
+                    try await self.runAgentLoop()
+                }
             } catch is CancellationError {
                 logger.info("Agent loop cancelled")
                 self.handleUserCancelledCleanup()
@@ -3605,6 +3662,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // on instantly; tell runAgentLoop to resume into it.
             let placeholder = ChatMessage(role: .assistant, content: "", blocks: [])
             placeholder.isAwaitingModelResponse = true
+            placeholder.speakerId = activeGroupSpeakerId   // 群聊挂名
             messages.append(placeholder)
             effectiveResumeAt = messages.count - 1
             effectiveResumeBlocks = 0
@@ -4387,7 +4445,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             messages[msgIdx].usage = turnUsage
         }
         // Start a new assistant message so the next response appears below the queued user message
-        messages.append(ChatMessage(role: .assistant, content: "", blocks: []))
+        let queuedBubble = ChatMessage(role: .assistant, content: "", blocks: [])
+        queuedBubble.speakerId = activeGroupSpeakerId   // 群聊挂名
+        messages.append(queuedBubble)
         msgIdx = messages.count - 1
         committedBlockCount = 0
         self.committedBlockCount = 0
@@ -4561,6 +4621,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     private func reportTurnFailure(_ displayDesc: String) {
         errorMessage = displayDesc
         let carrier = ChatMessage(role: .assistant, content: "", blocks: [])
+        carrier.speakerId = activeGroupSpeakerId   // 群聊挂名
         carrier.error = displayDesc
         messages.append(carrier)
         Task { await self.persistErrorInfo(displayDesc) }
@@ -4826,6 +4887,111 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         message.blocks = kept
     }
 
+    /// 群聊历史改写：把 DB/内存历史换成「当前发话成员视角」的请求历史。
+    ///
+    /// 规则：
+    /// - 自己的消息原样（assistant，含自己的工具链）。
+    /// - 别的成员/无 speakerId 的 assistant 消息：文本加「**名字**: 」前缀，
+    ///   连续成串的同角色合成一条，角色换成 user，贴着用户的气流走。
+    ///   人家调过的工具会断链，这里直接丢弃 tool 部分，只留文本——
+    ///   群聊本来就不要求每个成员看到别人的工具细节。
+    /// - 产出必是严格 user/assistant 交替，Anthropic/OpenAI 两边都吃得下。
+    private func groupAdaptedHistory(_ history: [AgentMessage], for speakerId: String) -> [AgentMessage] {
+        var out: [AgentMessage] = []
+        for msg in history {
+            if msg.role == .assistant, msg.speakerId == speakerId {
+                // 自己的历史：原样
+                Self.appendAdapted(&out, msg)
+                continue
+            }
+            if msg.role == .assistant {
+                // 别人的话：只留文本，加名字前缀
+                let name: String
+                if let spk = msg.speakerId,
+                   let char = CharacterStore.shared.characters.first(where: { $0.id.uuidString == spk }) {
+                    name = char.name
+                } else {
+                    name = "对方"
+                }
+                let texts = msg.parts.compactMap { part -> String? in
+                    if case .text(let t) = part { return t }
+                    return nil
+                }.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                guard !texts.isEmpty else { continue }
+                let joined = texts.joined(separator: "\n")
+                let labeled = AgentMessage(role: .user, parts: [.text("**\(name)**: \(joined)")])
+                Self.appendAdapted(&out, labeled)
+                continue
+            }
+            Self.appendAdapted(&out, msg)
+        }
+
+        // 死活链清理：别人的 tool_use 已被剥成纯文本，对应的 tool_result
+        // 还挂在 user 消息上——API 一看 tool_use_id 没有配对的 call 就 400。
+        // 这里把悬空的 toolResult 全部摘掉；只剩 toolResult 的空消息整体丢。
+        var keptToolUseIds = Set<String>()
+        for m in out where m.role == .assistant {
+            for part in m.parts {
+                if case .toolUse(let id, _, _) = part { keptToolUseIds.insert(id) }
+            }
+        }
+        out = out.compactMap { m -> AgentMessage? in
+            guard m.role == .user else { return m }
+            var mm = m
+            mm.parts = mm.parts.filter { part in
+                if case .toolResult(let id, _, _, _, _, _, _, _) = part {
+                    return keptToolUseIds.contains(id)
+                }
+                return true
+            }
+            return mm.parts.isEmpty ? nil : mm
+        }
+        return out
+    }
+
+    /// 交替合并：同角色的相邻消息在前一条上拼 parts（tool 链靠 id 配对，
+    /// 拼块不动配对结构）。开头不是 user 就头补空 user。
+    private static func appendAdapted(_ out: inout [AgentMessage], _ msg: AgentMessage) {
+        if let last = out.last, last.role == msg.role {
+            out[out.count - 1].parts.append(contentsOf: msg.parts)
+            return
+        }
+        out.append(msg)
+    }
+
+    /// 群聊单成员上场前落位：overlay（自己人设+自己记忆+名册）、模型重载、
+    /// speaker 标记。群名单由 GroupChatLoader 维护。成员没选模型则
+    /// groupModelEntryOverride 为 nil，照旧走会话绑定。
+    private func applyGroupTurn(for member: CharacterCard,
+                                header: String, roster: [CharacterCard]) {
+        activeGroupSpeakerId = member.id.uuidString
+        if let eid = member.modelEntryId,
+           let entry = ProviderConfigStore.shared.entry(for: eid) {
+            groupModelEntryOverride = entry
+        } else {
+            groupModelEntryOverride = nil
+        }
+
+        var overlay = header
+        overlay += "\n\n这一轮开口的是你——「\(member.name)」。"
+        if !member.persona.isEmpty {
+            overlay += "\n你的人设：\(member.persona)"
+        }
+        let mem = CharacterStore.shared.memory(for: member.id)
+        if !mem.isEmpty {
+            let tail = mem.split(separator: "\n").suffix(8).joined(separator: "\n")
+            overlay += "\n你的私人记忆（只有你知道）：\n" + tail
+        }
+        let others = roster.filter { $0.id != member.id }
+        if !others.isEmpty {
+            overlay += "\n群里的其他人：" + others.map { c in
+                c.persona.isEmpty ? c.name : "\(c.name)（\(c.persona)）"
+            }.joined(separator: "；")
+        }
+        overlay += "\n\n群规矩：\n1. 只说这个成员会说的话，别替别人开口——别人有自己的回合。\n2. 历史里别人说过的话带「**名字**」前缀，那就是他们说的，不用每段都回应。\n3. 自己开口别加「**名字**」前缀，名字已经挂在你气泡上了。\n4. 顺着群氛围说话，闲聊就短平快。"
+        soulOverlay = overlay
+    }
+
     private func runAgentLoop(resumingAt existingMsgIdx: Int? = nil, committedBlocks: Int? = nil) async throws {
         // REPRO-DIAG(2026-05-16): bump global round counter and emit a clear
         // BEGIN/END marker so the user can grep `ROUND \d+` to slice the log
@@ -4842,10 +5008,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // [T-ios-empty-after-toolresult-reminder] Fresh turn → allow one reminder retry.
         didInjectEmptyToolReminderThisRun = false
 
-        // Resolve provider from ProviderConfigStore
-        guard let entry = resolveCurrentEntry() else {
+        // Resolve provider from ProviderConfigStore.
+        // 群聊：成员自己挑的模型优先（applyGroupTurn 事先塞好重载）。
+        let resolvedEntry = groupModelEntryOverride ?? resolveCurrentEntry()
+        guard let entry = resolvedEntry else {
             let errMsg = ChatMessage(role: .assistant, content: "", blocks: [])
             errMsg.error = AppLocalized("No model configured. Add a provider in Settings.")
+            errMsg.speakerId = activeGroupSpeakerId
             messages.append(errMsg)
             return
         }
@@ -4950,7 +5119,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             let blocks = okBounds ? messages[existingMsgIdx].blocks.count : -1
             AppLogger(category: "RetryDiag").info("[RetryDiag] runAgentLoop RESUME existingMsgIdx=\(existingMsgIdx) role=\(role) blocks=\(blocks) committedBlocks=\(committedBlocks ?? -1) messagesCount=\(self.messages.count)")
         } else {
-            messages.append(ChatMessage(role: .assistant, content: "", blocks: []))
+            let fresh = ChatMessage(role: .assistant, content: "", blocks: [])
+            fresh.speakerId = activeGroupSpeakerId   // 群聊挂名；单聊为 nil
+            messages.append(fresh)
             msgIdx = messages.count - 1
         }
         // Capture the assistant message's stable id so we can re-find it
@@ -5141,7 +5312,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     // rest of the turn stays visible instead of streaming into a
                     // detached object.
                     AppLogger(category: "BlocksLost").warning("[BlocksLost] LOOP-REAPPEND — streaming message gone and no trailing assistant (count=\(messages.count)); appending fresh assistant message")
-                    messages.append(ChatMessage(role: .assistant, content: "", blocks: []))
+                    let reborn = ChatMessage(role: .assistant, content: "", blocks: [])
+                    reborn.speakerId = activeGroupSpeakerId   // 群聊断链重生也挂名
+                    messages.append(reborn)
                     msgIdx = messages.count - 1
                     runMsgId = messages[msgIdx].id
                     committedBlockCount = 0
@@ -5228,6 +5401,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     }
                     let fresh = ChatMessage(role: .assistant, content: "", blocks: [])
                     fresh.isAwaitingModelResponse = true
+                    fresh.speakerId = activeGroupSpeakerId   // 群聊挂名
                     messages.append(fresh)
                     msgIdx = messages.count - 1
                     runMsgId = fresh.id
@@ -5327,7 +5501,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             fallbackReasons.removeAll()
             // Phase B: route through effectiveAgentHistory() so compact summary is
             // synthesized at inference time instead of baked into agentHistory.
-            let contextHistory = effectiveAgentHistory()
+            var contextHistory = effectiveAgentHistory()
+            // 群聊：把历史换成「这个成员视角」的——别人的话带名字前缀、
+            // 别人的工具链剥掉（免得 tool_use/tool_result 跨成员断裂）、
+            // 连续同角色的合并掉（Anthropic 严格要求 user/assistant 交替）。
+            if let spid = activeGroupSpeakerId {
+                contextHistory = groupAdaptedHistory(contextHistory, for: spid)
+            }
             // [T-msgidx-oob] Re-resync before subscripting. The loop-top resync
             // (~line 4698) is not sufficient for this site: the in-loop
             // compaction guard above runs `await compactBefore(...)` in between,
@@ -5783,6 +5963,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             committedBlockCount = allBlocks.count
             self.committedBlockCount = committedBlockCount
             var assistantMessage = AgentMessage(role: .assistant, parts: assistantParts)
+            assistantMessage.speakerId = activeGroupSpeakerId   // 群聊成员挂名（单聊 nil）
             assistantMessage.isInterrupted = streamResult.isStreamInterrupted
             assistantMessage.reasoningContent = streamResult.reasoningContent
             assistantMessage.reasoningEcho = streamResult.reasoningEcho

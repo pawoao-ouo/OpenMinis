@@ -119,6 +119,9 @@ struct AgentMessage: @unchecked Sendable {
     /// via id instead of sort_order. nil while the message is still in-flight
     /// (e.g. mid-stream before persist).
     var dbMessageId: String? = nil
+    /// 群聊发言者（CharacterCard.id.uuidString）。单聊/普通会话恒为 nil。
+    /// 请求构建侧用它给每条 assistant 消息标注「谁说的」。
+    var speakerId: String? = nil
 }
 
 // MARK: - Stream Events

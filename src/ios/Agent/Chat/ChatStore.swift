@@ -5042,7 +5042,7 @@ extension RawMessage {
             blocks.insert(AssistantBlock(kind: .thinking, content: rc), at: 0)
         }
 
-        let msg = ChatMessage(role: uiRole, content: textContent, blocks: blocks)
+        let msg = ChatMessage(role: uiRole, content: textContent, blocks: blocks, speakerId: speakerId)
         // Deduplicate attachments by path
         var seenPaths = Set<String>()
         msg.attachments = userAttachments.filter { seenPaths.insert($0.path).inserted }
@@ -5189,6 +5189,7 @@ extension RawMessage {
 
         var msg = AgentMessage(role: agentRole, parts: agentParts)
         msg.reasoningContent = reasoningContent
+        msg.speakerId = speakerId   // 群聊：历史里的人名标注靠它
         return msg
     }
 
