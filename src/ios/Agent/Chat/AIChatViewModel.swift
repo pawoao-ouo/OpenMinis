@@ -536,9 +536,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
     // MARK: - 群聊轮值（QQ 式多角色）
 
-    /// 这一轮应该开口的成员（顺序即轮值顺序）。nil/空 = 普通单聊，不影响。
-    /// GroupChatLoader 在输入变化时刷新；send() 里按名单挨个跑 runAgentLoop。
-    var groupRoster: [CharacterCard]? = nil
+    /// 这个群的全体成员（不在 vm 里锁「谁开口」——@过滤在 send() 里
+    /// 按用户实际发的文本身做）。GroupChatLoader onAppear 填、onDisappear 清。
+    var groupMembers: [CharacterCard]? = nil
+    /// retryFromMessage 在群聊里要走轮值时：先把重发的 user 文本挂这里，
+    /// launchRerunAgentLoop 的 runAgentLoop 会被替换成 runTurn(for: pending)。
+    /// 用一次即清。
+    var pendingGroupText: String? = nil
     /// 群名/氛围简介，进每个成员的系统提示。
     var groupHeaderPrompt: String? = nil
     /// 正在发话的成员。非空时：流式气泡挂名、agentHistory 落的 assistant
@@ -2696,32 +2700,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // 挑的优先）、独立气泡（speakerId）。某个成员失败只影响他自己，
             // 剩下的人照说。醒醒中途喊停（userDidCancel）就全员刹车。
             do {
-                if let roster = self.groupRoster, !roster.isEmpty, self.activeGroupSpeakerId == nil {
-                    let header = self.groupHeaderPrompt ?? ""
-                    for member in roster {
-                        if self.userDidCancel { break }
-                        self.applyGroupTurn(for: member, header: header, roster: roster)
-                        do {
-                            try await self.runAgentLoop()
-                        } catch is CancellationError {
-                            break   // 接力让出去就停
-                        } catch {
-                            // 单人失败：记日志、气泡上克错误、继续下一位
-                            let desc = String(describing: error)
-                            logger.error("[GroupTurn] member \(member.name) failed: \(desc)")
-                            if let last = self.messages.last(where: { $0.role == .assistant }) {
-                                last.error = Self.friendlyErrorMessage((error as? LocalizedError)?.errorDescription ?? desc)
-                            }
-                        }
-                        // 不收割。成员自己决定记什么——它回合里的记忆工具
-                        // （character_remember）写的就是它自己的 memory.md。
-                        self.activeGroupSpeakerId = nil
-                        self.groupModelEntryOverride = nil
-                    }
-                    self.soulOverlay = nil
-                } else {
-                    try await self.runAgentLoop()
-                }
+                // 群聊/单聊共用入口：@过滤、轮值、单人降级都在里面。
+                // retryFromMessage 走一样的入口——群里重发一条也要全员轮。
+                try await self.runTurn(for: text)
             } catch is CancellationError {
                 logger.info("Agent loop cancelled")
                 self.handleUserCancelledCleanup()
@@ -2796,11 +2777,59 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
     }
 
+    /// 群聊/单聊统一入口——send() 和 retryFromMessage() 共用。
+    ///
+    /// 群会话：按「成员表 + @过滤」轮值，每个成员各自跑一整轮
+    /// runAgentLoop（自己的 overlay/模型/气泡）。单聊：单次 runAgentLoop。
+    private func runTurn(for text: String) async throws {
+        var effectiveRoster = self.groupMembers ?? []
+        if !effectiveRoster.isEmpty {
+            let mentioned = effectiveRoster.filter { m in
+                !m.name.isEmpty && (text.contains("@\(m.name)") || text.contains("＠\(m.name)"))
+            }
+            if !mentioned.isEmpty { effectiveRoster = mentioned }
+        }
+        guard !effectiveRoster.isEmpty, self.activeGroupSpeakerId == nil else {
+            try await self.runAgentLoop()
+            return
+        }
+        let header = self.groupHeaderPrompt ?? ""
+        for member in effectiveRoster {
+            if self.userDidCancel { break }
+            self.applyGroupTurn(for: member, header: header, roster: effectiveRoster)
+            do {
+                try await self.runAgentLoop()
+            } catch is CancellationError {
+                break   // 接力让出去就停
+            } catch {
+                let desc = String(describing: error)
+                logger.error("[GroupTurn] member \(member.name) failed: \(desc)")
+                if let last = self.messages.last(where: { $0.role == .assistant }) {
+                    last.error = Self.friendlyErrorMessage((error as? LocalizedError)?.errorDescription ?? desc)
+                }
+            }
+            self.activeGroupSpeakerId = nil
+            self.groupModelEntryOverride = nil
+        }
+        // cancel/break 之后也要把上场状态清掉
+        self.activeGroupSpeakerId = nil
+        self.groupModelEntryOverride = nil
+        if self.groupMembers != nil { self.soulOverlay = nil }
+    }
+
     /// Retry the next agent loop iteration (continue from where the error occurred,
     /// keeping all previously completed tool blocks and conversation history).
     func retry() {
         guard !isProcessing else { return }
         guard let lastMsg = messages.last, lastMsg.role == .assistant else { return }
+
+        // 群聊：retry 的气泡上有 speakerId——把这位成员的落位补回来
+        // （overlay / 模型重载），不然默认模型会顶替成员人设继续说。
+        if let spid = lastMsg.speakerId,
+           let members = groupMembers, !members.isEmpty,
+           let member = members.first(where: { $0.id.uuidString == spid }) {
+            applyGroupTurn(for: member, header: groupHeaderPrompt ?? "", roster: members)
+        }
 
         // [T-ios-retry-keyboard] This turn exists because the user re-sent an
         // old failure, so its completion must not be treated as "a reply
@@ -2965,6 +2994,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 return
             }
             await self.drainQueuedPrompts()
+            // 群聊 retry 补的人/模型下场要清——不然 retry 完那个成员的人设
+            // 粘在 vm 上，下一次群里发消息还是这一位在答。
+            self.activeGroupSpeakerId = nil
+            self.groupModelEntryOverride = nil
+            if self.groupMembers != nil { self.soulOverlay = nil }
             logger.info("🔄SESSION [vm=\(self.vmInstanceId)] retry DONE session=\(self.sessionId ?? "nil")")
             self.playCompletionHaptic()
             self.isProcessing = false
@@ -3112,6 +3146,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 return
             }
             await self.drainQueuedPrompts()
+            // 群聊 resume 下场同 retry——清成员状态，不然下一次 send()
+            // 会把这个成员的 overlay 留给别人/默认说。
+            self.activeGroupSpeakerId = nil
+            self.groupModelEntryOverride = nil
+            if self.groupMembers != nil { self.soulOverlay = nil }
             logger.info("🔄SESSION [vm=\(self.vmInstanceId)] resume DONE session=\(self.sessionId ?? "nil")")
             self.playCompletionHaptic()
             self.isProcessing = false
@@ -3379,6 +3418,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
 
         rebuildToolSnapshotsFromMessages()
+        // 群聊：retryFromMessage 不只重跑一个人——把这条 user 原文塞进
+        // 轮值循环，全员/被 @ 的那位重新说一次。
+        if let members = self.groupMembers, !members.isEmpty {
+            let retriedText = messages[idx].content + messages[idx].blocks
+                .filter { $0.kind == .text }
+                .map { $0.content }
+                .joined(separator: "\n")
+            pendingGroupText = retriedText
+        }
         launchRerunAgentLoop(label: "retryFromMessage")
     }
 
@@ -3689,7 +3737,23 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             defer { concurrency.releaseSlot(sessionId: retryFromSid) }
 
             do {
-                try await self.runAgentLoop(resumingAt: effectiveResumeAt, committedBlocks: effectiveResumeBlocks)
+                // 群聊 retryFromMessage：把重发的文本锁进 runTurn，全员轮
+                if let pend = self.pendingGroupText,
+                   let members = self.groupMembers, !members.isEmpty {
+                    self.pendingGroupText = nil
+                    // 上面 launchRerunAgentLoop 打的占位气泡属于 rerun——
+                    // 群聊里 runTurn 会按名册起 N 个成员气泡，不要这个。
+                    if let last = self.messages.last,
+                       last.role == .assistant,
+                       last.isAwaitingModelResponse,
+                       last.content.isEmpty,
+                       last.blocks.isEmpty {
+                        self.messages.removeLast()
+                    }
+                    try await self.runTurn(for: pend)
+                } else {
+                    try await self.runAgentLoop(resumingAt: effectiveResumeAt, committedBlocks: effectiveResumeBlocks)
+                }
             } catch is CancellationError {
                 logger.info("Agent loop cancelled (\(label))")
                 self.handleUserCancelledCleanup()
