@@ -60,6 +60,25 @@ extension AIChatViewModel {
         return result
     }
 
+    /// 群聊成员回合专用：把记忆写进「正在发话的角色」的 memory.md。
+    /// 不走 GLOBAL / daily——这是这个角色自己的人设记忆，在群聊和它的
+    /// 单聊里都随车。工具只在群聊成员回合里注册。
+    func executeCharacterRemember(from json: String) -> FileToolResult {
+        guard let spid = activeGroupSpeakerId,
+              let uuid = UUID(uuidString: spid) else {
+            return FileToolResult(output: "Error: 当前没有发话成员，写不了。", success: false)
+        }
+        guard let data = json.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = dict["content"] as? String,
+              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return FileToolResult(output: "Error: Missing required 'content' parameter", success: false)
+        }
+        CharacterStore.shared.appendMemory(content, to: uuid)
+        let name = CharacterStore.shared.characters.first(where: { $0.id == uuid })?.name ?? spid
+        return FileToolResult(output: "已写入 \(name) 的记忆。", success: true)
+    }
+
     /// Execute a memory_write tool call: prepend a timestamped entry to today's daily log.
     func executeMemoryWrite(from json: String) -> FileToolResult {
         guard memoryEnabled else {

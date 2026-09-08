@@ -461,7 +461,7 @@ extension AIChatViewModel {
                     case "file_edit": .fileEditTool(path: "")
                     case "browser_use": .browserTool(action: "")
                     case "read_image": .readImageTool(path: "")
-                    case "memory_write", "memory_get": .memoryTool(action: name)
+                    case "memory_write", "memory_get", "character_remember": .memoryTool(action: name)
                     default: .shellTool(command: name)
                     }
                     if name == "file_write" || name == "file_edit" {

@@ -783,6 +783,15 @@ extension AIChatViewModel {
                 toolSuccess = false
             }
 
+        case "character_remember":
+            // 群聊成员回合专用：记忆写进「正在发话的角色」的 memory.md。
+            let memResult = executeCharacterRemember(from: argsJson)
+            if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                messages[msgIdx].blocks[blockIdx].content = memResult.output
+            }
+            toolOutput = memResult.output
+            toolSuccess = memResult.success
+
         case "memory_write":
             let memResult = executeMemoryWrite(from: argsJson)
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {

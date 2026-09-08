@@ -2713,22 +2713,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                                 last.error = Self.friendlyErrorMessage((error as? LocalizedError)?.errorDescription ?? desc)
                             }
                         }
-                        // 收割：这个成员这轮说的话，进它自己的 memory.md。
-                        // 只在这个会话内当场收——不碰 DB 扫库，不跨重启重复。
-                        if let mine = self.messages.last(where: { $0.role == .assistant && $0.speakerId == member.id.uuidString }),
-                           mine.error == nil {
-                            let texts = mine.blocks.compactMap { b -> String? in
-                                b.kind == .text ? b.content : nil
-                            }.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                             .filter { !$0.isEmpty }
-                            if !texts.isEmpty {
-                                let stamp = ISO8601DateFormatter().string(from: Date())
-                                CharacterStore.shared.appendMemory(
-                                    "\(stamp) 群「\(self.groupHeaderPrompt?.replacingOccurrences(of: "\n", with: " ") ?? "群")」里我说：\(texts.joined(separator: " / ").prefix(200))",
-                                    to: member.id
-                                )
-                            }
-                        }
+                        // 不收割。成员自己决定记什么——它回合里的记忆工具
+                        // （character_remember）写的就是它自己的 memory.md。
                         self.activeGroupSpeakerId = nil
                         self.groupModelEntryOverride = nil
                     }
@@ -4988,7 +4974,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 c.persona.isEmpty ? c.name : "\(c.name)（\(c.persona)）"
             }.joined(separator: "；")
         }
-        overlay += "\n\n群规矩：\n1. 只说这个成员会说的话，别替别人开口——别人有自己的回合。\n2. 历史里别人说过的话带「**名字**」前缀，那就是他们说的，不用每段都回应。\n3. 自己开口别加「**名字**」前缀，名字已经挂在你气泡上了。\n4. 顺着群氛围说话，闲聊就短平快。"
+        overlay += "\n\n群规矩：\n1. 只说这个成员会说的话，别替别人开口——别人有自己的回合。\n2. 历史里别人说过的话带「**名字**」前缀，那就是他们说的，不用每段都回应。\n3. 自己开口别加「**名字**」前缀，名字已经挂在你气泡上了。\n4. 顺着群氛围说话，闲聊就短平快。\n5. 聊天内容你自己都会看到；遇到想记住的事（对某个人的观察、约定、对方的习惯），用 character_remember 工具写进你自己的记忆——它跟着你走，以后单聊群聊都在。\n"
         soulOverlay = overlay
     }
 

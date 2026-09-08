@@ -35,6 +35,7 @@ extension AIChatViewModel {
         // wording (see baseSystemPrompt below) so the model can correctly
         // tell the user to re-enable memory via /memory or Settings.
         let includeMemoryTools = memoryEnabled
+        let groupSpeakerId = activeGroupSpeakerId
         var tools: [AgentToolDefinition] = [
             AgentToolDefinition(
                 name: "shell_execute",
@@ -199,6 +200,24 @@ extension AIChatViewModel {
                 ],
                 required: ["tool_title", "path"],
                 propertyOrdering: ["tool_title", "path", "prompt"]
+            ))
+        }
+
+        // 群聊成员回合专属：写进「正在发话的这个成员」自己的记忆。
+        // 不进全局 daily——成员的记忆是它自己的人设一部分，
+        // 在群聊和它的单聊里都随身携带。普通会话不出现这个工具。
+        if let spid = groupSpeakerId,
+           let uuid = UUID(uuidString: spid),
+           CharacterStore.shared.characters.contains(where: { $0.id == uuid }) {
+            tools.append(AgentToolDefinition(
+                name: "character_remember",
+                description: "把值得记住的事写进「你」（当前正在发言的角色）的私人记忆。这条记忆以后会在所有会话里跟着你走——群聊、单聊都带着。\n\n写：你想记住的事、对某人的观察、约定、对方的习惯、你觉得重要的细节。\n不要写：闲聊复述、一次性安排、别人说过但你不想记住的话。",
+                parameters: [
+                    "tool_title": AgentToolParam(type: .string, description: "一句话简介这条记忆在记什么（给 UI 看）。"),
+                    "content": AgentToolParam(type: .string, description: "记忆正文，N 行都行，说清楚事就好。"),
+                ],
+                required: ["tool_title", "content"],
+                propertyOrdering: ["tool_title", "content"]
             ))
         }
 
