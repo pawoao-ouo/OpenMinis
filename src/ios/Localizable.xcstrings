@@ -104456,6 +104456,54 @@
           }
         }
       }
+    },
+    "新建": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建"
+          }
+        }
+      }
+    },
+    "建群": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建群"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建群"
+          }
+        }
+      }
+    },
+    "至少两个": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至少两个"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至少两个"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
