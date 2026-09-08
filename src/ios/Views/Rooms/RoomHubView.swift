@@ -24,6 +24,25 @@ struct RoomHubView: View {
             }
 
             Section {
+                NavigationLink {
+                    RoomTimelineView(character: character)
+                } label: {
+                    HStack {
+                        Image(systemName: "list.timeline")
+                            .foregroundStyle(ChatColors.accent)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(AppLocalized("时间轴"))
+                                .foregroundStyle(ChatColors.primaryText)
+                            Text(AppLocalized("挂牌日、日记、梦境、信——按发生的先后顺序看这间屋里的一切"))
+                                .font(.caption)
+                                .foregroundStyle(ChatColors.secondaryText)
+                        }
+                    }
+                }
+            }
+
+            Section {
                 ForEach(RoomKind.allCases) { kind in
                     NavigationLink {
                         roomDestination(kind)

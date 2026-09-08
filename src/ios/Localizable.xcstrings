@@ -104344,6 +104344,118 @@
           }
         }
       }
+    },
+    "挂牌日、日记、梦境、信——按发生的先后顺序看这间屋里的一切": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂牌日、日记、梦境、信——按发生的先后顺序看这间屋里的一切"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂牌日、日记、梦境、信——按发生的先后顺序看这间屋里的一切"
+          }
+        }
+      }
+    },
+    "在一起 \\(days) 天": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在一起 \\(days) 天"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在一起 \\(days) 天"
+          }
+        }
+      }
+    },
+    "还有 \\(-days) 天": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还有 \\(-days) 天"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还有 \\(-days) 天"
+          }
+        }
+      }
+    },
+    "就是今天": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "就是今天"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "就是今天"
+          }
+        }
+      }
+    },
+    "还没有记录。四间房里写点东西，都会列上来。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有记录。四间房里写点东西，都会列上来。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有记录。四间房里写点东西，都会列上来。"
+          }
+        }
+      }
+    },
+    "时间轴": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间轴"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间轴"
+          }
+        }
+      }
+    },
+    "挂牌日还没挂上。棚一下纪念。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂牌日还没挂上。棚一下纪念。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂牌日还没挂上。棚一下纪念。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
