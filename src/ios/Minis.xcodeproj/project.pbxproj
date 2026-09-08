@@ -246,6 +246,7 @@
 		E5CA0064 /* GroupConversationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0074 /* GroupConversationsView.swift */; };
 		E5R000042 /* AnniversaryRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000052 /* AnniversaryRoomView.swift */; };
 		E5R000043 /* LittleRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000061 /* LittleRoomView.swift */; };
+		E5R000048 /* RoomContentGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000071 /* RoomContentGenerator.swift */; };
 		E5R000044 /* RoomHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000062 /* RoomHubView.swift */; };
 		E5R000045 /* DiaryRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000063 /* DiaryRoomView.swift */; };
 		E5R000046 /* DreamRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000064 /* DreamRoomView.swift */; };
@@ -936,6 +937,7 @@
 		E5CA0074 /* GroupConversationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupConversationsView.swift; sourceTree = "<group>"; };
 		E5R000052 /* AnniversaryRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnniversaryRoomView.swift; sourceTree = "<group>"; };
 		E5R000061 /* LittleRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LittleRoomView.swift; sourceTree = "<group>"; };
+		E5R000071 /* RoomContentGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomContentGenerator.swift; sourceTree = "<group>"; };
 		E5R000062 /* RoomHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomHubView.swift; sourceTree = "<group>"; };
 		E5R000063 /* DiaryRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryRoomView.swift; sourceTree = "<group>"; };
 		E5R000064 /* DreamRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DreamRoomView.swift; sourceTree = "<group>"; };
@@ -1811,6 +1813,7 @@
 				E5R000051 /* RoomStore.swift */,
 				E5R000052 /* AnniversaryRoomView.swift */,
 				E5R000061 /* LittleRoomView.swift */,
+				E5R000071 /* RoomContentGenerator.swift */,
 				E5R000062 /* RoomHubView.swift */,
 				E5R000063 /* DiaryRoomView.swift */,
 				E5R000064 /* DreamRoomView.swift */,
@@ -2896,6 +2899,7 @@
 				E5CA0064 /* GroupConversationsView.swift in Sources */,
 				E5R000042 /* AnniversaryRoomView.swift in Sources */,
 				E5R000043 /* LittleRoomView.swift in Sources */,
+				E5R000048 /* RoomContentGenerator.swift in Sources */,
 				E5R000044 /* RoomHubView.swift in Sources */,
 				E5R000045 /* DiaryRoomView.swift in Sources */,
 				E5R000046 /* DreamRoomView.swift in Sources */,

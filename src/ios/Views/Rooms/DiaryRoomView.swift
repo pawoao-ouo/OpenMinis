@@ -9,8 +9,8 @@ struct DiaryRoomView: View {
 
     @ObservedObject private var store = RoomStore.shared
     @State private var expandedIds: Set<UUID> = []
-    @State private var draftText: String = ""
     @State private var showEditor = false
+    @State private var showGenerate = false
 
     private var entries: [RoomEntry] {
         store.entries(in: roomId).sorted { $0.createdAt > $1.createdAt }
@@ -33,7 +33,8 @@ struct DiaryRoomView: View {
                         onToggle: {
                             if expandedIds.contains(entry.id) { expandedIds.remove(entry.id) }
                             else { expandedIds.insert(entry.id) }
-                        }
+                        },
+                        fromName: entry.owner == .assistant ? character.name : AppLocalized("我")
                     )
                 }
             }
@@ -45,12 +46,30 @@ struct DiaryRoomView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { showEditor = true } label: { Image(systemName: "pencil") }
+                Menu {
+                    Button {
+                        showEditor = true
+                    } label: {
+                        Label(AppLocalized("我自己写一页"), systemImage: "pencil")
+                    }
+                    Button {
+                        showGenerate = true
+                    } label: {
+                        Label(AppLocalized("让她去写"), systemImage: "pencil.and.scribble")
+                    }
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
             }
         }
         .sheet(isPresented: $showEditor) {
             NavigationStack {
                 DiaryEditorView(roomId: roomId, owner: .user)
+            }
+        }
+        .sheet(isPresented: $showGenerate) {
+            NavigationStack {
+                DiaryGenerateView(roomId: roomId, character: character)
             }
         }
         .onAppear { store.loadIfNeeded(roomId: roomId) }
@@ -59,6 +78,7 @@ struct DiaryRoomView: View {
 
 private struct DiaryCard: View {
     let entry: RoomEntry
+    let fromName: String
     let expanded: Bool
     let onToggle: () -> Void
 
@@ -120,6 +140,64 @@ private struct DiaryEditorView: View {
                     RoomStore.shared.append(owner: owner, text: t, in: roomId)
                     dismiss()
                 }.disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+}
+
+/// 让角色去写一篇日记。她（角色）来写，你只负责按一天几次召唤。
+private struct DiaryGenerateView: View {
+    let roomId: String
+    let character: CharacterCard
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var isGenerating = true
+    @State private var errorText: String? = nil
+
+    var body: some View {
+        VStack(spacing: 20) {
+            if isGenerating {
+                Spacer()
+                ProgressView().scaleEffect(1.2)
+                Text(AppLocalized("日记写着呢"))
+                    .font(.footnote)
+                    .foregroundStyle(ChatColors.secondaryText)
+                Spacer()
+            } else if let err = errorText {
+                Spacer()
+                Image(systemName: "exclamationmark.bubble")
+                    .font(.system(size: 36))
+                    .foregroundStyle(ChatColors.secondaryText)
+                Text(err)
+                    .font(.footnote)
+                    .foregroundStyle(ChatColors.secondaryText)
+                    .padding(.horizontal, 30)
+                Button(AppLocalized("好")) { dismiss() }
+                    .buttonStyle(.bordered)
+                Spacer()
+            } else {
+                Spacer()
+                Image(systemName: "book.closed.fill")
+                    .font(.system(size: 44))
+                    .foregroundStyle(ChatColors.accent)
+                Text(AppLocalized("写完了，去翻翻看"))
+                    .font(.headline)
+                    .foregroundStyle(ChatColors.primaryText)
+                Button(AppLocalized("好")) { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                Spacer()
+            }
+        }
+        .navigationTitle(AppLocalized("她在写"))
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            let res = await RoomContentGenerator.shared.generate(kind: .diary, character: character)
+            if res.succeeded {
+                RoomContentGenerator.shared.commit(kind: .diary, roomId: roomId, character: character, raw: res.raw)
+                isGenerating = false
+            } else {
+                errorText = res.error ?? AppLocalized("写不出来")
+                isGenerating = false
             }
         }
     }

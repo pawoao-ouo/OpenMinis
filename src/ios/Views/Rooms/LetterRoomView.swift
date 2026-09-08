@@ -12,6 +12,7 @@ struct LetterRoomView: View {
     @ObservedObject private var store = RoomStore.shared
     @State private var viewMode: Segment = .all
     @State private var showCompose = false
+    @State private var showHersWriting = false
 
     enum Segment: String, CaseIterable, Identifiable {
         case all, mine, hers
@@ -70,12 +71,20 @@ struct LetterRoomView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { showCompose = true } label: { Image(systemName: "square.and.pencil") }
+                Menu {
+                    Button { showCompose = true } label: { Label(AppLocalized("我写一封"), systemImage: "pencil") }
+                    Button { showHersWriting = true } label: { Label(AppLocalized("让她来写"), systemImage: "envelope.badge") }
+                } label: { Image(systemName: "square.and.pencil") }
             }
         }
         .sheet(isPresented: $showCompose) {
             NavigationStack {
                 LetterComposeView(roomId: roomId, character: character)
+            }
+        }
+        .sheet(isPresented: $showHersWriting) {
+            NavigationStack {
+                LetterGenerateView(roomId: roomId, character: character)
             }
         }
         .onAppear { store.loadIfNeeded(roomId: roomId) }
@@ -163,6 +172,66 @@ private struct LetterComposeView: View {
                     dismiss()
                 }
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+}
+
+
+/// 让她来信。模型真的写，不是生成假文字。
+private struct LetterGenerateView: View {
+    let roomId: String
+    let character: CharacterCard
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var isWriting = true
+    @State private var errorText: String? = nil
+
+    var body: some View {
+        VStack(spacing: 20) {
+            if isWriting {
+                Spacer()
+                ProgressView().scaleEffect(1.2)
+                Text(AppLocalized("她在写了"))
+                    .font(.footnote)
+                    .foregroundStyle(ChatColors.secondaryText)
+                Spacer()
+            } else if let err = errorText {
+                Spacer()
+                Image(systemName: "exclamationmark.bubble")
+                    .font(.system(size: 36))
+                    .foregroundStyle(ChatColors.secondaryText)
+                Text(err)
+                    .font(.footnote)
+                    .foregroundStyle(ChatColors.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 30)
+                Button(AppLocalized("好")) { dismiss() }
+                    .buttonStyle(.bordered)
+                Spacer()
+            } else {
+                Spacer()
+                Image(systemName: "envelope.fill")
+                    .font(.system(size: 44))
+                    .foregroundStyle(ChatColors.accent)
+                Text(AppLocalized("信已放进你的信箱"))
+                    .font(.headline)
+                    .foregroundStyle(ChatColors.primaryText)
+                Button(AppLocalized("去翻看")) { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                Spacer()
+            }
+        }
+        .navigationTitle(AppLocalized("她在写"))
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            let res = await RoomContentGenerator.shared.generate(kind: .letter, character: character)
+            if res.succeeded {
+                RoomContentGenerator.shared.commit(kind: .letter, roomId: roomId, character: character, raw: res.raw)
+                isWriting = false
+            } else {
+                errorText = res.error ?? AppLocalized("没能写出来")
+                isWriting = false
             }
         }
     }

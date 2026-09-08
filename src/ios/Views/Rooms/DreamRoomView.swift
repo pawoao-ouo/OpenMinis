@@ -115,37 +115,55 @@ private struct DreamCard: View {
     }
 }
 
-/// 生成梦境的小面板。下一步接聊天上下文，现在先手动写个框进去。
+/// 生成梦境的 sheet——真调模型，进度条转完就入库。
+/// 失败不高度，但把错误摆出来让你知道他为什么没梦到。
 private struct DreamGenerateView: View {
     let roomId: String
     let character: CharacterCard
+
     @Environment(\.dismiss) private var dismiss
-    @State private var text: String = ""
+    @State private var isGenerating = true
+    @State private var errorText: String? = nil
 
     var body: some View {
-        Form {
-            Section {
-                TextEditor(text: $text)
-                    .frame(minHeight: 140)
-                Text(AppLocalized("或者让事情自然发生——等接入对话生成器，她会自己写梦进来。"))
-                    .font(.caption)
+        VStack(spacing: 20) {
+            if isGenerating {
+                Spacer()
+                ProgressView()
+                    .scaleEffect(1.2)
+                Text(AppLocalized("做梦呢，别吵"))
+                    .font(.footnote)
                     .foregroundStyle(ChatColors.secondaryText)
-            } header: {
-                Text(AppLocalized("坦白今天梦的"))
+                Spacer()
+            } else {
+                Spacer()
+                Image(systemName: "moon.stars.fill")
+                    .font(.system(size: 44))
+                    .foregroundStyle(ChatColors.accent)
+                Text(AppLocalized("她梦见了什么！房卡上已记下"))
+                    .font(.headline)
+                    .foregroundStyle(ChatColors.primaryText)
+                Button(AppLocalized("好")) { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                Spacer()
+            }
+            if let err = errorText {
+                Text(err)
+                    .font(.footnote)
+                    .foregroundStyle(ChatColors.secondaryText)
+                    .padding(.horizontal, 30)
             }
         }
         .navigationTitle(AppLocalized("新的梦"))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button(AppLocalized("取消")) { dismiss() } }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(AppLocalized("记下这个梦")) {
-                    let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !t.isEmpty else { return }
-                    RoomStore.shared.append(owner: .assistant, text: t, in: roomId)
-                    dismiss()
-                }
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .task {
+            let res = await RoomContentGenerator.shared.generate(kind: .dream, character: character)
+            if res.succeeded {
+                RoomContentGenerator.shared.commit(kind: .dream, roomId: roomId, character: character, raw: res.raw)
+                isGenerating = false
+            } else {
+                errorText = res.error ?? "模型今天不想生成"
+                isGenerating = false
             }
         }
     }
