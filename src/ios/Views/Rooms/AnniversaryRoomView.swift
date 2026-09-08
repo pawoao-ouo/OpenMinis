@@ -7,6 +7,9 @@ import SwiftUI
 /// 主题全体走现有 AppearanceStudio/ChatColors token，不写死颜色。
 struct AnniversaryRoomView: View {
 
+    let roomId: String
+    let character: CharacterCard
+
     @ObservedObject private var store = RoomStore.shared
     @State private var draftText: String = ""
     @State private var draftOwner: RoomOwner = .user
@@ -14,7 +17,7 @@ struct AnniversaryRoomView: View {
     @State private var hasDate: Bool = false
 
     private var entries: [RoomEntry] {
-        store.entries(in: RoomStore.anniversaryRoomId)
+        store.entries(in: roomId)
     }
 
     var body: some View {
@@ -29,16 +32,16 @@ struct AnniversaryRoomView: View {
                         DatePicker("", selection: $editingDate, displayedComponents: .date)
                             .labelsHidden()
                             .onChange(of: editingDate) { newValue in
-                                store.setLandmarkDate(newValue, in: RoomStore.anniversaryRoomId)
+                                store.setLandmarkDate(newValue, in: roomId)
                             }
                     } else {
                         Button(AppLocalized("Set")) {
                             hasDate = true
-                            store.setLandmarkDate(editingDate, in: RoomStore.anniversaryRoomId)
+                            store.setLandmarkDate(editingDate, in: roomId)
                         }
                     }
                 }
-                if hasDate, let date = store.landmarkDate(in: RoomStore.anniversaryRoomId) {
+                if hasDate, let date = store.landmarkDate(in: roomId) {
                     Text(daysLine(for: date))
                         .font(.footnote)
                         .foregroundStyle(ChatColors.secondaryText)
@@ -72,7 +75,7 @@ struct AnniversaryRoomView: View {
                     .onDelete { offsets in
                         for idx in offsets {
                             let entry = entries[idx]
-                            store.delete(id: entry.id, in: RoomStore.anniversaryRoomId)
+                            store.delete(id: entry.id, in: roomId)
                         }
                     }
                 }
@@ -91,18 +94,18 @@ struct AnniversaryRoomView: View {
                 Button(AppLocalized("Pin it")) {
                     let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return }
-                    store.append(owner: draftOwner, text: text, in: RoomStore.anniversaryRoomId)
+                    store.append(owner: draftOwner, text: text, in: roomId)
                     draftText = ""
                 }
                 .disabled(draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .navigationTitle(AppLocalized("Little Room"))
+        .navigationTitle(character.name)
         .navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden)
         .background(.background)
         .onAppear {
-            if let d = store.landmarkDate(in: RoomStore.anniversaryRoomId) {
+            if let d = store.landmarkDate(in: roomId) {
                 editingDate = d
                 hasDate = true
             }

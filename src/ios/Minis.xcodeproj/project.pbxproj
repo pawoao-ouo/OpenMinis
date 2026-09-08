@@ -245,6 +245,11 @@
 		E5CA0063 /* GroupEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0073 /* GroupEditorView.swift */; };
 		E5CA0064 /* GroupConversationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CA0074 /* GroupConversationsView.swift */; };
 		E5R000042 /* AnniversaryRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000052 /* AnniversaryRoomView.swift */; };
+		E5R000043 /* LittleRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000061 /* LittleRoomView.swift */; };
+		E5R000044 /* RoomHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000062 /* RoomHubView.swift */; };
+		E5R000045 /* DiaryRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000063 /* DiaryRoomView.swift */; };
+		E5R000046 /* DreamRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000064 /* DreamRoomView.swift */; };
+		E5R000047 /* LetterRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000065 /* LetterRoomView.swift */; };
 		E5F200006 /* ModelSelectionEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200016 /* ModelSelectionEntity.swift */; };
 		E5F2000FA /* TextFadeAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F2000FB /* TextFadeAnimator.swift */; };
 		E5F2009A1 /* EquatableContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F2009B1 /* EquatableContextMenu.swift */; };
@@ -930,6 +935,11 @@
 		E5CA0073 /* GroupEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditorView.swift; sourceTree = "<group>"; };
 		E5CA0074 /* GroupConversationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupConversationsView.swift; sourceTree = "<group>"; };
 		E5R000052 /* AnniversaryRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnniversaryRoomView.swift; sourceTree = "<group>"; };
+		E5R000061 /* LittleRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LittleRoomView.swift; sourceTree = "<group>"; };
+		E5R000062 /* RoomHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomHubView.swift; sourceTree = "<group>"; };
+		E5R000063 /* DiaryRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryRoomView.swift; sourceTree = "<group>"; };
+		E5R000064 /* DreamRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DreamRoomView.swift; sourceTree = "<group>"; };
+		E5R000065 /* LetterRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LetterRoomView.swift; sourceTree = "<group>"; };
 		E5F200016 /* ModelSelectionEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSelectionEntity.swift; sourceTree = "<group>"; };
 		E5F2000FB /* TextFadeAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFadeAnimator.swift; sourceTree = "<group>"; };
 		E5F2009B1 /* EquatableContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquatableContextMenu.swift; sourceTree = "<group>"; };
@@ -1800,6 +1810,11 @@
 			children = (
 				E5R000051 /* RoomStore.swift */,
 				E5R000052 /* AnniversaryRoomView.swift */,
+				E5R000061 /* LittleRoomView.swift */,
+				E5R000062 /* RoomHubView.swift */,
+				E5R000063 /* DiaryRoomView.swift */,
+				E5R000064 /* DreamRoomView.swift */,
+				E5R000065 /* LetterRoomView.swift */,
 			);
 			path = Rooms;
 			sourceTree = "<group>";
@@ -2880,6 +2895,11 @@
 				E5CA0063 /* GroupEditorView.swift in Sources */,
 				E5CA0064 /* GroupConversationsView.swift in Sources */,
 				E5R000042 /* AnniversaryRoomView.swift in Sources */,
+				E5R000043 /* LittleRoomView.swift in Sources */,
+				E5R000044 /* RoomHubView.swift in Sources */,
+				E5R000045 /* DiaryRoomView.swift in Sources */,
+				E5R000046 /* DreamRoomView.swift in Sources */,
+				E5R000047 /* LetterRoomView.swift in Sources */,
 				E5F2000FA /* TextFadeAnimator.swift in Sources */,
 				F1M00012 /* AudioPlayback.swift in Sources */,
 				F1M00014 /* VideoPlayer.swift in Sources */,

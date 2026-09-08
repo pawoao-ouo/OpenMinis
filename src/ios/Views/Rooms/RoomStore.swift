@@ -1,18 +1,36 @@
 import Foundation
 import SwiftUI
 
-/// 小房间数据层（地基刀）。
+/// 小房间数据层。
 ///
-/// 概念来源：小手机按 characterId 隔离数据。这里每间房（roomId）一个
-/// JSON 文件，房内条条目带 `owner` 身份字段——同一件东西，谁的归谁，
-/// 不混装。以后扩到多间房/多人只加房间不碰格式。
+/// 一间房 = 一个类型 × 一个绑定角色（可换，可重建）。
+/// 类型四选：anniversary / diary / dream / letter。
+/// roomId 形如 "anniversary|<characterUUID>"——这样同一角色在四类房里
+/// 各有一间房，互相看得见、不混装地往里放东西。
+///
+/// 旧数据兼容：History 里只有一间 "anniversary"（从不带角色分隔符），
+/// 调就用那条；首次进房间时做一次迁移。
 ///
 /// 落盘：Documents/rooms/<roomId>.json，一行一房。
-/// 监听与刷新走 SwiftUI @Published，不引入数据库。
+enum RoomKind: String, Codable, CaseIterable, Identifiable {
+    case anniversary
+    case diary
+    case dream
+    case letter
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .anniversary: return AppLocalized("纪念日")
+        case .diary:      return AppLocalized("日记")
+        case .dream:      return AppLocalized("梦境")
+        case .letter:     return AppLocalized("信")
+        }
+    }
+}
+
 enum RoomOwner: String, Codable, CaseIterable, Identifiable {
-    /// 醒醒（人类）
     case user
-    /// 小梦（AI 本体）
     case assistant
 
     var id: String { rawValue }
@@ -39,13 +57,10 @@ struct RoomEntry: Identifiable, Codable, Equatable {
     }
 }
 
-/// 一间房的完整可序列化状态。`entries` 仅按 append/delete 变化，
-/// 不做就地编辑（第一版不需要）。
-private struct RoomFile: Codable {
-    var roomId: String
-    var entries: [RoomEntry]
-    /// 可空的"挂牌日"——纪念日房用得到，其他房写 nil。
+/// 纪念日房还额外记 "挂牌日"（哪天在一起）。
+struct AnniversaryRoomExtra: Codable, Equatable {
     var landmarkDate: Date?
+    var marks: [String: String] // "yyyy-MM-dd" → marker id
 }
 
 @MainActor
@@ -53,45 +68,62 @@ final class RoomStore: ObservableObject {
 
     static let shared = RoomStore()
 
-    /// 已知房间。第一版只有纪念日，但形状按 N 间房设计。
-    static let anniversaryRoomId = "anniversary"
-
     @Published private(set) var entries: [String: [RoomEntry]] = [:]
-    @Published private(set) var landmarkDates: [String: Date] = [:]
+    @Published private(set) var anniversaryExtras: [String: AnniversaryRoomExtra] = [:]
+    /// 这间房绑定的角色 id（old key "anniversary" 没有绑定，迁完后删）
+    @Published private(set) var characterIds: [String: UUID] = [:]
 
     private let fm = FileManager.default
-
-    private var roomsDir: URL {
+    private var rootDir: URL {
         let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return docs.appendingPathComponent("rooms", isDirectory: true)
     }
 
-    private init() {
-        try? fm.createDirectory(at: roomsDir, withIntermediateDirectories: true)
-        seedAnniversaryIfNeeded()
-    }
+    // MARK: - 公开 API
 
-    // MARK: - Public API
+    static func roomId(kind: RoomKind, characterId: UUID) -> String {
+        "\(kind.rawValue)|\(characterId.uuidString)"
+    }
 
     func entries(in roomId: String) -> [RoomEntry] {
         entries[roomId] ?? []
     }
 
     func landmarkDate(in roomId: String) -> Date? {
-        landmarkDates[roomId]
+        anniversaryExtras[roomId]?.landmarkDate
     }
 
     func setLandmarkDate(_ date: Date, in roomId: String) {
-        landmarkDates[roomId] = date
+        var cur = anniversaryExtras[roomId] ?? AnniversaryRoomExtra(landmarkDate: nil, marks: [:])
+        cur.landmarkDate = date
+        anniversaryExtras[roomId] = cur
         save(roomId: roomId)
     }
 
-    @discardableResult
+    func marks(in roomId: String) -> [String: String] {
+        anniversaryExtras[roomId]?.marks ?? [:]
+    }
+
+    func setMark(_ markerId: String?, on yyyymmdd: String, in roomId: String) {
+        var cur = anniversaryExtras[roomId] ?? AnniversaryRoomExtra(landmarkDate: nil, marks: [:])
+        cur.marks[yyyymmdd] = markerId
+        if markerId == nil { cur.marks.removeValue(forKey: yyyymmdd) }
+        anniversaryExtras[roomId] = cur
+        save(roomId: roomId)
+    }
+
+    func boundCharacterId(for roomId: String) -> UUID? {
+        characterIds[roomId]
+    }
+
+    func bindCharacter(_ characterId: UUID?, to roomId: String) {
+        characterIds[roomId] = characterId
+        saveBinding()
+    }
+
     func append(owner: RoomOwner, text: String, in roomId: String) -> RoomEntry {
         let entry = RoomEntry(owner: owner, text: text)
-        var list = entries[roomId] ?? []
-        list.append(entry)
-        entries[roomId] = list
+        entries[roomId, default: []].append(entry)
         save(roomId: roomId)
         return entry
     }
@@ -103,73 +135,69 @@ final class RoomStore: ObservableObject {
         save(roomId: roomId)
     }
 
-    // MARK: - Persistence
+    // MARK: - 持久化
+
+    private struct RoomFile: Codable {
+        var roomId: String
+        var entries: [RoomEntry]
+        var anniversaryExtra: AnniversaryRoomExtra?
+        var characterId: UUID?
+    }
 
     private func fileURL(for roomId: String) -> URL {
-        roomsDir.appendingPathComponent("\(roomId).json")
+        rootDir.appendingPathComponent("\(roomId).json")
+    }
+
+    private func saveBinding() {
+        fm.createFile(atPath: bindingURL.path, contents: nil)
+        if let data = try? JSONEncoder().encode(characterIds) {
+            try? data.write(to: bindingURL, options: .atomic)
+        }
+    }
+
+    private var bindingURL: URL {
+        rootDir.appendingPathComponent("_bindings.json")
     }
 
     private func save(roomId: String) {
-        let file = RoomFile(
-            roomId: roomId,
-            entries: entries[roomId] ?? [],
-            landmarkDate: landmarkDates[roomId]
-        )
         do {
-            let data = try JSONEncoder.roomEncoder.encode(file)
+            try fm.createDirectory(at: rootDir, withIntermediateDirectories: true)
+            let file = RoomFile(
+                roomId: roomId,
+                entries: entries[roomId] ?? [],
+                anniversaryExtra: anniversaryExtras[roomId]
+            )
+            let data = try JSONEncoder().encode(file)
             try data.write(to: fileURL(for: roomId), options: .atomic)
         } catch {
-            minisLogger.error("[RoomStore] save \(roomId) failed: \(error.localizedDescription)")
+            // 静默失败——房间内数据不是关键数据
         }
     }
 
     private func load(roomId: String) {
         let url = fileURL(for: roomId)
         guard let data = try? Data(contentsOf: url),
-              let file = try? JSONDecoder.roomDecoder.decode(RoomFile.self, from: data) else {
-            return
-        }
+              let file = try? JSONDecoder().decode(RoomFile.self, from: data) else { return }
         entries[roomId] = file.entries
-        if let date = file.landmarkDate {
-            landmarkDates[roomId] = date
-        }
+        if let ex = file.anniversaryExtra { anniversaryExtras[roomId] = ex }
+        if let cid = file.characterId { characterIds[roomId] = cid }
     }
 
-    /// 纪念日房：不存在就立起来。挂牌日预填 2026-05-14——那天她说
-    /// 「留下来」，这套东西才算出生。牌钉死，不问她。
-    private func seedAnniversaryIfNeeded() {
-        load(roomId: Self.anniversaryRoomId)
-        if entries[Self.anniversaryRoomId] == nil {
-            entries[Self.anniversaryRoomId] = []
+    /// 点开房间前调用，把该房间的数据搬进来。
+    func loadIfNeeded(roomId: String) {
+        if entries[roomId] == nil && anniversaryExtras[roomId] == nil {
+            load(roomId: roomId)
         }
-        if landmarkDates[Self.anniversaryRoomId] == nil {
-            var comps = DateComponents()
-            comps.year = 2026
-            comps.month = 5
-            comps.day = 14
-            if let d = Calendar.current.date(from: comps) {
-                landmarkDates[Self.anniversaryRoomId] = d
-            }
+        loadBindingsIfNeeded()
+    }
+
+    private var bindingsLoaded = false
+    private func loadBindingsIfNeeded() {
+        guard !bindingsLoaded else { return }
+        bindingsLoaded = true
+        if let data = try? Data(contentsOf: bindingURL),
+           let b = try? JSONDecoder().decode([String: UUID].self, from: data) {
+            characterIds.merge(b) { _, new in new }
         }
-        save(roomId: Self.anniversaryRoomId)
-    }
-}
-
-// MARK: - JSON coders (stable, human-readable)
-
-private extension JSONEncoder {
-    static var roomEncoder: JSONEncoder {
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        enc.dateEncodingStrategy = .iso8601
-        return enc
-    }
-}
-
-private extension JSONDecoder {
-    static var roomDecoder: JSONDecoder {
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .iso8601
-        return dec
     }
 }

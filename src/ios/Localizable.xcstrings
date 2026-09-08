@@ -103384,6 +103384,534 @@
           }
         }
       }
+    },
+    "小屋": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小屋"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小屋"
+          }
+        }
+      }
+    },
+    "这里只放跟某个角色之间的小屋。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里只放跟某个角色之间的小屋。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里只放跟某个角色之间的小屋。"
+          }
+        }
+      }
+    },
+    "还没有人住进来": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有人住进来"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有人住进来"
+          }
+        }
+      }
+    },
+    "先去人物卡里建一个角色，她会得到自己的小房间。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先去人物卡里建一个角色，她会得到自己的小房间。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先去人物卡里建一个角色，她会得到自己的小房间。"
+          }
+        }
+      }
+    },
+    "这间屋子有什么": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这间屋子有什么"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这间屋子有什么"
+          }
+        }
+      }
+    },
+    "和她有关的都在这间屋子里": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "和她有关的都在这间屋子里"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "和她有关的都在这间屋子里"
+          }
+        }
+      }
+    },
+    "挂牌日、日历标记、跟这间屋主人哪天的数数": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂牌日、日历标记、跟这间屋主人哪天的数数"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂牌日、日历标记、跟这间屋主人哪天的数数"
+          }
+        }
+      }
+    },
+    "小卡片、可折、按日期查": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小卡片、可折、按日期查"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小卡片、可折、按日期查"
+          }
+        }
+      }
+    },
+    "梦里看到的，醒来后还热乎的": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "梦里看到的，醒来后还热乎的"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "梦里看到的，醒来后还热乎的"
+          }
+        }
+      }
+    },
+    "想写就写，不选中发": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想写就写，不选中发"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想写就写，不选中发"
+          }
+        }
+      }
+    },
+    "日记": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日记"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日记"
+          }
+        }
+      }
+    },
+    "这本还没有写下第一页。\\n跟她说「记今天的日记」就行。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这本还没有写下第一页。\\n跟她说「记今天的日记」就行。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这本还没有写下第一页。\\n跟她说「记今天的日记」就行。"
+          }
+        }
+      }
+    },
+    "写一页": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写一页"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写一页"
+          }
+        }
+      }
+    },
+    "今天想记下来什么": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天想记下来什么"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天想记下来什么"
+          }
+        }
+      }
+    },
+    "梦境": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "梦境"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "梦境"
+          }
+        }
+      }
+    },
+    "她今晚梦见了什么": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "她今晚梦见了什么"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "她今晚梦见了什么"
+          }
+        }
+      }
+    },
+    "戳一下生成（接聊天上下文，手动按钮版）": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戳一下生成（接聊天上下文，手动按钮版）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戳一下生成（接聊天上下文，手动按钮版）"
+          }
+        }
+      }
+    },
+    "还没有梦。生成一个，她就把梦里看到的放到这里。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有梦。生成一个，她就把梦里看到的放到这里。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有梦。生成一个，她就把梦里看到的放到这里。"
+          }
+        }
+      }
+    },
+    "坦白今天梦的": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "坦白今天梦的"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "坦白今天梦的"
+          }
+        }
+      }
+    },
+    "新的梦": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的梦"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的梦"
+          }
+        }
+      }
+    },
+    "记下这个梦": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记下这个梦"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记下这个梦"
+          }
+        }
+      }
+    },
+    "或者让事情自然发生——等接入对话生成器，她会自己写梦进来。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或者让事情自然发生——等接入对话生成器，她会自己写梦进来。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或者让事情自然发生——等接入对话生成器，她会自己写梦进来。"
+          }
+        }
+      }
+    },
+    "信": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信"
+          }
+        }
+      }
+    },
+    "全部": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部"
+          }
+        }
+      }
+    },
+    "我写的": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我写的"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我写的"
+          }
+        }
+      }
+    },
+    "她写的": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "她写的"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "她写的"
+          }
+        }
+      }
+    },
+    "你": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你"
+          }
+        }
+      }
+    },
+    "我": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我"
+          }
+        }
+      }
+    },
+    "一封都还没有。\\n点右上角那支笔。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一封都还没有。\\n点右上角那支笔。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一封都还没有。\\n点右上角那支笔。"
+          }
+        }
+      }
+    },
+    "写给": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写给"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写给"
+          }
+        }
+      }
+    },
+    "写一封信": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写一封信"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写一封信"
+          }
+        }
+      }
+    },
+    "写完放到信箱里，她进来看见。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写完放到信箱里，她进来看见。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写完放到信箱里，她进来看见。"
+          }
+        }
+      }
+    },
+    "放进信箱": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放进信箱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放进信箱"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

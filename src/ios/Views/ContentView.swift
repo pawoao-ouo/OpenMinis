@@ -1484,7 +1484,7 @@ struct ContentView: View {
                 }
             case .littleRoom:
                 NavigationStack {
-                    AnniversaryRoomView()
+                    LittleRoomView()
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button("Done") { activeToolSheet = nil }
