@@ -103641,22 +103641,6 @@
         }
       }
     },
-    "戳一下生成（接聊天上下文，手动按钮版）": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "戳一下生成（接聊天上下文，手动按钮版）"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "戳一下生成（接聊天上下文，手动按钮版）"
-          }
-        }
-      }
-    },
     "还没有梦。生成一个，她就把梦里看到的放到这里。": {
       "localizations": {
         "zh-Hans": {
@@ -104149,6 +104133,214 @@
           "stringUnit": {
             "state": "translated",
             "value": "我写一封"
+          }
+        }
+      }
+    },
+    "召唤一次就行——她会如实把梦里看什么放进去": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "召唤一次就行——她会如实把梦里看什么放进去"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "召唤一次就行——她会如实把梦里看什么放进去"
+          }
+        }
+      }
+    },
+    "改一改": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改一改"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改一改"
+          }
+        }
+      }
+    },
+    "编辑这条": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑这条"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑这条"
+          }
+        }
+      }
+    },
+    "今天的日记写一页": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的日记写一页"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的日记写一页"
+          }
+        }
+      }
+    },
+    "记述一个梦": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记述一个梦"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记述一个梦"
+          }
+        }
+      }
+    },
+    "写一封信给你": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写一封信给你"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写一封信给你"
+          }
+        }
+      }
+    },
+    "存在小屋里了。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存在小屋里了。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存在小屋里了。"
+          }
+        }
+      }
+    },
+    "她": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "她"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "她"
+          }
+        }
+      }
+    },
+    "写不出来": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写不出来"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写不出来"
+          }
+        }
+      }
+    },
+    "已在这房间里了": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在这房间里了"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在这房间里了"
+          }
+        }
+      }
+    },
+    "发短信给她": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发短信给她"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发短信给她"
+          }
+        }
+      }
+    },
+    "新年好": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新年好"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新年好"
+          }
+        }
+      }
+    },
+    "保存后会直接覆盖这条，不改成新条目。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存后会直接覆盖这条，不改成新条目。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存后会直接覆盖这条，不改成新条目。"
           }
         }
       }

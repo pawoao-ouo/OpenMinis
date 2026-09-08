@@ -140,6 +140,36 @@ final class RoomContentGenerator {
         }
     }
 
+    /// 解析生成返回：梦境用 JSON schema 拆，日记/信是纯文本。
+    /// JSON 能解出来抽 content 部分—— 抽不出来退化成原始文本（生成失败错误不是默默吞掉,
+    /// 但当你看到吃布句子的时候，她拿到的还是整段 JSON。醒醒不要假的，坏的部分不要补上假样式）。
+    private func renderForRoom(kind: Kind, raw: String) -> String {
+        switch kind {
+        case .dream:
+            // 抽正文——先从整个字符串里找最一段{...}（中间允许啥宽松的包裹文本铲掉）
+            guard let open = raw.firstIndex(of: "{"),
+                  let close = raw.lastIndex(of: "}"),
+                  open < close,
+                  let data = String(raw[open...close]).data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let content = json["content"] as? String else {
+                return raw
+            }
+            var rendered = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty ? raw : content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let summary = json["summary"] as? String, !summary.isEmpty {
+                rendered = "「" + summary + "」\n\n" + rendered
+            }
+            if let keywords = json["keywords"] as? [String], !keywords.isEmpty {
+                rendered += "\n\n# " + keywords.joined(separator: " · ")
+            }
+            return rendered
+
+        case .diary, .letter:
+            return raw
+        }
+    }
+
     /// 把生成的正文存进房间，然后推本地通知。
     /// 存完就推，不在她眼前弹、不进 chat、不是 push token。
     func commit(kind: Kind, roomId: String, character: CharacterCard, raw: String) {
@@ -147,7 +177,7 @@ final class RoomContentGenerator {
         RoomStore.shared.loadIfNeeded(roomId: roomId)
         let entry = RoomStore.shared.append(
             owner: .assistant,
-            text: raw,
+            text: renderForRoom(kind: kind, raw: raw),
             in: roomId
         )
         let kindLabel: String

@@ -32,7 +32,7 @@ struct DreamRoomView: View {
                             Text(AppLocalized("她今晚梦见了什么"))
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundStyle(ChatColors.primaryText)
-                            Text(AppLocalized("戳一下生成（接聊天上下文，手动按钮版）"))
+                            Text(AppLocalized("召唤一次就行——她会如实把梦里看什么放进去"))
                                 .font(.caption)
                                 .foregroundStyle(ChatColors.secondaryText)
                         }
