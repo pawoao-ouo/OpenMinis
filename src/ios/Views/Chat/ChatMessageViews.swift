@@ -528,12 +528,21 @@ struct ChatMessageRow: View {
 
     private var assistantRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Assistant label
+            // Assistant label——群聊时发话方是哪个人就亮哪个，普通聊是默认 soul 头像。
             HStack(spacing: 10) {
-                PersonAvatarView(kind: .assistant, size: 38)
-                AssistantSoulName()
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(ChatColors.primaryText)
+                if let spk = message.speakerId,
+                   UUID(uuidString: spk) != nil,
+                   let char = CharacterStore.shared.characters.first(where: { $0.id.uuidString == spk }) {
+                    SpeakerAvatarView(character: char, size: 38)
+                    Text(char.name)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(ChatColors.primaryText)
+                } else {
+                    PersonAvatarView(kind: .assistant, size: 38)
+                    AssistantSoulName()
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(ChatColors.primaryText)
+                }
             }
             .padding(.top, 2)
 
@@ -844,3 +853,41 @@ struct ChatMessageRow: View {
 }
 
 
+
+/// 群聊场景里的发言人头像（画头像片是成员角色名字/图）。优先 Chara Store 实图，
+/// 没有就她自己最喜欢的颜色加首字。这个视图只负责画头——不做命名拼接。
+private struct SpeakerAvatarView: View {
+    let character: CharacterCard
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let img = loadAvatarImage() {
+                Image(uiImage: img).resizable().scaledToFill()
+            } else {
+                ZStack {
+                    character.displayColor
+                    Text(character.placeholderGlyph)
+                        .font(.system(size: size * 0.45, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.25, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+                .stroke(ChatColors.inputIconBorder.opacity(0.5), lineWidth: 0.6)
+        )
+    }
+
+    private func loadAvatarImage() -> UIImage? {
+        guard let f = character.avatarImageFile,
+              let data = try? Data(contentsOf: FileManager.default
+                .urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("characters/avatars", isDirectory: true)
+                .appendingPathComponent(f)),
+              let img = UIImage(data: data) else { return nil }
+        return img
+    }
+}

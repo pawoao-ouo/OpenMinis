@@ -403,6 +403,11 @@ struct RawMessage: Identifiable, Codable, Hashable {
         }
     }
 
+    /// [T-group-chat-speaker] In a group chat session, identifies which
+    /// group member authored this message. Nullable: normal single-actor
+    /// chats keep this nil. Value is the CharacterCard.id.uuidString.
+    var speakerId: String? = nil
+
     /// [T-bridge-message-ui-leak] The internal assistant "bridge" row inserted
     /// when a queued user message interrupts a tool loop (#579): it exists
     /// purely to keep agentHistory role-alternation intact
@@ -688,6 +693,8 @@ actor ChatStore {
         addColumnIfMissing(table: "messages", column: "model_display_name", definition: "TEXT")
         addColumnIfMissing(table: "messages", column: "provider_type", definition: "TEXT")
         addColumnIfMissing(table: "messages", column: "provider_instance_id", definition: "TEXT")
+        // Group-chat speaker: 群聊里标记哪個角色说的话（CharacterCard.uuid）。普通/单聊消息为 NULL。
+        addColumnIfMissing(table: "messages", column: "speaker_id", definition: "TEXT DEFAULT NULL")
 
         // One-shot cleanup: drop legacy v1 dirty rows that have a v2
         // counterpart. Under the V2 engine these have no consumer (the
@@ -2698,8 +2705,8 @@ actor ChatStore {
         logger.info("[Store] appendMessages enter count=\(messages.count) dbOpen=\(dbOK) sid=\(firstSid)")
 
         let sql = """
-            INSERT INTO messages (id, session_id, role, parts_json, created_at, token_usage, sort_order, reasoning_content, stream_interrupt_count, updated_at, error_info, part_flags, model_id, model_display_name, provider_type, provider_instance_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (id, session_id, role, parts_json, created_at, token_usage, sort_order, reasoning_content, stream_interrupt_count, updated_at, error_info, part_flags, model_id, model_display_name, provider_type, provider_instance_id, speaker_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
         exec("BEGIN TRANSACTION")
@@ -2749,6 +2756,7 @@ actor ChatStore {
                 bindOptionalText(stmt, index: 14, value: message.modelDisplayName)
                 bindOptionalText(stmt, index: 15, value: message.providerType)
                 bindOptionalText(stmt, index: 16, value: message.providerInstanceId)
+                bindOptionalText(stmt, index: 17, value: message.speakerId)
                 let stepRC = sqlite3_step(stmt)
                 if stepRC != SQLITE_DONE {
                     let errMsg = String(cString: sqlite3_errmsg(db))
@@ -2810,7 +2818,7 @@ actor ChatStore {
     func loadMessages(sessionId: String) -> [RawMessage] {
         let totalStart = CFAbsoluteTimeGetCurrent()
         let sql = """
-            SELECT id, session_id, role, parts_json, created_at, token_usage, reasoning_content, stream_interrupt_count, sort_order, error_info, model_id, model_display_name, provider_type, provider_instance_id
+            SELECT id, session_id, role, parts_json, created_at, token_usage, reasoning_content, stream_interrupt_count, sort_order, error_info, model_id, model_display_name, provider_type, provider_instance_id, speaker_id
             FROM messages WHERE session_id = ? ORDER BY sort_order ASC, created_at ASC, id ASC
         """
         var stmt: OpaquePointer?
@@ -2867,6 +2875,8 @@ actor ChatStore {
                 msg.modelDisplayName = sqlite3_column_text(stmt, 11).map { String(cString: $0) }
                 msg.providerType = sqlite3_column_text(stmt, 12).map { String(cString: $0) }
                 msg.providerInstanceId = sqlite3_column_text(stmt, 13).map { String(cString: $0) }
+                // speaker_id 是新加的列，排在索引 14——读到才写进去，旧数据不动。
+                if let spk = sqlite3_column_text(stmt, 14) { msg.speakerId = String(cString: spk) }
                 messages.append(msg)
             }
         } else {

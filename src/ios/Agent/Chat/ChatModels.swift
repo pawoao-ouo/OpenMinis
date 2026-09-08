@@ -54,6 +54,9 @@ final class ChatMessage: Identifiable, ObservableObject {
     @Published var inputAttachments: [InputAttachment] = []
     /// True when all tool calls have completed and we're waiting for the model's next response.
     @Published var isAwaitingModelResponse = false
+    /// 群聊时这条话是哪位角色说的（单聊 nil）。只是 ID 不是角色对象——
+    /// 渲染头像要时延迟查 CharacterStore；别在模型里搜。
+    @Published var speakerId: String? = nil
     /// True when this message is queued but not yet injected into the agent loop.
     @Published var isQueued = false
     /// True if this message is from the compacted history zone (read-only, no actions).
@@ -80,11 +83,12 @@ final class ChatMessage: Identifiable, ObservableObject {
     var queuedPromptId: UUID?
     let timestamp = Date()
 
-    init(role: ChatMessageRole, content: String, blocks: [AssistantBlock] = [], isQueued: Bool = false) {
+    init(role: ChatMessageRole, content: String, blocks: [AssistantBlock] = [], isQueued: Bool = false, speakerId: String? = nil) {
         self.role = role
         self.content = content
         self.blocks = blocks
         self.isQueued = isQueued
+        self.speakerId = speakerId
     }
 
     /// [T-bridge-message-ui-leak] True when this UI message is the internal
