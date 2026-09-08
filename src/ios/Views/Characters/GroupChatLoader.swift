@@ -4,8 +4,8 @@ import SwiftUI
 ///
 /// QQ 式多角色：vm.groupMembers 塞群成员全集；send() 里按 @过滤后每个成员
 /// 自己跑一整轮模型——自己的人设、自己的记忆、自己的模型、自己的气泡
-/// （speakerId 落到 messages 表）。记忆收割在 vm 轮值循环里做：谁说完
-/// 当场把那段话进谁的 memory.md，跨重启不重复收。
+/// （speakerId 落到 messages 表）。成员想记什么用 character_remember 写进
+/// 它自己的 memory.md，群聊/单聊随车。
 struct GroupChatLoader: View {
 
     let sessionId: String
@@ -25,7 +25,7 @@ struct GroupChatLoader: View {
             // 重新抽 @，群成员全集（groupMembers）进场就常驻。
             .onDisappear {
                 vm.groupMembers = []
-                                vm.groupHeaderPrompt = nil
+                vm.groupHeaderPrompt = nil
             }
     }
 
@@ -33,7 +33,7 @@ struct GroupChatLoader: View {
         let members = charStore.characters.filter { group.memberIds.contains($0.id) }
         guard !members.isEmpty else {
             vm.groupMembers = []
-                        vm.groupHeaderPrompt = nil
+            vm.groupHeaderPrompt = nil
             return
         }
 
