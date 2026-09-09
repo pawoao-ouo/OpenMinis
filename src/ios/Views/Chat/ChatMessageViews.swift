@@ -1,4 +1,5 @@
 import SwiftUI
+import Translation
 
 // MARK: - Context-menu preview
 
