@@ -763,7 +763,7 @@ struct ChatMessageRow: View {
                     .foregroundStyle(ChatColors.warning)
                 Text("Interrupted — tap Resume to continue")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(ChatColors.secondaryText)
             }
 
             Spacer()
@@ -776,7 +776,7 @@ struct ChatMessageRow: View {
                         Text("Resume")
                             .font(.caption.weight(.semibold))
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ChatColors.primaryText)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(ChatColors.warning)

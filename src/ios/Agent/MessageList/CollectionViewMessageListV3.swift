@@ -549,8 +549,8 @@ private struct BridgedAssistantFooterV3: View {
         HStack(alignment: .center, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.red)
-                Text(error).font(.caption).foregroundStyle(.red).lineLimit(2)
+                    .font(.caption).foregroundStyle(ChatColors.destructive)
+                Text(error).font(.caption).foregroundStyle(ChatColors.destructive).lineLimit(2)
             }
             .contentShape(Rectangle())
             .contextMenu {
@@ -579,14 +579,14 @@ private struct BridgedAssistantFooterV3: View {
             }
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(ChatColors.destructive.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var resumeBanner: some View {
         HStack(alignment: .center, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "pause.circle.fill").font(.caption).foregroundStyle(.orange)
-                Text(AppLocalized("Interrupted — tap Resume to continue")).font(.caption).foregroundStyle(.secondary)
+                Image(systemName: "pause.circle.fill").font(.caption).foregroundStyle(ChatColors.warning)
+                Text(AppLocalized("Interrupted — tap Resume to continue")).font(.caption).foregroundStyle(ChatColors.secondaryText)
             }
             Spacer()
             if let onResume = bridge.onResume {
@@ -595,14 +595,14 @@ private struct BridgedAssistantFooterV3: View {
                         Image(systemName: "play.fill").font(.caption.weight(.semibold))
                         Text(AppLocalized("Resume")).font(.caption.weight(.semibold))
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ChatColors.primaryText)
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(Color.orange).clipShape(Capsule())
+                    .background(ChatColors.warning).clipShape(Capsule())
                 }
             }
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(ChatColors.warning.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -623,9 +623,9 @@ private struct BridgedAssistantFooterV3: View {
             Image(systemName: "arrow.clockwise").font(.system(size: 9, weight: .semibold))
             Text("\(count)").font(.system(size: 10, design: .monospaced))
         }
-        .foregroundStyle(Color.orange.opacity(0.8))
+        .foregroundStyle(ChatColors.warning.opacity(0.8))
         .padding(.horizontal, 7).padding(.vertical, 3)
-        .background(Color.orange.opacity(0.12)).clipShape(Capsule())
+        .background(ChatColors.warning.opacity(0.12)).clipShape(Capsule())
     }
 
     private func usageSummary(_ u: TokenUsage) -> String {

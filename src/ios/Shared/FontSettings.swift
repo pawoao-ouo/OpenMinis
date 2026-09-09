@@ -8,6 +8,7 @@ extension Notification.Name {
 
 /// Font scale level — six discrete steps from small to extra large.
 enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
+    case xxSmall = -3
     case xSmall = -2
     case small = -1
     case `default` = 0
@@ -18,10 +19,11 @@ enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
     var id: Int { rawValue }
 
     /// Explicit declaration so CaseIterable follows display order, not raw-value order.
-    static var allCases: [FontScaleLevel] { [.xSmall, .small, .default, .medium, .large, .extraLarge] }
+    static var allCases: [FontScaleLevel] { [.xxSmall, .xSmall, .small, .default, .medium, .large, .extraLarge] }
 
     var multiplier: CGFloat {
         switch self {
+        case .xxSmall:    return 0.76   // ~13pt body
         case .xSmall:     return 0.88   // ~15pt body
         case .small:      return 0.94   // ~16pt body
         case .default:    return 1.0    // 17pt body
@@ -33,6 +35,7 @@ enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
 
     var label: String {
         switch self {
+        case .xxSmall:    return "XXS"
         case .xSmall:     return "XS"
         case .small:      return "Small"
         case .default:    return "Default"
@@ -46,6 +49,7 @@ enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
     /// scale automatically when this level is applied via `.dynamicTypeSize()`.
     var dynamicTypeSize: DynamicTypeSize {
         switch self {
+        case .xxSmall:    return .xSmall
         case .xSmall:     return .small
         case .small:      return .medium
         case .default:    return .large        // system default
@@ -58,6 +62,7 @@ enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
     /// UIKit equivalent for applying to all UIWindows (including sheets).
     var contentSizeCategory: UIContentSizeCategory {
         switch self {
+        case .xxSmall:    return .extraSmall
         case .xSmall:     return .small
         case .small:      return .medium
         case .default:    return .large

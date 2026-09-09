@@ -17,6 +17,14 @@ struct AppearanceStudioView: View {
     @State private var categoryImageItem: PhotosPickerItem?
     @State private var saveName: String = ""
     @State private var errorText: String?
+    // [T-appearance-collapsible] Most appearance sections start collapsed so
+    // the page reads as a short index; expand what you're here for.
+    @State private var showPalette = false
+    @State private var showWallpaper = false
+    @State private var showAvatars = false
+    @State private var showIcons = false
+    @State private var showThemePack = false
+    @State private var showThemeLibrary = false
 
     var body: some View {
         List {
@@ -28,15 +36,10 @@ struct AppearanceStudioView: View {
                 Text("默认是安静的暖纸色。下面每一项都可以换，布局不会跟着乱。")
             }
 
+            // [T-appearance-collapsible] 气泡 promoted to its own always-open
+            // section — colour + opacity for both bubbles, no digging.
             Section {
-                Picker("色盘", selection: $variant) {
-                    ForEach(AppearanceVariant.allCases) { item in
-                        Text(item.title).tag(item)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                ForEach(AppearanceColorRole.allCases) { role in
+                ForEach([AppearanceColorRole.userBubble, .assistantBubble]) { role in
                     HStack(spacing: 12) {
                         ColorPicker(role.title,
                                     selection: studio.colorBinding(role,
@@ -49,10 +52,50 @@ struct AppearanceStudioView: View {
                                                           variant: variant))
                     }
                 }
+                Picker("色盘", selection: $variant) {
+                    ForEach(AppearanceVariant.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("气泡透明度")
+                        Spacer()
+                        Text("\(Int(studio.bubbleOpacity * 100))%")
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: $studio.bubbleOpacity, in: 0.15...1, step: 0.01)
+                }
             } header: {
-                Text("色盘")
+                Text("气泡")
             } footer: {
-                Text("这些颜色会流过每一页、卡片、文字、气泡和输入框。浅色和深色会跟着系统外观切换。")
+                Text("两边聊天气泡的颜色和透明度。形状圆角在「AI 主题包」里。")
+            }
+
+            CollapsibleSection(title: "色盘",
+                               footer: "这些颜色会流过每一页、卡片、文字、气泡和输入框。浅色和深色会跟着系统外观切换。",
+                               isExpanded: $showPalette) {
+                Picker("色盘", selection: $variant) {
+                    ForEach(AppearanceVariant.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                ForEach(AppearanceColorRole.allCases.filter { $0 != .userBubble && $0 != .assistantBubble }) { role in
+                    HStack(spacing: 12) {
+                        ColorPicker(role.title,
+                                    selection: studio.colorBinding(role,
+                                                                   scope: .global,
+                                                                   variant: variant),
+                                    supportsOpacity: false)
+                        Text("#\(studio.hex(role, scope: .global, variant: variant))")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(studio.color(.secondaryText, scope: .global,
+                                                          variant: variant))
+                    }
+                }
             }
 
             Section {
@@ -71,7 +114,9 @@ struct AppearanceStudioView: View {
                 Text("预设")
             }
 
-            Section {
+            CollapsibleSection(title: "AI 主题包",
+                               footer: "一整套：色、气泡形状、thinking 卡片图、会话列表、分类图标、壁纸。小梦也可以用 minis-theme 直接贴上来。",
+                               isExpanded: $showThemePack) {
                 let pack = studio.currentThemePack()
                 VStack(alignment: .leading, spacing: 6) {
                     Text(pack.name)
@@ -222,13 +267,11 @@ struct AppearanceStudioView: View {
                 Button("恢复默认主题包", role: .destructive) {
                     studio.resetThemePack()
                 }
-            } header: {
-                Text("AI 主题包")
-            } footer: {
-                Text("一整套：色、气泡形状、thinking 卡片图、会话列表、分类图标、壁纸。小梦也可以用 minis-theme 直接贴上来。")
             }
 
-            Section {
+            CollapsibleSection(title: "主题库",
+                               footer: "保存是另存一份，不会冲掉正在用的。应用才换上去。最多四十套。",
+                               isExpanded: $showThemeLibrary) {
                 TextField("给这套起个名字", text: $saveName)
                 Button("保存当前主题") {
                     let item = studio.saveCurrentTheme(name: saveName)
@@ -254,13 +297,11 @@ struct AppearanceStudioView: View {
                         }
                     }
                 }
-            } header: {
-                Text("主题库")
-            } footer: {
-                Text("保存是另存一份，不会冲掉正在用的。应用才换上去。最多四十套。")
             }
 
-            Section {
+            CollapsibleSection(title: "页面背景",
+                               footer: "可以先给全部页面设一张图，再只换你想单独打扮的那一页。压色保护文字对比；卡片透明度决定图透出来多少。",
+                               isExpanded: $showWallpaper) {
                 Picker("壁纸用于", selection: $wallpaperScope) {
                     ForEach(AppearanceScope.allCases) { item in
                         Text(item.title).tag(item)
@@ -315,26 +356,11 @@ struct AppearanceStudioView: View {
                     }
                     Slider(value: $studio.surfaceOpacity, in: 0.35...1, step: 0.01)
                 }
-
-                // [T-bubble-opacity-slider] Independent bubble transparency —
-                // applies to BOTH sides' chat bubbles only, not to cards or
-                // the input bar. 1.0 = default solid look.
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("气泡透明度")
-                        Spacer()
-                        Text("\(Int(studio.bubbleOpacity * 100))%")
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: $studio.bubbleOpacity, in: 0.15...1, step: 0.01)
-                }
-            } header: {
-                Text("页面背景")
-            } footer: {
-                Text("可以先给全部页面设一张图，再只换你想单独打扮的那一页。压色保护文字对比；卡片透明度决定图透出来多少。")
             }
 
-            Section {
+            CollapsibleSection(title: "情头",
+                               footer: "两张图都会裁成方的，存在这台手机上。小梦的头像同时就是 Soul 图标，身份不会各处长不一样。",
+                               isExpanded: $showAvatars) {
                 pairedAvatarPreview
 
                 PhotosPicker(selection: $userAvatarItem, matching: .images) {
@@ -355,13 +381,11 @@ struct AppearanceStudioView: View {
                         catch { errorText = error.localizedDescription }
                     }
                 }
-            } header: {
-                Text("情头")
-            } footer: {
-                Text("两张图都会裁成方的，存在这台手机上。小梦的头像同时就是 Soul 图标，身份不会各处长不一样。")
             }
 
-            Section {
+            CollapsibleSection(title: "图标",
+                               footer: "默认图标跟着色盘走，不再用彩虹圆底。不喜欢系统图标，就在这里换成你自己的图。",
+                               isExpanded: $showIcons) {
                 ForEach(QuietIconSlot.allCases) { slot in
                     HStack(spacing: 12) {
                         QuietAppIcon(id: slot.id, systemName: slot.systemName, size: 28)
@@ -384,10 +408,6 @@ struct AppearanceStudioView: View {
                         }
                     }
                 }
-            } header: {
-                Text("图标")
-            } footer: {
-                Text("默认图标跟着色盘走，不再用彩虹圆底。不喜欢系统图标，就在这里换成你自己的图。")
             }
         }
         .appearancePage(.settings)
@@ -630,6 +650,31 @@ struct AppearanceStudioView: View {
             studio.applyThemePack(pack)
         } catch {
             errorText = error.localizedDescription
+        }
+    }
+}
+
+/// [T-appearance-collapsible] A Form/List Section that collapses to a single
+/// DisclosureGroup row. Content views are built lazily so a collapsed section
+/// costs nothing.
+private struct CollapsibleSection<Content: View>: View {
+    let title: String
+    var footer: String? = nil
+    @Binding var isExpanded: Bool
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Section {
+            DisclosureGroup(isExpanded: $isExpanded) {
+                content()
+            } label: {
+                Text(title)
+                    .font(.body.weight(.medium))
+            }
+        } footer: {
+            if let footer, isExpanded {
+                Text(footer)
+            }
         }
     }
 }

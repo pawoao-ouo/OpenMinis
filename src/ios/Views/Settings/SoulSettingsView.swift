@@ -113,7 +113,7 @@ struct SoulSettingsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(AppLocalized("Save")) { save() }
-                    .disabled(!isDirty || isBodyOverLimit)
+                    .disabled(!isDirty)
             }
         }
         .onAppear(perform: reload)
@@ -256,24 +256,15 @@ struct SoulSettingsView: View {
         }
     }
 
-    /// Footer under the personality editor. Renders a green count when the
-    /// body is within budget and a red over-limit message when it isn't.
-    /// Save is disabled in the over-limit branch.
+    /// Footer under the personality editor. Shows a live token count
+    /// (informational only — the hard cap was removed, so there is no
+    /// over-limit state to render any more).
     private var bodyLengthFooter: some View {
-        let check = SoulStore.isOverLimit(bodyText)
-        return HStack(spacing: 6) {
-            if check.isOverLimit {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-            }
-            switch check {
-            case .ok:
-                Text(soulBodyCountText(bodyText))
-                    .foregroundStyle(.secondary)
-            case .overLimit(let count, let cap):
-                Text(AppLocalized("Over limit: \(count) / \(cap) tokens. Each CJK character and each Latin word counts as one."))
-                    .foregroundStyle(.red)
-            }
+        HStack(spacing: 6) {
+            Image(systemName: "text.justify.left")
+                .foregroundStyle(.secondary)
+            Text(soulBodyCountText(bodyText))
+                .foregroundStyle(.secondary)
         }
         .font(.footnote)
     }
@@ -281,11 +272,7 @@ struct SoulSettingsView: View {
     /// Counter shown when the body is within budget.
     private func soulBodyCountText(_ body: String) -> String {
         let count = SoulStore.tokenCount(body)
-        return AppLocalized("\(count) / \(SoulStore.bodyTokenLimit) tokens")
-    }
-
-    private var isBodyOverLimit: Bool {
-        SoulStore.isOverLimit(bodyText).isOverLimit
+        return AppLocalized("\(count) tokens")
     }
 
     // MARK: - Persistence

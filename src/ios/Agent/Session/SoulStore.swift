@@ -668,9 +668,14 @@ enum SoulStore {
 
     // MARK: - Body length rules (unified token count)
     //
-    // The personality body has a single hard cap of 2000 tokens, applied
-    // at every write surface (Settings UI Save button, minis-config writer,
-    // and the prompt-build-time fallback in `SystemPromptBuilder`).
+    // The hard cap was 2000 tokens; removed 2026-09-09 (user request) —
+    // an over-limit body used to (a) permanently disable the Settings
+    // Save button and (b) silently drop the whole personality from the
+    // system prompt, both of which read as "the app ate my edit". The
+    // counting machinery stays for display (live token counter in the
+    // Settings footer); `isOverLimit` now always returns `.ok`.
+    // Context-budget responsibility moves to the user: a very long body
+    // simply occupies more of the model's context window.
     //
     // Counting rules — see `tokenCount(_:)`:
     //   - Each CJK glyph or CJK punctuation mark = 1 token
@@ -679,7 +684,10 @@ enum SoulStore {
     //
     // So "hello AB CD" with two CJK glyphs counts as 1 (hello) + 4 (A B C D) = 5.
 
-    static let bodyTokenLimit = 2000
+    /// Kept for API compatibility (call sites + tests reference it) but the
+    /// limit itself is gone: always `.ok`. The Settings footer still shows
+    /// the token count via `tokenCount(_:)`.
+    static let bodyTokenLimit = Int.max
 
     /// Count tokens in [body] under the unified rule. Empty / whitespace
     /// returns 0. CJK glyphs/punctuation count one-per-character; non-CJK
@@ -702,15 +710,13 @@ enum SoulStore {
         return count
     }
 
-    /// Classify [body] under the unified 2000-token rule. Empty /
-    /// whitespace-only bodies always return `.ok`.
+    /// Classify [body] under the unified token rule. The 2000-token cap was
+    /// removed (user request): this now always returns `.ok`, so over-long
+    /// bodies are never blocked at save time and never fall back to
+    /// identity-only at prompt-build time. Counting stays available via
+    /// `tokenCount(_:)` for the live counter.
     static func isOverLimit(_ body: String) -> SoulBodyLimitCheck {
-        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return .ok }
-        let count = tokenCount(trimmed)
-        return count > Self.bodyTokenLimit
-            ? .overLimit(count: count, cap: Self.bodyTokenLimit)
-            : .ok
+        .ok
     }
 
     /// CJK punctuation that the user perceives as a character — full-width
@@ -983,22 +989,9 @@ enum SystemPromptBuilder {
             return identityTrimmed + styleBlock(style) + "\n\n" + soulEditHint + "\n\n"
         }
 
-        // Reject (NOT truncate) bodies that exceed the language-aware
-        // limit. Truncation silently dropped half the user's text and
-        // implied that "the agent still gets your character" when in
-        // practice it was missing context. Falling back to identity-only
-        // is the safer signal: the user notices the personality isn't
-        // taking effect, opens Settings, and sees the same red over-limit
-        // warning the Save button surfaces. Write paths already reject
-        // over-limit; this branch only triggers for an on-disk file that
-        // was written before this rule existed (or via shell / another
-        // device).
-        let check = SoulStore.isOverLimit(trimmed)
-        guard !check.isOverLimit else {
-            Self.logger.warning("[Soul] personality body is over the language-aware limit (\(check)) — falling back to identity-only system prompt.")
-            return identityTrimmed + styleBlock(style) + "\n\n" + soulEditHint + "\n\n"
-        }
-
+        // The over-limit fallback (identity-only prompt) was removed with
+        // the 2000-token cap: the body now always reaches the system
+        // prompt, however long it is. Context budget is the user's call.
         let personality = scrubInjections(trimmed)
 
         // Strip the trailing space we'd otherwise leave hanging at the
