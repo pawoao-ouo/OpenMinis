@@ -13,6 +13,7 @@ struct LetterRoomView: View {
     @State private var viewMode: Segment = .all
     @State private var showCompose = false
     @State private var showHersWriting = false
+    @State private var editingEntry: RoomEntry? = nil
 
     enum Segment: String, CaseIterable, Identifiable {
         case all, mine, hers

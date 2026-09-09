@@ -30,12 +30,12 @@ struct DiaryRoomView: View {
                 ForEach(entries) { entry in
                     DiaryCard(
                         entry: entry,
+                        fromName: entry.owner == .assistant ? character.name : AppLocalized("我"),
                         expanded: expandedIds.contains(entry.id),
                         onToggle: {
                             if expandedIds.contains(entry.id) { expandedIds.remove(entry.id) }
                             else { expandedIds.insert(entry.id) }
-                        },
-                        fromName: entry.owner == .assistant ? character.name : AppLocalized("我")
+                        }
                     )
                     .roomEntryContextMenu(roomId: roomId, entry: entry) { editing in
                         editingEntry = editing
