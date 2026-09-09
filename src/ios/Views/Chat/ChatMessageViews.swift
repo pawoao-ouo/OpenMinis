@@ -893,14 +893,15 @@ private struct SpeakerAvatarView: View {
 }
 
 // MARK: - 系统翻译面板的兼容挂载
-// `.translationPresentation` 是 iOS 18.0+ 的 API，本 app 部署目标是 iOS 16.0。
+// `.translationPresentation` 是 iOS 17.4+ 的 API，本 app 部署目标是 iOS 16.0。
 // 低版本上长按菜单里的"翻译"不弹出系统面板（按钮仍在，无操作）。
 private struct TranslationPresentationIfNeeded: ViewModifier {
     @Binding var isPresented: Bool
     let text: String
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
+        if #available(iOS 17.4, *) {
             content.translationPresentation(isPresented: $isPresented, text: text)
         } else {
             content
