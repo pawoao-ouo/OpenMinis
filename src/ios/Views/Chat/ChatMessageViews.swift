@@ -144,7 +144,13 @@ private struct UserBubbleSurface: ViewModifier {
                                 style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
                 )
         } else if #available(iOS 26.0, *) {
-            content.glassEffect(.regular, in: shape)
+            // [T-bubble-opacity-slider] Glass has its own material alpha we
+            // can't dial directly; blend the themed bubble colour UNDER the
+            // glass at the slider's opacity so the slider visibly does
+            // something on iOS 26 instead of being a dead control.
+            content
+                .background(shape.fill(ChatColors.userBubble))
+                .glassEffect(.regular, in: shape)
         } else {
             content.background(shape.fill(ChatColors.userBubble))
         }

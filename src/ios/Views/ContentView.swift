@@ -2877,6 +2877,9 @@ struct ContentView: View {
 
         }
         .listStyle(.plain)
+        // [T-home-wallpaper-visible] Same as splitList — let the .home
+        // wallpaper show through the iPhone stack list.
+        .scrollContentBackground(.hidden)
         #if DEBUG
         // TEMPORARY scroll-phase markers to bracket the jitter window in the
         // log. Pair with the [ROWH] probe: a [ROWH] line appearing during
@@ -2887,7 +2890,18 @@ struct ContentView: View {
         .opacity(didInitialLoad ? 1 : 0)
         .overlay { if didInitialLoad, filteredSessions.isEmpty, !isSearching { emptyState } }
         .overlay(alignment: .top) { folderMiniBarOverlay(scrollProxy) }
-        .safeAreaInset(edge: .bottom) { if isSelecting { selectionToolbar } else { fabRow } }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionToolbar
+            } else {
+                // [T-home-bottom-bar] Mirrors splitList: bar at the bottom,
+                // FABs above it.
+                VStack(spacing: 0) {
+                    fabRow
+                    homeBottomBar
+                }
+            }
+        }
         // [T-home-fab-keyboard-inset] Mirror of the voice panel's structural
         // immunity (604a9947 / T-voice-bg-fg-gap): with the inline search bar
         // closed, nothing down here accepts text — any keyboard inset reaching
@@ -3064,15 +3078,35 @@ struct ContentView: View {
 
         }
         .listStyle(.plain)
+        // [T-home-wallpaper-visible] Plain List paints its own opaque
+        // systemBackground row container; without hiding it the .home
+        // wallpaper behind (from .appearancePage(.home)) never shows
+        // through — the "wallpaper doesn't apply to the message list"
+        // report. Row backgrounds are already Color.clear (non-folder).
+        .scrollContentBackground(.hidden)
         .navigationSplitViewColumnWidth(min: 340, ideal: 380, max: 500)
         .opacity(didInitialLoad ? 1 : 0)
         .overlay { if didInitialLoad, displaySessions.isEmpty, !isSearching { emptyState } }
         .overlay(alignment: .top) { folderMiniBarOverlay(scrollProxy) }
-        .safeAreaInset(edge: .bottom) { if isSelecting { selectionToolbar } else { fabRow } }
-        // [T-home-fab-keyboard-inset] Same structural immunity as the compact
-        // list above — see that call site for the full rationale. On iPad the
-        // sidebar column never hosts a keyboard unless the inline search bar
-        // is open (the chat column's composer avoidance is its own subtree).
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionToolbar
+            } else {
+                // [T-home-bottom-bar] QQ/WeChat layout: tab bar at the very
+                // bottom, FABs floating above it.
+                VStack(spacing: 0) {
+                    fabRow
+                    homeBottomBar
+                }
+            }
+        }
+        // [T-home-fab-keyboard-inset] Mirror of the voice panel's structural
+        // immunity (604a9947 / T-voice-bg-fg-gap): with the inline search bar
+        // closed, nothing down here accepts text — any keyboard inset reaching
+        // this list is a stale/zombie one (stranded responder, interrupted
+        // bg-snapshot dismiss) and must not push the 新建/搜索 FABs up. With
+        // the search bar open its TextField legitimately rises with the
+        // keyboard, so normal avoidance is restored.
         .ignoresSafeArea(.keyboard, edges: showSearchBar ? [] : .bottom)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { sidebarToolbarContent }
@@ -3345,16 +3379,12 @@ struct ContentView: View {
             }
         }
         ToolbarItem(placement: .topBarLeading) {
+            // [T-home-bottom-bar] Settings moved to the bottom bar (QQ/WeChat
+            // tab-bar feel). Selection mode keeps its Cancel here.
             if isSelecting {
                 Button("Cancel") {
                     isSelecting = false
                     selectedIds.removeAll()
-                }
-            } else {
-                Button {
-                    activeToolSheet = .settings
-                } label: {
-                    Image(systemName: "gear")
                 }
             }
         }
@@ -3367,58 +3397,88 @@ struct ContentView: View {
                         selectedIds = Set(sessions.map(\.id))
                     }
                 }
-            } else if hasAlarms {
+            }
+        }
+        // [T-home-bottom-bar] The alarm bell and the terminal/rootfs/browser
+        // menu were top-bar items; both moved into homeBottomBar below. The
+        // top bar now carries only the title + sync indicator in normal mode.
+    }
+
+    // MARK: - Home Bottom Bar
+
+    /// [T-home-bottom-bar] QQ/WeChat-style bottom bar: settings, terminal
+    /// menu, alarm — the controls that used to live in the navigation bar.
+    /// Sits in the same safeAreaInset slot as the FAB row (left of the FABs,
+    /// so the FABs' drag/menu behaviour is untouched).
+    private var homeBottomBar: some View {
+        HStack(spacing: 0) {
+            Button {
+                activeToolSheet = .settings
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(MinisThemeList.accent)
+            }
+            .frame(maxWidth: .infinity)
+            Menu {
+                Button {
+                    showTerminal = true
+                } label: {
+                    Label("Shell Terminal", systemImage: "terminal")
+                }
+                Button {
+                    activeToolSheet = .rootfsManagement
+                } label: {
+                    Label("Rootfs Management", systemImage: "externaldrive")
+                }
+                Divider()
+                Button {
+                    activeToolSheet = .browser
+                } label: {
+                    Label("Open Browser", systemImage: "globe")
+                }
+                Button {
+                    activeToolSheet = .browserManagement
+                } label: {
+                    Label("Browser Settings", systemImage: "globe.badge.chevron.backward")
+                }
+                #if DEBUG
+                Divider()
+                Button {
+                    keepScreenAwake.toggle()
+                    UIApplication.shared.isIdleTimerDisabled = keepScreenAwake
+                } label: {
+                    Label("Keep Screen Awake", systemImage: keepScreenAwake ? "checkmark.circle.fill" : "sun.max")
+                }
+                #endif
+            } label: {
+                Image("TerminalCircle")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 22, height: 22)
+            }
+            .frame(maxWidth: .infinity)
+            if hasAlarms {
                 Button {
                     showAlarmList = true
                 } label: {
                     Image(systemName: "alarm")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(MinisThemeList.accent)
                 }
+                .frame(maxWidth: .infinity)
             }
         }
-        ToolbarItem(placement: .topBarTrailing) {
-            if !isSelecting {
-                Menu {
-                    Button {
-                        showTerminal = true
-                    } label: {
-                        Label("Shell Terminal", systemImage: "terminal")
-                    }
-                    Button {
-                        activeToolSheet = .rootfsManagement
-                    } label: {
-                        Label("Rootfs Management", systemImage: "externaldrive")
-                    }
-                    Divider()
-                    Button {
-                        activeToolSheet = .browser
-                    } label: {
-                        Label("Open Browser", systemImage: "globe")
-                    }
-                    Button {
-                        activeToolSheet = .browserManagement
-                    } label: {
-                        Label("Browser Settings", systemImage: "globe.badge.chevron.backward")
-                    }
-                    #if DEBUG
-                    Divider()
-                    // [debug] Keep Screen Awake — disables auto-lock while the app
-                    // is foregrounded. Tap toggles; a checkmark shows the current
-                    // state. Memory-only (not persisted). DEBUG builds only.
-                    Button {
-                        keepScreenAwake.toggle()
-                        UIApplication.shared.isIdleTimerDisabled = keepScreenAwake
-                    } label: {
-                        Label("Keep Screen Awake", systemImage: keepScreenAwake ? "checkmark.circle.fill" : "sun.max")
-                    }
-                    #endif
-                } label: {
-                    Image("TerminalCircle")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 24, height: 24)
-                }
-            }
+        .frame(height: 44)
+        .padding(.bottom, 2)
+        .contentShape(Rectangle())
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity)
+        .background {
+            // [T-home-bottom-bar] Bar reads as a tab strip over the wallpaper,
+            // not a floating island. rowFill honours the theme pack's list
+            // row colour + the home scope.
+            MinisThemeList.rowFill.opacity(0.92)
         }
     }
 

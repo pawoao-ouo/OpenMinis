@@ -315,6 +315,19 @@ struct AppearanceStudioView: View {
                     }
                     Slider(value: $studio.surfaceOpacity, in: 0.35...1, step: 0.01)
                 }
+
+                // [T-bubble-opacity-slider] Independent bubble transparency —
+                // applies to BOTH sides' chat bubbles only, not to cards or
+                // the input bar. 1.0 = default solid look.
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("气泡透明度")
+                        Spacer()
+                        Text("\(Int(studio.bubbleOpacity * 100))%")
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: $studio.bubbleOpacity, in: 0.15...1, step: 0.01)
+                }
             } header: {
                 Text("页面背景")
             } footer: {

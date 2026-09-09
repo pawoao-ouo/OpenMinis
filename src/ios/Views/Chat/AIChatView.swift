@@ -88,10 +88,17 @@ enum ChatColors {
     static var secondaryText: Color { studio.color(.secondaryText, scope: .chat) }
     static var tertiaryText: Color { studio.color(.secondaryText, scope: .chat).opacity(0.72) }
     static var userBubble: Color {
-        studio.color(.userBubble, scope: .chat).opacity(studio.surfaceOpacity)
+        studio.color(.userBubble, scope: .chat).opacity(bubbleAlpha)
     }
     static var assistantBubble: Color {
-        studio.color(.assistantBubble, scope: .chat).opacity(studio.surfaceOpacity)
+        studio.color(.assistantBubble, scope: .chat).opacity(bubbleAlpha)
+    }
+    /// [T-bubble-opacity-slider] Bubbles stack BOTH alphas: the bubble role's
+    /// own color alpha (palette-tinted translucency) × the user-facing
+    /// bubbleOpacity slider. Capped at surfaceOpacity so a bubble never reads
+    /// more opaque than the card system it sits among.
+    private static var bubbleAlpha: Double {
+        min(studio.bubbleOpacity, studio.surfaceOpacity)
     }
     static var toolBg: Color {
         studio.color(.mutedSurface, scope: .chat).opacity(studio.surfaceOpacity)

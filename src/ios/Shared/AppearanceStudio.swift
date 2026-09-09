@@ -62,6 +62,7 @@ final class AppearanceStudio: ObservableObject {
         static let colors = "appearanceStudio.colors.v1"
         static let userAvatar = "appearanceStudio.userAvatar.v1"
         static let surfaceOpacity = "appearanceStudio.surfaceOpacity"
+        static let bubbleOpacity = "appearanceStudio.bubbleOpacity"
         static let wallpaperShade = "appearanceStudio.wallpaperShade"
         static let icons = "appearanceStudio.icons.v1"
     }
@@ -77,6 +78,12 @@ final class AppearanceStudio: ObservableObject {
     @Published private var customIcons: [String: String]
     @Published var surfaceOpacity: Double {
         didSet { UserDefaults.standard.set(surfaceOpacity, forKey: Keys.surfaceOpacity) }
+    }
+    /// [T-bubble-opacity-slider] Bubble-only transparency, separate from the
+    /// global surfaceOpacity so dialling bubbles down doesn't wash out cards,
+    /// tool capsules and the input bar. User + assistant bubbles both read it.
+    @Published var bubbleOpacity: Double {
+        didSet { UserDefaults.standard.set(bubbleOpacity, forKey: Keys.bubbleOpacity) }
     }
     @Published var wallpaperShade: Double {
         didSet { UserDefaults.standard.set(wallpaperShade, forKey: Keys.wallpaperShade) }
@@ -105,6 +112,8 @@ final class AppearanceStudio: ObservableObject {
         let storedOpacity = UserDefaults.standard.object(forKey: Keys.surfaceOpacity) as? Double
         let storedShade = UserDefaults.standard.object(forKey: Keys.wallpaperShade) as? Double
         surfaceOpacity = storedOpacity ?? 0.88
+        let storedBubbleOpacity = UserDefaults.standard.object(forKey: Keys.bubbleOpacity) as? Double
+        bubbleOpacity = storedBubbleOpacity ?? 1.0
         wallpaperShade = storedShade ?? 0.08
         cachedThemePack = loadStoredPackUnlocked()
         themePackLoaded = true
@@ -187,6 +196,7 @@ final class AppearanceStudio: ObservableObject {
     func resetColors() {
         customColors.removeAll()
         surfaceOpacity = 0.88
+        bubbleOpacity = 1.0
         wallpaperShade = 0.08
         persistColors()
         configureUIKitSurfaces()

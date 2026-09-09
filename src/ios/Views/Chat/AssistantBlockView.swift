@@ -26,17 +26,28 @@ struct AssistantBlockView: View {
         switch block.kind {
         case .text:
             if !block.content.isEmpty {
-                textBlockView
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
-                    )
-                    .overlay(
-                        MinisThemeShape.assistantBubble.fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
-                    )
-                    .clipShape(MinisThemeShape.assistantBubble)
+                // [T-bubble-blank-line-split] Split the block's markdown into
+                // blank-line-separated paragraphs, each rendered as its own
+                // bubble (WeChat-style: several utterances → several bubbles).
+                // Splitting is RENDER-ONLY — block.content, persistence and
+                // the LLM-facing history all stay one block.
+                //
+                // Fence/table guard: content containing a code fence or a
+                // markdown table is NOT split. Blank lines inside those
+                // constructs are structural, and naive splitting would shred
+                // them; such blocks keep the single wide-bubble look.
+                let segments = Self.splitBubbleSegments(block.content)
+                if segments.count > 1 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
+                            self.singleTextBubble(seg)
+                        }
+                    }
                     .id(appearanceStudio.themePackRevision)
+                } else {
+                    self.singleTextBubble(block.content)
+                        .id(appearanceStudio.themePackRevision)
+                }
             }
         case .thinking:
             ThinkingBlockView(
@@ -118,11 +129,48 @@ struct AssistantBlockView: View {
     }
 
     @ViewBuilder
-    private var textBlockView: some View {
+    private func singleTextBubble(_ content: String) -> some View {
+        textBlockView(markdown: content)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
+            )
+            .overlay(
+                MinisThemeShape.assistantBubble.fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
+            )
+            .clipShape(MinisThemeShape.assistantBubble)
+    }
+
+    /// Split assistant markdown into bubble segments on blank lines.
+    /// Empty when the content should stay one bubble (no blank lines, or
+    /// structural markdown that must not be shredded).
+    static func splitBubbleSegments(_ content: String) -> [String] {
+        // Guard: code fences / tables render wrong when split — keep whole.
+        if content.contains("```") || content.contains("\n|") || content.hasPrefix("|") {
+            return [content]
+        }
+        // Split on 2+ consecutive newlines (blank line), collapsing runs.
+        let raw = content
+            .components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard raw.count > 1 else { return [content] }
+        // Guard 2: a blank line INSIDE a list (indented continuation) splits
+        // the list mid-structure; if any segment starts with list markup and
+        // another continues it, don't shred. Cheap heuristic: if >1 segment
+        // starts with a list marker, treat the whole block as list content.
+        let listStarts = raw.filter { $0.hasPrefix("- ") || $0.hasPrefix("* ") || $0.hasPrefix("1. ") }
+        if listStarts.count > 1 { return [content] }
+        return raw
+    }
+
+    @ViewBuilder
+    private func textBlockView(markdown: String) -> some View {
         SelectableMarkdownView(
-            markdown: block.content,
-            cachedContent: block.cachedMarkdown,
-            cachedAttributedString: block.cachedAttributedString,
+            markdown: markdown,
+            cachedContent: markdown == block.content ? block.cachedMarkdown : nil,
+            cachedAttributedString: markdown == block.content ? block.cachedAttributedString : nil,
             messageId: message.id,
             blockId: block.id,
             onTapBlank: onTapBlank,
@@ -132,6 +180,11 @@ struct AssistantBlockView: View {
         )
         .fixedSize(horizontal: false, vertical: true)
         .modifier(MinisOpenURLHandler())
+    }
+
+    @ViewBuilder
+    private var textBlockView: some View {
+        textBlockView(markdown: block.content)
     }
 }
 

@@ -316,7 +316,7 @@ private struct BridgedAssistantBlockV3: View {
             detailBlock: $bridge.detailBlock
         )
         .frame(maxWidth: maxWidth > 0 ? maxWidth : nil, alignment: .leading)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .opacity(message.isCompactedHistory ? 0.5 : 1.0)
         .accessibilityIdentifier(blockAccessibilityId)

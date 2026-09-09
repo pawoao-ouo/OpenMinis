@@ -8243,6 +8243,12 @@ struct SelectableMarkdownView: UIViewRepresentable {
             coord.sizeThatFitsCacheHitCount &+= 1
             if callIdx % 50 == 0 {
             }
+            // [T-assistant-bubble-hug] Cache hit must return the SAME width
+            // the miss path decided on, or the bubble flaps between full and
+            // hugged on alternating layout passes.
+            if let hugW = coord.lastHugWidth {
+                return CGSize(width: hugW, height: cachedHeight)
+            }
             return CGSize(width: width, height: cachedHeight)
         }
 
@@ -8483,7 +8489,25 @@ struct SelectableMarkdownView: UIViewRepresentable {
                 if _renderW <= 0 || abs(width - _renderW) < 0.5 {
                     uiView.lastComputedHeight = h
                 }
-                return CGSize(width: width, height: h)
+                // [T-assistant-bubble-hug] Same hug pass as the TextKit tail —
+                // the CT fast path must return the same width or the bubble
+                // flaps between hugged and full on alternating measurements.
+                let isFinalizedCT = cachedAttributedString != nil || cachedContent != nil
+                var outW = width
+                if isFinalizedCT {
+                    if let hw = Self.hugWidthIfApplicable(
+                        pending: pending,
+                        fullHeight: h,
+                        proposedWidth: width,
+                        measureTextView: coord.measureTextView
+                    ) {
+                        coord.lastHugWidth = hw
+                        outW = hw
+                    } else {
+                        coord.lastHugWidth = nil
+                    }
+                }
+                return CGSize(width: outW, height: h)
             }
             // Fallback: pending has attachments — use mtv path so
             // attachmentBounds is invoked through TextKit.
@@ -8698,9 +8722,69 @@ struct SelectableMarkdownView: UIViewRepresentable {
         )
         #endif
 
-        return CGSize(width: width, height: size.height)
+        // [T-assistant-bubble-hug] Short finalized text-only content returns
+        // its ideal (hug) width so the assistant bubble wraps its text like
+        // the user bubble does, instead of stretching to full row width.
+        // See hugWidthIfApplicable for the guard set.
+        let isFinalized = cachedAttributedString != nil || cachedContent != nil
+        var outWidth = width
+        if isFinalized {
+            if let hw = Self.hugWidthIfApplicable(
+                pending: pending,
+                fullHeight: size.height,
+                proposedWidth: width,
+                measureTextView: coord.measureTextView
+            ) {
+                coord.lastHugWidth = hw
+                outWidth = hw
+            } else {
+                coord.lastHugWidth = nil
+            }
+        } else {
+            coord.lastHugWidth = nil
+        }
+
+        return CGSize(width: outWidth, height: size.height)
     }
 
+    /// [T-assistant-bubble-hug] Narrowest width that keeps the content at the
+    /// SAME total height (⇔ same line count / same wrapping — robust across
+    /// headings, CJK and inline code where per-line estimates are not).
+    /// Returns nil when the content must keep full width: anything with
+    /// attachments (code blocks / tables / images render as fixed-size
+    /// attachments and must not be squeezed), or when the search fails.
+    /// Caller gates on finalized (non-streaming) so live content can't
+    /// reflow every token.
+    private static func hugWidthIfApplicable(
+        pending: NSAttributedString,
+        fullHeight: CGFloat,
+        proposedWidth: CGFloat,
+        measureTextView: UITextView
+    ) -> CGFloat? {
+        var hasAttachment = false
+        pending.enumerateAttribute(.attachment, in: NSRange(location: 0, length: pending.length), options: []) { v, _, stop in
+            if v != nil { hasAttachment = true; stop.pointee = true }
+        }
+        guard !hasAttachment, fullHeight > 0 else { return nil }
+
+        measureTextView.attributedText = pending
+        var lo: CGFloat = 40, hi: CGFloat = proposedWidth
+        for _ in 0..<9 {
+            let mid = (lo + hi) / 2
+            measureTextView.textContainer.size = CGSize(width: mid, height: .greatestFiniteMagnitude)
+            let h = measureTextView.sizeThatFits(CGSize(width: mid, height: .greatestFiniteMagnitude)).height
+            if h <= fullHeight + 2 {
+                hi = mid
+            } else {
+                lo = mid
+            }
+        }
+        // Restore the container so later off-screen measures aren't polluted.
+        measureTextView.textContainer.size = CGSize(width: proposedWidth, height: .greatestFiniteMagnitude)
+        // +2 slack for rounding; 56pt floor so one-word replies don't
+        // collapse into a pill.
+        return min(proposedWidth, max(hi + 2, 56))
+    }
     private static let stfLogger = AppLogger(category: "SelectableMarkdownSTF")
     #if DEBUG
     fileprivate static let watchdogProbe = AppLogger(category: "WatchdogProbe")
@@ -8872,6 +8956,10 @@ struct SelectableMarkdownView: UIViewRepresentable {
         /// bypassed on every probe, triggering full TextKit1 relayouts.
         var cachedSizes: [Int: CGFloat] = [:]
         var cachedSizeMarkdownCount: Int = 0
+        /// [T-assistant-bubble-hug] The hugged width returned by the last
+        /// sizeThatFits pass (nil = full width). Cache hits reuse it so the
+        /// bubble doesn't flap between hugged and full on alternating probes.
+        var lastHugWidth: CGFloat? = nil
         /// Last textContainer width at which `updateUIView` ran. Used so that
         /// a rotation that arrives as `(markdown unchanged, width changed)`
         /// still invalidates TableAttachment cached layouts so the table

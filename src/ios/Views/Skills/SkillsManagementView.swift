@@ -347,13 +347,24 @@ private enum SkillFilePickResult {
 private struct SkillFileDocumentPicker: UIViewControllerRepresentable {
     let onImport: (SkillFilePickResult) -> Void
 
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        var types: [UTType] = [.plainText, .zip]
+    /// asCopy mode hands back tmp URLs (plain file: access) — the local
+    /// security-scope dance below is now a no-op kept for safety.
+    static var types: [UTType] {
+        var t: [UTType] = [.plainText, .zip]
         // .skill files are zip archives with a custom extension
         if let skillType = UTType(filenameExtension: "skill", conformingTo: .zip) {
-            types.append(skillType)
+            t.append(skillType)
         }
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types)
+        return t
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        // [T-sideload-skill-import] asCopy mode — same sideload fix as
+        // DocumentCopyPicker ([T-sideload-fileimport]): open-in-place needs a
+        // FileProvider security-scoped grant that resigned builds silently
+        // refuse, so the skill import button opened the picker and did
+        // nothing on pick. asCopy copies into tmp and hands back plain URLs.
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: Self.types, asCopy: true)
         picker.delegate = context.coordinator
         return picker
     }
