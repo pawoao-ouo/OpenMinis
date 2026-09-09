@@ -210,7 +210,7 @@ final class RoomContentGenerator {
         center.add(request) { error in
             if let error {
                 // 不怪你，推送权限关了也不掉东西
-                roomGenLogger.error("Room notification post failed: \(error.localizedDescription)")
+                logger.error("Room notification post failed: \(error.localizedDescription)")
             }
         }
     }

@@ -278,7 +278,7 @@ struct ChatMessageRow: View {
                              loading: message.isCompactLoading, compact: false)
         }
         // 系统翻译面板（iOS 17.4+）：长按菜单里那个"翻译"指向这里
-        .translationPresentation(isPresented: $showTranslation, text: translationText)
+        .modifier(TranslationPresentationIfNeeded(isPresented: $showTranslation, text: translationText))
     }
 
     /// 投喂系统翻译板的内容。用户气泡 = 原话；助手气泡 = 全部文字块拼一起
@@ -889,5 +889,21 @@ private struct SpeakerAvatarView: View {
                 .appendingPathComponent(f)),
               let img = UIImage(data: data) else { return nil }
         return img
+    }
+}
+
+// MARK: - 系统翻译面板的兼容挂载
+// `.translationPresentation` 是 iOS 17.4+ 的 API，本 app 部署目标是 iOS 16.0。
+// 低版本上长按菜单里的"翻译"不弹出系统面板（按钮仍在，无操作）。
+private struct TranslationPresentationIfNeeded: ViewModifier {
+    @Binding var isPresented: Bool
+    let text: String
+
+    func body(content: Content) -> some View {
+        if #available(iOS 17.4, *) {
+            content.translationPresentation(isPresented: $isPresented, text: text)
+        } else {
+            content
+        }
     }
 }

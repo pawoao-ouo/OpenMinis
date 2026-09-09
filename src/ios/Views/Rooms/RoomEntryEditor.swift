@@ -59,8 +59,8 @@ extension View {
         roomId: String,
         entry: RoomEntry,
         edit: @escaping (RoomEntry) -> Void,
-        deleteLabel: String = "删除",
-        editLabel: String = "编辑"
+        deleteLabel: String.LocalizationValue = "删除",
+        editLabel: String.LocalizationValue = "编辑"
     ) -> some View {
         self.contextMenu {
             Button {

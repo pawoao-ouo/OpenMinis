@@ -35,6 +35,7 @@ enum RoomOwner: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    @MainActor
     var displayName: String {
         switch self {
         case .user: return AppLocalized("Me")
