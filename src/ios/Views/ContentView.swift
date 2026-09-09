@@ -1359,37 +1359,7 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .sessionDidCreate)) { note in
-            guard isWideLayout, let newId = note.object as? String else { return }
-            let noteDraftId = (note.userInfo as? [String: String])?["draftId"]
-            draftLog.info("🔑DRAFT sessionDidCreate realId=\(newId) noteDraftId=\(noteDraftId ?? "nil") selId=\(selectedSessionId ?? "nil") curReal=\(newSessionRealId ?? "nil") curDraft=\(activeDraftId ?? "nil")")
-            // Verify this notification came from the currently active draft.
-            // A late notification from a previous (now-destroyed) draft must be ignored.
-            guard let selId = selectedSessionId, Self.isNewSessionId(selId),
-                  noteDraftId == selId else {
-                draftLog.info("🔑DRAFT sessionDidCreate IGNORED (draftId mismatch or not a draft)")
-                // [T-ios-state-publish-offmain-crash] ChatStore (an actor) posts
-                // .sessionDidCreate/.sessionDidUpdate from its background
-                // executor; NotificationCenter delivers synchronously on that
-                // thread, so this onReceive closure can run off-main. A bare
-                // Task{} started here inherits the (background) execution context,
-                // so `sessions =` (a @State write) lands off-main → "Publishing
-                // changes from background threads" + AttributeGraph corruption of
-                // the [ChatSession]/[String:ChatSession] state it deep-compares,
-                // crashing in ChatSession.== / deinit during flushTransactions.
-                // This onReceive can be delivered off-main, so hop explicitly —
-                // refreshSessionList's @State writes must land on the main thread.
-                Task { @MainActor in
-                    refreshSessionList()
-                }
-                return
-            }
-            newSessionRealId = newId
-            activeDraftId = selId
-            draftLog.info("🔑DRAFT sessionDidCreate ACCEPTED newSessionRealId=\(newId) activeDraftId=\(selId)")
-            // [T-ios-state-publish-offmain-crash] force main-thread @State write
-            Task { @MainActor in
-                refreshSessionList()
-            }
+            handleSessionDidCreate(note)
         }
         .onReceive(
             // Throttle (not debounce): session-list updates are infrequent (one
@@ -1455,52 +1425,7 @@ struct ContentView: View {
             AlarmListView()
         }
         .sheet(item: $activeToolSheet) { sheet in
-            switch sheet {
-            case .settings:
-                SettingsSheet(showTerminal: $showTerminal)
-            case .rootfsManagement:
-                NavigationStack {
-                    RootfsManagementView()
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Done") { activeToolSheet = nil }
-                            }
-                        }
-                }
-            case .browser:
-                BrowserSheetView(pool: browserPool)
-            case .browserManagement:
-                NavigationStack {
-                    BrowserManagementView(pool: browserPool)
-                }
-            case .syncMigrationDetail:
-                NavigationStack {
-                    SyncMigrationDetailView()
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Done") { activeToolSheet = nil }
-                            }
-                        }
-                }
-            case .littleRoom:
-                NavigationStack {
-                    LittleRoomView()
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Done") { activeToolSheet = nil }
-                            }
-                        }
-                }
-            case .characterCards:
-                NavigationStack {
-                    CharacterListView()
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Done") { activeToolSheet = nil }
-                            }
-                        }
-                }
-            }
+            activeToolSheetView(sheet)
         }
         // Something else is taking over the screen (an incoming share, a
         // WebApp deep link, a `.minisbak` opened from Files). iOS will not
@@ -1764,6 +1689,89 @@ struct ContentView: View {
     // MARK: - Split Layout (iPad / wide window)
 
 
+
+    private func handleSessionDidCreate(_ note: Notification) {
+            guard isWideLayout, let newId = note.object as? String else { return }
+            let noteDraftId = (note.userInfo as? [String: String])?["draftId"]
+            draftLog.info("🔑DRAFT sessionDidCreate realId=\(newId) noteDraftId=\(noteDraftId ?? "nil") selId=\(selectedSessionId ?? "nil") curReal=\(newSessionRealId ?? "nil") curDraft=\(activeDraftId ?? "nil")")
+            // Verify this notification came from the currently active draft.
+            // A late notification from a previous (now-destroyed) draft must be ignored.
+            guard let selId = selectedSessionId, Self.isNewSessionId(selId),
+                  noteDraftId == selId else {
+                draftLog.info("🔑DRAFT sessionDidCreate IGNORED (draftId mismatch or not a draft)")
+                // [T-ios-state-publish-offmain-crash] ChatStore (an actor) posts
+                // .sessionDidCreate/.sessionDidUpdate from its background
+                // executor; NotificationCenter delivers synchronously on that
+                // thread, so this onReceive closure can run off-main. A bare
+                // Task{} started here inherits the (background) execution context,
+                // so `sessions =` (a @State write) lands off-main → "Publishing
+                // changes from background threads" + AttributeGraph corruption of
+                // the [ChatSession]/[String:ChatSession] state it deep-compares,
+                // crashing in ChatSession.== / deinit during flushTransactions.
+                // This onReceive can be delivered off-main, so hop explicitly —
+                // refreshSessionList's @State writes must land on the main thread.
+                Task { @MainActor in
+                    refreshSessionList()
+                }
+                return
+            }
+            newSessionRealId = newId
+            activeDraftId = selId
+            draftLog.info("🔑DRAFT sessionDidCreate ACCEPTED newSessionRealId=\(newId) activeDraftId=\(selId)")
+            // [T-ios-state-publish-offmain-crash] force main-thread @State write
+            Task { @MainActor in
+                refreshSessionList()
+            }
+    }
+
+    @ViewBuilder private func activeToolSheetView(_ sheet: ToolSheet) -> some View {
+            switch sheet {
+            case .settings:
+                SettingsSheet(showTerminal: $showTerminal)
+            case .rootfsManagement:
+                NavigationStack {
+                    RootfsManagementView()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { activeToolSheet = nil }
+                            }
+                        }
+                }
+            case .browser:
+                BrowserSheetView(pool: browserPool)
+            case .browserManagement:
+                NavigationStack {
+                    BrowserManagementView(pool: browserPool)
+                }
+            case .syncMigrationDetail:
+                NavigationStack {
+                    SyncMigrationDetailView()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { activeToolSheet = nil }
+                            }
+                        }
+                }
+            case .littleRoom:
+                NavigationStack {
+                    LittleRoomView()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { activeToolSheet = nil }
+                            }
+                        }
+                }
+            case .characterCards:
+                NavigationStack {
+                    CharacterListView()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { activeToolSheet = nil }
+                            }
+                        }
+                }
+            }
+    }
     private func homeBootstrapTask() async {
             sessions = await ChatStore.shared.listSessions()
             // Folders must load WITH the first session batch: groupedSessionIDs
