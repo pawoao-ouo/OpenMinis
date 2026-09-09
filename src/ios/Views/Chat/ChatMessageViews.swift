@@ -1,5 +1,4 @@
 import SwiftUI
-import Translation
 
 // MARK: - Context-menu preview
 
@@ -215,8 +214,6 @@ struct ChatMessageRow: View {
     /// The tool block whose detail sheet is currently presented.
     /// Lifted out of ToolCapsuleView so ForEach item changes don't reset it.
     @State private var detailBlock: AssistantBlock?
-    /// kelivo 长按菜单——系统级翻译 sheet
-    @State private var showTranslation = false
 
     /// All text block contents joined, for "Copy All".
     private var fullReplyText: String {
@@ -278,15 +275,8 @@ struct ChatMessageRow: View {
             systemDividerRow(icon: message.isCompactLoading ? nil : (message.systemIcon ?? "info.circle"),
                              loading: message.isCompactLoading, compact: false)
         }
-        // 系统翻译面板（iOS 18.0+）：长按菜单里那个"翻译"指向这里
-        .modifier(TranslationPresentationIfNeeded(isPresented: $showTranslation, text: translationText))
     }
 
-    /// 投喂系统翻译板的内容。用户气泡 = 原话；助手气泡 = 全部文字块拼一起
-    /// （跟 Copy All 同一源）。
-    private var translationText: String {
-        message.role == .assistant ? fullReplyText : message.content
-    }
 
     // MARK: Compact Divider Row
 
@@ -454,11 +444,6 @@ struct ChatMessageRow: View {
                     } label: {
                         Label("Retry", systemImage: "arrow.counterclockwise")
                     }
-                }
-                Button {
-                    showTranslation = true
-                } label: {
-                    Label(AppLocalized("翻译"), systemImage: "translate")
                 }
                 if let onBranch {
                     Button {
@@ -680,11 +665,6 @@ struct ChatMessageRow: View {
                                 Label("Compact Above", systemImage: "arrow.down.right.and.arrow.up.left")
                             }
                         }
-                        Button {
-                            showTranslation = true
-                        } label: {
-                            Label(AppLocalized("翻译"), systemImage: "translate")
-                        }
                     }
                     .equatable()
                 } preview: {
@@ -893,19 +873,3 @@ private struct SpeakerAvatarView: View {
     }
 }
 
-// MARK: - 系统翻译面板的兼容挂载
-// `.translationPresentation` 是 iOS 17.4+ 的 API，本 app 部署目标是 iOS 16.0。
-// 低版本上长按菜单里的"翻译"不弹出系统面板（按钮仍在，无操作）。
-private struct TranslationPresentationIfNeeded: ViewModifier {
-    @Binding var isPresented: Bool
-    let text: String
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 17.4, *) {
-            content.translationPresentation(isPresented: $isPresented, text: text)
-        } else {
-            content
-        }
-    }
-}
