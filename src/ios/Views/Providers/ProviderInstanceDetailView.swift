@@ -311,13 +311,13 @@ struct ProviderInstanceDetailView: View {
                     if let source = fetchSource {
                         Label("Loaded from \(source)", systemImage: "checkmark.circle")
                             .font(.caption)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(MinisTheme.success)
                     }
                     // Warnings (yellow) — diagnostic tips for each fallback step
                     ForEach(fetchWarnings, id: \.self) { warning in
                         Label(warning, systemImage: "exclamationmark.triangle")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(MinisTheme.warning)
                             .textSelection(.enabled)
                     }
                     // Error (red)
@@ -327,7 +327,7 @@ struct ProviderInstanceDetailView: View {
                             + (lines.count > 4 ? "\n…" : "")
                         Text(truncated)
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MinisTheme.destructive)
                             .textSelection(.enabled)
                         Text(AppLocalized("You may need to add the model ID manually."))
                             .font(.caption)
@@ -484,7 +484,7 @@ struct ProviderInstanceDetailView: View {
                 Spacer()
                 if isAuth {
                     Circle()
-                        .fill(Color.green)
+                        .fill(MinisTheme.success)
                         .frame(width: 8, height: 8)
                 }
             }
@@ -684,7 +684,7 @@ struct ProviderInstanceDetailView: View {
                     }
                     Spacer()
                     Circle()
-                        .fill(Color.green)
+                        .fill(MinisTheme.success)
                         .frame(width: 8, height: 8)
                 }
 
@@ -760,7 +760,7 @@ struct ProviderInstanceDetailView: View {
                     if entry.isCustom {
                         Text("Custom")
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(MinisTheme.warning)
                     }
                 }
             }
@@ -782,7 +782,7 @@ struct ProviderInstanceDetailView: View {
             } label: {
                 Image(systemName: "trash")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MinisTheme.destructive)
             }
             .buttonStyle(.plain)
             .frame(minWidth: 22, minHeight: 22)
@@ -1342,7 +1342,7 @@ struct ModelEntryDetailSheet: View {
                             Spacer()
                             Text("Custom")
                                 .font(.caption.weight(.medium))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(MinisTheme.warning)
                         }
                     }
                 }
@@ -1386,7 +1386,7 @@ struct ModelEntryDetailSheet: View {
                             Spacer()
                             if supportsThinking {
                                 Label(AppLocalized("Supported"), systemImage: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(MinisTheme.success)
                                     .labelStyle(.titleAndIcon)
                             } else if entry.baseModel.supportsReasoning == false {
                                 Text(AppLocalized("Not Supported"))
@@ -1566,7 +1566,7 @@ struct ModelEntryDetailSheet: View {
                     ))
                 }
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(MinisTheme.warning)
             }
         }
     }

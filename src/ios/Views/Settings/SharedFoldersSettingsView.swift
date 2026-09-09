@@ -114,20 +114,20 @@ private struct SharedFolderRow: View {
         if entry.isWritableFromFiles {
             Text("R/W")
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(MinisTheme.success)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
                 .background(
-                    Capsule().strokeBorder(Color.green.opacity(0.5), lineWidth: 1)
+                    Capsule().strokeBorder(MinisTheme.success.opacity(0.5), lineWidth: 1)
                 )
         } else {
             Text("Read-only")
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(MinisTheme.warning)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
                 .background(
-                    Capsule().strokeBorder(Color.orange.opacity(0.5), lineWidth: 1)
+                    Capsule().strokeBorder(MinisTheme.warning.opacity(0.5), lineWidth: 1)
                 )
         }
     }

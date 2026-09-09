@@ -535,10 +535,10 @@ struct AIChatView: View {
                     if let notice = vm.transientNotice {
                         Text(notice)
                             .font(.system(size: 12))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(ChatColors.primaryText)
                             .padding(.horizontal, 12).padding(.vertical, 8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.black.opacity(0.75))
+                            .background(ChatColors.secondaryBg)
                             .onAppear {
                                 let captured = notice
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
@@ -710,8 +710,8 @@ struct AIChatView: View {
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8]))
-                    .background(Color.accentColor.opacity(0.08).clipShape(RoundedRectangle(cornerRadius: 16)))
+                    .strokeBorder(ChatColors.accent, style: StrokeStyle(lineWidth: 2, dash: [8]))
+                    .background(ChatColors.accent.opacity(0.08).clipShape(RoundedRectangle(cornerRadius: 16)))
                     .padding(8)
                     .allowsHitTesting(false)
             }
@@ -776,10 +776,10 @@ struct AIChatView: View {
             if let msg = forcePullToast {
                 Text(msg)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ChatColors.primaryText)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(ChatColors.accent.opacity(0.92), in: Capsule())
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -2344,7 +2344,7 @@ struct AIChatView: View {
                             // badge reads as an inline glyph, not a button.
                             Image(systemName: "bolt.fill")
                                 .font(.system(size: 5, weight: .bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(ChatColors.primaryText)
                                 .frame(width: 9, height: 9)
                                 .background(Circle().fill(ChatColors.warning))
                                 // Match the row text's descender clearance so
@@ -2813,7 +2813,7 @@ struct AIChatView: View {
             // Border + shadow give the near-opaque disc its edge on a white
             // page — at 0.25/0.12 the button had no readable outline over
             // plain reply text. [T-ios-scrollbtn-invisible-lightmode]
-            .overlay(Circle().stroke(Color.gray.opacity(0.35), lineWidth: 0.5))
+            .overlay(Circle().stroke(ChatColors.inputBorder, lineWidth: 0.5))
             .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
     }
 
@@ -3315,11 +3315,11 @@ struct AIChatView: View {
                 Text("Read replies", comment: "Voice TTS toggle (compact)")
                     .font(.subheadline)
             }
-            .foregroundStyle(on ? Color.accentColor : .secondary)
+            .foregroundStyle(on ? ChatColors.accent : ChatColors.secondaryText)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
-                Capsule().fill(on ? Color.accentColor.opacity(0.15)
+                Capsule().fill(on ? ChatColors.accent.opacity(0.15)
                                   : Color.secondary.opacity(0.10))
             )
             .fixedSize()
@@ -4342,11 +4342,11 @@ struct AIChatView: View {
         var body: some View {
             content()
                 .frame(maxWidth: .infinity)
-                .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.15, alpha: 1) : UIColor.systemBackground }))
+                .background(ChatColors.secondaryBg)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color(UIColor.separator).opacity(0.3), lineWidth: 0.5)
+                        .stroke(ChatColors.inputBorder, lineWidth: 0.5)
                 )
                 .shadow(color: Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.08, alpha: 0.75) : UIColor(white: 0, alpha: 0.12) }), radius: 8, x: 0, y: 4)
                 .frame(maxWidth: maxContentWidth)
@@ -4364,29 +4364,29 @@ struct AIChatView: View {
             HStack(spacing: 10) {
                 Image(systemName: iconName)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.white : ChatColors.secondaryText)
+                    .foregroundStyle(isSelected ? ChatColors.primaryText : ChatColors.secondaryText)
                     .frame(width: 20)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(entry.basename)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isSelected ? Color.white : ChatColors.primaryText)
+                        .foregroundStyle(isSelected ? ChatColors.primaryText : ChatColors.primaryText)
                         .lineLimit(1)
                     Text(entry.displayPath)
                         .font(.system(size: 11))
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.75) : ChatColors.secondaryText)
+                        .foregroundStyle(isSelected ? ChatColors.primaryText.opacity(0.75) : ChatColors.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
                 Spacer()
                 Text(entry.mountName ?? entry.scope.displayLabel)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.9) : ChatColors.secondaryText)
+                    .foregroundStyle(isSelected ? ChatColors.primaryText.opacity(0.9) : ChatColors.secondaryText)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(
                         Capsule().fill(
                             isSelected
-                            ? Color.white.opacity(0.2)
+                            ? ChatColors.accent.opacity(0.2)
                             : Color(UIColor.systemGray5)
                         )
                     )
@@ -4428,7 +4428,7 @@ struct AIChatView: View {
         let isSelected: Bool
         func makeBody(configuration: Configuration) -> some View {
             configuration.label
-                .background((isSelected || configuration.isPressed) ? Color.accentColor : Color.clear)
+                .background((isSelected || configuration.isPressed) ? ChatColors.accent : Color.clear)
         }
     }
 
@@ -4462,13 +4462,13 @@ struct AIChatView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         let isThinkingActive = cmd.id == "thinking" && thinkingLevel.isEnabled && thinkingSupported
                         let titleColor: Color = isThinkingActive
-                            ? ChatColors.accent : (isSelected ? .white : ChatColors.primaryText)
+                            ? ChatColors.accent : (isSelected ? ChatColors.primaryText : ChatColors.primaryText)
                         let subtitleText = (cmd.id == "thinking" && !thinkingSupported)
                             ? AppLocalized("Not supported by current model")
                             : cmd.subtitle
                         let subtitleColor: Color = (cmd.id == "thinking" && !thinkingSupported)
-                            ? .secondary
-                            : (isThinkingActive ? ChatColors.accent.opacity(0.7) : (isSelected ? .white.opacity(0.7) : ChatColors.secondaryText))
+                            ? ChatColors.secondaryText
+                            : (isThinkingActive ? ChatColors.accent.opacity(0.7) : (isSelected ? ChatColors.primaryText.opacity(0.7) : ChatColors.secondaryText))
                         // [T-slash-picker-product-rules] Title + subtitle
                         // each clamped to a single line. Long skill names
                         // and descriptions used to wrap and pump the row
@@ -4496,7 +4496,7 @@ struct AIChatView: View {
                     // VoiceOver read "checkmark circle fill" / "slash circle".
                     Image(systemName: memoryEnabled ? "checkmark.circle.fill" : "slash.circle")
                         .font(.system(size: 16))
-                        .foregroundStyle(memoryEnabled ? (isSelected ? .white : ChatColors.success) : (isSelected ? .white.opacity(0.6) : .secondary))
+                        .foregroundStyle(memoryEnabled ? (isSelected ? ChatColors.primaryText : ChatColors.success) : (isSelected ? ChatColors.primaryText.opacity(0.6) : ChatColors.secondaryText))
                         .accessibilityLabel(Text(
                             memoryEnabled
                                 ? AppLocalized("Memory on", comment: "VoiceOver label for the memory status icon when enabled")
@@ -4514,10 +4514,10 @@ struct AIChatView: View {
 
         private var thinkingIconColor: Color {
             guard cmd.id == "thinking" else {
-                return isSelected ? .white.opacity(0.8) : ChatColors.secondaryText
+                return isSelected ? ChatColors.primaryText.opacity(0.8) : ChatColors.secondaryText
             }
             if !thinkingSupported { return .secondary }
-            return thinkingLevel.isEnabled ? ChatColors.accent : (isSelected ? .white.opacity(0.8) : ChatColors.secondaryText)
+            return thinkingLevel.isEnabled ? ChatColors.accent : (isSelected ? ChatColors.primaryText.opacity(0.8) : ChatColors.secondaryText)
         }
 
         private var thinkingLevelPicker: some View {
@@ -4538,7 +4538,7 @@ struct AIChatView: View {
                                 .font(.system(size: 8, weight: .bold))
                         }
                     }
-                    .foregroundStyle(isHighlighted ? .white : .secondary)
+                    .foregroundStyle(isHighlighted ? ChatColors.primaryText : ChatColors.secondaryText)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
                     .background(
@@ -5642,7 +5642,7 @@ private struct MoveToSessionSheet: View {
                     .font(font).foregroundColor(color)
             }
             result = result + Text(text[range])
-                .font(font).foregroundColor(.accentColor).bold()
+                .font(font).foregroundColor(ChatColors.accent).bold()
             current = range.upperBound
         }
         if current < text.endIndex {
@@ -5793,8 +5793,8 @@ private struct SessionLockGateOverlay: View {
                           systemImage: "faceid")
                         .font(.system(size: 16, weight: .semibold))
                         .padding(.horizontal, 22).padding(.vertical, 10)
-                        .background(.tint, in: Capsule())
-                        .foregroundStyle(.white)
+                        .background(ChatColors.accent, in: Capsule())
+                        .foregroundStyle(ChatColors.primaryText)
                 }
             }
             .padding(.horizontal, 32)
@@ -5999,7 +5999,7 @@ private struct SpeechLanguagePickerSheet: View {
                 Spacer()
                 if loc.identifier == speechManager.locale.identifier {
                     Image(systemName: "checkmark")
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(ChatColors.accent)
                         .fontWeight(.semibold)
                 }
             }
@@ -6284,7 +6284,9 @@ private struct EmptyChatDirectoryTimeline: View {
 /// old "菊花" never appears after / alongside the new loading UI.
 struct LoadingDotsView: View {
     var dotSize: CGFloat = 10
-    var color: Color = .accentColor
+    // [T-tokenize-all-colors] accent→ ChatColors.accent was hard-coded blue;
+    // follow the theme's accent so a warm palette doesn't leave a stray blue dot.
+    var color: Color = ChatColors.accent
     @State private var animating = false
 
     var body: some View {

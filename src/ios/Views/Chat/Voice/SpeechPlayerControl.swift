@@ -468,14 +468,14 @@ struct SpeechPlayerControl: View {
             Circle()
                 .fill(.ultraThinMaterial)
                 .frame(width: 40, height: 40)
-                .overlay(Circle().stroke(Color.gray.opacity(0.25), lineWidth: 0.5))
+                .overlay(Circle().stroke(MinisTheme.border, lineWidth: 0.5))
             speakerGlyph(size: 15, ring: 40).frame(width: 40, height: 40)
             if state.speechSpeed > 1.0 {
                 Text(Self.speedLabel(state.speechSpeed))
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(Capsule().fill(Color.accentColor))
+                    .background(Capsule().fill(MinisTheme.accent))
                     .offset(x: 6, y: 4)
             }
         }
@@ -528,7 +528,7 @@ struct SpeechPlayerControl: View {
                 Text(Self.speedLabel(state.speechSpeed))
                     .font(.caption2.weight(.bold))
                     .lineLimit(1)
-                    .foregroundStyle(state.speechSpeed > 1.0 ? Color.accentColor : .secondary)
+                    .foregroundStyle(state.speechSpeed > 1.0 ? MinisTheme.accent : .secondary)
                     // Fixed width sized for the widest label ("1.25×") so cycling
                     // through speeds doesn't change the chip width (→ no jitter).
                     .frame(width: 34)
@@ -552,7 +552,7 @@ struct SpeechPlayerControl: View {
         .padding(.vertical, 9)
         // No shadow — a faint border instead, matching the scroll-to-bottom pill.
         .background(Capsule().fill(.ultraThinMaterial))
-        .overlay(Capsule().stroke(Color.gray.opacity(0.25), lineWidth: 0.5))
+        .overlay(Capsule().stroke(MinisTheme.border, lineWidth: 0.5))
         // Drag to reposition. Highest priority so the outer tap-to-dismiss layer
         // doesn't steal it.
         .highPriorityGesture(dragGesture)

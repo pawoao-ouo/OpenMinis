@@ -217,7 +217,7 @@ struct MountDetailView: View {
             if nameChanged && !nameIsValid {
                 Text("Mount name must not be empty, contain '/', or be '.' or '..'.")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MinisTheme.destructive)
             }
         } header: {
             Text("Name")

@@ -41,7 +41,7 @@ struct BackupDestinationPicker: View {
                     Section {
                         Text(errorText)
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MinisTheme.destructive)
                     }
                 }
             }

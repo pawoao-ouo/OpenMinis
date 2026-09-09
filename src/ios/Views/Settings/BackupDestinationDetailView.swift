@@ -298,7 +298,7 @@ struct BackupDestinationDetailView: View {
 
         if let errorText {
             Section {
-                Text(errorText).font(.footnote).foregroundStyle(.red)
+                Text(errorText).font(.footnote).foregroundStyle(MinisTheme.destructive)
             }
         }
 
@@ -329,7 +329,7 @@ struct BackupDestinationDetailView: View {
                         // action this is, and the colour carries the outcome.
                         Text(testResult)
                             .font(.footnote)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(MinisTheme.success)
                     }
                 }
             }
@@ -343,7 +343,7 @@ struct BackupDestinationDetailView: View {
             if !testOK, let testResult {
                 Label(testResult, systemImage: "exclamationmark.triangle.fill")
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MinisTheme.warning)
             }
 
             // Sits here rather than at the bottom of the screen: the list of
@@ -814,7 +814,7 @@ struct RcloneConnectionEditor: View {
 
                 if let errorText {
                     Section {
-                        Text(errorText).font(.footnote).foregroundStyle(.red)
+                        Text(errorText).font(.footnote).foregroundStyle(MinisTheme.destructive)
                     }
                 }
             }

@@ -1080,7 +1080,7 @@ struct InlineVoiceInputView: View {
                         let angle = Angle(degrees: (t / 0.9).truncatingRemainder(dividingBy: 1) * 360)
                         Circle()
                             .trim(from: 0, to: 75.0 / 360.0)
-                            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .stroke(MinisTheme.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                             .frame(width: micDiameter, height: micDiameter)
                             .rotationEffect(angle)
                     }

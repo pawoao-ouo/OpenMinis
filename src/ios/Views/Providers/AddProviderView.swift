@@ -466,8 +466,8 @@ struct AddProviderView: View {
                     Image(systemName: "square.and.arrow.down")
                         .font(.body)
                         .frame(width: 32, height: 32)
-                        .foregroundStyle(Color.accentColor)
-                        .background(Color.accentColor.opacity(0.12))
+                        .foregroundStyle(MinisTheme.accent)
+                        .background(MinisTheme.accent.opacity(0.12))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     Text("Or Import Provider from File")
@@ -636,7 +636,7 @@ struct AddProviderView: View {
                 Section {
                     Text(error)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(MinisTheme.destructive)
                         .textSelection(.enabled)
                 }
             }
@@ -743,7 +743,7 @@ struct AddProviderView: View {
             if pendingOAuthDone {
                 HStack {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(MinisTheme.success)
                     Text("Authenticated")
                         .font(.body.weight(.medium))
                 }
@@ -1170,13 +1170,13 @@ struct AddProviderView: View {
                 .foregroundStyle(.purple)
         case .gemini:
             Image(systemName: "diamond")
-                .foregroundStyle(.blue)
+                .foregroundStyle(MinisTheme.accent)
         case .openAI:
             Image(systemName: "circle.hexagongrid")
-                .foregroundStyle(.green)
+                .foregroundStyle(MinisTheme.success)
         case .antigravity:
             Image(systemName: "ant")
-                .foregroundStyle(.orange)
+                .foregroundStyle(MinisTheme.warning)
         case .openRouter:
             Image(systemName: "arrow.triangle.branch")
                 .foregroundStyle(.cyan)

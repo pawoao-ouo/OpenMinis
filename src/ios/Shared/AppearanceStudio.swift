@@ -460,6 +460,11 @@ enum MinisTheme {
     static var secondaryText: Color { color(.secondaryText) }
     static var accent: Color { color(.accent) }
     static var border: Color { color(.border) }
+    // [T-tokenize-all-colors] Semantic trio for settings pages, mirrors
+    // ChatColors so the whole app speaks the same token vocabulary.
+    static var success: Color { color(.success) }
+    static var warning: Color { color(.warning) }
+    static var destructive: Color { color(.destructive) }
 }
 
 struct AppearanceBackdrop: View {

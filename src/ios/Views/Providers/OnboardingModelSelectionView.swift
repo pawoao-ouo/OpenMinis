@@ -84,7 +84,7 @@ struct OnboardingModelSelectionView: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(isSelected ? Color.accentColor : Color(UIColor.tertiarySystemFill))
+                        .fill(isSelected ? MinisTheme.accent : Color(UIColor.tertiarySystemFill))
                         .frame(width: 26, height: 26)
                     if isSelected, let idx = selectionIndex {
                         Text("\(idx + 1)")

@@ -140,7 +140,7 @@ struct SyncMigrationDetailView: View {
                             // expires). Show 'Starting…' until isRunning flips.
                             Text("Starting…").foregroundStyle(.secondary)
                         } else if let until = vm.throttledUntil, until > Date() {
-                            Text(throttleRemaining(until: until)).foregroundStyle(.orange)
+                            Text(throttleRemaining(until: until)).foregroundStyle(MinisTheme.warning)
                         } else {
                             Text("Running").foregroundStyle(.primary)
                         }
@@ -261,7 +261,7 @@ struct SyncMigrationDetailView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Last attempt failed")
                                 .font(.caption.weight(.medium))
-                                .foregroundStyle(.red)
+                                .foregroundStyle(MinisTheme.destructive)
                             Text(err)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
@@ -299,7 +299,7 @@ struct SyncMigrationDetailView: View {
                     if m.isSuspended {
                         HStack(spacing: 8) {
                             Image(systemName: "pause.circle.fill")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(MinisTheme.warning)
                             Text("Paused — reopen Minis to continue")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -311,7 +311,7 @@ struct SyncMigrationDetailView: View {
                         showCancelMigrationConfirm = true
                     } label: {
                         Text("Cancel Migration")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MinisTheme.destructive)
                             .frame(maxWidth: .infinity, alignment: .center)
                     }
                     // [T-icloud-migration-reset] Escape hatch for a migration
@@ -342,7 +342,7 @@ struct SyncMigrationDetailView: View {
                         // instead. Survives relaunches via @AppStorage.
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.seal.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(MinisTheme.success)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("V1 zone deleted")
                                     .foregroundStyle(.primary)
@@ -383,7 +383,7 @@ struct SyncMigrationDetailView: View {
 
                 if let err = m.lastError {
                     Section("Last error") {
-                        Text(err).font(.caption.monospaced()).foregroundStyle(.red)
+                        Text(err).font(.caption.monospaced()).foregroundStyle(MinisTheme.destructive)
                     }
                 }
             }
@@ -578,7 +578,7 @@ struct SyncMigrationDetailView: View {
                     Text("Loading zones…").foregroundStyle(.secondary)
                 }
             } else if let err = zonesLoadError {
-                Text(err).font(.caption).foregroundStyle(.red)
+                Text(err).font(.caption).foregroundStyle(MinisTheme.destructive)
             } else if zonesList.isEmpty {
                 Text("No zones found.").foregroundStyle(.secondary)
             } else {
@@ -629,7 +629,7 @@ struct SyncMigrationDetailView: View {
                     if row.isOwn {
                         Image(systemName: "person.crop.circle.fill")
                             .font(.caption2)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(MinisTheme.accent)
                     }
                 }
                 Text(zoneDescription(for: row))
@@ -819,7 +819,7 @@ struct SyncMigrationDetailView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "lightbulb.fill")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(MinisTheme.warning)
             VStack(alignment: .leading, spacing: 4) {
                 Text("iCloud Sync upgraded to v2")
                     .font(.caption.weight(.semibold))

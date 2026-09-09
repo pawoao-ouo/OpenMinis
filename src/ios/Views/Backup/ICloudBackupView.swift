@@ -16,7 +16,7 @@ struct ICloudBackupView: View {
                             .font(.system(size: 15, weight: .medium))
                             .foregroundColor(.white)
                             .frame(width: 30, height: 30)
-                            .background(Color.red)
+                            .background(MinisTheme.destructive)
                             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                         Text("iCloud is not available")
                             .foregroundColor(.primary)
@@ -27,7 +27,7 @@ struct ICloudBackupView: View {
                             .font(.system(size: 15, weight: .medium))
                             .foregroundColor(.white)
                             .frame(width: 30, height: 30)
-                            .background(Color.green)
+                            .background(MinisTheme.success)
                             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                         Text("iCloud connected")
                             .foregroundColor(.green)
@@ -184,7 +184,7 @@ struct ICloudBackupView: View {
             } label: {
                 Label("Restore", systemImage: "arrow.counterclockwise")
             }
-            .tint(.blue)
+            .tint(MinisTheme.accent)
         }
         .contextMenu {
             Button {

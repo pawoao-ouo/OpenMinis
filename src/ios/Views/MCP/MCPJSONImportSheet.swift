@@ -36,7 +36,7 @@ struct MCPJSONImportSheet: View {
                     Section {
                         Text(errorMessage)
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MinisTheme.destructive)
                     }
                 }
 

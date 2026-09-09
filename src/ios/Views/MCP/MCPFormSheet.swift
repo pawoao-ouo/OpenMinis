@@ -244,7 +244,7 @@ struct MCPFormSheet: View {
                 HStack {
                     if isAuthorized {
                         Label(AppLocalized("Authorized"), systemImage: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(MinisTheme.success)
                             .font(.subheadline)
                     } else {
                         Label(AppLocalized("Not authorized"), systemImage: "xmark.seal")
@@ -275,7 +275,7 @@ struct MCPFormSheet: View {
                 if let oauthError {
                     Text(oauthError)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(MinisTheme.destructive)
                 }
             }
         } header: {
@@ -361,7 +361,7 @@ struct MCPFormSheet: View {
                         requestDelete(pair, in: pairs)
                     } label: {
                         Image(systemName: "minus.circle.fill")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MinisTheme.destructive)
                     }
                     .buttonStyle(.plain)   // keep it tap-isolated inside the row
                     .frame(minWidth: 44, minHeight: 44, alignment: .trailing)

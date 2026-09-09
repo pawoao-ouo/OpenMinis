@@ -52,7 +52,7 @@ struct MCPIntegrationsView: View {
                         } label: {
                             Label(AppLocalized("Tools"), systemImage: "arrow.clockwise")
                         }
-                        .tint(.blue)
+                        .tint(MinisTheme.accent)
                     }
                 }
                 .onDelete { offsets in
@@ -134,7 +134,7 @@ struct MCPIntegrationsView: View {
     private func row(for server: MCPServerConfig) -> some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(server.enabled ? Color.green : Color.gray)
+                .fill(server.enabled ? MinisTheme.success : Color.gray)
                 .frame(width: 9, height: 9)
             VStack(alignment: .leading, spacing: 3) {
                 Text(server.id)
@@ -188,7 +188,7 @@ struct MCPToolsSheet: View {
                             Text(errorText)
                         } icon: {
                             Image(systemName: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(MinisTheme.warning)
                         }
                         .font(.subheadline)
                     }

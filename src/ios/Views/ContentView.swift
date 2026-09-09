@@ -380,8 +380,8 @@ private struct FolderCardBackground: ViewModifier {
             .overlay {
                 if isDropTarget {
                     ZStack {
-                        dropShape.fill(Color.accentColor.opacity(0.15))
-                        dropShape.stroke(Color.accentColor, lineWidth: 1.5)
+                        dropShape.fill(MinisTheme.accent.opacity(0.15))
+                        dropShape.stroke(MinisTheme.accent, lineWidth: 1.5)
                     }
                 }
             }
@@ -566,7 +566,7 @@ private struct FolderPickerSheet: View {
                 Section {
                     HStack {
                         Image(systemName: "folder.badge.plus")
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(MinisTheme.accent)
                         TextField("New Group Name", text: $newFolderName)
                             .focused($nameFieldFocused)
                             .submitLabel(.next)
@@ -598,7 +598,7 @@ private struct FolderPickerSheet: View {
                                     ProgressView().controlSize(.small)
                                 } else {
                                     Image(systemName: "sparkles")
-                                        .foregroundStyle(Color.accentColor)
+                                        .foregroundStyle(MinisTheme.accent)
                                 }
                                 Text(suggestFailed ? "AI Suggest (failed — try again)" : "AI Suggest")
                             }
@@ -630,7 +630,7 @@ private struct FolderPickerSheet: View {
                                 }
                             } icon: {
                                 Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(MinisTheme.warning)
                             }
                         }
                     }
@@ -643,7 +643,7 @@ private struct FolderPickerSheet: View {
                                 Text("Move into “\(merge.folderName)”?")
                             } icon: {
                                 Image(systemName: "sparkles")
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(MinisTheme.accent)
                             }
                         }
                     }
@@ -2898,7 +2898,12 @@ struct ContentView: View {
                 // FABs above it.
                 VStack(spacing: 0) {
                     fabRow
-                    homeBottomBar
+                    // [T-home-bottom-bar] Hide while the inline search bar is
+                    // open — the bar would otherwise ride the keyboard up and
+                    // crowd the search field.
+                    if !showSearchBar {
+                        homeBottomBar
+                    }
                 }
             }
         }
@@ -3096,7 +3101,12 @@ struct ContentView: View {
                 // bottom, FABs floating above it.
                 VStack(spacing: 0) {
                     fabRow
-                    homeBottomBar
+                    // [T-home-bottom-bar] Hide while the inline search bar is
+                    // open — the bar would otherwise ride the keyboard up and
+                    // crowd the search field.
+                    if !showSearchBar {
+                        homeBottomBar
+                    }
                 }
             }
         }
@@ -3223,11 +3233,11 @@ struct ContentView: View {
         case .none, .upToDate:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(MinisTheme.success)
         case .paused:
             Image(systemName: "pause.circle.fill")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(MinisTheme.warning)
         case .migrating, .syncing:
             PulseRotateIcon()
         case .waiting:
@@ -3268,7 +3278,7 @@ struct ContentView: View {
             case .upToDate:
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(MinisTheme.success)
                 Text("Up to date")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -4079,7 +4089,7 @@ struct ContentView: View {
                 // Step indicator
                 ZStack {
                     Circle()
-                        .fill(isDone ? Color.green : Color.accentColor)
+                        .fill(isDone ? MinisTheme.success : MinisTheme.accent)
                         .frame(width: 32, height: 32)
                     if isDone {
                         Image(systemName: "checkmark")
@@ -4621,7 +4631,7 @@ struct ContentView: View {
             .textCase(nil)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(dropTargetFolderId == "" ? Color.accentColor.opacity(0.18) : Color.clear)
+                    .fill(dropTargetFolderId == "" ? MinisTheme.accent.opacity(0.18) : Color.clear)
             )
             // Dropping on a date-bucket header moves the sessions OUT of any
             // folder — the drag gesture works both directions, otherwise
@@ -4714,7 +4724,7 @@ struct ContentView: View {
                                     .frame(width: 16, height: 16)
                                 Image(systemName: "exclamationmark.circle.fill")
                                     .font(.system(size: 13))
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(MinisTheme.warning)
                             }
                             .offset(x: 2, y: 2)
                         }
@@ -4722,7 +4732,7 @@ struct ContentView: View {
                     .overlay(alignment: .topTrailing) {
                         if group.isCollapsed && group.anyUnread {
                             Circle()
-                                .fill(Color.red)
+                                .fill(MinisTheme.destructive)
                                 .frame(width: 8, height: 8)
                                 .offset(x: -1, y: 1)
                         }
@@ -5041,7 +5051,7 @@ struct ContentView: View {
                         .font(.caption2)
                 }
                 .frame(maxWidth: .infinity)
-                .foregroundStyle(selectedIds.isEmpty ? Color.gray : Color.red)
+                .foregroundStyle(selectedIds.isEmpty ? Color.gray : MinisTheme.destructive)
             }
             .disabled(selectedIds.isEmpty)
         }
@@ -5727,7 +5737,7 @@ private struct DeleteConfirmSheet: View {
                                 .padding(.vertical, 12)
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(.red)
+                        .tint(MinisTheme.destructive)
 
                         Button {
                             dismiss()
@@ -6491,10 +6501,10 @@ private struct SessionRow: View, Equatable {
                         badgeCircle(for: badge)
                             .offset(x: 2, y: 2)
                     } else if session.source == "shortcut" {
-                        badgeCircle(icon: "bolt.fill", color: .orange)
+                        badgeCircle(icon: "bolt.fill", color: MinisTheme.warning)
                             .offset(x: 2, y: 2)
                     } else if session.isRemote {
-                        badgeCircle(icon: "icloud.fill", color: .blue, iconSize: 7)
+                        badgeCircle(icon: "icloud.fill", color: MinisTheme.accent, iconSize: 7)
                             .offset(x: 2, y: 2)
                     }
                 }
@@ -6504,7 +6514,7 @@ private struct SessionRow: View, Equatable {
                 .overlay(alignment: .topTrailing) {
                     if showsUnreadDot {
                         Circle()
-                            .fill(Color.red)
+                            .fill(MinisTheme.destructive)
                             .frame(width: 8, height: 8)
                             .offset(x: -1, y: 1)
                     }
@@ -6610,9 +6620,9 @@ private struct SessionRow: View, Equatable {
         switch state {
         case .paused:
             // Pause glyph (⏸), orange to distinguish from the blue iCloud badge.
-            badgeCircle(icon: "pause.fill", color: .orange, iconSize: 8)
+            badgeCircle(icon: "pause.fill", color: MinisTheme.warning, iconSize: 8)
         case .iCloudSyncing:
-            badgeCircle(icon: "icloud.fill", color: .blue, iconSize: 7)
+            badgeCircle(icon: "icloud.fill", color: MinisTheme.accent, iconSize: 7)
         case .unread:
             // [T-ios-session-unread-badge] `.unread` renders as a separate
             // top-trailing red dot (see the .topTrailing overlay), never through
@@ -6648,7 +6658,7 @@ private struct SessionRow: View, Equatable {
         var attr = AttributedString(text)
         attr.foregroundColor = baseColor
         guard !query.isEmpty else { return attr }
-        let highlightBg = Color.accentColor.opacity(0.25)
+        let highlightBg = MinisTheme.accent.opacity(0.25)
         let totalChars = text.count
         var searchStart = text.startIndex
         while searchStart < text.endIndex,
@@ -6668,7 +6678,7 @@ private struct SessionRow: View, Equatable {
             let attrHi = attr.index(attr.startIndex, offsetByCharacters: hi)
             let r = attrLo..<attrHi
             attr[r].backgroundColor = highlightBg
-            attr[r].foregroundColor = Color.accentColor
+            attr[r].foregroundColor = MinisTheme.accent
             attr[r].inlinePresentationIntent = .stronglyEmphasized
             searchStart = range.upperBound
         }
@@ -6791,7 +6801,7 @@ private struct RemoteSessionRow: View {
                         .font(.system(size: 7, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 16, height: 16)
-                        .background(Color.blue)
+                        .background(MinisTheme.accent)
                         .clipShape(Circle())
                         .offset(x: 2, y: 2)
                 }
@@ -6929,7 +6939,7 @@ struct SessionEditSheet: View {
                     } label: {
                         HStack {
                             if isRegenerating {
-                                SpinningRing(color: .accentColor)
+                                SpinningRing(color: MinisTheme.accent)
                                     .frame(width: 18, height: 18)
                             } else {
                                 Image(systemName: "arrow.triangle.2.circlepath")
@@ -7123,7 +7133,7 @@ private struct SteppedSlider: View {
                 // Filled portion
                 let fillW = maxStep > 0 ? totalW * CGFloat(displayValue) / maxStep : 0
                 Capsule()
-                    .fill(Color.accentColor)
+                    .fill(MinisTheme.accent)
                     .frame(width: fillW, height: trackHeight)
                     .position(x: fillW / 2, y: midY)
 
@@ -7131,7 +7141,7 @@ private struct SteppedSlider: View {
                 ForEach(0..<steps, id: \.self) { i in
                     let x = maxStep > 0 ? totalW * CGFloat(i) / maxStep : 0
                     Circle()
-                        .fill(i <= displayValue ? Color.accentColor : Color(.systemFill))
+                        .fill(i <= displayValue ? MinisTheme.accent : Color(.systemFill))
                         .frame(width: tickSize, height: tickSize)
                         .position(x: x, y: midY)
                 }
@@ -7331,7 +7341,7 @@ private struct AppearanceSettingsView: View {
                     Button("Reset to Defaults") {
                         fontSettings.resetToDefaults()
                     }
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MinisTheme.destructive)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
             } header: {
@@ -7378,7 +7388,7 @@ private struct AppearanceSettingsView: View {
                                 Spacer()
                                 if appIconMode == option.id {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.blue)
+                                        .foregroundStyle(MinisTheme.accent)
                                         .font(.title3)
                                 }
                             }
@@ -7430,7 +7440,7 @@ private struct AppearanceSettingsView: View {
                             Spacer()
                             if appLanguage == lang.id {
                                 Image(systemName: "checkmark")
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(MinisTheme.accent)
                                     .fontWeight(.semibold)
                             }
                         }
@@ -8099,7 +8109,7 @@ private struct ForceSyncToastBanner: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.accentColor.opacity(0.92))
+                .fill(MinisTheme.accent.opacity(0.92))
         )
         .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
         .padding(.horizontal, 16)

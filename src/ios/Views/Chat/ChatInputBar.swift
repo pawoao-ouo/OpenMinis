@@ -234,7 +234,7 @@ private struct VideoLoadingChip: View {
         .frame(width: 64, height: 64)
         .background(ChatColors.secondaryBg)
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.4), lineWidth: 0.5))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(ChatColors.inputBorder, lineWidth: 0.5))
     }
 }
 
@@ -295,7 +295,7 @@ private struct AttachmentChip: View {
             .frame(width: 64, height: 64)
             .background(ChatColors.secondaryBg)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.4), lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(ChatColors.inputBorder, lineWidth: 0.5))
     }
 
     /// [T-ios-photo-pick-placeholder] Error chip for a photo that failed to load.
@@ -339,7 +339,7 @@ private struct AttachmentChip: View {
                         .aspectRatio(contentMode: .fill)
                         .frame(width: 64, height: 64)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.4), lineWidth: 0.5))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(ChatColors.inputBorder, lineWidth: 0.5))
                         .shadow(color: .black.opacity(0.08), radius: 2, x: 0, y: 1)
 
                     if isVideo {
@@ -448,7 +448,7 @@ private struct AttachmentChip: View {
             .frame(width: 64, height: 64)
             .background(ChatColors.secondaryBg)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.4), lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(ChatColors.inputBorder, lineWidth: 0.5))
 
             Button {
                 onRemove()

@@ -199,7 +199,7 @@ struct BackupSettingsView: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 28, height: 28)
-                            .background(encryptBackup ? Color.green : Color.gray,
+                            .background(encryptBackup ? MinisTheme.success : Color.gray,
                                         in: Circle())
                         Text("Encrypt Backup")
                     }
@@ -213,7 +213,7 @@ struct BackupSettingsView: View {
                         if passphrase != confirmPassphrase {
                             Text("Passphrases don't match.")
                                 .font(.footnote)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(MinisTheme.destructive)
                         }
                     }
                 }
@@ -362,7 +362,7 @@ struct BackupSettingsView: View {
                 if let errorText {
                     Text(errorText)
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(MinisTheme.destructive)
                 }
             }
 
@@ -625,7 +625,7 @@ struct BackupSettingsView: View {
                 // Bytes / rate / elapsed / remaining — the four numbers that
                 // together answer "is this working, and how long more?".
                 if let error = d.error {
-                    Text(error).font(.caption).foregroundStyle(.orange)
+                    Text(error).font(.caption).foregroundStyle(MinisTheme.warning)
                 } else {
                     Text(transferDetail(d))
                         .font(.caption.monospacedDigit())
@@ -639,7 +639,7 @@ struct BackupSettingsView: View {
             Label {
                 Text(note).font(.caption)
             } icon: {
-                Image(systemName: "sparkles").foregroundStyle(.green)
+                Image(systemName: "sparkles").foregroundStyle(MinisTheme.success)
             }
             .foregroundStyle(.secondary)
         }
@@ -697,7 +697,7 @@ struct BackupSettingsView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 28, height: 28)
-                    .background(Color.blue, in: Circle())
+                    .background(MinisTheme.accent, in: Circle())
                 // The placeholder is the automatic name, so an untouched field
                 // shows the user what will be used rather than sitting blank.
                 TextField(DeviceIdentity.automaticName, text: $deviceNameDraft)
@@ -764,7 +764,7 @@ struct BackupSettingsView: View {
                             } label: {
                                 Label("Resume", systemImage: "play.circle")
                             }
-                            .tint(.blue)
+                            .tint(MinisTheme.accent)
                         }
                     }
                 }
@@ -812,7 +812,7 @@ struct BackupSettingsView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
-                        .background(Color.blue, in: Circle())
+                        .background(MinisTheme.accent, in: Circle())
                     VStack(alignment: .leading, spacing: 2) {
                         Text(r.name)
                         Text("\(r.backend.uppercased()) · /\(r.path)")
@@ -912,7 +912,7 @@ struct BackupSettingsView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
-                        .background(Color.green, in: Circle())
+                        .background(MinisTheme.success, in: Circle())
                     Text("Add Backup Destination…")
                 }
             }
@@ -920,7 +920,7 @@ struct BackupSettingsView: View {
             if let destinationWarning {
                 Text(destinationWarning)
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MinisTheme.warning)
             }
         } header: {
             Text("Backup Destinations")

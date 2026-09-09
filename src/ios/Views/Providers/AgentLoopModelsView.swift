@@ -77,7 +77,7 @@ struct AgentLoopModelsSection: View {
         HStack(spacing: 10) {
             Image(systemName: "square.stack.3d.up.fill")
                 .font(.caption)
-                .foregroundStyle(.blue)
+                .foregroundStyle(MinisTheme.accent)
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 1) {
@@ -236,7 +236,7 @@ struct AddAgentLoopGroupsSheet: View {
                     HStack(spacing: 10) {
                         Image(systemName: selectedGroupIds.contains(group.id) ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 20))
-                            .foregroundStyle(selectedGroupIds.contains(group.id) ? Color.accentColor : Color(UIColor.tertiaryLabel))
+                            .foregroundStyle(selectedGroupIds.contains(group.id) ? MinisTheme.accent : Color(UIColor.tertiaryLabel))
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(group.name)

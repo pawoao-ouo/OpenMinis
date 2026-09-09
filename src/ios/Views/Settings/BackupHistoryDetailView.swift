@@ -202,7 +202,7 @@ struct BackupHistoryDetailView: View {
                 }
             }
             if let e = record.errorMessage {
-                Text(e).font(.footnote).foregroundStyle(.red)
+                Text(e).font(.footnote).foregroundStyle(MinisTheme.destructive)
             }
         } header: {
             Text("Summary")
@@ -333,7 +333,7 @@ struct BackupHistoryDetailView: View {
                         .truncationMode(.middle)
                 }
                 if let detail = d.detail {
-                    Text(detail).font(.caption).foregroundStyle(.orange)
+                    Text(detail).font(.caption).foregroundStyle(MinisTheme.warning)
                 }
             }
         }

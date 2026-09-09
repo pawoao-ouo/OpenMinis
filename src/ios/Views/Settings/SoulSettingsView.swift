@@ -92,7 +92,7 @@ struct SoulSettingsView: View {
                             Spacer()
                             if showForceSyncDone {
                                 Text(AppLocalized("Queued"))
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(MinisTheme.success)
                                     .font(.caption)
                             }
                         }
@@ -104,7 +104,7 @@ struct SoulSettingsView: View {
                 Section {
                     Text(saveError)
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(MinisTheme.destructive)
                 }
             }
         }
@@ -143,7 +143,7 @@ struct SoulSettingsView: View {
                 Text(AppLocalized("Saved"))
                     .font(.footnote.weight(.medium))
                     .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(Color.green.opacity(0.85), in: Capsule())
+                    .background(MinisTheme.success.opacity(0.85), in: Capsule())
                     .foregroundStyle(.white)
                     .padding(.bottom, 24)
                     .transition(.opacity)
@@ -194,7 +194,7 @@ struct SoulSettingsView: View {
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(Color.white)
                             .frame(width: 18, height: 18)
-                            .background(Circle().fill(Color.accentColor))
+                            .background(Circle().fill(MinisTheme.accent))
                             .overlay(Circle().strokeBorder(Color(.systemBackground), lineWidth: 1.5))
                             .offset(x: 1, y: 1)
                     }
@@ -429,7 +429,7 @@ private struct SoulEmojiPickerSheet: View {
                                     .frame(width: 38, height: 38)
                                     .background(
                                         Circle().fill(draft == emoji
-                                                      ? Color.accentColor.opacity(0.22)
+                                                      ? MinisTheme.accent.opacity(0.22)
                                                       : Color.secondary.opacity(0.10))
                                     )
                             }

@@ -172,7 +172,7 @@ struct SkillsManagementView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(MinisTheme.accent, in: Capsule())
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -194,15 +194,15 @@ struct SkillsManagementView: View {
         case .url:
             Image(systemName: "link")
                 .font(.caption2)
-                .foregroundStyle(.blue)
+                .foregroundStyle(MinisTheme.accent)
         case .file:
             Image(systemName: "doc")
                 .font(.caption2)
-                .foregroundStyle(.orange)
+                .foregroundStyle(MinisTheme.warning)
         case .bundled:
             Image(systemName: "shippingbox")
                 .font(.caption2)
-                .foregroundStyle(.green)
+                .foregroundStyle(MinisTheme.success)
         case .session:
             Image(systemName: "bubble.left.and.text.bubble.right")
                 .font(.caption2)
@@ -269,7 +269,7 @@ private struct ImportSkillSheet: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MinisTheme.destructive)
                             .font(.caption)
                     }
                 }
@@ -587,7 +587,7 @@ private struct SkillDetailView: View {
                             }
                             Spacer()
                             if showRescanDone {
-                                Text(AppLocalized("Done")).foregroundStyle(.green).font(.caption)
+                                Text(AppLocalized("Done")).foregroundStyle(MinisTheme.success).font(.caption)
                             }
                         }
                     }
@@ -611,7 +611,7 @@ private struct SkillDetailView: View {
                                 }
                                 Spacer()
                                 if showForceSyncDone {
-                                    Text(AppLocalized("Queued")).foregroundStyle(.green).font(.caption)
+                                    Text(AppLocalized("Queued")).foregroundStyle(MinisTheme.success).font(.caption)
                                 }
                             }
                         }
@@ -647,7 +647,7 @@ private struct SkillDetailView: View {
 
                 if let updateError {
                     Section {
-                        Text(updateError).foregroundStyle(.red).font(.caption)
+                        Text(updateError).foregroundStyle(MinisTheme.destructive).font(.caption)
                     }
                 }
 
@@ -882,7 +882,7 @@ private struct SkillFileDetailView: View {
             .overlay(alignment: .bottom) {
                 if let saveError {
                     Text(saveError)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(MinisTheme.destructive)
                         .font(.caption)
                         .padding(8)
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -974,19 +974,19 @@ struct MinisSkillsBrowserView: View {
                     .foregroundStyle(.white)
             case .success(let name):
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(MinisTheme.success)
                 Text(AppLocalized("\(name) imported"))
                     .foregroundStyle(.white)
                     .lineLimit(1)
             case .error(let msg):
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MinisTheme.destructive)
                 Text(msg)
                     .foregroundStyle(.white)
                     .lineLimit(2)
             case .hint(let msg):
                 Image(systemName: "info.circle.fill")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(MinisTheme.accent)
                 Text(msg)
                     .foregroundStyle(.white)
                     .lineLimit(2)

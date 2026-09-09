@@ -154,7 +154,7 @@ struct ThinkingRulesSection: View {
                     // a real model. Without it the rule list is another hidden variable.
                     Label(hit, systemImage: "scope")
                         .font(.caption)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(MinisTheme.accent)
                 }
                 Text("Default rules are built in and cannot be deleted. Add a rule above them to override one.")
                     .foregroundStyle(.secondary)

@@ -44,14 +44,14 @@ struct KimiDeviceLoginSheet: View {
                 case .success:
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 44))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(MinisTheme.success)
                     Text(AppLocalized("Signed in to Kimi Code"))
                         .font(.headline)
 
                 case let .failed(message):
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 44))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(MinisTheme.warning)
                     Text(message)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)

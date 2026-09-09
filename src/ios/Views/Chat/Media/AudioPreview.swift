@@ -152,7 +152,7 @@ struct MinisAudioPreviewView: View {
                     .fill(Color(UIColor.secondarySystemBackground))
                 Image(systemName: "waveform")
                     .font(.system(size: 64, weight: .light))
-                    .foregroundStyle(Color.accentColor.opacity(0.8))
+                    .foregroundStyle(MinisTheme.accent.opacity(0.8))
             }
             .frame(maxWidth: .infinity)
             .aspectRatio(1, contentMode: .fit)
@@ -194,11 +194,11 @@ struct MinisAudioPreviewView: View {
                         .frame(height: 5)
                     // Played portion
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(artworkImage != nil ? Color.white : Color.accentColor)
+                        .fill(artworkImage != nil ? Color.white : MinisTheme.accent)
                         .frame(width: max(0, geo.size.width * CGFloat(progress)), height: 5)
                     // Drag handle
                     Circle()
-                        .fill(artworkImage != nil ? Color.white : Color.accentColor)
+                        .fill(artworkImage != nil ? Color.white : MinisTheme.accent)
                         .frame(width: 14, height: 14)
                         .offset(x: max(0, geo.size.width * CGFloat(progress) - 7))
                 }
@@ -286,7 +286,7 @@ struct MinisAudioPreviewView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 3)
                         .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.accentColor))
+                        .background(Capsule().fill(MinisTheme.accent))
                         .offset(x: 4, y: -2)
                 }
                 .frame(width: 56, height: 56)

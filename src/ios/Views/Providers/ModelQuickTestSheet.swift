@@ -80,7 +80,7 @@ struct ModelQuickTestSheet: View {
                 .font(.title3)
                 .foregroundStyle(.tint)
                 .frame(width: 34, height: 34)
-                .background(Color.accentColor.opacity(0.12))
+                .background(MinisTheme.accent.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.model.displayName).font(.headline)
@@ -395,10 +395,10 @@ private struct TestCard: View {
         case .running:
             ProgressView()
         case .failure:
-            Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+            Image(systemName: "xmark.octagon.fill").foregroundStyle(MinisTheme.destructive)
         default:
             HStack(spacing: 4) {
-                Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                Image(systemName: "checkmark.seal.fill").foregroundStyle(MinisTheme.success)
                 if run.elapsed > 0 {
                     Text(String(format: "%.1fs", run.elapsed))
                         .font(.caption2).foregroundStyle(.tertiary)

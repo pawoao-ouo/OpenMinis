@@ -110,7 +110,7 @@ struct ShadowVoiceProviderDetailView: View {
                 Spacer()
                 Image(systemName: "bolt.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MinisTheme.warning)
             }
         }
     }

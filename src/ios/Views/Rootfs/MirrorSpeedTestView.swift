@@ -515,7 +515,7 @@ struct MirrorsSectionView: View {
                     .foregroundStyle(ms < 200 ? .green : ms < 500 ? .orange : .red)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background((ms < 200 ? Color.green : ms < 500 ? Color.orange : Color.red).opacity(0.12))
+                    .background((ms < 200 ? MinisTheme.success : ms < 500 ? MinisTheme.warning : MinisTheme.destructive).opacity(0.12))
                     .clipShape(Capsule())
             }
         }

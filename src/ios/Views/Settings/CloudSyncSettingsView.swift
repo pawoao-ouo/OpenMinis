@@ -96,7 +96,7 @@ struct CloudSyncSettingsView: View {
                 Image(systemName: "checkmark.circle.fill")
                 Text("Up to date")
             }
-            .foregroundStyle(.green)
+            .foregroundStyle(MinisTheme.success)
             .font(.caption)
         case .syncing:
             HStack(spacing: 4) {
@@ -112,7 +112,7 @@ struct CloudSyncSettingsView: View {
                 Text(msg)
                     .lineLimit(1)
             }
-            .foregroundStyle(.red)
+            .foregroundStyle(MinisTheme.destructive)
             .font(.caption)
         case .disabled:
             HStack(spacing: 4) {
@@ -143,7 +143,7 @@ struct CloudSyncSettingsView: View {
 
             Toggle(isOn: $engine.syncSessions) {
                 HStack {
-                    settingsIcon("bubble.left.and.bubble.right", color: .blue)
+                    settingsIcon("bubble.left.and.bubble.right", color: MinisTheme.accent)
                     Text("Chat Sessions")
                     Spacer()
                     Text(formatSize(sessionsSize))
@@ -170,7 +170,7 @@ struct CloudSyncSettingsView: View {
             }
             Toggle(isOn: $engine.syncSkills) {
                 HStack {
-                    settingsIcon("puzzlepiece.extension", color: .orange)
+                    settingsIcon("puzzlepiece.extension", color: MinisTheme.warning)
                     Text("Skills")
                     Spacer()
                     Text(formatSize(skillsSize))
@@ -232,7 +232,7 @@ struct CloudSyncSettingsView: View {
                 showSyncConfirm = true
             } label: {
                 HStack {
-                    settingsIcon("arrow.triangle.2.circlepath.icloud", color: .blue)
+                    settingsIcon("arrow.triangle.2.circlepath.icloud", color: MinisTheme.accent)
                     Text("Force Full Sync")
                         .foregroundStyle(Color.primary)
                     if case .syncing = engine.syncStatus {
@@ -261,7 +261,7 @@ struct CloudSyncSettingsView: View {
                 showDeleteCloudStep1 = true
             } label: {
                 HStack {
-                    settingsIcon("trash", color: .red)
+                    settingsIcon("trash", color: MinisTheme.destructive)
                     Text("Delete iCloud Data")
                         .foregroundStyle(Color.primary)
                     if isDeletingCloud {
@@ -567,7 +567,7 @@ struct RemoteSkillsListView: View {
 
                         if copiedIds.contains(skill.id) {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(MinisTheme.success)
                         } else {
                             Button {
                                 Task {
@@ -626,7 +626,7 @@ struct RemoteMemoriesListView: View {
 
                         if copiedIds.contains(memory.id) {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(MinisTheme.success)
                         } else {
                             Button {
                                 Task {
@@ -704,12 +704,12 @@ struct SyncLogView: View {
                         if entry.direction == .error {
                             Text(entry.detail)
                                 .font(.caption2)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(MinisTheme.destructive)
                                 .lineLimit(2)
                         } else if entry.direction == .conflict {
                             Text(entry.detail)
                                 .font(.caption2)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(MinisTheme.warning)
                                 .lineLimit(2)
                         }
                     }
@@ -748,16 +748,16 @@ struct SyncLogView: View {
             switch direction {
             case .sent:
                 Image(systemName: "arrow.up.circle.fill")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(MinisTheme.accent)
             case .received:
                 Image(systemName: "arrow.down.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(MinisTheme.success)
             case .conflict:
                 Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
                     .foregroundStyle(.yellow)
             case .error:
                 Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MinisTheme.destructive)
             }
         }
         .font(.system(size: 16))

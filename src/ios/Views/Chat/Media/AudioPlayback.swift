@@ -405,7 +405,7 @@ struct MinisAudioPlayerView: View {
                 } label: {
                     Image(systemName: isActive && player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.title2)
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(MinisTheme.accent)
                 }
                 .buttonStyle(.plain)
 
@@ -417,7 +417,7 @@ struct MinisAudioPlayerView: View {
                         ),
                         in: 0...max(player.duration, 0.01)
                     )
-                    .tint(.accentColor)
+                    .tint(MinisTheme.accent)
 
                     Text(formatTime(player.duration))
                         .font(.caption2)
@@ -426,7 +426,7 @@ struct MinisAudioPlayerView: View {
                 } else {
                     // Idle state — show empty slider
                     Slider(value: .constant(0), in: 0...1)
-                        .tint(.accentColor)
+                        .tint(MinisTheme.accent)
                         .disabled(true)
 
                     Text(formatTime(0))

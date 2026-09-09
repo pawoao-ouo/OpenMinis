@@ -135,7 +135,7 @@ struct FileBrowserView: View {
                             // highlight (downloads panel "Show in Files").
                             .listRowBackground(
                                 highlightActive && item.name == highlightFileName
-                                    ? Color.accentColor.opacity(0.18)
+                                    ? MinisTheme.accent.opacity(0.18)
                                     : nil
                             )
                         }

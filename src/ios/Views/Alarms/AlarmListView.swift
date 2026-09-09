@@ -329,15 +329,15 @@ private struct AlarmRowView: View {
         case "alerting":
             if #available(iOS 17.0, *) {
                 Image(systemName: "bell.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MinisTheme.warning)
                     .symbolEffect(.pulse)
             } else {
                 Image(systemName: "bell.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MinisTheme.warning)
             }
         case "countdown":
             Image(systemName: "timer")
-                .foregroundStyle(.blue)
+                .foregroundStyle(MinisTheme.accent)
         default:
             EmptyView()
         }

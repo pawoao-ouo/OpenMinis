@@ -82,7 +82,7 @@ struct MemoryManagementView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(MinisTheme.accent, in: Capsule())
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -218,7 +218,7 @@ private struct MemoryFileEditView: View {
 
             if let saveError {
                 Text(saveError)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MinisTheme.destructive)
                     .font(.caption)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)

@@ -85,7 +85,7 @@ struct BackupRestoreView: View {
                 Section {
                     Text(errorText)
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(MinisTheme.destructive)
                 }
             }
         }
@@ -518,7 +518,7 @@ struct BackupRestoreView: View {
                 if let failed = c.failed {
                     Text("\(displayNameRaw(c.category)): \(failed)")
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(MinisTheme.destructive)
                 } else {
                     if c.sizeSkippedInPackage > 0 {
                         Text("\(displayNameRaw(c.category)): \(c.sizeSkippedInPackage) file(s) weren't in the backup (size limit)")
@@ -532,7 +532,7 @@ struct BackupRestoreView: View {
                     if c.notDownloadedInPackage > 0 {
                         Text("\(displayNameRaw(c.category)): \(c.notDownloadedInPackage) file(s) weren't in the backup (not downloaded from iCloud on the source device)")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(MinisTheme.warning)
                     }
                     // [review S7] The package's own index referenced content it
                     // did not contain — the backup is incomplete. Shown in red:
@@ -541,14 +541,14 @@ struct BackupRestoreView: View {
                     if c.missingBlobs > 0 {
                         Text("\(displayNameRaw(c.category)): \(c.missingBlobs) file(s) were listed in the backup but missing from it — the backup is incomplete")
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MinisTheme.destructive)
                     }
                 }
             }
             if !r.rolledBack.isEmpty {
                 Text("Rolled back: \(r.rolledBack.joined(separator: ", "))")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MinisTheme.warning)
             }
         } header: {
             Text("Restore Complete")
@@ -1269,7 +1269,7 @@ struct ServerPackageListView: View {
             if let errorText {
                 Text(errorText)
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MinisTheme.destructive)
             }
         }
     }

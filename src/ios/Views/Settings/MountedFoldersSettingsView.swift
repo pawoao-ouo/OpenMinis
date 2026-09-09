@@ -87,7 +87,7 @@ struct MountedFoldersSettingsView: View {
                 } footer: {
                     if model.isAtCapacity {
                         Text("Mount limit reached. Remove an existing mount before adding a new one.")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(MinisTheme.warning)
                     }
                 }
             }
@@ -276,7 +276,7 @@ private struct MountedFolderRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Image(systemName: "folder.fill")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(MinisTheme.accent)
                 Text(entry.name)
                     .font(.body.weight(.medium))
                 accessBadge

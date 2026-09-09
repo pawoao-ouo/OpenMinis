@@ -89,7 +89,7 @@ struct RcloneAddServerView: View {
                     Section {
                         Text(errorText)
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MinisTheme.destructive)
                     }
                 }
             }
@@ -175,7 +175,7 @@ struct RcloneAddServerView: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 28, height: 28)
-                            .background(backend?.type == b.type ? Color.blue : Color.gray,
+                            .background(backend?.type == b.type ? MinisTheme.accent : Color.gray,
                                         in: Circle())
                         VStack(alignment: .leading, spacing: 2) {
                             Text(b.title).foregroundStyle(.primary)
@@ -185,7 +185,7 @@ struct RcloneAddServerView: View {
                         }
                         Spacer()
                         if backend?.type == b.type {
-                            Image(systemName: "checkmark").foregroundStyle(.blue)
+                            Image(systemName: "checkmark").foregroundStyle(MinisTheme.accent)
                         }
                     }
                 }
@@ -311,7 +311,7 @@ struct RcloneAddServerView: View {
                 if allowInsecureTLS {
                     Text("The connection stays encrypted, but its identity isn't verified. Only do this on a network and server you trust.")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(MinisTheme.warning)
                 }
             }
         }

@@ -647,9 +647,9 @@ struct UnifiedModelPicker: View {
         HStack(spacing: 10) {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 20))
-                .foregroundStyle(isSelected ? Color.accentColor : Color(UIColor.tertiaryLabel))
+                .foregroundStyle(isSelected ? MinisTheme.accent : Color(UIColor.tertiaryLabel))
             Image(systemName: "square.stack.3d.up.fill")
-                .font(.caption).foregroundStyle(.blue)
+                .font(.caption).foregroundStyle(MinisTheme.accent)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -667,10 +667,10 @@ struct UnifiedModelPicker: View {
                store.defaultPrimaryGroupId == group.id {
                 Text("Default")
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(MinisTheme.accent)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
-                    .background(Color.blue.opacity(0.1))
+                    .background(MinisTheme.accent.opacity(0.1))
                     .clipShape(Capsule())
             }
 
@@ -737,7 +737,7 @@ struct UnifiedModelPicker: View {
             } else {
                 Text(AppLocalized("\(available)/\(total) available"))
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MinisTheme.warning)
             }
         }
     }
@@ -879,7 +879,7 @@ struct UnifiedModelPicker: View {
         HStack(spacing: 10) {
             Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 17))
-                .foregroundStyle(isActive ? Color.accentColor : Color(UIColor.quaternaryLabel))
+                .foregroundStyle(isActive ? MinisTheme.accent : Color(UIColor.quaternaryLabel))
 
             providerDot(entry.model.provider)
                 .opacity(disabled ? 0.4 : 1)
@@ -892,7 +892,7 @@ struct UnifiedModelPicker: View {
                     if disabled {
                         Text("unavailable", comment: "Modality-incompatible model tag")
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(MinisTheme.warning)
                     }
                 }
                 HStack(spacing: 4) {
@@ -915,10 +915,10 @@ struct UnifiedModelPicker: View {
             if isActive {
                 Text("Active")
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(MinisTheme.success)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
-                    .background(Color.green.opacity(0.1))
+                    .background(MinisTheme.success.opacity(0.1))
                     .clipShape(Capsule())
             }
 
@@ -1083,7 +1083,7 @@ struct UnifiedModelPicker: View {
         return HStack(spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 20))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color(UIColor.tertiaryLabel))
+                    .foregroundStyle(isSelected ? MinisTheme.accent : Color(UIColor.tertiaryLabel))
 
                 Image(systemName: traits.iconSymbol)
                     .font(.system(size: 11))
@@ -1118,7 +1118,7 @@ struct UnifiedModelPicker: View {
                         if disabled {
                             Text("unavailable", comment: "Modality-incompatible model tag")
                                 .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(MinisTheme.warning)
                         }
                     }
                 }
@@ -1129,10 +1129,10 @@ struct UnifiedModelPicker: View {
                    config.currentEntryId?() == entry.id {
                     Text("Active")
                         .font(.caption2.weight(.medium))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(MinisTheme.success)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
-                        .background(Color.green.opacity(0.1))
+                        .background(MinisTheme.success.opacity(0.1))
                         .clipShape(Capsule())
                 }
 

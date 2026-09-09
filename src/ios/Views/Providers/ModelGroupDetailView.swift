@@ -413,7 +413,7 @@ struct ModelGroupDetailView: View {
                         if providerDisabled {
                             Text("·")
                             Text("Provider disabled")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(MinisTheme.warning)
                         }
                     }
                     .font(.caption2)
@@ -452,7 +452,7 @@ struct ModelGroupDetailView: View {
         return HStack(spacing: 10) {
             Image(systemName: isTTS ? "speaker.wave.2.fill" : "mic.fill")
                 .font(.system(size: 12))
-                .foregroundStyle(.blue)
+                .foregroundStyle(MinisTheme.accent)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.model.displayName)
@@ -477,7 +477,7 @@ struct ModelGroupDetailView: View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 12))
-                .foregroundStyle(.orange)
+                .foregroundStyle(MinisTheme.warning)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Model no longer available")
@@ -497,7 +497,7 @@ struct ModelGroupDetailView: View {
             } label: {
                 Image(systemName: "trash")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MinisTheme.destructive)
             }
             .buttonStyle(.plain)
         }
@@ -623,7 +623,7 @@ private struct ContextLimitSlider: View {
                 Spacer()
                 Text(currentLabel)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(MinisTheme.accent)
                     .monospacedDigit()
             }
             Slider(

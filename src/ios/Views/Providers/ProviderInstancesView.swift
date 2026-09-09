@@ -59,7 +59,7 @@ struct ProviderInstancesView: View {
                                 } label: {
                                     Label("Edit", systemImage: "pencil")
                                 }
-                                .tint(.blue)
+                                .tint(MinisTheme.accent)
                             }
                         }
                         .onMove { source, destination in
@@ -230,7 +230,7 @@ struct ProviderInstancesView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(MinisTheme.accent, in: Capsule())
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -424,7 +424,7 @@ private struct InstanceRow: View {
         let _ = store.authRevision  // subscribe to OAuth state changes
         HStack(spacing: 12) {
             Circle()
-                .fill(isConfigured && instance.isEnabled ? Color.green : Color(UIColor.quaternaryLabel))
+                .fill(isConfigured && instance.isEnabled ? MinisTheme.success : Color(UIColor.quaternaryLabel))
                 .frame(width: 8, height: 8)
 
             VStack(alignment: .leading, spacing: 2) {

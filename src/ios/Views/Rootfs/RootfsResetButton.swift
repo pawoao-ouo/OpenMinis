@@ -99,7 +99,7 @@ struct RootfsResetButton: View {
                     .font(.headline)
                     .padding()
                     .frame(maxWidth: .infinity)
-                    .background(Color.red)
+                    .background(MinisTheme.destructive)
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }
@@ -110,7 +110,7 @@ struct RootfsResetButton: View {
                         .font(.headline)
                         .padding()
                         .frame(maxWidth: .infinity)
-                        .background(Color.orange)
+                        .background(MinisTheme.warning)
                         .foregroundColor(.white)
                         .cornerRadius(12)
                 }

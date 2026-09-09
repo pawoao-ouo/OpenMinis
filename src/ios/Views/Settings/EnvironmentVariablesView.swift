@@ -246,7 +246,7 @@ private struct EnvVarFormSheet: View {
                 } footer: {
                     if !key.isEmpty && !isValid {
                         Text("Must start with a letter and contain only letters, digits, and underscores.")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MinisTheme.destructive)
                     }
                 }
 

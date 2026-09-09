@@ -64,7 +64,7 @@ struct ModelGroupsView: View {
                             } label: {
                                 Label("Edit", systemImage: "pencil")
                             }
-                            .tint(.blue)
+                            .tint(MinisTheme.accent)
                         }
                     }
                     .onMove(perform: moveGroups)
@@ -177,7 +177,7 @@ struct ModelGroupsView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(MinisTheme.accent, in: Capsule())
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
