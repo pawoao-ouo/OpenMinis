@@ -8289,6 +8289,12 @@ struct SelectableMarkdownView: UIViewRepresentable {
                 if coord.cachedSizes.count > 4, let firstKey = coord.cachedSizes.keys.first {
                     coord.cachedSizes.removeValue(forKey: firstKey)
                 }
+                // [T-assistant-bubble-hug] Near-width hits return the SAME
+                // width the miss path decided on, or the bubble flaps between
+                // hugged and full across the ±2pt probe sequence.
+                if let hugW = coord.lastHugWidth {
+                    return CGSize(width: hugW, height: nearestHeight)
+                }
                 return CGSize(width: width, height: nearestHeight)
             }
         }
@@ -8591,6 +8597,24 @@ struct SelectableMarkdownView: UIViewRepresentable {
                     #if DEBUG
                     Self.recordSTF(elapsedMs: totalMs, msgId: messageId, attrLen: bindingLen)
                     #endif
+                    // [T-assistant-bubble-hug] Same hug pass as the other
+                    // return sites — finalized committed content hugs here too
+                    // (this IS the hot committed path for attachment-free text).
+                    if finalizedCommitted, liveStorage.length <= 4000,
+                       let mtv2 = coord.measureTextView as? SelectableMarkdownTextView {
+                        if let hw = Self.hugWidthIfApplicable(
+                            pending: liveStorage,
+                            fullHeight: h,
+                            proposedWidth: width,
+                            measureTextView: mtv2
+                        ) {
+                            coord.lastHugWidth = hw
+                            return CGSize(width: hw, height: h)
+                        }
+                        coord.lastHugWidth = nil
+                        return CGSize(width: width, height: h)
+                    }
+                    coord.lastHugWidth = nil
                     return CGSize(width: width, height: h)
                 }
             }
@@ -8726,11 +8750,16 @@ struct SelectableMarkdownView: UIViewRepresentable {
         // its ideal (hug) width so the assistant bubble wraps its text like
         // the user bubble does, instead of stretching to full row width.
         // See hugWidthIfApplicable for the guard set.
+        //
+        // NOTE: `pending` is only in scope on the pre-render branch; the mtv
+        // fallback (attachment-bearing content) reaches here with `pending`
+        // undefined — hug only applies to the finalized branch above, so
+        // clear the marker here to keep cache-hit widths consistent.
         let isFinalized = cachedAttributedString != nil || cachedContent != nil
         var outWidth = width
         if isFinalized {
             if let hw = Self.hugWidthIfApplicable(
-                pending: pending,
+                pending: measuringTextView.attributedText ?? uiView.attributedText,
                 fullHeight: size.height,
                 proposedWidth: width,
                 measureTextView: coord.measureTextView

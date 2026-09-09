@@ -7053,7 +7053,7 @@ private struct FontScaleRow: View {
     @Binding var level: FontScaleLevel
 
     private static let cases = FontScaleLevel.allCases
-    private let stepCount = FontScaleRow.cases.count  // 5
+    private let stepCount = FontScaleRow.cases.count
 
     private var currentIndex: Int {
         Self.cases.firstIndex(of: level) ?? 0
