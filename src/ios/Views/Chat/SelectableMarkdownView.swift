@@ -318,8 +318,11 @@ struct SelectableMarkdownTheme {
     }
 
     var baseFont: UIFont { AppearanceFontFamily.resolved().uiFont(size: baseFontSize) }
-    var labelColor: UIColor { .label }
-    var secondaryLabelColor: UIColor { .secondaryLabel }
+    // [T-ai-text-color-role] Was hardcoded `.label` / `.secondaryLabel` —
+    // AI text colour now follows the studio's chat-scope text roles, so it
+    // edits from the palette ("主文字"/"次文字") and AI theme packs.
+    var labelColor: UIColor { AppearanceStudio.uiColorSnapshot(.primaryText, scope: .chat) }
+    var secondaryLabelColor: UIColor { AppearanceStudio.uiColorSnapshot(.secondaryText, scope: .chat) }
     var accentColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning) }
     var linkColor: UIColor { AppearanceStudio.uiColorSnapshot(.accent) }
     var codeBlockBackground: UIColor {
@@ -2238,7 +2241,7 @@ final class TableAttachment: NSTextAttachment {
     }
 
     private func renderCellInline(_ node: InlineNode, font: UIFont) -> NSAttributedString {
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.label]
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: theme.labelColor]
         switch node {
         case .text(let text):
             return NSAttributedString(string: text, attributes: attrs)
@@ -7875,7 +7878,7 @@ struct SelectableMarkdownView: UIViewRepresentable {
                 let mut = NSMutableAttributedString(attributedString: renderedBody)
                 let suffixAttrs: [NSAttributedString.Key: Any] = [
                     .font: UIFont.systemFont(ofSize: FontSettings.shared.scaledMessage(16.5)),
-                    .foregroundColor: UIColor.label,
+                    .foregroundColor: SelectableMarkdownTheme().labelColor,
                 ]
                 mut.append(NSAttributedString(string: _splitForUpdate.plainSuffix, attributes: suffixAttrs))
                 attributed = mut
@@ -8430,7 +8433,7 @@ struct SelectableMarkdownView: UIViewRepresentable {
                     let mut = NSMutableAttributedString(attributedString: rendered)
                     let suffixAttrs: [NSAttributedString.Key: Any] = [
                         .font: UIFont.systemFont(ofSize: FontSettings.shared.scaledMessage(16.5)),
-                        .foregroundColor: UIColor.label,
+                        .foregroundColor: SelectableMarkdownTheme().labelColor,
                     ]
                     mut.append(NSAttributedString(string: split.plainSuffix, attributes: suffixAttrs))
                     pending = mut
@@ -8495,23 +8498,23 @@ struct SelectableMarkdownView: UIViewRepresentable {
                 if _renderW <= 0 || abs(width - _renderW) < 0.5 {
                     uiView.lastComputedHeight = h
                 }
-                // [T-assistant-bubble-hug] Same hug pass as the TextKit tail —
-                // the CT fast path must return the same width or the bubble
-                // flaps between hugged and full on alternating measurements.
-                let isFinalizedCT = cachedAttributedString != nil || cachedContent != nil
+                // [T-assistant-bubble-hug][v2] Hug on EVERY pass through this
+                // path, streaming included — the bubble now tracks content
+                // width while text arrives, same as the user bubble does while
+                // she types. Length/attachment gates live inside
+                // hugWidthIfApplicable (one definition, all sites).
                 var outW = width
-                if isFinalizedCT {
-                    if let hw = Self.hugWidthIfApplicable(
-                        pending: pending,
-                        fullHeight: h,
-                        proposedWidth: width,
-                        measureTextView: coord.measureTextView
-                    ) {
-                        coord.lastHugWidth = hw
-                        outW = hw
-                    } else {
-                        coord.lastHugWidth = nil
-                    }
+                if let hw = Self.hugWidthIfApplicable(
+                    pending: pending,
+                    fullHeight: h,
+                    proposedWidth: width,
+                    measureTextView: coord.measureTextView,
+                    coord: coord
+                ) {
+                    coord.lastHugWidth = hw
+                    outW = hw
+                } else {
+                    coord.lastHugWidth = nil
                 }
                 return CGSize(width: outW, height: h)
             }
@@ -8597,16 +8600,16 @@ struct SelectableMarkdownView: UIViewRepresentable {
                     #if DEBUG
                     Self.recordSTF(elapsedMs: totalMs, msgId: messageId, attrLen: bindingLen)
                     #endif
-                    // [T-assistant-bubble-hug] Same hug pass as the other
-                    // return sites — finalized committed content hugs here too
-                    // (this IS the hot committed path for attachment-free text).
-                    if finalizedCommitted, liveStorage.length <= 4000,
-                       let mtv2 = coord.measureTextView as? SelectableMarkdownTextView {
+                    // [T-assistant-bubble-hug][v2] Same hug pass as the other
+                    // return sites — the per-site 4000 gate is gone; the only
+                    // length gate is the unified one in hugWidthIfApplicable.
+                    if let mtv2 = coord.measureTextView as? SelectableMarkdownTextView {
                         if let hw = Self.hugWidthIfApplicable(
                             pending: liveStorage,
                             fullHeight: h,
                             proposedWidth: width,
-                            measureTextView: mtv2
+                            measureTextView: mtv2,
+                            coord: coord
                         ) {
                             coord.lastHugWidth = hw
                             return CGSize(width: hw, height: h)
@@ -8753,22 +8756,18 @@ struct SelectableMarkdownView: UIViewRepresentable {
         //
         // NOTE: `pending` is only in scope on the pre-render branch; the mtv
         // fallback (attachment-bearing content) reaches here with `pending`
-        // undefined — hug only applies to the finalized branch above, so
-        // clear the marker here to keep cache-hit widths consistent.
-        let isFinalized = cachedAttributedString != nil || cachedContent != nil
+        // undefined — we feed the just-measured attributed text instead. Gates
+        // (attachments/length) are uniform inside hugWidthIfApplicable.
         var outWidth = width
-        if isFinalized {
-            if let hw = Self.hugWidthIfApplicable(
-                pending: measuringTextView.attributedText ?? uiView.attributedText,
-                fullHeight: size.height,
-                proposedWidth: width,
-                measureTextView: coord.measureTextView
-            ) {
-                coord.lastHugWidth = hw
-                outWidth = hw
-            } else {
-                coord.lastHugWidth = nil
-            }
+        if let hw = Self.hugWidthIfApplicable(
+            pending: measuringTextView.attributedText ?? uiView.attributedText,
+            fullHeight: size.height,
+            proposedWidth: width,
+            measureTextView: coord.measureTextView,
+            coord: coord
+        ) {
+            coord.lastHugWidth = hw
+            outWidth = hw
         } else {
             coord.lastHugWidth = nil
         }
@@ -8788,13 +8787,30 @@ struct SelectableMarkdownView: UIViewRepresentable {
         pending: NSAttributedString,
         fullHeight: CGFloat,
         proposedWidth: CGFloat,
-        measureTextView: UITextView
+        measureTextView: UITextView,
+        coord: Coordinator? = nil
     ) -> CGFloat? {
         var hasAttachment = false
         pending.enumerateAttribute(.attachment, in: NSRange(location: 0, length: pending.length), options: []) { v, _, stop in
             if v != nil { hasAttachment = true; stop.pointee = true }
         }
         guard !hasAttachment, fullHeight > 0 else { return nil }
+        // [T-assistant-bubble-hug][v2] ONE length gate for every call site —
+        // per-site gates (4000 here, none there) were what made the bubble
+        // "sometimes long, sometimes short" (醒醒 09-09). Beyond this size the
+        // hugged width is a hair under full row width anyway, so hugging buys
+        // nothing visually and the 9-step binary search stops being free.
+        guard pending.length <= 12000 else { return nil }
+        // [T-assistant-bubble-hug][v2] Per-chunk memo: SwiftUI calls
+        // sizeThatFits 2-3x per layout pass (inner/outer width probes); the
+        // 9-step binary search reruns for every call without this. Hug width
+        // is a property of the TEXT (line count at the reference width), so
+        // same-length content reuses the last result, capped by the new
+        // proposal. AFTER the attachment check so attachment-bearing content
+        // (separate call sites) can never pollute this cache.
+        if let coord, coord.lastHugLen == pending.length, let cached = coord.lastHugWidth {
+            return min(proposedWidth, cached)
+        }
 
         measureTextView.attributedText = pending
         var lo: CGFloat = 40, hi: CGFloat = proposedWidth
@@ -8812,7 +8828,12 @@ struct SelectableMarkdownView: UIViewRepresentable {
         measureTextView.textContainer.size = CGSize(width: proposedWidth, height: .greatestFiniteMagnitude)
         // +2 slack for rounding; 56pt floor so one-word replies don't
         // collapse into a pill.
-        return min(proposedWidth, max(hi + 2, 56))
+        let hug = min(proposedWidth, max(hi + 2, 56))
+        if let coord {
+            coord.lastHugWidth = hug
+            coord.lastHugLen = pending.length
+        }
+        return hug
     }
     private static let stfLogger = AppLogger(category: "SelectableMarkdownSTF")
     #if DEBUG
@@ -8989,6 +9010,9 @@ struct SelectableMarkdownView: UIViewRepresentable {
         /// sizeThatFits pass (nil = full width). Cache hits reuse it so the
         /// bubble doesn't flap between hugged and full on alternating probes.
         var lastHugWidth: CGFloat? = nil
+        /// Content length the current lastHugWidth was computed for — memo
+        /// key so repeated probes within one chunk skip the 9-step search.
+        var lastHugLen: Int? = nil
         /// Last textContainer width at which `updateUIView` ran. Used so that
         /// a rotation that arrives as `(markdown unchanged, width changed)`
         /// still invalidates TableAttachment cached layouts so the table

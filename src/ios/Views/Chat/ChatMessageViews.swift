@@ -144,13 +144,15 @@ private struct UserBubbleSurface: ViewModifier {
                                 style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
                 )
         } else if #available(iOS 26.0, *) {
-            // [T-bubble-opacity-slider] Glass has its own material alpha we
-            // can't dial directly; blend the themed bubble colour UNDER the
-            // glass at the slider's opacity so the slider visibly does
-            // something on iOS 26 instead of being a dead control.
+            // [T-bubble-opacity-slider][v2] The colour UNDER the glass barely
+            // moved the needle — glass has its own material alpha, so the
+            // opacity slider visibly worked on the assistant bubble (plain
+            // fill) but not here (醒醒 09-09). The userBubble colour already
+            // carries `bubbleAlpha` (slider × surfaceOpacity), so pass it as
+            // the glass TINT: tint alpha directly modulates the material,
+            // and the slider now reads the same on both bubbles.
             content
-                .background(shape.fill(ChatColors.userBubble))
-                .glassEffect(.regular, in: shape)
+                .glassEffect(Glass.regular.tint(ChatColors.userBubble), in: shape)
         } else {
             content.background(shape.fill(ChatColors.userBubble))
         }

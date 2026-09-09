@@ -5,13 +5,14 @@ import UIKit
 // MARK: - Semantic appearance system
 
 enum AppearanceScope: String, CaseIterable, Identifiable {
-    case global, home, chat, settings, browser, files, terminal
+    case global, home, chat, settings, browser, files, terminal, bottomBar
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .global: return "全部页面"
         case .home: return "首页"
+        case .bottomBar: return "底部栏"
         case .chat: return "聊天"
         case .settings: return "设置"
         case .browser: return "浏览器"
