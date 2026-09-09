@@ -32,6 +32,13 @@ jobs:
         run: |
           cp src/ios/Configs/ProviderCustomization.xcconfig.example \
              src/ios/Configs/ProviderCustomization.xcconfig
+          # OOM kill mitigation: WMO on 476 files blows up XCBBuildService on
+          # CI runners. singlefile + -Onone trades speed/size for survival.
+          # Verify: build log must NOT contain "-wmo".
+          cat >> src/ios/Configs/ProviderCustomization.xcconfig <<'XCCONFIG'
+          SWIFT_COMPILATION_MODE = singlefile
+          SWIFT_OPTIMIZATION_LEVEL = -Onone
+          XCCONFIG
 
       - name: Patch iSH VDSO linker path for macOS
         run: |
