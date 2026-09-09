@@ -1649,7 +1649,122 @@ struct ContentView: View {
                 .animation(.easeInOut(duration: 0.2), value: isExporting)
             }
         }
-        .task {
+        .task { await homeBootstrapTask() }
+        .onReceive(NotificationCenter.default.publisher(for: .cloudSyncDidFetchChanges)) { _ in
+            // [T-ios-state-publish-offmain-crash] cloud-sync fetch fires off-main;
+            // force the @State write onto the main thread.
+            Task { @MainActor in
+                refreshSessionList()
+            }
+        }
+        // [T-ios-session-list-equatable-jank] Keep the id→session lookup cache
+        // in sync with `sessions`. Rebuilding here (on actual list mutation)
+        // instead of per body-eval is what removes the per-frame Dictionary.==
+        // / ChatSession.== diff from the scroll transaction.
+        .onChange(of: sessions) { _ in
+            rebuildSessionsByIdCache()
+        }
+        .onChange(of: selectedSessionId) { newValue in
+            handleSelectedSessionChange(newValue)
+        }
+        .onChange(of: navigationPath) { _ in
+            handleNavigationPathChange()
+        }
+        .onChange(of: shareCoordinator.hasPendingShare) { hasPending in
+            handlePendingShareChange(hasPending)
+        }
+        .onChange(of: deepLink.showEnvironmentVariables) { show in
+            if show {
+                activeToolSheet = .settings
+            }
+        }
+        .onChange(of: deepLink.showPermissions) { show in
+            if show {
+                activeToolSheet = .settings
+            }
+        }
+        .onChange(of: deepLink.showAlarmList) { show in
+            if show {
+                showAlarmList = true
+                deepLink.showAlarmList = false
+            }
+        }
+        // Open the SettingsSheet whenever a deep link sets a settings
+        // target. SettingsSheet itself reads `deepLink.pendingSettingsTarget`
+        // in onAppear/onChange to push the right destination, then clears it.
+        .onChange(of: deepLink.pendingSettingsTarget) { target in
+            guard target != nil else { return }
+            if activeToolSheet != .settings {
+                activeToolSheet = .settings
+            }
+        }
+        .onChange(of: deepLink.pendingRootfsManagement) { pending in
+            if pending {
+                activeToolSheet = .rootfsManagement
+                deepLink.pendingRootfsManagement = false
+            }
+        }
+        .onChange(of: deepLink.pendingSessionId) { sid in
+            guard let sid, !sid.isEmpty else { return }
+            // Switch to the requested session if it exists in the loaded
+            // list. If not loaded yet (cold launch with deep link), set
+            // it now — the session-load path will pick it up once the
+            // list refresh completes.
+            selectedSessionId = sid
+            deepLink.pendingSessionId = nil
+        }
+        .onChange(of: scenePhase) { phase in
+            // [T-ios-scenephase-active-sigkill] Defer ALL .active work off the
+            // synchronous callback. Writing @Published (SyncCore.isAppInBackground)
+            // here triggers objectWillChange → SwiftUI view invalidation in the
+            // same runloop tick as the foreground view-graph re-evaluation → SIGTRAP.
+            if phase == .active {
+                Task { @MainActor in
+                    await Task.yield()
+                    // Guard against rapid bg→fg→bg: if scenePhase already
+                    // changed back, skip the stale .active work.
+                    guard scenePhase == .active else { return }
+                    // [T-ios-bg-nav-push-watchdog] Commit any push that arrived
+                    // while backgrounded. Runs here — after the `Task.yield()`
+                    // that keeps .active work off the synchronous callback — so
+                    // the pushed screen's first layout pass lands on its own
+                    // runloop turn with a full frame budget, never inside the
+                    // foreground-transition tick.
+                    flushPendingBackgroundNavigation()
+                    fetchAlarmsIfNeeded()
+                    if #available(iOS 17.0, *) {
+                        SyncCore.shared.isAppInBackground = false
+                    }
+                    #if DEBUG
+                    UIApplication.shared.isIdleTimerDisabled = keepScreenAwake
+                    #endif
+                    // [T-home-fab-keyboard-inset] Defense-in-depth behind the
+                    // structural .ignoresSafeArea immunity on the session lists:
+                    // on foreground return with the HOME screen actually showing
+                    // (no pushed chat on compact, no selected session on split —
+                    // a split chat column may legitimately hold composer focus)
+                    // and the inline search bar not focused, no responder is
+                    // legitimate. Resign whatever UIKit resurrected during the
+                    // background snapshot pass so its stale keyboard inset can't
+                    // inflate the window's bottom safe area.
+                    if !searchFocused, navigationPath.isEmpty, selectedSessionId == nil {
+                        UIApplication.shared.sendAction(
+                            #selector(UIResponder.resignFirstResponder),
+                            to: nil, from: nil, for: nil)
+                    }
+                }
+            } else {
+                if #available(iOS 17.0, *) {
+                    SyncCore.shared.isAppInBackground = (phase != .active)
+                }
+            }
+        }
+    }
+
+    // MARK: - Split Layout (iPad / wide window)
+
+
+    private func homeBootstrapTask() async {
             sessions = await ChatStore.shared.listSessions()
             // Folders must load WITH the first session batch: groupedSessionIDs
             // treats a folder_id whose folder isn't loaded as an orphan and
@@ -1778,22 +1893,9 @@ struct ContentView: View {
             didInitialLoad = true
             fetchAlarmsIfNeeded()
             await refreshRemoteDeviceSessions()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .cloudSyncDidFetchChanges)) { _ in
-            // [T-ios-state-publish-offmain-crash] cloud-sync fetch fires off-main;
-            // force the @State write onto the main thread.
-            Task { @MainActor in
-                refreshSessionList()
-            }
-        }
-        // [T-ios-session-list-equatable-jank] Keep the id→session lookup cache
-        // in sync with `sessions`. Rebuilding here (on actual list mutation)
-        // instead of per body-eval is what removes the per-frame Dictionary.==
-        // / ChatSession.== diff from the scroll transaction.
-        .onChange(of: sessions) { _ in
-            rebuildSessionsByIdCache()
-        }
-        .onChange(of: selectedSessionId) { newValue in
+    }
+
+    private func handleSelectedSessionChange(_ newValue: String?) {
             // [T-ios-session-switch-attributegraph-race] Hosting-view race
             // mitigation: when the user switches between two sessions while
             // both vms are mid-stream, the outgoing AIChatView's UIHostingView
@@ -1870,8 +1972,9 @@ struct ContentView: View {
             if hadOutgoingRealSession {
                 scheduleOutgoingPreviewRefresh()
             }
-        }
-        .onChange(of: navigationPath) { _ in
+    }
+
+    private func handleNavigationPathChange() {
             // [T-ios-stacknav-transition-attributegraph-race] The SAME hosting-
             // view teardown race the `selectedSessionId` observer above guards
             // — but that observer only fires in the SPLIT (iPad / wide) layout.
@@ -1953,8 +2056,9 @@ struct ContentView: View {
                 scheduleOutgoingPreviewRefresh()
             }
             fetchAlarmsIfNeeded()
-        }
-        .onChange(of: shareCoordinator.hasPendingShare) { hasPending in
+    }
+
+    private func handlePendingShareChange(_ hasPending: Bool) {
             if hasPending {
                 let hadRecord = SharedContainerStore.loadPendingShare() != nil
                 processPendingShare()
@@ -1997,97 +2101,7 @@ struct ContentView: View {
                     }
                 }
             }
-        }
-        .onChange(of: deepLink.showEnvironmentVariables) { show in
-            if show {
-                activeToolSheet = .settings
-            }
-        }
-        .onChange(of: deepLink.showPermissions) { show in
-            if show {
-                activeToolSheet = .settings
-            }
-        }
-        .onChange(of: deepLink.showAlarmList) { show in
-            if show {
-                showAlarmList = true
-                deepLink.showAlarmList = false
-            }
-        }
-        // Open the SettingsSheet whenever a deep link sets a settings
-        // target. SettingsSheet itself reads `deepLink.pendingSettingsTarget`
-        // in onAppear/onChange to push the right destination, then clears it.
-        .onChange(of: deepLink.pendingSettingsTarget) { target in
-            guard target != nil else { return }
-            if activeToolSheet != .settings {
-                activeToolSheet = .settings
-            }
-        }
-        .onChange(of: deepLink.pendingRootfsManagement) { pending in
-            if pending {
-                activeToolSheet = .rootfsManagement
-                deepLink.pendingRootfsManagement = false
-            }
-        }
-        .onChange(of: deepLink.pendingSessionId) { sid in
-            guard let sid, !sid.isEmpty else { return }
-            // Switch to the requested session if it exists in the loaded
-            // list. If not loaded yet (cold launch with deep link), set
-            // it now — the session-load path will pick it up once the
-            // list refresh completes.
-            selectedSessionId = sid
-            deepLink.pendingSessionId = nil
-        }
-        .onChange(of: scenePhase) { phase in
-            // [T-ios-scenephase-active-sigkill] Defer ALL .active work off the
-            // synchronous callback. Writing @Published (SyncCore.isAppInBackground)
-            // here triggers objectWillChange → SwiftUI view invalidation in the
-            // same runloop tick as the foreground view-graph re-evaluation → SIGTRAP.
-            if phase == .active {
-                Task { @MainActor in
-                    await Task.yield()
-                    // Guard against rapid bg→fg→bg: if scenePhase already
-                    // changed back, skip the stale .active work.
-                    guard scenePhase == .active else { return }
-                    // [T-ios-bg-nav-push-watchdog] Commit any push that arrived
-                    // while backgrounded. Runs here — after the `Task.yield()`
-                    // that keeps .active work off the synchronous callback — so
-                    // the pushed screen's first layout pass lands on its own
-                    // runloop turn with a full frame budget, never inside the
-                    // foreground-transition tick.
-                    flushPendingBackgroundNavigation()
-                    fetchAlarmsIfNeeded()
-                    if #available(iOS 17.0, *) {
-                        SyncCore.shared.isAppInBackground = false
-                    }
-                    #if DEBUG
-                    UIApplication.shared.isIdleTimerDisabled = keepScreenAwake
-                    #endif
-                    // [T-home-fab-keyboard-inset] Defense-in-depth behind the
-                    // structural .ignoresSafeArea immunity on the session lists:
-                    // on foreground return with the HOME screen actually showing
-                    // (no pushed chat on compact, no selected session on split —
-                    // a split chat column may legitimately hold composer focus)
-                    // and the inline search bar not focused, no responder is
-                    // legitimate. Resign whatever UIKit resurrected during the
-                    // background snapshot pass so its stale keyboard inset can't
-                    // inflate the window's bottom safe area.
-                    if !searchFocused, navigationPath.isEmpty, selectedSessionId == nil {
-                        UIApplication.shared.sendAction(
-                            #selector(UIResponder.resignFirstResponder),
-                            to: nil, from: nil, for: nil)
-                    }
-                }
-            } else {
-                if #available(iOS 17.0, *) {
-                    SyncCore.shared.isAppInBackground = (phase != .active)
-                }
-            }
-        }
     }
-
-    // MARK: - Split Layout (iPad / wide window)
-
     private var splitLayout: some View {
         // [T-ios-gh29-font-scale-split-column] App-base font scale for the iPad
         // split view. `appFontScale()` is environment-based (`.dynamicTypeSize`),

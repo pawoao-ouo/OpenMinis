@@ -59,16 +59,29 @@ jobs:
       - name: Archive OpenMinis clone app unsigned
         run: |
           mkdir -p build
-          xcodebuild archive \
-            -project src/ios/Minis.xcodeproj \
-            -scheme Minis \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath "$PWD/build/OpenMinis.xcarchive" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM=""
+          # macos-26 runner 上 SwiftDriver 并行拉起时偶发 "The Xcode build system has
+          # crashed"（exit 65，无编译错误行）。限并发 + 崩溃即重试两次。
+          for attempt in 1 2 3; do
+            echo "== archive attempt $attempt =="
+            if xcodebuild archive \
+                -project src/ios/Minis.xcodeproj \
+                -scheme Minis \
+                -configuration Release \
+                -destination 'generic/platform=iOS' \
+                -archivePath "$PWD/build/OpenMinis.xcarchive" \
+                -jobs 2 \
+                CODE_SIGNING_ALLOWED=NO \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGN_IDENTITY="" \
+                DEVELOPMENT_TEAM=""; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "archive failed after 3 attempts"
+              exit 65
+            fi
+            sleep 20
+          done
 
       - name: Package unsigned IPA
         run: |
