@@ -903,7 +903,7 @@ struct ToolLiveSheet: View {
                         }
                         .background(ChatColors.toolBg)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChatColors.toolBorder, lineWidth: 0.5))
                         .padding(.horizontal, 12)
                     }
             }
@@ -976,7 +976,7 @@ struct ToolLiveSheet: View {
                     }
                     .background(ChatColors.toolBg)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChatColors.toolBorder, lineWidth: 0.5))
                     .padding(.horizontal, 12)
                 }
             }
@@ -1023,7 +1023,7 @@ struct ToolLiveSheet: View {
                         .frame(maxWidth: .infinity, minHeight: cardMinHeight, alignment: .topLeading)
                         .background(Color.black)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChatColors.toolBorder, lineWidth: 0.5))
                         .padding(.horizontal, 12)
                         .padding(.top, 12)
                         .padding(.bottom, 16)
@@ -1258,7 +1258,7 @@ struct ToolLiveSheet: View {
                             .frame(maxWidth: .infinity, minHeight: cardMinHeight, maxHeight: .infinity, alignment: .topLeading)
                             .background(ChatColors.toolBg)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChatColors.toolBorder, lineWidth: 0.5))
                             .padding(.horizontal, 12)
                             .padding(.top, 12)
                         }
@@ -1369,7 +1369,7 @@ struct ToolLiveSheet: View {
         }
         .background(ChatColors.toolBg)
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChatColors.toolBorder, lineWidth: 0.5))
         .padding(.horizontal, 12)
     }
 
@@ -1420,7 +1420,7 @@ struct ToolLiveSheet: View {
                 }
                 .background(ChatColors.toolBg)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChatColors.toolBorder, lineWidth: 0.5))
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
             }
@@ -1483,7 +1483,7 @@ struct ToolLiveSheet: View {
                 }
                 .background(ChatColors.toolBg)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChatColors.toolBorder, lineWidth: 0.5))
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
 
@@ -1513,7 +1513,7 @@ struct ToolLiveSheet: View {
                     .padding(.vertical, 10)
                     .background(ChatColors.toolBg)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(ChatColors.toolBorder, lineWidth: 0.5))
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
                 }
@@ -1689,7 +1689,7 @@ struct ToolLiveSheet: View {
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChatColors.toolBorder, lineWidth: 0.5))
                     .padding(.horizontal, 12)
                     .padding(.top, 12)
                     .padding(.bottom, 16)
