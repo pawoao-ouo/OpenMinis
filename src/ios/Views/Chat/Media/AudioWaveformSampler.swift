@@ -37,7 +37,11 @@ enum AudioWaveformSampler {
         } catch { return nil }
 
         // Decode as interleaved signed Int16 PCM — we only need amplitude.
-        guard let output = AVAssetReaderTrackOutput(
+        // [CI 34468139786] `AVAssetReaderTrackOutput` is non-Optional in this
+        // SDK (initialiser is not failable), so a `guard let` binding is a
+        // compile error; construct directly and let startReading() catch a bad
+        // track instead.
+        let output = AVAssetReaderTrackOutput(
             track: track,
             outputSettings: [
                 AVFormatIDKey: kAudioFormatLinearPCM,
@@ -46,7 +50,7 @@ enum AudioWaveformSampler {
                 AVLinearPCMIsBigEndianKey: false,
                 AVLinearPCMIsNonInterleaved: false,
             ]
-        ) else { return nil }
+        )
         reader.add(output)
         guard reader.startReading() else { return nil }
 
@@ -79,7 +83,7 @@ enum AudioWaveformSampler {
             guard length > 0 else { CMSampleBufferInvalidate(buffer); continue }
             var data = Data(count: length)
             let copied = data.withUnsafeMutableBytes { dst in
-                CMBlockBufferCopyBlockBytes(blockBuffer, atOffset: 0,
+                CMBlockBufferCopyDataBytes(blockBuffer, atOffset: 0,
                                             dataLength: length,
                                             destination: dst.baseAddress!)
             }
@@ -117,7 +121,7 @@ enum AudioWaveformSampler {
                 if length > 0 {
                     var data = Data(count: length)
                     let ok = data.withUnsafeMutableBytes { dst in
-                        CMBlockBufferCopyBlockBytes(blockBuffer, atOffset: 0,
+                        CMBlockBufferCopyDataBytes(blockBuffer, atOffset: 0,
                                                     dataLength: length,
                                                     destination: dst.baseAddress!)
                     }

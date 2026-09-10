@@ -515,7 +515,11 @@ final class AnthropicProvider: LLMProvider {
             return .invalidAPIKey(detail: detail)
         }
         if description.contains("429") || description.lowercased().contains("rate") {
-            return .rateLimited
+            // [T-kelivo-retry 09-10] `rateLimited` gained an associated value with a
+            // DEFAULT, so a bare `.rateLimited` is now a function reference, not a
+            // case value — call it. (Anthropic surfaces no Retry-After header here;
+            // the error string is all we have, so hint stays nil.)
+            return .rateLimited()
         }
 
         // Transient server errors (5xx): retry same model, do not trigger group fallback.

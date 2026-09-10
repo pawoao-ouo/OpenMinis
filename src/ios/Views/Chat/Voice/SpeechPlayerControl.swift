@@ -581,17 +581,19 @@ struct SpeechPlayerControl: View {
                                 .fill(MinisTheme.accent)
                                 .frame(width: max(3, geo.size.width * voicePlayer.playbackProgress))
                         }
+                        // [CI 34468139786] The gesture must live INSIDE the
+                        // GeometryReader closure so `geo` is in scope — attached
+                        // outside, the drag had no way to read the bar's width.
+                        .gesture(
+                            DragGesture(minimumDistance: 1)
+                                .onEnded { v in
+                                    let w = max(1, geo.size.width)
+                                    voicePlayer.seekCurrentUnit(to: v.location.x / w)
+                                    bumpIdle()
+                                }
+                        )
                     }
                     .frame(height: 4)
-                    // Seek on drag-end; live position follows the tick.
-                    .gesture(
-                        DragGesture(minimumDistance: 1)
-                            .onEnded { v in
-                                let w = max(1, geo.size.width)
-                                voicePlayer.seekCurrentUnit(to: v.location.x / w)
-                                bumpIdle()
-                            }
-                    )
                     Text(Self.timeLabel(voicePlayer.playbackDuration))
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(.tertiary)
