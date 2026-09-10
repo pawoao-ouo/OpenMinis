@@ -337,6 +337,15 @@ struct AppearanceStudioView: View {
                     }
                 }
 
+                // [T-wallpaper-clear][09-10 醒醒] Return this page to its
+                // initial plain background — drops its own image AND cuts the
+                // global inheritance (distinct from 改用继承的背景).
+                if studio.hasWallpaper(wallpaperScope) {
+                    Button("清除当前背景", role: .destructive) {
+                        studio.clearWallpaper(wallpaperScope)
+                    }
+                }
+
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("壁纸压色")

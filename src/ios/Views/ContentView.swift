@@ -2688,6 +2688,12 @@ struct ContentView: View {
                 splitList
             }
         }
+        // [T-home-wallpaper-stack-fix][09-10 醒醒] The old .appearancePage
+        // (.home) sat OUTSIDE the NavigationStack, so the stack's own white
+        // container covered the wallpaper — the "首页壁纸不显示" report.
+        // Painting the backdrop on the CONTENT root (inside the stack, like
+        // AIChatView does for .chat) makes it the list's direct background.
+        .background(AppearanceBackdrop(scope: .home))
         // [T-home-top-search][v3 醒醒 09-10] QQ-style permanent search strip
         // pinned under the nav bar — always visible, no FAB toggle. Both the
         // iPhone stack and the iPad split get it (lives on the Group).
@@ -3405,14 +3411,14 @@ struct ContentView: View {
                     }())
                 },
                 label: "New Chat",
-                size: 24, weight: .medium
+                size: 22, weight: .medium
             ) {
                 openSession(Self.makeNewSessionId())
             }
             homeBottomTab(
                 icon: { Image(systemName: "gearshape") },
                 label: "Settings",
-                size: 24, weight: .medium
+                size: 22, weight: .medium
             ) {
                 showSettingsPage = true
             }
@@ -3420,16 +3426,19 @@ struct ContentView: View {
                 homeBottomTab(
                     icon: { Image(systemName: "alarm") },
                     label: "Alarm",
-                    size: 24, weight: .medium
+                    size: 22, weight: .medium
                 ) {
                     showAlarmList = true
                 }
             }
         }
-        .frame(height: 49)
+        // [T-home-bottom-bar-height][09-10 醒醒] LOCKED visual height (44pt,
+        // QQ-style) — the background picture can no longer change how tall the
+        // bar reads; the ZStack is clipped to the frame, never sized by it.
+        .frame(height: 44)
+        .clipped()
         .contentShape(Rectangle())
         .background(homeBottomBarBackground)
-        .padding(.bottom, 2)
     }
 
     /// One QQ-style tab: icon centred in a fixed design box + a 10pt caption,
@@ -3444,13 +3453,13 @@ struct ContentView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 3) {
+            VStack(spacing: 2) {
                 icon()
                     .font(.system(size: size, weight: weight))
-                    .frame(width: 26, height: 26)
+                    .frame(width: 24, height: 24)
                     .foregroundStyle(MinisThemeList.accent)
                 Text(label)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(MinisThemeList.accent.opacity(0.85))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)

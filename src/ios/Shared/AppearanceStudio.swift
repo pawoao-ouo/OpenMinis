@@ -92,6 +92,12 @@ final class AppearanceStudio: ObservableObject {
     @Published var themePackRevision = 0
 
     private var wallpaperCache: [AppearanceScope: UIImage] = [:]
+    /// [T-wallpaper-clear][09-10 醒醒] Scopes whose own wallpaper was CLEARED
+    /// with "清除当前背景" — they do NOT fall back to the global image, so the
+    /// page returns to its plain initial canvas colour. Removing the global
+    /// image clears the block list too (a global clear resets everything).
+    private var wallpaperClearedFallback: Set<AppearanceScope> = []
+    private static let wallpaperClearedKey = "appearanceStudio.wallpaperClearedFallback"
     var cachedThemePack: AppearanceThemePack = .default
     var themePackLoaded = false
     let themePackLock = NSLock()
@@ -116,6 +122,7 @@ final class AppearanceStudio: ObservableObject {
         let storedBubbleOpacity = UserDefaults.standard.object(forKey: Keys.bubbleOpacity) as? Double
         bubbleOpacity = storedBubbleOpacity ?? 1.0
         wallpaperShade = storedShade ?? 0.08
+        loadWallpaperCleared()
         cachedThemePack = loadStoredPackUnlocked()
         themePackLoaded = true
         Self.colorSnapshot = customColors
@@ -245,7 +252,8 @@ final class AppearanceStudio: ObservableObject {
 
     func hasWallpaper(_ scope: AppearanceScope) -> Bool {
         if FileManager.default.fileExists(atPath: wallpaperURL(scope).path) { return true }
-        return scope != .global && FileManager.default.fileExists(atPath: wallpaperURL(.global).path)
+        guard scope != .global, !wallpaperClearedFallback.contains(scope) else { return false }
+        return FileManager.default.fileExists(atPath: wallpaperURL(.global).path)
     }
 
     func hasOwnWallpaper(_ scope: AppearanceScope) -> Bool {
@@ -255,8 +263,13 @@ final class AppearanceStudio: ObservableObject {
     func wallpaper(for scope: AppearanceScope) -> UIImage? {
         if let cached = wallpaperCache[scope] { return cached }
         let own = wallpaperURL(scope)
-        let url = FileManager.default.fileExists(atPath: own.path) ? own : wallpaperURL(.global)
-        guard let image = UIImage(contentsOfFile: url.path) else { return nil }
+        // [T-wallpaper-clear] A cleared page never inherits the global image.
+        let fallbackURL = (scope == .global || wallpaperClearedFallback.contains(scope))
+            ? nil : wallpaperURL(.global)
+        let url = FileManager.default.fileExists(atPath: own.path)
+            ? own
+            : (fallbackURL.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
+        guard let url, let image = UIImage(contentsOfFile: url.path) else { return nil }
         wallpaperCache[scope] = image
         return image
     }
@@ -264,14 +277,44 @@ final class AppearanceStudio: ObservableObject {
     func setWallpaper(_ image: UIImage, for scope: AppearanceScope) {
         guard let data = Self.backgroundJPEG(image) else { return }
         try? data.write(to: wallpaperURL(scope), options: .atomic)
+        // [T-wallpaper-clear] Choosing a new image re-enables global
+        // fallback for this scope (the clear only sticks until overridden).
+        wallpaperClearedFallback.remove(scope)
+        persistWallpaperCleared()
         wallpaperCache.removeAll()
         wallpaperRevision += 1
     }
 
     func removeWallpaper(_ scope: AppearanceScope) {
         try? FileManager.default.removeItem(at: wallpaperURL(scope))
+        // [T-wallpaper-clear] Removing the GLOBAL image also resets every
+        // cleared-fallback flag (nothing left to inherit anyway).
+        if scope == .global { wallpaperClearedFallback.removeAll() }
+        persistWallpaperCleared()
         wallpaperCache.removeAll()
         wallpaperRevision += 1
+    }
+
+    /// [T-wallpaper-clear] "清除当前背景" — drop this page's wallpaper AND
+    /// cut the global inheritance so the page returns to its initial plain
+    /// canvas. Distinct from `removeWallpaper` ("改用继承的背景"), which only
+    /// drops the page's own image and lets the global one take over.
+    func clearWallpaper(_ scope: AppearanceScope) {
+        try? FileManager.default.removeItem(at: wallpaperURL(scope))
+        if scope != .global { wallpaperClearedFallback.insert(scope) }
+        persistWallpaperCleared()
+        wallpaperCache.removeAll()
+        wallpaperRevision += 1
+    }
+
+    private func persistWallpaperCleared() {
+        let raw = wallpaperClearedFallback.map(\.rawValue)
+        UserDefaults.standard.set(raw, forKey: Self.wallpaperClearedKey)
+    }
+
+    private func loadWallpaperCleared() {
+        let raw = UserDefaults.standard.stringArray(forKey: Self.wallpaperClearedKey) ?? []
+        wallpaperClearedFallback = Set(raw.compactMap(AppearanceScope.init(rawValue:)))
     }
 
     private static func backgroundJPEG(_ image: UIImage) -> Data? {
