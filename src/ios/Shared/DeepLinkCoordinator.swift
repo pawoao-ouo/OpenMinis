@@ -31,6 +31,9 @@ enum SettingsDeepLinkTarget: Equatable {
     /// edit form (where the Authorize button lives).
     case mcpIntegrations
     case mcpServerDetail(serverId: String)
+    /// [T-home-bottom-bar][v3] Terminal now lives in Settings → Agent Runtime;
+    /// the minis://open_terminal deep link routes here.
+    case terminal
 }
 
 @MainActor

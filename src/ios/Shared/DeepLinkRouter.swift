@@ -66,9 +66,14 @@ enum DeepLinkRouter {
             }
 
         case "open_terminal":
+            // [T-home-bottom-bar][v3] Terminal lives in Settings now; the
+            // deep link opens the settings page and pushes the terminal.
+            // init_command still flows through the coordinator so AIChatView
+            // (which keeps its OWN terminal entry with init support) and the
+            // settings terminal can both pick it up.
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             coord.terminalInitCommand = components?.queryItems?.first(where: { $0.name == "init_command" })?.value
-            coord.showTerminal = true
+            coord.pendingSettingsTarget = .terminal
 
         case "open":
             handleWebAppLauncherReturn(url: url)

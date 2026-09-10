@@ -207,49 +207,7 @@ private let folderEdgeHighlight = Color(UIColor { traits in
         : UIColor(white: 0, alpha: 0.08)
 })
 
-/// Background for the expanded FAB search bar. Liquid Glass capsule on iOS 26+,
-/// the original opaque capsule + hand-rolled shadow below it.
-///
-/// A modifier rather than a background view because the bar's content has to sit
-/// INSIDE the glass: `.glassEffect` styles the view it is applied to, so the
-/// text field and its icons ride within the material instead of being composited
-/// over a separately-drawn shape.
-private struct SearchBarSurface: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            // No .clipShape needed — glassEffect(in:) already clips to the
-            // capsule, and no .shadow: the material carries its own.
-            content.glassEffect(.regular, in: .capsule)
-        } else {
-            content
-                .background(Color(UIColor.secondarySystemBackground))
-                .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.1), radius: 6, x: 0, y: 2)
-        }
-    }
-}
 
-/// Tags the search FAB and the expanded search bar with ONE shared
-/// `glassEffectID`.
-///
-/// Currently INERT: `glassEffectID` only does anything inside a
-/// `GlassEffectContainer`, and the FAB row no longer has one — that container
-/// suppressed the new-chat FAB's context menu, see the note on `fabRow`. The
-/// modifier is kept (harmless, and it costs nothing) so that if the container
-/// is ever reinstated with the menu problem solved, the morph works again
-/// without re-deriving the id plumbing. The row's scale+opacity transition is
-/// what actually animates the swap today.
-private struct FABGlassMorphID: ViewModifier {
-    let namespace: Namespace.ID
-
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.glassEffectID("fabSearch", in: namespace)
-        } else {
-            content
-        }
-    }
-}
 
 /// THE single source of truth for a folder surface's background — used
 /// identically by the collapsed lone card and by every row of an expanded
@@ -321,13 +279,15 @@ private struct FolderSurface: ViewModifier {
                 if #available(iOS 26.0, *) {
                     content.background(shape.fill(Self.sampledGlassColor))
                 } else {
-                    content.background(shape.fill(Color(UIColor.secondarySystemBackground)))
+                    // [T-tokenize-all-colors] Pre-26 fallback follows the
+                    // theme pack's list row fill instead of the system gray.
+                    content.background(shape.fill(MinisThemeList.rowFill))
                 }
             } else {
                 if #available(iOS 26.0, *) {
                     content.background(shape.fill(.regularMaterial))
                 } else {
-                    content.background(shape.fill(Color(UIColor.secondarySystemBackground)))
+                    content.background(shape.fill(MinisThemeList.rowFill))
                 }
             }
         }
@@ -1039,7 +999,6 @@ struct ContentView: View {
     // See migrationSubtitleRefreshInterval / migrationSubtitleLoop.
     @State private var remoteDeviceSessions: [(device: SyncDevice, sessions: [ChatSession])] = []
     // showSettings consolidated into activeToolSheet (.settings)
-    @State private var showTerminal = false
     @State private var showAlarmList = false
     @State private var hasAlarms = false
     @State private var activeToolSheet: ToolSheet?
@@ -1123,8 +1082,7 @@ struct ContentView: View {
     @State private var menuActions = SessionMenuActionChannel()
 
     // Search
-    @State private var showSearchBar = false
-    private var isSearching: Bool { showSearchBar && !searchText.isEmpty }
+    private var isSearching: Bool { !searchText.isEmpty }
     @State private var searchText = ""
     /// Session IDs that matched the current search query (nil = no active filter).
     @State private var searchMatchedIds: Set<String>?
@@ -1431,18 +1389,16 @@ struct ContentView: View {
                 switchToSession(sessionId)
             }
         }
-        .fullScreenCover(isPresented: $showTerminal) {
-            NavigationStack {
-                ISHTerminalView(showCloseButton: true)
-            }
-        }
+        // [T-home-bottom-bar][v3] The old fullScreenCover terminal is gone —
+        // the terminal now pushes from Settings → Agent Runtime; AIChatView
+        // keeps its own terminal entry.
         .sheet(isPresented: $showAlarmList, onDismiss: { fetchAlarmsIfNeeded() }) {
             AlarmListView()
         }
         .sheet(item: $activeToolSheet) { sheet in
             switch sheet {
             case .settings:
-                SettingsSheet(showTerminal: $showTerminal) // sheet keeps its own stack
+                SettingsSheet(browserPool: browserPool) // sheet keeps its own stack
             case .rootfsManagement:
                 NavigationStack {
                     RootfsManagementView()
@@ -2081,7 +2037,7 @@ struct ContentView: View {
                 // compact stack — destination lives inside the split view's
                 // leading column stack.
                 .navigationDestination(isPresented: $showSettingsPage) {
-                    SettingsSheet(showTerminal: $showTerminal, presentation: .page)
+                    SettingsSheet(browserPool: browserPool, presentation: .page)
                 }
         } detail: {
             detailView
@@ -2097,7 +2053,7 @@ struct ContentView: View {
                 // [T-home-bottom-bar-v2] Bottom-bar settings tab pushes the
                 // settings root as a page on THIS stack (QQ direct nav).
                 .navigationDestination(isPresented: $showSettingsPage) {
-                    SettingsSheet(showTerminal: $showTerminal, presentation: .page)
+                    SettingsSheet(browserPool: browserPool, presentation: .page)
                 }
                 .navigationDestination(for: String.self) { id in
                     // `.id(id)` mirrors detailView (iPad): navigationDestination
@@ -2732,6 +2688,12 @@ struct ContentView: View {
                 splitList
             }
         }
+        // [T-home-top-search][v3 醒醒 09-10] QQ-style permanent search strip
+        // pinned under the nav bar — always visible, no FAB toggle. Both the
+        // iPhone stack and the iPad split get it (lives on the Group).
+        .safeAreaInset(edge: .top, spacing: 0) {
+            inlineSearchBar
+        }
         // Hardware ⌘F → focus search, available while the session list is on
         // screen (iPad/Mac keyboards). A zero-opacity button carries the
         // shortcut without affecting layout; it lives in the list's view tree so
@@ -2911,13 +2873,7 @@ struct ContentView: View {
                 // [T-home-bottom-bar-v2] The bar IS the row: search tab
                 // morphs into the inline search field in the same slot; the
                 // tabs never float above the bar.
-                VStack(spacing: 0) {
-                    if showSearchBar {
-                        inlineSearchBar
-                    } else {
-                        homeBottomBar
-                    }
-                }
+                homeBottomBar
             }
         }
         // [T-home-fab-keyboard-inset] Mirror of the voice panel's structural
@@ -2927,7 +2883,7 @@ struct ContentView: View {
         // bg-snapshot dismiss) and must not push the 新建/搜索 FABs up. With
         // the search bar open its TextField legitimately rises with the
         // keyboard, so normal avoidance is restored.
-        .ignoresSafeArea(.keyboard, edges: showSearchBar ? [] : .bottom)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { sidebarToolbarContent }
         }
@@ -3115,13 +3071,7 @@ struct ContentView: View {
                 // [T-home-bottom-bar-v2] The bar IS the row: search tab
                 // morphs into the inline search field in the same slot; the
                 // tabs never float above the bar.
-                VStack(spacing: 0) {
-                    if showSearchBar {
-                        inlineSearchBar
-                    } else {
-                        homeBottomBar
-                    }
-                }
+                homeBottomBar
             }
         }
         // [T-home-fab-keyboard-inset] Mirror of the voice panel's structural
@@ -3131,7 +3081,7 @@ struct ContentView: View {
         // bg-snapshot dismiss) and must not push the 新建/搜索 FABs up. With
         // the search bar open its TextField legitimately rises with the
         // keyboard, so normal avoidance is restored.
-        .ignoresSafeArea(.keyboard, edges: showSearchBar ? [] : .bottom)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { sidebarToolbarContent }
         }
@@ -3444,13 +3394,9 @@ struct ContentView: View {
     ///    chat canvas behind it).
     private var homeBottomBar: some View {
         HStack(spacing: 0) {
-            homeBottomTab(
-                icon: { Image(systemName: "magnifyingglass") },
-                label: "Search",
-                size: 24, weight: .medium
-            ) {
-                withAnimation(.easeInOut(duration: 0.2)) { showSearchBar = true }
-            }
+            // [T-home-top-search][v3 醒醒 09-10] Search lives in the
+            // permanent top strip; terminal moved into Settings → Tools.
+            // Bar = 新对话 / 设置 / 闹钟(有闹钟才出现).
             homeBottomTab(
                 icon: {
                     Image(systemName: {
@@ -3464,14 +3410,6 @@ struct ContentView: View {
                 openSession(Self.makeNewSessionId())
             }
             homeBottomTab(
-                icon: { Image("TerminalCircle") },
-                label: "Terminal",
-                size: 24, weight: .regular,
-                isCustomImage: true
-            ) {
-                showTerminal = true
-            }
-            homeBottomTab(
                 icon: { Image(systemName: "gearshape") },
                 label: "Settings",
                 size: 24, weight: .medium
@@ -3482,7 +3420,7 @@ struct ContentView: View {
                 homeBottomTab(
                     icon: { Image(systemName: "alarm") },
                     label: "Alarm",
-                    size: 23, weight: .medium
+                    size: 24, weight: .medium
                 ) {
                     showAlarmList = true
                 }
@@ -3503,13 +3441,12 @@ struct ContentView: View {
         label: LocalizedStringKey,
         size: CGFloat,
         weight: Font.Weight,
-        isCustomImage: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 3) {
                 icon()
-                    .font(isCustomImage ? .none : .system(size: size, weight: weight))
+                    .font(.system(size: size, weight: weight))
                     .frame(width: 26, height: 26)
                     .foregroundStyle(MinisThemeList.accent)
                 Text(label)
@@ -4204,17 +4141,16 @@ struct ContentView: View {
                 .onChange(of: searchText) { _ in scheduleSearch() }
             searchClearButton
         }
-        .padding(.leading, 18)
+        .padding(.leading, 12)
         .padding(.trailing, 8)
-        .frame(height: 44)
-        .modifier(SearchBarSurface())
-        // [T-ios-search-bar-glass-hit-hole] The glass capsule renders but
-        // contributes no hit region of its own over the session List —
-        // declare the shape so taps don't fall through to cells underneath.
+        .frame(height: 36)
+        .background(Capsule().fill(MinisThemeList.rowFill))
+        // [T-home-top-search] Permanent strip: token rowFill capsule, no
+        // glass surface (it used to be a FAB-morph). No auto-focus on appear
+        // — the keyboard only comes up when she taps it (or ⌘F).
         .contentShape(.capsule)
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
-        .onAppear { searchFocused = true }
     }
 
     private func scheduleSearch() {
@@ -4246,7 +4182,6 @@ struct ContentView: View {
     }
 
     private func dismissSearch() {
-        withAnimation(.easeInOut(duration: 0.2)) { showSearchBar = false }
         searchText = ""
         searchMatchedIds = nil
         searchMatchSnippets = [:]
@@ -4262,9 +4197,8 @@ struct ContentView: View {
     /// search state intact so the user returns to their results. Whitespace-only
     /// text counts as empty. No-op when the search bar isn't shown.
     private func dismissSearchIfEmptyOnNavigate() {
-        guard showSearchBar else { return }
         guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        dismissSearch()
+        searchFocused = false
     }
 
     /// [T-ios-session-coldload-listsessions-block] Refresh the session list to
@@ -4312,9 +4246,7 @@ struct ContentView: View {
     /// the reveal animation is unreliable, so set focus on the next runloop tick
     /// once the field exists in the view tree.
     private func focusSearch() {
-        if !showSearchBar {
-            withAnimation(.easeInOut(duration: 0.2)) { showSearchBar = true }
-        }
+        // [T-home-top-search] Bar is permanent; ⌘F just focuses the field.
         DispatchQueue.main.async { searchFocused = true }
     }
 
@@ -4512,7 +4444,7 @@ struct ContentView: View {
                     .overlay(alignment: .bottomTrailing) {
                         if group.isCollapsed && group.anyPaused {
                             ZStack {
-                                Circle().fill(Color(UIColor.systemBackground))
+                                Circle().fill(MinisTheme.surface)
                                     .frame(width: 16, height: 16)
                                 Image(systemName: "exclamationmark.circle.fill")
                                     .font(.system(size: 13))
@@ -5606,7 +5538,7 @@ private struct ExportPreviewSheet: View {
                             .padding(12)
                             .textSelection(.enabled)
                     }
-                    .background(Color(UIColor.secondarySystemBackground))
+                    .background(MinisTheme.mutedSurface)
                 }
 
                 Divider()
@@ -5644,7 +5576,7 @@ private struct ExportPreviewSheet: View {
                     }
                 }
                 .padding(.vertical, 12)
-                .background(Color(UIColor.systemBackground))
+                .background(MinisTheme.surface)
             }
             .navigationTitle(AppLocalized("Export Preview"))
             .navigationBarTitleDisplayMode(.inline)
@@ -5711,7 +5643,7 @@ private struct ExportPreviewSheet: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Color(UIColor.secondarySystemBackground))
+        .background(MinisTheme.mutedSurface)
     }
 
     private func summaryRow(_ key: String, _ value: String) -> some View {
@@ -7258,10 +7190,14 @@ private enum SettingsDestination: Hashable {
     // [T-mcp-oauth-deeplink]
     case mcpIntegrations
     case mcpServerDetail(serverId: String)
+    // [T-home-bottom-bar][v3] Terminal deep link lands on the settings page.
+    case terminal
 }
 
 private struct SettingsSheet: View {
-    @Binding var showTerminal: Bool
+    /// [T-home-bottom-bar][v3] Browser management inside settings needs the
+    /// app-wide pool (the same instance the tool sheets use), not a fresh one.
+    var browserPool: BrowserTabPool? = nil
     /// [T-home-bottom-bar] Sheet keeps its own NavigationStack (deep links
     /// and the language-change reopen push via `navPath`); the home-bottom-bar
     /// page push renders the root list bare on the MAIN stack — a nested
@@ -7356,6 +7292,43 @@ private struct SettingsSheet: View {
                             Text("Skills")
                         } icon: {
                             QuietAppIcon(id: QuietIconSlot.skills.id, systemName: QuietIconSlot.skills.systemName)
+                        }
+                    }
+                    // [T-home-bottom-bar][v3 醒醒 09-10] Terminal moved here
+                    // from the home bottom bar (QQ keeps the bar minimal).
+                    // Rootfs & browser management live beside it — same tools
+                    // cluster. All push as pages within settings.
+                    NavigationLink {
+                        ISHTerminalView()
+                    } label: {
+                        Label {
+                            Text("Shell Terminal")
+                        } icon: {
+                            Image(systemName: "terminal")
+                                .font(.system(size: 17, weight: .medium))
+                                .frame(width: 26, height: 26)
+                        }
+                    }
+                    NavigationLink {
+                        RootfsManagementView()
+                    } label: {
+                        Label {
+                            Text("Rootfs Management")
+                        } icon: {
+                            Image(systemName: "externaldrive")
+                                .font(.system(size: 17, weight: .medium))
+                                .frame(width: 26, height: 26)
+                        }
+                    }
+                    NavigationLink {
+                        BrowserManagementView(pool: browserPool ?? BrowserTabPool())
+                    } label: {
+                        Label {
+                            Text("Browser")
+                        } icon: {
+                            Image(systemName: "globe")
+                                .font(.system(size: 17, weight: .medium))
+                                .frame(width: 26, height: 26)
                         }
                     }
                     NavigationLink {
@@ -7588,6 +7561,11 @@ private struct SettingsSheet: View {
                     MCPIntegrationsView()
                 case .mcpServerDetail(let serverId):
                     MCPIntegrationsView(initialEditServerId: serverId)
+                case .terminal:
+                    // [T-home-bottom-bar][v3] init_command rides the deep-link
+                    // coordinator (minis://open_terminal?init_command=...).
+                    ISHTerminalView(initCommand: deepLink.terminalInitCommand)
+                        .onAppear { deepLink.terminalInitCommand = nil }
                 }
             }
             .onAppear {
@@ -7680,6 +7658,8 @@ private struct SettingsSheet: View {
             navPath.append(SettingsDestination.mcpIntegrations)
         case .mcpServerDetail(let id):
             navPath.append(SettingsDestination.mcpServerDetail(serverId: id))
+        case .terminal:
+            navPath.append(SettingsDestination.terminal)
         }
         deepLink.pendingSettingsTarget = nil
     }

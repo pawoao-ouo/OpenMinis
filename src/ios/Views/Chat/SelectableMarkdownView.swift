@@ -297,14 +297,12 @@ func displayTargetPixels(for data: Data, screenScale: CGFloat) -> CGFloat {
 
 /// [T-inline-code-dark-bg-ios] Inline-code span background, shared by the
 /// theme and the layout manager's fillBackgroundRectArray (the actual paint
-/// site) so the two can never drift. Light stays EXACTLY .systemGray6
-/// (#F2F2F7); dark lifts to #3A3A3C (systemGray4's dark value) — systemGray6
-/// resolves to #1C1C1E in dark, indistinguishable from the near-black chat
-/// background, which made inline code read as bare orange text.
+/// site) so the two can never drift. [T-ai-theme-reach][v3] Now follows the
+/// theme pack's mutedSurface (AI themes can restyle inline code); a bare
+/// UIColor(dynamicProvider:) wrapper keeps resolution live per trait change.
 private let minisInlineCodeBackgroundColor = UIColor { traits in
-    traits.userInterfaceStyle == .dark
-        ? UIColor(red: 0x3A / 255.0, green: 0x3A / 255.0, blue: 0x3C / 255.0, alpha: 1)
-        : .systemGray6
+    AppearanceStudio.uiColorSnapshot(.mutedSurface, scope: .chat)
+        .resolvedColor(with: traits)
 }
 
 /// Mirrors the `.minisChat` MarkdownUI theme using UIKit types.
@@ -325,14 +323,20 @@ struct SelectableMarkdownTheme {
     var secondaryLabelColor: UIColor { AppearanceStudio.uiColorSnapshot(.secondaryText, scope: .chat) }
     var accentColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning) }
     var linkColor: UIColor { AppearanceStudio.uiColorSnapshot(.accent) }
+    // [T-ai-theme-reach] Code-block background used to hardcode black/dark-gray.
+    // It now follows the theme pack's card surface token (AI themes can restyle
+    // code blocks); the light-mode default stays deliberately DARK (code
+    // aesthetic) via the pack's own default, not a hardcoded value here.
     var codeBlockBackground: UIColor {
-        UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.15, alpha: 1) : .black }
+        AppearanceStudio.uiColorSnapshot(.surface, scope: .chat)
     }
     var codeBlockTextColor: UIColor { AppearanceStudio.uiColorSnapshot(.success) }
     var inlineCodeBackground: UIColor { minisInlineCodeBackgroundColor }
     var inlineCodeColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning) }
     var blockquoteBarColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning).withAlphaComponent(0.5) }
-    var tableBorderColor: UIColor { UIColor.label.withAlphaComponent(0.25) }
+    // [T-ai-theme-reach] Table borders used to hardcode `.label` — they now
+    // follow the theme's 次文字 role so an AI theme pack can tint tables.
+    var tableBorderColor: UIColor { AppearanceStudio.uiColorSnapshot(.secondaryText, scope: .chat).withAlphaComponent(0.35) }
 
     func headingFont(level: Int) -> UIFont {
         let size: CGFloat

@@ -889,7 +889,7 @@ struct ToolLiveSheet: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
-                            .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.13, alpha: 1) : UIColor(white: 0.92, alpha: 1) }))
+                            .background(ChatColors.toolBg)
 
                             Divider()
 
@@ -901,9 +901,9 @@ struct ToolLiveSheet: View {
                                 .textSelection(.enabled)
                                 .padding(14)
                         }
-                        .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.10, alpha: 1) : UIColor(white: 0.94, alpha: 1) }))
+                        .background(ChatColors.toolBg)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.25, alpha: 1) : UIColor(white: 0.82, alpha: 1) }), lineWidth: 0.5))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
                         .padding(.horizontal, 12)
                     }
             }
@@ -962,7 +962,7 @@ struct ToolLiveSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.13, alpha: 1) : UIColor(white: 0.92, alpha: 1) }))
+                        .background(ChatColors.toolBg)
 
                         Divider()
 
@@ -974,9 +974,9 @@ struct ToolLiveSheet: View {
                             .textSelection(.enabled)
                             .padding(14)
                     }
-                    .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.10, alpha: 1) : UIColor(white: 0.94, alpha: 1) }))
+                    .background(ChatColors.toolBg)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.25, alpha: 1) : UIColor(white: 0.82, alpha: 1) }), lineWidth: 0.5))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
                     .padding(.horizontal, 12)
                 }
             }
@@ -1023,7 +1023,7 @@ struct ToolLiveSheet: View {
                         .frame(maxWidth: .infinity, minHeight: cardMinHeight, alignment: .topLeading)
                         .background(Color.black)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.25, alpha: 1) : UIColor(white: 0.82, alpha: 1) }), lineWidth: 0.5))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
                         .padding(.horizontal, 12)
                         .padding(.top, 12)
                         .padding(.bottom, 16)
@@ -1156,7 +1156,7 @@ struct ToolLiveSheet: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
-                            .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.13, alpha: 1) : UIColor(white: 0.92, alpha: 1) }))
+                            .background(ChatColors.toolBg)
 
                             Divider()
 
@@ -1173,11 +1173,11 @@ struct ToolLiveSheet: View {
                                     ForEach(oldChunks, id: \.id) { chunk in
                                         Text(chunk.text)
                                             .font(.system(size: 13, design: .monospaced))
-                                            .foregroundStyle(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 1, green: 0.4, blue: 0.4, alpha: 1) : UIColor(red: 0.8, green: 0.1, blue: 0.1, alpha: 1) }))
+                                            .foregroundStyle(ChatColors.destructive)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .padding(.horizontal, 14)
                                             .padding(.vertical, 2)
-                                            .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.3, green: 0.08, blue: 0.08, alpha: 1) : UIColor(red: 1, green: 0.9, blue: 0.9, alpha: 1) }))
+                                            .background(ChatColors.destructive.opacity(0.10))
                                     }
                                 }
                                 // Added lines (green)
@@ -1186,11 +1186,11 @@ struct ToolLiveSheet: View {
                                     ForEach(newChunks, id: \.id) { chunk in
                                         Text(chunk.text)
                                             .font(.system(size: 13, design: .monospaced))
-                                            .foregroundStyle(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.4, green: 1, blue: 0.4, alpha: 1) : UIColor(red: 0.1, green: 0.6, blue: 0.1, alpha: 1) }))
+                                            .foregroundStyle(ChatColors.success)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .padding(.horizontal, 14)
                                             .padding(.vertical, 2)
-                                            .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.08, green: 0.2, blue: 0.08, alpha: 1) : UIColor(red: 0.9, green: 1, blue: 0.9, alpha: 1) }))
+                                            .background(ChatColors.success.opacity(0.10))
                                     }
                                 }
                             }
@@ -1256,9 +1256,9 @@ struct ToolLiveSheet: View {
                             }
                         }
                             .frame(maxWidth: .infinity, minHeight: cardMinHeight, maxHeight: .infinity, alignment: .topLeading)
-                            .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.10, alpha: 1) : UIColor(white: 0.94, alpha: 1) }))
+                            .background(ChatColors.toolBg)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.25, alpha: 1) : UIColor(white: 0.82, alpha: 1) }), lineWidth: 0.5))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
                             .padding(.horizontal, 12)
                             .padding(.top, 12)
                         }
@@ -1355,7 +1355,7 @@ struct ToolLiveSheet: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.13, alpha: 1) : UIColor(white: 0.92, alpha: 1) }))
+            .background(ChatColors.toolBg)
 
             Divider()
 
@@ -1367,9 +1367,9 @@ struct ToolLiveSheet: View {
                 .textSelection(.enabled)
                 .padding(12)
         }
-        .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.10, alpha: 1) : UIColor(white: 0.94, alpha: 1) }))
+        .background(ChatColors.toolBg)
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.25, alpha: 1) : UIColor(white: 0.82, alpha: 1) }), lineWidth: 0.5))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
         .padding(.horizontal, 12)
     }
 
@@ -1398,7 +1398,7 @@ struct ToolLiveSheet: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.13, alpha: 1) : UIColor(white: 0.92, alpha: 1) }))
+                    .background(ChatColors.toolBg)
 
                     Divider()
 
@@ -1418,9 +1418,9 @@ struct ToolLiveSheet: View {
                     .textSelection(.enabled)
                     .padding(.vertical, 14)
                 }
-                .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.10, alpha: 1) : UIColor(white: 0.94, alpha: 1) }))
+                .background(ChatColors.toolBg)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.25, alpha: 1) : UIColor(white: 0.82, alpha: 1) }), lineWidth: 0.5))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
             }
@@ -1464,7 +1464,7 @@ struct ToolLiveSheet: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.13, alpha: 1) : UIColor(white: 0.92, alpha: 1) }))
+                    .background(ChatColors.toolBg)
 
                     Divider()
 
@@ -1481,9 +1481,9 @@ struct ToolLiveSheet: View {
                     .textSelection(.enabled)
                     .padding(.vertical, 14)
                 }
-                .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.10, alpha: 1) : UIColor(white: 0.94, alpha: 1) }))
+                .background(ChatColors.toolBg)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.25, alpha: 1) : UIColor(white: 0.82, alpha: 1) }), lineWidth: 0.5))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
 
@@ -1511,9 +1511,9 @@ struct ToolLiveSheet: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.15, alpha: 1) : UIColor(white: 0.95, alpha: 1) }))
+                    .background(ChatColors.toolBg)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.25, alpha: 1) : UIColor(white: 0.82, alpha: 1) }), lineWidth: 0.5))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
                 }
@@ -1689,7 +1689,7 @@ struct ToolLiveSheet: View {
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.25, alpha: 1) : UIColor(white: 0.82, alpha: 1) }), lineWidth: 0.5))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(UIColor(ChatColors.toolBorder), lineWidth: 0.5))
                     .padding(.horizontal, 12)
                     .padding(.top, 12)
                     .padding(.bottom, 16)
@@ -2399,13 +2399,13 @@ private struct ToolStatusBarSurface: ViewModifier {
             content.glassEffect(.regular, in: shape)
         } else {
             content
-                .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.15, alpha: 1) : UIColor.systemBackground }))
+                .background(ChatColors.background)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
                         .stroke(Color(UIColor.separator).opacity(0.3), lineWidth: 0.5)
                 )
-                .shadow(color: Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.08, alpha: 0.75) : UIColor(white: 0, alpha: 0.12) }), radius: 8, x: 0, y: 4)
+                .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
         }
     }
 }
