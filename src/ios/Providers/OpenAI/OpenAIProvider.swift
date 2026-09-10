@@ -508,7 +508,8 @@ final class OpenAIProvider: LLMProvider {
 
         guard (200..<300).contains(statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            throw mapHTTPError(statusCode: statusCode, body: body)
+            let hdrs = (response as? HTTPURLResponse)?.allHeaderFields as? [String: String]
+            throw mapHTTPError(statusCode: statusCode, body: body, headers: hdrs)
         }
 
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
@@ -585,7 +586,8 @@ final class OpenAIProvider: LLMProvider {
             var body = ""
             for try await line in byteStream.lines { body += line }
             session.finishTasksAndInvalidate()
-            throw mapHTTPError(statusCode: statusCode, body: body)
+            let hdrs = (response as? HTTPURLResponse)?.allHeaderFields as? [String: String]
+            throw mapHTTPError(statusCode: statusCode, body: body, headers: hdrs)
         }
 
         return AsyncThrowingStream { continuation in
@@ -923,7 +925,8 @@ final class OpenAIProvider: LLMProvider {
             var body = ""
             for try await line in byteStream.lines { body += line }
             session.finishTasksAndInvalidate()
-            throw mapHTTPError(statusCode: statusCode, body: body)
+            let hdrs = (response as? HTTPURLResponse)?.allHeaderFields as? [String: String]
+            throw mapHTTPError(statusCode: statusCode, body: body, headers: hdrs)
         }
 
         let lineStream = AsyncThrowingStream<String, Error> { continuation in
@@ -1676,7 +1679,8 @@ final class OpenAIProvider: LLMProvider {
 
             guard (200..<300).contains(statusCode) else {
                 let responseBody = String(data: data, encoding: .utf8) ?? ""
-                throw mapHTTPError(statusCode: statusCode, body: responseBody)
+                let hdrs = (response as? HTTPURLResponse)?.allHeaderFields as? [String: String]
+                throw mapHTTPError(statusCode: statusCode, body: responseBody, headers: hdrs)
             }
 
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
@@ -2063,9 +2067,31 @@ final class OpenAIProvider: LLMProvider {
         return .providerError(message: error.localizedDescription)
     }
 
-    func mapHTTPError(statusCode: Int, body: String) -> LLMError {
+    /// [T-kelivo-retry] RFC 7231 date parser for Retry-After headers.
+    static let httpDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        f.timeZone = TimeZone(identifier: "GMT")
+        return f
+    }()
+
+    func mapHTTPError(statusCode: Int, body: String, headers: [String: String]? = nil) -> LLMError {
         if statusCode == 401 || statusCode == 403 { return .invalidAPIKey(detail: "HTTP \(statusCode): \(String(body.prefix(200)))") }
-        if statusCode == 429 { return .rateLimited }
+        if statusCode == 429 {
+            // [T-kelivo-retry 09-10] Honour the server's Retry-After hint
+            // (seconds or an HTTP date); fall back to nil when absent.
+            var hint: Double?
+            if let headers {
+                let raw = headers["Retry-After"] ?? headers["retry-after"]
+                if let secs = raw.flatMap(Double.init) {
+                    hint = secs
+                } else if let dateStr = raw, let httpDate = Self.httpDateFormatter.date(from: dateStr) {
+                    hint = max(0, httpDate.timeIntervalSinceNow)
+                }
+            }
+            return .rateLimited(retryAfterSeconds: hint)
+        }
 
         // Transient server errors: retry same model, do not trigger group fallback.
         let transientStatusCodes: Set<Int> = [500, 502, 503, 504, 529]

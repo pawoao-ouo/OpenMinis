@@ -491,7 +491,8 @@ struct SpeechPlayerControl: View {
     // MARK: - Expanded
 
     private var expandedCapsule: some View {
-        HStack(spacing: 10) {
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
             // Pause / resume — on = blue speaker, off = dimmed muted-speaker.
             // Speaker = MUTE toggle (temporary silence; capsule stays visible).
             Button {
@@ -518,6 +519,20 @@ struct SpeechPlayerControl: View {
                         .foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: 130)
+            }
+            .buttonStyle(.plain)
+            // [T-kelivo-tts 09-10] Read-aloud selection mode chip: tap to
+            // cycle 全文 → 只读引号 → 跳过括号 (kelivo's tts text selection).
+            Button {
+                cycleSelectionMode(); bumpIdle()
+            } label: {
+                Text(selectionModeLabel)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                    .foregroundStyle(VoiceOutputPreferences.selectionMode == .fullText ? .secondary : MinisTheme.accent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
             }
             .buttonStyle(.plain)
 
@@ -547,6 +562,43 @@ struct SpeechPlayerControl: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
+            }
+
+            // [T-kelivo-tts 09-10] Progress row: current-unit scrubber + time.
+            // Drag to seek within the playing unit (same capability as kelivo's
+            // floating player). Hidden while idle so the capsule stays compact.
+            if voicePlayer.isPlaying || voicePlayer.playbackProgress > 0 {
+                HStack(spacing: 6) {
+                    Text(Self.timeLabel(voicePlayer.playbackPosition))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.secondary.opacity(0.2))
+                            Capsule()
+                                .fill(MinisTheme.accent)
+                                .frame(width: max(3, geo.size.width * voicePlayer.playbackProgress))
+                        }
+                    }
+                    .frame(height: 4)
+                    // Seek on drag-end; live position follows the tick.
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onEnded { v in
+                                let w = max(1, geo.size.width)
+                                voicePlayer.seekCurrentUnit(to: v.location.x / w)
+                                bumpIdle()
+                            }
+                    )
+                    Text(Self.timeLabel(voicePlayer.playbackDuration))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 2)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
@@ -556,6 +608,12 @@ struct SpeechPlayerControl: View {
         // Drag to reposition. Highest priority so the outer tap-to-dismiss layer
         // doesn't steal it.
         .highPriorityGesture(dragGesture)
+    }
+
+    /// mm:ss for the scrubber labels.
+    static func timeLabel(_ t: TimeInterval) -> String {
+        let s = Int(max(0, t.rounded()))
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 
     // MARK: - Idle collapse
@@ -568,6 +626,25 @@ struct SpeechPlayerControl: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.idleCollapseSeconds) {
             guard token == idleCollapseToken, expanded else { return }
             setExpanded(false)
+        }
+    }
+
+    /// [T-kelivo-tts] Cycle the read-aloud selection mode.
+    private func cycleSelectionMode() {
+        let order: [VoiceTextSanitizer.SelectionMode] = [.fullText, .quotedOnly, .withoutParentheses]
+        let current = VoiceOutputPreferences.selectionMode
+        guard let idx = order.firstIndex(of: current) else {
+            VoiceOutputPreferences.selectionMode = .fullText
+            return
+        }
+        VoiceOutputPreferences.selectionMode = order[(idx + 1) % order.count]
+    }
+
+    private var selectionModeLabel: String {
+        switch VoiceOutputPreferences.selectionMode {
+        case .fullText: return "全文"
+        case .quotedOnly: return "只读引号"
+        case .withoutParentheses: return "跳过括号"
         }
     }
 

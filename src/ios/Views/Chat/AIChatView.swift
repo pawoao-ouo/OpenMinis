@@ -93,12 +93,14 @@ enum ChatColors {
     static var assistantBubble: Color {
         studio.color(.assistantBubble, scope: .chat).opacity(bubbleAlpha)
     }
-    /// [T-bubble-opacity-slider] Bubbles stack BOTH alphas: the bubble role's
-    /// own color alpha (palette-tinted translucency) × the user-facing
-    /// bubbleOpacity slider. Capped at surfaceOpacity so a bubble never reads
-    /// more opaque than the card system it sits among.
+    /// [T-bubble-opacity-slider][v3 09-10] Was `min(bubbleOpacity,
+    /// surfaceOpacity)` — the card-opacity cap silently clamped the top of
+    /// the bubble slider (anything above surfaceOpacity, default 0.88, did
+    /// nothing: the "调不动" bug). The slider now drives the bubble alpha
+    /// DIRECTLY: 0.15 = very see-through, 1.0 = solid. Cards keep their own
+    /// surfaceOpacity knob; the two no longer fight.
     private static var bubbleAlpha: Double {
-        min(studio.bubbleOpacity, studio.surfaceOpacity)
+        studio.bubbleOpacity
     }
     static var toolBg: Color {
         studio.color(.mutedSurface, scope: .chat).opacity(studio.surfaceOpacity)

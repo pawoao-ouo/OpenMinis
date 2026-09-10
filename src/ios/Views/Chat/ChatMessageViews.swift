@@ -144,15 +144,21 @@ private struct UserBubbleSurface: ViewModifier {
                                 style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
                 )
         } else if #available(iOS 26.0, *) {
-            // [T-bubble-opacity-slider][v2] The colour UNDER the glass barely
-            // moved the needle — glass has its own material alpha, so the
-            // opacity slider visibly worked on the assistant bubble (plain
-            // fill) but not here (醒醒 09-09). The userBubble colour already
-            // carries `bubbleAlpha` (slider × surfaceOpacity), so pass it as
-            // the glass TINT: tint alpha directly modulates the material,
-            // and the slider now reads the same on both bubbles.
+            // [T-bubble-opacity-slider][v3 09-10] The slider STILL didn't read
+            // on this bubble: `Glass.tint` alpha modulates the material's
+            // brightness, not its coverage — at slider 0.2 the tint is pale
+            // but the glass itself stays its own translucent white, so the
+            // bubble never actually gets more see-through (醒醒: "无法根据我
+            // 调整的透明度对应相应的透明度").
+            //
+            // Fix: the SAME construction the assistant bubble uses — a plain
+            // themed fill whose alpha is the slider value (ChatColors.userBubble
+            // already carries it), with ONE untinted glass layer OVER the fill
+            // for the highlight/edge. Both bubbles now respond to the slider
+            // identically: slider = how see-through the coloured surface is.
             content
-                .glassEffect(Glass.regular.tint(ChatColors.userBubble), in: shape)
+                .background(shape.fill(ChatColors.userBubble))
+                .glassEffect(.regular, in: shape)
         } else {
             content.background(shape.fill(ChatColors.userBubble))
         }

@@ -8,7 +8,10 @@ enum LLMError: LocalizedError {
     /// retried on the same model rather than triggering a group fallback.
     case transientError(message: String)
     case decodingError(underlying: Error)
-    case rateLimited
+    /// 429 / transient throttling. [T-kelivo-retry 09-10] Carries the server's
+    /// Retry-After hint when present so the retry loop waits what the provider
+    /// asked for instead of a fixed guess.
+    case rateLimited(retryAfterSeconds: Double? = nil)
     case cancelled
     case unknown(underlying: Error?)
 
@@ -40,13 +43,26 @@ enum LLMError: LocalizedError {
 
     /// Errors that should be retried with countdown on the same provider.
     /// Includes both network errors and transient server-side errors (5xx).
+    /// [T-kelivo-retry 09-10] 429 rate limits are now RETRYABLE too — kelivo
+    /// treats throttling as transient (wait and retry the same model) and that
+    /// is what users expect: switching models on a 429 throws away the
+    /// conversation's model affinity for what is usually a seconds-long
+    /// throttle. Group fallback still kicks in once retries are exhausted.
     var isRetryable: Bool {
         switch self {
-        case .networkError, .transientError:
+        case .networkError, .transientError, .rateLimited:
             return true
-        case .invalidAPIKey, .providerError, .decodingError, .rateLimited, .cancelled, .unknown:
+        case .invalidAPIKey, .providerError, .decodingError, .cancelled, .unknown:
             return false
         }
+    }
+
+    /// Server's Retry-After hint for rate limits (seconds), when the provider
+    /// sent one. The retry loop uses this as the FIRST delay instead of the
+    /// exponential guess.
+    var retryAfterHint: Double? {
+        if case .rateLimited(let seconds) = self { return seconds }
+        return nil
     }
 
     /// Errors that indicate the provider itself cannot serve this request

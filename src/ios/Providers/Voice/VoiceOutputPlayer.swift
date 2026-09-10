@@ -26,6 +26,15 @@ enum VoiceOutputPreferences {
         set { UserDefaults.standard.set(newValue, forKey: speedKey) }
     }
 
+    /// [T-kelivo-tts 09-10] Read-aloud text selection mode (kelivo-style):
+    /// fullText = everything; quotedOnly = just quoted spans;
+    /// withoutParentheses = drop (asides). Persisted.
+    private static let selectionKey = "voice.output.selectionMode"
+    static var selectionMode: VoiceTextSanitizer.SelectionMode {
+        get { VoiceTextSanitizer.SelectionMode(rawValue: UserDefaults.standard.string(forKey: selectionKey) ?? "") ?? .fullText }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: selectionKey) }
+    }
+
     private static let mutedKey = "voice.output.muted"
 
     /// Whether read-replies is temporarily muted (persisted so it survives restart).
@@ -80,6 +89,11 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
     static let shared = VoiceOutputPlayer()
 
     @Published private(set) var isPlaying = false
+    /// [T-kelivo-tts 09-10] Playback progress of the CURRENT unit (0...1) for
+    /// the floating control's scrubber, plus the wall-clock times behind it.
+    @Published private(set) var playbackProgress: Double = 0
+    @Published private(set) var playbackPosition: TimeInterval = 0
+    @Published private(set) var playbackDuration: TimeInterval = 0
     /// True while a cloud TTS network synthesis is in flight with nothing yet
     /// playing — drives the "…" loading animation on the speaker control so the
     /// user knows audio is being generated (not stuck).
@@ -251,7 +265,7 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
     /// preview / "Read Selected" — same splitting as live streaming TTS.
     /// Non-session callers pass `VoiceOutputPlayer.manualOwnerId`.
     func enqueueSegmented(_ rawText: String, sessionId: String) {
-        let sanitized = VoiceTextSanitizer.sanitize(rawText)
+        let sanitized = VoiceTextSanitizer.sanitize(rawText, mode: VoiceOutputPreferences.selectionMode)
         guard !sanitized.isEmpty else { return }
         let segments = AIChatViewModel.splitIntoSpeechSegments(sanitized)
         for s in segments { enqueue(s, sessionId: sessionId) }
@@ -263,6 +277,7 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
         queue.removeAll()
         player?.stop()
         player = nil
+        stopProgressTick(reset: true)
         playingSeq = -1
         playingSessionId = nil
         isPlaying = false
@@ -324,6 +339,7 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
     func pause() {
         if let p = player, p.isPlaying { p.pause() }
         isPaused = true
+        stopProgressTick(reset: false)
     }
 
     /// Resume paused cloud audio. Resumes the live player if one is paused, and
@@ -332,7 +348,10 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
     func resume() {
         guard isPaused else { return }
         isPaused = false
-        if let p = player { p.play() } else { pumpPlayback() }
+        if let p = player {
+            p.play()
+            startProgressTick()
+        } else { pumpPlayback() }
     }
 
     /// The cloud TTS queue has drained — end the reply-TTS intent. The coordinator
@@ -567,6 +586,10 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
             p.play()
             player = p
             isPlaying = true
+            // [T-kelivo-tts 09-10] Progress tick for the floating control's
+            // scrubber (0.1s cadence — kelivo's floating player updates at
+            // frame rate but a tenth-second is plenty for a 40pt-wide bar).
+            startProgressTick()
             VoiceLog.log(String(format: "TTS ▶︎ play #%d owner=%@ dur=%.2fs rate=%.2f queueAhead=%d bufferedAfter=%.2fs",
                 front.seq, String(front.ownerSessionId.prefix(8)), p.duration, p.rate, queue.count, bufferedAudioSeconds))
         } catch {
@@ -576,6 +599,47 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
             pumpPlayback()                              // try next
         }
         pumpPrefetch()
+    }
+
+    // MARK: - [T-kelivo-tts] Playback progress tick
+
+    private var progressTick: Task<Void, Never>?
+
+    private func startProgressTick() {
+        progressTick?.cancel()
+        playbackProgress = 0
+        playbackPosition = 0
+        playbackDuration = player?.duration ?? 0
+        progressTick = Task { @MainActor [weak self] in
+            while let self, !Task.isCancelled, let p = self.player {
+                self.playbackPosition = p.currentTime
+                let d = p.duration
+                self.playbackDuration = d
+                self.playbackProgress = d > 0 ? min(1, p.currentTime / d) : 0
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+    }
+
+    private func stopProgressTick(reset: Bool) {
+        progressTick?.cancel()
+        progressTick = nil
+        if reset {
+            playbackProgress = 0
+            playbackPosition = 0
+            playbackDuration = 0
+        }
+    }
+
+    /// [T-kelivo-tts] Seek within the CURRENTLY-playing unit (the floating
+    /// control's scrubber drag). Out-of-range clamps; seeking a synthesizing
+    /// or not-yet-started unit is a no-op.
+    func seekCurrentUnit(to fraction: Double) {
+        guard let p = player else { return }
+        let clamped = min(1, max(0, fraction))
+        p.currentTime = p.duration * clamped
+        playbackPosition = p.currentTime
+        playbackProgress = clamped
     }
 
     private func activatePlaybackSession() throws {
@@ -593,6 +657,7 @@ extension VoiceOutputPlayer: AVAudioPlayerDelegate {
             // newly-started unit may have already replaced it.
             guard self.player === finished else { return }
             let finishedSeq = self.playingSeq
+            self.stopProgressTick(reset: true)
             self.player = nil
             self.playingSeq = -1
             self.playingSessionId = nil

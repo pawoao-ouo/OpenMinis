@@ -504,6 +504,7 @@
 		EXA000003 /* XAIOAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXA000013 /* XAIOAuthManager.swift */; };
 		F1A00020 /* MessageListInfrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A00021 /* MessageListInfrastructure.swift */; };
 		F1M00012 /* AudioPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00011 /* AudioPlayback.swift */; };
+		F1M00022 /* AudioWaveformSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00021 /* AudioWaveformSampler.swift */; };
 		F1M00014 /* VideoPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00013 /* VideoPlayer.swift */; };
 		F1M00016 /* ImagePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00015 /* ImagePreview.swift */; };
 		F1M00018 /* AudioPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00017 /* AudioPreview.swift */; };
@@ -1195,6 +1196,7 @@
 		EXA000013 /* XAIOAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XAIOAuthManager.swift; sourceTree = "<group>"; };
 		F1A00021 /* MessageListInfrastructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListInfrastructure.swift; sourceTree = "<group>"; };
 		F1M00011 /* AudioPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayback.swift; sourceTree = "<group>"; };
+		F1M00021 /* AudioWaveformSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWaveformSampler.swift; sourceTree = "<group>"; };
 		F1M00013 /* VideoPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayer.swift; sourceTree = "<group>"; };
 		F1M00015 /* ImagePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePreview.swift; sourceTree = "<group>"; };
 		F1M00017 /* AudioPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPreview.swift; sourceTree = "<group>"; };
@@ -2195,6 +2197,7 @@
 			isa = PBXGroup;
 			children = (
 				F1M00011 /* AudioPlayback.swift */,
+				F1M00021 /* AudioWaveformSampler.swift */,
 				F1M00017 /* AudioPreview.swift */,
 				F1M00015 /* ImagePreview.swift */,
 				F1M00019 /* MessageImageGallery.swift */,
@@ -2807,6 +2810,7 @@
 				E5F200041 /* DocumentCopyPicker.swift in Sources */,
 				E5F2000FA /* TextFadeAnimator.swift in Sources */,
 				F1M00012 /* AudioPlayback.swift in Sources */,
+				F1M00022 /* AudioWaveformSampler.swift in Sources */,
 				F1M00014 /* VideoPlayer.swift in Sources */,
 				F1M00016 /* ImagePreview.swift in Sources */,
 				F1M00018 /* AudioPreview.swift in Sources */,

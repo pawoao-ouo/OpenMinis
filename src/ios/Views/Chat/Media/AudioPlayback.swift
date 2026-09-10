@@ -359,6 +359,10 @@ struct MinisAudioPlayerView: View {
     @ObservedObject private var player = GlobalAudioPlayer.shared
     @State private var fileReady = false
     @State private var showPreview = false
+    /// [T-kelivo-voice 09-10] Static waveform of the file (sampled once on
+    /// appear, background queue). Idle state draws this instead of a dead
+    /// slider — the bubble reads as a voice message at a glance, like kelivo.
+    @State private var waveformLevels: [Float]? = nil
 
     /// Fixed height for both placeholder and controls to prevent layout jumps.
     private let controlsHeight: CGFloat = 70
@@ -369,9 +373,24 @@ struct MinisAudioPlayerView: View {
     var body: some View {
         if fileReady {
             audioControls
+                .task(id: fileURL) {
+                    // Sample once per file; failure quietly leaves the old look.
+                    if waveformLevels == nil {
+                        waveformLevels = await AudioWaveformSampler.sampleLevels(from: fileURL)
+                    }
+                }
         } else {
             placeholder
                 .task { await waitForFile() }
+        }
+    }
+
+    /// Waveform strip for the bubble (static levels, tinted by state).
+    @ViewBuilder private var waveformStrip: some View {
+        if let levels = waveformLevels {
+            AudioWaveformView(levels: levels)
+                .frame(height: 26)
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -423,8 +442,13 @@ struct MinisAudioPlayerView: View {
                         .font(.caption2)
                         .foregroundColor(ChatColors.secondaryText)
                         .monospacedDigit()
+                } else if waveformLevels != nil {
+                    // [T-kelivo-voice] Idle: real static waveform — reads as
+                    // a voice message, not a disabled control.
+                    waveformStrip
                 } else {
-                    // Idle state — show empty slider
+                    // Waveform still sampling — keep the (disabled) slider so
+                    // the bubble doesn't jump height when it lands.
                     Slider(value: .constant(0), in: 0...1)
                         .tint(MinisTheme.accent)
                         .disabled(true)

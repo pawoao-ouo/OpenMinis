@@ -633,7 +633,10 @@ final class GeminiProvider: LLMProvider {
             throw LLMError.invalidAPIKey(detail: "Gemini HTTP \(http.statusCode): \(String(body.prefix(200)))")
         }
         if http.statusCode == 429 {
-            throw LLMError.rateLimited
+            // [T-kelivo-retry 09-10] Honour Retry-After when the server sent one.
+            let hdrs = http.allHeaderFields as? [String: String]
+            let hint = hdrs?["Retry-After"].flatMap(Double.init) ?? hdrs?["retry-after"].flatMap(Double.init)
+            throw LLMError.rateLimited(retryAfterSeconds: hint)
         }
         let transientStatusCodes: Set<Int> = [500, 502, 503, 504, 529]
         if transientStatusCodes.contains(http.statusCode) {
@@ -651,7 +654,10 @@ final class GeminiProvider: LLMProvider {
         }
 
         if http.statusCode == 429 {
-            throw LLMError.rateLimited
+            // [T-kelivo-retry 09-10] Honour Retry-After when the server sent one.
+            let hdrs = http.allHeaderFields as? [String: String]
+            let hint = hdrs?["Retry-After"].flatMap(Double.init) ?? hdrs?["retry-after"].flatMap(Double.init)
+            throw LLMError.rateLimited(retryAfterSeconds: hint)
         }
 
         guard (200..<300).contains(http.statusCode) else {

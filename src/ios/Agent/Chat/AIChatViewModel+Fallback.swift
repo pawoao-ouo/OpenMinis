@@ -10,6 +10,30 @@ extension AIChatViewModel {
 
     static let retryDelays = [3, 5, 10, 15, 30]
 
+    /// [T-kelivo-retry 09-10] Exponential backoff with ±20% jitter, capped —
+    /// kelivo's retry_policy thinking: fixed ladders make concurrent clients
+    /// retry in lockstep and hammer the provider again; jitter spreads them.
+    static func backoffDelay(attemptIndex: Int, retryAfterHint: Double?) -> Int {
+        // Honour the server's Retry-After for the FIRST retry when present.
+        if attemptIndex == 0, let hint = retryAfterHint { return Int(max(1, min(60, hint))) }
+        let base: Double = [3, 5, 10, 15, 30][min(attemptIndex, 4)]
+        let jitter = 0.8 + Double.random(in: 0...0.4)  // ±20%
+        return Int(max(1, base * jitter))
+    }
+
+    /// [T-kelivo-retry 09-10] kelivo-style error text triage: stop keywords
+    /// (billing/quota/auth) must NEVER be retried — they surface immediately
+    /// so she sees the real problem instead of five countdowns first.
+    static let retryStopKeywords = [
+        "余额", "不足", "额度", "欠费", "expired", "insufficient", "quota",
+        "invalid api key", "unauthorized", "permission denied",
+    ]
+    static func isStopKeywordError(_ error: Error) -> Bool {
+        let desc = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        let lower = desc.lowercased()
+        return retryStopKeywords.contains { lower.contains($0) }
+    }
+
     func streamWithAutoRetry(
         provider initialProvider: any AgentProvider,
         messages: [AgentMessage],
@@ -22,7 +46,10 @@ extension AIChatViewModel {
         var currentProvider = initialProvider
         for attempt in 0...Self.retryDelays.count {
             if attempt > 0 {
-                let delay = Self.retryDelays[attempt - 1]
+                let delay = Self.backoffDelay(
+                    attemptIndex: attempt - 1,
+                    retryAfterHint: (lastError as? LLMError)?.retryAfterHint
+                )
                 self.autoRetryAttempt = attempt
                 // Show the network error on the message during countdown
                 if let lastError {
@@ -65,7 +92,7 @@ extension AIChatViewModel {
                 )
                 self.autoRetryAttempt = 0
                 return stream
-            } catch let error as LLMError where error.isRetryable {
+            } catch let error as LLMError where error.isRetryable && !Self.isStopKeywordError(error) {
                 lastError = error
                 continue
             } catch {
@@ -170,7 +197,18 @@ extension AIChatViewModel {
                 }
                 return stream
             } catch let error as LLMError where error.isFallbackable {
-                // Provider-level error (rate limit, invalid key, provider rejection):
+                // [T-kelivo-retry 09-10] Rate limits no longer switch models
+                // immediately — a 429 is usually seconds-long throttling, and
+                // kelivo's approach (back off, retry same model) keeps the
+                // conversation's model affinity. Only after the backoff retries
+                // are exhausted does group fallback advance (which happens via
+                // the retryable path rethrowing). Invalid key / provider
+                // rejection still switch instantly — retrying those is a waste.
+                if case .rateLimited = error {
+                    logger.error("🔀ROUTE entry=\(currentEntryId ?? "nil") rate-limited: backing off and retrying same entry")
+                    throw error
+                }
+                // Provider-level error (invalid key, provider rejection):
                 // immediately try next model in group without retry countdown.
                 logger.error("🔀ROUTE entry=\(currentEntryId ?? "nil") fallbackable error: \(error.localizedDescription)")
                 if let eid = currentEntryId, let entry = ProviderConfigStore.shared.entry(for: eid) {

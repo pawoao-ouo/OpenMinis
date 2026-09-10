@@ -494,7 +494,10 @@ final class AntigravityProvider: LLMProvider {
             throw LLMError.invalidAPIKey(detail: "Antigravity HTTP \(http.statusCode): \(String(body.prefix(200)))")
         }
         if http.statusCode == 429 {
-            throw LLMError.rateLimited
+            // [T-kelivo-retry 09-10] Honour Retry-After when present.
+            let hdrs = http.allHeaderFields as? [String: String]
+            let hint = hdrs?["Retry-After"].flatMap(Double.init) ?? hdrs?["retry-after"].flatMap(Double.init)
+            throw LLMError.rateLimited(retryAfterSeconds: hint)
         }
         let transientStatusCodes: Set<Int> = [500, 502, 503, 504, 529]
         if transientStatusCodes.contains(http.statusCode) {
@@ -511,7 +514,10 @@ final class AntigravityProvider: LLMProvider {
             throw LLMError.invalidAPIKey(detail: "Antigravity HTTP \(http.statusCode): \(String(bodyStr.prefix(200)))")
         }
         if http.statusCode == 429 {
-            throw LLMError.rateLimited
+            // [T-kelivo-retry 09-10] Honour Retry-After when present.
+            let hdrs = http.allHeaderFields as? [String: String]
+            let hint = hdrs?["Retry-After"].flatMap(Double.init) ?? hdrs?["retry-after"].flatMap(Double.init)
+            throw LLMError.rateLimited(retryAfterSeconds: hint)
         }
 
         guard (200..<300).contains(http.statusCode) else {

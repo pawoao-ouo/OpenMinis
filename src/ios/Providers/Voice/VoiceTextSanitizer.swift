@@ -12,8 +12,29 @@ enum VoiceTextSanitizer {
 
     /// Strip common Markdown syntax + emoji / non-speakable symbols and tidy
     /// whitespace. Returns the cleaned, speakable string (may be empty).
-    static func sanitize(_ text: String) -> String {
-        var s = stripMarkdown(text)
+    /// [T-kelivo-tts 09-10] kelivo-style read-aloud selection. The default
+    /// (.fullText) keeps today's behaviour; .quotedOnly reads JUST the
+    /// quoted spans (「」/“”/「」), dropping the AI's surrounding commentary —
+    /// natural for reading dialogue-heavy replies aloud.
+    enum SelectionMode: String {
+        case fullText
+        case quotedOnly
+        /// Drop (parenthetical asides) — they read as interruptions aloud.
+        case withoutParentheses
+    }
+
+    static func sanitize(_ text: String, mode: SelectionMode = .fullText) -> String {
+        var working = text
+        switch mode {
+        case .fullText:
+            break
+        case .quotedOnly:
+            let quoted = extractQuoted(text)
+            working = quoted.isEmpty ? text : quoted
+        case .withoutParentheses:
+            working = stripParenthesized(text)
+        }
+        var s = stripMarkdown(working)
         // Replace any remaining bare URLs in plain text with "<host> 的链接" so the
         // reader never voices a long, unstoppable URL.
         s = rewriteBareURLs(s)
@@ -129,6 +150,62 @@ enum VoiceTextSanitizer {
     }
 
     /// True if the scalar should be spoken (kept). Drops emoji & symbol ranges.
+    /// [T-kelivo-tts] All quoted spans joined with pauses: 「」『』“”‘’ and
+    /// straight quotes. Empty when there are none (caller falls back).
+    private static func extractQuoted(_ text: String) -> String {
+        let pairs: [(open: Character, close: Character)] = [
+            ("「", "」"), ("『", "』"), ("“", "”"), ("‘", "’"),
+        ]
+        var spans: [String] = []
+        var i = text.startIndex
+        while i < text.endIndex {
+            let ch = text[i]
+            if let pair = pairs.first(where: { $0.open == ch }) {
+                if let close = text[i...].firstIndex(of: pair.close), close > i {
+                    let inner = String(text[text.index(after: i)..<close])
+                    if !inner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        spans.append(inner)
+                    }
+                    i = text.index(after: close)
+                    continue
+                }
+            } else if ch == "\"" || ch == "'" {
+                // Straight quote pair — find the matching close.
+                let next = text.index(after: i)
+                if next < text.endIndex, let close = text[next...].firstIndex(of: ch), close > next {
+                    let inner = String(text[next..<close])
+                    if !inner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        spans.append(inner)
+                    }
+                    i = text.index(after: close)
+                    continue
+                }
+            }
+            i = text.index(after: i)
+        }
+        return spans.joined(separator: "\n")
+    }
+
+    /// [T-kelivo-tts] Remove (……) and （……） spans — asides read as
+    /// interruptions when spoken aloud.
+    private static func stripParenthesized(_ text: String) -> String {
+        var out = ""
+        var depth = 0
+        for ch in text {
+            if ch == "(" || ch == "（" {
+                if depth == 0, !out.isEmpty, !out.hasSuffix(" ") { out.append(" ") }
+                depth += 1
+                continue
+            }
+            if ch == ")" || ch == "）" {
+                if depth > 0 { depth -= 1 }
+                continue
+            }
+            if depth == 0 { out.append(ch) }
+        }
+        return out
+    }
+
     private static func isSpeakable(_ s: Unicode.Scalar) -> Bool {
         // Keep ASCII (letters, digits, common punctuation, whitespace).
         if s.value < 0x80 { return true }
