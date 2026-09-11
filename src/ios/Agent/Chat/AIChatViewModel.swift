@@ -1651,7 +1651,16 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// provider change can't split one reply across two engines playing at once.
     private var useCloudTTS: Bool {
         if let snap = replyUsesCloudTTS { return snap }
-        let v = !(VoiceProviderResolver.outputProvider() is SystemVoiceProvider)
+        // [T-tts-services 09-11] The independent TTS service layer counts as a
+        // cloud engine too: when the user has a service selected, read-aloud
+        // must go through VoiceOutputPlayer (whose pumpPrefetch consults the
+        // service store FIRST), not the on-device AVSpeechSynthesizer path —
+        // otherwise a configured service would be silently ignored whenever the
+        // Model-Group path resolves to System, i.e. exactly the "播音腔" trap.
+        let serviceSelected = TTSServiceStore.shared.selectedServiceId != nil
+            || !TTSServiceStore.shared.services.filter { $0.enabled }.isEmpty
+        let v = serviceSelected
+            || !(VoiceProviderResolver.outputProvider() is SystemVoiceProvider)
         replyUsesCloudTTS = v
         return v
     }

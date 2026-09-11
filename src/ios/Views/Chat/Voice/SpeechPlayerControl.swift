@@ -299,6 +299,14 @@ struct SpeechPlayerControl: View {
         }
         // Fail-over switched the active model → update the capsule's model name.
         .onChange(of: voicePlayer.activeModelLabel) { _ in refreshModelLabel() }
+        // [T-tts-services 09-11] Voice Services page changed the selected
+        // service (add / delete / pick another) → drop the sticky model and
+        // refresh the label so the capsule names the new voice, not the old
+        // group model it last synthesized with.
+        .onReceive(NotificationCenter.default.publisher(for: .ttsServicesChanged)) { _ in
+            VoiceOutputPlayer.shared.resetActiveModel()
+            refreshModelLabel()
+        }
         // Synthesis failed → flash the speaker red for 3 s, then restore.
         .onChange(of: voicePlayer.synthFailureTick) { _ in
             showFailureFlash = true
@@ -653,7 +661,26 @@ struct SpeechPlayerControl: View {
     private func refreshModelLabel() {
         // Prefer the model that's ACTUALLY synthesizing (after a fail-over) so the
         // capsule reflects the live active model, not the configured default.
-        modelLabel = voicePlayer.activeModelLabel ?? VoiceProviderResolver.outputModelLabel()
+        // [T-tts-services 09-11] When no synthesis ran yet this session, name the
+        // selected voice service if there is one — the Model-Group label would
+        // name a voice that is NOT the one about to speak.
+        if let live = voicePlayer.activeModelLabel {
+            modelLabel = live
+            return
+        }
+        if let service = TTSServiceStore.shared.selectedService(), service.enabled {
+            modelLabel = "\(service.name) · \(service.voice)"
+            return
+        }
+        if !TTSServiceStore.shared.services.filter({ $0.enabled }).isEmpty {
+            // No explicit selection but a service exists (activeService fallback
+            // semantics — the first enabled one is what would speak).
+            if let active = TTSServiceStore.shared.activeService {
+                modelLabel = "\(active.name) · \(active.voice)"
+                return
+            }
+        }
+        modelLabel = VoiceProviderResolver.outputModelLabel()
     }
 
     static func speedLabel(_ s: Float) -> String {
