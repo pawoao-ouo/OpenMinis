@@ -147,7 +147,23 @@ final class VoiceOutputState: ObservableObject {
         isReadingAloud = false; speechPaused = false
     }
     func nextSpeed() {
-        activeController?.nextSpeechSpeed()
+        if let c = activeController {
+            c.nextSpeechSpeed()
+        } else {
+            // [T-capsule-speed-orphan] No session VM registered — reads started
+            // from the markdown preview / selection menus outside a chat. The
+            // pause/stop buttons above fall back to driving the player
+            // directly; the speed chip had NO fallback and was a dead control
+            // in exactly that path. Apply the same persistence + live-rate
+            // semantics as the VM's setSpeechSpeed.
+            let steps = VoiceOutputPreferences.speedSteps
+            let cur = VoiceOutputPreferences.speedMultiplier
+            let idx = steps.firstIndex(of: cur) ?? 0
+            let next = steps[(idx + 1) % steps.count]
+            VoiceOutputPreferences.speedMultiplier = next
+            speechSpeed = next
+            VoiceOutputPlayer.shared.setRate(next)
+        }
     }
     func disable() {
         VoiceLog.log("[VoiceOutputState] disable() → isEnabled=false")
