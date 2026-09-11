@@ -501,7 +501,22 @@ struct SpeechPlayerControl: View {
     private var expandedCapsule: some View {
         VStack(spacing: 6) {
             HStack(spacing: 10) {
-            // Pause / resume — on = blue speaker, off = dimmed muted-speaker.
+            // [T-message-action-bar 09-11] Pause/resume — kelivo's floating
+            // player has a REAL pause button; ours only had mute (silence ≠
+            // pause — mute drops the audio, pause holds it). Icon mirrors the
+            // bubble bar's state so both read the same.
+            Button {
+                state.togglePause(); bumpIdle()
+            } label: {
+                Image(systemName: state.isPausedOrHeld ? "play.fill" : "pause.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!state.isReadingAloud)
+
             // Speaker = MUTE toggle (temporary silence; capsule stays visible).
             Button {
                 state.isMuted.toggle(); bumpIdle()

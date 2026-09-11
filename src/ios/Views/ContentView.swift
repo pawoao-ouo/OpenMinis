@@ -7488,6 +7488,18 @@ private struct SettingsSheet: View {
                 }
 
                 Section("About") {
+                    // [T-user-manual 09-11] In-app user manual — 醒醒要的:
+                    // AI 主题 / TTS 服务配置 / tool+thinking 调法 / 常用功能
+                    // 都写进 Resources/user-manual.md,这里渲染出来。
+                    NavigationLink {
+                        UserManualView()
+                    } label: {
+                        Label {
+                            Text("User Manual")
+                        } icon: {
+                            QuietAppIcon(id: QuietIconSlot.manual.id, systemName: QuietIconSlot.manual.systemName)
+                        }
+                    }
                     NavigationLink {
                         AboutView()
                     } label: {

@@ -1161,6 +1161,10 @@ final class CellStateBridgeV2: ObservableObject {
     /// [T-selection-menu-minis-tts] Speak an arbitrary text snippet (the
     /// selection-menu "Read Selection" action) via the Minis TTS stack.
     @Published var onSpeakText: ((String) -> Void)?
+    /// [T-message-action-bar 09-11] The chat VM as SpeechControlling — drives
+    /// the bubble action bar's pause/resume/stop. Weak (VM outlives cells, but
+    /// the bridge may outlive the VM in teardown races).
+    @Published var speechController: (any SpeechControlling)?
     /// True while this reply is still streaming — disables "Read from Start".
     @Published var isStreaming: Bool = false
     @Published var browserPool: BrowserTabPool?

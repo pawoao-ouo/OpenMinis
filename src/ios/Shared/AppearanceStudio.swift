@@ -618,6 +618,8 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
     case decorate, appearance, active, skills, soul, memory, mcp, env
     case storage, shared, mounts, icloud, backup, permissions, lock
     case logs, about, privacy, feedback
+    /// [T-user-manual 09-11] Settings → About section's 使用手册 row.
+    case manual
 
     var id: String { rawValue }
     var title: String {
@@ -641,6 +643,7 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
         case .about: return "关于"
         case .privacy: return "隐私政策"
         case .feedback: return "反馈"
+        case .manual: return "手册"
         }
     }
     var systemName: String {
@@ -664,6 +667,7 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
         case .about: return "info"
         case .privacy: return "hand.raised"
         case .feedback: return "bubble.left.and.bubble.right"
+        case .manual: return "book.closed"
         }
     }
 }

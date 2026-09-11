@@ -310,6 +310,7 @@ private struct BridgedAssistantBlockV3: View {
             // rule as the overlay context menu); Read Selection stays available.
             onReadAloud: bridge.isStreaming ? nil : bridge.onReadAloud,
             onSpeakText: bridge.onSpeakText,
+            speechController: bridge.isStreaming ? nil : bridge.speechController,
             browserPool: bridge.browserPool,
             toolSnapshots: bridge.toolSnapshots,
             highlightedBlockId: .constant(nil),
@@ -1457,6 +1458,8 @@ extension CollectionViewMessageListV3 {
             // selection menu — speaks the selected snippet via the Minis TTS
             // stack (sanitizer + provider voices + fail-over).
             bridge.onSpeakText = { [weak vm] text in vm?.speakText(text) }
+            // [T-message-action-bar 09-11] Bubble action bar's pause/resume/stop.
+            bridge.speechController = vm
             bridge.onCopyScreenshot = { [weak self, weak vm] in
                 guard let self, let vm else { return }
                 let msgs = vm.messages

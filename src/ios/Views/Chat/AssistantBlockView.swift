@@ -16,6 +16,9 @@ struct AssistantBlockView: View {
     /// down to SelectableMarkdownView (nil for non-text or streaming contexts).
     var onReadAloud: (() -> Void)?
     var onSpeakText: ((String) -> Void)?
+    /// [T-message-action-bar 09-11] Pause/resume/stop for the bubble action
+    /// bar. nil hides the bar (streaming reply, or a bridge without a VM).
+    var speechController: (any SpeechControlling)?
     var browserPool: BrowserTabPool?
     var toolSnapshots: [ToolSnapshotItem] = []
     @Binding var highlightedBlockId: UUID?
@@ -42,11 +45,24 @@ struct AssistantBlockView: View {
                         ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
                             self.singleTextBubble(seg)
                         }
+                        // [T-message-action-bar 09-11] One action bar under the
+                        // LAST bubble group of the last text block — the reply's
+                        // visible tail. It reads THE WHOLE BLOCK (all segments),
+                        // not just the last segment, so "播放本条" means this
+                        // message's complete text.
+                        if Self.isLastTextBlock(of: message, block: block) {
+                            actionBar(forBlockContent: block.content)
+                        }
                     }
                     .id(appearanceStudio.themePackRevision)
                 } else {
-                    self.singleTextBubble(block.content)
-                        .id(appearanceStudio.themePackRevision)
+                    VStack(alignment: .leading, spacing: 8) {
+                        self.singleTextBubble(block.content)
+                        if Self.isLastTextBlock(of: message, block: block) {
+                            actionBar(forBlockContent: block.content)
+                        }
+                    }
+                    .id(appearanceStudio.themePackRevision)
                 }
             }
         case .thinking:
@@ -140,6 +156,31 @@ struct AssistantBlockView: View {
                 MinisThemeShape.assistantBubble.fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
             )
             .clipShape(MinisThemeShape.assistantBubble)
+    }
+
+    // MARK: - [T-message-action-bar 09-11] kelivo-style bubble actions
+
+    /// True when this block is the message's LAST text block (the action bar
+    /// only hangs there — earlier text blocks read as part of the flow).
+    static func isLastTextBlock(of message: ChatMessage, block: AssistantBlock) -> Bool {
+        let textBlocks = message.blocks.filter { if case .text = $0.kind { return true }; return false }
+        guard let last = textBlocks.last else { return false }
+        return last.id == block.id
+    }
+
+    /// The kelivo-style action row (copy / play-pause / stop). Uses the
+    /// selection-TTS hook (`onSpeakText`) so the bubble speaks through the
+    /// service-layer voice; the vm doubles as the SpeechControlling for
+    /// pause/resume/stop. Nil hooks (streaming / bridging gaps) hide the bar.
+    @ViewBuilder
+    private func actionBar(forBlockContent content: String) -> some View {
+        if let onSpeakText, let controller = speechController {
+            MessageActionBar(
+                speakText: content,
+                onSpeak: onSpeakText,
+                controller: controller
+            )
+        }
     }
 
     /// Split assistant markdown into bubble segments on blank lines.

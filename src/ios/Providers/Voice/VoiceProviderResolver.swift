@@ -111,6 +111,13 @@ final class VoiceOutputState: ObservableObject {
     @Published var speechPaused = false
     @Published var speechSpeed: Float = VoiceOutputPreferences.speedMultiplier
 
+    /// [T-message-action-bar 09-11] Unified "paused" read for UI: the mirrored
+    /// VM state (System path) OR the cloud player's latch. Both UIs (capsule,
+    /// bubble bar) read this so their pause icons always agree.
+    var isPausedOrHeld: Bool {
+        speechPaused || VoiceOutputPlayer.shared.isPaused
+    }
+
     /// The session currently reading aloud — global capsule actions forward here.
     weak var activeController: SpeechControlling?
 
