@@ -61,7 +61,7 @@ enum SystemVoiceCatalog {
     }
 
     /// Star suffix marking the download tier: Premium ★★★, Enhanced ★★, Default none.
-    private static func qualityStars(_ q: AVSpeechSynthesisVoiceQuality) -> String {
+    static func qualityStars(_ q: AVSpeechSynthesisVoiceQuality) -> String {
         switch q {
         case .premium:  return " ★★★"
         case .enhanced: return " ★★"

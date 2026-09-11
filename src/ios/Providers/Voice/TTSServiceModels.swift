@@ -392,10 +392,28 @@ final class TTSServiceStore: @unchecked Sendable {
 
     func setSelectedServiceId(_ id: String?) {
         lock.lock()
+        let previous = _selectedId
         _selectedId = id
         let snapshot = _services
         lock.unlock()
         persist(snapshot, selected: id)
+        // [T-tts-services 09-11] A voice SWITCH mid-read restarts playback with
+        // the new voice: stop current audio, collect the unread remainder, and
+        // re-enqueue it. Letting the old audio finish would keep the OLD voice
+        // for several more seconds after the user explicitly asked for the new
+        // one. Selecting the same service again is a no-op (id == previous).
+        if id != previous, VoiceOutputPreferences.isEnabled,
+           let rest = VoiceOutputPlayer.shared.stopAll(collectRemainder: true) {
+            Task { @MainActor in
+                // Drop the per-reply cloud/System snapshot so the next enqueue
+                // re-resolves against the new service layer state.
+                VoiceOutputState.shared.activeController?.restartReplyTTS()
+                // Re-feed the remainder through the segmenter so batching
+                // behaves like a fresh read (owner session preserved so a
+                // concurrent chat's stop still works).
+                VoiceOutputPlayer.shared.enqueueSegmented(rest.text, sessionId: rest.sessionId)
+            }
+        }
     }
 
     // MARK: Credential

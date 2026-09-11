@@ -1427,6 +1427,18 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
     }
 
+    /// [T-tts-services 09-11] Voice switched in the middle of a read: the
+    /// per-reply engine snapshot is stale (it decided cloud/System before the
+    /// switch). Clear it so the next `speakQueued`/`speak` re-resolves through
+    /// the new service layer. The unread remainder was already re-enqueued by
+    /// the store; this VM just needs to keep its read-aloud state consistent.
+    func restartReplyTTS() {
+        replyUsesCloudTTS = nil
+        // The stream-side dynamic window may still hold buffered text destined
+        // for the old decision — it resolves `useCloudTTS` per flush, so it is
+        // automatically consistent once the snapshot is cleared.
+    }
+
     /// Push this VM's live read-aloud state up to the global VoiceOutputState so
     /// the home-screen capsule reflects it. Also registers this VM as the active
     /// controller so global-capsule actions forward here.
@@ -1695,9 +1707,19 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
         // Apply the read-replies speed multiplier on top of the user's base rate,
         // clamped to AVSpeechUtterance's valid range.
+        // [T-tts-services 09-11] The Voice Services System editor's rate slider
+        // (a direct AVSpeechUtterance.rate value) takes precedence when set; it
+        // is a deliberate absolute speed, so the capsule's speed multiplier then
+        // scales on top of it exactly like it does for the manager's rate.
+        let baseRate: Float
+        if UserDefaults.standard.object(forKey: "systemVoice.rateMultiplier") != nil {
+            baseRate = SystemVoiceEditorPreferences.utteranceRate
+        } else {
+            baseRate = mgr.speechRate
+        }
         let mult = VoiceOutputPreferences.speedMultiplier
         utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate,
-                             max(AVSpeechUtteranceMinimumSpeechRate, mgr.speechRate * mult))
+                             max(AVSpeechUtteranceMinimumSpeechRate, baseRate * mult))
         utterance.pitchMultiplier = SystemVoicePreferences.pitch
         utterance.volume = SystemVoicePreferences.volume
         return utterance

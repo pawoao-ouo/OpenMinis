@@ -1,6 +1,56 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "System Voice" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统语音"
+          }
+        }
+      }
+    },
+    "Auto by language" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按语言自动"
+          }
+        }
+      }
+    },
+    "Each reply uses the voice matching its language" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每条回复自动用匹配语言的音色"
+          }
+        }
+      }
+    },
+    "Download more voices in Settings › Accessibility › Spoken Content › Voices. Premium voices sound best." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多音色在 设置 › 辅助功能 › 朗读内容 › 声音 里下载。高级音色效果最好。"
+          }
+        }
+      }
+    },
+    "Edit System voice" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑系统语音"
+          }
+        }
+      }
+    },
     "Text-to-Speech" : {
       "localizations" : {
         "zh-Hans" : {

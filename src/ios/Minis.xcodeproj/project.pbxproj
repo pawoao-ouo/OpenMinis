@@ -14,6 +14,7 @@
 		F1T00026 /* TTSProviderBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00022 /* TTSProviderBridge.swift */; };
 		F1T00027 /* VoiceServicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00023 /* VoiceServicesView.swift */; };
 		F1T00028 /* TTSServiceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00024 /* TTSServiceEditorView.swift */; };
+		F1T00030 /* SystemVoiceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00029 /* SystemVoiceEditorView.swift */; };
 		30390D7AA90818BD4BDCE784 /* VoiceProviderTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F3D1138DBE516F31D76ABF4 /* VoiceProviderTemplate.swift */; };
 		33643CC21B9402F949D76C3C /* VoiceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84758F712C9B9178FA9D0EF2 /* VoiceProvider.swift */; };
 		38F28509AFBC2153A7C85E85 /* VoiceInputPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8AB343B6D865C37CC5E9EDB /* VoiceInputPanel.swift */; };
@@ -1223,6 +1224,7 @@
 		F1T00022 /* TTSProviderBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSProviderBridge.swift; sourceTree = "<group>"; };
 		F1T00023 /* VoiceServicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceServicesView.swift; sourceTree = "<group>"; };
 		F1T00024 /* TTSServiceEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSServiceEditorView.swift; sourceTree = "<group>"; };
+		F1T00029 /* SystemVoiceEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemVoiceEditorView.swift; sourceTree = "<group>"; };
 		LOC00002 /* AppLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLocalization.swift; sourceTree = "<group>"; };
 		RCL000020 /* Rclone.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Rclone.xcframework; path = ../../deps/frameworks/Rclone.xcframework; sourceTree = "<group>"; };
 		RCL000210 /* RcloneBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RcloneBridge.swift; path = Remote/RcloneBridge.swift; sourceTree = "<group>"; };
@@ -2266,6 +2268,7 @@
 				E5G000013 /* EnhancedBackgroundSettingsView.swift */,
 				F1T00023 /* VoiceServicesView.swift */,
 				F1T00024 /* TTSServiceEditorView.swift */,
+				F1T00029 /* SystemVoiceEditorView.swift */,
 				XMSTYLE102 /* AppearanceStudioView.swift */,
 				XMREACH102 /* ActiveReachSettingsView.swift */,
 				E5P000012 /* EnvironmentVariablesView.swift */,
@@ -3160,6 +3163,7 @@
 				F1T00026 /* TTSProviderBridge.swift in Sources */,
 				F1T00027 /* VoiceServicesView.swift in Sources */,
 				F1T00028 /* TTSServiceEditorView.swift in Sources */,
+				F1T00030 /* SystemVoiceEditorView.swift in Sources */,
 				77BB9741AB0EFC449FDBDFED /* VoiceWaveformView.swift in Sources */,
 				38F28509AFBC2153A7C85E85 /* VoiceInputPanel.swift in Sources */,
 				30390D7AA90818BD4BDCE784 /* VoiceProviderTemplate.swift in Sources */,

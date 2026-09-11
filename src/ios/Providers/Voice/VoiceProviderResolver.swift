@@ -55,6 +55,10 @@ protocol SpeechControlling: AnyObject {
     func stopSpeech()
     func nextSpeechSpeed()
     func disableSpeech(resetSpeed: Bool)
+    /// [T-tts-services 09-11] The selected TTS voice changed mid-read: drop the
+    /// per-reply engine snapshot so subsequent enqueues resolve against the new
+    /// service instead of continuing on the old cloud/System decision.
+    func restartReplyTTS()
 }
 
 /// GLOBAL read-replies (TTS output) state — a single source of truth shared
@@ -386,6 +390,12 @@ enum VoiceProviderResolver {
     static func resolvedSystemOutputVoiceId() -> String? {
         if let vid = selectedSystemVoiceId(VoiceSelectionStore.shared.outputEntryId) {
             return vid
+        }
+        // [T-tts-services 09-11] The Voice Services page's System editor can
+        // pin a voice directly (without touching the Model-Group machinery) —
+        // honour that before the group-member scan so the two paths agree.
+        if let pinned = SystemVoiceEditorPreferences.selectedVoiceId {
+            return pinned
         }
         // Also honor a specific System voice pinned as a member of the configured
         // output group (first system member that names a concrete voice).

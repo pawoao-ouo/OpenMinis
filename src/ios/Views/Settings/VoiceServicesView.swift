@@ -28,6 +28,7 @@ struct VoiceServicesView: View {
 
     @State private var editing: TTSServiceOptions?
     @State private var showAddSheet = false
+    @State private var showSystemEditor = false
     /// TTSServiceStore is a plain Sendable (read from the synthesis queue too),
     /// not an ObservableObject — this throws on its change notification so the
     /// list re-renders on add / edit / delete / selection.
@@ -68,6 +69,11 @@ struct VoiceServicesView: View {
                 TTSServiceEditorView(service: service)
             }
         }
+        .sheet(isPresented: $showSystemEditor) {
+            NavigationStack {
+                SystemVoiceEditorView()
+            }
+        }
     }
 
     // MARK: Services
@@ -92,8 +98,8 @@ struct VoiceServicesView: View {
         }
     }
 
-    /// The built-in Apple engine — selectable, but carries no config beyond the
-    /// separate System voice config sheet.
+    /// The built-in Apple engine — selectable; the gear opens the System voice
+    /// editor (voice roster + pitch/volume/speed), same as any cloud service.
     private var systemRow: some View {
         let isActive = store.selectedServiceId == nil
         return Button {
@@ -164,6 +170,18 @@ struct VoiceServicesView: View {
     @ViewBuilder
     private func trailingControls(system: Bool, active: Bool, service: TTSServiceOptions? = nil) -> some View {
         HStack(spacing: 18) {
+            if system {
+                // System engine: gear opens the system-voice editor sheet.
+                Button {
+                    showSystemEditor = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 15))
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Edit System voice")
+            }
             if let service {
                 // Test-listen: synthesizes a short phrase through this service
                 // right from the list (uses the SAVED definition + stored key).

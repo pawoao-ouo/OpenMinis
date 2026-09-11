@@ -289,7 +289,40 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
     }
 
     /// Stop everything: cancel in-flight synth, clear the queue, stop playback.
-    func stopAll() {
+    ///
+    /// [T-tts-services 09-11] `restart` support: when a voice change arrives
+    /// mid-read, the caller can ask for the not-yet-played remainder back so it
+    /// can re-enqueue it through the NEW voice (kelivo restarts playback; letting
+    /// the old audio finish would read the old voice for several more seconds
+    /// and defeat the point of switching).
+    @discardableResult
+    func stopAll(collectRemainder: Bool = false) -> (text: String, sessionId: String)? {
+        var remainder: (String, String)?
+        if collectRemainder {
+            // The currently-playing unit (partially heard) + every queued unit
+            // that never played, in order. The partially-heard unit is included
+            // WHOLE — restarting mid-sentence would splice two voices at an
+            // arbitrary point, which sounds worse than re-hearing a few words.
+            // Units that already synthesized but haven't played yet are ALSO
+            // included: their audio was made with the OLD voice, so replaying it
+            // would violate the switch.
+            var texts: [String] = []
+            var owner: String?
+            if playingSeq >= 0 {
+                if let idx = queue.firstIndex(where: { $0.seq == playingSeq }) {
+                    texts.append(queue[idx].text)
+                    owner = queue[idx].ownerSessionId
+                }
+            }
+            for u in queue where u.seq != playingSeq && !u.failed {
+                texts.append(u.text)
+                owner = owner ?? u.ownerSessionId
+            }
+            let joined = texts.joined(separator: "\n")
+            if !joined.isEmpty {
+                remainder = (joined, owner ?? VoiceOutputPlayer.manualOwnerId)
+            }
+        }
         for u in queue { u.task?.cancel() }
         queue.removeAll()
         player?.stop()
@@ -301,6 +334,7 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
         isPaused = false
         isSynthesizing = false
         releaseSessionIfSafe()
+        return remainder
     }
 
     /// Clear ONE session's queued/synthesizing units. If the currently-playing

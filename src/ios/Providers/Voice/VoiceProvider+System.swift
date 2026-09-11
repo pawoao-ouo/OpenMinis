@@ -264,6 +264,15 @@ final class SystemVoiceProvider: NSObject, VoiceInputCapable, VoiceOutputCapable
         utterance.voice = Self.resolveVoice(request: request, fallbackLocale: locale)
         utterance.pitchMultiplier = SystemVoicePreferences.pitch
         utterance.volume = SystemVoicePreferences.volume
+        // [T-tts-services 09-11] Same rule as the live path: the Voice Services
+        // System editor's rate (an absolute AVSpeechUtterance.rate) wins over
+        // mapSpeed's multiplier mapping when the user set it.
+        if UserDefaults.standard.object(forKey: "systemVoice.rateMultiplier") != nil {
+            let mult = VoiceOutputPreferences.speedMultiplier
+            utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate,
+                                 max(AVSpeechUtteranceMinimumSpeechRate,
+                                      SystemVoiceEditorPreferences.utteranceRate * mult))
+        }
 
         // A dedicated synthesizer per write() call — the shared `synthesizer` is
         // used for live speak(); mixing write() onto it can drop callbacks.
