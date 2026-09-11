@@ -431,12 +431,12 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
         var candidates: [Candidate] = Self.resolvedServiceCandidates()
 
         if candidates.isEmpty {
-            candidates = VoiceProviderResolver.resolvedOutputCandidates().compactMap { entry in
+            candidates = VoiceProviderResolver.resolvedOutputCandidates().compactMap { entry -> Candidate? in
                 guard let p = VoiceProviderResolver.outputProvider(for: entry) else { return nil }
-                Candidate(key: entry.id,
-                          label: entry.model.displayName,
-                          provider: p,
-                          makeRequest: { VoiceOutputRequest(input: $0, model: entry.model.id) })
+                return Candidate(key: entry.id,
+                                 label: entry.model.displayName,
+                                 provider: p,
+                                 makeRequest: { VoiceOutputRequest(input: $0, model: entry.model.id) })
             }
         }
         guard !candidates.isEmpty else { return }
