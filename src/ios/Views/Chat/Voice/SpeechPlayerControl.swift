@@ -515,7 +515,17 @@ struct SpeechPlayerControl: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!state.isReadingAloud)
+            // [T-capsule-pause-dead] Gate on the PLAYBACK state the control
+            // actually renders from (isPausedOrHeld / hasPendingAudio /
+            // isSynthesizing), not on the mirrored VM `isReadingAloud`:
+            // System-TTS playback is owned by the session VM, and a manual
+            // bubble tap while no VM has pushed state yet (or after another
+            // session took over) leaves isReadingAloud false — the button
+            // greyed out while speech is plainly running. Nothing is played
+            // and nothing is held → nothing to pause; in every other state
+            // the button does something real.
+            .disabled(!(state.isPausedOrHeld || voicePlayer.isPlaying
+                        || voicePlayer.hasPendingAudio || voicePlayer.isSynthesizing))
 
             // Speaker = MUTE toggle (temporary silence; capsule stays visible).
             Button {

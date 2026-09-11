@@ -366,8 +366,15 @@ struct MinisVideoFullscreenPlayer: View {
                 p = AVPlayer(url: fileURL)
             }
             player = p
-            try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
-            try? AVAudioSession.sharedInstance().setActive(true)
+            // [T-video-audiosession-owner] Route through the coordinator
+            // instead of calling setCategory/setActive directly. Raw calls
+            // here reconfigure the shared AVAudioSession LAST-WINS: they left
+            // the session in .playback/.mixWithOthers after the video closed,
+            // so a later System TTS utterance was silent (the stale
+            // no-duckOthers profile) — the exact class of race the
+            // coordinator exists to remove. .mediaAttachment is the designed
+            // intent for in-chat media and already preempts reply TTS.
+            AudioSessionCoordinator.shared.begin(.mediaAttachment)
             if externalPlayer == nil {
                 p.play()
             }
@@ -421,6 +428,8 @@ struct MinisVideoFullscreenPlayer: View {
             hideTask?.cancel()
             player?.pause()
             player = nil
+            // [T-video-audiosession-owner] Symmetric end with the begin above.
+            AudioSessionCoordinator.shared.end(.mediaAttachment)
         }
         .sheet(isPresented: $showShareSheet) {
             MinisShareSheet(url: fileURL)
