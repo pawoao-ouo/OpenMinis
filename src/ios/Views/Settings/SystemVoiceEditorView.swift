@@ -78,8 +78,10 @@ struct SystemVoiceEditorView: View {
             }
         }
         .onAppear(perform: loadVoices)
-        .onReceive(NotificationCenter.default.publisher(
-            for: UIApplication.availableVoicesDidChangeNotification)) { _ in
+        // Roster refresh via the shared observer (iOS 17+; on older systems the
+        // list still rebuilds on open). UnifiedModelPicker uses the same hook.
+        .onAppear { SystemVoiceCatalog.startObservingVoiceChanges() }
+        .onReceive(SystemVoiceRoster.shared.$revision) { _ in
             loadVoices()
         }
     }

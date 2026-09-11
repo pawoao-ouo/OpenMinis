@@ -402,9 +402,9 @@ final class TTSServiceStore: @unchecked Sendable {
         // re-enqueue it. Letting the old audio finish would keep the OLD voice
         // for several more seconds after the user explicitly asked for the new
         // one. Selecting the same service again is a no-op (id == previous).
-        if id != previous, VoiceOutputPreferences.isEnabled,
-           let rest = VoiceOutputPlayer.shared.stopAll(collectRemainder: true) {
+        if id != previous, VoiceOutputPreferences.isEnabled {
             Task { @MainActor in
+                guard let rest = VoiceOutputPlayer.shared.stopAll(collectRemainder: true) else { return }
                 // Drop the per-reply cloud/System snapshot so the next enqueue
                 // re-resolves against the new service layer state.
                 VoiceOutputState.shared.activeController?.restartReplyTTS()

@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 // MARK: - TTS service editor
 //
@@ -46,7 +47,10 @@ struct TTSServiceEditorView: View {
     enum TestOutcome: Identifiable {
         case success
         case failure(String)
-        var id: Int { self == .success ? 0 : 1 }
+        var id: Int {
+            if case .success = self { return 0 }
+            return 1
+        }
     }
 
     var body: some View {
@@ -274,7 +278,7 @@ struct LabeledTextField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            TextField(placeholder, text: $text, prompt: Text(placeholder).foregroundStyle(MinisTheme.secondaryText))
+            TextField(placeholder, text: $text, prompt: Text(placeholder).foregroundColor(MinisTheme.secondaryText))
                 .keyboardType(keyboardType)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -300,7 +304,7 @@ struct SecureLabeledTextField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            SecureField(placeholder, text: $text, prompt: Text(placeholder).foregroundStyle(MinisTheme.secondaryText))
+            SecureField(placeholder, text: $text, prompt: Text(placeholder).foregroundColor(MinisTheme.secondaryText))
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
             Text(label)

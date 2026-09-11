@@ -428,7 +428,7 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
         // needed. Falls through to the legacy group candidates when no service
         // is selected, or when the selected one can't build a provider (missing
         // credential, vendor without TTS), so an existing setup never breaks.
-        var candidates: [Candidate] = resolvedServiceCandidates()
+        var candidates: [Candidate] = Self.resolvedServiceCandidates()
 
         if candidates.isEmpty {
             candidates = VoiceProviderResolver.resolvedOutputCandidates().compactMap { entry in
