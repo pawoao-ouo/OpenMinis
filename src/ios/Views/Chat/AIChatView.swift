@@ -367,6 +367,10 @@ struct AIChatView: View {
     @State private var showDocumentPicker = false
     @State private var showMoveToSheet = false
     @State private var showClearChatConfirm = false
+    /// [T-action-bar 09-12] Assistant action bar delete needs an explicit
+    /// confirmation because the safe data-consistent operation removes the
+    /// whole turn (its preceding user prompt + every following message).
+    @State private var pendingAssistantDeleteId: UUID?
     /// [T-new-chat-menu-entry] Confirmation gate for "New Chat" from the "…"
     /// menu while the current session is still streaming: stopping the task is
     /// destructive enough to warrant an explicit confirm.
@@ -868,6 +872,30 @@ struct AIChatView: View {
             Button(AppLocalized("Cancel"), role: .cancel) {}
         } message: {
             Text(AppLocalized("All messages in this session will be permanently deleted."))
+        }
+        // [T-action-bar 09-12] A message turn is not safely deletable as a
+        // single row: its model history can contain tool-use/result rows and
+        // continuation rows. The safe operation is delete-from-its-user-prompt,
+        // which necessarily deletes the later suffix too; say that before it runs.
+        .alert(AppLocalized("Delete Message?"), isPresented: Binding(
+            get: { pendingAssistantDeleteId != nil },
+            set: { if !$0 { pendingAssistantDeleteId = nil } }
+        )) {
+            Button(AppLocalized("Delete"), role: .destructive) {
+                guard let assistantId = pendingAssistantDeleteId,
+                      let assistantIdx = vm.messages.firstIndex(where: { $0.id == assistantId }) else {
+                    pendingAssistantDeleteId = nil
+                    return
+                }
+                let precedingUser = vm.messages[..<assistantIdx].last(where: { $0.role == .user })
+                if let precedingUser { vm.deleteFromMessage(precedingUser.id) }
+                pendingAssistantDeleteId = nil
+            }
+            Button(AppLocalized("Cancel"), role: .cancel) {
+                pendingAssistantDeleteId = nil
+            }
+        } message: {
+            Text(AppLocalized("This message and all messages after it will be deleted. This cannot be undone."))
         }
         // Bridge VM's slash-command "/clear" request into the local @State that
         // drives the confirmation alert above, so the menu and slash-command
@@ -2697,6 +2725,7 @@ struct AIChatView: View {
                 onResume: { vm.resume(); vm.forceScrollToBottom.send() },
                 onStop: { vm.stopCurrentCommand() },
                 onCompact: { msgId in compactConfirmMessageId = msgId },
+                onRequestDeleteAssistant: { msgId in pendingAssistantDeleteId = msgId },
                 onRevertCompact: { Task { await vm.revertCompact() } },
                 onForceSync: { [self] in
                     guard let sid = vm.sessionId else { return }

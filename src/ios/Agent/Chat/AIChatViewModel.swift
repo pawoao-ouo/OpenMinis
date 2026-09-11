@@ -1297,7 +1297,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     // MARK: - Speech
 
     private let speechSynthesizer = AVSpeechSynthesizer()
-    private lazy var speechDelegate = SpeechFinishedDelegate()
+    private lazy var speechDelegate: SpeechFinishedDelegate = {
+        let delegate = SpeechFinishedDelegate()
+        delegate.owner = self
+        return delegate
+    }()
     /// True when speech is paused (not stopped). Toggled by the floating speech button.
     @Published var speechPaused = false
 
@@ -1372,9 +1376,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !fullText.isEmpty else { return }
 
-        // Clear whatever THIS session is playing/queuing so the replay starts
-        // clean — other concurrent sessions' queued speech is left alone.
-        stopSpeechForThisSession()
+        // An explicit replay takes over output. `stopSpeech()` (not the
+        // session-scoped streaming cleanup) clears any queued manual/other-chat
+        // audio too, so tapping a reply never leaves the old voice talking first.
+        stopSpeech()
         // Ensure read-replies is on (and reflected in prefs/voice VM).
         if !speakEnabled {
             speakEnabled = true
@@ -1388,10 +1393,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         unmuteForExplicitReadAloud()
         isReadingAloud = true
         // Split into sentences and queue each — reuses the streaming segmenter so
-        // sizing / dynamic window behave the same as live playback.
+        // sizing / dynamic window behave the same as live playback. The engine is
+        // resolved fresh through speakText for this explicit replay (rather than a
+        // stale streaming-turn snapshot).
         let (sentences, _) = extractNewSentences(from: fullText, spokenOffset: 0)
         let units = sentences.isEmpty ? [fullText] : sentences
-        for s in units { speakQueued(s) }
+        for s in units { speakText(s) }
     }
 
     /// [T-readaloud-menu-force-unmute] Lift a TEMPORARY mute because the user
@@ -1449,6 +1456,21 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                                           speed: speechSpeed)
     }
 
+    /// End System-TTS UI state after AVSpeechSynthesizer drains its final queued
+    /// utterance. Cloud TTS owns this through VoiceOutputPlayer; do not call this
+    /// for cloud playback or it would flip the global bubble icon mid-queue.
+    func finishSystemSpeechIfIdle() {
+        // Do not ask `useCloudTTS` here: it is a per-turn cache and may have
+        // been set by a later reply while this System utterance was draining.
+        // The delegate is attached only on the System path, so !isSpeaking is
+        // the correct ownership test.
+        guard !speechSynthesizer.isSpeaking else { return }
+        isReadingAloud = false
+        speechPaused = false
+        AudioSessionCoordinator.shared.end(.replyTTS)
+        syncSpeechStateToGlobal()
+    }
+
     /// Stop all speech and reset paused state.
     func stopSpeech() {
         speechSynthesizer.stopSpeaking(at: .immediate)
@@ -1488,25 +1510,41 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     func speakText(_ rawText: String) {
         // Strip emoji / non-speakable glyphs before TTS.
         let text = VoiceTextSanitizer.sanitize(rawText)
-        // [T-readaloud-menu-force-unmute] Sole caller is the "Read Selection"
-        // long-press menu action, i.e. an explicit request to hear THIS text —
-        // so lift a temporary mute rather than dropping the request on the
-        // floor. Ordered before the `canSpeakNow` guard, which folds in
-        // `isMuted` and would otherwise return early.
+        // [T-readaloud-menu-force-unmute] Explicit play must work even when
+        // auto-read is currently OFF: the bubble/selection tap is an immediate
+        // intent to hear this text, so turn on the master gate and lift only the
+        // temporary mute before checking canSpeakNow. Previously the bubble
+        // action only unmuted; with isEnabled=false, canSpeakNow returned false
+        // and the speaker looked tappable yet silently did nothing.
+        if !speakEnabled {
+            speakEnabled = true
+            VoiceOutputPreferences.isEnabled = true
+        }
         unmuteForExplicitReadAloud()
-        guard canSpeakNow, !text.isEmpty else { return }
+        guard canSpeakNow, !text.isEmpty else {
+            if text.isEmpty {
+                MinisToast.show(AppLocalized("Nothing to read aloud"), systemImage: "speaker.slash")
+            }
+            return
+        }
         isReadingAloud = true
         syncSpeechStateToGlobal(registerActive: true)
         // Reply TTS (System + cloud are the SAME source/intent) — declare it once
         // up front; the resolved provider then picks the engine.
         AudioSessionCoordinator.shared.begin(.replyTTS)
-        if useCloudTTS {
+        // This is an explicit replay, not a streaming turn: resolve the voice
+        // selection fresh. A selection changed after the prior reply must apply
+        // to this tap immediately rather than waiting for the next streamed turn.
+        if resolvedCloudTTSSelection() {
             VoiceOutputPlayer.shared.enqueue(text, sessionId: sessionId ?? "")
             return
         }
+        // Always attach the lifecycle delegate, not only in background mode:
+        // foreground System TTS used to finish with isReadingAloud stuck true,
+        // leaving the bubble icon as pause forever after audio had ended.
+        speechSynthesizer.delegate = speechDelegate
         if BackgroundKeepAliveManager.shared.backgroundSpeakEnabled {
             BackgroundKeepAliveManager.shared.stopSilentAudio()
-            speechSynthesizer.delegate = speechDelegate
         }
         if speechSynthesizer.isSpeaking {
             speechSynthesizer.stopSpeaking(at: .word)
@@ -1659,24 +1697,34 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     }
 
     /// True when a configured cloud TTS model is selected (not the offline System
-    /// provider). Snapshotted once per reply (`replyUsesCloudTTS`) so a mid-reply
-    /// provider change can't split one reply across two engines playing at once.
+    /// provider). Streaming replies snapshot this once so a mid-reply provider
+    /// change cannot split one reply across two engines. Explicit user-initiated
+    /// read-aloud deliberately resolves it fresh: tapping a bubble must obey the
+    /// voice the user just selected, not a stale prior-reply snapshot.
     private var useCloudTTS: Bool {
         if let snap = replyUsesCloudTTS { return snap }
+        let v = resolvedCloudTTSSelection()
+        replyUsesCloudTTS = v
+        return v
+    }
+
+    private func resolvedCloudTTSSelection() -> Bool {
         // [T-tts-services 09-11] The independent TTS service layer counts as a
         // cloud engine too: when the user has a service selected, read-aloud
         // must go through VoiceOutputPlayer (whose pumpPrefetch consults the
         // service store FIRST), not the on-device AVSpeechSynthesizer path —
         // otherwise a configured service would be silently ignored whenever the
         // Model-Group path resolves to System, i.e. exactly the "播音腔" trap.
-        let serviceSelected = TTSServiceStore.shared.selectedServiceId != nil
-            || !TTSServiceStore.shared.services.filter { $0.enabled }.isEmpty
-        let v = serviceSelected
+        // Only an explicitly selected *enabled* service is a target. Treating
+        // every enabled service as selected made a half-configured background
+        // service hijack System playback and fail silently before the normal
+        // System fallback could speak.
+        let selectedService = TTSServiceStore.shared.selectedService()
+        let serviceSelected = selectedService?.enabled == true
+        return serviceSelected
             || !(VoiceProviderResolver.outputProvider() is SystemVoiceProvider)
-        replyUsesCloudTTS = v
-        return v
     }
-    /// Per-reply snapshot of the TTS engine choice; cleared at each reply start.
+    /// Per-reply snapshot of the streaming engine choice; cleared at each reply start.
     private var replyUsesCloudTTS: Bool?
 
     /// Reset the per-reply TTS engine snapshot (call at the start of each reply).
@@ -3453,38 +3501,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         rebuildToolSnapshotsFromMessages()
     }
 
-    // MARK: - [T-action-bar 09-11] Single assistant message delete / regenerate
+    // MARK: - [T-action-bar 09-11] Assistant message regenerate
     //
-    // 醒醒要的 kelivo 式操作条:AI 气泡下面有「重新回复」「删除消息」。
-    // deleteFromMessage 是从某条用户消息起往后全删,retryFromMessage 同理
-    // —— 这两个是「从这条起往后重来」。但操作条挂在 AI 消息上,语义是
-    // 「删/重做这一条 AI 回复」,所以要新方法。
-    //
-    // - deleteAssistantMessage: 删这一条 AI 消息(不动它前后的内容,删单条)
-    // - regenerateAssistant: 从这条 AI 前面最近的用户消息起重新生成
-    //   (= retryFromMessage(前一条用户消息的 id),但 UI 给的是 AI 的 id)
-
-    /// Delete a single assistant message by id. Only removes that one row
-    /// (and its tool blocks) from messages + agentHistory + DB; everything
-    /// before and after stays. No-op if not found / not assistant / busy.
-    func deleteAssistantMessage(_ messageId: UUID) {
-        guard !isProcessing else { return }
-        isTruncatingForRetry = true
-        canResume = false
-        userDidCancel = false
-        guard let idx = messages.firstIndex(where: { $0.id == messageId }),
-              messages[idx].role == .assistant else {
-            isTruncatingForRetry = false
-            return
-        }
-        messages.remove(at: idx)
-        if !transitionSuspended { objectWillChange.send() }
-        Task {
-            await ChatStore.shared.deleteLocalMessage(messageId: messageId.uuidString)
-            await MainActor.run { self.isTruncatingForRetry = false }
-        }
-        rebuildToolSnapshotsFromMessages()
-    }
+    // 操作条挂在 AI 消息上。重新回复必须从它前面的用户消息切回去：
+    // 不能只删 UI 里的一个 AI row，否则 agentHistory / tool_use-result 配对 /
+    // 数据库原始行会不同步，下次发消息会带着已经看不见的上下文。
 
     /// Regenerate one assistant message: find the preceding user message,
     /// then retry-from-that (truncates this assistant turn + reruns).

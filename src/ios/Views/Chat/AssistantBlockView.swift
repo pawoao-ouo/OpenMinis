@@ -28,6 +28,12 @@ struct AssistantBlockView: View {
     @Binding var highlightedBlockId: UUID?
     @Binding var detailBlock: AssistantBlock?
     private var isHighlighted: Bool { highlightedBlockId == block.id }
+    /// The action bar belongs to completed assistant replies only. A cell can
+    /// receive speech hooks while it represents a user/system row during reuse;
+    /// requiring both actions prevents controls from appearing on non-AI content.
+    private var canShowActionBar: Bool {
+        message.role == .assistant && onRegenerate != nil && onDeleteMessage != nil
+    }
 
     var body: some View {
         switch block.kind {
@@ -54,7 +60,8 @@ struct AssistantBlockView: View {
                         // visible tail. It reads THE WHOLE BLOCK (all segments),
                         // not just the last segment, so "播放本条" means this
                         // message's complete text.
-                        if Self.isLastTextBlock(of: message, block: block) {
+                        if Self.isLastTextBlock(of: message, block: block),
+                           canShowActionBar {
                             actionBar(forBlockContent: block.content)
                         }
                     }
@@ -62,7 +69,8 @@ struct AssistantBlockView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         self.singleTextBubble(block.content)
-                        if Self.isLastTextBlock(of: message, block: block) {
+                        if Self.isLastTextBlock(of: message, block: block),
+                           canShowActionBar {
                             actionBar(forBlockContent: block.content)
                         }
                     }

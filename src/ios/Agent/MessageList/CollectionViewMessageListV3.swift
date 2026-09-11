@@ -49,6 +49,9 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
     var onResume: (() -> Void)?
     var onStop: (() -> Void)?
     var onCompact: ((UUID) -> Void)?
+    /// [T-action-bar 09-12] Single destructive action confirmation, owned by
+    /// the SwiftUI chat root so V3's UIKit cell has no alert lifecycle race.
+    var onRequestDeleteAssistant: ((UUID) -> Void)?
     var onRevertCompact: (() -> Void)?
     var onForceSync: (() -> Void)?
     var onScreenshotImage: ((UIImage) -> Void)?
@@ -90,6 +93,7 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
         coord.onResume = onResume
         coord.onStop = onStop
         coord.onCompact = onCompact
+        coord.onRequestDeleteAssistant = onRequestDeleteAssistant
         coord.onRevertCompact = onRevertCompact
         coord.onForceSync = onForceSync
         coord.onScreenshotImage = onScreenshotImage
@@ -708,6 +712,7 @@ extension CollectionViewMessageListV3 {
         var onResume: (() -> Void)?
         var onStop: (() -> Void)?
         var onCompact: ((UUID) -> Void)?
+        var onRequestDeleteAssistant: ((UUID) -> Void)?
         var onRevertCompact: (() -> Void)?
         var onForceSync: (() -> Void)?
         var onScreenshotImage: ((UIImage) -> Void)?
@@ -1459,14 +1464,31 @@ extension CollectionViewMessageListV3 {
             // [T-selection-menu-minis-tts] "Read Selection" from the text
             // selection menu — speaks the selected snippet via the Minis TTS
             // stack (sanitizer + provider voices + fail-over).
-            bridge.onSpeakText = { [weak vm] text in vm?.speakText(text) }
+            // [T-action-bar 09-12] Explicit play tap: force-enable read-replies
+            // master switch (手动点播 ≠ 自动跟读;总开关管自动,手动点开就开)。
+            // Otherwise canPlay=isEnabled&&!isMuted is false when the user has
+            // the master switch off, and the tap is a silent no-op.
+            // Start clean: this is an explicit request for THIS bubble, not an
+            // instruction to append it after a different reply's queued speech.
+            bridge.onSpeakText = { [weak vm] text in
+                guard let vm else { return }
+                vm.stopSpeech()
+                if !vm.speakEnabled {
+                    vm.speakEnabled = true
+                    VoiceOutputPreferences.isEnabled = true
+                }
+                vm.speakText(text)
+            }
             // [T-message-action-bar 09-11] Bubble action bar's pause/resume/stop.
             bridge.speechController = vm
-            // [T-action-bar 09-11] Regenerate / delete this assistant message.
+            // [T-action-bar 09-11] Regenerate this assistant turn. Deleting one
+            // visible assistant row is NOT safe: an agent turn may span multiple
+            // raw DB rows/tool pairs, so use the existing safe suffix-delete path
+            // from the preceding user bubble instead.
             bridge.onRegenerate = (message.role == .assistant && !vm.isProcessing)
                 ? { [weak vm] in vm?.regenerateAssistantMessage(message.id) } : nil
             bridge.onDeleteMessage = (message.role == .assistant && !vm.isProcessing)
-                ? { [weak vm] in vm?.deleteAssistantMessage(message.id) } : nil
+                ? { [weak self] in self?.onRequestDeleteAssistant?(message.id) } : nil
             bridge.onCopyScreenshot = { [weak self, weak vm] in
                 guard let self, let vm else { return }
                 let msgs = vm.messages

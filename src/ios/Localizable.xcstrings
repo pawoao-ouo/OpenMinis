@@ -10798,6 +10798,22 @@
         }
       }
     },
+    "Nothing to read aloud" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing to read aloud"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有可朗读的内容"
+          }
+        }
+      }
+    },
     "Regenerate" : {
       "localizations" : {
         "en" : {
