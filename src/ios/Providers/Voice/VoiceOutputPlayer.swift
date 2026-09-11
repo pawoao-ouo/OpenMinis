@@ -37,6 +37,18 @@ enum VoiceOutputPreferences {
 
     private static let mutedKey = "voice.output.muted"
 
+    /// [T-tts-services 09-11] kelivo-style "cache audio for replay": keep the
+    /// files a network service synthesized so replaying the same unit doesn't
+    /// re-hit the vendor. Persisted; default on (audio is small and private).
+    private static let cacheKey = "voice.output.cacheNetworkAudio"
+    static var cacheNetworkAudio: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: cacheKey) == nil { return true }
+            return UserDefaults.standard.bool(forKey: cacheKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: cacheKey) }
+    }
+
     /// Whether read-replies is temporarily muted (persisted so it survives restart).
     static var isMuted: Bool {
         get { UserDefaults.standard.bool(forKey: mutedKey) }
@@ -109,10 +121,15 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
 
     /// One ordered fail-over candidate.
     struct Candidate {
-        let key: String          // ModelEntry.id (stable identity for stickiness)
-        let modelId: String?
+        let key: String          // ModelEntry.id / service id (stable identity for stickiness)
         let label: String
         let provider: any VoiceOutputCapable
+        /// [T-tts-services 09-11] Builds the synthesis request for a text unit.
+        /// The legacy Model-Group path emits a bare `VoiceOutputRequest(input:
+        /// model:)`; the TTS service path folds in the vendor's voice id and
+        /// tuning knobs. Keeping this per-candidate means the two layers never
+        /// have to agree on a shared parameter shape.
+        let makeRequest: (String) -> VoiceOutputRequest
     }
     /// STICKY cursor: the ModelEntry.id we're currently synthesizing with. Persists
     /// across units (and the whole reply) until that model fails, then advances.
@@ -370,17 +387,24 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
         var slots = Self.maxPrefetch - inFlight
         guard slots > 0 else { return }
 
-        // Ordered fail-over candidates from the configured output group (override
-        // first, then each usable group member). System voices are INCLUDED now —
-        // SystemVoiceProvider.synthesize() returns a valid WAV, so a System candidate
-        // plays through the same AVAudioPlayer path as any cloud model, which makes
-        // mixed groups (e.g. [Doubao, System]) fail over cloud→System correctly.
-        var candidates: [Candidate] =
-            VoiceProviderResolver.resolvedOutputCandidates().compactMap { entry in
+        // [T-tts-services 09-11] Independent TTS service layer takes precedence
+        // when the user has one selected. This is the kelivo-style path: the
+        // service carries its own vendor/baseURL/key/model/voice + tuning knobs,
+        // so it is a complete synthesis target on its own — no Model Group
+        // needed. Falls through to the legacy group candidates when no service
+        // is selected, or when the selected one can't build a provider (missing
+        // credential, vendor without TTS), so an existing setup never breaks.
+        var candidates: [Candidate] = resolvedServiceCandidates()
+
+        if candidates.isEmpty {
+            candidates = VoiceProviderResolver.resolvedOutputCandidates().compactMap { entry in
                 guard let p = VoiceProviderResolver.outputProvider(for: entry) else { return nil }
-                return Candidate(key: entry.id, modelId: entry.model.id,
-                                 label: entry.model.displayName, provider: p)
+                Candidate(key: entry.id,
+                          label: entry.model.displayName,
+                          provider: p,
+                          makeRequest: { VoiceOutputRequest(input: $0, model: entry.model.id) })
             }
+        }
         guard !candidates.isEmpty else { return }
         // STICKY fail-over (mirrors the agent loop): once we've moved to a model,
         // keep using it for subsequent units — only advance when IT fails. We
@@ -450,6 +474,34 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
 
     // MARK: - Synthesis with retry / split fallback
 
+    /// [T-tts-services 09-11] Candidates from the independent TTS service layer.
+    /// The selected service comes first, then every other ENABLED service as a
+    /// fail-over target (same ordered-fail-over semantics as Model Groups: if
+    /// the chosen voice's vendor is down, reading aloud still works instead of
+    /// dying). Returns empty when no service is selected/usable, which makes the
+    /// caller fall back to the Model-Group path unchanged.
+    ///
+    /// Built on the MainActor because `TTSServiceStore` reads UserDefaults and the
+    /// Keychain; the resulting `Candidate`s are plain Sendable values.
+    @MainActor
+    private static func resolvedServiceCandidates() -> [Candidate] {
+        let store = TTSServiceStore.shared
+        var ordered: [TTSServiceOptions] = []
+        if let sel = store.selectedService(), sel.enabled { ordered.append(sel) }
+        for s in store.services where s.enabled && s.id != ordered.first?.id {
+            ordered.append(s)
+        }
+        return ordered.compactMap { service in
+            guard let provider = TTSProviderBridge.provider(for: service) else { return nil }
+            return Candidate(
+                key: "tts-service:\(service.id)",
+                label: "\(service.name) · \(service.voice)",
+                provider: provider,
+                makeRequest: { text in TTSProviderBridge.request(for: service, text: text) }
+            )
+        }
+    }
+
     /// Fail over across Model-Group TTS candidates: try each model's
     /// `synthWithRetry` (same-text retries + split) in order; return the first
     /// success. Throws only when EVERY candidate has been exhausted — that's the
@@ -461,7 +513,7 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
         for (i, c) in candidates.enumerated() {
             if Task.isCancelled { throw CancellationError() }
             do {
-                let data = try await synthWithRetry(text: text, model: c.modelId, provider: c.provider, seq: seq)
+                let data = try await synthWithRetry(text: text, candidate: c, seq: seq)
                 if i > 0 { VoiceLog.log("TTS #\(seq): succeeded on fail-over model \(i + 1)/\(candidates.count) (\(c.label))") }
                 return (data, c)
             } catch is CancellationError {
@@ -480,15 +532,21 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
     /// backoff; if it still fails, SPLIT the text into smaller sentence chunks and
     /// synthesize+concatenate those (a too-long / partially-rejected batch often
     /// succeeds in smaller pieces). Throws only if even the split fallback fails.
+    ///
+    /// [T-tts-services 09-11] Takes the whole `Candidate` (not a bare model id)
+    /// so the request is built by `candidate.makeRequest` — that is what lets
+    /// the service layer carry voice id + tuning knobs while the legacy
+    /// Model-Group path keeps sending exactly what it sent before.
     nonisolated private static func synthWithRetry(
-        text: String, model: String?, provider: any VoiceOutputCapable, seq: Int
+        text: String, candidate: Candidate, seq: Int
     ) async throws -> Data {
+        let provider = candidate.provider
         var lastError: Error?
         // Phase 1: retry the same text.
         for attempt in 0...synthRetriesSameText {
             if Task.isCancelled { throw CancellationError() }
             do {
-                return try await provider.synthesize(VoiceOutputRequest(input: text, model: model))
+                return try await provider.synthesize(candidate.makeRequest(text))
             } catch {
                 lastError = error
                 VoiceLog.log("TTS synth retry #\(seq) attempt \(attempt + 1)/\(synthRetriesSameText + 1) failed: \(error.localizedDescription)")
@@ -506,7 +564,7 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
             var ok = false
             for attempt in 0...synthRetriesSameText {
                 do {
-                    let d = try await provider.synthesize(VoiceOutputRequest(input: chunk, model: model))
+                    let d = try await provider.synthesize(candidate.makeRequest(chunk))
                     pieces.append(d); ok = true; break
                 } catch {
                     lastError = error

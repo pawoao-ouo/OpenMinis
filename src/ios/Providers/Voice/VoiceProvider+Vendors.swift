@@ -84,20 +84,29 @@ final class MiniMaxVoiceProvider: VoiceProvider {
         // as voice_id fails with 2054 "voice id not exist". Treat
         // voice == model as "no voice selected" and use the default.
         let requestedVoice = (request.voice == request.model) ? nil : request.voice
+        // [T-tts-services 09-11] Service-layer tuning. Absent keys keep the
+        // historical constants so the Model-Group path is byte-identical.
+        let speed = request.extraDouble("speed").map { Int($0 * 100) } ?? speedInt
+        let volume = request.extraDouble("volume").map { Int($0 * 100) } ?? 100
+        let pitch = request.extraInt("pitch") ?? 0
+        var voiceSetting: [String: Any] = [
+            "voice_id": requestedVoice ?? defaultVoiceOutputVoice(),  // voice -> voice_id
+            "speed":    speed,
+            "vol":      volume,
+            "pitch":    pitch
+        ]
+        if let emotion = request.extra("emotion") {
+            voiceSetting["emotion"] = emotion
+        }
         let body: [String: Any] = [
             "model": request.model ?? defaultVoiceOutputModel(),
             "text":  request.input,                                  // input -> text
             "stream": false,
-            "voice_setting": [
-                "voice_id": requestedVoice ?? defaultVoiceOutputVoice(),  // voice -> voice_id
-                "speed":    speedInt,
-                "vol":      100,
-                "pitch":    0
-            ],
+            "voice_setting": voiceSetting,
             "audio_setting": [
-                "sample_rate": 32000,
-                "bitrate":     128000,
-                "format":      request.responseFormat.rawValue
+                "sample_rate": request.extraInt("sampleRate") ?? 32000,
+                "bitrate":     request.extraInt("bitrate") ?? 128000,
+                "format":      request.extra("format") ?? request.responseFormat.rawValue
             ]
         ]
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -694,22 +703,49 @@ final class AzureTTSVoiceProvider: VoiceProvider {
             throw VoiceProviderError.parseError("Invalid URL: \(urlStr)")
         }
         let voice = request.voice ?? defaultVoiceOutputVoice()
-        let parts = voice.split(separator: "-", maxSplits: 2)
-        let lang = parts.count >= 2 ? "\(parts[0])-\(parts[1])" : "en-US"
+        // [T-tts-services 09-11] The service layer can override the language
+        // tag; otherwise it is derived from the voice id ("zh-CN-XiaoxiaoNeural"
+        // → "zh-CN"), which is what the legacy path always did.
+        let lang: String
+        if let explicit = request.extra("language") {
+            lang = explicit
+        } else {
+            let parts = voice.split(separator: "-", maxSplits: 2)
+            lang = parts.count >= 2 ? "\(parts[0])-\(parts[1])" : "en-US"
+        }
         let escaped = request.input
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+        // [T-tts-services 09-11] Optional prosody tuning. Absent knobs produce
+        // the exact SSML of the legacy path (bare <voice> element).
+        var prosodyAttrs: [String] = []
+        if let rate = request.extra("speed"), let v = Double(rate), v != 1.0 {
+            // Azure wants a relative percentage: 1.5 → "+50%".
+            let pct = Int((v - 1.0) * 100)
+            prosodyAttrs.append("rate=\"\(pct >= 0 ? "+" : "")\(pct)%\"")
+        }
+        if let pitch = request.extra("pitch"), let v = Int(pitch), v != 0 {
+            prosodyAttrs.append("pitch=\"\(v >= 0 ? "+" : "")\(v)st\"")
+        }
+        if let volume = request.extra("volume"), let v = Double(volume), v != 1.0 {
+            let pct = Int((v - 1.0) * 100)
+            prosodyAttrs.append("volume=\"\(pct >= 0 ? "+" : "")\(pct)%\"")
+        }
+        let inner = prosodyAttrs.isEmpty
+            ? escaped
+            : "<prosody \(prosodyAttrs.joined(separator: " "))>\(escaped)</prosody>"
         let ssml = """
             <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="\(lang)">\
-            <voice name="\(voice)">\(escaped)</voice>\
+            <voice name="\(voice)">\(inner)</voice>\
             </speak>
             """
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/ssml+xml", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue("audio-24khz-48kbitrate-mono-mp3", forHTTPHeaderField: "X-Microsoft-OutputFormat")
+        urlRequest.setValue(request.extra("outputFormat") ?? "audio-24khz-48kbitrate-mono-mp3",
+                            forHTTPHeaderField: "X-Microsoft-OutputFormat")
         if let key = apiKey, !key.isEmpty {
             urlRequest.setValue(key, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
         }

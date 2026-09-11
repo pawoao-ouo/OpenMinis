@@ -16,7 +16,7 @@ enum VoiceTextSanitizer {
     /// (.fullText) keeps today's behaviour; .quotedOnly reads JUST the
     /// quoted spans (「」/“”/「」), dropping the AI's surrounding commentary —
     /// natural for reading dialogue-heavy replies aloud.
-    enum SelectionMode: String {
+    enum SelectionMode: String, CaseIterable {
         case fullText
         case quotedOnly
         /// Drop (parenthetical asides) — they read as interruptions aloud.

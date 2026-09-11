@@ -1,0 +1,282 @@
+import SwiftUI
+
+// MARK: - Voice Services (kelivo-style TTS service list)
+//
+// [T-tts-services 09-11] The list page of the independent TTS layer. One row per
+// configured service; a row's own vendor icon + name + "model · voice" summary,
+// with a trailing check on the active one. Mirrors kelivo's tts_services_page:
+//
+//   Voice Services            [+]        ← add
+//   ┌────────────────────────────────┐
+//   │ ◉ System (Apple)          ▶ ⚙ ✓│    ← built-in, always present
+//   │ ◉ ElevenLabs              ▶ ⚙ ✓│    ← configured services
+//   │   eleven_multilingual_v2 · Rachel│
+//   └────────────────────────────────┘
+//   ┌────────────────────────────────┐
+//   │ Auto-read replies          [○] │    ← playback settings
+//   │ Cache audio for replay     [●] │
+//   │ Read: Full text ▸              │
+//   └────────────────────────────────┘
+//
+// The System row is NOT a TTSServiceOptions: it is the always-available offline
+// engine, and selecting it means "no service" (the read-aloud path then falls
+// back to the offline System voice). That keeps the new layer strictly additive.
+
+struct VoiceServicesView: View {
+
+    @ObservedObject private var output = VoiceOutputState.shared
+
+    @State private var editing: TTSServiceOptions?
+    @State private var showAddSheet = false
+    /// TTSServiceStore is a plain Sendable (read from the synthesis queue too),
+    /// not an ObservableObject — this throws on its change notification so the
+    /// list re-renders on add / edit / delete / selection.
+    @State private var storeRevision = 0
+
+    /// The shared store; read fresh on every render (it is a plain Sendable).
+    private var store: TTSServiceStore { TTSServiceStore.shared }
+
+    var body: some View {
+        List {
+            servicesSection
+            playbackSection
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Voice Services")
+        .navigationBarTitleDisplayMode(.inline)
+        .appearancePage(.settings)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showAddSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add voice service")
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ttsServicesChanged)) { _ in
+            storeRevision &+= 1
+        }
+        .sheet(isPresented: $showAddSheet) {
+            NavigationStack {
+                TTSServiceEditorView(service: nil)
+            }
+        }
+        .sheet(item: $editing) { service in
+            NavigationStack {
+                TTSServiceEditorView(service: service)
+            }
+        }
+    }
+
+    // MARK: Services
+
+    private var servicesSection: some View {
+        Section {
+            systemRow
+
+            ForEach(store.services) { service in
+                serviceRow(service)
+            }
+            .onDelete { indexSet in
+                for i in indexSet {
+                    let service = store.services[i]
+                    store.remove(id: service.id)
+                }
+            }
+        } header: {
+            Text("Text-to-Speech")
+        } footer: {
+            Text("Pick which voice reads replies aloud. A service here is a complete synthesis target on its own — vendor, endpoint, key, model, voice and tuning. If nothing is selected, the offline System voice is used, then the Voice Output model group.")
+        }
+    }
+
+    /// The built-in Apple engine — selectable, but carries no config beyond the
+    /// separate System voice config sheet.
+    private var systemRow: some View {
+        let isActive = store.selectedServiceId == nil
+        return Button {
+            store.setSelectedServiceId(nil)
+        } label: {
+            HStack(spacing: 12) {
+                rowIcon(symbol: "apple.logo", active: isActive)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("System (Apple)")
+                        .foregroundStyle(MinisTheme.primaryText)
+                    Text("Offline · on-device voice")
+                        .font(.caption)
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
+                Spacer()
+                trailingControls(system: true, active: isActive)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func serviceRow(_ service: TTSServiceOptions) -> some View {
+        let isActive = store.selectedServiceId == service.id
+        return Button {
+            store.setSelectedServiceId(service.id)
+        } label: {
+            HStack(spacing: 12) {
+                rowIcon(symbol: service.kind.symbol, active: isActive)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(service.name)
+                        .foregroundStyle(service.enabled ? MinisTheme.primaryText : MinisTheme.secondaryText)
+                    Text("\(service.model) · \(service.voice)")
+                        .font(.caption)
+                        .foregroundStyle(MinisTheme.secondaryText)
+                        .lineLimit(1)
+                }
+                Spacer()
+                trailingControls(system: false, active: isActive, service: service)
+            }
+        }
+        .buttonStyle(.plain)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                store.remove(id: service.id)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            Button {
+                editing = service
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            .tint(MinisTheme.accent)
+        }
+    }
+
+    private func rowIcon(symbol: String, active: Bool) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(active ? MinisTheme.accent.opacity(0.15) : MinisTheme.mutedSurface)
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(active ? MinisTheme.accent : MinisTheme.secondaryText)
+        }
+        .frame(width: 32, height: 32)
+    }
+
+    @ViewBuilder
+    private func trailingControls(system: Bool, active: Bool, service: TTSServiceOptions? = nil) -> some View {
+        HStack(spacing: 18) {
+            if let service {
+                // Test-listen: synthesizes a short phrase through this service
+                // right from the list (uses the SAVED definition + stored key).
+                Button {
+                    preview(service)
+                } label: {
+                    Image(systemName: "speaker.wave.2")
+                        .font(.system(size: 15))
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Test \(service.name)")
+            }
+            if !system, let service {
+                Button {
+                    editing = service
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 15))
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Edit \(service.name)")
+            }
+            Image(systemName: active ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 17))
+                .foregroundStyle(active ? MinisTheme.accent : MinisTheme.secondaryText.opacity(0.4))
+        }
+    }
+
+    /// List-level test: synthesize a short phrase via the saved service and
+    /// play it. Errors surface as a toast, not an inline label (the editor
+    /// has the richer inline test experience).
+    @State private var previewing = false
+    private func preview(_ service: TTSServiceOptions) {
+        guard !previewing else { return }
+        previewing = true
+        Task { @MainActor in
+            defer { previewing = false }
+            do {
+                guard let provider = TTSProviderBridge.provider(for: service) else {
+                    throw VoiceProviderError.unsupported("This vendor cannot synthesize speech")
+                }
+                let request = TTSProviderBridge.request(for: service, text: "你好，这是\(service.name)的试听。")
+                let data = try await provider.synthesize(request)
+                guard !data.isEmpty else { throw VoiceProviderError.noAudioData }
+                AudioSessionCoordinator.shared.begin(.replyTTS)
+                let player = try AVAudioPlayer(data: data)
+                player.prepareToPlay()
+                player.play()
+            } catch {
+                MinisToast.show(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
+            }
+        }
+    }
+
+    // MARK: Playback
+
+    private var playbackSection: some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { VoiceOutputPreferences.isEnabled },
+                set: { output.isEnabled = $0 }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-read replies")
+                    Text("Read each new reply aloud as it arrives")
+                        .font(.caption)
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
+            }
+
+            Toggle(isOn: Binding(
+                get: { VoiceOutputPreferences.cacheNetworkAudio },
+                set: { VoiceOutputPreferences.cacheNetworkAudio = $0 }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Cache audio for replay")
+                    Text("Keep synthesized audio so replaying costs nothing")
+                        .font(.caption)
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
+            }
+
+            Picker(selection: Binding(
+                get: { VoiceOutputPreferences.selectionMode },
+                set: { VoiceOutputPreferences.selectionMode = $0 }
+            )) {
+                ForEach(VoiceTextSanitizer.SelectionMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Read")
+                    Text("Which part of a reply is spoken")
+                        .font(.caption)
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
+            }
+        } header: {
+            Text("Playback")
+        }
+    }
+}
+
+// MARK: - Selection mode labels
+
+extension VoiceTextSanitizer.SelectionMode {
+    var displayName: String {
+        switch self {
+        case .fullText:           return "Full text"
+        case .quotedOnly:         return "Quoted text only"
+        case .withoutParentheses: return "Skip parentheses"
+        }
+    }
+}

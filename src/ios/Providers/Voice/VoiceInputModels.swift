@@ -59,17 +59,39 @@ struct VoiceOutputRequest {
     /// 0.25 ~ 4.0, nil = 1.0 (provider default).
     let speed: Float?
     let responseFormat: VoiceOutputFormat
+    /// [T-tts-services 09-11] Vendor-specific tuning, keyed by `TTSKnob.key`
+    /// (emotion / volume / pitch / languageType / outputFormat / instruction /
+    /// region / workspaceId / sampleRate / language / format). Empty for the
+    /// legacy Model-Group path — every vendor treats an absent key as "use the
+    /// default", so existing call sites behave exactly as before.
+    let extras: [String: String]
 
     init(input: String,
          model: String? = nil,
          voice: String? = nil,
          speed: Float? = nil,
-         responseFormat: VoiceOutputFormat = .mp3) {
+         responseFormat: VoiceOutputFormat = .mp3,
+         extras: [String: String] = [:]) {
         self.input = input
         self.model = model
         self.voice = voice
         self.speed = speed
         self.responseFormat = responseFormat
+        self.extras = extras
+    }
+
+    /// Read a tuning value; nil when unset/empty so callers fall back to defaults.
+    func extra(_ key: String) -> String? {
+        let v = extras[key]?.trimmingCharacters(in: .whitespaces)
+        return (v?.isEmpty == false) ? v : nil
+    }
+
+    func extraDouble(_ key: String) -> Double? {
+        extra(key).flatMap(Double.init)
+    }
+
+    func extraInt(_ key: String) -> Int? {
+        extra(key).flatMap(Int.init)
     }
 }
 

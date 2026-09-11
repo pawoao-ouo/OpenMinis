@@ -10,6 +10,10 @@
 		21FED4B7BB6F6D9476C9992E /* VoiceProvider+System.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88993FC8E3F0199C6638F664 /* VoiceProvider+System.swift */; };
 		241D530017827D7F0EB604DE /* VoiceProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2941B643B8A2F048A2B154E /* VoiceProviderFactory.swift */; };
 		2A4FD49F872431D703328384 /* VoiceOutputPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424510790AF3FB2452D3CCE3 /* VoiceOutputPlayer.swift */; };
+		F1T00025 /* TTSServiceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00021 /* TTSServiceModels.swift */; };
+		F1T00026 /* TTSProviderBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00022 /* TTSProviderBridge.swift */; };
+		F1T00027 /* VoiceServicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00023 /* VoiceServicesView.swift */; };
+		F1T00028 /* TTSServiceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00024 /* TTSServiceEditorView.swift */; };
 		30390D7AA90818BD4BDCE784 /* VoiceProviderTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F3D1138DBE516F31D76ABF4 /* VoiceProviderTemplate.swift */; };
 		33643CC21B9402F949D76C3C /* VoiceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84758F712C9B9178FA9D0EF2 /* VoiceProvider.swift */; };
 		38F28509AFBC2153A7C85E85 /* VoiceInputPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8AB343B6D865C37CC5E9EDB /* VoiceInputPanel.swift */; };
@@ -1215,6 +1219,10 @@
 		F1W00100 /* PrintHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintHelper.swift; sourceTree = "<group>"; };
 		F1W0E100 /* WebLoadError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLoadError.swift; sourceTree = "<group>"; };
 		F2941B643B8A2F048A2B154E /* VoiceProviderFactory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceProviderFactory.swift; sourceTree = "<group>"; };
+		F1T00021 /* TTSServiceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSServiceModels.swift; sourceTree = "<group>"; };
+		F1T00022 /* TTSProviderBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSProviderBridge.swift; sourceTree = "<group>"; };
+		F1T00023 /* VoiceServicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceServicesView.swift; sourceTree = "<group>"; };
+		F1T00024 /* TTSServiceEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSServiceEditorView.swift; sourceTree = "<group>"; };
 		LOC00002 /* AppLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLocalization.swift; sourceTree = "<group>"; };
 		RCL000020 /* Rclone.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Rclone.xcframework; path = ../../deps/frameworks/Rclone.xcframework; sourceTree = "<group>"; };
 		RCL000210 /* RcloneBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RcloneBridge.swift; path = Remote/RcloneBridge.swift; sourceTree = "<group>"; };
@@ -1297,6 +1305,8 @@
 			isa = PBXGroup;
 			children = (
 				535D58AA5C4B7B563E4C8821 /* VoiceInputModels.swift */,
+				F1T00021 /* TTSServiceModels.swift */,
+				F1T00022 /* TTSProviderBridge.swift */,
 				84758F712C9B9178FA9D0EF2 /* VoiceProvider.swift */,
 				2BB45FC87D39AE9AB4495BE9 /* VoiceProvider+Vendors.swift */,
 				88993FC8E3F0199C6638F664 /* VoiceProvider+System.swift */,
@@ -2254,6 +2264,8 @@
 				AA0838A12F3B941A00049557 /* AboutView.swift */,
 				E5S000014 /* CloudSyncSettingsView.swift */,
 				E5G000013 /* EnhancedBackgroundSettingsView.swift */,
+				F1T00023 /* VoiceServicesView.swift */,
+				F1T00024 /* TTSServiceEditorView.swift */,
 				XMSTYLE102 /* AppearanceStudioView.swift */,
 				XMREACH102 /* ActiveReachSettingsView.swift */,
 				E5P000012 /* EnvironmentVariablesView.swift */,
@@ -3144,6 +3156,10 @@
 				489FD1413F4EE806C3F0C713 /* VoiceProviderResolver.swift in Sources */,
 				57E63023C8A9A3C505DF411B /* VoiceActivityDetector.swift in Sources */,
 				2A4FD49F872431D703328384 /* VoiceOutputPlayer.swift in Sources */,
+				F1T00025 /* TTSServiceModels.swift in Sources */,
+				F1T00026 /* TTSProviderBridge.swift in Sources */,
+				F1T00027 /* VoiceServicesView.swift in Sources */,
+				F1T00028 /* TTSServiceEditorView.swift in Sources */,
 				77BB9741AB0EFC449FDBDFED /* VoiceWaveformView.swift in Sources */,
 				38F28509AFBC2153A7C85E85 /* VoiceInputPanel.swift in Sources */,
 				30390D7AA90818BD4BDCE784 /* VoiceProviderTemplate.swift in Sources */,

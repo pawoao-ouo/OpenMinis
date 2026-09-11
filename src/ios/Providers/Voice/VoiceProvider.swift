@@ -112,6 +112,16 @@ class VoiceProvider: VoiceInputCapable, VoiceOutputCapable {
             "response_format": request.responseFormat.rawValue
         ]
         if let speed = request.speed { body["speed"] = speed }
+        // [T-tts-services 09-11] Service-layer extras. OpenAI's newer speech
+        // models accept a natural-language `instructions` field to steer
+        // delivery — the single biggest lever against the "播音腔" read the
+        // user complained about. Absent = field omitted = legacy body.
+        if let instructions = request.extra("instruction") {
+            body["instructions"] = instructions
+        }
+        if let speed = request.extraDouble("speed"), request.speed == nil {
+            body["speed"] = speed
+        }
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
         return urlRequest
     }

@@ -7267,6 +7267,21 @@ private struct SettingsSheet: View {
                     Text("Configure which models the agent uses, manage API keys & OAuth for each provider, and create model groups for fallback or load balancing.")
                 }
 
+                // [T-tts-services 09-11] kelivo-style independent TTS layer:
+                // pick the voice that reads replies aloud, configure services
+                // (vendor / endpoint / key / model / voice id / tuning).
+                Section {
+                    NavigationLink {
+                        VoiceServicesView()
+                    } label: {
+                        Label("Voice Services", systemImage: "waveform.circle.fill")
+                    }
+                } header: {
+                    Text("Speech")
+                } footer: {
+                    Text("Choose the voice that reads replies aloud. A service is a complete synthesis target — vendor, endpoint, key, model, voice id and tuning knobs — independent of model groups.")
+                }
+
                 Section("Appearance") {
                     NavigationLink {
                         AppearanceSettingsView()
