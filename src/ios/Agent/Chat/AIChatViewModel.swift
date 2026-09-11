@@ -3453,6 +3453,59 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         rebuildToolSnapshotsFromMessages()
     }
 
+    // MARK: - [T-action-bar 09-11] Single assistant message delete / regenerate
+    //
+    // 醒醒要的 kelivo 式操作条:AI 气泡下面有「重新回复」「删除消息」。
+    // deleteFromMessage 是从某条用户消息起往后全删,retryFromMessage 同理
+    // —— 这两个是「从这条起往后重来」。但操作条挂在 AI 消息上,语义是
+    // 「删/重做这一条 AI 回复」,所以要新方法。
+    //
+    // - deleteAssistantMessage: 删这一条 AI 消息(不动它前后的内容,删单条)
+    // - regenerateAssistant: 从这条 AI 前面最近的用户消息起重新生成
+    //   (= retryFromMessage(前一条用户消息的 id),但 UI 给的是 AI 的 id)
+
+    /// Delete a single assistant message by id. Only removes that one row
+    /// (and its tool blocks) from messages + agentHistory + DB; everything
+    /// before and after stays. No-op if not found / not assistant / busy.
+    func deleteAssistantMessage(_ messageId: UUID) {
+        guard !isProcessing else { return }
+        isTruncatingForRetry = true
+        canResume = false
+        userDidCancel = false
+        guard let idx = messages.firstIndex(where: { $0.id == messageId }),
+              messages[idx].role == .assistant else {
+            isTruncatingForRetry = false
+            return
+        }
+        messages.remove(at: idx)
+        if !transitionSuspended { objectWillChange.send() }
+        Task {
+            await ChatStore.shared.deleteLocalMessage(messageId: messageId.uuidString)
+            await MainActor.run { self.isTruncatingForRetry = false }
+        }
+        rebuildToolSnapshotsFromMessages()
+    }
+
+    /// Regenerate one assistant message: find the preceding user message,
+    /// then retry-from-that (truncates this assistant turn + reruns).
+    /// Falls back to retry() if no preceding user message is found.
+    func regenerateAssistantMessage(_ assistantMessageId: UUID) {
+        guard !isProcessing else { return }
+        guard let idx = messages.firstIndex(where: { $0.id == assistantMessageId }),
+              messages[idx].role == .assistant else { return }
+        // Walk backward to the nearest user message.
+        var userIdx: Int?
+        for i in stride(from: idx - 1, through: 0, by: -1) {
+            if messages[i].role == .user { userIdx = i; break }
+        }
+        if let ui = userIdx {
+            retryFromMessage(messages[ui].id)
+        } else {
+            // No preceding user message — last-resort: retry from tail.
+            retry()
+        }
+    }
+
     /// Rebuild `toolSnapshots` to only those still referenced by a tool_use
     /// block in the (post-truncation) messages list. Shared by the user-
     /// message retry path and the tool-block re-run path.

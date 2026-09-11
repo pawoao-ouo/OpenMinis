@@ -3,55 +3,46 @@ import UIKit
 
 // MARK: - Message action bar (kelivo-style)
 //
-// [T-message-action-bar 09-11] 醒醒的反馈:朗读入口埋在长按菜单第二屏,
-// "这要咋用"——kelivo 的 AI 消息下面直接摆一排小图标(复制/重新回复/语音播放/
-// 翻译/编辑),一眼可见。这里给 OpenMinis 的 assistant text 气泡做同款:
+// [T-message-action-bar 09-11] 醒醒要的 kelivo 式操作条,挂在 AI 消息气泡下:
+//   [▶ 播放语音]  [↻ 重新回复]  [⧉ 复制]  [🗑 删除消息]
 //
-//   [⧉ 复制]  [▶/⏸ 播放本条]  [■ 停止]  [(read-aloud 开关状态)]
-//
-// 播放按钮的状态跟着 GLOBAL 播放状态走(不是 per-bubble 状态):正在播 → 暂停图标,
+// 语音按钮的状态跟全局播放状态走(不是 per-bubble):正在播 → 暂停图标,
 // 暂停中 → 播放图标,空闲 → 播放图标。点它:
-//   空闲   → 用 TTS 服务层的当前声音读这一条气泡的文字(不读全文)
+//   空闲   → 用 TTS 服务层的当前声音读这一条气泡的文字
 //   播放中 → 暂停
 //   暂停中 → 继续
-// 停止按钮只在有活动播放时出现。
-//
-// 这条 bar 只挂在 assistant 的 TEXT 气泡下(最后一个 text block 才带)——
-// 工具块/错误块/音频块不挂,不抢戏。
+// 播放按钮右侧挂一个语速 chip(1.0× / 1.25× / 1.5× / 1.75× / 2.0× 循环),
+// 点切换语速——只影响后续朗读,不重读当前正在读的。
 
 struct MessageActionBar: View {
 
     /// The bubble's plain text (already markdown-stripped for speech).
     let speakText: String
-    /// Fires the TTS: vm.speakText — speaks ONLY this text via the service layer.
+    /// Speaks ONLY this text via the service layer.
     let onSpeak: (String) -> Void
     /// Global pause/resume/stop — the vm's SpeechControlling conformance.
     let controller: SpeechControlling
+    /// Regenerate this assistant message (find preceding user msg → retry).
+    let onRegenerate: () -> Void
+    /// Delete this single assistant message.
+    let onDelete: () -> Void
 
-    @ObservedObject private var player = VoiceOutputPlayer.shared
     @ObservedObject private var outputState = VoiceOutputState.shared
 
-    private var isSpeaking: Bool {
-        player.isPlaying || player.isPaused || outputState.isReadingAloud
-    }
+    private var isSpeaking: Bool { outputState.isReadingAloud }
+    private var isPaused: Bool { outputState.isPausedOrHeld }
 
-    private var isPaused: Bool {
-        player.isPaused || outputState.speechPaused
+    private let speedSteps: [Float] = [1.0, 1.25, 1.5, 1.75, 2.0]
+    private var speedLabel: String {
+        let v = outputState.speechSpeed
+        // snap to nearest step for display
+        let nearest = speedSteps.min(by: { abs($0 - v) < abs($1 - v) }) ?? v
+        return nearest == 1.0 ? "1×" : String(format: "%.2g×", nearest)
     }
 
     var body: some View {
-        HStack(spacing: 20) {
-            // Copy this bubble's text.
-            Button {
-                UIPasteboard.general.string = speakText
-                MinisToast.show(AppLocalized("Copied", comment: "Message action bar: copied toast"),
-                                systemImage: "doc.on.doc")
-            } label: {
-                actionIcon("doc.on.doc", label: "Copy")
-            }
-            .buttonStyle(.borderless)
-
-            // Speak / pause / resume this bubble's text.
+        HStack(spacing: 18) {
+            // Play / pause / resume this bubble's text.
             Button {
                 if isSpeaking && !isPaused {
                     controller.toggleSpeechPause()
@@ -73,21 +64,57 @@ struct MessageActionBar: View {
             }
             .buttonStyle(.borderless)
 
-            // Stop — only when something is actually playing.
-            if isSpeaking {
-                Button {
-                    controller.stopSpeech()
-                } label: {
-                    actionIcon("stop.fill", label: "Stop")
-                }
-                .buttonStyle(.borderless)
-                .transition(.opacity.combined(with: .scale))
+            // Speed chip — tap cycles 1× → 1.25× → 1.5× → 1.75× → 2.0× → 1×.
+            Button {
+                cycleSpeed()
+            } label: {
+                Text(speedLabel)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(MinisTheme.secondaryText)
+                    .frame(minWidth: 32)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(MinisTheme.mutedSurface, in: Capsule())
             }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Speech speed")
+
+            // Regenerate this assistant message.
+            Button { onRegenerate() } label: {
+                actionIcon("arrow.clockwise", label: "Regenerate")
+            }
+            .buttonStyle(.borderless)
+
+            // Copy this bubble's text.
+            Button {
+                UIPasteboard.general.string = speakText
+                MinisToast.show(AppLocalized("Copied", comment: "Message action bar: copied toast"),
+                                systemImage: "doc.on.doc")
+            } label: {
+                actionIcon("doc.on.doc", label: "Copy")
+            }
+            .buttonStyle(.borderless)
+
+            // Delete this message.
+            Button(role: .destructive) { onDelete() } label: {
+                actionIcon("trash", label: "Delete")
+            }
+            .buttonStyle(.borderless)
 
             Spacer(minLength: 0)
         }
         .padding(.top, 6)
         .animation(.easeInOut(duration: 0.18), value: isSpeaking)
+    }
+
+    private func cycleSpeed() {
+        let v = outputState.speechSpeed
+        guard let idx = speedSteps.firstIndex(where: { abs($0 - v) < 0.01 }) else {
+            outputState.speechSpeed = 1.25; return
+        }
+        let next = speedSteps[(idx + 1) % speedSteps.count]
+        outputState.speechSpeed = next
+        controller.nextSpeechSpeed()
     }
 
     private func actionIcon(_ systemName: String, label: String) -> some View {

@@ -1161,6 +1161,10 @@ final class CellStateBridgeV2: ObservableObject {
     /// [T-selection-menu-minis-tts] Speak an arbitrary text snippet (the
     /// selection-menu "Read Selection" action) via the Minis TTS stack.
     @Published var onSpeakText: ((String) -> Void)?
+    /// [T-action-bar 09-11] Regenerate the assistant message this cell owns.
+    @Published var onRegenerate: (() -> Void)?
+    /// [T-action-bar 09-11] Delete the assistant message this cell owns.
+    @Published var onDeleteMessage: (() -> Void)?
     /// [T-message-action-bar 09-11] The chat VM as SpeechControlling — drives
     /// the bubble action bar's pause/resume/stop. Weak (VM outlives cells, but
     /// the bridge may outlive the VM in teardown races).

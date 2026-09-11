@@ -19,6 +19,10 @@ struct AssistantBlockView: View {
     /// [T-message-action-bar 09-11] Pause/resume/stop for the bubble action
     /// bar. nil hides the bar (streaming reply, or a bridge without a VM).
     var speechController: (any SpeechControlling)?
+    /// [T-action-bar 09-11] Regenerate this assistant message.
+    var onRegenerate: (() -> Void)?
+    /// [T-action-bar 09-11] Delete this single assistant message.
+    var onDeleteMessage: (() -> Void)?
     var browserPool: BrowserTabPool?
     var toolSnapshots: [ToolSnapshotItem] = []
     @Binding var highlightedBlockId: UUID?
@@ -178,7 +182,9 @@ struct AssistantBlockView: View {
             MessageActionBar(
                 speakText: content,
                 onSpeak: onSpeakText,
-                controller: controller
+                controller: controller,
+                onRegenerate: { onRegenerate?() },
+                onDelete: { onDeleteMessage?() }
             )
         }
     }

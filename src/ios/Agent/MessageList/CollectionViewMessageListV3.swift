@@ -311,6 +311,8 @@ private struct BridgedAssistantBlockV3: View {
             onReadAloud: bridge.isStreaming ? nil : bridge.onReadAloud,
             onSpeakText: bridge.onSpeakText,
             speechController: bridge.isStreaming ? nil : bridge.speechController,
+            onRegenerate: bridge.isStreaming ? nil : bridge.onRegenerate,
+            onDeleteMessage: bridge.isStreaming ? nil : bridge.onDeleteMessage,
             browserPool: bridge.browserPool,
             toolSnapshots: bridge.toolSnapshots,
             highlightedBlockId: .constant(nil),
@@ -1460,6 +1462,11 @@ extension CollectionViewMessageListV3 {
             bridge.onSpeakText = { [weak vm] text in vm?.speakText(text) }
             // [T-message-action-bar 09-11] Bubble action bar's pause/resume/stop.
             bridge.speechController = vm
+            // [T-action-bar 09-11] Regenerate / delete this assistant message.
+            bridge.onRegenerate = (message.role == .assistant && !vm.isProcessing)
+                ? { [weak vm] in vm?.regenerateAssistantMessage(message.id) } : nil
+            bridge.onDeleteMessage = (message.role == .assistant && !vm.isProcessing)
+                ? { [weak vm] in vm?.deleteAssistantMessage(message.id) } : nil
             bridge.onCopyScreenshot = { [weak self, weak vm] in
                 guard let self, let vm else { return }
                 let msgs = vm.messages
