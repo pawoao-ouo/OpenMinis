@@ -1719,8 +1719,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // every enabled service as selected made a half-configured background
         // service hijack System playback and fail silently before the normal
         // System fallback could speak.
-        let selectedService = TTSServiceStore.shared.selectedService()
+        let store = TTSServiceStore.shared
+        let selectedService = store.selectedService()
         let serviceSelected = selectedService?.enabled == true
+            && (selectedService.map { store.hasAPIKey(for: $0) } ?? false)
+            && (selectedService.flatMap { TTSProviderBridge.provider(for: $0) } != nil)
         return serviceSelected
             || !(VoiceProviderResolver.outputProvider() is SystemVoiceProvider)
     }

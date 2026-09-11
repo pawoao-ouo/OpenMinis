@@ -508,32 +508,28 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
 
     // MARK: - Synthesis with retry / split fallback
 
-    /// [T-tts-services 09-11] Candidates from the independent TTS service layer.
-    /// The selected service comes first, then every other ENABLED service as a
-    /// fail-over target (same ordered-fail-over semantics as Model Groups: if
-    /// the chosen voice's vendor is down, reading aloud still works instead of
-    /// dying). Returns empty when no service is selected/usable, which makes the
-    /// caller fall back to the Model-Group path unchanged.
-    ///
-    /// Built on the MainActor because `TTSServiceStore` reads UserDefaults and the
-    /// Keychain; the resulting `Candidate`s are plain Sendable values.
+    /// [T-tts-services 09-11] Candidate from the independent TTS service layer.
+    /// Services are explicit choices, not an invisible cross-vendor fallback:
+    /// if none is selected and usable, the normal Model-Group/System path below
+    /// remains authoritative.
+    /// A service layer has explicit selection semantics: only the selected,
+    /// enabled, credentialed service may replace the Model Group/System route.
+    /// Enabled services are *saved options*, not invisible fail-over targets —
+    /// otherwise an old half-configured entry can steal every System utterance
+    /// and turn a tap into a silent network failure.
     @MainActor
     private static func resolvedServiceCandidates() -> [Candidate] {
         let store = TTSServiceStore.shared
-        var ordered: [TTSServiceOptions] = []
-        if let sel = store.selectedService(), sel.enabled { ordered.append(sel) }
-        for s in store.services where s.enabled && s.id != ordered.first?.id {
-            ordered.append(s)
-        }
-        return ordered.compactMap { service in
-            guard let provider = TTSProviderBridge.provider(for: service) else { return nil }
-            return Candidate(
-                key: "tts-service:\(service.id)",
-                label: "\(service.name) · \(service.voice)",
-                provider: provider,
-                makeRequest: { text in TTSProviderBridge.request(for: service, text: text) }
-            )
-        }
+        guard let service = store.selectedService(),
+              service.enabled,
+              store.hasAPIKey(for: service),
+              let provider = TTSProviderBridge.provider(for: service) else { return [] }
+        return [Candidate(
+            key: "tts-service:\(service.id)",
+            label: "\(service.name) · \(service.voice)",
+            provider: provider,
+            makeRequest: { text in TTSProviderBridge.request(for: service, text: text) }
+        )]
     }
 
     /// Fail over across Model-Group TTS candidates: try each model's
