@@ -1581,6 +1581,31 @@ extension CollectionViewMessageListV3 {
                     + "typing=\(beforeShape.showsTypingIndicator)→\(afterShape.showsTypingIndicator) "
                     + "— footer height caches dropped")
             }
+
+            // [T-action-bar-layout-drift 09-12] Same pattern for the bubble
+            // action bar: it mounts under the LAST text block at stream end and
+            // unmounts when a later turn goes streaming, changing that block
+            // cell's height with no item-identity change. Skip during initial
+            // bridge setup (the cell is configuring from scratch then — its
+            // cache was already cleared by applyContentConfiguration); defer the
+            // invalidation one runloop tick when the change happens INSIDE a
+            // live `dataSource.apply` (updateBridge is called from
+            // updateLastCellBridge, which binding 5 can fire mid-apply after a
+            // re-entrant `reconfigureItems` would be swallowed).
+            let beforeBar = lastActionBarShapeByMessage[message.id]
+                ?? ActionBarShape(bridge: bridge, message: message)
+            let afterBar = ActionBarShape(bridge: bridge, message: message)
+            lastActionBarShapeByMessage[message.id] = afterBar
+            if !isInitialBridgeSetup, beforeBar != afterBar {
+                let mid = message.id
+                let showsNow = afterBar.showsBar
+                AppLogger(category: "ActionBarLayout").info(
+                    "[ActionBarLayout][bar-shape] msg=\(mid.uuidString.prefix(8)) "
+                    + "bar \(beforeBar.showsBar)→\(showsNow) — block height caches dropped")
+                DispatchQueue.main.async { [weak self] in
+                    self?.invalidateActionBarHeightCaches(messageId: mid, reapplyClear: true)
+                }
+            }
         }
 
         /// [T-ios-plaf-cache-footer-staleness] The bridge fields that decide
@@ -1617,6 +1642,76 @@ extension CollectionViewMessageListV3 {
             }
         }
 
+        /// [T-action-bar-layout-drift 09-12] Whether the bubble action bar is
+        /// currently rendered under an assistant message's last text block.
+        ///
+        /// The bar changes the LAST-TEXT-BLOCK cell's height by ~34pt WITHOUT
+        /// changing any diffable item identifier: `bridge.onRegenerate` /
+        /// `onDeleteMessage` flip nil→set at stream end (or set→nil when a
+        /// later turn starts streaming), the SwiftUI body re-renders in place,
+        /// and — exactly the footer-staleness family — no
+        /// applyContentConfiguration / prepareForReuse ever runs.
+        /// `SelfSizingCell`'s unbounded height cache keeps answering the
+        /// pre-bar height forever, `prepare()` stacks every following cell
+        /// from that stale frame, and the transcript drifts upward until a
+        /// session reload clears all caches. That is the reported
+        /// 「AI 气泡 UI 总是错乱，刷新对话框就正常」.
+        ///
+        /// Same cure as the footer: detect the shape edge in the data layer
+        /// (every input is visible here), then drop BOTH height layers for
+        /// that message's block cells and reconfigure them.
+        private struct ActionBarShape: Equatable {
+            let showsBar: Bool
+            init(bridge: CellStateBridgeV2, message: ChatMessage) {
+                // Mirror AssistantBlockView.canShowActionBar exactly: the bar
+                // renders only when regenerate AND delete hooks are both set
+                // (hooks are only set on assistant messages, so the role is
+                // implied).
+                showsBar = bridge.onRegenerate != nil && bridge.onDeleteMessage != nil
+            }
+        }
+
+        /// [T-action-bar-layout-drift 09-12] Last-seen bar shape per message.
+        private var lastActionBarShapeByMessage: [UUID: ActionBarShape] = [:]
+
+        /// [T-action-bar-layout-drift 09-12] Drop both height layers for every
+        /// block cell of one assistant message and reconfigure them, so the
+        /// block hosting the action bar re-measures with the bar mounted.
+        /// Mirrors the thinkingToggle handler: cell-side clear BEFORE the
+        /// reconfigure apply (so no interleaved layout pass can answer from
+        /// the stale cache); layout-side invalidate unconditional (needs no
+        /// cell). Deferred callers (below) re-clear AFTER, covering the
+        /// provider-never-ran miss window documented on blockContentFilled.
+        private func invalidateActionBarHeightCaches(messageId: UUID, reapplyClear: Bool = false) {
+            guard let cv = viewController?.collectionView,
+                  let layout = viewController?.messageListLayout,
+                  let ds = dataSource else { return }
+            let items = ds.snapshot().itemIdentifiers
+            var blockItems: [MessageListItem] = []
+            for (i, item) in items.enumerated() {
+                guard case .assistantBlock(let mid, _) = item, mid == messageId else { continue }
+                let ip = IndexPath(item: i, section: 0)
+                (cv.cellForItem(at: ip) as? SelfSizingCell)?.clearCachedHeight()
+                layout.invalidateHeight(at: i)
+                blockItems.append(item)
+            }
+            guard !blockItems.isEmpty else { return }
+            var snap = ds.snapshot()
+            snap.reconfigureItems(blockItems)
+            ds.apply(snap, animatingDifferences: false)
+            if reapplyClear {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    for item in blockItems {
+                        guard let idx = self.dataSource?.snapshot().itemIdentifiers.firstIndex(of: item),
+                              let ip = IndexPath(item: idx, section: 0) as IndexPath? else { continue }
+                        (self.viewController?.collectionView?.cellForItem(at: ip) as? SelfSizingCell)?
+                            .clearCachedHeight()
+                    }
+                }
+            }
+        }
+
 
         private func updateLastCellBridge() {
             guard let vm else { return }
@@ -1640,6 +1735,21 @@ extension CollectionViewMessageListV3 {
             for msg in messages where msg.role == .user {
                 if let b = cellBridges[msg.id] {
                     updateBridge(b, message: msg, in: messages)
+                }
+            }
+            // [T-action-bar-stale-hooks 09-12] History assistant messages.
+            // updateBridge nils their regenerate/delete hooks whenever ANY
+            // stream is running (vm.isProcessing gate), but this function only
+            // re-updated the LAST message + user rows when processing STOPPED —
+            // a history assistant bubble scrolled past during a stream kept its
+            // nil hooks (no action bar, no menu) forever after, until the
+            // session was reloaded. Refresh them here so the hooks — and the
+            // action-bar shape detector above — see the settled state.
+            if !vm.isProcessing {
+                for msg in messages.dropLast() where msg.role == .assistant {
+                    if let b = cellBridges[msg.id] {
+                        updateBridge(b, message: msg, in: messages)
+                    }
                 }
             }
         }
@@ -2564,6 +2674,10 @@ extension CollectionViewMessageListV3 {
             for id in removedIds { bridgeSheetSubs.removeValue(forKey: id) }
             cellBridges = cellBridges.filter { currentIds.contains($0.key) }
             lastFooterShapeByMessage = lastFooterShapeByMessage.filter { currentIds.contains($0.key) }
+            // [T-action-bar-layout-drift 09-12] Same liveness filter as the
+            // footer-shape map — a deleted message must not keep a stale
+            // baseline that would mask the next real edge.
+            lastActionBarShapeByMessage = lastActionBarShapeByMessage.filter { currentIds.contains($0.key) }
 
             // Build items
             var newItems: [MessageListItem] = []
