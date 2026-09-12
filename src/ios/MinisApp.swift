@@ -175,6 +175,10 @@ struct MinisApp: App {
         // inline on the first sessionContextMenu builder during scroll and
         // hang a frame. (T-ios-biometric-probe-scroll-hang)
         BiometricAuth.prewarm()
+        // [T-manual-agent-visibility 09-12] Publish the in-bundle user manual to
+        // /var/minis/shared/user-manual.md so the agent (file tools / shell) can
+        // actually read it — the bundle itself is invisible to the iSH rootfs.
+        UserManualMirror.syncFromBundle()
         // Clean up Live Activities left over from a previous app session (e.g. app was killed)
         AgentLiveActivityManager.shared.cleanupStaleActivities(source: "MinisApp.init")
         // Start screen-awake controller — it will observe running tasks

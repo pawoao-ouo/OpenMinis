@@ -79,6 +79,38 @@ extension ModelEntry {
             )
         }
     }
+    /// [T-capsule-service-picker 09-12] 醒醒 5：「语音分组的列表里，找不到醒醒
+    /// 自己添加的 tts 的模型/分组。我想要里面能看见。」Voice Services
+    /// (Settings → Voice) 中配置的 kelivo 式独立 TTS 服务在 voice picker 中
+    /// 不可见 —— 它们只存在于 TTSServiceStore 中，而 picker 的列表来自
+    /// ProviderConfigStore 的模型条目。在这里将每个已启用的服务显示为一个虚拟
+    /// ModelEntry 行，其 id 以 "tts-service:" 为前缀；选中一行通过
+    /// TTSServiceStore.selectedServiceId 进行路由（实际的合成路径）。
+    /// 显示名称："<服务名> · <音色> (TTS Service)"。
+    static let ttsServiceIdPrefix = "tts-service:"
+
+    @MainActor
+    static func ttsServiceEntries() -> [ModelEntry] {
+        TTSServiceStore.shared.services
+            .filter { $0.enabled }
+            .map { service in
+                ModelEntry(
+                    uuid: "tts-service-\(service.id)",
+                    providerInstanceId: "tts-services",
+                    model: LLMModel(
+                        id: Self.ttsServiceIdPrefix + service.id,
+                        displayName: "\(service.name) · \(service.voice) (TTS Service)",
+                        provider: service.kind.displayName,
+                        modalityOverride: .audioOutput
+                    )
+                )
+            }
+    }
+
+    @MainActor
+    static func isTTSServiceEntry(_ entryId: String?) -> Bool {
+        entryId?.hasPrefix(ttsServiceIdPrefix) ?? false
+    }
 }
 
 // MARK: - ModelPickerConfig
@@ -216,6 +248,12 @@ struct ModelPickerConfig {
                 } else {
                     selection.outputEntryId = entry.id
                 }
+                // [T-capsule-service-picker 09-12] Any non-service selection
+                // clears the independent TTS service layer so the two routes
+                // don't fight over which voice speaks.
+                if !ModelEntry.isTTSServiceEntry(entry.id) {
+                    TTSServiceStore.shared.setSelectedServiceId(nil)
+                }
                 VoiceOutputPlayer.shared.resetActiveModel()
             },
             onSelectGroup: { group in
@@ -223,7 +261,21 @@ struct ModelPickerConfig {
                 if let e = entries.first(where: { canServe($0.model, direction: .output) }) ?? entries.first {
                     selection.outputEntryId = e.id
                 }
+                // [T-capsule-service-picker 09-12] Group selection = leaving the
+                // service layer.
+                TTSServiceStore.shared.setSelectedServiceId(nil)
                 VoiceOutputPlayer.shared.resetActiveModel()
+            },
+            // [T-capsule-service-picker 09-12] When a TTS service is the active
+            // voice, surface it as the picker's current selection so its row
+            // shows the checkmark.
+            currentEntryId: {
+                if let sid = TTSServiceStore.shared.selectedServiceId,
+                   let s = TTSServiceStore.shared.service(id: sid), s.enabled {
+                    return ModelEntry.ttsServiceIdPrefix + sid
+                }
+                if let sel = selection.outputEntryId { return sel }
+                return store.voiceOutputGroupId == nil ? VoiceProviderResolver.systemEntryId : nil
             }
         )
     }
@@ -442,6 +494,23 @@ struct UnifiedModelPicker: View {
 
             // System now renders through the generic instanceSection loop below
             // (its synthetic instance leads entriesByInstance) — no parallel section.
+
+            // [T-capsule-service-picker 09-12] TTS SERVICES section — the
+            // kelivo-style independent services the user configured in
+            // Settings → Voice. Only shown in voice-OUTPUT pickers (the
+            // services synthesize speech; they are not ASR or chat models).
+            if config.effectivePreferModality?.contains(.audioOutput) == true,
+               !ModelEntry.ttsServiceEntries().isEmpty {
+                Section {
+                    ForEach(ModelEntry.ttsServiceEntries()) { entry in
+                        ttsServiceRow(entry)
+                    }
+                } header: {
+                    Text("TTS Services")
+                } footer: {
+                    Text("Independent speech services configured in Settings → Voice. Selecting one makes it the active read-aloud voice.")
+                }
+            }
 
             if config.showGroups && !visibleGroups.isEmpty {
                 Section {
@@ -990,6 +1059,45 @@ struct UnifiedModelPicker: View {
     }
 
     // MARK: - Instance Section
+
+    /// [T-capsule-service-picker 09-12] One row per configured TTS service.
+    /// Selection state = TTSServiceStore.selectedServiceId (the actual synthesis
+    /// route). Selecting a service row activates that service; selecting ANY
+    /// other row (model / group / System) DESELECTS the service so the two
+    /// layers never fight over which voice speaks.
+    @ViewBuilder
+    private func ttsServiceRow(_ entry: ModelEntry) -> some View {
+        let serviceId = String(entry.id.dropFirst(ModelEntry.ttsServiceIdPrefix.count))
+        let isSelected = TTSServiceStore.shared.selectedServiceId == serviceId
+        let hasKey = TTSServiceStore.shared.hasAPIKey(forServiceId: serviceId)
+        Button {
+            // [T-capsule-service-picker 09-12] Services are NOT ModelEntries in
+            // VoiceSelectionStore — the selection lives in
+            // TTSServiceStore.selectedServiceId. Also clear the legacy
+            // outputEntryId so the model/group route goes fully dormant.
+            TTSServiceStore.shared.setSelectedServiceId(serviceId)
+            VoiceSelectionStore.shared.outputEntryId = nil
+            VoiceOutputPlayer.shared.resetActiveModel()
+            pickerLog.info("[TTS-service] selected service \(serviceId)")
+            if config.dismissOnSelect { dismiss() }
+        } label: {
+            HStack {
+                Label(entry.model.displayName, systemImage: "waveform.badge.plus")
+                    .font(.subheadline)
+                    .foregroundStyle(hasKey ? .primary : .secondary)
+                Spacer()
+                if !hasKey {
+                    Text("no key")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                } else if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.tint)
+                }
+            }
+        }
+        .disabled(!hasKey)
+    }
 
     @ViewBuilder
     private func instanceSection(_ item: (instance: ProviderInstance, entries: [ModelEntry])) -> some View {

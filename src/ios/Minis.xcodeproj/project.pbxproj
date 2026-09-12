@@ -513,6 +513,9 @@
 		F1A00020 /* MessageListInfrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A00021 /* MessageListInfrastructure.swift */; };
 		F1M00012 /* AudioPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00011 /* AudioPlayback.swift */; };
 		F1M00022 /* AudioWaveformSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00021 /* AudioWaveformSampler.swift */; };
+		F1M00023 /* UserManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00024 /* UserManualMirror.swift */; };
+		F1M00025 /* AIVoiceMessageComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00026 /* AIVoiceMessageComposer.swift */; };
+		F1M00027 /* PlayHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00028 /* PlayHubView.swift */; };
 		F1M00014 /* VideoPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00013 /* VideoPlayer.swift */; };
 		F1M00016 /* ImagePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00015 /* ImagePreview.swift */; };
 		F1M00018 /* AudioPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00017 /* AudioPreview.swift */; };
@@ -1208,6 +1211,9 @@
 		F1A00021 /* MessageListInfrastructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListInfrastructure.swift; sourceTree = "<group>"; };
 		F1M00011 /* AudioPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayback.swift; sourceTree = "<group>"; };
 		F1M00021 /* AudioWaveformSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWaveformSampler.swift; sourceTree = "<group>"; };
+		F1M00024 /* UserManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserManualMirror.swift; sourceTree = "<group>"; };
+		F1M00026 /* AIVoiceMessageComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIVoiceMessageComposer.swift; sourceTree = "<group>"; };
+		F1M00028 /* PlayHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayHubView.swift; sourceTree = "<group>"; };
 		F1M00013 /* VideoPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayer.swift; sourceTree = "<group>"; };
 		F1M00015 /* ImagePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePreview.swift; sourceTree = "<group>"; };
 		F1M00017 /* AudioPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPreview.swift; sourceTree = "<group>"; };
@@ -1331,6 +1337,7 @@
 				28E23EA0E199D6D50EBC76F2 /* VoiceLog.swift */,
 				DE154CF628D8699BD99CF9CB /* AudioSessionCoordinator.swift */,
 				D7656F4130247E4002A3AC0C /* VoiceTextSanitizer.swift */,
+				F1M00026 /* AIVoiceMessageComposer.swift */,
 			);
 			path = Voice;
 			sourceTree = "<group>";
@@ -1344,6 +1351,14 @@
 				7A302B074A0BE0AFED8EC7E9 /* SpeechPlayerControl.swift */,
 			);
 			path = Voice;
+			sourceTree = "<group>";
+		};
+		F1V00017 /* Play */ = {
+			isa = PBXGroup;
+			children = (
+				F1M00028 /* PlayHubView.swift */,
+			);
+			path = Play;
 			sourceTree = "<group>";
 		};
 		AA26BD0E2F2E5FA500AECF2D /* Frameworks */ = {
@@ -1771,6 +1786,7 @@
 			isa = PBXGroup;
 			children = (
 				E51000012 /* ContentView.swift */,
+				F1V00017 /* Play */,
 				F1V00014 /* Alarms */,
 				F1V00015 /* Backup */,
 				F1V00010 /* Chat */,
@@ -1802,6 +1818,7 @@
 				E5G000014 /* AgentActivityAttributes.swift */,
 				E5AT00011 /* AudioTogglePlaybackIntent.swift */,
 				E5Q000013 /* AppLogger.swift */,
+				F1M00024 /* UserManualMirror.swift */,
 				LOC00002 /* AppLocalization.swift */,
 				E5Q000011 /* BPETokenizer.swift */,
 				E5MDS0013 /* MarkdownStripper.swift */,
@@ -2838,6 +2855,9 @@
 				E5F2000FA /* TextFadeAnimator.swift in Sources */,
 				F1M00012 /* AudioPlayback.swift in Sources */,
 				F1M00022 /* AudioWaveformSampler.swift in Sources */,
+				F1M00023 /* UserManualMirror.swift in Sources */,
+				F1M00025 /* AIVoiceMessageComposer.swift in Sources */,
+				F1M00027 /* PlayHubView.swift in Sources */,
 				F1M00014 /* VideoPlayer.swift in Sources */,
 				F1M00016 /* ImagePreview.swift in Sources */,
 				F1M00018 /* AudioPreview.swift in Sources */,

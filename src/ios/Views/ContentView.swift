@@ -1006,6 +1006,8 @@ struct ContentView: View {
     /// root as a page on the main stack (sheet is reserved for deep links,
     /// which need the modal to survive tab/state churn).
     @State private var showSettingsPage = false
+    /// [T-play-hub 09-12] 玩法页 push flag — same pattern as showSettingsPage.
+    @State private var showPlayHub = false
     @StateObject private var browserPool = BrowserTabPool()
     @State private var selectedSessionId: String?
     /// Shadow of the previously-selected session id, used to identify the
@@ -2039,6 +2041,9 @@ struct ContentView: View {
                 .navigationDestination(isPresented: $showSettingsPage) {
                     SettingsSheet(browserPool: browserPool, presentation: .page)
                 }
+                .navigationDestination(isPresented: $showPlayHub) {
+                    PlayHubView()
+                }
         } detail: {
             detailView
                 .appFontScale()
@@ -2054,6 +2059,10 @@ struct ContentView: View {
                 // settings root as a page on THIS stack (QQ direct nav).
                 .navigationDestination(isPresented: $showSettingsPage) {
                     SettingsSheet(browserPool: browserPool, presentation: .page)
+                }
+                // [T-play-hub 09-12] 玩法 hub on the same stack.
+                .navigationDestination(isPresented: $showPlayHub) {
+                    PlayHubView()
                 }
                 .navigationDestination(for: String.self) { id in
                     // `.id(id)` mirrors detailView (iPad): navigationDestination
@@ -3421,6 +3430,15 @@ struct ContentView: View {
                 size: 22, weight: .medium
             ) {
                 showSettingsPage = true
+            }
+            // [T-play-hub 09-12] 醒醒 4: 玩法入口 — one more slot on the home
+            // bottom bar. Each entry inside is a little AI-shared world.
+            homeBottomTab(
+                icon: { Image(systemName: "sparkles") },
+                label: "Play",
+                size: 22, weight: .medium
+            ) {
+                showPlayHub = true
             }
             if hasAlarms {
                 homeBottomTab(

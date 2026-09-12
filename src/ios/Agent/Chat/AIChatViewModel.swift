@@ -1949,6 +1949,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "  /var/minis/shared/      — Cross-session shared storage for artifacts and documents. Organize by project or topic (e.g. shared/myproject/, shared/datasets/). Do NOT store temporary files here.\n"
             + "  /var/minis/memory/GLOBAL.md    — Persistent global memory (read-only, user-maintained via Settings).\n"
             + "  /var/minis/memory/YYYY-MM-DD.md — Daily memory log.\n"
+            + "  /var/minis/shared/user-manual.md — The APP'S OWN user manual, mirrored at launch from the app bundle. "
+            + "It documents this app's features (terminal, TTS, message actions, MCP, Shortcuts …) from the user's perspective — read it before answering questions about what the app can do. "
+            + "The bundle copy is authoritative; the mirror refreshes on every app launch, so agent edits there are temporary.\n"
             + "  /var/minis/mounts/<name>/ — User-mounted external folders from iOS Files (e.g. an Obsidian vault, Downloads, another app's iCloud container). Presence and names vary per user. Check this directory first when the task references external/user files. Some mounts may be read-only; write tools will reject writes with a clear error.\n\n"
             + "The minis-clone:// URL scheme:\n"
             + "  minis-clone://attachments/file.png  →  /var/minis/attachments/file.png\n"
@@ -5918,6 +5921,44 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     }
                 }
                 hitTurnLimit = false
+
+                // [T-ai-voice-messages 09-12] 醒醒 2 — the turn has fully converged
+                // and the reply is persisted. If this session's "AI Voice Replies"
+                // mode is ON, synthesize the reply and append a wx-style voice
+                // bubble as its own assistant message (text kept in history for
+                // context; bubble carries ?voice_bubble=1&dur= for the renderer).
+                if let sid = sessionId,
+                   AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: sid),
+                   !assistantText.isEmpty {
+                    if let voice = await AIVoiceMessageComposer.compose(
+                        for: assistantText, sessionId: sid) {
+                        let durParam = voice.duration > 0 ? Int(voice.duration.rounded()) : 0
+                        let link = "![voice](\(voice.url)?voice_bubble=1&dur=\(durParam)&auto_play=true)"
+                        // UI message: a dedicated assistant row right after the reply.
+                        await MainActor.run {
+                            let vm = ChatMessage(role: .assistant, content: link)
+                            messages.append(vm)
+                        }
+                        // agentHistory + DB: same content so reload replays the bubble.
+                        let voiceMsg = AgentMessage(role: .assistant, parts: [.text(link)])
+                        agentHistory.append(voiceMsg)
+                        if let raw = await buildRawMessage(voiceMsg) {
+                            await ChatStore.shared.appendMessage(raw)
+                            agentHistory[agentHistory.count - 1].dbMessageId = raw.id
+                        }
+                        logger.info("[AIVoice] appended voice bubble dur=\(durParam)s")
+                        // 醒醒 2: 发出来就是自动播放的. GlobalAudioPlayer configures its
+                        // own session (Control Center visibility) — the regular
+                        // read-aloud queue is NOT involved, so a streaming TTS reply
+                        // and the voice bubble don't fight over the audio session.
+                        if let fileURL = await resolvePathForDirectRead(
+                            AIVoiceMessageComposer.linuxPathFor(url: voice.url)) {
+                            GlobalAudioPlayer.shared.play(url: fileURL)
+                        }
+                    } else {
+                        logger.info("[AIVoice] synthesis unavailable — skipped bubble")
+                    }
+                }
 
                 // [T-ios-queued-message-continues-prev-turn] The current turn's
                 // tool loop has fully converged (no tool calls this iteration) and

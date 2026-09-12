@@ -65,6 +65,9 @@ struct SpeechPlayerControl: View {
     /// capsule LIFTS above it (via placement.totalLift) — it stays visible, it does
     /// NOT hide. Idle + off → hidden.
     private var isActive: Bool {
+        // [T-capsule-visibility 09-12] Master switch from the "•••" menu: OFF =
+        // the capsule never renders, regardless of playback state.
+        guard VoiceOutputPreferences.capsuleVisible else { return false }
         state.isEnabled || state.isReadingAloud || state.speechPaused
             || voicePlayer.isPlaying || voicePlayer.isSynthesizing || voicePlayer.hasPendingAudio
     }
@@ -129,6 +132,11 @@ struct SpeechPlayerControl: View {
         .ignoresSafeArea(.keyboard)
         .animation(.easeInOut(duration: 0.2), value: isActive)
         .onReceive(placement.$protectedRects) { _ in scheduleRecompute() }
+            // [T-capsule-visibility 09-12] Master-switch flips from the "•••"
+            // menu re-evaluate `isActive` immediately.
+            .onReceive(NotificationCenter.default.publisher(for: .ttsCapsuleVisibilityChanged)) { _ in
+                VoiceLog.log("[capsule] visibility master switch → \(VoiceOutputPreferences.capsuleVisible)")
+            }
         // Window resize (rotation / iPad Stage Manager / Split View): the
         // resting corner moves with the layout, but a dragged offset that was
         // valid in the old size may now push the capsule outside the window —
@@ -190,7 +198,13 @@ struct SpeechPlayerControl: View {
         let threshold = spaceInsufficient
             ? Self.minStableHeadroom + Self.crampedHideHysteresis
             : Self.minStableHeadroom
-        let shouldHide = headroom < threshold
+        // [T-capsule-cramped-hide 09-12] KEYBOARD GATE — only the keyboard+panel
+        // stack can legitimately leave nowhere stable to sit. In plain chat the
+        // obstacle set is bottom-dwelling; if the headroom math still claims
+        // "insufficient" there it's a transient/sane-rect glitch, and hiding the
+        // capsule on it is the "capsule vanished on its own" bug. Clamp: no
+        // keyboard → NEVER hide (but still clear a stale hidden state).
+        let shouldHide = headroom < threshold && placement.keyboardIsUp()
         if shouldHide != spaceInsufficient {
             VoiceLog.log("[capsule] space \(shouldHide ? "INSUFFICIENT → hide" : "recovered → show") (headroom=\(Int(headroom)) liftedTop=\(Int(liftedTop)) safeTop=\(Int(safeTop)))")
             withAnimation(.easeInOut(duration: 0.2)) { spaceInsufficient = shouldHide }

@@ -55,6 +55,21 @@ enum VoiceOutputPreferences {
         set { UserDefaults.standard.set(newValue, forKey: mutedKey) }
     }
 
+    /// [T-capsule-visibility 09-12] 醒醒 1：「语音悬浮胶囊，自己会消失，要么…
+    /// 或者其他功能都放到'•••'里。」Master visibility switch for the floating
+    /// speech capsule, surfaced in the chat "•••" menu. When OFF the capsule never
+    /// renders (even mid-playback — pause/stop stay available from the message
+    /// action bar); read-aloud audio itself keeps working. Persisted.
+    private static let capsuleVisibleKey = "voice.output.capsuleVisible"
+    static var capsuleVisible: Bool {
+        get {
+            // Default ON: existing users see no change.
+            if UserDefaults.standard.object(forKey: capsuleVisibleKey) == nil { return true }
+            return UserDefaults.standard.bool(forKey: capsuleVisibleKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: capsuleVisibleKey) }
+    }
+
     private static let offXKey = "voiceCapsule.anchorOffset.dx"
     private static let offYKey = "voiceCapsule.anchorOffset.dy"
 
@@ -255,6 +270,13 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
         let rate = UInt32(littleEndian: byteRate)
         guard rate > 0 else { return 0 }
         return Double(wav.count - 44) / Double(rate)
+    }
+
+    /// [T-ai-voice-messages 09-12] Public facade over `wavDuration` for the
+    /// voice-message composer (duration label + bubble metadata). Returns 0
+    /// for non-WAV bytes (mp3) — callers treat 0 as "unknown, resolve lazily".
+    static func wavDurationOf(_ wav: Data) -> Double {
+        wavDuration(wav)
     }
 
     // MARK: - Public API

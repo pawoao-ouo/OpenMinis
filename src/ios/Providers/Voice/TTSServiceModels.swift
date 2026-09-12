@@ -426,6 +426,13 @@ final class TTSServiceStore: @unchecked Sendable {
         (apiKey(for: service)?.isEmpty == false)
     }
 
+    /// [T-capsule-service-picker 09-12] Id-keyed convenience for picker rows,
+    /// which only carry the service id (not the full TTSServiceOptions).
+    func hasAPIKey(forServiceId id: String) -> Bool {
+        guard let s = service(id: id) else { return false }
+        return hasAPIKey(for: s)
+    }
+
     func saveAPIKey(_ key: String, for service: TTSServiceOptions) {
         ProviderKeychainHelper.saveAPIKey(key, instanceId: service.keychainInstanceId, caller: "TTSServiceStore")
     }
@@ -450,4 +457,8 @@ extension Notification.Name {
     /// Posted whenever the configured TTS service list / selection changes, so
     /// open settings UI and the read-aloud capsule refresh.
     static let ttsServicesChanged = Notification.Name("ttsServicesChanged")
+
+    /// [T-capsule-visibility 09-12] Posted when the "•••" menu flips the
+    /// floating-capsule master switch (VoiceOutputPreferences.capsuleVisible).
+    static let ttsCapsuleVisibilityChanged = Notification.Name("ttsCapsuleVisibilityChanged")
 }

@@ -1972,6 +1972,13 @@ struct AIChatView: View {
             // reads the same key at request-build time, so the flip applies
             // to the very next Codex request.
             setFastMode: { enabled in codexFastModeEnabled = enabled },
+            // [T-ai-voice-messages 09-12] Per-session toggle.
+            aiVoiceEnabled: vm.sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false,
+            setAIVoiceEnabled: { enabled in
+                if let sid = vm.sessionId {
+                    AIVoiceMessageComposer.setVoiceReplies(enabled: enabled, sessionId: sid)
+                }
+            },
             onTokenUsage: { showTokenUsage = true },
             // LastAPIRequestBody + copySessionDataToClipboard are DEBUG-only (the
             // menu buttons that invoke these closures are #if DEBUG too); guard the
@@ -5173,6 +5180,8 @@ private struct ChatTrailingMenu: View, Equatable {
     /// [T-codex-fast-mode] Mirrors ChatTrailingMenuButton.
     let showFastModeToggle: Bool
     let fastModeEnabled: Bool
+    /// [T-ai-voice-messages 09-12] Per-session AI-voice-replies mode snapshot.
+    let aiVoiceEnabled: Bool
 
     let onNewChat: () -> Void
     let onCompact: () -> Void
@@ -5188,6 +5197,7 @@ private struct ChatTrailingMenu: View, Equatable {
     let setSpeakEnabled: (Bool) -> Void
     let setEnhancedCache: (Bool) -> Void
     let setFastMode: (Bool) -> Void
+    let setAIVoiceEnabled: (Bool) -> Void
     let onTokenUsage: () -> Void
     let onCopyRequests: () -> Void
     let onCopySessionData: () -> Void
@@ -5203,6 +5213,7 @@ private struct ChatTrailingMenu: View, Equatable {
             && lhs.enhancedCacheEnabled == rhs.enhancedCacheEnabled
             && lhs.showFastModeToggle == rhs.showFastModeToggle
             && lhs.fastModeEnabled == rhs.fastModeEnabled
+            && lhs.aiVoiceEnabled == rhs.aiVoiceEnabled
     }
 
     var body: some View {
@@ -5283,6 +5294,31 @@ private struct ChatTrailingMenu: View, Equatable {
                 Label(AppLocalized("Speak Responses"), systemImage: "speaker.wave.2")
             }
 
+            // [T-capsule-visibility 09-12] 醒醒 1: master switch for the floating
+            // capsule — OFF = it never renders. Read-aloud itself keeps working;
+            // pause/stop stay reachable from the message action bar. Local toggle
+            // (UserDefaults-backed, not part of the Equatable key — the flip
+            // re-renders the Menu lazily on next open, which is fine).
+            Toggle(isOn: Binding(
+                get: { VoiceOutputPreferences.capsuleVisible },
+                set: { v in
+                    VoiceOutputPreferences.capsuleVisible = v
+                    NotificationCenter.default.post(name: .ttsCapsuleVisibilityChanged, object: nil)
+                }
+            )) {
+                Label(AppLocalized("Voice Capsule"), systemImage: "speaker.wave.2.circle")
+            }
+
+            // [T-ai-voice-messages 09-12] 醒醒 2: per-session "AI Voice Replies" —
+            // ON = each assistant reply ALSO arrives as a wx-style auto-playing
+            // voice bubble.
+            Toggle(isOn: Binding(
+                get: { aiVoiceEnabled },
+                set: { setAIVoiceEnabled($0) }
+            )) {
+                Label(AppLocalized("AI Voice Replies"), systemImage: "bubble.left.and.bubble.right.fill")
+            }
+
             // [T-codex-fast-mode-menu-group] Model-control toggles in their
             // own divider-separated section (mirrors the UIKit buildMenu).
             if showEnhancedCacheToggle || showFastModeToggle {
@@ -5356,6 +5392,8 @@ private struct ChatTrailingMenuButton: UIViewRepresentable {
     /// Codex OAuth instance (OpenAI OAuth, no custom base).
     let showFastModeToggle: Bool
     let fastModeEnabled: Bool
+    /// [T-ai-voice-messages 09-12] Per-session AI-voice-replies mode snapshot.
+    let aiVoiceEnabled: Bool
 
     let onNewChat: () -> Void
     let onCompact: () -> Void
@@ -5371,6 +5409,7 @@ private struct ChatTrailingMenuButton: UIViewRepresentable {
     let setSpeakEnabled: (Bool) -> Void
     let setEnhancedCache: (Bool) -> Void
     let setFastMode: (Bool) -> Void
+    let setAIVoiceEnabled: (Bool) -> Void
     let onTokenUsage: () -> Void
     let onCopyRequests: () -> Void
     let onCopySessionData: () -> Void
@@ -5387,6 +5426,7 @@ private struct ChatTrailingMenuButton: UIViewRepresentable {
         let enhancedCacheEnabled: Bool
         let showFastModeToggle: Bool
         let fastModeEnabled: Bool
+        let aiVoiceEnabled: Bool
     }
 
     private var key: Key {
@@ -5396,7 +5436,8 @@ private struct ChatTrailingMenuButton: UIViewRepresentable {
             showEnhancedCacheToggle: showEnhancedCacheToggle,
             enhancedCacheEnabled: enhancedCacheEnabled,
             showFastModeToggle: showFastModeToggle,
-            fastModeEnabled: fastModeEnabled)
+            fastModeEnabled: fastModeEnabled,
+            aiVoiceEnabled: aiVoiceEnabled)
     }
 
     final class Coordinator {
@@ -5499,6 +5540,19 @@ private struct ChatTrailingMenuButton: UIViewRepresentable {
                                      image: UIImage(systemName: "speaker.wave.2"),
                                      state: key.speakEnabled ? .on : .off) { _ in
             coordinator.parent.setSpeakEnabled(!key.speakEnabled)
+        })
+        // [T-capsule-visibility 09-12] Mirror the SwiftUI menu's master switch.
+        sessionGroup.append(UIAction(title: AppLocalized("Voice Capsule"),
+                                     image: UIImage(systemName: "speaker.wave.2.circle"),
+                                     state: VoiceOutputPreferences.capsuleVisible ? .on : .off) { _ in
+            VoiceOutputPreferences.capsuleVisible.toggle()
+            NotificationCenter.default.post(name: .ttsCapsuleVisibilityChanged, object: nil)
+        })
+        // [T-ai-voice-messages 09-12] Per-session AI voice replies.
+        sessionGroup.append(UIAction(title: AppLocalized("AI Voice Replies"),
+                                     image: UIImage(systemName: "bubble.left.and.bubble.right.fill"),
+                                     state: key.aiVoiceEnabled ? .on : .off) { _ in
+            coordinator.parent.setAIVoiceEnabled(!key.aiVoiceEnabled)
         })
         groups.append(UIMenu(options: .displayInline, children: sessionGroup))
 

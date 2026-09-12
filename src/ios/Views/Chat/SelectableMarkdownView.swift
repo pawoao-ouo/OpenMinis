@@ -4493,14 +4493,30 @@ final class AudioAttachment: NSTextAttachment {
     let theme: SelectableMarkdownTheme
     private var resolvedURL: URL?
     private var isResolved = false
+    /// [T-ai-voice-messages 09-12] WX-style voice-bubble mode — the link carries
+    /// `voice_bubble=1` (e.g. ![voice](...wav?voice_bubble=1)). Renders a compact
+    /// speaker + animated arcs bubble instead of the file-player card.
+    private(set) var isVoiceBubble: Bool = false
+    /// Seconds shown next to the speaker (from the `dur=` query, best-effort).
+    private(set) var voiceDuration: Double = 0
 
     static let attachmentHeight: CGFloat = 70
+    /// Voice-bubble rows are much shorter than the file-player card.
+    static let voiceBubbleHeight: CGFloat = 44
 
     init(source: String, theme: SelectableMarkdownTheme) {
         self.source = source
         self.theme = theme
         super.init(data: nil, ofType: nil)
         self.image = Self.transparentImage
+        // Parse query params BEFORE resolveURL — the bubble shape depends on them.
+        if let url = URL(string: source), let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            let q = comps.queryItems ?? []
+            isVoiceBubble = q.contains { $0.name == "voice_bubble" && ($0.value == "1" || $0.value == "true") }
+            if let d = q.first(where: { $0.name == "dur" })?.value, let dv = Double(d) {
+                voiceDuration = dv
+            }
+        }
         resolveURL()
     }
 
@@ -4530,10 +4546,17 @@ final class AudioAttachment: NSTextAttachment {
 
     override func attachmentBounds(for textContainer: NSTextContainer?, proposedLineFragment lineFrag: CGRect, glyphPosition position: CGPoint, characterIndex charIndex: Int) -> CGRect {
         let width = lineFrag.width
-        return CGRect(x: 0, y: 0, width: width, height: Self.attachmentHeight)
+        // [T-ai-voice-messages 09-12] WX-style bubble is a short capsule row.
+        let h = isVoiceBubble ? Self.voiceBubbleHeight : Self.attachmentHeight
+        return CGRect(x: 0, y: 0, width: width, height: h)
     }
 
     func makeView(width: CGFloat) -> UIView {
+        // [T-ai-voice-messages 09-12] Voice-bubble mode → the WX-style speaker
+        // capsule instead of the file-player card.
+        if isVoiceBubble {
+            return makeVoiceBubbleView(width: width)
+        }
         let maxW = width
         let h = Self.attachmentHeight
 
@@ -4619,6 +4642,136 @@ final class AudioAttachment: NSTextAttachment {
         tapTarget.addGestureRecognizer(audioTap)
 
         return container
+    }
+
+    // MARK: - [T-ai-voice-messages 09-12] WX-style voice bubble
+
+    /// WeChat-like voice bubble: leading speaker glyph + three sound arcs that
+    /// animate while playing + trailing duration ("3\""). Tap → GlobalAudioPlayer.
+    /// Bubble width grows with duration (WX semantics: longer voice, longer
+    /// bubble), clamped to the message column.
+    private func makeVoiceBubbleView(width: CGFloat) -> UIView {
+        let h = Self.voiceBubbleHeight
+        // Width: 70pt base + 10pt per 5s, capped at 60% of column width.
+        let seconds = voiceDuration > 0 ? voiceDuration : 3
+        let w = min(70 + Int(seconds / 5.0 * 10), Int(width * 0.6))
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: width, height: h))
+        container.backgroundColor = .clear
+        container.isUserInteractionEnabled = true
+
+        let accent = AppearanceStudio.uiColorSnapshot(.accent)
+        let bubble = UIView(frame: CGRect(x: 0, y: 0, width: w, height: h))
+        // AI's voice bubble uses the assistant bubble color (this is the AI
+        // speaking, not the user).
+        bubble.backgroundColor = UIColor(ChatColors.assistantBubble).withAlphaComponent(0.35)
+        bubble.layer.cornerRadius = 14
+        bubble.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner]
+        container.addSubview(bubble)
+
+        // Speaker glyph
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        let speaker = UIImageView(image: UIImage(systemName: "speaker.wave.2.fill", withConfiguration: iconConfig))
+        speaker.tintColor = accent
+        speaker.frame = CGRect(x: 14, y: (h - 16) / 2, width: 18, height: 16)
+        bubble.addSubview(speaker)
+
+        // Duration label
+        let durLabel = UILabel()
+        durLabel.text = String(format: "%d\"", Int(seconds.rounded()))
+        durLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        durLabel.textColor = UIColor(ChatColors.primaryText).withAlphaComponent(0.8)
+        durLabel.sizeToFit()
+        durLabel.frame = CGRect(x: w - durLabel.frame.width - 12, y: (h - durLabel.frame.height) / 2,
+                                width: durLabel.frame.width, height: durLabel.frame.height)
+        bubble.addSubview(durLabel)
+
+        // Three animated arcs — animate while THIS bubble's file is playing.
+        let arcs = (0..<3).map { i in
+            let arc = UIView(frame: CGRect(x: 38 + i * 5, y: h / 2 - 4 + CGFloat(i % 2) * 2, width: 2.5, height: 8 - CGFloat(i % 2) * 4))
+            arc.backgroundColor = accent
+            arc.layer.cornerRadius = 1.25
+            arc.alpha = 0.35
+            bubble.addSubview(arc)
+            return arc
+        }
+
+        // Controller: keeps arcs in sync with the global player state.
+        let controller = VoiceBubbleAnimationController(arcs: arcs, fileURL: resolvedURL)
+        objc_setAssociatedObject(container, &VoiceBubbleAnimationController.associatedKey,
+                                 controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+
+        // Tap anywhere → play via the global player (shares session with previews).
+        let tap = AudioTapGesture(target: nil, action: nil)
+        tap.fileURL = resolvedURL
+        tap.addTarget(tap, action: #selector(AudioTapGesture.handleTap))
+        bubble.addGestureRecognizer(tap)
+
+        return container
+    }
+}
+
+/// Drives the WX-style arc animation for one voice bubble. Subscribes to
+/// GlobalAudioPlayer; when the bubble's file is the ACTIVE one, arcs pulse in
+/// sequence (0→1→2→…) at ~450ms/arc; otherwise they settle dim.
+private final class VoiceBubbleAnimationController: NSObject {
+    static var associatedKey: UInt8 = 0
+    private var cancellables = Set<AnyCancellable>()
+    /// Strong refs — fine here: container holds controller (associated), bubble
+    /// holds arcs, controller holds arcs. No retain cycle (bubble never holds
+    /// the controller).
+    private var arcs: [UIView]?
+    private let fileURL: URL?
+    private var step = 0
+    private var timer: Timer?
+
+    init(arcs: [UIView], fileURL: URL?) {
+        self.arcs = arcs
+        self.fileURL = fileURL
+        super.init()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            GlobalAudioPlayer.shared.$isPlaying.combineLatest(
+                GlobalAudioPlayer.shared.$activeFileURL)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] playing, active in
+                    guard let self else { return }
+                    let isActive = playing && active == self.fileURL
+                    self.setAnimating(isActive)
+                }
+                .store(in: &self.cancellables)
+        }
+    }
+
+    private func setAnimating(_ on: Bool) {
+        timer?.invalidate()
+        timer = nil
+        guard let arcs else { return }
+        if on {
+            timer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: true) { [weak self] _ in
+                guard let self, let arcs = self.arcs else { return }
+                self.step = (self.step + 1) % (arcs.count + 1)
+                for (i, arc) in arcs.enumerated() {
+                    UIView.animate(withDuration: 0.2) {
+                        arc.alpha = i < self.step ? 1.0 : 0.35
+                        arc.transform = i < self.step
+                            ? CGAffineTransform(scaleX: 1.15, y: 1.15)
+                            : .identity
+                    }
+                }
+            }
+        } else {
+            for arc in arcs {
+                UIView.animate(withDuration: 0.2) {
+                    arc.alpha = 0.35
+                    arc.transform = .identity
+                }
+            }
+        }
+    }
+
+    deinit {
+        timer?.invalidate()
+        // Cancellables released on dealloc — Set<AnyCancellable> cancels on deinit.
     }
 }
 

@@ -279,6 +279,19 @@ final class SpeechCapsulePlacement: ObservableObject {
     }
     func clearRect(_ key: String) { setRect(key, nil) }
 
+    /// [T-capsule-cramped-hide 09-12] Gate for the cramped-hide branch: hiding
+    /// is ONLY legitimate when the KEYBOARD is up — the genuine "keyboard + tall
+    /// voice panel stack past the top" case it was built for. Without a keyboard
+    /// the worst obstacle set (input bar + scroll buttons) sits near the bottom
+    /// and can never legitimately push the capsule past the nav band; yet the
+    /// headroom check was observed firing in plain chat (capsule vanished on its
+    /// own, 醒醒 09-12). Require the keyboard rect to be present AND on-screen.
+    func keyboardIsUp() -> Bool {
+        guard let kb = protectedRects["keyboard"], kb.height > 1 else { return false }
+        let screenH = UIScreen.main.bounds.height
+        return kb.minY < screenH - 1
+    }
+
     /// How far UP the capsule must move from its resting window frame so it clears
     /// every protected rect it horizontally overlaps. `spacing` = gap to keep.
     /// 0 when there's no overlap → capsule stays at its default position.
