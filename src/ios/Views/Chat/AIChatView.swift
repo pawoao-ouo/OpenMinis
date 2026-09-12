@@ -3323,7 +3323,9 @@ struct AIChatView: View {
         // 分支是死代码（部署目标 iOS 26.2，else 永远不跑）且其 toggleAIVoiceReplies
         // 缺 stopSpeech 与 iOS17 分支行为不一致——直接删掉整块和配套死 @State
         // （showLegacyVoiceDialog / aiVoiceRepliesOn / toggleAIVoiceReplies）。
-        Menu {
+        // [opaque-return 09-12] 显式 return：let 声明 + 多行 modifier 链之后的
+        // 表达式不被认作隐式 return（opaque return 只认单表达式 body）。
+        return Menu {
             Toggle(isOn: Binding(
                 get: { vm.speakEnabled },
                 set: { v in
