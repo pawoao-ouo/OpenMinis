@@ -4684,9 +4684,15 @@ final class AudioAttachment: NSTextAttachment {
         bubble.addSubview(speaker)
 
         // Duration label
+        // [T-ai-voice-mp3-duration 09-12] 修复审查问题9: dur=0（mp3 探不到）时别先
+        // 渲染「0\"」再异步改成真值——中间态是错的。先占位 "--\""，Task 探到真实
+        // 时长后一次写对。
         let durLabel = UILabel()
-        let durInt: Int = Int(dur.rounded())
-        durLabel.text = "\(durInt)\""
+        if dur > 0 {
+            durLabel.text = "\(Int(dur.rounded()))\""
+        } else {
+            durLabel.text = "--\""
+        }
         durLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         durLabel.textColor = textFill.withAlphaComponent(0.8)
         durLabel.sizeToFit()
@@ -4715,12 +4721,19 @@ final class AudioAttachment: NSTextAttachment {
         // hint written at compose time — it reads 0 for mp3 payloads (the WAV
         // header parser can't see mp3 frames). When it's missing/0, resolve
         // the real duration from the file itself (AVAudioPlayer reads both
-        // containers) and update the label once. Falls back to 3" when the
-        // file can't be probed.
+        // containers) and update the label once. 修复审查问题9/10: 占位 "--\"" 先
+        // 渲染，探到真值后连同 frame 一起更新（宽度变了不截断）；文本改成不保留
+        // 强引用到视图回收后——weak 到 superview 判活。
         if voiceDuration <= 0, let url = resolvedURL {
-            Task { @MainActor [durLabel] in
+            Task { @MainActor [weak durLabel] in
+                guard let durLabel, durLabel.superview != nil else { return }
                 if let p = try? AVAudioPlayer(contentsOf: url), p.duration > 0 {
                     durLabel.text = "\(Int(p.duration.rounded()))\""
+                    durLabel.sizeToFit()
+                    // Keep the right-padding anchor (12pt from bubble edge).
+                    if let bubble = durLabel.superview {
+                        durLabel.frame.origin.x = bubble.bounds.width - durLabel.frame.width - 12.0
+                    }
                 }
             }
         }

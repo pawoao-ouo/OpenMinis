@@ -157,6 +157,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     private var activityTrackingCancellable: AnyCancellable?
     private var captureSuppressCancellable: AnyCancellable?
     private var mediaPreemptCancellable: AnyCancellable?
+    /// [T-system-voice-off 09-12] Subscribes to .ttsQueueDrainedSilently (see init).
+    private var queueDrainedCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     /// Observer for font-size changes to invalidate cached attributed strings.
     private var fontChangeObserver: Any?
@@ -429,8 +431,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
         // A media attachment preempted reply TTS — stop the System synthesizer
         // (cloud queue already stopped by the coordinator). Don't auto-resume.
-        mediaPreemptCancellable = NotificationCenter.default
-            .publisher(for: AudioSessionCoordinator.replyTTSPreemptedNotification)
+        mediaPreemptCancellable = NotificationCenter.default            .publisher(for: AudioSessionCoordinator.replyTTSPreemptedNotification)
             .sink { [weak self] _ in
                 guard let self else { return }
                 if self.speechSynthesizer.isSpeaking {
@@ -438,6 +439,22 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 }
                 self.isReadingAloud = false
                 self.speechPaused = false
+            }
+
+        // [T-system-voice-off 09-12] 修复审查问题4: the cloud TTS queue drained
+        // with zero usable candidates (System voice OFF + no service/group).
+        // Nothing will ever play — settle the reading state + toast the gap so
+        // it isn't a silent nothing (胶囊不挂"朗读中").
+        queueDrainedCancellable = NotificationCenter.default
+            .publisher(for: .ttsQueueDrainedSilently)
+            .sink { [weak self] _ in
+                guard let self, self.isReadingAloud else { return }
+                self.isReadingAloud = false
+                self.speechPaused = false
+                AudioSessionCoordinator.shared.end(.replyTTS)
+                self.syncSpeechStateToGlobal()
+                MinisToast.show(AppLocalized("No voice available — add a TTS service or voice group, or allow System voice in Settings."),
+                               systemImage: "speaker.slash")
             }
 
         // Read-replies is now GLOBAL state (VoiceOutputState.shared). Forward its
@@ -5959,22 +5976,26 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                         for: assistantText, sessionId: sid) {
                         let durParam = voice.duration > 0 ? Int(voice.duration.rounded()) : 0
                         let link = "![voice](\(voice.url)?voice_bubble=1&dur=\(durParam)&auto_play=true)"
-                        // ① agentHistory: reply parts + the bubble link as an
-                        //    extra text part. The LLM still never sees it — the
-                        //    Phase-2 reload strips voice-bubble parts before
-                        //    agentHistory is sent (see loadSession filter).
-                        if assistantAgentIdx < agentHistory.count {
-                            agentHistory[assistantAgentIdx].parts.append(.text(link))
-                        }
-                        // ② DB: the reply row is already persisted above; rewrite
-                        //    its parts to include the bubble link so reload
-                        //    re-renders text+bubble merged (UPDATE, not INSERT —
-                        //    no duplicate row).
-                        if let pid = agentHistory.indices.contains(assistantAgentIdx)
-                            ? agentHistory[assistantAgentIdx].dbMessageId : nil {
+                        // [T-voice-bubble-context-clean v2 09-12] 修复审查问题14/15:
+                        // 之前的写法把气泡 link append 进 agentHistory——reload 侧会
+                        // 剥，但 live 侧（effectiveAgentHistory/applyRequestImageBudget）
+                        // 没有剥离逻辑，下一轮请求原样带上气泡 markdown，模型看得见
+                        // 自己的气泡格式。单一口径：agentHistory 永远不含气泡 part，
+                        // 气泡只进 DB（渲染用）和 UI。写 DB 时用「真实 parts + 气泡」，
+                        // 内存 agentHistory 保持纯净。（loadSession 的 reload 侧过滤
+                        // 仍保留——历史会话的旧 DB 行可能带气泡 part。）
+                        // 类型注意：agentHistory 的 parts 是 [AgentContentPart]，DB 的
+                        // updateMessageParts 要 [ContentPart]——不手搓映射（ToolUse/
+                        // ToolResult/MediaRef 字段名两套对不上，容易写错），复用
+                        // buildRawMessage 的生产转换，往它的 parts 尾上补气泡 part。
+                        if assistantAgentIdx < agentHistory.count,
+                           let pid = agentHistory[assistantAgentIdx].dbMessageId,
+                           let raw = await buildRawMessage(agentHistory[assistantAgentIdx]) {
+                            var dbParts = raw.parts
+                            dbParts.append(.text(link))
                             await ChatStore.shared.updateMessageParts(
                                 messageId: pid,
-                                parts: agentHistory[assistantAgentIdx].parts)
+                                parts: dbParts)
                         }
                         // ③ UI: append the bubble block to the SAME message.
                         await MainActor.run {
@@ -5987,11 +6008,23 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                         // own session (Control Center visibility) — the regular
                         // read-aloud queue is NOT involved, so a streaming TTS reply
                         // and the voice bubble don't fight over the audio session.
-                        if let fileURL = await resolvePathForDirectRead(
-                            AIVoiceMessageComposer.linuxPathFor(url: voice.url)) {
-                            GlobalAudioPlayer.shared.play(url: fileURL)
+                        // [T-voice-bubble-capture-guard] 修复审查问题6: 录音中不抢
+                        // audio session——麦克风捕获与回放互斥，气泡静默跳过自动播
+                        // （气泡还在，点开再听）。
+                        if !VoiceModePreference.shared.isCapturing {
+                            if let fileURL = await resolvePathForDirectRead(
+                                AIVoiceMessageComposer.linuxPathFor(url: voice.url)) {
+                                GlobalAudioPlayer.shared.play(url: fileURL)
+                            }
+                        } else {
+                            logger.info("[AIVoice] auto-play skipped — mic capturing")
                         }
                     } else {
+                        // [T-voice-bubble-failure-toast 09-12] 修复审查问题1: 合成失败
+                        // 不再静默——开关开着却没气泡，她只会以为功能坏了。Toast 告知
+                        // 原因（没配 TTS 服务/语音组都不可用）。
+                        MinisToast.show(AppLocalized("Voice bubble unavailable — check your TTS service or voice group."),
+                                       systemImage: "exclamationmark.triangle.fill")
                         logger.info("[AIVoice] synthesis unavailable — skipped bubble")
                     }
                 }

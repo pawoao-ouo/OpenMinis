@@ -83249,7 +83249,128 @@
         }
       }
     },
-    "AI Voice Replies" : {
+    "Listen Together" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一起听歌"
+          }
+        }
+      }
+    },
+    "AI Diary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI 日记"
+          }
+        }
+      }
+    },
+    "Share one queue with your AI — it reacts to what's playing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "和 AI 共享一个播放队列——它会回应正在播的歌"
+          }
+        }
+      }
+    },
+    "Your days, visualized by the memories you two made" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你们一起攒下的记忆，把日子画成图"
+          }
+        }
+      }
+    },
+    "Each one is a small world shared with your AI. More lands here as they're built." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个都是一个和 AI 共有的小世界，做好了会一个个出现在这里。"
+          }
+        }
+      }
+    },
+    "This world is being built — it'll open up here soon." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个世界正在搭建——很快会在这里开门。"
+          }
+        }
+      }
+    },
+        "Voice bubble unavailable — check your TTS service or voice group." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音气泡没发出来——检查你的 TTS 服务或语音分组。"
+          }
+        }
+      }
+    },
+    "Send a message first — voice replies switch on per chat." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先发条消息——语音回复按会话开启。"
+          }
+        }
+      }
+    },
+    "Voice replies on — this reply arrives as a voice bubble." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音回复已开——这条回复会以语音气泡送达。"
+          }
+        }
+      }
+    },
+    "No voice available — add a TTS service or voice group, or allow System voice in Settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有可用语音——添加 TTS 服务或语音分组，或在设置里允许系统语音。"
+          }
+        }
+      }
+    },
+    "Muted — tap to allow System voice" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已静音——点按允许系统语音"
+          }
+        }
+      }
+    },
+"AI Voice Replies" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {

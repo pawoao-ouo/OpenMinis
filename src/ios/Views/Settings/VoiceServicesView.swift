@@ -95,23 +95,37 @@ struct VoiceServicesView: View {
         } header: {
             Text("Text-to-Speech")
         } footer: {
-            Text("Pick which voice reads replies aloud. A service here is a complete synthesis target on its own — vendor, endpoint, key, model, voice and tuning. If nothing is selected, the offline System voice is used, then the Voice Output model group.")
+            Text("Pick which voice reads replies aloud. A service here is a complete synthesis target on its own — vendor, endpoint, key, model, voice and tuning. Nothing selected falls to the Voice Output model group. The built-in System voice only speaks when \"Allow System voice\" is on.")
         }
     }
 
     /// The built-in Apple engine — selectable; the gear opens the System voice
     /// editor (voice roster + pitch/volume/speed), same as any cloud service.
+    /// [T-system-voice-off 09-12] 修复审查问题7: with the "Allow System voice"
+    /// switch OFF this engine never speaks, so the row must SAY so — dimmed,
+    /// "muted by setting" caption, and tapping it flips the setting instead of
+    /// silently selecting a voice that can't sound.
     private var systemRow: some View {
         let isActive = store.selectedServiceId == nil
+        let allowed = VoiceOutputPreferences.systemVoiceAllowed
         return Button {
-            store.setSelectedServiceId(nil)
+            if allowed {
+                store.setSelectedServiceId(nil)
+            } else {
+                // Tapping the muted System row turns it back on (one less hop
+                // than scrolling to the Playback toggle).
+                VoiceOutputPreferences.systemVoiceAllowed = true
+                store.setSelectedServiceId(nil)
+            }
         } label: {
             HStack(spacing: 12) {
-                rowIcon(symbol: "apple.logo", active: isActive)
+                rowIcon(symbol: "apple.logo", active: isActive && allowed)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("System (Apple)")
-                        .foregroundStyle(MinisTheme.primaryText)
-                    Text("Offline · on-device voice")
+                        .foregroundStyle(allowed ? MinisTheme.primaryText : MinisTheme.secondaryText)
+                    Text(allowed
+                         ? "Offline · on-device voice"
+                         : "Muted — tap to allow System voice")
                         .font(.caption)
                         .foregroundStyle(MinisTheme.secondaryText)
                 }

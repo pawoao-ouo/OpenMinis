@@ -488,6 +488,10 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
             synthFailureTick &+= 1
             pumpPlayback()   // skip-and-drain so isPlaying/UI settle promptly
             refreshSynthesizingState()
+            // [T-system-voice-off 09-12] Tell the reading VM to settle its
+            // isReadingAloud state — nothing will ever play, so the capsule
+            // must not hang on "reading" (修复审查问题4).
+            NotificationCenter.default.post(name: .ttsQueueDrainedSilently, object: nil)
             return
         }
         // STICKY fail-over (mirrors the agent loop): once we've moved to a model,

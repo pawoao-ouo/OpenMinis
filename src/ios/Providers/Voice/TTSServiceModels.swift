@@ -461,4 +461,11 @@ extension Notification.Name {
     /// [T-capsule-visibility 09-12] Posted when the "•••" menu flips the
     /// floating-capsule master switch (VoiceOutputPreferences.capsuleVisible).
     static let ttsCapsuleVisibilityChanged = Notification.Name("ttsCapsuleVisibilityChanged")
+
+    /// [T-system-voice-off 09-12] Fired by VoiceOutputPlayer when the whole
+    /// queue drains WITHOUT producing audio (zero usable candidates — e.g.
+    /// the System-voice switch is OFF and no service/group is configured).
+    /// The reading VM listens and settles its isReadingAloud state so the
+    /// capsule doesn't hang on "reading" with nothing playing.
+    static let ttsQueueDrainedSilently = Notification.Name("ttsQueueDrainedSilently")
 }

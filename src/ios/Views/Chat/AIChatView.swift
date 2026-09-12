@@ -361,9 +361,6 @@ struct AIChatView: View {
     @State private var showTerminal = false
     @State private var terminalInitCommand: String?
     @State private var showAttachmentMenu = false
-    /// [T-menu-below-bubble 09-12] iOS16 fallback dialog for the composer's
-    /// voice-options "•••" (iOS17+ uses the inline Menu directly).
-    @State private var showLegacyVoiceDialog = false
     @State private var isDropTargeted = false
     @State private var showCamera = false
     @State private var showPhotoPicker = false
@@ -3322,72 +3319,62 @@ struct AIChatView: View {
             .background(ChatColors.inputIconBg)
             .clipShape(Circle())
             .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
-        if #available(iOS 17, *) {
-            Menu {
-                Toggle(isOn: Binding(
-                    get: { vm.speakEnabled },
-                    set: { v in
-                        vm.speakEnabled = v
-                        VoiceOutputPreferences.isEnabled = v
-                        if v { vm.speechPlayerExpanded = true } else { vm.stopSpeech() }
-                    }
-                )) {
-                    Label(AppLocalized("Speak Responses"), systemImage: "speaker.wave.2")
+        // [T-menu-below-bubble 09-12] 修复审查问题3/10: iOS16 confirmationDialog
+        // 分支是死代码（部署目标 iOS 26.2，else 永远不跑）且其 toggleAIVoiceReplies
+        // 缺 stopSpeech 与 iOS17 分支行为不一致——直接删掉整块和配套死 @State
+        // （showLegacyVoiceDialog / aiVoiceRepliesOn / toggleAIVoiceReplies）。
+        Menu {
+            Toggle(isOn: Binding(
+                get: { vm.speakEnabled },
+                set: { v in
+                    vm.speakEnabled = v
+                    VoiceOutputPreferences.isEnabled = v
+                    if v { vm.speechPlayerExpanded = true } else { vm.stopSpeech() }
                 }
-                Toggle(isOn: Binding(
-                    get: { VoiceOutputPreferences.capsuleVisible },
-                    set: { v in
-                        VoiceOutputPreferences.capsuleVisible = v
-                        NotificationCenter.default.post(name: .ttsCapsuleVisibilityChanged, object: nil)
-                    }
-                )) {
-                    Label(AppLocalized("Voice Capsule"), systemImage: "speaker.wave.2.circle")
-                }
-                Toggle(isOn: Binding(
-                    get: { vm.sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false },
-                    set: { v in
-                        if let sid = vm.sessionId {
-                            AIVoiceMessageComposer.setVoiceReplies(enabled: v, sessionId: sid)
-                            // [T-voice-bubble-no-double-read 09-12] Turning the
-                            // bubble mode ON mid-turn stops the streaming
-                            // read-aloud queue immediately — the bubble that
-                            // lands at StreamEnd is the single audio source.
-                            if v { vm.stopSpeech() }
-                        }
-                    }
-                )) {
-                    Label(AppLocalized("AI Voice Replies"), systemImage: "bubble.left.and.bubble.right.fill")
-                }
-            } label: {
-                icon
+            )) {
+                Label(AppLocalized("Speak Responses"), systemImage: "speaker.wave.2")
             }
-        } else {
-            // iOS 16: same three options via a dialog with role buttons.
-            Button { showLegacyVoiceDialog = true } label: { icon }
-                .confirmationDialog("Voice Options", isPresented: $showLegacyVoiceDialog) {
-                    Button(vm.speakEnabled ? "Speak Responses: ON" : "Speak Responses: OFF") {
-                        vm.speakEnabled = !vm.speakEnabled
-                        VoiceOutputPreferences.isEnabled = vm.speakEnabled
-                        if vm.speakEnabled { vm.speechPlayerExpanded = true } else { vm.stopSpeech() }
-                    }
-                    Button(VoiceOutputPreferences.capsuleVisible ? "Voice Capsule: ON" : "Voice Capsule: OFF") {
-                        VoiceOutputPreferences.capsuleVisible.toggle()
-                        NotificationCenter.default.post(name: .ttsCapsuleVisibilityChanged, object: nil)
-                    }
-                    Button(aiVoiceRepliesOn ? "AI Voice Replies: ON" : "AI Voice Replies: OFF") { toggleAIVoiceReplies() }
-                    Button("Cancel", role: .cancel) {}
+            Toggle(isOn: Binding(
+                get: { VoiceOutputPreferences.capsuleVisible },
+                set: { v in
+                    VoiceOutputPreferences.capsuleVisible = v
+                    NotificationCenter.default.post(name: .ttsCapsuleVisibilityChanged, object: nil)
                 }
+            )) {
+                Label(AppLocalized("Voice Capsule"), systemImage: "speaker.wave.2.circle")
+            }
+            Toggle(isOn: Binding(
+                get: { vm.sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false },
+                set: { v in
+                    // [T-voice-bubble-no-session 09-12] 修复审查问题2: 新会话
+                    // （还没发出第一条消息，sessionId=nil）点了开关原本静默无
+                    // 反应——看起来像按键失灵。Toast 说明「先发一条消息」。
+                    guard let sid = vm.sessionId else {
+                        MinisToast.show(AppLocalized("Send a message first — voice replies switch on per chat."),
+                                       systemImage: "exclamationmark.triangle.fill")
+                        return
+                    }
+                    AIVoiceMessageComposer.setVoiceReplies(enabled: v, sessionId: sid)
+                    // [T-voice-bubble-no-double-read 09-12] Turning the
+                    // bubble mode ON mid-turn stops the streaming
+                    // read-aloud queue immediately — the bubble that
+                    // lands at StreamEnd is the single audio source.
+                    // [T-voice-bubble-mid-turn 09-12] 修复审查问题5: mid-turn 开启
+                    // 时前半段已经读过了，气泡合成的却是整段——直接说清楚生效范围，
+                    // 不让她猜为什么又从头播。
+                    if v {
+                        if vm.isProcessing {
+                            MinisToast.show(AppLocalized("Voice replies on — this reply arrives as a voice bubble."))
+                        }
+                        vm.stopSpeech()
+                    }
+                }
+            )) {
+                Label(AppLocalized("AI Voice Replies"), systemImage: "bubble.left.and.bubble.right.fill")
+            }
+        } label: {
+            icon
         }
-    }
-
-    /// Snapshot of the per-session AI voice-replies flag (for iOS16 dialog labels).
-    private var aiVoiceRepliesOn: Bool {
-        vm.sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false
-    }
-
-    private func toggleAIVoiceReplies() {
-        guard let sid = vm.sessionId else { return }
-        AIVoiceMessageComposer.setVoiceReplies(enabled: !aiVoiceRepliesOn, sessionId: sid)
     }
 
     /// "Read replies aloud" toggle shown centered in the toolbar during voice
