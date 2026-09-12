@@ -4653,46 +4653,62 @@ final class AudioAttachment: NSTextAttachment {
     private func makeVoiceBubbleView(width: CGFloat) -> UIView {
         let h = Self.voiceBubbleHeight
         // Width: 70pt base + 10pt per 5s, capped at 60% of column width.
-        let seconds = voiceDuration > 0 ? voiceDuration : 3
-        let w = min(70 + Int(seconds / 5.0 * 10), Int(width * 0.6))
+        let dur: Double = voiceDuration > 0 ? voiceDuration : 3
+        let baseW: CGFloat = 70.0 + CGFloat(dur / 5.0 * 10.0)
+        let capW: CGFloat = width * 0.6
+        let w: CGFloat = min(baseW, capW)
         let container = UIView(frame: CGRect(x: 0, y: 0, width: width, height: h))
         container.backgroundColor = .clear
         container.isUserInteractionEnabled = true
 
-        let accent = AppearanceStudio.uiColorSnapshot(.accent)
+        let accent: UIColor = AppearanceStudio.uiColorSnapshot(.accent)
+        let bubbleFill: UIColor = AppearanceStudio.uiColorSnapshot(.assistantBubble, scope: .chat)
+        let textFill: UIColor = AppearanceStudio.uiColorSnapshot(.primaryText, scope: .chat)
+
         let bubble = UIView(frame: CGRect(x: 0, y: 0, width: w, height: h))
         // AI's voice bubble uses the assistant bubble color (this is the AI
         // speaking, not the user).
-        bubble.backgroundColor = UIColor(ChatColors.assistantBubble).withAlphaComponent(0.35)
+        bubble.backgroundColor = bubbleFill.withAlphaComponent(0.35)
         bubble.layer.cornerRadius = 14
-        bubble.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner]
+        let mask: CACornerMask = [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner]
+        bubble.layer.maskedCorners = mask
         container.addSubview(bubble)
 
         // Speaker glyph
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         let speaker = UIImageView(image: UIImage(systemName: "speaker.wave.2.fill", withConfiguration: iconConfig))
         speaker.tintColor = accent
-        speaker.frame = CGRect(x: 14, y: (h - 16) / 2, width: 18, height: 16)
+        let spX: CGFloat = 14.0
+        let spY: CGFloat = (h - 16.0) / 2.0
+        speaker.frame = CGRect(x: spX, y: spY, width: 18.0, height: 16.0)
         bubble.addSubview(speaker)
 
         // Duration label
         let durLabel = UILabel()
-        durLabel.text = String(format: "%d\"", Int(seconds.rounded()))
+        let durInt: Int = Int(dur.rounded())
+        durLabel.text = "\(durInt)\""
         durLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        durLabel.textColor = UIColor(ChatColors.primaryText).withAlphaComponent(0.8)
+        durLabel.textColor = textFill.withAlphaComponent(0.8)
         durLabel.sizeToFit()
-        durLabel.frame = CGRect(x: w - durLabel.frame.width - 12, y: (h - durLabel.frame.height) / 2,
-                                width: durLabel.frame.width, height: durLabel.frame.height)
+        let dlW: CGFloat = durLabel.frame.width
+        let dlH: CGFloat = durLabel.frame.height
+        let dlX: CGFloat = w - dlW - 12.0
+        let dlY: CGFloat = (h - dlH) / 2.0
+        durLabel.frame = CGRect(x: dlX, y: dlY, width: dlW, height: dlH)
         bubble.addSubview(durLabel)
 
         // Three animated arcs — animate while THIS bubble's file is playing.
-        let arcs = (0..<3).map { i in
-            let arc = UIView(frame: CGRect(x: 38 + i * 5, y: h / 2 - 4 + CGFloat(i % 2) * 2, width: 2.5, height: 8 - CGFloat(i % 2) * 4))
+        var arcs: [UIView] = []
+        for i in 0..<3 {
+            let arcX: CGFloat = 38.0 + CGFloat(i) * 5.0
+            let arcH: CGFloat = 8.0 - (i % 2 == 0 ? 0.0 : 4.0)
+            let arcY: CGFloat = h / 2.0 - arcH / 2.0
+            let arc = UIView(frame: CGRect(x: arcX, y: arcY, width: 2.5, height: arcH))
             arc.backgroundColor = accent
             arc.layer.cornerRadius = 1.25
             arc.alpha = 0.35
             bubble.addSubview(arc)
-            return arc
+            arcs.append(arc)
         }
 
         // Controller: keeps arcs in sync with the global player state.
@@ -4750,12 +4766,14 @@ private final class VoiceBubbleAnimationController: NSObject {
             timer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: true) { [weak self] _ in
                 guard let self, let arcs = self.arcs else { return }
                 self.step = (self.step + 1) % (arcs.count + 1)
+                let cur = self.step
                 for (i, arc) in arcs.enumerated() {
+                    let active: Bool = i < cur
                     UIView.animate(withDuration: 0.2) {
-                        arc.alpha = i < self.step ? 1.0 : 0.35
-                        arc.transform = i < self.step
+                        arc.alpha = active ? 1.0 : 0.35
+                        arc.transform = active
                             ? CGAffineTransform(scaleX: 1.15, y: 1.15)
-                            : .identity
+                            : CGAffineTransform.identity
                     }
                 }
             }

@@ -1937,6 +1937,9 @@ struct AIChatView: View {
             enhancedCacheEnabled: cached.vm.enhancedCacheEnabled,
             showFastModeToggle: activeModelSupportsFastMode,
             fastModeEnabled: codexFastModeEnabled,
+            // [T-ai-voice-messages 09-12] Per-session toggle (must precede the
+            // closure block per memberwise-init order).
+            aiVoiceEnabled: vm.sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false,
             onNewChat: { requestNewChatFromMenu() },
             // [T-chat-menu-compact-entry] Same effect as the /compact slash
             // command (AIChatViewModel+SlashCommands case "compact").
@@ -1972,13 +1975,6 @@ struct AIChatView: View {
             // reads the same key at request-build time, so the flip applies
             // to the very next Codex request.
             setFastMode: { enabled in codexFastModeEnabled = enabled },
-            // [T-ai-voice-messages 09-12] Per-session toggle.
-            aiVoiceEnabled: vm.sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false,
-            setAIVoiceEnabled: { enabled in
-                if let sid = vm.sessionId {
-                    AIVoiceMessageComposer.setVoiceReplies(enabled: enabled, sessionId: sid)
-                }
-            },
             onTokenUsage: { showTokenUsage = true },
             // LastAPIRequestBody + copySessionDataToClipboard are DEBUG-only (the
             // menu buttons that invoke these closures are #if DEBUG too); guard the

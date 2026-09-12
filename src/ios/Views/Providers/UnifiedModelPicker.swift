@@ -230,7 +230,14 @@ struct ModelPickerConfig {
             isDisabled: { !canServe($0.model, direction: .output) },
             showCreateGroup: true,
             createGroupDirection: .output,
+            // [T-capsule-service-picker 09-12] When a TTS service is the active
+            // voice, surface it as the picker's current selection so its row
+            // shows the checkmark.
             currentEntryId: {
+                if let sid = TTSServiceStore.shared.selectedServiceId,
+                   let s = TTSServiceStore.shared.service(id: sid), s.enabled {
+                    return ModelEntry.ttsServiceIdPrefix + sid
+                }
                 if let sel = selection.outputEntryId { return sel }
                 return store.voiceOutputGroupId == nil ? VoiceProviderResolver.systemEntryId : nil
             },
@@ -265,17 +272,6 @@ struct ModelPickerConfig {
                 // service layer.
                 TTSServiceStore.shared.setSelectedServiceId(nil)
                 VoiceOutputPlayer.shared.resetActiveModel()
-            },
-            // [T-capsule-service-picker 09-12] When a TTS service is the active
-            // voice, surface it as the picker's current selection so its row
-            // shows the checkmark.
-            currentEntryId: {
-                if let sid = TTSServiceStore.shared.selectedServiceId,
-                   let s = TTSServiceStore.shared.service(id: sid), s.enabled {
-                    return ModelEntry.ttsServiceIdPrefix + sid
-                }
-                if let sel = selection.outputEntryId { return sel }
-                return store.voiceOutputGroupId == nil ? VoiceProviderResolver.systemEntryId : nil
             }
         )
     }
