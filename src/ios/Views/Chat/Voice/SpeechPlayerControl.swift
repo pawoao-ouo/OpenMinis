@@ -67,8 +67,8 @@ struct SpeechPlayerControl: View {
     private var isActive: Bool {
         // [T-capsule-visibility 09-12] Master switch from the "•••" menu: OFF =
         // the capsule never renders, regardless of playback state.
-        guard VoiceOutputPreferences.capsuleVisible else { return false }
-        state.isEnabled || state.isReadingAloud || state.speechPaused
+        if !VoiceOutputPreferences.capsuleVisible { return false }
+        return state.isEnabled || state.isReadingAloud || state.speechPaused
             || voicePlayer.isPlaying || voicePlayer.isSynthesizing || voicePlayer.hasPendingAudio
     }
 
