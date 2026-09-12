@@ -262,6 +262,20 @@ extension AIChatViewModel {
             // boundaries by id after restore.
             var agentMsg = raw.toAgentMessage(mediaResolver: resolver)
             agentMsg.dbMessageId = raw.id
+            // [T-voice-bubble-context-clean 09-12] The wx-style voice bubble this
+            // app composes (an `![voice](…voice_bubble=1…)` text part riding at
+            // the end of the reply row) is UI/DB decoration, not conversation:
+            // strip the part from the LLM view so the model neither sees nor
+            // imitates its own bubble markdown. The row (and its other parts)
+            // stays; the UI rebuild below renders the bubble from the raw row.
+            if agentMsg.role == .assistant {
+                agentMsg.parts.removeAll { part in
+                    if case .text(let s) = part {
+                        return AIVoiceMessageComposer.isVoiceBubbleOnlyText(s)
+                    }
+                    return false
+                }
+            }
             loadedHistory.append(agentMsg)
 
             // [T-bridge-message-ui-leak] The #579 role-alternation bridge is

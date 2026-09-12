@@ -83249,6 +83249,39 @@
         }
       }
     },
+    "AI Voice Replies" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI 语音回复"
+          }
+        }
+      }
+    },
+    "Voice Options" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音选项"
+          }
+        }
+      }
+    },
+    "Voice and session options" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音与会话选项"
+          }
+        }
+      }
+    },
     "Speak Responses" : {
       "localizations" : {
         "de" : {

@@ -627,6 +627,14 @@ enum VoiceProviderResolver {
         where !out.contains(where: { $0.id == e.id }) {
             out.append(e)
         }
+        // [T-system-voice-off 09-12] 醒醒 3: with the System switch OFF (the
+        // default), System entries never enter the read-aloud candidate chain —
+        // a group whose only member is System resolves to ZERO candidates and
+        // the reply stays silent, instead of quietly speaking with the robotic
+        // built-in voice she hates. Opt back in via Settings → TTS Services.
+        if !VoiceOutputPreferences.systemVoiceAllowed {
+            out.removeAll { isSystemEntry($0.providerInstanceId) }
+        }
         return out
     }
 

@@ -34,6 +34,20 @@ enum AIVoiceMessageComposer {
         UserDefaults.standard.set(enabled, forKey: prefKey(sessionId))
     }
 
+    /// [T-voice-bubble-context-clean 09-12] True when an assistant text part is
+    /// ONLY a wx-style voice bubble this app composed. Such rows are DB/UI-only:
+    /// loadSession keeps them OUT of agentHistory so the model never sees (and
+    /// never imitates) its own bubble markdown. Shape-anchored, not
+    /// substring-anchored: a normal reply that merely MENTIONS "voice_bubble=1"
+    /// must never be stripped (unit-tested boundary: a 29-char reply mentioning
+    /// the param stays; only an actual `![voice](…voice_bubble=1…)` link part
+    /// goes).
+    nonisolated static func isVoiceBubbleOnlyText(_ s: String) -> Bool {
+        guard s.hasPrefix("![voice](") else { return false }
+        guard s.contains("voice_bubble=1") else { return false }
+        return s.count < 200
+    }
+
     /// Synthesize the assistant reply text and persist the audio in the session's
     /// attachments dir. Returns a minis-clone:// URL ready for embedding into a
     /// `![voice](...)` markdown link. All errors (empty text, every candidate
@@ -70,14 +84,18 @@ enum AIVoiceMessageComposer {
     }
 
     /// Walk the candidate chain exactly like read-aloud: selected service →
-    /// model group → System.
+    /// model group. [T-system-voice-off 09-12] 醒醒 3: System voice is an
+    /// EXPLICIT fallback, not a silent one — when nothing user-configured is
+    /// usable we throw instead of falling to AVSpeechSynthesizer, so the turn
+    /// reads as text-only and the log names the gap. The old always-System
+    /// tail made every misconfigured session sound like the robotic system
+    /// voice 醒醒 hates.
     private static func synthesizeFull(_ text: String) async throws -> (Data, Double) {
         if let (data, _) = try? await synthesizeWithServiceOrGroup(text) {
             return (data, VoiceOutputPlayer.wavDurationOf(data))
         }
-        let sys = SystemVoiceProvider()
-        let data = try await sys.synthesize(VoiceOutputRequest(input: text, responseFormat: .wav))
-        return (data, VoiceOutputPlayer.wavDurationOf(data))
+        throw VoiceProviderError.parseError(
+            "no usable TTS target — select a TTS service or voice group first")
     }
 
     /// linuxPathFor(url:) — turn the minis-clone URL back into the /var/minis

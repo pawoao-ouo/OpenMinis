@@ -4711,6 +4711,20 @@ final class AudioAttachment: NSTextAttachment {
             arcs.append(arc)
         }
 
+        // [T-ai-voice-mp3-duration 09-12] The `dur=` query is a best-effort
+        // hint written at compose time — it reads 0 for mp3 payloads (the WAV
+        // header parser can't see mp3 frames). When it's missing/0, resolve
+        // the real duration from the file itself (AVAudioPlayer reads both
+        // containers) and update the label once. Falls back to 3" when the
+        // file can't be probed.
+        if voiceDuration <= 0, let url = resolvedURL {
+            Task { @MainActor [durLabel] in
+                if let p = try? AVAudioPlayer(contentsOf: url), p.duration > 0 {
+                    durLabel.text = "\(Int(p.duration.rounded()))\""
+                }
+            }
+        }
+
         // Controller: keeps arcs in sync with the global player state.
         let controller = VoiceBubbleAnimationController(arcs: arcs, fileURL: resolvedURL)
         objc_setAssociatedObject(container, &VoiceBubbleAnimationController.associatedKey,

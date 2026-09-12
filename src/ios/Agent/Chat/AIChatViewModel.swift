@@ -1579,6 +1579,16 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             VoiceLog.log("feedDynamicTTS DROP — read-replies off (speakEnabled=\(speakEnabled) capturing=\(VoiceModePreference.shared.isCapturing))")
             return ""
         }
+        // [T-voice-bubble-no-double-read 09-12] When this session's "AI Voice
+        // Replies" is ON, the turn will arrive as a wx-style voice bubble that
+        // auto-plays itself at StreamEnd. Speaking the same text through the
+        // streaming read-aloud path first means 醒醒 hears the reply twice —
+        // once from the read-aloud queue and once from the bubble. Drop the
+        // buffered speech here instead; the bubble is the single audio source.
+        if let sid = sessionId, AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: sid) {
+            VoiceLog.log("feedDynamicTTS DROP — AI voice replies ON, bubble owns audio sid=\(sid.prefix(8))")
+            return ""
+        }
 
         // System path: no dynamic window, speak each batch as it arrives.
         guard useCloudTTS else {
@@ -1726,6 +1736,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             && (selectedService.flatMap { TTSProviderBridge.provider(for: $0) } != nil)
         return serviceSelected
             || !(VoiceProviderResolver.outputProvider() is SystemVoiceProvider)
+            // [T-system-voice-off 09-12] System voice is opt-in: when the
+            // resolution IS System but the switch is OFF, force the cloud path
+            // anyway. It will find zero candidates and stay silent (with a log
+            // naming the gap) — which is exactly "no voice", instead of
+            // silently falling back to the robotic AVSpeechSynthesizer voice
+            // 醒醒 hates.
+            || !VoiceOutputPreferences.systemVoiceAllowed
     }
     /// Per-reply snapshot of the streaming engine choice; cleared at each reply start.
     private var replyUsesCloudTTS: Bool?
@@ -5894,7 +5911,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 } else {
                     remainingSpeak = ""
                 }
-                if !remainingSpeak.isEmpty { speakQueued(remainingSpeak) }
+                // [T-voice-bubble-no-double-read 09-12] AI voice replies ON → the voice
+                // bubble auto-plays at StreamEnd; skip the read-aloud flush.
+                let bubbleOwnsAudio = sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false
+                if !remainingSpeak.isEmpty, !bubbleOwnsAudio { speakQueued(remainingSpeak) }
                 let interruptCount = await MainActor.run { messages[msgIdx].streamInterruptCount }
                 let uiBlockCount = await MainActor.run { msgIdx < messages.count ? messages[msgIdx].blocks.count : -1 }
                 logger.info("[BlocksLost] PERSIST final (no-tool) sid=\(sessionId?.prefix(8) ?? "nil") agentParts=\(assistantMessage.parts.count) uiBlocks=\(uiBlockCount)")
@@ -5925,8 +5945,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 // [T-ai-voice-messages 09-12] 醒醒 2 — the turn has fully converged
                 // and the reply is persisted. If this session's "AI Voice Replies"
                 // mode is ON, synthesize the reply and append a wx-style voice
-                // bubble as its own assistant message (text kept in history for
-                // context; bubble carries ?voice_bubble=1&dur= for the renderer).
+                // bubble INSIDE the reply's message (extra text part → extra block,
+                // like an image at the end of a wx voice+text message). Rework of
+                // the first cut: a standalone bubble row fought this architecture
+                // (retry targeted the bubble row; the model saw its own bubble
+                // markdown; reload needed special-casing). Inline = the natural
+                // shape here: retry/edit/reload treat the bubble as part of the
+                // reply, zero special cases.
                 if let sid = sessionId,
                    AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: sid),
                    !assistantText.isEmpty {
@@ -5934,19 +5959,30 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                         for: assistantText, sessionId: sid) {
                         let durParam = voice.duration > 0 ? Int(voice.duration.rounded()) : 0
                         let link = "![voice](\(voice.url)?voice_bubble=1&dur=\(durParam)&auto_play=true)"
-                        // UI message: a dedicated assistant row right after the reply.
+                        // ① agentHistory: reply parts + the bubble link as an
+                        //    extra text part. The LLM still never sees it — the
+                        //    Phase-2 reload strips voice-bubble parts before
+                        //    agentHistory is sent (see loadSession filter).
+                        if assistantAgentIdx < agentHistory.count {
+                            agentHistory[assistantAgentIdx].parts.append(.text(link))
+                        }
+                        // ② DB: the reply row is already persisted above; rewrite
+                        //    its parts to include the bubble link so reload
+                        //    re-renders text+bubble merged (UPDATE, not INSERT —
+                        //    no duplicate row).
+                        if let pid = agentHistory.indices.contains(assistantAgentIdx)
+                            ? agentHistory[assistantAgentIdx].dbMessageId : nil {
+                            await ChatStore.shared.updateMessageParts(
+                                messageId: pid,
+                                parts: agentHistory[assistantAgentIdx].parts)
+                        }
+                        // ③ UI: append the bubble block to the SAME message.
                         await MainActor.run {
-                            let vm = ChatMessage(role: .assistant, content: link)
-                            messages.append(vm)
+                            guard msgIdx < messages.count else { return }
+                            messages[msgIdx].blocks.append(
+                                AssistantBlock(kind: .text, content: link))
                         }
-                        // agentHistory + DB: same content so reload replays the bubble.
-                        let voiceMsg = AgentMessage(role: .assistant, parts: [.text(link)])
-                        agentHistory.append(voiceMsg)
-                        if let raw = await buildRawMessage(voiceMsg) {
-                            await ChatStore.shared.appendMessage(raw)
-                            agentHistory[agentHistory.count - 1].dbMessageId = raw.id
-                        }
-                        logger.info("[AIVoice] appended voice bubble dur=\(durParam)s")
+                        logger.info("[AIVoice] appended inline voice bubble dur=\(durParam)s")
                         // 醒醒 2: 发出来就是自动播放的. GlobalAudioPlayer configures its
                         // own session (Control Center visibility) — the regular
                         // read-aloud queue is NOT involved, so a streaming TTS reply
@@ -6005,7 +6041,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 } else {
                     remainingSpeak = ""
                 }
-                if !remainingSpeak.isEmpty { speakQueued(remainingSpeak) }
+                // [T-voice-bubble-no-double-read 09-12] AI voice replies ON → the voice
+                // bubble auto-plays at StreamEnd; skip the read-aloud flush.
+                let bubbleOwnsAudio = sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false
+                if !remainingSpeak.isEmpty, !bubbleOwnsAudio { speakQueued(remainingSpeak) }
             }
 
             // Execute each tool use and collect results

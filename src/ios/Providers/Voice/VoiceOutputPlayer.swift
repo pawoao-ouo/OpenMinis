@@ -70,6 +70,18 @@ enum VoiceOutputPreferences {
         set { UserDefaults.standard.set(newValue, forKey: capsuleVisibleKey) }
     }
 
+    /// [T-system-voice-off 09-12] 醒醒 3：「把里面的系统语音全变成可关闭选项，
+    /// 不然ai老用那个系统语音，很难听，改成我自定义的语音分组我这边自己配置的。」
+    /// When OFF (the default), the read-aloud chain refuses the built-in
+    /// System AVSpeechSynthesizer voice: only the user's TTS service / voice
+    /// group speaks, and nothing speaks when they're unusable. Set ON only by
+    /// someone who explicitly wants the robot voice back.
+    private static let systemVoiceAllowedKey = "voice.output.systemVoiceAllowed"
+    static var systemVoiceAllowed: Bool {
+        get { UserDefaults.standard.bool(forKey: systemVoiceAllowedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: systemVoiceAllowedKey) }
+    }
+
     private static let offXKey = "voiceCapsule.anchorOffset.dx"
     private static let offYKey = "voiceCapsule.anchorOffset.dy"
 
@@ -461,7 +473,23 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
                                  makeRequest: { VoiceOutputRequest(input: $0, model: entry.model.id) })
             }
         }
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty else {
+            // [T-system-voice-off 09-12] Zero usable targets: with the System
+            // voice switch OFF (default) there is NOTHING to synthesize with —
+            // drain the queue silently and log the gap once per window so the
+            // failure is diagnosable from the device log. (With the switch ON,
+            // a zero-candidate group is a misconfiguration; same drain — the
+            // alternative is retry-looping units forever.)
+            VoiceLog.log("TTS pumpPrefetch: no usable candidates — draining \(queue.count) unit(s)")
+            for i in queue.indices {
+                queue[i].failed = true
+                queue[i].task = nil
+            }
+            synthFailureTick &+= 1
+            pumpPlayback()   // skip-and-drain so isPlaying/UI settle promptly
+            refreshSynthesizingState()
+            return
+        }
         // STICKY fail-over (mirrors the agent loop): once we've moved to a model,
         // keep using it for subsequent units — only advance when IT fails. We
         // realize this by moving the currently-active candidate to the FRONT, so

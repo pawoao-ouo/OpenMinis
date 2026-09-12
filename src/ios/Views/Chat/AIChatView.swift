@@ -361,6 +361,9 @@ struct AIChatView: View {
     @State private var showTerminal = false
     @State private var terminalInitCommand: String?
     @State private var showAttachmentMenu = false
+    /// [T-menu-below-bubble 09-12] iOS16 fallback dialog for the composer's
+    /// voice-options "•••" (iOS17+ uses the inline Menu directly).
+    @State private var showLegacyVoiceDialog = false
     @State private var isDropTargeted = false
     @State private var showCamera = false
     @State private var showPhotoPicker = false
@@ -1937,9 +1940,6 @@ struct AIChatView: View {
             enhancedCacheEnabled: cached.vm.enhancedCacheEnabled,
             showFastModeToggle: activeModelSupportsFastMode,
             fastModeEnabled: codexFastModeEnabled,
-            // [T-ai-voice-messages 09-12] Per-session toggle (must precede the
-            // closure block per memberwise-init order).
-            aiVoiceEnabled: vm.sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false,
             onNewChat: { requestNewChatFromMenu() },
             // [T-chat-menu-compact-entry] Same effect as the /compact slash
             // command (AIChatViewModel+SlashCommands case "compact").
@@ -1975,12 +1975,6 @@ struct AIChatView: View {
             // reads the same key at request-build time, so the flip applies
             // to the very next Codex request.
             setFastMode: { enabled in codexFastModeEnabled = enabled },
-            // [T-ai-voice-messages 09-12] Per-session toggle setter.
-            setAIVoiceEnabled: { enabled in
-                if let sid = vm.sessionId {
-                    AIVoiceMessageComposer.setVoiceReplies(enabled: enabled, sessionId: sid)
-                }
-            },
             onTokenUsage: { showTokenUsage = true },
             // LastAPIRequestBody + copySessionDataToClipboard are DEBUG-only (the
             // menu buttons that invoke these closures are #if DEBUG too); guard the
@@ -3300,6 +3294,7 @@ struct AIChatView: View {
             attachmentMenuButton
             slashMenuButton
             if vm.editingMessageIndex != nil { editExitButton }
+            voiceOptionsButton
             Spacer()
             // Mutually exclusive with editExitButton: while editing a past
             // message the exit capsule owns this row — showing both capsules
@@ -3312,6 +3307,87 @@ struct AIChatView: View {
             sendButton
         }
         return AnyView(row)
+    }
+
+    /// [T-menu-below-bubble 09-12] 醒醒 1：「•••」去哪里了。我想要放在ai气泡下
+    /// 面的编辑栏来的。」 The session-scoped voice controls (formerly buried in the
+    /// navbar "•••") live here now: read-aloud, voice capsule, AI voice replies.
+    /// Same visual language as the + / slash buttons — round 34pt icon chip.
+    private var voiceOptionsButton: some View {
+        let icon = Image(systemName: "ellipsis")
+            .font(.system(size: 18, weight: .medium))
+            .foregroundStyle(ChatColors.secondaryText)
+            .frame(width: 34, height: 34)
+            .accessibilityLabel(Text("Voice and session options", comment: "VoiceOver label for the composer options button"))
+            .background(ChatColors.inputIconBg)
+            .clipShape(Circle())
+            .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
+        if #available(iOS 17, *) {
+            Menu {
+                Toggle(isOn: Binding(
+                    get: { vm.speakEnabled },
+                    set: { v in
+                        vm.speakEnabled = v
+                        VoiceOutputPreferences.isEnabled = v
+                        if v { vm.speechPlayerExpanded = true } else { vm.stopSpeech() }
+                    }
+                )) {
+                    Label(AppLocalized("Speak Responses"), systemImage: "speaker.wave.2")
+                }
+                Toggle(isOn: Binding(
+                    get: { VoiceOutputPreferences.capsuleVisible },
+                    set: { v in
+                        VoiceOutputPreferences.capsuleVisible = v
+                        NotificationCenter.default.post(name: .ttsCapsuleVisibilityChanged, object: nil)
+                    }
+                )) {
+                    Label(AppLocalized("Voice Capsule"), systemImage: "speaker.wave.2.circle")
+                }
+                Toggle(isOn: Binding(
+                    get: { vm.sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false },
+                    set: { v in
+                        if let sid = vm.sessionId {
+                            AIVoiceMessageComposer.setVoiceReplies(enabled: v, sessionId: sid)
+                            // [T-voice-bubble-no-double-read 09-12] Turning the
+                            // bubble mode ON mid-turn stops the streaming
+                            // read-aloud queue immediately — the bubble that
+                            // lands at StreamEnd is the single audio source.
+                            if v { vm.stopSpeech() }
+                        }
+                    }
+                )) {
+                    Label(AppLocalized("AI Voice Replies"), systemImage: "bubble.left.and.bubble.right.fill")
+                }
+            } label: {
+                icon
+            }
+        } else {
+            // iOS 16: same three options via a dialog with role buttons.
+            Button { showLegacyVoiceDialog = true } label: { icon }
+                .confirmationDialog("Voice Options", isPresented: $showLegacyVoiceDialog) {
+                    Button(vm.speakEnabled ? "Speak Responses: ON" : "Speak Responses: OFF") {
+                        vm.speakEnabled = !vm.speakEnabled
+                        VoiceOutputPreferences.isEnabled = vm.speakEnabled
+                        if vm.speakEnabled { vm.speechPlayerExpanded = true } else { vm.stopSpeech() }
+                    }
+                    Button(VoiceOutputPreferences.capsuleVisible ? "Voice Capsule: ON" : "Voice Capsule: OFF") {
+                        VoiceOutputPreferences.capsuleVisible.toggle()
+                        NotificationCenter.default.post(name: .ttsCapsuleVisibilityChanged, object: nil)
+                    }
+                    Button(aiVoiceRepliesOn ? "AI Voice Replies: ON" : "AI Voice Replies: OFF") { toggleAIVoiceReplies() }
+                    Button("Cancel", role: .cancel) {}
+                }
+        }
+    }
+
+    /// Snapshot of the per-session AI voice-replies flag (for iOS16 dialog labels).
+    private var aiVoiceRepliesOn: Bool {
+        vm.sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false
+    }
+
+    private func toggleAIVoiceReplies() {
+        guard let sid = vm.sessionId else { return }
+        AIVoiceMessageComposer.setVoiceReplies(enabled: !aiVoiceRepliesOn, sessionId: sid)
     }
 
     /// "Read replies aloud" toggle shown centered in the toolbar during voice
@@ -5182,8 +5258,6 @@ private struct ChatTrailingMenu: View, Equatable {
     /// [T-codex-fast-mode] Mirrors ChatTrailingMenuButton.
     let showFastModeToggle: Bool
     let fastModeEnabled: Bool
-    /// [T-ai-voice-messages 09-12] Per-session AI-voice-replies mode snapshot.
-    let aiVoiceEnabled: Bool
 
     let onNewChat: () -> Void
     let onCompact: () -> Void
@@ -5199,7 +5273,6 @@ private struct ChatTrailingMenu: View, Equatable {
     let setSpeakEnabled: (Bool) -> Void
     let setEnhancedCache: (Bool) -> Void
     let setFastMode: (Bool) -> Void
-    let setAIVoiceEnabled: (Bool) -> Void
     let onTokenUsage: () -> Void
     let onCopyRequests: () -> Void
     let onCopySessionData: () -> Void
@@ -5215,7 +5288,6 @@ private struct ChatTrailingMenu: View, Equatable {
             && lhs.enhancedCacheEnabled == rhs.enhancedCacheEnabled
             && lhs.showFastModeToggle == rhs.showFastModeToggle
             && lhs.fastModeEnabled == rhs.fastModeEnabled
-            && lhs.aiVoiceEnabled == rhs.aiVoiceEnabled
     }
 
     var body: some View {
@@ -5296,30 +5368,9 @@ private struct ChatTrailingMenu: View, Equatable {
                 Label(AppLocalized("Speak Responses"), systemImage: "speaker.wave.2")
             }
 
-            // [T-capsule-visibility 09-12] 醒醒 1: master switch for the floating
-            // capsule — OFF = it never renders. Read-aloud itself keeps working;
-            // pause/stop stay reachable from the message action bar. Local toggle
-            // (UserDefaults-backed, not part of the Equatable key — the flip
-            // re-renders the Menu lazily on next open, which is fine).
-            Toggle(isOn: Binding(
-                get: { VoiceOutputPreferences.capsuleVisible },
-                set: { v in
-                    VoiceOutputPreferences.capsuleVisible = v
-                    NotificationCenter.default.post(name: .ttsCapsuleVisibilityChanged, object: nil)
-                }
-            )) {
-                Label(AppLocalized("Voice Capsule"), systemImage: "speaker.wave.2.circle")
-            }
-
-            // [T-ai-voice-messages 09-12] 醒醒 2: per-session "AI Voice Replies" —
-            // ON = each assistant reply ALSO arrives as a wx-style auto-playing
-            // voice bubble.
-            Toggle(isOn: Binding(
-                get: { aiVoiceEnabled },
-                set: { setAIVoiceEnabled($0) }
-            )) {
-                Label(AppLocalized("AI Voice Replies"), systemImage: "bubble.left.and.bubble.right.fill")
-            }
+            // [T-menu-below-bubble 09-12] Voice Capsule + AI Voice Replies moved
+            // DOWN to the composer's "•••" (voiceOptionsButton) per 醒醒 1 —
+            // voice config lives under the AI bubble, not up in the navbar.
 
             // [T-codex-fast-mode-menu-group] Model-control toggles in their
             // own divider-separated section (mirrors the UIKit buildMenu).
@@ -5394,8 +5445,6 @@ private struct ChatTrailingMenuButton: UIViewRepresentable {
     /// Codex OAuth instance (OpenAI OAuth, no custom base).
     let showFastModeToggle: Bool
     let fastModeEnabled: Bool
-    /// [T-ai-voice-messages 09-12] Per-session AI-voice-replies mode snapshot.
-    let aiVoiceEnabled: Bool
 
     let onNewChat: () -> Void
     let onCompact: () -> Void
@@ -5411,7 +5460,6 @@ private struct ChatTrailingMenuButton: UIViewRepresentable {
     let setSpeakEnabled: (Bool) -> Void
     let setEnhancedCache: (Bool) -> Void
     let setFastMode: (Bool) -> Void
-    let setAIVoiceEnabled: (Bool) -> Void
     let onTokenUsage: () -> Void
     let onCopyRequests: () -> Void
     let onCopySessionData: () -> Void
@@ -5428,7 +5476,6 @@ private struct ChatTrailingMenuButton: UIViewRepresentable {
         let enhancedCacheEnabled: Bool
         let showFastModeToggle: Bool
         let fastModeEnabled: Bool
-        let aiVoiceEnabled: Bool
     }
 
     private var key: Key {
@@ -5438,8 +5485,7 @@ private struct ChatTrailingMenuButton: UIViewRepresentable {
             showEnhancedCacheToggle: showEnhancedCacheToggle,
             enhancedCacheEnabled: enhancedCacheEnabled,
             showFastModeToggle: showFastModeToggle,
-            fastModeEnabled: fastModeEnabled,
-            aiVoiceEnabled: aiVoiceEnabled)
+            fastModeEnabled: fastModeEnabled)
     }
 
     final class Coordinator {
@@ -5543,19 +5589,8 @@ private struct ChatTrailingMenuButton: UIViewRepresentable {
                                      state: key.speakEnabled ? .on : .off) { _ in
             coordinator.parent.setSpeakEnabled(!key.speakEnabled)
         })
-        // [T-capsule-visibility 09-12] Mirror the SwiftUI menu's master switch.
-        sessionGroup.append(UIAction(title: AppLocalized("Voice Capsule"),
-                                     image: UIImage(systemName: "speaker.wave.2.circle"),
-                                     state: VoiceOutputPreferences.capsuleVisible ? .on : .off) { _ in
-            VoiceOutputPreferences.capsuleVisible.toggle()
-            NotificationCenter.default.post(name: .ttsCapsuleVisibilityChanged, object: nil)
-        })
-        // [T-ai-voice-messages 09-12] Per-session AI voice replies.
-        sessionGroup.append(UIAction(title: AppLocalized("AI Voice Replies"),
-                                     image: UIImage(systemName: "bubble.left.and.bubble.right.fill"),
-                                     state: key.aiVoiceEnabled ? .on : .off) { _ in
-            coordinator.parent.setAIVoiceEnabled(!key.aiVoiceEnabled)
-        })
+        // [T-menu-below-bubble 09-12] Voice Capsule + AI Voice Replies live in
+        // the composer's "•••" (voiceOptionsButton) — removed here per 醒醒 1.
         groups.append(UIMenu(options: .displayInline, children: sessionGroup))
 
         // [T-codex-fast-mode-menu-group] Model-control toggles (they shape how

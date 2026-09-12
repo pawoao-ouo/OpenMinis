@@ -267,6 +267,22 @@ struct VoiceServicesView: View {
                 }
             }
 
+            // [T-system-voice-off 09-12] 醒醒 3: System voice is opt-in. OFF
+            // (default) = the built-in Apple voice never speaks — replies use
+            // your TTS service / voice group only, and stay silent when those
+            // are unusable, instead of falling back to the robotic engine.
+            Toggle(isOn: Binding(
+                get: { VoiceOutputPreferences.systemVoiceAllowed },
+                set: { VoiceOutputPreferences.systemVoiceAllowed = $0 }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Allow System voice")
+                    Text("OFF = only your configured voices speak; never the built-in Apple voice")
+                        .font(.caption)
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
+            }
+
             Picker(selection: Binding(
                 get: { VoiceOutputPreferences.selectionMode },
                 set: { VoiceOutputPreferences.selectionMode = $0 }
