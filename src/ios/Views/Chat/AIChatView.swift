@@ -1975,6 +1975,12 @@ struct AIChatView: View {
             // reads the same key at request-build time, so the flip applies
             // to the very next Codex request.
             setFastMode: { enabled in codexFastModeEnabled = enabled },
+            // [T-ai-voice-messages 09-12] Per-session toggle setter.
+            setAIVoiceEnabled: { enabled in
+                if let sid = vm.sessionId {
+                    AIVoiceMessageComposer.setVoiceReplies(enabled: enabled, sessionId: sid)
+                }
+            },
             onTokenUsage: { showTokenUsage = true },
             // LastAPIRequestBody + copySessionDataToClipboard are DEBUG-only (the
             // menu buttons that invoke these closures are #if DEBUG too); guard the
