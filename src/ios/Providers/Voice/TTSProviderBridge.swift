@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 
 // MARK: - TTS service → provider bridge
 //
@@ -31,11 +32,15 @@ enum TTSProviderBridge {
 
         switch service.kind {
 
-        case .openai, .qwen, .qwenAudio:
-            // Qwen / Qwen-Audio ride the OpenAI-compatible speech endpoint.
-            // Their vendor quirks (workspaceId, region, format) are carried in
-            // `extras` and applied by the request builder below.
+        case .openai:
+            // Plain OpenAI-compatible speech endpoint.
             return VoiceProvider(providerId: id, baseURL: base, apiKey: key)
+
+        case .qwen:
+            // [T-tts-vendor-fix 09-13] Qwen TTS is DashScope-native (SSE,
+            // PCM→WAV) — NOT the OpenAI /audio/speech shape. The default
+            // base below points at the DashScope api root.
+            return QwenVoiceProvider(providerId: id, baseURL: base, apiKey: key)
 
         case .gemini:
             return GeminiVoiceProvider(providerId: id, baseURL: base, apiKey: key)
@@ -86,8 +91,14 @@ enum TTSProviderBridge {
                                        appId: parts[0], apiKey: parts[1], apiSecret: parts[2])
 
         case .groq:
-            // Groq serves transcription only — there is no TTS endpoint.
-            logger.error("Groq has no speech synthesis endpoint")
+            // [T-tts-vendor-fix 09-13] Groq DOES serve TTS now: the
+            // canopylabs/orpheus models ride the OpenAI /audio/speech shape
+            // (kelivo network_tts.dart _groqSpeech — wav). The old
+            // "transcription only" claim predates those models.
+            return VoiceProvider(providerId: id, baseURL: base, apiKey: key)
+
+        default:
+            logger.error("TTS bridge: unsupported vendor \(service.kind.rawValue)")
             return nil
         }
     }
@@ -133,5 +144,46 @@ enum TTSProviderBridge {
         if base.isEmpty { base = service.kind.defaultBaseURL }
         while base.hasSuffix("/") { base.removeLast() }
         return base
+    }
+}
+
+// MARK: - Shared preview player
+//
+// [T-tts-vendor-fix 09-13] One shared AVAudioPlayer for BOTH preview sites
+// (VoiceServicesView row test + TTSServiceEditorView test button). Fixes two
+// audit findings at once:
+//   • #6 intent leak — both sites began(.replyTTS) with no end; the delegate
+//     here ends the intent when playback finishes (or fails to start).
+//   • #11 stacking — two rows tapped in quick succession used to play two
+//     overlapping AVAudioPlayers; the shared player stops the old one first
+//     (same pattern as SystemVoicePreviewPlayer).
+@MainActor
+final class TTSPreviewPlayer: NSObject, AVAudioPlayerDelegate {
+    static let shared = TTSPreviewPlayer()
+    private var player: AVAudioPlayer?
+
+    private override init() { super.init() }
+
+    func play(_ data: Data) throws {
+        let p = try AVAudioPlayer(data: data)
+        p.delegate = self
+        AudioSessionCoordinator.shared.begin(.replyTTS)
+        p.prepareToPlay()
+        player = p
+        guard p.play() else {
+            // Play returned false — release the intent immediately, there is
+            // no didFinish delegate callback coming.
+            player = nil
+            AudioSessionCoordinator.shared.end(.replyTTS)
+            throw VoiceProviderError.noAudioData
+        }
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer,
+                                                successfully flag: Bool) {
+        Task { @MainActor in
+            self.player = nil
+            AudioSessionCoordinator.shared.end(.replyTTS)
+        }
     }
 }

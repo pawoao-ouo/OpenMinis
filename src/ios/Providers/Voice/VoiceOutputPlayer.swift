@@ -277,7 +277,12 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
     }
 
     private static func wavDuration(_ wav: Data) -> Double {
+        // [T-tts-vendor-fix 09-13] Sniff a real RIFF/WAVE header before reading
+        // the header fields — mp3/ogg payloads put frame data where the WAV
+        // byteRate sits (offset 28), so the old blind read produced garbage
+        // durations that poisoned the smoothed secPerChar window (audit #7).
         guard wav.count > 44 else { return 0 }
+        guard wav.starts(with: Array("RIFF".utf8)), wav.starts(with: Array("WAVE".utf8), at: 8) else { return 0 }
         let byteRate = wav.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 28, as: UInt32.self) }
         let rate = UInt32(littleEndian: byteRate)
         guard rate > 0 else { return 0 }
@@ -518,23 +523,39 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
                 guard let self else { return }
                 let t0 = DispatchTime.now()
                 do {
-                    // Synthesize at 1× always; speed is applied at PLAYBACK via
-                    // AVAudioPlayer.rate. Fails over across group models: each model
-                    // gets same-text retries + a split fallback before the next.
-                    let (data, used) = try await Self.synthWithFailover(
-                        text: unit.text, candidates: candidates, seq: seq)
+                    // [T-tts-vendor-fix 09-13] Cache hit path (kelivo's
+                    // cacheNetworkAudioForReplay): when caching is ON and this
+                    // exact text was already synthesized by this exact
+                    // candidate, reuse the bytes — replay costs nothing.
+                    var data: Data?
+                    var used: Candidate?
+                    if let cached = self.cachedAudio(for: unit.text, candidates: candidates) {
+                        data = cached.data
+                        used = cached.candidate
+                        VoiceLog.log("TTS cache hit #\(seq)")
+                    }
+                    if data == nil {
+                        // Synthesize at 1× always; speed is applied at PLAYBACK via
+                        // AVAudioPlayer.rate. Fails over across group models: each model
+                        // gets same-text retries + a split fallback before the next.
+                        let (d, u) = try await Self.synthWithFailover(
+                            text: unit.text, candidates: candidates, seq: seq)
+                        data = d; used = u
+                        self.storeCachedAudio(text: unit.text, candidateKey: u.key, audio: d)
+                    }
+                    guard let audio = data, let chosen = used else { return }
                     if Task.isCancelled { return }
                     let synthTime = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1e9
                     await MainActor.run {
-                        unit.audio = data
+                        unit.audio = audio
                         // Stick to the model that just worked; surface it on the capsule.
-                        if self.stickyCandidateKey != used.key {
-                            self.stickyCandidateKey = used.key
-                            self.activeModelLabel = used.label
-                            VoiceLog.log("TTS active model → \(used.label)")
+                        if self.stickyCandidateKey != chosen.key {
+                            self.stickyCandidateKey = chosen.key
+                            self.activeModelLabel = chosen.label
+                            VoiceLog.log("TTS active model → \(chosen.label)")
                         }
-                        self.recordSynthMetrics(chars: charCount, synthTime: synthTime, wav: data)
-                        VoiceLog.log("TTS synth done #\(seq): \(data.count) bytes in \(String(format: "%.2f", synthTime))s")
+                        self.recordSynthMetrics(chars: charCount, synthTime: synthTime, wav: audio)
+                        VoiceLog.log("TTS synth done #\(seq): \(audio.count) bytes in \(String(format: "%.2f", synthTime))s")
                         self.pumpPlayback()
                         self.pumpPrefetch()
                     }
@@ -558,6 +579,47 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
             }
         }
         refreshSynthesizingState()
+    }
+
+    // MARK: - Synthesis cache (kelivo cacheNetworkAudioForReplay)
+    //
+    // [T-tts-vendor-fix 09-13] In-memory LRU keyed by (candidate key, text).
+    // Replaying the same reply (or re-reading the same sentence) skips the
+    // vendor call entirely. Cleared when the switch turns OFF. Bounded so a
+    // long reading session can't grow it without limit.
+
+    private static let synthCacheLimit = 64
+    private var synthCache: [String: (data: Data, candidateKey: String)] = [:]
+    private var synthCacheOrder: [String] = []
+
+    private func cacheKey(text: String, candidateKey: String) -> String {
+        "\(candidateKey)|\(text.hashValue)"
+    }
+
+    /// Find cached audio for this text among the given candidates (sticky
+    /// candidate first — it's been moved to the front by the caller).
+    private func cachedAudio(for text: String, candidates: [Candidate]) -> (data: Data, candidate: Candidate)? {
+        guard VoiceOutputPreferences.cacheNetworkAudio else { return nil }
+        for c in candidates {
+            if let hit = synthCache[cacheKey(text: text, candidateKey: c.key)] {
+                return (hit.data, c)
+            }
+        }
+        return nil
+    }
+
+    private func storeCachedAudio(text: String, candidateKey: String, audio: Data) {
+        guard VoiceOutputPreferences.cacheNetworkAudio, !audio.isEmpty else { return }
+        let k = cacheKey(text: text, candidateKey: candidateKey)
+        if synthCache[k] != nil {
+            if let i = synthCacheOrder.firstIndex(of: k) { synthCacheOrder.remove(at: i) }
+        }
+        synthCache[k] = (audio, candidateKey)
+        synthCacheOrder.append(k)
+        while synthCacheOrder.count > Self.synthCacheLimit {
+            let oldest = synthCacheOrder.removeFirst()
+            synthCache.removeValue(forKey: oldest)
+        }
     }
 
     // MARK: - Synthesis with retry / split fallback

@@ -1,5 +1,4 @@
 import SwiftUI
-import AVFoundation
 
 // MARK: - Voice Services (kelivo-style TTS service list)
 //
@@ -243,10 +242,11 @@ struct VoiceServicesView: View {
                 let request = TTSProviderBridge.request(for: service, text: "你好，这是\(service.name)的试听。")
                 let data = try await provider.synthesize(request)
                 guard !data.isEmpty else { throw VoiceProviderError.noAudioData }
-                AudioSessionCoordinator.shared.begin(.replyTTS)
-                let player = try AVAudioPlayer(data: data)
-                player.prepareToPlay()
-                player.play()
+                // [T-tts-vendor-fix 09-13] Play via the shared TTSPreviewPlayer:
+                // it stops the previous preview (no stacking) and ENDS the
+                // .replyTTS intent on finish (the old local-player leak kept
+                // the audio session in .playback forever — audit #6/#11).
+                try TTSPreviewPlayer.shared.play(data)
             } catch {
                 MinisToast.show(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
             }

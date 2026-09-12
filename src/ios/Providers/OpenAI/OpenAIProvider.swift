@@ -1026,13 +1026,22 @@ final class OpenAIProvider: LLMProvider {
             "messages": allMessages,
             "stream": stream,
         ]
-        if useOpenRouterCompat {
-            body["max_tokens"] = maxTokens
-        } else {
-            body["max_completion_tokens"] = maxTokens
-            if stream {
-                body["stream_options"] = ["include_usage": true]
+        // [T-kelivo-tokens-parity 09-13] Same three-field parity as the agent
+        // loop (see OpenAIAgentProvider.streamChatCompletions): omit the
+        // token cap when the model has no user/catalog value (prepaid gateways
+        // treat a huge cap as a balance reservation and 400), keep
+        // max_completion_tokens/stream_options for the official endpoint
+        // only, use legacy max_tokens elsewhere.
+        let isOpenAIOfficialChat = customBaseURL == nil && !isAzure
+        if model.maxOutputTokens != nil {
+            if useOpenRouterCompat || !isOpenAIOfficialChat {
+                body["max_tokens"] = maxTokens
+            } else {
+                body["max_completion_tokens"] = maxTokens
             }
+        }
+        if isOpenAIOfficialChat, stream {
+            body["stream_options"] = ["include_usage": true]
         }
         // [GH#191] See the matching block in OpenAIAgentProvider — OpenRouter
         // requires an explicit cache_control breakpoint for Claude or nothing is

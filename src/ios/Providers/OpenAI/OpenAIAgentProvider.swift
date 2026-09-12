@@ -112,10 +112,34 @@ final class OpenAIAgentProvider: AgentProvider {
         if Self.shouldSendPromptCacheKey(for: provider) {
             body["prompt_cache_key"] = Self.derivePromptCacheKey(from: messages)
         }
-        if provider.useOpenRouterCompat {
-            body["max_tokens"] = maxTokens
-        } else {
-            body["max_completion_tokens"] = maxTokens
+        // [T-kelivo-tokens-parity 09-13] kelivo parity for the three fields
+        // third-party gateways choke on (the "kelivo works, Minis 400s"
+        // reports):
+        //  1. max_tokens/max_completion_tokens: kelivo only sends the field
+        //     when the USER configured a value (assistant.maxTokens); we
+        //     always sent one — a catalog-stale or ceiling-clamped huge number
+        //     that prepaid gateways read as a reservation and reject with
+        //     "insufficient balance". Now: no user/catalog value on this
+        //     model → omit the field entirely (server default), exactly
+        //     kelivo's `if (maxTokens != null)` semantics.
+        //  2. Field NAME: kelivo's completionTokensKey defaults to
+        //     `max_tokens` (only Azure/MiMo use `max_completion_tokens`).
+        //     Strict-schema relays reject the newer key outright. So the
+        //     newer key now goes ONLY to the official OpenAI endpoint (same
+        //     gate as prompt_cache_key — customBaseURL == nil && !isAzure).
+        //  3. stream_options: kelivo never sends it. It stays only for the
+        //     official OpenAI endpoint, where include_usage is a documented
+        //     feature; strict relays treated it as an unknown field.
+        let maxTokensConfigured = model.maxOutputTokens != nil
+        let isOpenAIOfficialChat = provider.customBaseURL == nil && !provider.isAzure
+        if maxTokensConfigured {
+            if isOpenAIOfficialChat {
+                body["max_completion_tokens"] = maxTokens
+            } else {
+                body["max_tokens"] = maxTokens
+            }
+        }
+        if isOpenAIOfficialChat {
             body["stream_options"] = ["include_usage": true]
         }
         // [GH#191] Opt this request into Anthropic prompt caching. OpenRouter

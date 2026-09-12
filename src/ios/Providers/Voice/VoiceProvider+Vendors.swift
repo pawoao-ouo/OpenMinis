@@ -11,12 +11,13 @@ import CryptoKit
 // MARK: - Groq (ASR only, OpenAI-compatible, only the default model differs)
 
 final class GroqVoiceProvider: VoiceProvider {
-    override var supportsVoiceOutput: Bool { false }
-    override func defaultVoiceInputModel() -> String { "whisper-large-v3-turbo" }
-
-    override func buildVoiceOutputRequest(_ request: VoiceOutputRequest) throws -> URLRequest {
-        throw VoiceProviderError.unsupported("Groq does not support speech synthesis")
-    }
+    // [T-tts-vendor-fix 09-13] Groq now serves TTS: canopylabs/orpheus models
+    // ride the OpenAI /audio/speech shape (kelivo _groqSpeech, wav). The
+    // legacy "ASR only" override predates those models — drop both blocks so
+    // the base OpenAI-compatible TTS path works for Model-Group entries too.
+    override func defaultVoiceInputModel() -> String  { "whisper-large-v3-turbo" }
+    override func defaultVoiceOutputModel() -> String { "canopylabs/orpheus-v1-english" }
+    override func defaultVoiceOutputVoice() -> String { "austin" }
 }
 
 // MARK: - Alibaba Bailian (OpenAI-compatible, only default models differ)
@@ -27,13 +28,137 @@ final class AlibabaVoiceProvider: VoiceProvider {
     override func defaultVoiceOutputVoice() -> String { "longxiaochun" }
 }
 
-// MARK: - xAI (ASR endpoint path differs: /v1/stt)
+// MARK: - Qwen TTS (DashScope native multimodal-generation, SSE, PCM→WAV)
+//
+// [T-tts-vendor-fix 09-13] Qwen TTS is NOT OpenAI-compatible: the working
+// endpoint is DashScope's native
+//   POST /api/v1/services/aigc/multimodal-generation/generation
+// with X-DashScope-SSE streaming, body { model, input: { text, voice,
+// language_type } }, and base64 PCM chunks in SSE `output.audio.data` frames
+// (kelivo network_tts.dart _qwenSpeech). The old service-layer mapping sent
+// the OpenAI /audio/speech shape to the api/v1 base — a route DashScope does
+// not serve → 404 for every Qwen service. 24 kHz mono PCM16 comes back wrapped
+// in a WAV header so AVAudioPlayer can open it.
+final class QwenVoiceProvider: VoiceProvider {
+
+    override var supportsVoiceInput: Bool { false }
+
+    override func synthesize(_ request: VoiceOutputRequest) async throws -> Data {
+        var base = effectiveBaseURL()
+        while base.hasSuffix("/") { base.removeLast() }
+        // The DashScope API root; tolerate a compatible-mode base being pasted.
+        if base.contains("/compatible-mode") {
+            base = base.replacingOccurrences(of: "/compatible-mode/v1", with: "/api/v1")
+            base = base.replacingOccurrences(of: "/compatible-mode", with: "")
+        }
+        let urlStr = "\(base)/services/aigc/multimodal-generation/generation"
+        guard let url = URL(string: urlStr) else {
+            throw VoiceProviderError.parseError("Invalid Qwen TTS URL")
+        }
+        let body: [String: Any] = [
+            "model": request.model ?? "qwen3-tts-flash",
+            "input": [
+                "text":          request.input,
+                "voice":         request.voice ?? "Cherry",
+                "language_type": request.extra("languageType") ?? "Auto"
+            ]
+        ]
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        applyVoiceAuth(&req)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("enable", forHTTPHeaderField: "X-DashScope-SSE")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let raw = try await executeRequest(req)
+        return try Self.parseSSE(raw)
+    }
+
+    /// Parse the SSE stream body: data: {json} lines, base64 PCM in
+    /// output.audio.data, concatenated then wrapped in a WAV header.
+    static func parseSSE(_ raw: Data) throws -> Data {
+        guard let text = String(data: raw, encoding: .utf8) else {
+            throw VoiceProviderError.parseError("Qwen TTS: non-UTF8 body")
+        }
+        var pcm = Data()
+        var sawAny = false
+        for line in text.split(separator: "\n") {
+            let l = line.trimmingCharacters(in: .whitespaces)
+            guard l.hasPrefix("data:"), l != "data: [DONE]" else { continue }
+            let payload = String(l.dropFirst("data:".count)).trimmingCharacters(in: .whitespaces)
+            guard let d = payload.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+            sawAny = true
+            if let code = obj["code"] as? String, !code.isEmpty, code != "0" {
+                let msg = (obj["message"] as? String) ?? code
+                throw VoiceProviderError.parseError("Qwen TTS: \(msg)")
+            }
+            if let output = obj["output"] as? [String: Any],
+               let audio = output["audio"] as? [String: Any],
+               let b64 = audio["data"] as? String, !b64.isEmpty,
+               let chunk = Data(base64Encoded: b64) {
+                pcm.append(chunk)
+            }
+        }
+        guard sawAny, !pcm.isEmpty else {
+            throw VoiceProviderError.parseError("Qwen TTS: no audio data")
+        }
+        return Self.wrapPCMInWAV(pcm, sampleRate: 24000)
+    }
+
+    /// Minimal 24 kHz mono s16le WAV header.
+    static func wrapPCMInWAV(_ pcm: Data, sampleRate: Int) -> Data {
+        let channels = 1, bitsPerSample = 16
+        let byteRate = sampleRate * channels * bitsPerSample / 8
+        let blockAlign = channels * bitsPerSample / 8
+        let dataSize = UInt32(pcm.count)
+        var wav = Data()
+        func le32(_ v: UInt32) { var x = v.littleEndian; wav.append(Data(bytes: &x, count: 4)) }
+        func le16(_ v: UInt16) { var x = v.littleEndian; wav.append(Data(bytes: &x, count: 2)) }
+        wav.append("RIFF".data(using: .ascii)!)
+        le32(36 + dataSize)
+        wav.append("WAVE".data(using: .ascii)!)
+        wav.append("fmt ".data(using: .ascii)!)
+        le32(16); le16(1); le16(UInt16(channels))
+        le32(UInt32(sampleRate)); le32(UInt32(byteRate))
+        le16(UInt16(blockAlign)); le16(UInt16(bitsPerSample))
+        wav.append("data".data(using: .ascii)!)
+        le32(dataSize)
+        wav.append(pcm)
+        return wav
+    }
+}
+
+// MARK: - xAI (ASR endpoint path differs: /v1/stt; TTS is its own /v1/tts shape)
 
 final class XAIVoiceProvider: VoiceProvider {
     override func voiceInputEndpointPath() -> String  { "/v1/stt" }
     override func defaultVoiceInputModel() -> String  { "grok-stt" }
     override func defaultVoiceOutputModel() -> String { "grok-tts-1" }
     override func defaultVoiceOutputVoice() -> String { "eve" }
+
+    // [T-tts-vendor-fix 09-13] xAI TTS is NOT OpenAI-shaped: it posts
+    // { text, voice_id, language } to /v1/tts and returns raw mpeg — same
+    // three-field body kelivo sends (network_tts.dart _xaiSpeech). The base
+    // class's OpenAI /v1/audio/speech shape with model/input/voice is
+    // rejected by the xAI endpoint, so build the request wholesale here.
+    override func buildVoiceOutputRequest(_ request: VoiceOutputRequest) throws -> URLRequest {
+        let urlStr = composedURLString(path: "/v1/tts")
+        guard let url = URL(string: urlStr) else {
+            throw VoiceProviderError.parseError("Invalid URL: \(urlStr)")
+        }
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyVoiceAuth(&urlRequest)
+        let body: [String: Any] = [
+            "text":      request.input,
+            "voice_id":  request.voice ?? defaultVoiceOutputVoice(),
+            "language":  request.extra("language") ?? "auto"
+        ]
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return urlRequest
+    }
 }
 
 // MARK: - MiniMax (TTS only, distinct body, base64-nested response)
@@ -216,16 +341,20 @@ final class DoubaoVoiceProvider: VoiceProvider {
         urlRequest.setValue("keep-alive", forHTTPHeaderField: "Connection")
         applyVoiceAuth(&urlRequest)
 
-        let body: [String: Any] = [
-            "req_params": [
-                "text": request.input,
-                "speaker": speaker,
-                "audio_params": [
-                    "format": request.responseFormat == .wav ? "wav" : "mp3",
-                    "sample_rate": 24000
-                ]
+        var reqParams: [String: Any] = [
+            "text": request.input,
+            "speaker": speaker,
+            "audio_params": [
+                "format": request.responseFormat == .wav ? "wav" : "mp3",
+                "sample_rate": 24000
             ]
         ]
+        // [T-tts-vendor-fix 09-13] speed knob → req_params.speed (float, 0.2–3.0,
+        // default 1.0) — documented field of the v3 unidirectional body.
+        if let s = request.extra("speed"), let v = Double(s), v > 0, v != 1.0 {
+            reqParams["speed"] = v
+        }
+        let body: [String: Any] = ["req_params": reqParams]
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
         return urlRequest
     }
@@ -338,12 +467,19 @@ final class XunfeiVoiceProvider: VoiceProvider {
 
         let voice = (request.voice?.isEmpty == false) ? request.voice! : Self.defaultTTSVoice
         let textB64 = Data(request.input.utf8).base64EncodedString()
+        // [T-tts-vendor-fix 09-13] Speed knob → business.spte (string, "0.5"–"2.0");
+        // kelivo-era docs use spte for the v2 TTS voice speed. Absent = omit
+        // (server default), same as the legacy Model-Group path.
+        var business: [String: Any] = [
+            "aue": "raw", "auf": "audio/L16;rate=16000",
+            "vcn": voice, "tte": "UTF8"
+        ]
+        if let s = request.extra("speed"), let v = Double(s), v > 0, v != 1.0 {
+            business["spte"] = String(format: "%.1f", v)
+        }
         let body: [String: Any] = [
             "common": ["app_id": appId],
-            "business": [
-                "aue": "raw", "auf": "audio/L16;rate=16000",
-                "vcn": voice, "tte": "UTF8"
-            ],
+            "business": business,
             "data": ["status": 2, "text": textB64]
         ]
         let payload = try JSONSerialization.data(withJSONObject: body)
@@ -599,13 +735,25 @@ final class ElevenLabsVoiceProvider: VoiceProvider {
     override var supportsVoiceOutput: Bool { true }
 
     override func synthesize(_ request: VoiceOutputRequest) async throws -> Data {
-        // The selected model entry id is the ElevenLabs voice_id.
-        let voiceId = (request.model?.isEmpty == false) ? request.model!
-                    : ((request.voice?.isEmpty == false) ? request.voice! : Self.defaultVoiceId)
+        // [T-tts-vendor-fix 09-13] The service layer passes the ElevenLabs
+        // voice_id in `request.voice` and the model id in `request.model` —
+        // the OLD Model-Group path smuggled the voice_id inside `model`, which
+        // is why reading model-first made the service layer POST
+        // /text-to-speech/eleven_multilingual_v2 → 404 (voice ids are a
+        // separate namespace from model ids). Voice-first, with model falling
+        // back to the historical constant (kelivo-compatible).
+        let voiceId = (request.voice?.isEmpty == false) ? request.voice!
+                    : ((request.model?.isEmpty == false) ? request.model! : Self.defaultVoiceId)
+        let modelId = (request.model?.isEmpty == false) ? request.model! : Self.modelId
         var base = effectiveBaseURL()
-        if base.hasSuffix("/") { base.removeLast() }
-        if !base.contains("/v1") { base += "/v1" }
-        guard let url = URL(string: "\(base)/text-to-speech/\(voiceId)") else {
+        while base.hasSuffix("/") { base.removeLast() }
+        if !base.lowercased().hasSuffix("/v1") { base += "/v1" }
+        // [T-tts-vendor-fix 09-13] output_format knob rides the URL query
+        // (kelivo: ?output_format=mp3_44100_128). The Accept header stays as a
+        // hint; pcm_* values would return raw PCM which AVAudioPlayer can't
+        // open, so force a container format unless the knob already says one.
+        let outputFmt = request.extra("outputFormat") ?? "mp3_44100_128"
+        guard let url = URL(string: "\(base)/text-to-speech/\(voiceId)?output_format=\(outputFmt)") else {
             throw VoiceProviderError.parseError("ElevenLabs: bad URL")
         }
         var req = URLRequest(url: url)
@@ -615,7 +763,7 @@ final class ElevenLabsVoiceProvider: VoiceProvider {
         req.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
         let body: [String: Any] = [
             "text": request.input,
-            "model_id": Self.modelId,
+            "model_id": modelId,
             "voice_settings": ["stability": 0.5, "similarity_boost": 0.75]
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -841,7 +989,7 @@ final class MimoVoiceProvider: VoiceProvider {
         }
 
         let messages: [[String: Any]] = [
-            ["role": "user", "content": ""],
+            ["role": "user", "content": request.extra("instruction") ?? ""],
             ["role": "assistant", "content": request.input]
         ]
 

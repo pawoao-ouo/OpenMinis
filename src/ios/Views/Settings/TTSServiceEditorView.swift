@@ -1,5 +1,4 @@
 import SwiftUI
-import AVFoundation
 
 // MARK: - TTS service editor
 //
@@ -248,10 +247,10 @@ struct TTSServiceEditorView: View {
                 guard !data.isEmpty else {
                     throw VoiceProviderError.noAudioData
                 }
-                AudioSessionCoordinator.shared.begin(.replyTTS)
-                let player = try AVAudioPlayer(data: data)
-                player.prepareToPlay()
-                player.play()
+                // [T-tts-vendor-fix 09-13] Shared preview player: ends the
+                // .replyTTS intent on finish and stops any previous preview
+                // (audit #6/#11).
+                try TTSPreviewPlayer.shared.play(data)
                 testing = false
                 testResult = .success
             } catch {

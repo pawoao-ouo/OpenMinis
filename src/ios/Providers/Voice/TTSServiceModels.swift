@@ -31,7 +31,6 @@ enum TTSServiceKind: String, CaseIterable, Codable, Identifiable {
     case azure
     case minimax
     case qwen
-    case qwenAudio
     case groq
     case xai
     case elevenlabs
@@ -50,7 +49,6 @@ enum TTSServiceKind: String, CaseIterable, Codable, Identifiable {
         case .azure:       return "Azure"
         case .minimax:     return "MiniMax"
         case .qwen:        return "Qwen"
-        case .qwenAudio:   return "Qwen Audio"
         case .groq:        return "Groq"
         case .xai:         return "xAI"
         case .elevenlabs:  return "ElevenLabs"
@@ -70,7 +68,6 @@ enum TTSServiceKind: String, CaseIterable, Codable, Identifiable {
         case .azure:      return "cloud.fill"
         case .minimax:    return "waveform"
         case .qwen:       return "aqi.medium"
-        case .qwenAudio:  return "waveform.badge.mic"
         case .groq:       return "bolt.fill"
         case .xai:        return "x.circle.fill"
         case .elevenlabs: return "waveform.circle.fill"
@@ -90,7 +87,6 @@ enum TTSServiceKind: String, CaseIterable, Codable, Identifiable {
         case .azure:      return "https://eastasia.tts.speech.microsoft.com"
         case .minimax:    return "https://api.minimax.io"
         case .qwen:       return "https://dashscope.aliyuncs.com/api/v1"
-        case .qwenAudio:  return "https://dashscope.aliyuncs.com/api/v1"
         case .groq:       return "https://api.groq.com/openai/v1"
         case .xai:        return "https://api.x.ai/v1"
         case .elevenlabs: return "https://api.elevenlabs.io"
@@ -110,7 +106,6 @@ enum TTSServiceKind: String, CaseIterable, Codable, Identifiable {
         case .azure:      return "azure-tts"
         case .minimax:    return "speech-2.8-turbo"
         case .qwen:       return "qwen3-tts-flash"
-        case .qwenAudio:  return "qwen-audio-3.0-tts-flash"
         case .groq:       return "canopylabs/orpheus-v1-english"
         case .xai:        return "grok-tts-1"
         case .elevenlabs: return "eleven_multilingual_v2"
@@ -130,7 +125,6 @@ enum TTSServiceKind: String, CaseIterable, Codable, Identifiable {
         case .azure:      return "zh-CN-XiaoxiaoNeural"
         case .minimax:    return "female-shaonv"
         case .qwen:       return "Cherry"
-        case .qwenAudio:  return "longanhuan_v3.6"
         case .groq:       return "austin"
         case .xai:        return "eve"
         case .elevenlabs: return "21m00Tcm4TlvDq8ikWAM"
@@ -181,13 +175,6 @@ extension TTSServiceKind {
             return [
                 TTSKnob(key: "languageType", title: "Language Type", placeholder: "Auto", defaultValue: "Auto"),
             ]
-        case .qwenAudio:
-            return [
-                TTSKnob(key: "workspaceId", title: "Workspace ID", placeholder: "optional", defaultValue: ""),
-                TTSKnob(key: "region", title: "Region", placeholder: "cn-beijing", defaultValue: "cn-beijing"),
-                TTSKnob(key: "format", title: "Format", placeholder: "mp3", defaultValue: "mp3"),
-                TTSKnob(key: "sampleRate", title: "Sample Rate", placeholder: "22050", defaultValue: "22050"),
-            ]
         case .xai:
             return [
                 TTSKnob(key: "language", title: "Language", placeholder: "auto", defaultValue: "auto"),
@@ -200,12 +187,9 @@ extension TTSServiceKind {
         case .mimo:
             return [
                 TTSKnob(key: "instruction", title: "Instruction", placeholder: "Style hint (optional)", defaultValue: ""),
-                TTSKnob(key: "speed", title: "Speed", placeholder: "1.0", defaultValue: "1.0"),
             ]
-        case .gemini:
-            return [
-                TTSKnob(key: "speed", title: "Speed", placeholder: "1.0", defaultValue: "1.0"),
-            ]
+        // [T-tts-vendor-fix 09-13] gemini speed removed: the Gemini TTS API
+        // has no speed parameter (kelivo's Gemini options carry none either).
         case .doubao, .xunfei:
             return [
                 TTSKnob(key: "speed", title: "Speed", placeholder: "1.0", defaultValue: "1.0"),
@@ -215,8 +199,8 @@ extension TTSServiceKind {
         }
     }
 
-    /// Every vendor accepts a generic speed knob; a few already declare one above.
-    var supportsSpeed: Bool { true }
+    /// [T-tts-vendor-fix 09-13] supportsSpeed was removed — it was defined but
+    /// never referenced (speed knobs live in `knobs` above only).
     var supportsInstruction: Bool { self == .openai || self == .mimo }
 }
 
