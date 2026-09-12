@@ -282,7 +282,11 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
         // byteRate sits (offset 28), so the old blind read produced garbage
         // durations that poisoned the smoothed secPerChar window (audit #7).
         guard wav.count > 44 else { return 0 }
-        guard wav.starts(with: Array("RIFF".utf8)), wav.starts(with: Array("WAVE".utf8), at: 8) else { return 0 }
+        // RIFF magic at 0, WAVE magic at 8 — Data has no starts(with:at:),
+        // so compare the WAVE tag bytes directly.
+        guard wav.starts(with: Array("RIFF".utf8)),
+              [UInt8](wav.dropFirst(8).prefix(4)) == Array("WAVE".utf8)
+        else { return 0 }
         let byteRate = wav.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 28, as: UInt32.self) }
         let rate = UInt32(littleEndian: byteRate)
         guard rate > 0 else { return 0 }
