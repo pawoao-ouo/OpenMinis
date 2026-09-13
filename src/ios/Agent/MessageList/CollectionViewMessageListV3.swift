@@ -1513,7 +1513,9 @@ extension CollectionViewMessageListV3 {
             // fresh TTS pass. Extracted from the message's own blocks so it
             // survives reload (the bubble part is persisted in the DB).
             if message.role == .assistant {
-                bridge.voiceBubbleFileURL = Self.voiceBubbleURL(in: message)
+                // Coordinator is a nested class — Self here resolves to the
+                // Coordinator, not the list struct holding the static helper.
+                bridge.voiceBubbleFileURL = CollectionViewMessageListV3.voiceBubbleURL(in: message)
             } else {
                 bridge.voiceBubbleFileURL = nil
             }

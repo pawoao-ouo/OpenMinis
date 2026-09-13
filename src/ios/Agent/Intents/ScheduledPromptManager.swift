@@ -218,12 +218,13 @@ final class ScheduledPromptStore: ObservableObject {
                 )
             }
             // Update the binding if this was a new-session fire.
-            if let stored = shared.prompts.first(where: { $0.id == promptId }),
-               stored.sessionId == nil || stored.sessionId?.isEmpty == true {
-                if var p = stored {
-                    p.sessionId = vm.sessionId
-                    await shared.upsert(p)
-                }
+            // `if var` binds the Optional from first(where:) directly; the
+            // old code nested a second `if var p = stored` on the ALREADY
+            // unwrapped element — conditional binding on a non-Optional.
+            if var p = shared.prompts.first(where: { $0.id == promptId }),
+               p.sessionId == nil || p.sessionId?.isEmpty == true {
+                p.sessionId = vm.sessionId
+                await shared.upsert(p)
             }
         }
     }
