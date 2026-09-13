@@ -351,12 +351,30 @@ def cmd_call(args, pretty):
         except ValueError as exc:
             _fail("invalid --input JSON: %s" % exc, "PARSE_ERROR", name, pretty)
     # key=value pairs override / extend the --input object.
+    # [T-mcp-call-barejson 09-13] E5: a bare positional token that PARSES as
+    # a JSON object is now taken as the arguments dict verbatim — agents kept
+    # passing `call s t '{"city":"Beijing"}'` and hitting "unexpected
+    # argument" PARSE_ERROR (5+ times in the logs 09-08→09-13). Accept both
+    # shapes; only a non-JSON token WITHOUT '=' stays an error, and that error
+    # now shows the correct syntax first.
     for token in rest:
         if "=" in token:
             k, v = token.split("=", 1)
             arguments[k] = v
+        elif token.lstrip().startswith("{"):
+            try:
+                bare = json.loads(token)
+                if isinstance(bare, dict):
+                    arguments.update(bare)
+                else:
+                    _fail("bare JSON argument must be an object, got: %s" % token[:80],
+                          "PARSE_ERROR", name, pretty)
+            except ValueError as exc:
+                _fail("bare JSON argument does not parse: %s\nHint: use --input '<json>' or key=value pairs"
+                      % exc, "PARSE_ERROR", name, pretty)
         else:
-            _fail("unexpected argument: %s" % token, "PARSE_ERROR", name, pretty)
+            _fail("unexpected argument: %s\nHint: pass a JSON object ('{\"k\":\"v\"}'), --input '<json>', or key=value pairs"
+                  % token, "PARSE_ERROR", name, pretty)
     result = call_daemon({"cmd": "call", "server": name, "tool": tool, "args": arguments}, pretty)
     _emit(result, pretty)
 

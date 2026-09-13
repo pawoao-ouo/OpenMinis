@@ -31,7 +31,31 @@ final class ConfigConfirmationGate: ObservableObject {
     /// reported three back-to-back `outcome=timedOut` with no chance to
     /// approve. Widening to 2 minutes gives a backgrounded user time to react
     /// to the local notification (below) and return to the app.
+    ///
+    /// [T-config-confirm-timeout-large 09-13] E2: large payloads (soul.body
+    /// at 49KB) get a WIDER window (5 min) — the workorder showed two
+    /// timeout-then-retry-applied rounds where the retry only succeeded
+    /// because the user happened to catch the second sheet. The size gate is
+    /// the summed value_json byte count: cheap to compute, no field-type
+    /// sniffing needed.
     static let timeoutSeconds: TimeInterval = 120
+    /// Threshold (bytes) past which the confirm window widens.
+    static let largePayloadBytes: Int = 20_000
+    /// Wide window for large payloads.
+    static let largePayloadTimeoutSeconds: TimeInterval = 300
+
+    /// Effective timeout for one pending change (size-aware, E2). Measured
+    /// on the payload that actually gets written (item.payloadBytes, the
+    /// full jsonString of the new value) — NOT newDisplay, whose 80-char
+    /// display truncation made every large write measure as tiny. Falls back
+    /// to the display strings for rows that carry no payload (removes), and
+    /// counts in UTF-8 bytes (utf16.count undercounts multibyte CJK).
+    static func effectiveTimeout(for change: PendingConfigChange) -> TimeInterval {
+        let totalBytes = change.items.reduce(0) { acc, item in
+            max(item.payloadBytes, item.newDisplay.utf8.count)
+        }
+        return totalBytes > largePayloadBytes ? largePayloadTimeoutSeconds : timeoutSeconds
+    }
 
     /// Front-of-queue request, if any. The sheet binds to this; setting
     /// it to nil dismisses the sheet.
@@ -86,7 +110,8 @@ final class ConfigConfirmationGate: ObservableObject {
             // acts first.
             let id = change.id
             timeoutTasks[id] = Task { [weak self] in
-                let nanos = UInt64(Self.timeoutSeconds * 1_000_000_000)
+                // [T-config-confirm-timeout-large 09-13] E2: size-aware window.
+                let nanos = UInt64(Self.effectiveTimeout(for: change) * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: nanos)
                 await self?.timeout(id: id)
             }

@@ -1080,7 +1080,13 @@ struct UnifiedModelPicker: View {
             HStack {
                 Label(entry.model.displayName, systemImage: "waveform.badge.plus")
                     .font(.subheadline)
-                    .foregroundStyle(hasKey ? .primary : .secondary)
+                    // [T-tts-key-status 09-13] 醒醒 7: never DIM the row for a
+                    // missing key — a dimmed+disabled row reads as "this service
+                    // doesn't exist / can't be used" and made her think the
+                    // configured service was broken. The row selects normally;
+                    // the "no key" caption carries the state, and synthesis
+                    // surfaces the real error if it fails.
+                    .foregroundStyle(.primary)
                 Spacer()
                 if !hasKey {
                     Text("no key")
@@ -1092,7 +1098,6 @@ struct UnifiedModelPicker: View {
                 }
             }
         }
-        .disabled(!hasKey)
     }
 
     @ViewBuilder

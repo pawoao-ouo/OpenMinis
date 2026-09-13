@@ -38,6 +38,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // remains as an idempotent backstop.
         ShortcutNotificationDelegate.shared.register()
 
+        // [T-scheduled-prompt 09-13] W1: re-arm every enabled scheduled prompt
+        // (idempotent; system may have dropped pending requests across an
+        // app update) and register the tap-action category.
+        Task { @MainActor in
+            await ScheduledPromptStore.shared.rescheduleAll()
+        }
+
         // Refresh the dynamic shortcut list every cold launch. The
         // items themselves are stable, but their localized titles
         // depend on the current `String(localized:)` resolution which

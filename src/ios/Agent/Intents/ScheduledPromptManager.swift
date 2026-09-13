@@ -1,0 +1,230 @@
+import Foundation
+import UserNotifications
+import SwiftUI
+
+// MARK: - [T-scheduled-prompt 09-13] W1: scheduled local notifications that
+// wake the agent on tap.
+//
+// The workorder asked for exactly ONE thing with an honest boundary: a
+// scheduled local notification whose TAP opens a session and auto-sends a
+// preset prompt ("每天自醒一次：翻 daily、摸抽屉、留一条「今天我在」"). iOS
+// gives no unattended background execution — notification-tap IS the physical
+// ceiling, and this implementation stays inside it:
+//
+//   schedule: UNCalendarNotificationTrigger (system delivers while suspended)
+//   tap:      ShortcutNotificationDelegate.didReceive → the scheduledPrompt
+//             category routes here → opens session + auto-sends prompt
+//   no promises beyond that: if the notification is never tapped, nothing
+//   runs. The card body says so in plain language.
+//
+// Storage: UserDefaults (id-keyed JSON array). A prompt's session binding is
+// optional — nil means "new session each fire" (the daily check-in use case).
+
+enum ScheduledPromptRepeat: String, Codable, CaseIterable, Identifiable {
+    case daily
+    case weekly
+    case once
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .daily: return AppLocalized("Every day")
+        case .weekly: return AppLocalized("Every week")
+        case .once: return AppLocalized("Once")
+        }
+    }
+}
+
+struct ScheduledPrompt: Identifiable, Codable, Equatable {
+    var id: String = UUID().uuidString
+    var title: String
+    var prompt: String
+    var hour: Int
+    var minute: Int
+    var repeatRule: ScheduledPromptRepeat
+    var enabled: Bool = true
+    /// Weekday for .weekly (1=Sunday ... 7=Saturday, matching DateComponents).
+    var weekday: Int = 1
+    /// nil = open a NEW session each fire; non-nil = continue that session.
+    var sessionId: String?
+}
+
+@MainActor
+final class ScheduledPromptStore: ObservableObject {
+    static let shared = ScheduledPromptStore()
+    private static let storageKey = "scheduled.prompts.v1"
+    private static let category = "scheduledPrompt"
+
+    @Published private(set) var prompts: [ScheduledPrompt] = []
+    private let logger = AppLogger(category: "ScheduledPrompt")
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+           let decoded = try? JSONDecoder().decode([ScheduledPrompt].self, from: data) {
+            prompts = decoded
+        }
+    }
+
+    private func persist() {
+        if let data = try? JSONEncoder().encode(prompts) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
+    }
+
+    /// Register the tap-action category once. Safe to call repeatedly.
+    func registerCategory() {
+        let center = UNUserNotificationCenter.current()
+        let action = UNNotificationAction(
+            identifier: "RUN_NOW",
+            title: AppLocalized("Run now")
+        )
+        let category = UNNotificationCategory(
+            identifier: Self.category,
+            actions: [action],
+            intentIdentifiers: []
+        )
+        center.setNotificationCategories([category])
+    }
+
+    /// Add or update one prompt and (re)schedule its notification.
+    func upsert(_ prompt: ScheduledPrompt) async {
+        if let i = prompts.firstIndex(where: { $0.id == prompt.id }) {
+            prompts[i] = prompt
+        } else {
+            prompts.append(prompt)
+        }
+        persist()
+        await reschedule(prompt)
+    }
+
+    func remove(id: String) async {
+        prompts.removeAll { $0.id == id }
+        persist()
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [notifId(id)])
+    }
+
+    func setEnabled(_ enabled: Bool, id: String) async {
+        guard var p = prompts.first(where: { $0.id == id }) else { return }
+        p.enabled = enabled
+        if let i = prompts.firstIndex(where: { $0.id == id }) {
+            prompts[i] = p
+        }
+        persist()
+        if enabled {
+            await reschedule(p)
+        } else {
+            UNUserNotificationCenter.current()
+                .removePendingNotificationRequests(withIdentifiers: [notifId(id)])
+        }
+    }
+
+    private func notifId(_ promptId: String) -> String {
+        "scheduled-prompt-\(promptId)"
+    }
+
+    /// (Re)schedule the UNCalendarNotificationTrigger for one prompt.
+    private func reschedule(_ prompt: ScheduledPrompt) async {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [notifId(prompt.id)])
+        guard prompt.enabled else { return }
+        let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        guard granted else {
+            logger.warning("notification auth not granted — scheduled prompt \(prompt.id.prefix(6)) will not fire")
+            return
+        }
+        var comps = DateComponents()
+        comps.hour = prompt.hour
+        comps.minute = prompt.minute
+        switch prompt.repeatRule {
+        case .daily: comps.weekday = nil   // every day
+        case .weekly: comps.weekday = prompt.weekday
+        case .once:
+            // One-shot: next occurrence of hour:minute (today or tomorrow).
+            var cal = Calendar.current
+            cal.timeZone = .current
+            var fire = cal.date(bySettingHour: prompt.hour, minute: prompt.minute, second: 0, of: Date()) ?? Date()
+            if fire <= Date() { fire = cal.date(byAdding: .day, value: 1, to: fire) ?? fire }
+            let interval = fire.timeIntervalSinceNow
+            if interval <= 0 { return }
+            let content = buildContent(prompt)
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
+            let req = UNNotificationRequest(identifier: notifId(prompt.id), content: content, trigger: trigger)
+            try? await center.add(req)
+            logger.info("scheduled once-prompt \(prompt.id.prefix(6)) in \(Int(interval))s")
+            return
+        }
+        let content = buildContent(prompt)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
+        let req = UNNotificationRequest(identifier: notifId(prompt.id), content: content, trigger: trigger)
+        try? await center.add(req)
+        logger.info("scheduled prompt \(prompt.id.prefix(6)) rule=\(prompt.repeatRule.rawValue) \(String(format: "%02d:%02d", prompt.hour, prompt.minute))")
+    }
+
+    private func buildContent(_ prompt: ScheduledPrompt) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = prompt.title.isEmpty ? AppLocalized("Scheduled prompt") : prompt.title
+        content.body = prompt.prompt.isEmpty
+            ? AppLocalized("Tap to wake the agent with this prompt.")
+            : prompt.prompt
+        content.sound = .default
+        content.categoryIdentifier = Self.category
+        content.userInfo = [
+            "scheduledPrompt": true,
+            "promptId": prompt.id,
+            "prompt": prompt.prompt,
+            "promptTitle": prompt.title,
+            "sessionId": prompt.sessionId ?? "",
+        ]
+        return content
+    }
+
+    /// Re-arm everything on launch (system may have dropped pending requests
+    /// across an app update; cheap idempotent call).
+    func rescheduleAll() async {
+        registerCategory()
+        for p in prompts where p.enabled {
+            await reschedule(p)
+        }
+    }
+
+    // MARK: Tap handling
+
+    /// Called from the notification delegate for the scheduledPrompt category.
+    /// Opens the target session (existing or new draft) and auto-sends the
+    /// preset prompt — the AskMinisIntent pipeline shape, minus Siri.
+    static func handleTap(promptId: String, promptText: String, sessionId: String?) {
+        Task { @MainActor in
+            let vm: AIChatViewModel
+            if let sid = sessionId, !sid.isEmpty {
+                let (cached, _) = ViewModelCache.shared.getOrCreate(for: sid)
+                vm = cached
+                await vm.loadSession()
+            } else {
+                vm = ViewModelCache.shared.createDraft()
+                vm.sessionSource = "scheduled"
+                await vm.ensureSessionReturningId()
+            }
+            if vm.isProcessing {
+                for await processing in vm.$isProcessing.values where !processing { break }
+            }
+            vm.inputText = promptText
+            vm.send()
+            if let sid = vm.sessionId, !sid.isEmpty {
+                NotificationNavigationStore.shared.setPending(sid)
+                NotificationCenter.default.post(
+                    name: .openSessionFromIntent,
+                    object: nil,
+                    userInfo: ["sessionId": sid]
+                )
+            }
+            // Update the binding if this was a new-session fire.
+            if let stored = shared.prompts.first(where: { $0.id == promptId }),
+               stored.sessionId == nil || stored.sessionId?.isEmpty == true {
+                if var p = stored {
+                    p.sessionId = vm.sessionId
+                    await shared.upsert(p)
+                }
+            }
+        }
+    }
+}

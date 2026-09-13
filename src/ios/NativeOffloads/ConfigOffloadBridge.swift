@@ -466,7 +466,8 @@ private let logger = AppLogger(category: "ConfigOffload")
                         oldDisplay: childId,
                         newDisplay: "",
                         verb: "remove",
-                        risk: collection.risk
+                        risk: collection.risk,
+                        payloadBytes: 0
                     ))
                 } else {
                     guard collection.addable else {
@@ -497,7 +498,11 @@ private let logger = AppLogger(category: "ConfigOffload")
                         oldDisplay: "",
                         newDisplay: auditedPayload.displayString,
                         verb: "add",
-                        risk: collection.risk
+                        risk: collection.risk,
+                        // Full JSON of what add() actually writes — displayString
+                        // truncates long payloads and would never trip the wide
+                        // window (E2).
+                        payloadBytes: auditedPayload.jsonString().utf8.count
                     ))
                 }
                 continue
@@ -673,7 +678,11 @@ private let logger = AppLogger(category: "ConfigOffload")
                 oldDisplay: displayOld,
                 newDisplay: displayNew,
                 verb: displayVerb,
-                risk: field.risk
+                risk: field.risk,
+                // Full JSON of the value the writer receives. auditNewValue is
+                // the masked copy — same length for non-secret writes (the ones
+                // that matter for size), masked to a short stub for secrets.
+                payloadBytes: auditNewValue.jsonString().utf8.count
             ))
         }
 
@@ -718,8 +727,16 @@ private let logger = AppLogger(category: "ConfigOffload")
             }
             return [
                 "ok": false, "error": "timeout",
-                "reason": "Confirmation timed out after \(Int(ConfigConfirmationGate.timeoutSeconds))s.",
+                "reason": "Confirmation timed out after \(Int(ConfigConfirmationGate.effectiveTimeout(for: PendingConfigChange(items: resolvedItems, caption: caption))))s.",
                 "user_message": "I waited but you didn't confirm the change. Tap me again if you want me to retry.",
+                // [T-config-confirm-timeout-large 09-13] E2: say the outcome
+                // UNAMBIGUOUSLY so the agent never has to guess whether a
+                // timeout meant "not written" or "maybe half-written" (the
+                // workorder showed two timeout→retry rounds where the agent
+                // re-ran blind). The write only happens AFTER approval, so a
+                // timeout is categorically nothing-written.
+                "written": false,
+                "applied": false,
             ]
 
         case .rejected:

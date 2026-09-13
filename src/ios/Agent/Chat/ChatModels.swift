@@ -76,6 +76,19 @@ final class ChatMessage: Identifiable, ObservableObject {
     /// landed on a continuation row would fail to resolve and the divider
     /// would slide to the top of the list.
     var lastSourceSortOrder: Int?
+    /// [T-retry-id-anchor 09-13] DB row id of the raw message this UI message
+    /// was built from (user rows: their own agentHistory entry carries the
+    /// same id in dbMessageId). The retry/edit truncation paths used to pair
+    /// UI rows with agentHistory entries by COUNTING user bubbles on both
+    /// sides — queued prompts merge N UI rows into ONE history entry, so the
+    /// counts could never line up and the anchor failed OPEN (kept the full
+    /// history), which is exactly "Regenerate is a no-op: the model still
+    /// quotes its previous answer". Id-anchoring removes the counting.
+    /// String (not UUID): RawMessage.id / persistAgentMessage both hand out
+    /// String row ids — a UUID? here made the assignments type-mismatch.
+    /// nil on rows that never persisted (placeholder/error carriers) — callers
+    /// must fall back to the counting path for those.
+    var dbRowId: String?
     /// Links back to the QueuedPrompt so we can withdraw it.
     var queuedPromptId: UUID?
     let timestamp = Date()

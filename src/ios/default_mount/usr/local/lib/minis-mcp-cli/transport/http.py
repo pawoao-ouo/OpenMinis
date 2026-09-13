@@ -278,6 +278,35 @@ class HTTPTransport:
         if resp.status_code == 401 and self.oauth_cfg is not None and not _oauth_retried:
             return self._post(method, params=params, notify=notify, _oauth_retried=True)
         if resp.status_code >= 400:
+            # [T-mcp-401-diag 09-13] N1: a 401 used to surface as a bare
+            # "HTTP 401: ..." with no way to tell an unresolved $$VAR (empty
+            # key sent) from a real rejection of a resolved key. Log the auth
+            # headers with masked values so one look at mcp-cli.log answers
+            # "was the env reference expanded at all?" without ever printing
+            # the secret.
+            if resp.status_code == 401:
+                masked = {}
+                for k, v in headers.items():
+                    if k.lower() in ("authorization", "x-api-key", "api-key", "x-auth-token"):
+                        masked[k] = (v[:6] + "…" + v[-4:] if len(v or "") > 12
+                                     else ("(empty)" if not v else "(short, hidden)"))
+                # Best-effort log: mcp-cli.log may not be writable from this
+                # context; the error envelope below still carries the mask.
+                try:
+                    with open("/var/minis/mcp-servers/mcp-cli.log", "a", encoding="utf-8") as lf:
+                        lf.write("401 from %s server=%s auth_headers=%s\n"
+                                 % (self.url[:80], self.server_name, json.dumps(masked)))
+                except OSError:
+                    pass
+                msg = "HTTP 401: %s" % resp.text[:200]
+                if masked:
+                    msg += " | auth sent: %s" % json.dumps(masked)
+                if self.oauth_cfg is None and any("…(empty)" in s or "(empty)" in s
+                                                  for s in masked.values()):
+                    msg += (" | a header resolved to EMPTY — its $ENV_VAR is "
+                            "unset in this environment; check Settings → "
+                            "Environment Variables")
+                raise MCPError("CONNECTION_ERROR", msg)
             raise MCPError(
                 "CONNECTION_ERROR", "HTTP %d: %s" % (resp.status_code, resp.text[:200])
             )

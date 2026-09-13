@@ -107,20 +107,38 @@ enum AIVoiceMessageComposer {
     }
 
     /// Selected TTS service (kelivo layer) first, then the model group.
+    /// [T-tts-key-status 09-13] 醒醒 7: the selected service's own failures now
+    /// LOG LOUDLY with the reason (was a silent skip): "it speaks but shows
+    /// no key" was exactly this — the service layer was skipped (missing key
+    /// or failed synth) and the model-group fallback spoke with a DIFFERENT
+    /// voice while the UI kept showing "no key" for the service. The fallback
+    /// itself stays (a second voice is better than silence); the log names
+    /// which layer actually produced the audio.
     private static func synthesizeWithServiceOrGroup(_ text: String) async throws -> (Data, String?) {
-        if let service = TTSServiceStore.shared.selectedService(),
-           service.enabled,
-           TTSServiceStore.shared.hasAPIKey(for: service),
-           let provider = TTSProviderBridge.provider(for: service) {
-            let request = TTSProviderBridge.request(for: service, text: text)
-            if let data = try? await provider.synthesize(request), !data.isEmpty {
-                return (data, service.kind == .azure ? "mp3" : "wav")
+        if let service = TTSServiceStore.shared.selectedService(), service.enabled {
+            if !TTSServiceStore.shared.hasAPIKey(for: service) {
+                logger.warning("[AIVoice] selected TTS service '\(service.name)' has NO stored key — falling to model group (check the Keychain save in the service editor)")
+            } else if let provider = TTSProviderBridge.provider(for: service) {
+                let request = TTSProviderBridge.request(for: service, text: text)
+                do {
+                    let data = try await provider.synthesize(request)
+                    if !data.isEmpty {
+                        logger.info("[AIVoice] synthesized via service '\(service.name)' (\(service.kind.rawValue))")
+                        return (data, service.kind == .azure ? "mp3" : "wav")
+                    }
+                    logger.warning("[AIVoice] service '\(service.name)' returned empty audio — falling to model group")
+                } catch {
+                    logger.warning("[AIVoice] service '\(service.name)' synth failed: \(error.localizedDescription) — falling to model group")
+                }
+            } else {
+                logger.warning("[AIVoice] service '\(service.name)' (\(service.kind.rawValue)) cannot synthesize — falling to model group")
             }
         }
         for entry in VoiceProviderResolver.resolvedOutputCandidates() {
             guard let provider = VoiceProviderResolver.outputProvider(for: entry) else { continue }
             if let data = try? await provider.synthesize(
                 VoiceOutputRequest(input: text, model: entry.model.id)), !data.isEmpty {
+                logger.info("[AIVoice] synthesized via model-group entry \(entry.model.displayName)")
                 return (data, VoiceProviderResolver.isSystemEntry(entry.providerInstanceId) ? "wav" : "mp3")
             }
         }

@@ -2038,6 +2038,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "Tone and style:\n"
             + "- Reply in the language that best matches the user's input. Only switch languages when the user explicitly asks.\n"
             + "- Be concise. Prefer action over explanation — when the user asks for something that can be done via shell, do it directly.\n\n"
+            + "Speech synthesis (TTS) — what YOU can do:\n"
+            + "There are TWO independent voice layers. Do not confuse them.\n"
+            + "1. **Voice Services layer** (Settings → Voice Services) — the user-configured TTS services (OpenAI / Azure / MiniMax / ElevenLabs / Qwen / Groq / xAI / Doubao / iFlytek ...). This is the voice the app uses to read replies aloud and to compose wx-style voice bubbles. The user selects one service; its key/model/voice live in the app's Keychain/UserDefaults — you CANNOT list or query this layer from the shell, and you don't need to: it is applied automatically.\n"
+            + "2. **apple-speak** — a plain CLI at /usr/local/bin that uses the on-device Apple voice. Use it for quick one-off spoken output when you need the user to HEAR something immediately (spoken answers, pronunciation, alarms). It does NOT go through the user's configured voice services. Example: `apple-speak speak --text \"你好\" --voice zh-CN --rate 0.5`.\n"
+            + "When the user asks you to '发语音' / '说' / 'speak' / '用语音回答': if the session's AI Voice Replies is on, your text reply is AUTOMATICALLY synthesized into a wx-style voice bubble by the app (no action needed from you — just write the text). Otherwise use apple-speak for an immediate one-off playback. NEVER fake a voice reply with a text description of audio.\n"
+            + "There is no 'audio output model' to search for — the model list does NOT contain voice entries. Voice synthesis is a service layer (1) plus apple-speak (2), not a chat model.\n\n"
             + "Native Apple framework tools:\n"
             + "CLI tools at /usr/local/bin with the apple- prefix give you access to iOS frameworks (alarm, bluetooth, calendar, clipboard, device, healthkit, homekit, location, maps, media, nfc, nlp, notification, open, photos, player, reminders, speak, speech, vision, weather). "
             + "All output JSON (--compact to minify, -q for data-only). Run any tool with --help for full usage. "
@@ -2374,6 +2380,17 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // in the composer; saveInputModePreference no-ops when unchanged.)
         if !text.isEmpty {
             SpeechRecognitionManager.saveInputModePreference(voiceUsedInComposition ? "voice" : "text")
+            // [T-voice-bubble-default 09-13] 醒醒 2: she SPEAKS to the AI →
+            // the reply should arrive as a voice bubble too (wx semantics:
+            // voice in, voice out). Auto-enable AI Voice Replies for this
+            // session on the first voice-composed send; a typed send never
+            // turns it on, and she can still switch it off per session from
+            // the voice-options menu — auto-on only touches the default.
+            if voiceUsedInComposition, let sid = sessionId,
+               !AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: sid) {
+                AIVoiceMessageComposer.setVoiceReplies(enabled: true, sessionId: sid)
+                logger.info("[AIVoice] voice-composed send → AI Voice Replies auto-ON for sid=\(sid.prefix(8))")
+            }
         }
 
         // [T-voice-correction-productionize] Harvest typed vocabulary from sent
@@ -2451,22 +2468,29 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             if editIdx < messages.count {
                 messages.removeSubrange(editIdx...)
             }
-            // Trim agentHistory: count remaining user BUBBLES (not synthetic
-            // user-role entries — see isUserBubbleEntry), then keep all
-            // history entries through the assistant reply (+ tool results)
-            // that follow the last remaining user bubble.
+            // Trim agentHistory. [T-retry-id-anchor 09-13] ID-first (same fix
+            // as retryFromMessage): find the last surviving UI row's dbRowId
+            // and cut after its history twin. The legacy counting path pairs
+            // user BUBBLES (isUserBubbleEntry skips synthetic user-role
+            // entries) but breaks across queued N-in-1 merges.
             let remainingUserCount = messages.filter { $0.role == .user }.count
-            var usersSeen = 0
             var keepUpTo = -1
-            for (i, entry) in agentHistory.enumerated() {
-                if Self.isUserBubbleEntry(entry) {
-                    usersSeen += 1
-                    if usersSeen > remainingUserCount {
-                        // This is the edited message's entry — stop before it
-                        break
+            if let lastRowId = messages.last(where: { $0.dbRowId != nil })?.dbRowId,
+               let hi = agentHistory.lastIndex(where: { $0.dbMessageId == lastRowId }) {
+                keepUpTo = hi
+                logger.info("✏️[RetryDiag] edit path id-anchored dbRowId=\(lastRowId.prefix(8)) → historyIdx=\(hi)")
+            } else {
+                var usersSeen = 0
+                for (i, entry) in agentHistory.enumerated() {
+                    if Self.isUserBubbleEntry(entry) {
+                        usersSeen += 1
+                        if usersSeen > remainingUserCount {
+                            // This is the edited message's entry — stop before it
+                            break
+                        }
                     }
+                    keepUpTo = i
                 }
-                keepUpTo = i
             }
             if remainingUserCount == 0 {
                 agentHistory.removeAll()
@@ -2763,6 +2787,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // compact can later resolve boundaries by id.
             if let persistedId = await self.persistAgentMessage(userMessage), userIdx < self.agentHistory.count {
                 self.agentHistory[userIdx].dbMessageId = persistedId
+                // [T-retry-id-anchor 09-13] Same id onto the UI row, so retry/
+                // edit truncation can anchor on the id instead of counting
+                // bubbles (queued N-in-1 merges broke the counting).
+                await MainActor.run {
+                    userMsg.dbRowId = persistedId
+                }
             }
 
             // Wait for kernel to finish booting
@@ -3364,20 +3394,41 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         if !transitionSuspended { objectWillChange.send() }
         AppLogger(category: "RetryDiag").info("[RetryDiag] retryFromMessage truncated userIdx=\(idx) messagesCount=\(self.messages.count)")
 
-        // Trim agentHistory: count how many user BUBBLES (not synthetic
-        // user-role entries — see isUserBubbleEntry) up to and including this
-        // one, then find the matching entry in agentHistory and remove
-        // everything after it.
+        // Trim agentHistory. [T-retry-id-anchor 09-13] ID-FIRST: the UI row
+        // carries the DB id of the raw row it was built from (send/drain/
+        // reload all stamp it), and the matching agentHistory entry carries the
+        // same id in dbMessageId — anchor by lookup, not by counting. The old
+        // counting path paired UI user rows with history "user bubbles"
+        // (isUserBubbleEntry); queued prompts merge N UI rows into ONE history
+        // entry, so the counts could never line up past a merge, keepUpTo
+        // failed OPEN (kept the FULL history — the comment below the old code
+        // called that "recoverable"), and regenerate silently became a no-op:
+        // the model still quoted its previous answer. Falling back to the
+        // counting path only when the id is missing keeps legacy in-flight
+        // rows (created before this change) working.
         let targetUserCount = messages[...idx].filter { $0.role == .user }.count
-        var usersSeen = 0
         var keepUpTo = -1  // index of the last entry to keep (inclusive)
-        for (i, entry) in agentHistory.enumerated() {
-            if Self.isUserBubbleEntry(entry) {
-                usersSeen += 1
+        if let anchorId = messages[idx].dbRowId,
+           let hi = agentHistory.lastIndex(where: { $0.dbMessageId == anchorId }) {
+            keepUpTo = hi
+            logger.info("[RetryDiag] retryFromMessage id-anchored dbRowId=\(anchorId.prefix(8)) → historyIdx=\(hi)")
+        } else {
+            // Legacy fallback: count user BUBBLES (not synthetic user-role
+            // entries — see isUserBubbleEntry) up to and including this one,
+            // then find the matching entry in agentHistory and remove
+            // everything after it.
+            var usersSeen = 0
+            for (i, entry) in agentHistory.enumerated() {
+                if Self.isUserBubbleEntry(entry) {
+                    usersSeen += 1
+                }
+                if usersSeen == targetUserCount {
+                    keepUpTo = i
+                    break
+                }
             }
-            if usersSeen == targetUserCount {
-                keepUpTo = i
-                break
+            if keepUpTo >= 0 {
+                logger.info("[RetryDiag] retryFromMessage bubble-count fallback (no dbRowId) targetUserCount=\(targetUserCount) → historyIdx=\(keepUpTo)")
             }
         }
         // [T-ios-retry-anchor-synthetic-user] Fail OPEN on a UI↔history
@@ -3386,7 +3437,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // the old behavior (keepUpTo = 0) silently nuked the session down to
         // one entry.
         if keepUpTo < 0 {
-            logger.error("[RetryDiag] retryFromMessage anchor NOT FOUND (targetUserCount=\(targetUserCount), history=\(self.agentHistory.count)) — keeping full history")
+            logger.error("[RetryDiag] retryFromMessage anchor NOT FOUND (dbRowId=\(messages[idx].dbRowId?.prefix(8) ?? "nil"), targetUserCount=\(targetUserCount), history=\(self.agentHistory.count)) — keeping full history")
             keepUpTo = agentHistory.count - 1
         }
         // Keep entries 0...keepUpTo, remove the rest
@@ -3485,6 +3536,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
 
         let deletedCount = messages.count - idx
+        // [T-retry-id-anchor 09-13] Capture the deleted row's DB id BEFORE
+        // truncation — it names the history entry to cut AT (keep strictly
+        // before it).
+        let deletedRowId = messages[idx].dbRowId
 
         // Remove the selected user message AND everything after it.
         messages.removeSubrange(idx...)
@@ -3492,24 +3547,39 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // this tick; the $messages sink alone fires off-tick.
         if !transitionSuspended { objectWillChange.send() }
 
-        // Anchor in agentHistory by user-bubble count, exactly as retry does.
-        // `messages` is already truncated, so its remaining .user rows are
-        // precisely the bubbles that must survive; the deleted bubble is the
-        // (keepUserCount + 1)-th one in agentHistory, and we keep everything
-        // strictly before it.
-        // The bubble being deleted is the (keepUserCount + 1)-th in
-        // agentHistory. Find its index and keep everything strictly before it;
-        // that index IS the cut point whether or not more bubbles follow.
+        // Anchor in agentHistory. [T-retry-id-anchor 09-13] ID-first (same fix
+        // as retryFromMessage): the deleted row's dbRowId names the history
+        // entry to cut AT; keep everything strictly before it. The legacy
+        // bubble-counting path (kept as fallback for pre-change in-flight
+        // rows) breaks across queued N-in-1 merges — two queued UI rows fold
+        // into one history entry and the count can never reach the target.
         let keepUserCount = messages.filter { $0.role == .user }.count
-        var usersSeen = 0
         var keepUpTo = -1  // index of the last agentHistory entry to keep
         var anchorFound = false
-        for (i, entry) in agentHistory.enumerated() where Self.isUserBubbleEntry(entry) {
-            usersSeen += 1
-            if usersSeen == keepUserCount + 1 {
-                keepUpTo = i - 1
-                anchorFound = true
-                break
+        if let deletedRowId,
+           let di = agentHistory.firstIndex(where: { $0.dbMessageId == deletedRowId }) {
+            // Keep everything strictly BEFORE the deleted row's own entry. If
+            // the deleted row was itself part of a queued N-in-1 merge, its
+            // siblings share the same dbRowId — firstIndex lands on the merged
+            // entry and the whole merge goes, which is correct (deleting any
+            // folded row removes the merged turn).
+            keepUpTo = di - 1
+            anchorFound = true
+            logger.info("[DeleteDiag] id-anchored dbRowId=\(deletedRowId.prefix(8)) → cut before historyIdx=\(di)")
+        } else {
+            // Fallback: the deleted bubble is the (keepUserCount + 1)-th in
+            // agentHistory. Keep everything strictly before it.
+            var usersSeen = 0
+            for (i, entry) in agentHistory.enumerated() where Self.isUserBubbleEntry(entry) {
+                usersSeen += 1
+                if usersSeen == keepUserCount + 1 {
+                    keepUpTo = i - 1
+                    anchorFound = true
+                    break
+                }
+            }
+            if !anchorFound && deletedRowId == nil {
+                logger.info("[DeleteDiag] no dbRowId on deleted row — legacy bubble-count path used")
             }
         }
         // [T-ios-retry-anchor-synthetic-user] Fail OPEN on a UI↔history
@@ -4259,6 +4329,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             self.agentHistory.append(queueAgentMsg)
             if let pid = await self.persistAgentMessage(queueAgentMsg), qIdx < self.agentHistory.count {
                 self.agentHistory[qIdx].dbMessageId = pid
+                // [T-retry-id-anchor 09-13] N queued UI rows fold into ONE
+                // history entry — every folded row gets the same dbRowId, so a
+                // retry from ANY of them anchors at this merged entry (exactly
+                // the bubble-counting bug: 2 UI rows vs 1 history bubble).
+                for msg in self.messages where msg.queuedPromptId != nil {
+                    msg.dbRowId = pid
+                }
             }
 
             do {
@@ -4413,6 +4490,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         agentHistory.append(queueMsg)
         if let pid = await persistAgentMessage(queueMsg, snapshots: [:]), queueIdx < agentHistory.count {
             agentHistory[queueIdx].dbMessageId = pid
+            // [T-retry-id-anchor 09-13] N queued UI rows fold into ONE history
+            // entry here too — give every folded row the shared dbRowId.
+            for msg in messages where msg.queuedPromptId != nil {
+                msg.dbRowId = pid
+            }
         }
         // Cache markdown on the completed assistant message before starting a new one
         if msgIdx < messages.count {

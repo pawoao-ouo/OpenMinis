@@ -14,6 +14,13 @@ struct PendingConfigChangeItem: Identifiable {
     let oldDisplay: String
     /// New value (humanized). Empty for remove-collection rows.
     let newDisplay: String
+    /// [T-config-gate-large-payload 09-13] TRUE byte size of the payload that
+    /// will be written (jsonString of the full new value, UTF-8). NOT derived
+    /// from newDisplay — displayString truncates strings >80 chars to
+    /// "head…tail", so a 49KB soul.body displayed as ~80 chars would be
+    /// measured as tiny and never widen the confirm window. Rows that don't
+    /// write a payload (remove) leave 0; the gate falls back to newDisplay.
+    var payloadBytes: Int = 0
     /// Verb shown in the row (set / add / remove / hide / show / revert).
     let verb: String
     let risk: ConfigRisk

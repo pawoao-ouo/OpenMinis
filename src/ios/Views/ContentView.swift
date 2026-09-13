@@ -7219,6 +7219,8 @@ private enum SettingsDestination: Hashable {
     case mcpServerDetail(serverId: String)
     // [T-home-bottom-bar][v3] Terminal deep link lands on the settings page.
     case terminal
+    // [T-tts-first-use-nudge 09-13] Voice Services list.
+    case voiceServices
 }
 
 private struct SettingsSheet: View {
@@ -7298,6 +7300,19 @@ private struct SettingsSheet: View {
                     Text("Speech")
                 } footer: {
                     Text("Choose the voice that reads replies aloud. A service is a complete synthesis target — vendor, endpoint, key, model, voice id and tuning knobs — independent of model groups.")
+                }
+
+                // [T-scheduled-prompt 09-13] W1: agent self-wake schedules.
+                Section {
+                    NavigationLink {
+                        ScheduledPromptsView()
+                    } label: {
+                        Label("Scheduled Prompts", systemImage: "alarm.clock.fill")
+                    }
+                } header: {
+                    Text("Automation")
+                } footer: {
+                    Text("A scheduled prompt fires a local notification at the time you pick. Tapping it wakes the agent with your preset prompt — untapped, nothing runs (iOS does not allow apps to execute unattended in the background).")
                 }
 
                 Section("Appearance") {
@@ -7620,6 +7635,9 @@ private struct SettingsSheet: View {
                     // coordinator (minis://open_terminal?init_command=...).
                     ISHTerminalView(initCommand: deepLink.terminalInitCommand)
                         .onAppear { deepLink.terminalInitCommand = nil }
+                // [T-tts-first-use-nudge 09-13] Voice Services list.
+                case .voiceServices:
+                    VoiceServicesView()
                 }
             }
             .onAppear {
@@ -7714,6 +7732,9 @@ private struct SettingsSheet: View {
             navPath.append(SettingsDestination.mcpServerDetail(serverId: id))
         case .terminal:
             navPath.append(SettingsDestination.terminal)
+        // [T-tts-first-use-nudge 09-13]
+        case .voiceServices:
+            navPath.append(SettingsDestination.voiceServices)
         }
         deepLink.pendingSettingsTarget = nil
     }

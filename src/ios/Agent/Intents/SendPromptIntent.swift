@@ -439,6 +439,24 @@ final class ShortcutNotificationDelegate: NSObject, UNUserNotificationCenterDele
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
+        // [T-scheduled-prompt 09-13] W1: the scheduledPrompt category carries
+        // its own payload and its own wake-and-send pipeline — route it before
+        // the plain-session branch (its userInfo also contains a sessionId key,
+        // which would otherwise swallow the tap as a bare navigation).
+        if let flag = userInfo["scheduledPrompt"] as? Bool, flag,
+           let promptId = userInfo["promptId"] as? String {
+            let promptText = userInfo["prompt"] as? String ?? ""
+            let boundSession = userInfo["sessionId"] as? String
+            DispatchQueue.main.async {
+                ScheduledPromptStore.handleTap(
+                    promptId: promptId,
+                    promptText: promptText,
+                    sessionId: boundSession.flatMap { $0.isEmpty ? nil : $0 }
+                )
+            }
+            completionHandler()
+            return
+        }
         if let sessionId = userInfo["sessionId"] as? String {
             DispatchQueue.main.async {
                 // Buffer first (cold-launch consumer), then post (warm-path

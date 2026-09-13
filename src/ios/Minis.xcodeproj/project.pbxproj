@@ -234,6 +234,10 @@
 		E5F200001 /* MarkdownPrepRegex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200011 /* MarkdownPrepRegex.swift */; };
 		E5F200002 /* MinisMediaViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200012 /* MinisMediaViews.swift */; };
 		F1T00033 /* MessageActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00034 /* MessageActionBar.swift */; };
+		F1T0003B /* BubbleAudioActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T0003C /* BubbleAudioActionBar.swift */; };
+		F1T0003D /* TTSFirstUseNudgeCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T0003E /* TTSFirstUseNudgeCard.swift */; };
+		F1T00040 /* ScheduledPromptManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00041 /* ScheduledPromptManager.swift */; };
+		F1T00042 /* ScheduledPromptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00043 /* ScheduledPromptsView.swift */; };
 		E5F200003 /* AssistantBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200013 /* AssistantBlockView.swift */; };
 		E5F200004 /* ChatMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200014 /* ChatMessageViews.swift */; };
 		E5F200005 /* ChatInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200015 /* ChatInputBar.swift */; };
@@ -910,6 +914,10 @@
 		E5F200011 /* MarkdownPrepRegex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPrepRegex.swift; sourceTree = "<group>"; };
 		E5F200012 /* MinisMediaViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinisMediaViews.swift; sourceTree = "<group>"; };
 		F1T00034 /* MessageActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageActionBar.swift; sourceTree = "<group>"; };
+		F1T0003C /* BubbleAudioActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleAudioActionBar.swift; sourceTree = "<group>"; };
+		F1T0003E /* TTSFirstUseNudgeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSFirstUseNudgeCard.swift; sourceTree = "<group>"; };
+		F1T00041 /* ScheduledPromptManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledPromptManager.swift; sourceTree = "<group>"; };
+		F1T00043 /* ScheduledPromptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledPromptsView.swift; sourceTree = "<group>"; };
 		E5F200013 /* AssistantBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantBlockView.swift; sourceTree = "<group>"; };
 		E5F200014 /* ChatMessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageViews.swift; sourceTree = "<group>"; };
 		E5F200015 /* ChatInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInputBar.swift; sourceTree = "<group>"; };
@@ -1990,6 +1998,8 @@
 				E5T000011 /* SessionEntity.swift */,
 				E5T000012 /* ListSessionsIntent.swift */,
 				E5T000013 /* SendPromptIntent.swift */,
+				F1T00041 /* ScheduledPromptManager.swift */,
+				F1T00043 /* ScheduledPromptsView.swift */,
 				E5T0000A2 /* AskMinisIntent.swift */,
 				E5F200016 /* ModelSelectionEntity.swift */,
 				E5T000014 /* OpenSessionIntent.swift */,
@@ -2257,6 +2267,7 @@
 				E5F200011 /* MarkdownPrepRegex.swift */,
 				E5F200012 /* MinisMediaViews.swift */,
 				F1T00034 /* MessageActionBar.swift */,
+				F1T0003C /* BubbleAudioActionBar.swift */,
 				E5F200013 /* AssistantBlockView.swift */,
 				E5F200014 /* ChatMessageViews.swift */,
 				E5F2009B1 /* EquatableContextMenu.swift */,
@@ -2294,6 +2305,7 @@
 				E5G000013 /* EnhancedBackgroundSettingsView.swift */,
 				F1T00023 /* VoiceServicesView.swift */,
 				F1T00024 /* TTSServiceEditorView.swift */,
+				F1T0003E /* TTSFirstUseNudgeCard.swift */,
 				F1T00029 /* SystemVoiceEditorView.swift */,
 				XMSTYLE102 /* AppearanceStudioView.swift */,
 				XMREACH102 /* ActiveReachSettingsView.swift */,
@@ -2846,6 +2858,8 @@
 				E5F200001 /* MarkdownPrepRegex.swift in Sources */,
 				E5F200002 /* MinisMediaViews.swift in Sources */,
 				F1T00033 /* MessageActionBar.swift in Sources */,
+				F1T0003B /* BubbleAudioActionBar.swift in Sources */,
+				F1T0003D /* TTSFirstUseNudgeCard.swift in Sources */,
 				E5F200003 /* AssistantBlockView.swift in Sources */,
 				E5F200004 /* ChatMessageViews.swift in Sources */,
 				E5F2009A1 /* EquatableContextMenu.swift in Sources */,
@@ -2877,6 +2891,8 @@
 				E5T000001 /* SessionEntity.swift in Sources */,
 				E5T000002 /* ListSessionsIntent.swift in Sources */,
 				E5T000003 /* SendPromptIntent.swift in Sources */,
+				F1T00040 /* ScheduledPromptManager.swift in Sources */,
+				F1T00042 /* ScheduledPromptsView.swift in Sources */,
 				E5T0000A1 /* AskMinisIntent.swift in Sources */,
 				E5F200006 /* ModelSelectionEntity.swift in Sources */,
 				E5T000004 /* OpenSessionIntent.swift in Sources */,

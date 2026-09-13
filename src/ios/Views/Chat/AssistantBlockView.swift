@@ -19,6 +19,13 @@ struct AssistantBlockView: View {
     /// [T-message-action-bar 09-11] Pause/resume/stop for the bubble action
     /// bar. nil hides the bar (streaming reply, or a bridge without a VM).
     var speechController: (any SpeechControlling)?
+    /// [T-action-bar-play-bubble 09-13] 醒醒 5: when this reply carries a
+    /// wx-style voice bubble (AI Voice Replies), the action bar's Play button
+    /// replays THE BUBBLE'S OWN AUDIO FILE (already synthesized with the
+    /// configured voice) instead of re-synthesizing the text through TTS.
+    /// Pause/resume/continue then ride the GlobalAudioPlayer like any media.
+    /// nil (or a text-only reply) keeps the old behavior: speak the text.
+    var voiceBubbleFileURL: URL?
     /// [T-action-bar 09-11] Regenerate this assistant message.
     var onRegenerate: (() -> Void)?
     /// [T-action-bar 09-11] Delete this single assistant message.
@@ -187,13 +194,25 @@ struct AssistantBlockView: View {
     @ViewBuilder
     private func actionBar(forBlockContent content: String) -> some View {
         if let onSpeakText, let controller = speechController {
-            MessageActionBar(
-                speakText: content,
-                onSpeak: onSpeakText,
-                controller: controller,
-                onRegenerate: { onRegenerate?() },
-                onDelete: { onDeleteMessage?() }
-            )
+            // [T-action-bar-play-bubble 09-13] Reply with a voice bubble →
+            // Play replays the bubble's audio file (its synthesized audio IS
+            // this reply's voice form; re-synthesizing the text would produce
+            // a second, differently-timed take and waste a vendor call).
+            if let fileURL = voiceBubbleFileURL {
+                BubbleAudioActionBar(fileURL: fileURL,
+                                     onRegenerate: { onRegenerate?() },
+                                     onDelete: { onDeleteMessage?() },
+                                     speakText: content,
+                                     onSpeak: onSpeakText)
+            } else {
+                MessageActionBar(
+                    speakText: content,
+                    onSpeak: onSpeakText,
+                    controller: controller,
+                    onRegenerate: { onRegenerate?() },
+                    onDelete: { onDeleteMessage?() }
+                )
+            }
         }
     }
 

@@ -49,6 +49,22 @@ enum VoiceOutputPreferences {
         set { UserDefaults.standard.set(newValue, forKey: cacheKey) }
     }
 
+    // [T-tts-first-use-nudge 09-13] N2: one-time guidance card on the FIRST
+    // read-aloud enable. Users who never opened Settings → Voice hear the
+    // robotic system voice and never learn the service layer exists. The
+    // card fires once per install (skipped entirely when a TTS service is
+    // already configured — they don't need it).
+    private static let firstUseNudgeKey = "voice.output.firstUseNudgeShown"
+    /// True when the nudge has NOT been shown yet AND no service is configured.
+    static var shouldShowFirstUseNudge: Bool {
+        guard !UserDefaults.standard.bool(forKey: firstUseNudgeKey) else { return false }
+        return TTSServiceStore.shared.services.isEmpty
+    }
+    /// Mark the nudge as shown (call whether the card was tapped or dismissed).
+    static func markFirstUseNudgeShown() {
+        UserDefaults.standard.set(true, forKey: firstUseNudgeKey)
+    }
+
     /// Whether read-replies is temporarily muted (persisted so it survives restart).
     static var isMuted: Bool {
         get { UserDefaults.standard.bool(forKey: mutedKey) }

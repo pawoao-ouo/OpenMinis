@@ -349,6 +349,11 @@ extension AIChatViewModel {
                     let msg = raw.toChatMessage(mediaResolver: resolver, showThinking: showThinking)
                     msg.sourceSortOrder = raw.sortOrder
                     msg.lastSourceSortOrder = raw.sortOrder
+                    // [T-retry-id-anchor 09-13] assistant rows get the id too
+                    // (retry's "walk back to user" only needs user ids, but
+                    // edit-mode truncation anchors on the last surviving row of
+                    // any role).
+                    msg.dbRowId = raw.id
                     currentAssistant = msg
                     loadedUIMessages.append(msg)
                 }
@@ -372,6 +377,9 @@ extension AIChatViewModel {
             }
             msg.sourceSortOrder = raw.sortOrder
             msg.lastSourceSortOrder = raw.sortOrder
+            // [T-retry-id-anchor 09-13] Id link for the retry/edit truncation
+            // paths — this raw row and its agentHistory twin carry the same id.
+            msg.dbRowId = raw.id
             loadedUIMessages.append(msg)
         }
 

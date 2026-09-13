@@ -315,6 +315,7 @@ private struct BridgedAssistantBlockV3: View {
             onReadAloud: bridge.isStreaming ? nil : bridge.onReadAloud,
             onSpeakText: bridge.onSpeakText,
             speechController: bridge.isStreaming ? nil : bridge.speechController,
+            voiceBubbleFileURL: bridge.voiceBubbleFileURL,
             onRegenerate: bridge.isStreaming ? nil : bridge.onRegenerate,
             onDeleteMessage: bridge.isStreaming ? nil : bridge.onDeleteMessage,
             browserPool: bridge.browserPool,
@@ -692,6 +693,31 @@ private final class AssistantFooterCellV3: SelfSizingCell {}
 // MARK: - V3 Coordinator
 
 extension CollectionViewMessageListV3 {
+
+    /// [T-action-bar-play-bubble 09-13] Extract this reply's voice-bubble
+    /// audio FILE URL from its own blocks (the `![voice](…voice_bubble=1…)`
+    /// part the composer appends at StreamEnd and the reload path persists).
+    /// Returns nil for replies without a bubble (text-only — the action bar
+    /// then keeps its speak-the-text behavior).
+    static func voiceBubbleURL(in message: ChatMessage) -> URL? {
+        for block in message.blocks where block.kind == .text {
+            let s = block.content
+            guard s.hasPrefix("![voice]("), s.contains("voice_bubble=1") else { continue }
+            // Pull the URL out of ![voice](URL?query)
+            guard let open = s.range(of: "]("),
+                  let close = s.range(of: ")", range: open.upperBound..<s.endIndex),
+                  let raw = URL(string: String(s[open.upperBound..<close.lowerBound])) else { continue }
+            // Strip query params, keep the bare file URL.
+            var comps = URLComponents(url: raw, resolvingAgainstBaseURL: false)
+            comps?.queryItems = nil
+            guard let clean = comps?.url else { continue }
+            // minis-clone://attachments/x.wav → host file URL via the shared
+            // static resolver (session-scoped persistent dir + global dirs).
+            guard clean.scheme == "minis-clone" else { continue }
+            return AIChatViewModel.resolveMinisURL(clean)
+        }
+        return nil
+    }
 
     /// Scroll mode: the only two states V3 needs.
     enum ScrollMode {
@@ -1481,6 +1507,16 @@ extension CollectionViewMessageListV3 {
             }
             // [T-message-action-bar 09-11] Bubble action bar's pause/resume/stop.
             bridge.speechController = vm
+            // [T-action-bar-play-bubble 09-13] 醒醒 5: if this reply carries a
+            // voice bubble, point the action bar at its audio FILE — Play then
+            // replays the synthesized take (configured voice) instead of a
+            // fresh TTS pass. Extracted from the message's own blocks so it
+            // survives reload (the bubble part is persisted in the DB).
+            if message.role == .assistant {
+                bridge.voiceBubbleFileURL = Self.voiceBubbleURL(in: message)
+            } else {
+                bridge.voiceBubbleFileURL = nil
+            }
             // [T-action-bar 09-11] Regenerate this assistant turn. Deleting one
             // visible assistant row is NOT safe: an agent turn may span multiple
             // raw DB rows/tool pairs, so use the existing safe suffix-delete path

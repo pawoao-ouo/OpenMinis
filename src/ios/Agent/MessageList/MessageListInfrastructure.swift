@@ -1169,6 +1169,11 @@ final class CellStateBridgeV2: ObservableObject {
     /// the bubble action bar's pause/resume/stop. Weak (VM outlives cells, but
     /// the bridge may outlive the VM in teardown races).
     @Published var speechController: (any SpeechControlling)?
+    /// [T-action-bar-play-bubble 09-13] 醒醒 5: this reply's voice-bubble
+    /// audio file, when the reply carries one (AI Voice Replies). Non-nil →
+    /// the action bar's Play button replays THIS file instead of re-speaking
+    /// the text through TTS.
+    @Published var voiceBubbleFileURL: URL?
     /// True while this reply is still streaming — disables "Read from Start".
     @Published var isStreaming: Bool = false
     @Published var browserPool: BrowserTabPool?

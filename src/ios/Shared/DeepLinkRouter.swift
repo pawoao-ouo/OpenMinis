@@ -189,6 +189,10 @@ enum DeepLinkRouter {
         case "permissions":
             coord.pendingSettingsTarget = .permissions
 
+        // [T-tts-first-use-nudge 09-13] Voice Services (TTS service layer).
+        case "voice", "voice-services", "voice_services", "tts", "tts-services":
+            coord.pendingSettingsTarget = .voiceServices
+
         case "environments":
             // `create_key` is the only required param. Missing
             // `create_value`/`create_note` default to empty so a link

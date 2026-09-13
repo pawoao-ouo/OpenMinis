@@ -26,6 +26,7 @@ import os
 import signal
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -60,6 +61,9 @@ class MCPServerProcess:
         self._lock = threading.Lock()
         self._id = 0
         self.last_activity = time.time()
+        # [T-mcp-crash-diag 09-13] E1: per-server health record for `list`.
+        self.last_ok = None   # epoch of the last successful RPC
+        self.last_error = None  # {code, message} of the most recent failure
 
     def _next_id(self):
         self._id += 1
@@ -71,13 +75,25 @@ class MCPServerProcess:
         env = dict(os.environ)
         for k, v in (self.cfg.get("env") or {}).items():
             env[k] = expand_env(v)
+        # [T-mcp-crash-diag 09-13] E1: stat the command BEFORE spawning — a
+        # missing binary (backup-restore gap, typo, unmounted path) used to
+        # surface as an opaque STDIO_CRASH "process exited before replying"
+        # AFTER spawn; now it fails fast with the path named.
+        if not command or not os.path.isfile(command) and "/" in command:
+            raise MCPError("CONNECTION_ERROR",
+                           "command file does not exist: %s" % command)
         deps.ensure_command(command)
         try:
+            # [T-mcp-crash-diag 09-13] E1: capture stderr (was DEVNULL) so a
+            # crash carries the server's own last words. A pipe with a
+            # non-blocking drain thread would risk deadlock on chatty servers;
+            # a bounded temp file is simpler and can't block the child.
+            self._stderr_file = tempfile.TemporaryFile(mode="w+b")
             self.proc = subprocess.Popen(
                 [command] + list(args),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=self._stderr_file,
                 env=env,
                 text=True,
                 bufsize=1,
@@ -90,6 +106,24 @@ class MCPServerProcess:
         log.info("[%s] spawned pid=%s", self.name, self.proc.pid)
         self._handshake()
         log.info("[%s] initialized", self.name)
+
+    def _crash_detail(self):
+        """[T-mcp-crash-diag 09-13] E1: exit code + stderr tail (~500 bytes)
+        for the 'process exited before replying' report. Best-effort — any
+        error composing it degrades to the bare code."""
+        try:
+            rc = self.proc.poll()
+            detail = "exit code %s" % rc if rc is not None else "no exit code (still running or killed)"
+            f = getattr(self, "_stderr_file", None)
+            if f is not None:
+                f.flush()
+                f.seek(0)
+                tail = f.read()[-500:].decode("utf-8", "replace").strip()
+                if tail:
+                    detail += "; stderr: %s" % tail
+            return detail
+        except Exception:  # noqa: BLE001 - diagnostics must never mask the crash
+            return "exit code unavailable"
 
     def _send(self, method, params=None, notify=False):
         body = {"jsonrpc": "2.0", "method": method}
@@ -130,7 +164,9 @@ class MCPServerProcess:
         if t.is_alive():
             raise MCPError("TIMEOUT", "[%s] no reply after %ss" % (self.name, timeout))
         if "msg" not in result_box:
-            raise MCPError("STDIO_CRASH", "[%s] process exited before replying" % self.name)
+            raise MCPError("STDIO_CRASH", (
+                "[%s] process exited before replying (%s)"
+                % (self.name, self._crash_detail())))
         return result_box["msg"]
 
     def _rpc(self, method, params=None, timeout=RPC_TIMEOUT):
@@ -172,12 +208,26 @@ class MCPServerProcess:
     def list_tools(self):
         with self._lock:
             self.last_activity = time.time()
-            return (self._rpc("tools/list") or {}).get("tools", [])
+            try:
+                result = (self._rpc("tools/list") or {}).get("tools", [])
+                self.last_ok = time.time()
+                self.last_error = None
+                return result
+            except MCPError as exc:
+                self.last_error = {"code": exc.code, "message": exc.message}
+                raise
 
     def call_tool(self, tool, arguments):
         with self._lock:
             self.last_activity = time.time()
-            return self._rpc("tools/call", {"name": tool, "arguments": arguments or {}})
+            try:
+                result = self._rpc("tools/call", {"name": tool, "arguments": arguments or {}})
+                self.last_ok = time.time()
+                self.last_error = None
+                return result
+            except MCPError as exc:
+                self.last_error = {"code": exc.code, "message": exc.message}
+                raise
 
     def ping(self):
         with self._lock:
@@ -216,6 +266,10 @@ class MCPHTTPSession:
         self._transport = HTTPTransport(cfg, name)
         self._lock = threading.Lock()
         self.last_activity = time.time()
+        # [T-mcp-crash-diag 09-13] E1: health record for `list` (same fields
+        # as MCPServerProcess).
+        self.last_ok = None
+        self.last_error = None
 
     def is_alive(self):
         return True
@@ -223,12 +277,26 @@ class MCPHTTPSession:
     def list_tools(self):
         with self._lock:
             self.last_activity = time.time()
-            return self._transport.list_tools()
+            try:
+                result = self._transport.list_tools()
+                self.last_ok = time.time()
+                self.last_error = None
+                return result
+            except MCPError as exc:
+                self.last_error = {"code": exc.code, "message": exc.message}
+                raise
 
     def call_tool(self, tool, arguments):
         with self._lock:
             self.last_activity = time.time()
-            return self._transport.call_tool(tool, arguments)
+            try:
+                result = self._transport.call_tool(tool, arguments)
+                self.last_ok = time.time()
+                self.last_error = None
+                return result
+            except MCPError as exc:
+                self.last_error = {"code": exc.code, "message": exc.message}
+                raise
 
     def ping(self):
         with self._lock:
@@ -389,11 +457,30 @@ class DaemonServer:
             if cmd == "list":
                 servers = config.get_servers()
                 alive = self.pool.alive_servers()
+                # [T-mcp-crash-diag 09-13] E1: per-server health summary.
+                # never_ok = spawned but nothing ever succeeded (config is
+                # suspect); last_failed = the most recent attempt errored;
+                # ok = last attempt succeeded. Sessions not currently alive
+                # report their cached record from the last time they ran.
                 rows = []
                 for name, cfg in servers.items():
                     enabled = cfg.get("enabled", True)
                     if not data.get("all") and not enabled:
                         continue
+                    sess = self.pool._pool.get(name) if name in alive else None
+                    if sess is not None and sess.last_ok is not None and sess.last_error is None:
+                        health = "ok"
+                    elif sess is not None and sess.last_error is not None:
+                        health = "last_failed"
+                    elif sess is not None:
+                        health = "never_ok"
+                    else:
+                        health = "never_connected"
+                    err_info = None
+                    if sess is not None and sess.last_error is not None:
+                        err_info = sess.last_error.get("message", "")
+                        if err_info and len(err_info) > 120:
+                            err_info = err_info[:120] + "…"
                     rows.append({
                         "name": name,
                         "enabled": enabled,
@@ -401,6 +488,8 @@ class DaemonServer:
                         "target": cfg.get("url") or cfg.get("command"),
                         "note": cfg.get("note"),
                         "alive": name in alive,
+                        "health": health,
+                        "last_error": err_info,
                     })
                 return {"ok": True, "result": {"servers": rows, "count": len(rows)}}
 

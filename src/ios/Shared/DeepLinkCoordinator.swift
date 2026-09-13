@@ -34,6 +34,8 @@ enum SettingsDeepLinkTarget: Equatable {
     /// [T-home-bottom-bar][v3] Terminal now lives in Settings → Agent Runtime;
     /// the minis://open_terminal deep link routes here.
     case terminal
+    /// [T-tts-first-use-nudge 09-13] Voice Services list (TTS service layer).
+    case voiceServices
 }
 
 @MainActor

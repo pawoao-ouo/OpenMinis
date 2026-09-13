@@ -414,6 +414,12 @@ struct AIChatView: View {
     @State private var showSessionMemory = false
     @State private var showEnhancedCacheAlert = false
     @State private var showTokenUsage = false
+    /// [T-tts-first-use-nudge 09-13] N2: one-time guidance card on the very
+    /// first read-aloud enable (only when no TTS service is configured yet).
+    @State private var showTTSFirstUseNudge = false
+    /// Set when the nudge's CTA was tapped — drives the follow-on navigation
+    /// to Settings → Voice Services after the card dismisses.
+    @State private var pendingVoiceServicesNav = false
     // [T-ios-json-open-provider-import-prompt] A shared/opened JSON file that
     // looks like a Provider export (providerType + credentialType + models)
     // prompts the user to choose: import as a provider, or add as a chat
@@ -1061,6 +1067,23 @@ struct AIChatView: View {
         .sheet(isPresented: $showTokenUsage) {
             TokenUsageSheet(vm: cached.vm)
                 .presentationDetents([.fraction(0.8), .large])
+        }
+        // [T-tts-first-use-nudge 09-13] N2: the card itself.
+        .sheet(isPresented: $showTTSFirstUseNudge) {
+            TTSFirstUseNudgeCard {
+                pendingVoiceServicesNav = true
+            }
+            .presentationDetents([.medium])
+        }
+        .onChange(of: pendingVoiceServicesNav) { nav in
+            // Follow-on navigation after the nudge card's CTA — pops the card
+            // (already dismissed) and jumps to Settings → Voice Services. No
+            // router/openSettings symbol exists in this view; the project's
+            // deep-link hop is setting the coordinator's pending target,
+            // which ContentView's onChange observes to open the sheet.
+            guard nav else { return }
+            pendingVoiceServicesNav = false
+            DeepLinkCoordinator.shared.pendingSettingsTarget = .voiceServices
         }
         .sheet(item: $screenshotPreview) { preview in
             ChatScreenshotPreviewSheet(image: preview.image)
@@ -3403,6 +3426,11 @@ struct AIChatView: View {
                 voiceOutput.isMuted = false
                 vm.speakEnabled = true
                 VoiceOutputPreferences.isEnabled = true
+                // [T-tts-first-use-nudge 09-13] N2: first-ever enable with no
+                // TTS service configured → one-time guidance card.
+                if VoiceOutputPreferences.shouldShowFirstUseNudge {
+                    showTTSFirstUseNudge = true
+                }
             }
         } label: {
             HStack(spacing: 5) {

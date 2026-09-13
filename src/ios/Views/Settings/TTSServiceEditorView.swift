@@ -218,6 +218,15 @@ struct TTSServiceEditorView: View {
         store.upsert(draft)
         if !apiKey.isEmpty {
             store.saveAPIKey(apiKey, for: draft)
+            // [T-tts-key-status 09-13] 醒醒 7: key 保存后回读校验——SecItemAdd
+            // 的状态码旧代码只写日志不报错，保存"成功"实际没落进钥匙串时，
+            // 列表/选择器永远显示 no key 而合成在别处兜底，两个状态对不上。
+            // 这里写完立刻读一次，读不回来说明 Keychain 出了问题（受保护
+            // 数据不可用/沙盒限制），当场 toast，别让她带着假配置走。
+            if store.apiKey(for: draft) != apiKey {
+                MinisToast.show(AppLocalized("API key could not be saved to the Keychain — check Settings → Privacy & Security. The service still works but will keep asking."),
+                               systemImage: "exclamationmark.triangle.fill")
+            }
         }
         // Select the newly created service so it is immediately the voice
         // in use (mirrors kelivo's add-then-select flow).
