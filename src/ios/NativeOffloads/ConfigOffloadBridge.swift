@@ -465,9 +465,9 @@ private let logger = AppLogger(category: "ConfigOffload")
                         path: "\(resolvePath).\(childId)",
                         oldDisplay: childId,
                         newDisplay: "",
+                        payloadBytes: 0,
                         verb: "remove",
-                        risk: collection.risk,
-                        payloadBytes: 0
+                        risk: collection.risk
                     ))
                 } else {
                     guard collection.addable else {
@@ -497,12 +497,12 @@ private let logger = AppLogger(category: "ConfigOffload")
                         path: rawPath,
                         oldDisplay: "",
                         newDisplay: auditedPayload.displayString,
-                        verb: "add",
-                        risk: collection.risk,
                         // Full JSON of what add() actually writes — displayString
                         // truncates long payloads and would never trip the wide
                         // window (E2).
-                        payloadBytes: auditedPayload.jsonString().utf8.count
+                        payloadBytes: auditedPayload.jsonString().utf8.count,
+                        verb: "add",
+                        risk: collection.risk
                     ))
                 }
                 continue
@@ -677,12 +677,12 @@ private let logger = AppLogger(category: "ConfigOffload")
                 path: displayPath,
                 oldDisplay: displayOld,
                 newDisplay: displayNew,
-                verb: displayVerb,
-                risk: field.risk,
                 // Full JSON of the value the writer receives. auditNewValue is
                 // the masked copy — same length for non-secret writes (the ones
                 // that matter for size), masked to a short stub for secrets.
-                payloadBytes: auditNewValue.jsonString().utf8.count
+                payloadBytes: auditNewValue.jsonString().utf8.count,
+                verb: displayVerb,
+                risk: field.risk
             ))
         }
 
