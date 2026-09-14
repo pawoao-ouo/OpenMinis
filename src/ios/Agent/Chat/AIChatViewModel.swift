@@ -2042,7 +2042,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "- minis-clone:// action URLs are app deep links — render them as Markdown links in chat, never pass them to browser_use. "
             + "(details: manual §3)\n\n"
             + "Current time (approximate): \(approximateTimeString) (\(TimeZone.current.identifier)). "
-            + "Device languages: \((UserDefaults.standard.object(forKey: \"AppleLanguages\") as? [String] ?? Locale.preferredLanguages).joined(separator: ", ")).\n\n"
+            + "Device languages: \((UserDefaults.standard.object(forKey: "AppleLanguages") as? [String] ?? Locale.preferredLanguages).joined(separator: ", ")).\n\n"
             + "/var/minis/ catalog (bidirectional shell↔app; manual §3 covers the minis-clone:// URL scheme):\n"
             + "  /var/minis/attachments/ — media files (images, audio, video)\n"
             + "  /var/minis/workspace/   — working files (scripts, data, configs)\n"
