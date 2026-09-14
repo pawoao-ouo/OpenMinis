@@ -365,7 +365,7 @@ extension AIChatViewModel {
         """
         <context-summary>
         The following is a summary of the earlier conversation that was compacted to save context space.
-        Treat it as background context only. The user's most recent message (below or in the next turn) takes precedence — if it changes the task, the goal, or any numbers/scope, follow the new instruction and do not resume the old plan from this summary. Do not re-run discovery (reading memory, scanning skills, re-reading files) unless the new instruction requires it.
+        Treat it as background context only. The user's most recent message (below or in the next turn) takes precedence — if it changes the task, the goal, or any numbers/scope, follow the new instruction and do not resume the old plan from this summary. Do not redo work this summary already records as done — but when the current task needs them, do read memory files, skills, or source files on demand: this summary holds no file contents, and memory is not preloaded into your context.
 
         \(summary)
         </context-summary>

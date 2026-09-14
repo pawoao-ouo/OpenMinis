@@ -66,11 +66,16 @@ actor ISHExecutionCoordinator {
     }
     private var perSessionInflight: [String: [InflightExec]] = [:]
 
-    /// Set of sessions for which the static (memory/skills/shared/external)
-    /// mount layer has been initialized. The per-session 4 buckets are now
-    /// handled by MinisFsRouter's hook, not by bind_mount, so they don't
-    /// need to be re-mounted on session switch.
+    /// Set of sessions for which the static (skills/shared/external) mount
+    /// layer has been initialized. The per-session 4 buckets AND the
+    /// per-assistant memory bucket are handled by MinisFsRouter's hook, not by
+    /// bind_mount, so they don't need to be re-mounted on session switch.
     private var staticMountsInitialized: Set<String> = []
+
+    /// [T-multi-assistant 09-14] (sessionId, assistantId) pairs whose routed
+    /// buckets have already been created on the host and registered in meta.db.
+    /// See `prepareRoutedBuckets`.
+    private var routedBucketsPrepared: Set<String> = []
 
     /// Maps linux mount paths (e.g. "/var/minis/memory") to their host
     /// persistent URLs. Holds only the static (global) mounts and external
@@ -92,6 +97,7 @@ actor ISHExecutionCoordinator {
     /// [T-concurrent-tools 2026-05-25]
     func execute(
         sessionId: String,
+        assistantId: String = MinisFsRouter.defaultAssistantId,
         command: String,
         timeout: TimeInterval?,
         lineCallback: @escaping (String) -> Void,
@@ -112,8 +118,9 @@ actor ISHExecutionCoordinator {
 
         mountedSessionId = sessionId
         ensureStaticMountsInitialized(for: sessionId)
+        prepareRoutedBuckets(sessionId: sessionId, assistantId: assistantId)
 
-        let fsContext = MinisFsRouter.shared.context(for: sessionId)
+        let fsContext = MinisFsRouter.shared.context(forSession: sessionId, assistantId: assistantId)
 
         defer {
             // Dequeue self. No waiters to wake — concurrent dispatch.
@@ -140,7 +147,7 @@ actor ISHExecutionCoordinator {
     /// routed by MinisFsRouter's hook now (no bind-mount swap needed), so
     /// this just kicks off the one-time static mount layer and remembers
     /// the most-recently-active session for backward-compat consumers.
-    func mountForSession(_ sessionId: String) {
+    func mountForSession(_ sessionId: String, assistantId: String = MinisFsRouter.defaultAssistantId) {
         // [MOUNT-DIAG] So we can see the exact ordering between session load
         // and the deferred external-mount snapshot apply.
         let booted = ISHKernel.shared.isBooted
@@ -151,13 +158,15 @@ actor ISHExecutionCoordinator {
             mountedSessionId = nil
             return
         }
-        _ = MinisFsRouter.shared.context(for: sessionId)
+        _ = MinisFsRouter.shared.context(forSession: sessionId, assistantId: assistantId)
         ensureStaticMountsInitialized(for: sessionId)
+        prepareRoutedBuckets(sessionId: sessionId, assistantId: assistantId)
         mountedSessionId = sessionId
     }
 
-    /// Ensure the static mount layer (memory/skills/shared + external folders)
-    /// is in place. Safe to call repeatedly; idempotent at the iSH kernel level.
+    /// Ensure the static mount layer (skills/shared + external folders) is in
+    /// place. Safe to call repeatedly; idempotent at the iSH kernel level.
+    /// `memory` is NOT part of this layer — it is routed per assistant.
     func ensureMounted(for sessionId: String) {
         guard ISHKernel.shared.isBooted else {
             logger.warning("MOUNT ensureMounted(\(sessionId)) skipped — kernel not booted")
@@ -175,6 +184,45 @@ actor ISHExecutionCoordinator {
         if !staticMountsInitialized.isEmpty { return }
         performMount(sessionId)
         staticMountsInitialized.insert(sessionId)
+    }
+
+    /// [T-multi-assistant 09-14] Prepare the buckets that the path-translate
+    /// hook will take over, for the given (session, assistant) pair.
+    ///
+    /// The hook only rewrites paths — it does not create directories. So before
+    /// a shell command runs we must:
+    ///   1. create <base>/<assistantId>/memory on the HOST, and
+    ///   2. register /var/minis/memory (and its per-session siblings) in
+    ///      meta.db, so fakefs can resolve them without a bind mount.
+    /// Without this, the first `ls /var/minis/memory` fails with ENOENT even
+    /// though the rewrite itself is correct.
+    ///
+    /// Idempotent: keyed on the pair, and the filesystem/meta.db operations
+    /// both no-op when the target already exists.
+    private func prepareRoutedBuckets(sessionId: String, assistantId: String) {
+        let prepKey = "\(sessionId)\u{1}\(assistantId)"
+        if routedBucketsPrepared.contains(prepKey) { return }
+        routedBucketsPrepared.insert(prepKey)
+
+        let fm = FileManager.default
+
+        // 1. Assistant-scoped bucket: memory.
+        let memDir = AIChatViewModel.minisMemoryPersistentDir(for: assistantId)
+        try? fm.createDirectory(at: memDir, withIntermediateDirectories: true)
+        ensureParentDirsInMetaDB(for: "\(AIChatViewModel.minisMemoryLinuxDir)/placeholder")
+        ensureFakefsMetadata(for: AIChatViewModel.minisMemoryLinuxDir, isDirectory: true)
+        logger.info("PREP memory assistant=\(assistantId) host=\(memDir.path)")
+
+        // 2. Session-scoped buckets. Their host dirs are created lazily by the
+        //    Swift side as files arrive, but the GUEST path must exist in
+        //    meta.db or the first `cd /var/minis/workspace` fails.
+        for linuxDir in [AIChatViewModel.minisOffloadsLinuxDir,
+                         AIChatViewModel.minisAttachmentsLinuxDir,
+                         AIChatViewModel.minisWorkspaceLinuxDir,
+                         AIChatViewModel.minisBrowserLinuxDir] {
+            ensureParentDirsInMetaDB(for: "\(linuxDir)/placeholder")
+            ensureFakefsMetadata(for: linuxDir, isDirectory: true)
+        }
     }
 
     #if DEBUG
@@ -470,8 +518,16 @@ actor ISHExecutionCoordinator {
         // routed dynamically by MinisFsRouter's path-translate hook based on
         // the calling task's fs_context, so they don't need a static mount and
         // don't need to be swapped on session change.
+        //
+        // [T-multi-assistant 09-14] `memory` is no longer in this list either:
+        // it is now an ASSISTANT bucket, routed by the same hook to
+        // <appGroup>/memory/<assistantId>. Keeping a static mount here would
+        // fight the hook — the mount would claim /var/minis/memory for the
+        // shared root while the hook rewrites it per assistant. What replaces
+        // the mount is prepareRoutedBuckets(): create each assistant's memory
+        // directory on the host and register the guest path in meta.db, so
+        // /var/minis/memory exists in the shell from the first command.
         let subdirs: [(persistDir: URL, linuxDir: String)] = [
-            (AIChatViewModel.minisMemoryPersistentDir, AIChatViewModel.minisMemoryLinuxDir),
             (AIChatViewModel.minisSkillsPersistentDir, AIChatViewModel.minisSkillsLinuxDir),
             (AIChatViewModel.minisSharedPersistentDir, AIChatViewModel.minisSharedLinuxDir),
             (AIChatViewModel.minisMcpServersPersistentDir, AIChatViewModel.minisMcpServersLinuxDir),

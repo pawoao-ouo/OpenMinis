@@ -1352,117 +1352,52 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
         return skills.contains(where: { $0.id == candidate }) ? candidate : nil
     }
 
-    // MARK: - Prompt Fragment (Claude Code style: metadata only)
+    // MARK: - Prompt Fragment (name-only index)
 
-    /// Maximum number of skill metadata entries to include in the prompt.
-    private static let maxSkillMetadataCount = 20
-
-    /// Build a discovery-only prompt fragment with priority-based disclosure:
-    /// 1. Bundled skills (always included)
-    /// 2. Recently modified/created skills within last 7 days (up to 10)
-    /// 3. Frequently used skills by normalized use count (fill remaining slots)
+    /// Build the skill discovery index injected into the system prompt.
+    ///
+    /// [T-skill-name-only-index 09-14] The index is a set of DOORS, not a
+    /// summary. Claude Code lists every skill name and scales the description
+    /// budget to the context window, dropping descriptions from the least-used
+    /// skills when the listing overflows. We list names only.
+    ///
+    /// Measured against a real 61-skill set: name + path for every skill costs
+    /// ~1.3k chars, while 20 entries carrying descriptions cost 6.9k at a
+    /// 320-char cap (5.4k at 120) — and at 120 chars the cut removed the trigger
+    /// words from 10 of 61 descriptions, i.e. exactly the text a discovery index
+    /// exists to expose. Paying 1.3k for a COMPLETE index beats paying 6.9k for
+    /// a lossy, partial one: the model opens the file it needs instead of
+    /// reading truncated summaries of all of them.
+    ///
+    /// Listing every name (rather than a Top-N) also removes the failure where
+    /// the relevant skill is not in the selected subset, so the model cannot see
+    /// that the door exists at all. If the name does not tell it which door to
+    /// open, it should ask the user — that is cheaper than guessing wrong.
     func skillPromptFragment(for sessionId: String) -> String? {
-        let logger = AppLogger(category: "SkillDisclosure")
         let enabled = skills.filter { isEnabledForSession($0.id, sessionId: sessionId) }
         guard !enabled.isEmpty else { return nil }
 
-        let totalCount = enabled.count
-        let selected: [Skill]
-        let hasMore: Bool
-        // Track reasons per skill for debug logging
-        var reasons: [String: String] = [:]
+        // Deterministic order: a prefix that reshuffles between turns
+        // invalidates prompt caching. Sort by `id`, which is both the leading
+        // token on each line and the path segment the model must open — so the
+        // list stays scannable alphabetically. (`name` sorts differently for the
+        // handful of skills whose display label differs; those show both.)
+        let ordered = enabled.sorted { $0.id < $1.id }
 
-        if totalCount <= Self.maxSkillMetadataCount {
-            selected = enabled.sorted { $0.updatedAt > $1.updatedAt }
-            for s in selected { reasons[s.id] = "all-fit" }
-            hasMore = false
-        } else {
-            var picked: [Skill] = []
-            var seen = Set<String>()
-
-            // Priority 1: Bundled skills
-            for s in enabled where s.importSource == .bundled {
-                if seen.insert(s.id).inserted {
-                    picked.append(s)
-                    reasons[s.id] = "bundled"
-                }
+        var fragment = "Skills (\(ordered.count)) — reusable instruction sets, one directory each.\n"
+        fragment += "Read /var/minis/skills/<name>/SKILL.md before using one. This is a name index only: "
+        fragment += "open the file to see what a skill contains. If no name clearly matches the task, "
+        fragment += "ask the user which skill to use instead of guessing.\n"
+        for skill in ordered {
+            // `id` is the directory name and therefore the path segment; `name`
+            // is the display label and differs for a handful of skills, so show
+            // both only when they differ.
+            if skill.name == skill.id {
+                fragment += "- \(skill.id)\n"
+            } else {
+                fragment += "- \(skill.id) (\(skill.name))\n"
             }
-
-            // Priority 2: Recently modified/created (within 7 days), up to 10
-            let oneWeekAgo = Date().addingTimeInterval(-7 * 24 * 3600)
-            let recent = enabled
-                .filter { $0.updatedAt > oneWeekAgo && !seen.contains($0.id) }
-                .sorted { $0.updatedAt > $1.updatedAt }
-            let recentLimit = min(10, Self.maxSkillMetadataCount - picked.count)
-            for s in recent.prefix(recentLimit) {
-                if seen.insert(s.id).inserted {
-                    picked.append(s)
-                    reasons[s.id] = "recent-7d"
-                }
-            }
-
-            // Priority 3: By usage frequency (fill remaining slots, most-used first)
-            if picked.count < Self.maxSkillMetadataCount {
-                let remaining = Self.maxSkillMetadataCount - picked.count
-                let byUsage = enabled
-                    .filter { !seen.contains($0.id) }
-                    .sorted { $0.useCount > $1.useCount }
-                for s in byUsage.prefix(remaining) {
-                    if seen.insert(s.id).inserted {
-                        picked.append(s)
-                        reasons[s.id] = s.useCount > 0 ? "frequent(\(String(format: "%.1f", s.useCount)))" : "fill"
-                    }
-                }
-            }
-
-            selected = picked
-            hasMore = totalCount > selected.count
         }
-
-        // Log skill disclosure decisions
-        #if DEBUG
-        for s in selected {
-            logger.info("[Disclose] \(s.name) — \(reasons[s.id] ?? "?")")
-        }
-        if hasMore {
-            let omittedNames = enabled.filter { s in !selected.contains(where: { $0.id == s.id }) }.map(\.name)
-            logger.info("[Omitted] \(omittedNames.joined(separator: ", "))")
-        }
-        #else
-        let names = selected.map(\.name).joined(separator: ", ")
-        logger.info("[SkillDisclosure] \(selected.count)/\(totalCount) disclosed: \(names)")
-        #endif
-
-        // Cap each description to avoid bloating the system prompt.
-        let maxDescLength = 200
-
-        var xml = "<available_skills>\n"
-        for skill in selected {
-            let escapedName = skill.name.xmlEscaped
-            var desc = skill.description
-            if desc.count > maxDescLength {
-                desc = String(desc.prefix(maxDescLength)) + "…"
-            }
-            let escapedDesc = desc.xmlEscaped
-            xml += "  <skill>\n"
-            xml += "    <name>\(escapedName)</name>\n"
-            xml += "    <description>\(escapedDesc)</description>\n"
-            xml += "    <path>/var/minis/skills/\(skill.id)/SKILL.md</path>\n"
-            xml += "  </skill>\n"
-        }
-        xml += "</available_skills>"
-
-        var fragment = "Skills:\n"
-        fragment += "Reusable instruction sets stored at /var/minis/skills/<name>/SKILL.md. Read the SKILL.md file to load full instructions before using a skill.\n\n"
-        fragment += xml
-
-        if hasMore {
-            let omitted = enabled.filter { s in !selected.contains(where: { $0.id == s.id }) }
-            let maxUndisclosed = 100 - selected.count
-            let undisclosedNames = omitted.prefix(maxUndisclosed).map(\.name).joined(separator: ", ")
-            fragment += "\n\n\(omitted.count) more skills not shown above: \(undisclosedNames). List /var/minis/skills/ or grep to search all."
-        }
-
         return fragment
     }
 

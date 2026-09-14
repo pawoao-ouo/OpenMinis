@@ -36,20 +36,53 @@ extension ConfigRegistry {
     // flip already-open sessions — those carry their own per-session
     // toggle, changed via the /memory slash command.
     //
-    // When off, new sessions skip auto-injection of GLOBAL.md + recent
-    // daily logs into the system prompt AND drop the memory_get /
-    // memory_write tools from the registered tool list
+    // When off, new sessions skip memory injection entirely (neither the
+    // path catalog nor full text) AND drop the memory_get / memory_write
+    // tools from the registered tool list
     // (see AIChatViewModel.makeAgentTools). So this one bool gates both
     // injection and tool access for sessions that inherit the default.
+    // WHICH files get injected when it is on is decided per turn by the two
+    // `memory.injectGlobalFullText` / `memory.injectDailiesFullText`
+    // switches below (default: catalog of paths, no full text).
 
     @MainActor
     private static func registerMemory(into r: ConfigRegistry) {
         r.register(AppStorageBoolField(
             path: "memory.enabled",
             displayName: "Memory enabled (global default)",
-            description: "Default for whether NEW chat sessions start with memory on. When on, a new session auto-injects GLOBAL.md + recent daily logs into the system prompt and exposes the memory_get / memory_write tools. When off, new sessions get neither. Already-open sessions keep their own per-session setting (toggle with /memory) and are not changed by this.",
+            description: "Default for whether NEW chat sessions start with memory on. When on, a new session exposes the memory_get / memory_write tools and its system prompt carries the memory layers (by path, or in full text if the two injection switches below are on). When off, new sessions get neither the tools nor any memory content. Already-open sessions keep their own per-session setting (toggle with /memory) and are not changed by this.",
             userDefaultsKey: "memory.global.enabled",
             defaultValue: true
+        ))
+
+        // [T-agent-prompt-fulltext-toggle 09-14] Two opt-in compatibility
+        // switches for the Claude-Code-style prompt slimdown. Since the
+        // slimdown, the opening system prompt carries a memory PATH CATALOG
+        // instead of full text, and the model fetches what it needs with
+        // memory_get / file_read. That is the intended default, but a session
+        // that used to be handed GLOBAL.md / recent dailies for free now has
+        // to go looking — which reads as amnesia. These two flags restore the
+        // old full-text behaviour PER LAYER, for users who prefer paying the
+        // tokens over the extra round trip.
+        //
+        // They are read at system-prompt build time (makeAgentSystemPrompt),
+        // not at session creation: flipping one affects the next turn of every
+        // session, including already-open ones. Each layer is either injected
+        // in full OR listed in the catalog — never both.
+        r.register(AppStorageBoolField(
+            path: "memory.injectGlobalFullText",
+            displayName: "Inject GLOBAL.md full text",
+            description: "When on, GLOBAL.md is injected into the opening system prompt in full instead of being listed by path. Costs more tokens on every turn (GLOBAL.md is user-sized) but the model knows the user's standing preferences and conventions immediately, without having to call memory_get first. Default off = path catalog only, model reads on demand. Has no effect when memory is disabled for the session.",
+            userDefaultsKey: AIChatViewModel.memoryInjectGlobalFullTextKey,
+            defaultValue: false
+        ))
+
+        r.register(AppStorageBoolField(
+            path: "memory.injectDailiesFullText",
+            displayName: "Inject recent daily logs full text",
+            description: "When on, the 3 most recent daily memory logs are injected into the opening system prompt in full (first 200 lines each) instead of being listed by path. Costs the most tokens of any single switch here — daily logs are the largest memory files — but the model starts every session already knowing what happened in recent sessions. Default off = path catalog with per-day headlines, model reads on demand. Has no effect when memory is disabled for the session.",
+            userDefaultsKey: AIChatViewModel.memoryInjectDailiesFullTextKey,
+            defaultValue: false
         ))
     }
 

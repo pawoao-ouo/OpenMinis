@@ -2,7 +2,7 @@
 //  SessionMemoryView.swift
 //  MinisApp
 //
-//  Shows all memory used in the current session: auto-injected + tool-recalled.
+//  Shows all memory relevant to the current session: in-context layers + tool activity.
 //
 
 import SwiftUI
@@ -10,13 +10,20 @@ import SwiftUI
 struct SessionMemoryView: View {
     @ObservedObject var vm: AIChatViewModel
     @Environment(\.dismiss) private var dismiss
+    /// [T-agent-prompt-fulltext-toggle 09-14] Same two switches the system
+    /// prompt composer reads. `body` and `inContextItems` both need them, so
+    /// they live on the struct rather than as locals in the list builder —
+    /// the footer and the row details must never disagree about which layers
+    /// are actually in the prompt this turn.
+    @AppStorage(AIChatViewModel.memoryInjectGlobalFullTextKey) private var injectGlobalFullText: Bool = false
+    @AppStorage(AIChatViewModel.memoryInjectDailiesFullTextKey) private var injectDailiesFullText: Bool = false
 
     var body: some View {
         NavigationStack {
             List {
-                // Section 1: Auto-injected memories
+                // Section 1: Always-in-context layers (SOUL full; GLOBAL/daily listed by path)
                 Section {
-                    ForEach(autoInjected, id: \.name) { item in
+                    ForEach(inContextItems, id: \.name) { item in
                         NavigationLink {
                             MemoryContentView(title: item.name, content: item.content, fileURL: item.fileURL)
                         } label: {
@@ -24,9 +31,23 @@ struct SessionMemoryView: View {
                         }
                     }
                 } header: {
-                    Text("Auto-injected")
+                    Text("In Context")
                 } footer: {
-                    Text("Loaded into system prompt at the start of each agent turn.")
+                    // [T-agent-prompt-claude-code 09-14] GLOBAL.md and daily
+                    // logs are no longer dumped into the system prompt as full
+                    // text — the agent gets a path catalog and reads on
+                    // demand. SOUL.md is still injected in full. The footer
+                    // says so, or the sheet would lie about what the model
+                    // actually has in front of it.
+                    // [T-agent-prompt-fulltext-toggle 09-14] With either
+                    // full-text switch on, that layer IS injected, so the
+                    // footer switches wording instead of contradicting the
+                    // row details above it.
+                    if injectGlobalFullText || injectDailiesFullText {
+                        Text("SOUL.md is loaded into the system prompt each turn, along with the memory layers marked “Full text — injected” above. The rest are listed by path — the agent reads them on demand (memory_get / file_read).")
+                    } else {
+                        Text("SOUL.md is loaded into the system prompt each turn. GLOBAL.md and daily logs are listed by path — the agent reads them on demand (memory_get / file_read).")
+                    }
                 }
 
                 // Section 2: Tool-recalled memories
@@ -80,7 +101,7 @@ struct SessionMemoryView: View {
         }
     }
 
-    // MARK: - Auto-injected
+    // MARK: - In-context layers
 
     private struct AutoItem {
         let name: String
@@ -90,10 +111,17 @@ struct SessionMemoryView: View {
         let fileURL: URL?
     }
 
-    private var autoInjected: [AutoItem] {
+    private var inContextItems: [AutoItem] {
         var items: [AutoItem] = []
         let fm = FileManager.default
         let memDir = AIChatViewModel.minisMemoryPersistentDir
+        // [T-agent-prompt-fulltext-toggle 09-14] The per-layer switches
+        // (struct properties, shared with the footer) decide whether a memory
+        // file is injected in full or merely listed. The sheet must reflect
+        // the SAME decision as makeAgentSystemPrompt, or it lies about what
+        // the model can see this turn.
+        let pathOnly = AppLocalized("Path only — read on demand")
+        let fullText = AppLocalized("Full text — injected")
 
         // SOUL.md — listed first because it's the identity/personality
         // layer that SystemPromptBuilder.identitySection() injects at
@@ -107,7 +135,7 @@ struct SessionMemoryView: View {
             let lineCount = content.components(separatedBy: "\n").count
             items.append(AutoItem(
                 name: "SOUL.md",
-                detail: "\(lineCount) lines (full)",
+                detail: "\(lineCount) lines — " + AppLocalized("Full text — injected"),
                 icon: "person.fill",
                 content: content,
                 fileURL: soulURL
@@ -124,7 +152,7 @@ struct SessionMemoryView: View {
             let lineCount = content.components(separatedBy: "\n").count
             items.append(AutoItem(
                 name: "GLOBAL.md",
-                detail: "\(lineCount) lines (full)",
+                detail: "\(lineCount) lines — " + (injectGlobalFullText ? fullText : pathOnly),
                 icon: "star.fill",
                 content: content,
                 fileURL: globalURL
@@ -150,10 +178,11 @@ struct SessionMemoryView: View {
                let content = try? String(contentsOf: fileURL, encoding: .utf8),
                !content.isEmpty {
                 let lineCount = content.components(separatedBy: "\n").count
-                let injected = min(lineCount, 200)
-                let detail = lineCount > 200
-                    ? "\(injected)/\(lineCount) lines injected"
-                    : "\(lineCount) lines (full)"
+                // [T-agent-prompt-claude-code 09-14] Daily logs are listed by
+                // path in the default configuration; with the dailies
+                // full-text switch on they are injected again, so say which
+                // one is actually true this turn.
+                let detail = "\(lineCount) lines — " + (injectDailiesFullText ? fullText : pathOnly)
                 let label: String
                 switch dayOffset {
                 case 0: label = AppLocalized("Today")

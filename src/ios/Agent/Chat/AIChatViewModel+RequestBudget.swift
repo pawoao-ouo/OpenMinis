@@ -272,10 +272,50 @@ extension AIChatViewModel {
         return url
     }
 
-    /// Persistent storage directory for memory (shared across all sessions).
-    /// Stored in the App Group container so the FileProvider extension can access it.
+    /// Persistent storage directory for memory.
+    ///
+    /// [T-multi-assistant 09-14] Memory is now PER ASSISTANT, not global:
+    /// each assistant's persona (SOUL.md) and everything it lived through
+    /// (GLOBAL.md, daily logs, drawers, reports) live in their own directory,
+    /// so two assistants never read or overwrite each other's memory.
+    ///
+    /// Layout: <appGroupRoot>/memory/<assistantId>/
+    /// Stored in the App Group container (not Library/MinisChat/minis) so the
+    /// FileProvider extension keeps working — the user can still browse every
+    /// assistant's memory in iOS Files. The SHELL sees a single
+    /// /var/minis/memory path; MinisFsRouter rewrites it per assistant, so
+    /// isolation holds inside the terminal too.
+    ///
+    /// The no-argument form resolves to the default assistant. It exists so the
+    /// ~34 pre-existing call sites keep compiling; every one of them should be
+    /// migrated to the explicit `for assistantId:` form (see the migration
+    /// checklist in rounds/第19轮-多助理架构.md) — a caller that forgets is a
+    /// caller that reads the wrong assistant's memory.
     nonisolated static var minisMemoryPersistentDir: URL {
-        minisAppGroupRoot.appendingPathComponent("memory", isDirectory: true)
+        minisMemoryPersistentDir(for: MinisFsRouter.defaultAssistantId)
+    }
+
+    /// Per-assistant memory directory. See `minisMemoryPersistentDir`.
+    nonisolated static func minisMemoryPersistentDir(for assistantId: String) -> URL {
+        let safe = sanitizeAssistantId(assistantId)
+        return minisAppGroupRoot
+            .appendingPathComponent("memory", isDirectory: true)
+            .appendingPathComponent(safe, isDirectory: true)
+    }
+
+    /// Assistant ids become path components, so they must not be able to
+    /// escape the memory root (`..`, `/`) or collide with a reserved name.
+    /// Anything unexpected collapses to the default assistant rather than
+    /// producing a path outside the intended directory.
+    nonisolated static func sanitizeAssistantId(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return MinisFsRouter.defaultAssistantId }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            return MinisFsRouter.defaultAssistantId
+        }
+        if trimmed == "." || trimmed == ".." { return MinisFsRouter.defaultAssistantId }
+        return trimmed
     }
 
     /// Persistent storage directory for skills (shared across all sessions).

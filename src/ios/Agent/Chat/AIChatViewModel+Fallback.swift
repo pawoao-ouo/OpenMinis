@@ -248,15 +248,12 @@ extension AIChatViewModel {
                 triedEntries.insert(nextEntryId)
                 currentEntryId = nextEntryId
                 currentProvider = await makeAgentProvider(for: nextEntry)
-                // Rebuild system prompt for the new model's capabilities
-                var rebuiltPrompt = baseSystemPrompt
-                if let capFragment = nextEntry.model.capabilityPromptFragment {
-                    rebuiltPrompt += "\n\n" + capFragment
-                }
-                if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
-                    rebuiltPrompt += "\n\n" + behaviorFragment
-                }
-                currentSystemPrompt = rebuiltPrompt
+                // Rebuild system prompt for the new model's capabilities.
+                // [T-agent-prompt-claude-code 09-14] Rebuilt via the SAME
+                // composer as the initial site (makeAgentSystemPrompt) — the
+                // old inline rebuild dropped skill/MCP/memory-catalog
+                // sections, so a mid-run fallback silently lost that context.
+                currentSystemPrompt = makeAgentSystemPrompt(base: baseSystemPrompt, entry: nextEntry)
                 // continue loop — will try next entry immediately
             } catch {
                 // Check if group uses "always" fallback strategy — if so, treat all
@@ -302,14 +299,9 @@ extension AIChatViewModel {
                     triedEntries.insert(nextEntryId)
                     currentEntryId = nextEntryId
                     currentProvider = await makeAgentProvider(for: nextEntry)
-                    var rebuiltPrompt = baseSystemPrompt
-                    if let capFragment = nextEntry.model.capabilityPromptFragment {
-                        rebuiltPrompt += "\n\n" + capFragment
-                    }
-                    if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
-                        rebuiltPrompt += "\n\n" + behaviorFragment
-                    }
-                    currentSystemPrompt = rebuiltPrompt
+                    // [T-agent-prompt-claude-code 09-14] Same shared
+                    // composer as the primary rebuild site.
+                    currentSystemPrompt = makeAgentSystemPrompt(base: baseSystemPrompt, entry: nextEntry)
                     continue
                 }
 
@@ -384,14 +376,9 @@ extension AIChatViewModel {
                     triedEntries.insert(nextEntryId)
                     currentEntryId = nextEntryId
                     currentProvider = await makeAgentProvider(for: nextEntry)
-                    var rebuiltPrompt = baseSystemPrompt
-                    if let capFragment = nextEntry.model.capabilityPromptFragment {
-                        rebuiltPrompt += "\n\n" + capFragment
-                    }
-                    if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
-                        rebuiltPrompt += "\n\n" + behaviorFragment
-                    }
-                    currentSystemPrompt = rebuiltPrompt
+                    // [T-agent-prompt-claude-code 09-14] Same shared
+                    // composer as the primary rebuild site.
+                    currentSystemPrompt = makeAgentSystemPrompt(base: baseSystemPrompt, entry: nextEntry)
                     // continue loop — will try next entry
                 }
             }

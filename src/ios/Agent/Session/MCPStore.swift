@@ -86,8 +86,7 @@ final class MCPStore: ObservableObject {
     private let fm = FileManager.default
     private var db: OpaquePointer?
 
-    /// Top-N MCP servers disclosed in the system prompt (mirrors
-    /// SkillStore.maxSkillMetadataCount = 20).
+    /// Top-N MCP servers disclosed in the system prompt.
     private static let maxMetadataCount = 20
 
     private static let SQLITE_TRANSIENT_DB = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -617,7 +616,7 @@ final class MCPStore: ObservableObject {
             if ca != cb { return ca > cb }
             return a.id.localizedCaseInsensitiveCompare(b.id) == .orderedAscending
         }.prefix(Self.maxMetadataCount)
-        let maxNoteLength = 200   // same cap as SkillStore.skillPromptFragment
+        let maxNoteLength = 120
 
         var lines = "Available MCP Servers (use minis-mcp-cli to discover and call):\n"
         for s in selected {

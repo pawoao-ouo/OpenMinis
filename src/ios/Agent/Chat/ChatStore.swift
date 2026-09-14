@@ -53,6 +53,10 @@ struct ChatSession: Identifiable, Codable, Hashable {
     var remoteDeviceName: String? // human-readable name of the remote device
     var pinnedAt: Date?       // non-nil if session is pinned; timestamp of when it was pinned
     var folderId: String?     // non-nil if filed into a folder; NULL = ungrouped
+    /// [T-multi-assistant 09-14] Which persona this conversation belongs to.
+    /// Never nil in practice — the DB column is NOT NULL DEFAULT 'default' and
+    /// every pre-existing session migrated to that value.
+    var assistantId: String = MinisFsRouter.defaultAssistantId
 
     /// Whether this session is from a remote device (read-only).
     var isRemote: Bool { remoteDeviceId != nil }
@@ -92,6 +96,11 @@ struct ChatSession: Identifiable, Codable, Hashable {
             // without this the sidebar would keep rendering the row in its old
             // section until some unrelated mutation bumped the diff.
             && lhs.folderId == rhs.folderId
+            // `assistantId` MUST be compared: re-filing a session under a
+            // different assistant changes no other compared field, so without
+            // this the sidebar would keep the row under the old assistant
+            // until an unrelated mutation bumped the diff.
+            && lhs.assistantId == rhs.assistantId
             && lhs.title == rhs.title
             && lhs.category == rhs.category
             && lhs.source == rhs.source
@@ -584,6 +593,16 @@ actor ChatStore {
 
     private func createTables() {
         exec("""
+            CREATE TABLE IF NOT EXISTS assistants (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                created_at  REAL NOT NULL,
+                updated_at  REAL NOT NULL,
+                sort_order  INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+
+        exec("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id          TEXT PRIMARY KEY,
                 title       TEXT,
@@ -615,6 +634,15 @@ actor ChatStore {
         // Idempotent column migrations — guarded via PRAGMA table_info so
         // re-runs on already-migrated DBs don't emit duplicate-column errors.
         addColumnIfMissing(table: "sessions", column: "category", definition: "TEXT")
+        // [T-multi-assistant 09-14] Which persona this conversation belongs to.
+        //
+        // NOT NULL DEFAULT 'default' on purpose: every pre-existing session
+        // migrates to the default assistant, which is the one that owns the
+        // pre-existing /var/minis/memory. That keeps current behaviour exactly
+        // (one shared memory) instead of silently becoming per-session, and it
+        // means "no assistant" is never a valid state to handle downstream.
+        // See MinisFsRouter.defaultAssistantId for the matching filesystem side.
+        addColumnIfMissing(table: "sessions", column: "assistant_id", definition: "TEXT NOT NULL DEFAULT 'default'")
         addColumnIfMissing(table: "sessions", column: "model_binding", definition: "TEXT")
         addColumnIfMissing(table: "sessions", column: "source", definition: "TEXT")
         addColumnIfMissing(table: "messages", column: "reasoning_content", definition: "TEXT")
@@ -1023,7 +1051,8 @@ actor ChatStore {
     // MARK: - Session CRUD
 
     @discardableResult
-    func createSession(modelId: String, title: String? = nil, source: String? = nil) -> ChatSession {
+    func createSession(modelId: String, title: String? = nil, source: String? = nil,
+                       assistantId: String = MinisFsRouter.defaultAssistantId) -> ChatSession {
         invalidateSessionListCache()
         let now = Date()
         let session = ChatSession(
@@ -1033,7 +1062,8 @@ actor ChatStore {
             modelId: modelId,
             createdAt: now,
             updatedAt: now,
-            source: source
+            source: source,
+            assistantId: assistantId
         )
 
         // [T-memory-enabled-new-session-bug] Explicitly write memory_enabled
@@ -1056,7 +1086,7 @@ actor ChatStore {
         let rawObj = UserDefaults.standard.object(forKey: "memory.global.enabled")
         memDiagLogger.info("[MemDiag] createSession sid=\(session.id.prefix(8)) rawDefaults=\(String(describing: rawObj)) resolved=\(globalMemoryEnabled) → bind memory_enabled=\(globalMemoryEnabled ? 1 : 0)")
 
-        let sql = "INSERT INTO sessions (id, title, model_id, created_at, updated_at, source, memory_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        let sql = "INSERT INTO sessions (id, title, model_id, created_at, updated_at, source, memory_enabled, assistant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         var stmt: OpaquePointer?
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, (session.id as NSString).utf8String, -1, nil)
@@ -1066,6 +1096,7 @@ actor ChatStore {
             sqlite3_bind_double(stmt, 5, now.timeIntervalSince1970)
             bindOptionalText(stmt, index: 6, value: source)
             sqlite3_bind_int(stmt, 7, globalMemoryEnabled ? 1 : 0)
+            sqlite3_bind_text(stmt, 8, (session.assistantId as NSString).utf8String, -1, nil)
             let rc = sqlite3_step(stmt)
             memDiagLogger.info("[MemDiag] createSession INSERT step rc=\(rc) (101=DONE) sid=\(session.id.prefix(8))")
         } else {
@@ -1298,7 +1329,8 @@ actor ChatStore {
                    -- Appended LAST on purpose: the decode below reads columns
                    -- by index, so a new column goes at the end to leave every
                    -- existing index untouched.
-                   s.folder_id
+                   s.folder_id,
+                   s.assistant_id
             FROM sessions s ORDER BY s.updated_at DESC
             """
             // Note: `remote_tombstoned_at` column still exists on the
@@ -1371,13 +1403,18 @@ actor ChatStore {
                 let pinnedAt: Date? = sqlite3_column_type(stmt, 11) != SQLITE_NULL
                     ? Date(timeIntervalSince1970: sqlite3_column_double(stmt, 11)) : nil
                 let folderId = Self.colTextOpt(stmt, 14)
+                // Column 15 — appended last, per the note above. Falls back to
+                // the default assistant if the column is somehow NULL (the DB
+                // default is 'default', so this only covers a row written by an
+                // older build mid-migration).
+                let assistantId = Self.colTextOpt(stmt, 15) ?? MinisFsRouter.defaultAssistantId
 
                 sessions.append(ChatSession(
                     id: id, title: title, category: category, modelId: modelId,
                     createdAt: createdAt, updatedAt: updatedAt, lastMessage: lastMessage,
                     source: source, lastSyncedAt: lastSyncedAt,
                     remoteDeviceId: remoteDeviceId, pinnedAt: pinnedAt,
-                    folderId: folderId
+                    folderId: folderId, assistantId: assistantId
                 ))
             }
         }
@@ -1967,7 +2004,7 @@ actor ChatStore {
     }
 
     func getSession(_ id: String) -> ChatSession? {
-        let sql = "SELECT id, title, model_id, created_at, updated_at, category, source, pinned_at, folder_id FROM sessions WHERE id = ?"
+        let sql = "SELECT id, title, model_id, created_at, updated_at, category, source, pinned_at, folder_id, assistant_id FROM sessions WHERE id = ?"
         var stmt: OpaquePointer?
         var session: ChatSession?
 
@@ -1984,10 +2021,13 @@ actor ChatStore {
                     ? Date(timeIntervalSince1970: sqlite3_column_double(stmt, 7)) : nil
                 let folderId = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
 
+                let assistantId = sqlite3_column_text(stmt, 9).map { String(cString: $0) }
+                    ?? MinisFsRouter.defaultAssistantId
+
                 session = ChatSession(
                     id: id, title: title, category: category, modelId: modelId,
                     createdAt: createdAt, updatedAt: updatedAt, source: source,
-                    pinnedAt: pinnedAt, folderId: folderId
+                    pinnedAt: pinnedAt, folderId: folderId, assistantId: assistantId
                 )
             }
         }

@@ -48,6 +48,7 @@
 		AA26CCC32F31090100AECF2D /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = AA26CCC42F31090100AECF2D /* libresolv.tbd */; };
 		AA71B0222F44BEB200A28A5E /* Launch Screen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA71B0212F44BEB200A28A5E /* Launch Screen.storyboard */; };
 		F1T00032 /* user-manual.md in Resources */ = {isa = PBXBuildFile; fileRef = F1T00031 /* user-manual.md */; };
+		F1T00052 /* agent-manual.md in Resources */ = {isa = PBXBuildFile; fileRef = F1T00051 /* agent-manual.md */; };
 		AA9C2BF92F65996900F41633 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = E5X000021 /* SwiftMath */; };
 		AADDA9E12F6ECCF400B66649 /* ThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AADDA9E02F6ECCF400B66649 /* ThumbnailCache.swift */; };
 		AAF00F012F50A00000049557 /* FFmpeg.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AAF00F002F50A00000049557 /* FFmpeg.framework */; };
@@ -973,6 +974,7 @@
 		E5JB00014 /* jieba.dict.utf8 */ = {isa = PBXFileReference; lastKnownFileType = text; name = jieba.dict.utf8; path = Resources/jieba.dict.utf8; sourceTree = "<group>"; };
 		E5JB00015 /* hmm_model.utf8 */ = {isa = PBXFileReference; lastKnownFileType = text; name = hmm_model.utf8; path = Resources/hmm_model.utf8; sourceTree = "<group>"; };
 		F1T00031 /* user-manual.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = "user-manual.md"; path = Resources/user-manual.md; sourceTree = "<group>"; };
+		F1T00051 /* agent-manual.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = "agent-manual.md"; path = Resources/agent-manual.md; sourceTree = "<group>"; };
 		E5K000011 /* SelectableMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectableMarkdownView.swift; sourceTree = "<group>"; };
 		E5K000012 /* ChatTurnScreenshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTurnScreenshot.swift; sourceTree = "<group>"; };
 		E5KIMIR01 /* KimiOAuthRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = KimiOAuthRefreshCoordinator.swift; path = Providers/Kimi/OAuth/KimiOAuthRefreshCoordinator.swift; sourceTree = SOURCE_ROOT; };
@@ -1527,6 +1529,7 @@
 				E5VC0001B /* zh_background_wordfreq.txt */,
 				E5JB00015 /* hmm_model.utf8 */,
 				F1T00031 /* user-manual.md */,
+				F1T00051 /* agent-manual.md */,
 				E53000030 /* Agent */,
 				E5D000030 /* Views */,
 				E52000030 /* Providers */,
@@ -2635,6 +2638,7 @@
 				E5V000002 /* AlternateIcons in Resources */,
 				AA71B0222F44BEB200A28A5E /* Launch Screen.storyboard in Resources */,
 				F1T00032 /* user-manual.md in Resources */,
+				F1T00052 /* agent-manual.md in Resources */,
 				E51000003 /* Assets.xcassets in Resources */,
 				E5PV00001 /* PrivacyInfo.xcprivacy in Resources */,
 				E5LC00001 /* Localizable.xcstrings in Resources */,

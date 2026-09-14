@@ -17,6 +17,14 @@ struct MemoryManagementView: View {
     /// session memoryEnabled value (toggled via the /memory slash command)
     /// and are not affected when this global is changed.
     @AppStorage("memory.global.enabled") private var memoryGlobalEnabled: Bool = true
+    /// [T-agent-prompt-fulltext-toggle 09-14] Compatibility switches for the
+    /// prompt slimdown. Default false: the opening system prompt lists the
+    /// memory files by path and the agent fetches what it needs. Turning one
+    /// on puts that layer back into the prompt in full — more tokens every
+    /// turn, no round trip. Keys are shared with the config registry so the
+    /// Settings UI and `minis-config` never disagree.
+    @AppStorage(AIChatViewModel.memoryInjectGlobalFullTextKey) private var injectGlobalFullText: Bool = false
+    @AppStorage(AIChatViewModel.memoryInjectDailiesFullTextKey) private var injectDailiesFullText: Bool = false
 
     var body: some View {
         List {
@@ -24,6 +32,15 @@ struct MemoryManagementView: View {
                 Toggle(AppLocalized("settings_memory_global_enabled"), isOn: $memoryGlobalEnabled)
             } footer: {
                 Text(AppLocalized("settings_memory_global_enabled_footer"))
+            }
+
+            Section {
+                Toggle(AppLocalized("settings_memory_inject_global"), isOn: $injectGlobalFullText)
+                Toggle(AppLocalized("settings_memory_inject_dailies"), isOn: $injectDailiesFullText)
+            } header: {
+                Text(AppLocalized("settings_memory_injection_header"))
+            } footer: {
+                Text(AppLocalized("settings_memory_injection_footer"))
             }
 
             ForEach(memoryFiles) { file in
