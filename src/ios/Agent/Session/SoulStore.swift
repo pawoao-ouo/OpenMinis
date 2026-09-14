@@ -988,7 +988,9 @@ enum SystemPromptBuilder {
         let resolvedId = assistantId ?? ChatStore.defaultAssistantId
         // Read the synchronous snapshot, NOT ChatStore: it is an actor and this
         // runs from a plain computed property (`baseSystemPrompt`).
-        let assistant = cachedAssistant(resolvedId)
+        // Fully qualified: the cache lives on SoulStore, this method on
+        // SystemPromptBuilder — different types in the same file.
+        let assistant = SoulStore.cachedAssistant(resolvedId)
 
         let name: String
         let persona: String
