@@ -2020,7 +2020,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// /var/minis path catalog, and pointers to the manual + memory files.
     /// Everything else is read on demand via file_read.
     private var baseSystemPrompt: String {
-        SystemPromptBuilder.identitySection()
+        SystemPromptBuilder.identitySection(assistantId: assistantId)
             + "You should proactively use shell commands to accomplish the user's tasks — installing packages (apk add), "
             + "writing and running scripts, managing files, networking, and any other operations a Linux terminal can perform.\n\n"
             + "Operating manual: \(UserManualMirror.agentManualLinuxPath) — the AUTHORITATIVE reference for how to work here "
@@ -2097,6 +2097,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     var sessionId: String? {
         didSet { browserTabPool.sessionId = sessionId }
     }
+
+    /// [T-multi-assistant 09-14] Which persona this conversation belongs to.
+    /// Set by the view when a session loads (from `ChatSession.assistantId`).
+    /// Drives three things: the identity/personality block in the system
+    /// prompt, the memory directory the shell sees (via MinisFsRouter), and
+    /// which skills are listed. Defaults to the migrated persona so a session
+    /// whose assistant could not be resolved still runs with a real identity
+    /// rather than none.
+    var assistantId: String = MinisFsRouter.defaultAssistantId
 
     /// The draft ID assigned by the parent view (e.g. "__new__<UUID>").
     /// Included in `.sessionDidCreate` notification so the parent can correlate.

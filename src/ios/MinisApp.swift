@@ -750,6 +750,13 @@ struct MinisApp: App {
         // keeps the cache fresh after ensureExists() seeds a first-launch SOUL.md.
         SoulStore.refreshCache()
 
+        // [T-multi-assistant 09-14] Populate the persona snapshot before the
+        // first prompt is built. ChatStore.init() has already run the SOUL.md
+        // migration by this point, so this sees the migrated persona. Without
+        // it the first prompt after launch would fall back to the legacy
+        // SOUL.md path — correct output, but it would miss the migrated row.
+        Task { await SoulStore.refreshAssistantCache() }
+
         // Clean up stale directory created by a bug where workingSet identifier
         // was passed through as a subdirectory name.
         let staleDir = root.appendingPathComponent("shared/NSFileProviderWorkingSetContainerItemIdentifier")

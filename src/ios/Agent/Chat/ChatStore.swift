@@ -141,6 +141,85 @@ struct ChatSession: Identifiable, Codable, Hashable {
 ///   thing; the user can always move sessions across and dissolve the leftover.
 ///   Consequence: any *name-based* lookup must tolerate multiple matches (see
 ///   `findFolderByName`).
+/// [T-multi-assistant 09-14] A persona: name, avatar, prompt, group.
+///
+/// Replaces the single global SOUL.md. The old model had exactly one persona
+/// whose name/icon/style/body lived in one file's frontmatter; this makes the
+/// persona a row so any number can exist, each with its own memory directory
+/// (see MinisFsRouter) and its own conversations (sessions.assistant_id).
+///
+/// Deliberately NO `style` and NO `lang` field, unlike SOUL.md:
+///   • `style` was injected as a separate "Response style" block. A model
+///     handed a short list of adjectives latches onto those words and treats
+///     the box as ticked, which flattens the performance instead of shaping
+///     it. Voice belongs inside the prompt, where it can be as specific as it
+///     needs to be.
+///   • `lang` asked the user to pin a reply language that the model already
+///     infers from the user's own message. A knob that duplicates the default
+///     is a knob that can only be set wrong.
+struct Assistant: Identifiable, Codable, Hashable {
+    let id: String
+    var name: String
+    /// Path relative to <appGroup>/avatars/ (e.g. "abc123.png"), or nil for the
+    /// default glyph. A path, never inline data — see the schema comment.
+    var avatarPath: String?
+    /// The entire persona text. Injected as the "Personality" block.
+    var systemPrompt: String
+    /// Assistant group id, or nil for ungrouped. NOT a `folders` id — those
+    /// group sessions.
+    var groupId: String?
+    var sortIndex: Int
+    let createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: String = UUID().uuidString,
+        name: String,
+        avatarPath: String? = nil,
+        systemPrompt: String = "",
+        groupId: String? = nil,
+        sortIndex: Int = 0,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.avatarPath = avatarPath
+        self.systemPrompt = systemPrompt
+        self.groupId = groupId
+        self.sortIndex = sortIndex
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+/// [T-multi-assistant 09-14] A group in the assistant address book.
+/// Mirrors `ChatFolder` but groups ASSISTANTS, not sessions.
+struct AssistantGroup: Identifiable, Codable, Hashable {
+    let id: String
+    var name: String
+    var icon: String?
+    var sortIndex: Int
+    let createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: String = UUID().uuidString,
+        name: String,
+        icon: String? = nil,
+        sortIndex: Int = 0,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+        self.sortIndex = sortIndex
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
 struct ChatFolder: Identifiable, Codable, Hashable {
     let id: String
     var name: String
@@ -499,6 +578,11 @@ actor ChatStore {
 
         openDatabase()
         createTables()
+        // [T-multi-assistant 09-14] Fold the legacy single SOUL.md into the
+        // default assistant row. Runs right after the tables exist and before
+        // any caller can read a persona, so the migrated assistant is visible
+        // from the first launch of this build. Idempotent + guarded.
+        migrateSoulToDefaultAssistantIfNeeded()
         armRebootGuardIfDegraded()
     }
 
@@ -592,13 +676,46 @@ actor ChatStore {
     }
 
     private func createTables() {
+        // [T-multi-assistant 09-14] A persona. Replaces the single SOUL.md
+        // file: name / avatar / prompt used to live in SOUL.md frontmatter and
+        // body, which meant exactly one persona could exist.
+        //
+        // `avatar_path` is a FILE PATH relative to <appGroup>/avatars/, never
+        // inline data. The old design stored a `data:image/png;base64,…` URI in
+        // SOUL.md frontmatter; that string was unreadable in the settings UI and
+        // grew the config payload for no benefit. The image bytes live on disk
+        // and the DB keeps a short path.
+        //
+        // `system_prompt` is the whole persona text — the old split between
+        // `style` (a separate injected "Response style" block) and `body` is
+        // gone. A separate style field let the model latch onto a few keywords
+        // ("口语、短句") and consider the job done, which is worse than writing
+        // the voice into the prompt where it belongs.
         exec("""
             CREATE TABLE IF NOT EXISTS assistants (
+                id            TEXT PRIMARY KEY,
+                name          TEXT NOT NULL,
+                avatar_path   TEXT,
+                system_prompt TEXT NOT NULL DEFAULT '',
+                group_id      TEXT,
+                sort_order    INTEGER NOT NULL DEFAULT 0,
+                created_at    REAL NOT NULL,
+                updated_at    REAL NOT NULL
+            )
+        """)
+
+        // [T-multi-assistant 09-14] Grouping for the assistant list ("干活的",
+        // "写代码的"), the QQ/WeChat address-book shape. Mirrors `folders`
+        // (which groups SESSIONS) but is a separate table on purpose: a folder
+        // and an assistant group are different axes and must not share ids.
+        exec("""
+            CREATE TABLE IF NOT EXISTS assistant_groups (
                 id          TEXT PRIMARY KEY,
                 name        TEXT NOT NULL,
+                icon        TEXT,
+                sort_order  INTEGER NOT NULL DEFAULT 0,
                 created_at  REAL NOT NULL,
-                updated_at  REAL NOT NULL,
-                sort_order  INTEGER NOT NULL DEFAULT 0
+                updated_at  REAL NOT NULL
             )
         """)
 
@@ -2095,6 +2212,361 @@ actor ChatStore {
         sqlite3_finalize(stmt)
         markDirty(recordType: "Session", recordId: id)
         return newPinned
+    }
+
+    // MARK: - Assistant CRUD
+    //
+    // [T-multi-assistant 09-14] The persona table's access layer. Every write
+    // bumps `updated_at` and marks the row dirty for iCloud v2 sync, mirroring
+    // the folder methods below.
+
+    /// The id every pre-existing session/assistant migrates to. Kept in sync
+    /// with `MinisFsRouter.defaultAssistantId` — that constant owns the
+    /// filesystem side of the same idea.
+    nonisolated static let defaultAssistantId = MinisFsRouter.defaultAssistantId
+
+    /// One-time migration: fold the single global SOUL.md into the default
+    /// assistant row, so the persona the user already has survives the move
+    /// from "one file" to "one row per persona".
+    ///
+    /// Runs once, guarded by a UserDefaults flag. Idempotent by construction:
+    /// it returns immediately if any assistant already exists, so a crash
+    /// mid-migration cannot produce two "小梦" rows.
+    ///
+    /// What is preserved and where it goes:
+    ///   • name            -> Assistant.name
+    ///   • icon (emoji or data URI) -> Assistant.avatarPath is NOT used; a
+    ///     data URI is written to <appGroup>/avatars/<id>.png and the path
+    ///     stored instead, and a bare emoji is kept as a literal "emoji:✨"
+    ///     marker so no information is lost either way.
+    ///   • style + body    -> CONCATENATED into Assistant.systemPrompt.
+    ///     The old design injected `style` as a separate "Response style"
+    ///     block; there is no such field any more. Folding the two together
+    ///     keeps every word the user wrote (their voice block is not dropped)
+    ///     while removing the separate knob.
+    ///   • lang            -> dropped, as designed: it only duplicated what the
+    ///     model already infers from the user's own language.
+    ///
+    /// SOUL.md itself is left on disk untouched — it is the fallback if this
+    /// migration is ever reverted, and deleting user content is not this
+    /// function's call.
+    func migrateSoulToDefaultAssistantIfNeeded() {
+        let flagKey = "assistant.migratedFromSoulV1"
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: flagKey) { return }
+
+        // Never migrate on top of an existing persona set.
+        let existing = listAssistants()
+        if !existing.isEmpty {
+            defaults.set(true, forKey: flagKey)
+            return
+        }
+
+        let soul = SoulStore.load()
+        let meta = soul?.metadata ?? .default
+        let body = (soul?.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let style = (meta.style).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // style first, then body: the style block was the "how I speak"
+        // constraint and read as a header in the old prompt, so keeping that
+        // order preserves how the text flowed.
+        var prompt = ""
+        if !style.isEmpty { prompt += style }
+        if !body.isEmpty {
+            if !prompt.isEmpty { prompt += "\n\n" }
+            prompt += body
+        }
+
+        // Avatar: a data URI becomes a real file; a literal emoji is kept as a
+        // marker string; empty stays nil (default glyph).
+        var avatarPath: String? = nil
+        let icon = meta.icon
+        if !icon.isEmpty {
+            if SoulIconImage.isDataURI(icon), let data = SoulIconImage.data(fromDataURI: icon) {
+                let dir = AIChatViewModel.minisAvatarsDir
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let file = dir.appendingPathComponent("\(Self.defaultAssistantId).png")
+                if (try? data.write(to: file)) != nil {
+                    avatarPath = file.lastPathComponent
+                }
+            } else {
+                // A short literal glyph (an emoji) — store it as a marker.
+                avatarPath = "emoji:\(icon)"
+            }
+        }
+
+        let name = meta.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = createAssistant(
+            name: name.isEmpty ? "Minis" : name,
+            avatarPath: avatarPath,
+            systemPrompt: prompt,
+            id: Self.defaultAssistantId
+        )
+        defaults.set(true, forKey: flagKey)
+        logger.info("[Assistant] migrated SOUL.md -> assistant '\(name)' (prompt \(prompt.count) chars, avatar=\(avatarPath ?? "none"))")
+    }
+
+    /// All assistants, ordered for display: sort_index then name.
+    func listAssistants() -> [Assistant] {
+        let sql = """
+            SELECT id, name, avatar_path, system_prompt, group_id, sort_order, created_at, updated_at
+            FROM assistants
+            ORDER BY sort_order ASC, name COLLATE NOCASE ASC
+            """
+        var stmt: OpaquePointer?
+        var out: [Assistant] = []
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let a = Self.assistantFromRow(stmt) else { continue }
+                out.append(a)
+            }
+        }
+        sqlite3_finalize(stmt)
+        return out
+    }
+
+    func getAssistant(_ id: String) -> Assistant? {
+        let sql = """
+            SELECT id, name, avatar_path, system_prompt, group_id, sort_order, created_at, updated_at
+            FROM assistants WHERE id = ?
+            """
+        var stmt: OpaquePointer?
+        var out: Assistant?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                out = Self.assistantFromRow(stmt)
+            }
+        }
+        sqlite3_finalize(stmt)
+        return out
+    }
+
+    /// Decode one `assistants` row. Column order must match the SELECTs above.
+    private static func assistantFromRow(_ stmt: OpaquePointer?) -> Assistant? {
+        guard let stmt else { return nil }
+        guard let idC = sqlite3_column_text(stmt, 0) else { return nil }
+        let id = String(cString: idC)
+        guard !id.isEmpty else { return nil }
+        return Assistant(
+            id: id,
+            name: sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? "",
+            avatarPath: sqlite3_column_text(stmt, 2).map { String(cString: $0) },
+            systemPrompt: sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? "",
+            groupId: sqlite3_column_text(stmt, 4).map { String(cString: $0) },
+            sortIndex: Int(sqlite3_column_int64(stmt, 5)),
+            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6)),
+            updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 7))
+        )
+    }
+
+    @discardableResult
+    func createAssistant(name: String,
+                         avatarPath: String? = nil,
+                         systemPrompt: String = "",
+                         groupId: String? = nil,
+                         id explicitId: String? = nil) -> Assistant {
+        let now = Date()
+        let nextOrder = (listAssistants().map(\.sortIndex).max() ?? -1) + 1
+        let assistant = Assistant(
+            id: explicitId ?? UUID().uuidString,
+            name: name,
+            avatarPath: avatarPath,
+            systemPrompt: systemPrompt,
+            groupId: groupId,
+            sortIndex: nextOrder,
+            createdAt: now,
+            updatedAt: now
+        )
+        let sql = """
+            INSERT OR REPLACE INTO assistants
+                (id, name, avatar_path, system_prompt, group_id, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (assistant.id as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 2, (assistant.name as NSString).utf8String, -1, nil)
+            bindOptionalText(stmt, index: 3, value: assistant.avatarPath)
+            sqlite3_bind_text(stmt, 4, (assistant.systemPrompt as NSString).utf8String, -1, nil)
+            bindOptionalText(stmt, index: 5, value: assistant.groupId)
+            sqlite3_bind_int64(stmt, 6, Int64(assistant.sortIndex))
+            sqlite3_bind_double(stmt, 7, assistant.createdAt.timeIntervalSince1970)
+            sqlite3_bind_double(stmt, 8, assistant.updatedAt.timeIntervalSince1970)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        markDirty(recordType: "Assistant", recordId: assistant.id)
+        return assistant
+    }
+
+    /// Field-level update. `nil` leaves a field alone; an empty string for
+    /// `systemPrompt` genuinely clears it (a persona with no prompt is valid).
+    /// The double-optional parameters let a caller clear a nullable column
+    /// (`.some(nil)`) without meaning "skip" (`.none`).
+    func updateAssistant(_ id: String,
+                         name: String? = nil,
+                         avatarPath: String?? = nil,
+                         systemPrompt: String? = nil,
+                         groupId: String?? = nil) {
+        var sets: [String] = []
+        if name != nil { sets.append("name = ?") }
+        if avatarPath != nil { sets.append("avatar_path = ?") }
+        if systemPrompt != nil { sets.append("system_prompt = ?") }
+        if groupId != nil { sets.append("group_id = ?") }
+        guard !sets.isEmpty else { return }
+        sets.append("updated_at = ?")
+        let sql = "UPDATE assistants SET \(sets.joined(separator: ", ")) WHERE id = ?"
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            var i: Int32 = 1
+            if let name { sqlite3_bind_text(stmt, i, (name as NSString).utf8String, -1, nil); i += 1 }
+            if let avatarPath { bindOptionalText(stmt, index: i, value: avatarPath); i += 1 }
+            if let systemPrompt { sqlite3_bind_text(stmt, i, (systemPrompt as NSString).utf8String, -1, nil); i += 1 }
+            if let groupId { bindOptionalText(stmt, index: i, value: groupId); i += 1 }
+            sqlite3_bind_double(stmt, i, Date().timeIntervalSince1970); i += 1
+            sqlite3_bind_text(stmt, i, (id as NSString).utf8String, -1, nil)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        markDirty(recordType: "Assistant", recordId: id)
+    }
+
+    /// Delete a persona. Its sessions are NOT deleted — they keep their
+    /// `assistant_id` and become orphaned rows, which is deliberate: losing a
+    /// persona must not silently destroy conversations the user can still
+    /// read. Callers that want the chats gone delete them explicitly.
+    ///
+    /// Refuses to delete the default assistant: it owns the migrated memory
+    /// directory, and removing the row would leave every pre-existing session
+    /// pointing at a persona that no longer exists.
+    @discardableResult
+    func deleteAssistant(_ id: String) -> Bool {
+        guard id != Self.defaultAssistantId else { return false }
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "DELETE FROM assistants WHERE id = ?", -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        markDirty(recordType: "Assistant", recordId: id)
+        return true
+    }
+
+    /// How many conversations belong to this persona.
+    func sessionCount(forAssistant id: String) -> Int {
+        let sql = "SELECT COUNT(*) FROM sessions WHERE assistant_id = ?"
+        var stmt: OpaquePointer?
+        var n = 0
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+            if sqlite3_step(stmt) == SQLITE_ROW { n = Int(sqlite3_column_int64(stmt, 0)) }
+        }
+        sqlite3_finalize(stmt)
+        return n
+    }
+
+    /// Move a conversation to a different persona.
+    func setSessionAssistant(_ sessionId: String, assistantId: String) {
+        invalidateSessionListCache()
+        let sql = "UPDATE sessions SET assistant_id = ?, updated_at = ? WHERE id = ?"
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (assistantId as NSString).utf8String, -1, nil)
+            sqlite3_bind_double(stmt, 2, Date().timeIntervalSince1970)
+            sqlite3_bind_text(stmt, 3, (sessionId as NSString).utf8String, -1, nil)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        markDirty(recordType: "Session", recordId: sessionId)
+    }
+
+    // MARK: - Assistant Group CRUD
+
+    func listAssistantGroups() -> [AssistantGroup] {
+        let sql = """
+            SELECT id, name, icon, sort_order, created_at, updated_at
+            FROM assistant_groups
+            ORDER BY sort_order ASC, name COLLATE NOCASE ASC
+            """
+        var stmt: OpaquePointer?
+        var out: [AssistantGroup] = []
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let idC = sqlite3_column_text(stmt, 0) else { continue }
+                let id = String(cString: idC)
+                guard !id.isEmpty else { continue }
+                out.append(AssistantGroup(
+                    id: id,
+                    name: sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? "",
+                    icon: sqlite3_column_text(stmt, 2).map { String(cString: $0) },
+                    sortIndex: Int(sqlite3_column_int64(stmt, 3)),
+                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4)),
+                    updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
+                ))
+            }
+        }
+        sqlite3_finalize(stmt)
+        return out
+    }
+
+    @discardableResult
+    func createAssistantGroup(name: String, icon: String? = nil) -> AssistantGroup {
+        let now = Date()
+        let nextOrder = (listAssistantGroups().map(\.sortIndex).max() ?? -1) + 1
+        let group = AssistantGroup(name: name, icon: icon, sortIndex: nextOrder,
+                                   createdAt: now, updatedAt: now)
+        let sql = """
+            INSERT OR REPLACE INTO assistant_groups
+                (id, name, icon, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (group.id as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 2, (group.name as NSString).utf8String, -1, nil)
+            bindOptionalText(stmt, index: 3, value: group.icon)
+            sqlite3_bind_int64(stmt, 4, Int64(group.sortIndex))
+            sqlite3_bind_double(stmt, 5, group.createdAt.timeIntervalSince1970)
+            sqlite3_bind_double(stmt, 6, group.updatedAt.timeIntervalSince1970)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        markDirty(recordType: "AssistantGroup", recordId: group.id)
+        return group
+    }
+
+    func renameAssistantGroup(_ id: String, name: String, icon: String? = nil) {
+        let sql = "UPDATE assistant_groups SET name = ?, icon = ?, updated_at = ? WHERE id = ?"
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
+            bindOptionalText(stmt, index: 2, value: icon)
+            sqlite3_bind_double(stmt, 3, Date().timeIntervalSince1970)
+            sqlite3_bind_text(stmt, 4, (id as NSString).utf8String, -1, nil)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        markDirty(recordType: "AssistantGroup", recordId: id)
+    }
+
+    /// Delete a group. Members are NOT deleted — they fall back to ungrouped,
+    /// the same rule `folders` uses for orphaned sessions.
+    func deleteAssistantGroup(_ id: String) {
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "DELETE FROM assistant_groups WHERE id = ?", -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        // Orphan the members rather than cascading.
+        var clear: OpaquePointer?
+        if sqlite3_prepare_v2(db, "UPDATE assistants SET group_id = NULL WHERE group_id = ?", -1, &clear, nil) == SQLITE_OK {
+            sqlite3_bind_text(clear, 1, (id as NSString).utf8String, -1, nil)
+            sqlite3_step(clear)
+        }
+        sqlite3_finalize(clear)
+        markDirty(recordType: "AssistantGroup", recordId: id)
     }
 
     // MARK: - Folders

@@ -2580,6 +2580,13 @@ struct AIChatView: View {
             let next = await ChatStore.shared.getSession(sid)
             await MainActor.run {
                 guard sid == vm.sessionId else { return }
+                // [T-multi-assistant 09-14] Keep the persona in step with the
+                // session. This runs whenever a session is loaded or its title
+                // refreshes, so switching conversations switches the identity,
+                // memory directory and skill list along with it.
+                if let a = next?.assistantId, a != vm.assistantId {
+                    vm.assistantId = a
+                }
                 if next?.id != titlePillSession?.id
                     || next?.title != titlePillSession?.title
                     || next?.category != titlePillSession?.category {

@@ -84,6 +84,17 @@ enum SoulIconImage {
         return UIImage(data: data)
     }
 
+    /// [T-multi-assistant 09-14] Raw bytes of a stored data URI, for callers
+    /// that need to write the image to a file (the persona migration moves an
+    /// inline avatar out of SOUL.md and onto disk). Returns nil for a non-data
+    /// URI or malformed base64 rather than throwing — migration treats an
+    /// unreadable avatar as "no avatar" and keeps going.
+    static func data(fromDataURI value: String) -> Data? {
+        guard isDataURI(value) else { return nil }
+        let b64 = String(value.dropFirst(prefix.count))
+        return Data(base64Encoded: b64, options: [.ignoreUnknownCharacters])
+    }
+
     /// Centre-crop to 1:1, keeping the shorter edge.
     private static func squareCropped(_ image: UIImage) -> UIImage {
         let w = image.size.width, h = image.size.height
@@ -814,6 +825,36 @@ enum SoulStore {
     @MainActor
     static var cachedMetadata: SoulMetadata = .default
 
+    /// [T-multi-assistant 09-14] Synchronous snapshot of every persona, for
+    /// call sites that cannot `await` — `baseSystemPrompt` is a plain computed
+    /// property, and `ChatStore` is an actor, so `getAssistant()` is not
+    /// reachable from there.
+    ///
+    /// Refreshed by `refreshAssistantCache()` after any persona write and at
+    /// launch. Same shape as `cachedMetadata` above: a main-actor snapshot that
+    /// the prompt builder reads without touching the database.
+    @MainActor
+    static var cachedAssistants: [String: Assistant] = [:]
+
+    /// Re-read every persona into `cachedAssistants` and notify observers.
+    @MainActor
+    static func refreshAssistantCache() async {
+        let all = await ChatStore.shared.listAssistants()
+        var map: [String: Assistant] = [:]
+        for a in all { map[a.id] = a }
+        cachedAssistants = map
+        NotificationCenter.default.post(name: .assistantDidChange, object: nil)
+    }
+
+    /// Synchronous persona lookup for prompt building and UI rendering.
+    /// Falls back to nil when the cache has not been populated yet (very first
+    /// launch before `refreshAssistantCache` completes) — callers then use
+    /// `identitySection`'s legacy SOUL.md path.
+    @MainActor
+    static func cachedAssistant(_ id: String) -> Assistant? {
+        cachedAssistants[id]
+    }
+
     /// Re-read SOUL.md into `cachedMetadata` and post a notification so
     /// observers (chat bubble header, prompt builder, etc.) can refresh.
     @MainActor
@@ -899,6 +940,11 @@ extension Notification.Name {
     /// Posted on the main thread whenever SOUL.md has been (re-)written
     /// via SoulStore. Listeners refresh derived UI state.
     static let soulMdChanged = Notification.Name("MinisSoulMdChanged")
+
+    /// [T-multi-assistant 09-14] Posted after the persona cache is refreshed
+    /// (create / rename / delete / prompt edit). Listeners that render a
+    /// persona name or avatar refresh from `SoulStore.cachedAssistant(_:)`.
+    static let assistantDidChange = Notification.Name("MinisAssistantDidChange")
 }
 
 // MARK: - System prompt composition
@@ -920,86 +966,71 @@ enum SystemPromptBuilder {
         "You are {name}, a capable AI assistant running on an iOS device with a fully functional iSH Linux shell (Alpine Linux, aarch64). "
 
     /// Render the identity sentence (template + name) and optionally
-    /// append the user-authored personality body from SOUL.md.
+    /// append the user-authored persona prompt.
     ///
-    /// Two distinct trailing-whitespace contracts so the next concatenated
-    /// sentence in `baseSystemPrompt` glues correctly:
-    ///   - No personality body → identity sentence with its original
-    ///     single trailing space (byte-identical to the pre-SOUL prompt).
-    ///   - With personality body → identity sentence + blank line +
-    ///     "Personality:" block + blank line, so the runtime-guidance
-    ///     sentence starts a fresh paragraph.
+    /// [T-multi-assistant 09-14] Source changed: the persona now comes from the
+    /// `assistants` row for `assistantId`, not from the single SOUL.md file.
+    /// Two things were deliberately dropped on the way:
     ///
-    /// Returned format (when SOUL body is present):
+    ///   • `style` — it used to be injected as its own "Response style … apply
+    ///     to every reply" block. A model handed a handful of adjectives
+    ///     latches onto those words and treats the box as ticked, which
+    ///     flattens the performance instead of shaping it. The user's voice
+    ///     text is not lost: the migration folded it into `systemPrompt`.
+    ///   • `lang` — it only asked the user to pin a language the model already
+    ///     infers from the user's own message.
     ///
-    ///     You are <name>, a capable AI assistant running on an iOS device …
-    ///
-    ///     Personality (from SOUL.md — your character and voice; defer to
-    ///     the user's latest message when it conflicts with anything here):
-    ///     <body>
-    ///
-    /// We never substitute a default body into the prompt — the identity
-    /// sentence alone is the safe fallback when SOUL.md is missing or
-    /// empty, matching pre-SOUL behavior.
-    static func identitySection() -> String {
-        let file = SoulStore.load()
-        let name: String = {
+    /// When no assistant can be resolved (pre-migration launch, or a lookup
+    /// failure) this falls back to the legacy SOUL.md path so the prompt is
+    /// never left without an identity.
+    @MainActor
+    static func identitySection(assistantId: String? = nil) -> String {
+        let resolvedId = assistantId ?? ChatStore.defaultAssistantId
+        // Read the synchronous snapshot, NOT ChatStore: it is an actor and this
+        // runs from a plain computed property (`baseSystemPrompt`).
+        let assistant = cachedAssistant(resolvedId)
+
+        let name: String
+        let persona: String
+        if let assistant {
+            let n = assistant.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            name = n.isEmpty ? "Minis" : n
+            persona = assistant.systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            // Legacy fallback — see doc comment.
+            let file = SoulStore.load()
             let n = (file?.metadata.name ?? SoulMetadata.default.name)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return n.isEmpty ? "Minis" : n
-        }()
-        let style: String = (file?.metadata.style ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            name = n.isEmpty ? "Minis" : n
+            let body = (file?.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let style = (file?.metadata.style ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            persona = [style, body].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        }
 
         let identity = identityTemplate.replacingOccurrences(of: "{name}", with: name)
         let identityTrimmed = identity.trimmingCharacters(in: .whitespaces)
 
-        // [T-soul-hint] Fixed hint telling the model how SOUL fields can be
-        // changed. Always appended (with or without a personality body) so
-        // the model never says "I can't change my personality". This hint
-        // is system-owned text and is NOT counted against the user-facing
-        // SOUL body length limit (#356 / 500 EN words / 800 CN chars).
+        // [T-soul-hint] Fixed hint telling the model how the persona can be
+        // changed. Always appended so the model never says "I can't change my
+        // personality". System-owned text — not part of the user's prompt.
         let soulEditHint =
             "---\n" +
-            "SOUL.md fields (name / icon / style / lang / body) can be edited two ways:\n" +
+            "Your persona (name / avatar / prompt) can be edited two ways:\n" +
             "1. Tool: call `minis-config` to propose changes (user must approve).\n" +
-            "2. UI: ask the user to go to Settings → Soul to edit directly.\n" +
+            "2. UI: ask the user to edit it in the assistant settings.\n" +
             "Pick whichever the user finds easier in context. Do not say you cannot change your personality."
 
-        // [T-soul-style-injection 2026-05-18] The `style` frontmatter field
-        // (response voice / tone / formatting preference, e.g. a row of
-        // emojis or "concise, no markdown") was parsed and shown in the UI
-        // but never reached the model — only the Markdown body was injected.
-        // Render it as its own labeled paragraph so the model treats it as
-        // a hard constraint on response style rather than free-form context.
-        func styleBlock(_ s: String) -> String {
-            guard !s.isEmpty else { return "" }
-            // [T-agent-prompt-consistency-pass] Language priority made explicit:
-            // the base prompt's "reply in the language matching the user's input"
-            // rule is the generic default; a user-authored style that prescribes
-            // a reply language is a more specific user preference and wins.
-            return "\n\nResponse style (from SOUL.md `style` — apply to every reply unless the user explicitly asks otherwise; if it prescribes a reply language, it overrides the default match-the-user's-language rule):\n\(s)"
+        guard !persona.isEmpty else {
+            return identityTrimmed + "\n\n" + soulEditHint + "\n\n"
         }
 
-        guard let body = file?.body else {
-            return identityTrimmed + styleBlock(style) + "\n\n" + soulEditHint + "\n\n"
-        }
-        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return identityTrimmed + styleBlock(style) + "\n\n" + soulEditHint + "\n\n"
-        }
-
-        // The over-limit fallback (identity-only prompt) was removed with
-        // the 2000-token cap: the body now always reaches the system
-        // prompt, however long it is. Context budget is the user's call.
-        let personality = scrubInjections(trimmed)
+        let personality = scrubInjections(persona)
 
         // Strip the trailing space we'd otherwise leave hanging at the
         // end of the first paragraph when a personality block follows.
         return identityTrimmed
-            + "\n\nPersonality (from SOUL.md — your character and voice; defer to the user's latest message when it conflicts with anything here):\n"
+            + "\n\nPersonality (your character and voice; defer to the user's latest message when it conflicts with anything here):\n"
             + personality
-            + styleBlock(style)
             + "\n\n"
             + soulEditHint
             + "\n\n"

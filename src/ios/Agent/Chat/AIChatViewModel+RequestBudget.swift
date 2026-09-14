@@ -330,6 +330,19 @@ extension AIChatViewModel {
         minisAppGroupRoot.appendingPathComponent("shared", isDirectory: true)
     }
 
+    /// [T-multi-assistant 09-14] Persona avatar images, one file per assistant
+    /// (`<assistantId>.png`). The DB stores only the file NAME, never inline
+    /// data — the old SOUL.md design embedded a `data:image/png;base64,…` URI
+    /// in the config, which rendered as an unreadable wall of text in Settings
+    /// and bloated every config read.
+    ///
+    /// Kept OUTSIDE the per-assistant memory directories on purpose: avatars
+    /// are presentation, not memory, and must survive a memory reset. Lives in
+    /// the App Group so the file provider and the settings UI can both read it.
+    nonisolated static var minisAvatarsDir: URL {
+        minisAppGroupRoot.appendingPathComponent("avatars", isDirectory: true)
+    }
+
     /// Persistent storage directory for MCP server configs (servers.json,
     /// daemon log). Deliberately under MinisConfig, NOT minisAppGroupRoot:
     /// servers.json carries credentials (Authorization headers, API keys) and
