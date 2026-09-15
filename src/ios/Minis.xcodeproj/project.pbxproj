@@ -14,7 +14,7 @@
 		F1T00026 /* TTSProviderBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00022 /* TTSProviderBridge.swift */; };
 		F1T00027 /* VoiceServicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00023 /* VoiceServicesView.swift */; };
 		F1T00028 /* TTSServiceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00024 /* TTSServiceEditorView.swift */; };
-		F1T00030 /* SystemVoiceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00029 /* SystemVoiceEditorView.swift */; };
+		F1T00055 /* SystemVoiceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00029 /* SystemVoiceEditorView.swift */; };
 		30390D7AA90818BD4BDCE784 /* VoiceProviderTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F3D1138DBE516F31D76ABF4 /* VoiceProviderTemplate.swift */; };
 		33643CC21B9402F949D76C3C /* VoiceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84758F712C9B9178FA9D0EF2 /* VoiceProvider.swift */; };
 		38F28509AFBC2153A7C85E85 /* VoiceInputPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8AB343B6D865C37CC5E9EDB /* VoiceInputPanel.swift */; };
@@ -47,8 +47,8 @@
 		AA26CCC12F31090000AECF2D /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA26CCC22F31090000AECF2D /* SystemConfiguration.framework */; };
 		AA26CCC32F31090100AECF2D /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = AA26CCC42F31090100AECF2D /* libresolv.tbd */; };
 		AA71B0222F44BEB200A28A5E /* Launch Screen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA71B0212F44BEB200A28A5E /* Launch Screen.storyboard */; };
-		F1T00032 /* user-manual.md in Resources */ = {isa = PBXBuildFile; fileRef = F1T00031 /* user-manual.md */; };
-		F1T00052 /* agent-manual.md in Resources */ = {isa = PBXBuildFile; fileRef = F1T00051 /* agent-manual.md */; };
+		F1T00032 /* user-manual.md in Resources */ = {isa = PBXBuildFile; fileRef = F1T00056 /* user-manual.md */; };
+		F1T00052 /* agent-manual.md in Resources */ = {isa = PBXBuildFile; fileRef = F1T00060 /* agent-manual.md */; };
 		AA9C2BF92F65996900F41633 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = E5X000021 /* SwiftMath */; };
 		AADDA9E12F6ECCF400B66649 /* ThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AADDA9E02F6ECCF400B66649 /* ThumbnailCache.swift */; };
 		AAF00F012F50A00000049557 /* FFmpeg.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AAF00F002F50A00000049557 /* FFmpeg.framework */; };
@@ -237,7 +237,7 @@
 		F1T00033 /* MessageActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00034 /* MessageActionBar.swift */; };
 		F1T0003B /* BubbleAudioActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T0003C /* BubbleAudioActionBar.swift */; };
 		F1T0003D /* TTSFirstUseNudgeCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T0003E /* TTSFirstUseNudgeCard.swift */; };
-		F1T00040 /* ScheduledPromptManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00041 /* ScheduledPromptManager.swift */; };
+		F1T00057 /* ScheduledPromptManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00058 /* ScheduledPromptManager.swift */; };
 		F1T00042 /* ScheduledPromptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00043 /* ScheduledPromptsView.swift */; };
 		E5F200003 /* AssistantBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200013 /* AssistantBlockView.swift */; };
 		E5F200004 /* ChatMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F200014 /* ChatMessageViews.swift */; };
@@ -529,9 +529,9 @@
 		F1MCPSTOREB /* MCPStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1MCPSTORE /* MCPStore.swift */; };
 		F1S00012 /* ChatSessionIdEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1S00011 /* ChatSessionIdEnvironment.swift */; };
 		F1T00011 /* ToolLiveSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00010 /* ToolLiveSheet.swift */; };
-		F1T00051 /* RoleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00050 /* RoleStore.swift */; };
-		F1T00041 /* RolesHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00040 /* RolesHomeView.swift */; };
-		F1T00031 /* ProcessDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00030 /* ProcessDrawerView.swift */; };
+		F1T00060 /* RoleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00059 /* RoleStore.swift */; };
+		F1T00058 /* RolesHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00057 /* RolesHomeView.swift */; };
+		F1T00056 /* ProcessDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00055 /* ProcessDrawerView.swift */; };
 		F1VMCPB1 /* MCPIntegrationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1VMCP01 /* MCPIntegrationsView.swift */; };
 		F1VMCPB2 /* MCPFormSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1VMCP02 /* MCPFormSheet.swift */; };
 		F1VMCPB3 /* MCPJSONImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1VMCP03 /* MCPJSONImportSheet.swift */; };
@@ -920,7 +920,7 @@
 		F1T00034 /* MessageActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageActionBar.swift; sourceTree = "<group>"; };
 		F1T0003C /* BubbleAudioActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleAudioActionBar.swift; sourceTree = "<group>"; };
 		F1T0003E /* TTSFirstUseNudgeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSFirstUseNudgeCard.swift; sourceTree = "<group>"; };
-		F1T00041 /* ScheduledPromptManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledPromptManager.swift; sourceTree = "<group>"; };
+		F1T00058 /* ScheduledPromptManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledPromptManager.swift; sourceTree = "<group>"; };
 		F1T00043 /* ScheduledPromptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledPromptsView.swift; sourceTree = "<group>"; };
 		E5F200013 /* AssistantBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantBlockView.swift; sourceTree = "<group>"; };
 		E5F200014 /* ChatMessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageViews.swift; sourceTree = "<group>"; };
@@ -976,8 +976,8 @@
 		E5JB00013 /* TextSegmenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSegmenter.swift; sourceTree = "<group>"; };
 		E5JB00014 /* jieba.dict.utf8 */ = {isa = PBXFileReference; lastKnownFileType = text; name = jieba.dict.utf8; path = Resources/jieba.dict.utf8; sourceTree = "<group>"; };
 		E5JB00015 /* hmm_model.utf8 */ = {isa = PBXFileReference; lastKnownFileType = text; name = hmm_model.utf8; path = Resources/hmm_model.utf8; sourceTree = "<group>"; };
-		F1T00031 /* user-manual.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = "user-manual.md"; path = Resources/user-manual.md; sourceTree = "<group>"; };
-		F1T00051 /* agent-manual.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = "agent-manual.md"; path = Resources/agent-manual.md; sourceTree = "<group>"; };
+		F1T00056 /* user-manual.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = "user-manual.md"; path = Resources/user-manual.md; sourceTree = "<group>"; };
+		F1T00060 /* agent-manual.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = "agent-manual.md"; path = Resources/agent-manual.md; sourceTree = "<group>"; };
 		E5K000011 /* SelectableMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectableMarkdownView.swift; sourceTree = "<group>"; };
 		E5K000012 /* ChatTurnScreenshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTurnScreenshot.swift; sourceTree = "<group>"; };
 		E5KIMIR01 /* KimiOAuthRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = KimiOAuthRefreshCoordinator.swift; path = Providers/Kimi/OAuth/KimiOAuthRefreshCoordinator.swift; sourceTree = SOURCE_ROOT; };
@@ -1235,9 +1235,9 @@
 		F1MCPSTORE /* MCPStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPStore.swift; sourceTree = "<group>"; };
 		F1S00011 /* ChatSessionIdEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionIdEnvironment.swift; sourceTree = "<group>"; };
 		F1T00010 /* ToolLiveSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolLiveSheet.swift; sourceTree = "<group>"; };
-		F1T00050 /* RoleStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleStore.swift; sourceTree = "<group>"; };
-		F1T00040 /* RolesHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolesHomeView.swift; sourceTree = "<group>"; };
-		F1T00030 /* ProcessDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDrawerView.swift; sourceTree = "<group>"; };
+		F1T00059 /* RoleStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleStore.swift; sourceTree = "<group>"; };
+		F1T00057 /* RolesHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolesHomeView.swift; sourceTree = "<group>"; };
+		F1T00055 /* ProcessDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDrawerView.swift; sourceTree = "<group>"; };
 		F1VMCP01 /* MCPIntegrationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPIntegrationsView.swift; sourceTree = "<group>"; };
 		F1VMCP02 /* MCPFormSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPFormSheet.swift; sourceTree = "<group>"; };
 		F1VMCP03 /* MCPJSONImportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPJSONImportSheet.swift; sourceTree = "<group>"; };
@@ -1534,8 +1534,8 @@
 				E5JB00014 /* jieba.dict.utf8 */,
 				E5VC0001B /* zh_background_wordfreq.txt */,
 				E5JB00015 /* hmm_model.utf8 */,
-				F1T00031 /* user-manual.md */,
-				F1T00051 /* agent-manual.md */,
+				F1T00056 /* user-manual.md */,
+				F1T00060 /* agent-manual.md */,
 				E53000030 /* Agent */,
 				E5D000030 /* Views */,
 				E52000030 /* Providers */,
@@ -2007,7 +2007,7 @@
 				E5T000011 /* SessionEntity.swift */,
 				E5T000012 /* ListSessionsIntent.swift */,
 				E5T000013 /* SendPromptIntent.swift */,
-				F1T00041 /* ScheduledPromptManager.swift */,
+				F1T00058 /* ScheduledPromptManager.swift */,
 				F1T00043 /* ScheduledPromptsView.swift */,
 				E5T0000A2 /* AskMinisIntent.swift */,
 				E5F200016 /* ModelSelectionEntity.swift */,
@@ -2296,9 +2296,9 @@
 				E5N0000152F3B941A00049557 /* SessionMemoryView.swift */,
 				E5N0000122F3B941A00049557 /* SessionSkillsView.swift */,
 				F1T00010 /* ToolLiveSheet.swift */,
-				F1T00050 /* RoleStore.swift */,
-				F1T00040 /* RolesHomeView.swift */,
-				F1T00030 /* ProcessDrawerView.swift */,
+				F1T00059 /* RoleStore.swift */,
+				F1T00057 /* RolesHomeView.swift */,
+				F1T00055 /* ProcessDrawerView.swift */,
 				E53000015 /* UsageStatsView.swift */,
 				F1W00012 /* WebPreviewSheet.swift */,
 				A11Y0002 /* ChatAccessibilityAnnouncer.swift */,
@@ -2896,9 +2896,9 @@
 				A11Y0001 /* ChatAccessibilityAnnouncer.swift in Sources */,
 				F1W0E101 /* WebLoadError.swift in Sources */,
 				F1T00011 /* ToolLiveSheet.swift in Sources */,
-				F1T00051 /* RoleStore.swift in Sources */,
-				F1T00041 /* RolesHomeView.swift in Sources */,
-				F1T00031 /* ProcessDrawerView.swift in Sources */,
+				F1T00060 /* RoleStore.swift in Sources */,
+				F1T00058 /* RolesHomeView.swift in Sources */,
+				F1T00056 /* ProcessDrawerView.swift in Sources */,
 				E5V300001 /* CollectionViewMessageListV3.swift in Sources */,
 				F1A00020 /* MessageListInfrastructure.swift in Sources */,
 				E54100001 /* SessionDataSimulator.swift in Sources */,
@@ -2907,7 +2907,7 @@
 				E5T000001 /* SessionEntity.swift in Sources */,
 				E5T000002 /* ListSessionsIntent.swift in Sources */,
 				E5T000003 /* SendPromptIntent.swift in Sources */,
-				F1T00040 /* ScheduledPromptManager.swift in Sources */,
+				F1T00057 /* ScheduledPromptManager.swift in Sources */,
 				F1T00042 /* ScheduledPromptsView.swift in Sources */,
 				E5T0000A1 /* AskMinisIntent.swift in Sources */,
 				E5F200006 /* ModelSelectionEntity.swift in Sources */,
@@ -3227,7 +3227,7 @@
 				F1T00026 /* TTSProviderBridge.swift in Sources */,
 				F1T00027 /* VoiceServicesView.swift in Sources */,
 				F1T00028 /* TTSServiceEditorView.swift in Sources */,
-				F1T00030 /* SystemVoiceEditorView.swift in Sources */,
+				F1T00055 /* SystemVoiceEditorView.swift in Sources */,
 				77BB9741AB0EFC449FDBDFED /* VoiceWaveformView.swift in Sources */,
 				38F28509AFBC2153A7C85E85 /* VoiceInputPanel.swift in Sources */,
 				30390D7AA90818BD4BDCE784 /* VoiceProviderTemplate.swift in Sources */,
