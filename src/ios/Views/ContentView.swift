@@ -1008,6 +1008,8 @@ struct ContentView: View {
     @State private var showSettingsPage = false
     /// [T-play-hub 09-12] 玩法页 push flag — same pattern as showSettingsPage.
     @State private var showPlayHub = false
+    /// [T-roles-09-15] 角色（通讯录）页 push flag — same pattern.
+    @State private var showRoles = false
     @StateObject private var browserPool = BrowserTabPool()
     @State private var selectedSessionId: String?
     /// Shadow of the previously-selected session id, used to identify the
@@ -2044,6 +2046,10 @@ struct ContentView: View {
                 .navigationDestination(isPresented: $showPlayHub) {
                     PlayHubView()
                 }
+                // [T-roles-09-15] 角色页（通讯录）—— split 布局同级入口。
+                .navigationDestination(isPresented: $showRoles) {
+                    RolesHomeView()
+                }
         } detail: {
             detailView
                 .appFontScale()
@@ -2063,6 +2069,10 @@ struct ContentView: View {
                 // [T-play-hub 09-12] 玩法 hub on the same stack.
                 .navigationDestination(isPresented: $showPlayHub) {
                     PlayHubView()
+                }
+                // [T-roles-09-15] 角色页（通讯录）—— 与玩法同级的一级入口。
+                .navigationDestination(isPresented: $showRoles) {
+                    RolesHomeView()
                 }
                 .navigationDestination(for: String.self) { id in
                     // `.id(id)` mirrors detailView (iPad): navigationDestination
@@ -3439,6 +3449,15 @@ struct ContentView: View {
                 size: 22, weight: .medium
             ) {
                 showPlayHub = true
+            }
+            // [T-roles-09-15] 醒醒: 角色（通讯录）入口 —— address book of
+            // personas; create/edit/delete, per-role chat list.
+            homeBottomTab(
+                icon: { Image(systemName: "person.2") },
+                label: "Roles",
+                size: 22, weight: .medium
+            ) {
+                showRoles = true
             }
             if hasAlarms {
                 homeBottomTab(

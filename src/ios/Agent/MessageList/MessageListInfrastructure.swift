@@ -25,6 +25,10 @@ enum MessageListItem: Hashable {
     case assistantHeader(UUID)
     /// A single AssistantBlock within an assistant turn.
     case assistantBlock(UUID, UUID)  // (messageId, blockId)
+    /// [T-process-drawer 09-15] The one-line process row that folds ALL of a
+    /// turn's thinking + tool blocks. Rendered right after the header,
+    /// replacing the per-block stack (which text/info blocks still use).
+    case assistantProcess(UUID)
     /// Footer area: typing indicator, error, resume, usage.
     case assistantFooter(UUID)
 
@@ -32,7 +36,7 @@ enum MessageListItem: Hashable {
     var messageId: UUID {
         switch self {
         case .wholeMessage(let id), .assistantHeader(let id),
-             .assistantFooter(let id): return id
+             .assistantFooter(let id), .assistantProcess(let id): return id
         case .assistantBlock(let msgId, _): return msgId
         }
     }

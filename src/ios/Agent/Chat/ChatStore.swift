@@ -578,11 +578,6 @@ actor ChatStore {
 
         openDatabase()
         createTables()
-        // [T-multi-assistant 09-14] Fold the legacy single SOUL.md into the
-        // default assistant row. Runs right after the tables exist and before
-        // any caller can read a persona, so the migrated assistant is visible
-        // from the first launch of this build. Idempotent + guarded.
-        migrateSoulToDefaultAssistantIfNeeded()
         armRebootGuardIfDegraded()
     }
 
@@ -2220,91 +2215,14 @@ actor ChatStore {
     // bumps `updated_at` and marks the row dirty for iCloud v2 sync, mirroring
     // the folder methods below.
 
-    /// The id every pre-existing session/assistant migrates to. Kept in sync
-    /// with `MinisFsRouter.defaultAssistantId` — that constant owns the
-    /// filesystem side of the same idea.
+    /// The fallback id: sessions created before personas existed, and the
+    /// filesystem bucket that predates them. Kept in sync with
+    /// `MinisFsRouter.defaultAssistantId`, which owns the filesystem side of
+    /// the same idea. It is a bucket, NOT a persona — nothing creates a row
+    /// with this id, and `identitySection` resolves it to no identity at all
+    /// (empty persona) rather than to a built-in character.
     nonisolated static let defaultAssistantId = MinisFsRouter.defaultAssistantId
 
-    /// One-time migration: fold the single global SOUL.md into the default
-    /// assistant row, so the persona the user already has survives the move
-    /// from "one file" to "one row per persona".
-    ///
-    /// Runs once, guarded by a UserDefaults flag. Idempotent by construction:
-    /// it returns immediately if any assistant already exists, so a crash
-    /// mid-migration cannot produce two "小梦" rows.
-    ///
-    /// What is preserved and where it goes:
-    ///   • name            -> Assistant.name
-    ///   • icon (emoji or data URI) -> Assistant.avatarPath is NOT used; a
-    ///     data URI is written to <appGroup>/avatars/<id>.png and the path
-    ///     stored instead, and a bare emoji is kept as a literal "emoji:✨"
-    ///     marker so no information is lost either way.
-    ///   • style + body    -> CONCATENATED into Assistant.systemPrompt.
-    ///     The old design injected `style` as a separate "Response style"
-    ///     block; there is no such field any more. Folding the two together
-    ///     keeps every word the user wrote (their voice block is not dropped)
-    ///     while removing the separate knob.
-    ///   • lang            -> dropped, as designed: it only duplicated what the
-    ///     model already infers from the user's own language.
-    ///
-    /// SOUL.md itself is left on disk untouched — it is the fallback if this
-    /// migration is ever reverted, and deleting user content is not this
-    /// function's call.
-    func migrateSoulToDefaultAssistantIfNeeded() {
-        let flagKey = "assistant.migratedFromSoulV1"
-        let defaults = UserDefaults.standard
-        if defaults.bool(forKey: flagKey) { return }
-
-        // Never migrate on top of an existing persona set.
-        let existing = listAssistants()
-        if !existing.isEmpty {
-            defaults.set(true, forKey: flagKey)
-            return
-        }
-
-        let soul = SoulStore.load()
-        let meta = soul?.metadata ?? .default
-        let body = (soul?.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let style = (meta.style).trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // style first, then body: the style block was the "how I speak"
-        // constraint and read as a header in the old prompt, so keeping that
-        // order preserves how the text flowed.
-        var prompt = ""
-        if !style.isEmpty { prompt += style }
-        if !body.isEmpty {
-            if !prompt.isEmpty { prompt += "\n\n" }
-            prompt += body
-        }
-
-        // Avatar: a data URI becomes a real file; a literal emoji is kept as a
-        // marker string; empty stays nil (default glyph).
-        var avatarPath: String? = nil
-        let icon = meta.icon
-        if !icon.isEmpty {
-            if SoulIconImage.isDataURI(icon), let data = SoulIconImage.data(fromDataURI: icon) {
-                let dir = AIChatViewModel.minisAvatarsDir
-                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                let file = dir.appendingPathComponent("\(Self.defaultAssistantId).png")
-                if (try? data.write(to: file)) != nil {
-                    avatarPath = file.lastPathComponent
-                }
-            } else {
-                // A short literal glyph (an emoji) — store it as a marker.
-                avatarPath = "emoji:\(icon)"
-            }
-        }
-
-        let name = meta.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = createAssistant(
-            name: name.isEmpty ? "Minis" : name,
-            avatarPath: avatarPath,
-            systemPrompt: prompt,
-            id: Self.defaultAssistantId
-        )
-        defaults.set(true, forKey: flagKey)
-        logger.info("[Assistant] migrated SOUL.md -> assistant '\(name)' (prompt \(prompt.count) chars, avatar=\(avatarPath ?? "none"))")
-    }
 
     /// All assistants, ordered for display: sort_index then name.
     func listAssistants() -> [Assistant] {
@@ -2432,17 +2350,26 @@ actor ChatStore {
         markDirty(recordType: "Assistant", recordId: id)
     }
 
-    /// Delete a persona. Its sessions are NOT deleted — they keep their
-    /// `assistant_id` and become orphaned rows, which is deliberate: losing a
-    /// persona must not silently destroy conversations the user can still
-    /// read. Callers that want the chats gone delete them explicitly.
+    /// Delete a persona AND everything it owns.
     ///
-    /// Refuses to delete the default assistant: it owns the migrated memory
-    /// directory, and removing the row would leave every pre-existing session
-    /// pointing at a persona that no longer exists.
+    /// [T-roles-09-15] 醒醒拍板：删角色 = 全部清空。Per the persona UI spec,
+    /// deleting a role removes:
+    ///   • the `assistants` row
+    ///   • every session owned by it (cloud queued + tombstoned + media,
+    ///     via deleteSession — NOT orphaned; that was the old "address book
+    ///     is authority" behavior, replaced by explicit user choice)
+    ///   • its per-assistant memory directory (<appGroup>/memory/<id>)
+    ///   • its avatar file (<appGroup>/avatars/<id>.png)
+    ///
+    /// All destructive paths reuse the existing per-kind delete helpers so
+    /// children (messages, media, cloud sync tombstones) stay consistent.
     @discardableResult
     func deleteAssistant(_ id: String) -> Bool {
-        guard id != Self.defaultAssistantId else { return false }
+        // 1. Scrap the assistant's sessions (cloud + local + media + tombstone).
+        for session in sessions(forAssistant: id) {
+            deleteSession(session.id)
+        }
+        // 2. Drop the row last, so the session loop above still resolves.
         var stmt: OpaquePointer?
         if sqlite3_prepare_v2(db, "DELETE FROM assistants WHERE id = ?", -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
@@ -2450,7 +2377,39 @@ actor ChatStore {
         }
         sqlite3_finalize(stmt)
         markDirty(recordType: "Assistant", recordId: id)
+        // 3. Wipe the per-assistant memory directory (persona files, daily
+        //    logs, drawers — everything this role lived through).
+        let memDir = AIChatViewModel.minisMemoryPersistentDir(for: id)
+        try? FileManager.default.removeItem(at: memDir)
+        // 4. Remove the avatar file if present.
+        let avatarURL = AIChatViewModel.minisAvatarsDir.appendingPathComponent("\(id).png")
+        if FileManager.default.fileExists(atPath: avatarURL.path) {
+            try? FileManager.default.removeItem(at: avatarURL)
+        }
+        // NOTE: `SoulStore.cachedAssistants` is @MainActor, so it is NOT
+        // touched here (this is an actor). The caller (RoleStore) runs
+        // `SoulStore.refreshAssistantCache()` after every persona write,
+        // which re-reads the DB and drops the id from the snapshot.
         return true
+    }
+
+    /// The sessions currently owned by a persona (for cascade delete and the
+    /// roles UI's per-role chat list).
+    func sessions(forAssistant id: String) -> [ChatSession] {
+        var stmt: OpaquePointer?
+        var out: [ChatSession] = []
+        let sql = "SELECT id FROM sessions WHERE assistant_id = ?"
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let idC = sqlite3_column_text(stmt, 0) else { continue }
+                let sid = String(cString: idC)
+                guard !sid.isEmpty else { continue }
+                if let s = getSession(sid) { out.append(s) }
+            }
+        }
+        sqlite3_finalize(stmt)
+        return out
     }
 
     /// How many conversations belong to this persona.

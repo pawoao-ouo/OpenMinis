@@ -980,9 +980,10 @@ enum SystemPromptBuilder {
     ///   • `lang` — it only asked the user to pin a language the model already
     ///     infers from the user's own message.
     ///
-    /// When no assistant can be resolved (pre-migration launch, or a lookup
-    /// failure) this falls back to the legacy SOUL.md path so the prompt is
-    /// never left without an identity.
+    /// When no assistant can be resolved the prompt gets the identity sentence
+    /// only, with no personality block. It does NOT fall back to SOUL.md: the
+    /// address book is the sole source of persona, and a shipped character is
+    /// not a neutral default.
     @MainActor
     static func identitySection(assistantId: String? = nil) -> String {
         let resolvedId = assistantId ?? ChatStore.defaultAssistantId
@@ -999,14 +1000,14 @@ enum SystemPromptBuilder {
             name = n.isEmpty ? "Minis" : n
             persona = assistant.systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         } else {
-            // Legacy fallback — see doc comment.
-            let file = SoulStore.load()
-            let n = (file?.metadata.name ?? SoulMetadata.default.name)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            name = n.isEmpty ? "Minis" : n
-            let body = (file?.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let style = (file?.metadata.style ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            persona = [style, body].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            // No persona row — an empty address book, or a session whose
+            // persona was deleted. Deliberately NOT a fallback to SOUL.md:
+            // that file is one hard-coded character shipped with the app, and
+            // this app ships no characters. The identity sentence keeps the
+            // generic name so the prompt is still well-formed; whoever the
+            // user creates next supplies the personality.
+            name = "Minis"
+            persona = ""
         }
 
         let identity = identityTemplate.replacingOccurrences(of: "{name}", with: name)

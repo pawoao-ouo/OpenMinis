@@ -421,6 +421,43 @@ private struct BridgedAssistantBlockV3: View {
 /// Footer: typing indicator, error, resume banner, token usage.
 /// V3: No GeometryReader. Sheet moved to zero-size overlay to prevent
 /// inflated self-sizing from sheet-capable view modifiers.
+/// [T-process-drawer 09-15] The folded process row: one line that stands in
+/// for ALL of a turn's thinking + tool blocks. Live text while running,
+/// summary when done; tap opens the drawer (sheet, zero-size overlay mount —
+/// same pattern as BridgedAssistantFooterV3 so self-sizing isn't inflated).
+private struct BridgedProcessRowV3: View {
+    @ObservedObject var message: ChatMessage
+    @ObservedObject var bridge: CellStateBridgeV2
+    var maxWidth: CGFloat
+    @State private var showDrawer = false
+
+    var body: some View {
+        ProcessRowView(
+            message: message,
+            isActiveMessage: bridge.isActiveMessage
+        ) {
+            showDrawer = true
+        }
+        .frame(maxWidth: maxWidth > 0 ? maxWidth : nil, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .opacity(message.isCompactedHistory ? 0.5 : 1.0)
+        .accessibilityIdentifier("assistantProcessRow")
+        .overlay {
+            Color.clear.frame(width: 0, height: 0)
+                .sheet(isPresented: $showDrawer) {
+                    ProcessDrawerView(
+                        message: message,
+                        toolSnapshots: bridge.toolSnapshots,
+                        browserPool: bridge.browserPool,
+                        commandStartTime: bridge.commandStartTime,
+                        onStop: bridge.onStop
+                    )
+                }
+        }
+    }
+}
+
 private struct BridgedAssistantFooterV3: View {
     @ObservedObject var message: ChatMessage
     @ObservedObject var bridge: CellStateBridgeV2
@@ -688,6 +725,8 @@ private struct BridgedWholeMessageV3: View {
 private final class WholeMessageCellV3: SelfSizingCell {}
 private final class AssistantHeaderCellV3: SelfSizingCell {}
 private final class AssistantBlockCellV3: SelfSizingCell {}
+/// [T-process-drawer 09-15] Hosts the folded process row.
+private final class AssistantProcessCellV3: SelfSizingCell {}
 private final class AssistantFooterCellV3: SelfSizingCell {}
 
 // MARK: - V3 Coordinator
@@ -1017,6 +1056,11 @@ extension CollectionViewMessageListV3 {
                 [weak self] cell, indexPath, item in
                 self?.configureCell(cell, item: item, indexPath: indexPath)
             }
+            // [T-process-drawer 09-15] The folded process row cell.
+            let processReg = UICollectionView.CellRegistration<AssistantProcessCellV3, MessageListItem> {
+                [weak self] cell, indexPath, item in
+                self?.configureCell(cell, item: item, indexPath: indexPath)
+            }
             let footerReg = UICollectionView.CellRegistration<AssistantFooterCellV3, MessageListItem> {
                 [weak self] cell, indexPath, item in
                 self?.configureCell(cell, item: item, indexPath: indexPath)
@@ -1032,6 +1076,8 @@ extension CollectionViewMessageListV3 {
                     return cv.dequeueConfiguredReusableCell(using: headerReg, for: indexPath, item: item)
                 case .assistantBlock:
                     return cv.dequeueConfiguredReusableCell(using: blockReg, for: indexPath, item: item)
+                case .assistantProcess:
+                    return cv.dequeueConfiguredReusableCell(using: processReg, for: indexPath, item: item)
                 case .assistantFooter:
                     return cv.dequeueConfiguredReusableCell(using: footerReg, for: indexPath, item: item)
                 }
@@ -1250,6 +1296,24 @@ extension CollectionViewMessageListV3 {
                 let config = UIHostingConfiguration {
                     BridgedAssistantBlockV3(
                         block: block,
+                        message: message,
+                        bridge: bridge,
+                        maxWidth: width
+                    )
+                    .transaction { $0.disablesAnimations = true }
+                    .environmentObject(vm)
+                }.minSize(width: 0, height: 0).margins(.all, 0)
+                cell.applyContentConfiguration(config)
+
+            case .assistantProcess(let msgId):
+                // [T-process-drawer 09-15] The folded process row for this
+                // turn. Live text / done summary derive from message state.
+                guard let msgIdx = messageIndex[msgId], msgIdx < messages.count else { return }
+                let message = messages[msgIdx]
+                let bridge = getOrCreateBridge(for: message, in: messages)
+                cell.backgroundColor = .clear
+                let config = UIHostingConfiguration {
+                    BridgedProcessRowV3(
                         message: message,
                         bridge: bridge,
                         maxWidth: width
@@ -2742,8 +2806,31 @@ extension CollectionViewMessageListV3 {
                     }
                 case .assistant:
                     newItems.append(.assistantHeader(message.id))
+                    // [T-process-drawer 09-15] Process kinds (thinking + every
+                    // tool) fold into ONE process-row cell instead of one cell
+                    // per block. Text/info blocks keep their own cells and
+                    // render below the row in block order.
+                    var hasProcess = false
                     for block in message.blocks {
-                        newItems.append(.assistantBlock(message.id, block.id))
+                        switch block.kind {
+                        case .thinking, .shellTool, .fileReadTool, .fileWriteTool,
+                             .fileEditTool, .browserTool, .readImageTool, .memoryTool:
+                            hasProcess = true
+                        case .text, .info:
+                            break
+                        }
+                    }
+                    if hasProcess {
+                        newItems.append(.assistantProcess(message.id))
+                    }
+                    for block in message.blocks {
+                        switch block.kind {
+                        case .thinking, .shellTool, .fileReadTool, .fileWriteTool,
+                             .fileEditTool, .browserTool, .readImageTool, .memoryTool:
+                            continue  // folded into the process row above
+                        case .text, .info:
+                            newItems.append(.assistantBlock(message.id, block.id))
+                        }
                     }
                     // Only emit a footer cell when it will actually render
                     // content. A footer with zero visible content (no typing
@@ -2936,6 +3023,11 @@ extension CollectionViewMessageListV3 {
                     case .assistantHeader:
                         // 38pt paired avatar + top padding; keep the estimate at or above render height.
                         layout.setEstimatedHeight(44, at: i)
+
+                    case .assistantProcess:
+                        // [T-process-drawer 09-15] The one-line process row:
+                        // 9pt vertical pad ×2 + ~18pt content + 2pt border.
+                        layout.setEstimatedHeight(40, at: i)
 
                     case .assistantFooter:
                         // Prominent banners (error/resume/typing) measure
@@ -3682,6 +3774,8 @@ extension CollectionViewMessageListV3 {
             case .wholeMessage(let id): return id
             case .assistantHeader(let id): return id
             case .assistantFooter(let id): return id
+            // [T-process-drawer 09-15]
+            case .assistantProcess(let id): return id
             case .assistantBlock(let mid, _): return mid
             }
         }
@@ -3753,6 +3847,12 @@ extension CollectionViewMessageListV3 {
             case .assistantFooter(let id):
                 let c = msg(id)?.blocks.first?.content ?? ""
                 return "f#\(digest(c))"
+            case .assistantProcess(let id):
+                // [T-process-drawer 09-15] Debug-build digest of the process row.
+                let m = msg(id)
+                let live = m?.liveProcessText ?? ""
+                let n = m?.processStepCount ?? 0
+                return "p#\(digest(live))#\(n)"
             case .assistantBlock(let mid, let bid):
                 guard let b = msg(mid)?.blocks.first(where: { $0.id == bid }) else { return "b#?" }
                 let c = b.content
@@ -3775,6 +3875,19 @@ extension CollectionViewMessageListV3 {
                 return "h:\(id.uuidString)"
             case .assistantFooter(let id):
                 return "f:\(id.uuidString)"
+            case .assistantProcess(let id):
+                // Folded process row: content changes when the live step text
+                // changes or the step count moves — but NOT on every thinking
+                // delta (the row shows a char counter, so count granularity is
+                // enough; token-level churn would re-measure per flush).
+                let m = msg(id)
+                let live = m?.liveProcessText ?? ""
+                let n = m?.processStepCount ?? 0
+                let active = (m?.isTurnActive ?? false) ? 1 : 0
+                let chars = m?.liveProcessBlock.map { block in
+                    max(block.content.count, block.thinkingContentBuffer.count)
+                } ?? 0
+                return "p:\(id.uuidString):\(n):\(active):\(live.count):\(chars)"
             case .assistantBlock(let mid, let bid):
                 let block = msg(mid)?.blocks.first(where: { $0.id == bid })
                 let n = block?.content.count ?? 0
@@ -3836,6 +3949,9 @@ extension CollectionViewMessageListV3 {
                 }
             case .assistantHeader:
                 return 44
+            case .assistantProcess:
+                // [T-process-drawer 09-15] One-line row: vPad 9×2 + content ~18 + border 2.
+                return 40
             case .assistantBlock(let msgId, let blockId):
                 guard let msg = messages.first(where: { $0.id == msgId }),
                       let block = msg.blocks.first(where: { $0.id == blockId }) else { return 44 }
@@ -4037,6 +4153,9 @@ extension CollectionViewMessageListV3 {
             switch item {
             case .assistantBlock(let mid, _): return mid == messageId
             case .assistantFooter(let mid): return mid == messageId
+            // [T-process-drawer 09-15] The process row is part of the turn's
+            // span too — same hover/stream anchoring semantics as its blocks.
+            case .assistantProcess(let mid): return mid == messageId
             case .wholeMessage, .assistantHeader: return false
             }
         }

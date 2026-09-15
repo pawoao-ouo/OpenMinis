@@ -146,6 +146,83 @@ final class ChatMessage: Identifiable, ObservableObject {
     /// Earlier blocks from previous rounds deliberately do NOT suppress the
     /// indicator — content produced two rounds ago says nothing about whether
     /// THIS round has started producing.
+    /// True once this turn has ever contained a thinking or tool block —
+    /// the process row only exists for turns that actually have process
+    /// content. Pure text-only replies never get the row.
+    var hasProcessContent: Bool {
+        blocks.contains { block in
+            switch block.kind {
+            case .thinking, .shellTool, .fileReadTool, .fileWriteTool,
+                 .fileEditTool, .browserTool, .readImageTool, .memoryTool:
+                return true
+            case .text, .info:
+                return false
+            }
+        }
+    }
+
+    /// The block the process row should surface as "what's happening right
+    /// now": the last block whose tool status is still active, or while
+    /// awaiting the model, the last thinking block. Nil when the turn is
+    /// fully settled (done / failed / cancelled).
+    var liveProcessBlock: AssistantBlock? {
+        // A tool is mid-flight → that tool is the live line.
+        if let active = blocks.last(where: { block in
+            switch block.toolStatus {
+            case .streaming, .running: return true
+            default: return false
+            }
+        }) { return active }
+        // Waiting on the model between rounds → the freshest thinking.
+        if isAwaitingModelResponse,
+           let think = blocks.last(where: { if case .thinking = $0.kind { return true }; return false }) {
+            return think
+        }
+        return nil
+    }
+
+    /// One-line live status for the process row while the turn is running.
+    /// Prefers the LLM-generated toolSummary, falls back to toolDescription.
+    var liveProcessText: String? {
+        guard let live = liveProcessBlock else { return nil }
+        switch live.kind {
+        case .thinking:
+            let n = max(live.content.count, live.thinkingContentBuffer.count)
+            return n > 0 ? "\(n)" : nil
+        default:
+            let s = live.toolSummary ?? live.toolDescription
+            return s.isEmpty ? nil : s
+        }
+    }
+
+    /// Whether the turn this message represents is still in flight.
+    /// A turn is settled when no tool block is active AND the model is not
+    /// awaited. (A message can hold settled blocks while the VM is still
+    /// processing a LATER round of the same turn — that's still running.)
+    var isTurnActive: Bool {
+        isAwaitingModelResponse || liveProcessBlock != nil
+    }
+
+    /// [T-process-drawer 09-15] Status label for the process row: what the
+    /// agent is doing right now, or "done" when settled.
+    var isThinkingNow: Bool {
+        if let live = liveProcessBlock, case .thinking = live.kind { return true }
+        return isAwaitingModelResponse && liveProcessBlock == nil
+    }
+
+    /// Compact count for the done state: "思考 + N 个动作".
+    var processStepCount: Int {
+        blocks.filter { block in
+            switch block.kind {
+            case .thinking, .shellTool, .fileReadTool, .fileWriteTool,
+                 .fileEditTool, .browserTool, .readImageTool, .memoryTool:
+                return true
+            case .text, .info:
+                return false
+            }
+        }.count
+    }
+
     var shouldShowTypingIndicator: Bool {
         if blocks.isEmpty { return true }
         guard isAwaitingModelResponse else { return false }
