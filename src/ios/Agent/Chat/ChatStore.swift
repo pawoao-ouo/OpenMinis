@@ -2365,6 +2365,18 @@ actor ChatStore {
     /// children (messages, media, cloud sync tombstones) stay consistent.
     @discardableResult
     func deleteAssistant(_ id: String) -> Bool {
+        // 0. Read the avatar filename BEFORE the row is deleted. save() writes
+        //    a random UUID filename, not "<id>.png", so we need the DB value
+        //    to remove the right file later (P1-1 fix).
+        var avatarFile: String?
+        var readStmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT avatar_path FROM assistants WHERE id = ?", -1, &readStmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(readStmt, 1, (id as NSString).utf8String, -1, nil)
+            if sqlite3_step(readStmt) == SQLITE_ROW {
+                avatarFile = sqlite3_column_text(readStmt, 0).map { String(cString: $0) }
+            }
+        }
+        sqlite3_finalize(readStmt)
         // 1. Scrap the assistant's sessions (cloud + local + media + tombstone).
         for session in sessions(forAssistant: id) {
             deleteSession(session.id)
@@ -2381,10 +2393,14 @@ actor ChatStore {
         //    logs, drawers — everything this role lived through).
         let memDir = AIChatViewModel.minisMemoryPersistentDir(for: id)
         try? FileManager.default.removeItem(at: memDir)
-        // 4. Remove the avatar file if present.
-        let avatarURL = AIChatViewModel.minisAvatarsDir.appendingPathComponent("\(id).png")
-        if FileManager.default.fileExists(atPath: avatarURL.path) {
-            try? FileManager.default.removeItem(at: avatarURL)
+        // 4. Remove the avatar file by its DB-stored path — a random UUID
+        //    filename, NOT "<id>.png" (save() writes UUID names). Skip
+        //    emoji-marked legacy paths (no file on disk).
+        if let p = avatarFile, !p.isEmpty, !p.hasPrefix("emoji:") {
+            let avatarURL = AIChatViewModel.minisAvatarsDir.appendingPathComponent(p)
+            if FileManager.default.fileExists(atPath: avatarURL.path) {
+                try? FileManager.default.removeItem(at: avatarURL)
+            }
         }
         // NOTE: `SoulStore.cachedAssistants` is @MainActor, so it is NOT
         // touched here (this is an actor). The caller (RoleStore) runs

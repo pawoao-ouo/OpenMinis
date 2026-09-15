@@ -309,6 +309,7 @@ struct RoleEditorView: View {
     @State private var avatarChanged = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var saving = false
+    @State private var saveError: String? = nil
     @State private var showPhotoPicker = false
 
     private var isEditing: Bool { existing != nil }
@@ -333,6 +334,13 @@ struct RoleEditorView: View {
                         .foregroundStyle(MinisThemeList.subtitle)
                         .frame(maxWidth: .infinity)
                         .listRowBackground(Color.clear)
+                    if let saveError {
+                        Text(saveError)
+                            .font(.caption)
+                            .foregroundStyle(MinisThemeList.accent)
+                            .frame(maxWidth: .infinity)
+                            .listRowBackground(Color.clear)
+                    }
                 }
                 Section(AppLocalized("Name")) {
                     TextField(AppLocalized("Role name"), text: $name)
@@ -405,10 +413,22 @@ struct RoleEditorView: View {
                 if let img = avatarImage, let data = img.pngData() {
                     let file = "\(UUID().uuidString).png"
                     do {
+                        // [T-avatar-09-16] Ensure the dir exists (MinisApp also
+                        // creates it at launch; belt for installs where the
+                        // group was wiped mid-life). Without this the write
+                        // throws on a fresh install and was silently swallowed.
+                        try FileManager.default.createDirectory(
+                            at: RoleStore.avatarsDir,
+                            withIntermediateDirectories: true)
                         try data.write(to: RoleStore.avatarsDir.appendingPathComponent(file))
                         avatarPath = file
+                        saveError = nil
                     } catch {
-                        avatarPath = nil
+                        // Don't swallow: a real product tells the user the
+                        // photo didn't save and lets them retry.
+                        saveError = AppLocalized("Couldn't save the photo. Try again.")
+                        saving = false
+                        return
                     }
                 }
             } else {

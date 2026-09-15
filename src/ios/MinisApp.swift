@@ -732,8 +732,10 @@ struct MinisApp: App {
         logAppUpdateMarkerForFPTrace()
         let root = AIChatViewModel.minisAppGroupRoot
         let fm = FileManager.default
-        // Ensure all three subdirectories exist.
-        for sub in ["memory", "skills", "shared"] {
+        // Ensure all four subdirectories exist (avatars holds role photos;
+        // [T-avatar-09-16] added so first-install avatar save never hits a
+        // missing parent dir and fails silently).
+        for sub in ["memory", "skills", "shared", "avatars"] {
             try? fm.createDirectory(at: root.appendingPathComponent(sub, isDirectory: true),
                                     withIntermediateDirectories: true)
         }

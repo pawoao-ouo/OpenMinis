@@ -18,6 +18,14 @@ final class RoleStore: ObservableObject {
         AIChatViewModel.minisAvatarsDir
     }
 
+    /// Delete an avatar file by its DB-stored name (relative to avatarsDir).
+    /// No-op for nil / empty / legacy "emoji:…" paths — those never had a file.
+    static func removeAvatarFile(_ name: String?) {
+        guard let name, !name.isEmpty, !name.hasPrefix("emoji:") else { return }
+        let url = avatarsDir.appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: url)
+    }
+
     func load() async {
         let list = await store.listAssistants()
         let grp = await store.listAssistantGroups()
@@ -36,7 +44,14 @@ final class RoleStore: ObservableObject {
     }
 
     func update(_ role: Assistant, name: String, avatarPath: String?, prompt: String, groupId: String? = nil) async {
+        let oldAvatar = role.avatarPath
         await store.updateAssistant(role.id, name: name, avatarPath: avatarPath, systemPrompt: prompt, groupId: groupId)
+        // [T-avatar-09-16] Photo changed → delete the OLD file so it can't leak.
+        // save() already wrote the new file before this call. Helper is a
+        // no-op for nil / unchanged / legacy-emoji paths.
+        if oldAvatar != avatarPath {
+            Self.removeAvatarFile(oldAvatar)
+        }
         await refreshSystemAndList()
     }
 
@@ -101,13 +116,14 @@ struct RoleAvatar: View {
         let p = path ?? role?.avatarPath
         guard let p, !p.isEmpty else { return }
         let url = RoleStore.avatarsDir.appendingPathComponent(p)
-        // Load off the main thread — avatars may be large original photos
-        // (醒醒: 上传不限制大小), decoding on the main actor would hitch.
-        let data = await Task.detached(priority: .utility) {
-            try? Data(contentsOf: url)
-        }.value
-        if let data {
-            image = UIImage(data: data)
+        // [T-avatar-09-16] Render a downsampled thumbnail, not the full-size
+        // original — list rows would otherwise hold multi-megapixel UIImages
+        // (醒醒: storage stays uncompressed; only display is scaled). Reuse
+        // the shared ThumbnailCache (ImageIO downsample + NSCache + memory
+        // pressure eviction). Crisp at size × screen scale.
+        let scale = UIScreen.main.scale
+        if let img = await ThumbnailCache.shared.thumbnail(for: url.path, maxSize: size * scale) {
+            image = img
         }
     }
 }
