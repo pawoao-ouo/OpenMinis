@@ -56,7 +56,7 @@ struct SessionMemoryView: View {
                         ForEach(toolMemories) { item in
                             NavigationLink {
                                 if item.isWrite {
-                                    MemoryWriteDetailView(item: item)
+                                    MemoryWriteDetailView(item: item, assistantId: vm.assistantId)
                                 } else {
                                     MemoryGetDetailView(item: item)
                                 }
@@ -362,6 +362,7 @@ private struct MemoryContentView: View {
 
 private struct MemoryWriteDetailView: View {
     let item: SessionMemoryView.ToolMemoryItem
+    let assistantId: String
     @Environment(\.dismiss) private var dismiss
     @State private var isEditing = false
     @State private var editedContent: String = ""
@@ -469,7 +470,7 @@ private struct MemoryWriteDetailView: View {
     /// Returns the filename on success, nil on failure.
     private func replaceEntryInLog(oldContent: String, newContent: String) -> String? {
         let fm = FileManager.default
-        let memDir = AIChatViewModel.minisMemoryPersistentDir(for: vm.assistantId)
+        let memDir = AIChatViewModel.minisMemoryPersistentDir(for: assistantId)
         let dateFmt = DateFormatter()
         dateFmt.dateFormat = "yyyy-MM-dd"
         let candidates = [
