@@ -265,12 +265,17 @@ struct ProcessDrawerView: View {
             // when the drawer opens straight to a thinking turn that's still
             // generating, surface the stop here (onStop is nil when idle).
             if let onStop {
+                // [B6] 纯图标太隐晦，加「停止」文字。
                 Button {
                     onStop()
                 } label: {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(ChatColors.destructive)
+                    HStack(spacing: 3) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(AppLocalized("Stop"))
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .foregroundStyle(ChatColors.destructive)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(AppLocalized("Stop"))
@@ -316,6 +321,19 @@ struct ProcessDrawerView: View {
 }
 
 // MARK: Step row (one line per step in the drawer list)
+
+// [B5] 行按下高亮：ScrollView 里 Button(.plain) 没反馈，自己画。
+private struct ProcessStepRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(configuration.isPressed
+                        ? ChatColors.accent.opacity(0.08)
+                        : Color.clear)
+            )
+    }
+}
 
 struct ProcessStepRow: View {
     @ObservedObject var block: AssistantBlock
@@ -400,63 +418,84 @@ struct ProcessStepRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon.0)
-                .font(.system(size: 15))
-                .foregroundStyle(icon.1)
-                .frame(width: 20)
+        // [B5] 行包 Button 拿按下高亮（原来 .onTapGesture 没反馈）。
+        // [B5+B6] 停止键 + chevron 放 .overlay 尾部——跟 Button label 平级，
+        // 不是嵌套，tap 各自走。停止键从纯图标改成图标+文字。
+        Button {
+            onTap()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon.0)
+                    .font(.system(size: 15))
+                    .foregroundStyle(icon.1)
+                    .frame(width: 20)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(titleText)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(ChatColors.primaryText)
-                    .lineLimit(1)
-                if let sub = subtitle {
-                    Text(sub)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(ChatColors.secondaryText)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(titleText)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(ChatColors.primaryText)
                         .lineLimit(1)
-                        .truncationMode(.middle)
+                    if let sub = subtitle {
+                        Text(sub)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(ChatColors.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
-            }
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            if let status = statusText {
-                Text(status)
-                    .font(.system(size: 11))
-                    .foregroundStyle(running ? ChatColors.accent : statusColor)
-            } else if let dur = durationText {
-                Text(dur)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(ChatColors.tertiaryText)
-            }
-
-            if running && onStop != nil {
-                Button {
-                    onStop?()
-                } label: {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(ChatColors.destructive)
-                        .frame(width: 30, height: 30)
+                if let status = statusText {
+                    Text(status)
+                        .font(.system(size: 11))
+                        .foregroundStyle(running ? ChatColors.accent : statusColor)
+                } else if let dur = durationText {
+                    Text(dur)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(ChatColors.tertiaryText)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(AppLocalized("Stop"))
-            } else if running {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(ChatColors.accent)
-            }
 
-            Image(systemName: "chevron.forward")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(ChatColors.tertiaryText.opacity(0.6))
+                // 占位：给 overlay 的停止键/进度留位置
+                Color.clear.frame(width: running ? 90 : 14, height: 30)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .contentShape(Rectangle())
-        .onTapGesture { onTap() }
+        .buttonStyle(ProcessStepRowButtonStyle())
+        .overlay(alignment: .trailing) {
+            HStack(spacing: 10) {
+                if running && onStop != nil {
+                    Button {
+                        onStop?()
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(AppLocalized("Stop"))
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .foregroundStyle(ChatColors.destructive)
+                        .padding(.horizontal, 8)
+                        .frame(height: 26)
+                        .background(
+                            Capsule().fill(ChatColors.destructive.opacity(0.12))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(AppLocalized("Stop"))
+                } else if running {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(ChatColors.accent)
+                }
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(ChatColors.tertiaryText.opacity(0.6))
+            }
+            .padding(.trailing, 14)
+        }
         .accessibilityIdentifier("processStepRow")
     }
 }

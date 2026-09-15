@@ -222,14 +222,18 @@ struct RoleDetailView: View {
             }
             .listRowBackground(MinisThemeList.rowFill)
 
-            Section {
-                Button(role: .destructive) {
-                    showDeleteConfirm = true
-                } label: {
-                    Label(AppLocalized("Delete Role"), systemImage: "trash")
-                        .foregroundStyle(MinisThemeList.accent)
+            // [B1] default 是受保护的迁移人格，删不掉。隐藏删除入口
+            // 而不是给一个点了没反应的死按钮。
+            if liveRole.id != ChatStore.defaultAssistantId {
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        Label(AppLocalized("Delete Role"), systemImage: "trash")
+                            .foregroundStyle(MinisThemeList.accent)
+                    }
+                    .listRowBackground(MinisThemeList.rowFill)
                 }
-                .listRowBackground(MinisThemeList.rowFill)
             }
         }
         .listStyle(.plain)
@@ -238,6 +242,10 @@ struct RoleDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             liveRole = role
+            // [B3] sessionCount 只在 store.load()（.task / 人格通知）刷新。
+            // 从「发消息」建会话回来，.task 不重跑、人格通知不触发，
+            // 计数会 stale。onAppear 补一发刷新。
+            Task { await store.load() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantDidChange)) { _ in
             // Edit sheet saved → refresh the live copy so the detail header
@@ -346,8 +354,12 @@ struct RoleSessionsView: View {
                 AIChatView(sessionId: id)
             }
         }
-        .task {
-            sessions = await ChatStore.shared.sessions(forAssistant: role.id)
+        .onAppear {
+            // [B4] .task 只首次 appear 跑；从 AIChatView 发完消息回来不
+            // 重触发，会话标题/预览 stale。改 onAppear 每次回来都刷新。
+            Task {
+                sessions = await ChatStore.shared.sessions(forAssistant: role.id)
+            }
         }
     }
 }
@@ -486,6 +498,12 @@ struct RoleEditorView: View {
                         saving = false
                         return
                     }
+                } else {
+                    // [B2] pngData() 返回 nil（罕见：内存不足或图编不出
+                    // PNG）。别静默存 nil 头像——留页告诉用户。
+                    saveError = AppLocalized("Couldn't save the photo. Try again.")
+                    saving = false
+                    return
                 }
             } else {
                 avatarPath = existing?.avatarPath // unchanged
