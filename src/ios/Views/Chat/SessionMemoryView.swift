@@ -114,7 +114,7 @@ struct SessionMemoryView: View {
     private var inContextItems: [AutoItem] {
         var items: [AutoItem] = []
         let fm = FileManager.default
-        let memDir = AIChatViewModel.minisMemoryPersistentDir
+        let memDir = AIChatViewModel.minisMemoryPersistentDir(for: vm.assistantId)
         // [T-agent-prompt-fulltext-toggle 09-14] The per-layer switches
         // (struct properties, shared with the footer) decide whether a memory
         // file is injected in full or merely listed. The sheet must reflect
@@ -469,7 +469,7 @@ private struct MemoryWriteDetailView: View {
     /// Returns the filename on success, nil on failure.
     private func replaceEntryInLog(oldContent: String, newContent: String) -> String? {
         let fm = FileManager.default
-        let memDir = AIChatViewModel.minisMemoryPersistentDir
+        let memDir = AIChatViewModel.minisMemoryPersistentDir(for: vm.assistantId)
         let dateFmt = DateFormatter()
         dateFmt.dateFormat = "yyyy-MM-dd"
         let candidates = [

@@ -1977,14 +1977,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         if memoryEnabled {
             let injectGlobal = Self.injectGlobalFullText
             let injectDailies = Self.injectDailiesFullText
-            if injectGlobal, let globalFragment = Self.loadGlobalMemoryFragment() {
+            if injectGlobal, let globalFragment = Self.loadGlobalMemoryFragment(assistantId: assistantId) {
                 prompt += "\n\n" + globalFragment
             }
-            if injectDailies, let dailiesFragment = Self.loadRecentDailyMemoryFragment() {
+            if injectDailies, let dailiesFragment = Self.loadRecentDailyMemoryFragment(assistantId: assistantId) {
                 prompt += "\n\n" + dailiesFragment
             }
             if let memoryCatalog = Self.memoryCatalogFragment(skipGlobal: injectGlobal,
-                                                              skipDailies: injectDailies) {
+                                                              skipDailies: injectDailies,
+                                                              assistantId: assistantId) {
                 prompt += "\n\n" + memoryCatalog
             }
         }

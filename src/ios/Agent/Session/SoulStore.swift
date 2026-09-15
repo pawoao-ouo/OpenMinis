@@ -825,6 +825,42 @@ enum SoulStore {
     @MainActor
     static var cachedMetadata: SoulMetadata = .default
 
+    /// [T-identity-source 09-16] The assistant bound to the currently visible
+    /// chat session. UI identity (title pill, placeholder, "X is thinking"
+    /// bubble, sidebar title, Live Activity) reads this — NOT the global
+    /// `cachedMetadata` — so that chatting with a role called "艾莉" actually
+    /// surfaces "艾莉" instead of the global SOUL.md name.
+    ///
+    /// Set by `AIChatView.refreshTitlePillSession` whenever a session loads.
+    /// nil while no session is visible (e.g. sidebar / settings). Callers fall
+    /// back to `cachedMetadata.name` then to "Minis" in `activeDisplayName()`.
+    @MainActor
+    static var activeAssistantId: String? = nil
+
+    /// The name to show in identity UI for the currently visible session.
+    /// Order: active assistant's name → cachedMetadata.name → "Minis".
+    @MainActor
+    static func activeDisplayName() -> String {
+        if let id = activeAssistantId,
+           let a = cachedAssistants[id],
+           let n = a.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : a.name.trimmingCharacters(in: .whitespacesAndNewlines) {
+            return n
+        }
+        let g = cachedMetadata.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return g.isEmpty ? "Minis" : g
+    }
+
+    /// Set the active session's assistant and notify identity UI to refresh.
+    /// Pass nil when leaving a session (sidebar / settings) so identity falls
+    /// back to the global SOUL name.
+    @MainActor
+    static func setActiveAssistant(_ id: String?) {
+        guard activeAssistantId != id else { return }
+        activeAssistantId = id
+        NotificationCenter.default.post(name: .sessionAssistantChanged, object: nil)
+    }
+
     /// [T-multi-assistant 09-14] Synchronous snapshot of every persona, for
     /// call sites that cannot `await` — `baseSystemPrompt` is a plain computed
     /// property, and `ChatStore` is an actor, so `getAssistant()` is not
@@ -940,6 +976,10 @@ extension Notification.Name {
     /// Posted on the main thread whenever SOUL.md has been (re-)written
     /// via SoulStore. Listeners refresh derived UI state.
     static let soulMdChanged = Notification.Name("MinisSoulMdChanged")
+    /// [T-identity-source 09-16] Posted when the active session's assistant
+    /// changes, so identity UI (title pill, typing bubble, sidebar) refreshes
+    /// without each component reaching into the view model.
+    static let sessionAssistantChanged = Notification.Name("MinisSessionAssistantChanged")
 
     /// [T-multi-assistant 09-14] Posted after the persona cache is refreshed
     /// (create / rename / delete / prompt edit). Listeners that render a
@@ -1070,13 +1110,14 @@ enum SystemPromptBuilder {
 /// any place that previously hard-coded "Minis" as a label.
 @MainActor
 struct AssistantSoulName: View {
-    @State private var name: String = SoulStore.cachedMetadata.name.isEmpty
-        ? "Minis" : SoulStore.cachedMetadata.name
+    @State private var name: String = SoulStore.activeDisplayName()
     var body: some View {
         Text(name)
             .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-                let n = SoulStore.cachedMetadata.name
-                name = n.isEmpty ? "Minis" : n
+                name = SoulStore.activeDisplayName()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .sessionAssistantChanged)) { _ in
+                name = SoulStore.activeDisplayName()
             }
     }
 }

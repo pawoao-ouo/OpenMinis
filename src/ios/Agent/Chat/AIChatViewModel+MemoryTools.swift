@@ -58,13 +58,14 @@ extension AIChatViewModel {
     /// the warning is the only signal that sessions went unrecorded. It is
     /// emitted whenever a gap exists, independent of which layers are listed.
     nonisolated static func memoryCatalogFragment(skipGlobal: Bool = false,
-                                                  skipDailies: Bool = false) -> String? {
+                                                  skipDailies: Bool = false,
+                                                  assistantId: String = MinisFsRouter.defaultAssistantId) -> String? {
         let fm = FileManager.default
 
         var lines: [String] = []
         // GLOBAL.md — existence + size + WHAT IT IS FOR. The purpose line is
         // the part that lets the model decide whether to read it at all.
-        let globalFile = minisMemoryPersistentDir.appendingPathComponent("GLOBAL.md")
+        let globalFile = minisMemoryPersistentDir(for: assistantId).appendingPathComponent("GLOBAL.md")
         if !skipGlobal, fm.fileExists(atPath: globalFile.path) {
             let size = (try? String(contentsOf: globalFile, encoding: .utf8))?.count ?? 0
             lines.append("- /var/minis/memory/GLOBAL.md (\(size) chars) — the user's durable preferences, conventions and standing rules; read it with file_read when a request depends on how this user likes things done")
@@ -83,7 +84,7 @@ extension AIChatViewModel {
         while found < 3 && dayOffset < maxLookback {
             let date = today.addingTimeInterval(-Double(dayOffset) * 86400)
             let dateStr = fmt.string(from: date)
-            let fileURL = minisMemoryPersistentDir.appendingPathComponent("\(dateStr).md")
+            let fileURL = minisMemoryPersistentDir(for: assistantId).appendingPathComponent("\(dateStr).md")
             if fm.fileExists(atPath: fileURL.path),
                let content = try? String(contentsOf: fileURL, encoding: .utf8),
                !content.isEmpty {
@@ -128,8 +129,8 @@ extension AIChatViewModel {
     /// when the "Inject GLOBAL.md full text" switch
     /// (`AIChatViewModel.memoryInjectGlobalFullTextKey`) is on. Default is off,
     /// in which case GLOBAL.md is only listed by path in the catalog.
-    nonisolated static func loadGlobalMemoryFragment() -> String? {
-        let globalFile = minisMemoryPersistentDir.appendingPathComponent("GLOBAL.md")
+    nonisolated static func loadGlobalMemoryFragment(assistantId: String = MinisFsRouter.defaultAssistantId) -> String? {
+        let globalFile = minisMemoryPersistentDir(for: assistantId).appendingPathComponent("GLOBAL.md")
         guard FileManager.default.fileExists(atPath: globalFile.path),
               let content = try? String(contentsOf: globalFile, encoding: .utf8),
               !content.isEmpty else { return nil }
@@ -145,7 +146,7 @@ extension AIChatViewModel {
     ///
     /// Loads the 3 most recent daily memory logs that have content (first 200
     /// lines each) for system prompt injection.
-    nonisolated static func loadRecentDailyMemoryFragment() -> String? {
+    nonisolated static func loadRecentDailyMemoryFragment(assistantId: String = MinisFsRouter.defaultAssistantId) -> String? {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
         let fm = FileManager.default
@@ -159,7 +160,7 @@ extension AIChatViewModel {
         while fragments.count < 3 && dayOffset < maxLookback {
             let date = today.addingTimeInterval(-Double(dayOffset) * 86400)
             let dateStr = fmt.string(from: date)
-            let fileURL = minisMemoryPersistentDir.appendingPathComponent("\(dateStr).md")
+            let fileURL = minisMemoryPersistentDir(for: assistantId).appendingPathComponent("\(dateStr).md")
 
             if fm.fileExists(atPath: fileURL.path),
                let content = try? String(contentsOf: fileURL, encoding: .utf8),
@@ -211,7 +212,7 @@ extension AIChatViewModel {
         }
 
         let fm = FileManager.default
-        let persistDir = Self.minisMemoryPersistentDir
+        let persistDir = Self.minisMemoryPersistentDir(for: assistantId)
         try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
 
         let dateFmt = DateFormatter()
@@ -288,7 +289,7 @@ extension AIChatViewModel {
 
         var filesToSearch: [(label: String, url: URL)] = []
         let fm = FileManager.default
-        let memDir = Self.minisMemoryPersistentDir
+        let memDir = Self.minisMemoryPersistentDir(for: assistantId)
 
         var globalEmpty = false
         if scope == "all" {

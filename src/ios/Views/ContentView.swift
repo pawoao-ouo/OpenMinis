@@ -6580,6 +6580,9 @@ struct SessionEditSheet: View {
     @State private var editTitle: String = ""
     @State private var editCategory: String = ""
     @State private var isRegenerating = false
+    /// [T-identity-source 09-16] Role picker for switching the session's persona.
+    @State private var assistants: [Assistant] = []
+    @State private var switchingRole: String? = nil
 
     private static let categories: [(key: String, label: String, icon: String, color: Color)] = [
         ("code",         "Code",         "terminal.fill",               .orange),
@@ -6643,6 +6646,35 @@ struct SessionEditSheet: View {
                     .padding(.vertical, 8)
                 }
 
+                // [T-identity-source 09-16] Persona switcher — lets the user
+                // re-assign this session to a different role without leaving
+                // the edit sheet.
+                Section("Persona") {
+                    ForEach(assistants.sorted { $0.sortIndex < $1.sortIndex }) { role in
+                        Button {
+                            switchPersona(to: role.id)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "person.crop.circle")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(MinisTheme.accent)
+                                Text(role.name.isEmpty ? "Untitled" : role.name)
+                                    .foregroundStyle(MinisThemeList.title)
+                                Spacer()
+                                if session.assistantId == role.id || (session.assistantId == ChatStore.defaultAssistantId && role.id == ChatStore.defaultAssistantId) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(MinisTheme.accent)
+                                } else if switchingRole == role.id {
+                                    ProgressView().controlSize(.mini)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(switchingRole != nil)
+                    }
+                }
+
                 Section {
                     Button {
                         regenerate()
@@ -6680,7 +6712,24 @@ struct SessionEditSheet: View {
             .onAppear {
                 editTitle = session.title ?? ""
                 editCategory = session.category ?? ""
+                Task {
+                    assistants = await ChatStore.shared.listAssistants()
+                }
             }
+        }
+    }
+
+    /// [T-identity-source 09-16] Re-assign this session to a different persona,
+    /// then refresh the identity snapshot and dismiss so the chat title /
+    /// placeholder / typing bubble pick up the new name.
+    private func switchPersona(to assistantId: String) {
+        guard session.assistantId != assistantId else { return }
+        switchingRole = assistantId
+        Task { @MainActor in
+            await ChatStore.shared.setSessionAssistant(session.id, assistantId: assistantId)
+            await SoulStore.refreshAssistantCache()
+            SoulStore.setActiveAssistant(assistantId)
+            dismiss()
         }
     }
 
@@ -7407,15 +7456,10 @@ private struct SettingsSheet: View {
                                 .frame(width: 26, height: 26)
                         }
                     }
-                    NavigationLink {
-                        SoulSettingsView()
-                    } label: {
-                        Label {
-                            Text("Soul")
-                        } icon: {
-                            QuietAppIcon(id: QuietIconSlot.soul.id, systemName: QuietIconSlot.soul.systemName)
-                        }
-                    }
+                    // [T-identity-source 09-16] Soul settings page retired —
+                    // personas are managed in the Roles tab (bottom bar). The
+                    // deep link `minis-clone://settings/soul` still resolves
+                    // (see the .soul case below) but now lands on RolesHomeView.
                     NavigationLink {
                         MemoryManagementView()
                     } label: {
@@ -7616,7 +7660,9 @@ private struct SettingsSheet: View {
                 case .skills:
                     SkillsManagementView()
                 case .soul:
-                    SoulSettingsView()
+                    // [T-identity-source 09-16] SoulSettingsView retired;
+                    // deep link now lands on the Roles tab content.
+                    RolesHomeView()
                 case .memory:
                     MemoryManagementView()
                 case .storage:

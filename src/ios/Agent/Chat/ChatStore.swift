@@ -578,7 +578,47 @@ actor ChatStore {
 
         openDatabase()
         createTables()
+        seedDefaultAssistantIfNeeded()
         armRebootGuardIfDegraded()
+    }
+
+    /// [T-identity-source 09-16] Seed a "default" assistant row from SOUL.md
+    /// when the address book is empty, so every session's assistant_id="default"
+    /// resolves to a real persona row the user can see and edit in the Roles
+    /// tab — instead of the identity layer silently falling back to "Minis"
+    /// with no personality and no way to rename it.
+    ///
+    /// Idempotent: only runs when `assistants` has zero rows. The name comes
+    /// from SOUL.md frontmatter (falling back to "Minis"); the prompt is the
+    /// SOUL.md body (empty on a fresh install, which is the same as the old
+    /// "no persona" fallback). SOUL.md itself is left in place for the sync
+    /// layer and as the cachedMetadata fallback.
+    private func seedDefaultAssistantIfNeeded() {
+        var countStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM assistants", -1, &countStmt, nil) == SQLITE_OK,
+              sqlite3_step(countStmt) == SQLITE_ROW,
+              sqlite3_column_int(countStmt, 0) == 0 else {
+            sqlite3_finalize(countStmt)
+            return
+        }
+        sqlite3_finalize(countStmt)
+
+        let file = SoulStore.load()
+        let rawName = file?.metadata.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let name = rawName.isEmpty ? "Minis" : rawName
+        let prompt = file?.body ?? ""
+
+        let now = Date().timeIntervalSince1970
+        var stmt: OpaquePointer?
+        let sql = "INSERT OR REPLACE INTO assistants (id, name, avatar_path, system_prompt, group_id, sort_order, created_at, updated_at) VALUES ('default', ?, NULL, ?, NULL, 0, ?, ?)"
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 2, (prompt as NSString).utf8String, -1, nil)
+            sqlite3_bind_double(stmt, 3, now)
+            sqlite3_bind_double(stmt, 4, now)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
     }
 
     // MARK: - [T-ios-reboot-config-loss] Protected-data reboot guard

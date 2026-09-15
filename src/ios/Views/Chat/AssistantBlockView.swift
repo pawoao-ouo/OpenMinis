@@ -1151,10 +1151,7 @@ struct TypingIndicator: View {
     /// Live Soul name so the indicator reads "<custom name> is thinking…" when
     /// the user has renamed the assistant in Soul settings. Updates via
     /// `.soulMdChanged` Notification — same wiring used by `AssistantSoulName`.
-    @State private var soulName: String = {
-        let n = SoulStore.cachedMetadata.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return n.isEmpty ? "Minis" : n
-    }()
+    @State private var soulName: String = SoulStore.activeDisplayName()
 
     var body: some View {
         // The thinking-level badge that used to trail this indicator was
@@ -1170,8 +1167,10 @@ struct TypingIndicator: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            let n = SoulStore.cachedMetadata.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            soulName = n.isEmpty ? "Minis" : n
+            soulName = SoulStore.activeDisplayName()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sessionAssistantChanged)) { _ in
+            soulName = SoulStore.activeDisplayName()
         }
         .font(.system(size: 15, weight: .medium))
         .foregroundStyle(ChatColors.tertiaryText)
