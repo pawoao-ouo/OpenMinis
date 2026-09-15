@@ -2365,6 +2365,9 @@ actor ChatStore {
     /// children (messages, media, cloud sync tombstones) stay consistent.
     @discardableResult
     func deleteAssistant(_ id: String) -> Bool {
+        // [T-persona-09-16] default 是受保护的桶：老用户的迁移人格在这儿，
+        // 删了所有 default 会话变空人格、救不回来。醒醒拍板不准删。
+        guard id != Self.defaultAssistantId else { return false }
         // 0. Read the avatar filename BEFORE the row is deleted. save() writes
         //    a random UUID filename, not "<id>.png", so we need the DB value
         //    to remove the right file later (P1-1 fix).

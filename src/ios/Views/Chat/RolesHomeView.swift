@@ -157,6 +157,9 @@ struct RoleDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var showChats = false
     @State private var liveRole: Assistant = .init(name: "", avatarPath: nil, systemPrompt: "")
+    /// [T-roles-chat-09-16] New chat created from the 发消息 button — bound to
+    /// this role via createSession(assistantId:). Drives the push into AIChatView.
+    @State private var startChatId: String? = nil
 
     var body: some View {
         List {
@@ -188,6 +191,22 @@ struct RoleDetailView: View {
             }
 
             Section {
+                // [T-roles-chat-09-16] 发消息 — the primary action a QQ-style
+                // contact card is missing here. Creates a new session bound to
+                // this role and pushes into AIChatView. (Eager create: the app's
+                // main New Chat uses a transient draft, but the role flow
+                // intentionally creates the session so it lands in this role's
+                // chat list immediately. An empty session left by backing out
+                // is deletable now that deleteAssistant is fixed.)
+                Button {
+                    Task {
+                        let s = await ChatStore.shared.createSession(modelId: "", assistantId: role.id)
+                        startChatId = s.id
+                    }
+                } label: {
+                    Label(AppLocalized("Start Chat"), systemImage: "bubble.left.fill")
+                        .foregroundStyle(MinisThemeList.accent)
+                }
                 NavigationLink {
                     RoleSessionsView(role: role)
                 } label: {
@@ -242,6 +261,14 @@ struct RoleDetailView: View {
         } message: {
             Text(AppLocalized("This deletes the role, all its chats, and its memory. Cannot be undone."))
         }
+        .navigationDestination(isPresented: Binding(
+            get: { startChatId != nil },
+            set: { if !$0 { startChatId = nil } }
+        )) {
+            if let id = startChatId {
+                AIChatView(sessionId: id)
+            }
+        }
     }
 }
 
@@ -250,6 +277,9 @@ struct RoleDetailView: View {
 struct RoleSessionsView: View {
     let role: Assistant
     @State private var sessions: [ChatSession] = []
+    /// [T-roles-chat-09-16] New chat started from the + toolbar button —
+    /// bound to this role.
+    @State private var startChatId: String? = nil
 
     var body: some View {
         List {
@@ -290,6 +320,32 @@ struct RoleSessionsView: View {
         .scrollContentBackground(.hidden)
         .navigationTitle(role.name)
         .navigationBarTitleDisplayMode(.inline)
+        // [T-roles-chat-09-16] + starts a new chat bound to this role
+        // (covers both the empty state and the populated list).
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task {
+                        let s = await ChatStore.shared.createSession(modelId: "", assistantId: role.id)
+                        // Refresh so the new chat lands in this list immediately.
+                        sessions = await ChatStore.shared.sessions(forAssistant: role.id)
+                        startChatId = s.id
+                    }
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .foregroundStyle(MinisThemeList.accent)
+                }
+                .accessibilityLabel(AppLocalized("Start Chat"))
+            }
+        }
+        .navigationDestination(isPresented: Binding(
+            get: { startChatId != nil },
+            set: { if !$0 { startChatId = nil } }
+        )) {
+            if let id = startChatId {
+                AIChatView(sessionId: id)
+            }
+        }
         .task {
             sessions = await ChatStore.shared.sessions(forAssistant: role.id)
         }

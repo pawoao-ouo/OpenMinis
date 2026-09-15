@@ -196,12 +196,12 @@ struct ProcessDrawerView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(steps) { step in
-                        Button {
-                            pushedStep = step
-                        } label: {
-                            ProcessStepRow(block: step, running: isActiveStep(step))
-                        }
-                        .buttonStyle(.plain)
+                        ProcessStepRow(
+                            block: step,
+                            running: isActiveStep(step),
+                            onStop: onStop,
+                            onTap: { pushedStep = step }
+                        )
                     }
                 }
                 .padding(.vertical, 6)
@@ -213,7 +213,7 @@ struct ProcessDrawerView: View {
 
     private func thinkingPage(block: AssistantBlock, title: String) -> some View {
         VStack(spacing: 0) {
-            navBar(title: title, showDone: true)
+            navBar(title: title, showDone: true, onStop: onStop)
             ScrollView {
                 let isStreaming = message.isAwaitingModelResponse
                     && message.blocks.last?.id == block.id
@@ -254,13 +254,27 @@ struct ProcessDrawerView: View {
     // MARK: Nav bar (in-house, token-colored — avoids NavigationStack
     // resizing fights inside a detented sheet)
 
-    private func navBar(title: String, showDone: Bool) -> some View {
+    private func navBar(title: String, showDone: Bool, onStop: (() -> Void)? = nil) -> some View {
         HStack {
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(ChatColors.primaryText)
                 .lineLimit(1)
             Spacer(minLength: 0)
+            // [T-process-drawer-09-16] Stop on the running thinking-only page:
+            // when the drawer opens straight to a thinking turn that's still
+            // generating, surface the stop here (onStop is nil when idle).
+            if let onStop {
+                Button {
+                    onStop()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ChatColors.destructive)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(AppLocalized("Stop"))
+            }
             if showDone {
                 Button(AppLocalized("Done")) {
                     dismiss()
@@ -306,6 +320,15 @@ struct ProcessDrawerView: View {
 struct ProcessStepRow: View {
     @ObservedObject var block: AssistantBlock
     let running: Bool
+    /// [T-process-drawer-09-16] Stop hook — the wire to stopCurrentCommand
+    /// was plumbed all the way here but no switch was installed. Shown as a
+    /// button on the running step so a user watching the drawer can halt
+    /// generation without going back to the chat input.
+    var onStop: (() -> Void)? = nil
+    /// Row tap (open this step's full content). Moved inside so the stop
+    /// Button can be a real control instead of nesting inside another Button
+    /// (nested buttons don't reliably fire in SwiftUI).
+    var onTap: () -> Void = {}
 
     private var statusColor: Color {
         switch block.toolStatus {
@@ -409,7 +432,18 @@ struct ProcessStepRow: View {
                     .foregroundStyle(ChatColors.tertiaryText)
             }
 
-            if running {
+            if running && onStop != nil {
+                Button {
+                    onStop?()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(ChatColors.destructive)
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(AppLocalized("Stop"))
+            } else if running {
                 ProgressView()
                     .controlSize(.mini)
                     .tint(ChatColors.accent)
@@ -422,6 +456,7 @@ struct ProcessStepRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .contentShape(Rectangle())
+        .onTapGesture { onTap() }
         .accessibilityIdentifier("processStepRow")
     }
 }
