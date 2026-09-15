@@ -22,6 +22,14 @@ struct RolesHomeView: View {
     @State private var detailRoleId: String?
     @State private var expandedGroups: Set<String> = ["ungrouped"]
 
+    /// Drives the detail-page push. iOS 16 has no `navigationDestination(item:)`.
+    private var detailBinding: Binding<Bool> {
+        Binding(
+            get: { detailRoleId != nil },
+            set: { on, _ in if !on { detailRoleId = nil } }
+        )
+    }
+
     private var grouped: [(key: String, title: String, roles: [Assistant])] {
         var byGroup: [String: [Assistant]] = [:]
         for role in store.assistants {
@@ -91,8 +99,11 @@ struct RolesHomeView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .navigationTitle(AppLocalized("Roles"))
-        .navigationDestination(item: $detailRoleId) { roleId in
-            if let role = store.assistants.first(where: { $0.id == roleId }) {
+        // [T-roles-09-15] iOS 16: `navigationDestination(item:)` needs 17+,
+        // so drive the detail page off an isPresented binding instead.
+        .navigationDestination(isPresented: detailBinding) {
+            if let roleId = detailRoleId,
+               let role = store.assistants.first(where: { $0.id == roleId }) {
                 RoleDetailView(role: role, store: store)
             }
         }
@@ -243,7 +254,19 @@ struct RoleSessionsView: View {
     var body: some View {
         List {
             if sessions.isEmpty {
-                ContentUnavailableView(AppLocalized("No chats yet"), systemImage: "bubble.left.and.bubble.right")
+                if #available(iOS 17, *) {
+                    ContentUnavailableView(AppLocalized("No chats yet"), systemImage: "bubble.left.and.bubble.right")
+                } else {
+                    VStack(spacing: 10) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .font(.system(size: 36))
+                            .foregroundStyle(MinisThemeList.subtitle)
+                        Text(AppLocalized("No chats yet"))
+                            .font(.subheadline)
+                            .foregroundStyle(MinisThemeList.subtitle)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 180)
+                }
             } else {
                 ForEach(sessions) { session in
                     NavigationLink {

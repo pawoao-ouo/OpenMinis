@@ -101,12 +101,10 @@ struct ProcessRowView: View {
         return n > 0 ? n : nil
     }
 
-    /// Rough elapsed text: first block timestamp → now. Meaningful only for
-    /// live/recent turns; restored history has stale timestamps and is
-    /// guarded by the 24h cap.
+    /// Rough elapsed text: turn start → now. Meaningful only for live/recent
+    /// turns; restored history has stale timestamps and is guarded by the 24h cap.
     private var elapsedText: String? {
-        guard let first = message.blocks.first else { return nil }
-        let dur = Date().timeIntervalSince(first.timestamp)
+        let dur = Date().timeIntervalSince(message.timestamp)
         guard dur >= 1, dur < 24 * 3600 else { return nil }
         if dur < 60 { return String(format: "%.0fs", dur) }
         let mins = Int(dur) / 60
