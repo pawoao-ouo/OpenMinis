@@ -529,9 +529,9 @@
 		F1MCPSTOREB /* MCPStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1MCPSTORE /* MCPStore.swift */; };
 		F1S00012 /* ChatSessionIdEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1S00011 /* ChatSessionIdEnvironment.swift */; };
 		F1T00011 /* ToolLiveSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00010 /* ToolLiveSheet.swift */; };
-		F1T00060 /* RoleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00059 /* RoleStore.swift */; };
-		F1T00058 /* RolesHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00057 /* RolesHomeView.swift */; };
-		F1T00056 /* ProcessDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00055 /* ProcessDrawerView.swift */; };
+		F1T00103 /* RoleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00102 /* RoleStore.swift */; };
+		F1T00101 /* RolesHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00100 /* RolesHomeView.swift */; };
+		F1T00099 /* ProcessDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1T00098 /* ProcessDrawerView.swift */; };
 		F1VMCPB1 /* MCPIntegrationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1VMCP01 /* MCPIntegrationsView.swift */; };
 		F1VMCPB2 /* MCPFormSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1VMCP02 /* MCPFormSheet.swift */; };
 		F1VMCPB3 /* MCPJSONImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1VMCP03 /* MCPJSONImportSheet.swift */; };
@@ -1235,9 +1235,9 @@
 		F1MCPSTORE /* MCPStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPStore.swift; sourceTree = "<group>"; };
 		F1S00011 /* ChatSessionIdEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionIdEnvironment.swift; sourceTree = "<group>"; };
 		F1T00010 /* ToolLiveSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolLiveSheet.swift; sourceTree = "<group>"; };
-		F1T00059 /* RoleStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleStore.swift; sourceTree = "<group>"; };
-		F1T00057 /* RolesHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolesHomeView.swift; sourceTree = "<group>"; };
-		F1T00055 /* ProcessDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDrawerView.swift; sourceTree = "<group>"; };
+		F1T00102 /* RoleStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleStore.swift; sourceTree = "<group>"; };
+		F1T00100 /* RolesHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolesHomeView.swift; sourceTree = "<group>"; };
+		F1T00098 /* ProcessDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDrawerView.swift; sourceTree = "<group>"; };
 		F1VMCP01 /* MCPIntegrationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPIntegrationsView.swift; sourceTree = "<group>"; };
 		F1VMCP02 /* MCPFormSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPFormSheet.swift; sourceTree = "<group>"; };
 		F1VMCP03 /* MCPJSONImportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPJSONImportSheet.swift; sourceTree = "<group>"; };
@@ -2296,9 +2296,9 @@
 				E5N0000152F3B941A00049557 /* SessionMemoryView.swift */,
 				E5N0000122F3B941A00049557 /* SessionSkillsView.swift */,
 				F1T00010 /* ToolLiveSheet.swift */,
-				F1T00059 /* RoleStore.swift */,
-				F1T00057 /* RolesHomeView.swift */,
-				F1T00055 /* ProcessDrawerView.swift */,
+				F1T00102 /* RoleStore.swift */,
+				F1T00100 /* RolesHomeView.swift */,
+				F1T00098 /* ProcessDrawerView.swift */,
 				E53000015 /* UsageStatsView.swift */,
 				F1W00012 /* WebPreviewSheet.swift */,
 				A11Y0002 /* ChatAccessibilityAnnouncer.swift */,
@@ -2896,9 +2896,9 @@
 				A11Y0001 /* ChatAccessibilityAnnouncer.swift in Sources */,
 				F1W0E101 /* WebLoadError.swift in Sources */,
 				F1T00011 /* ToolLiveSheet.swift in Sources */,
-				F1T00060 /* RoleStore.swift in Sources */,
-				F1T00058 /* RolesHomeView.swift in Sources */,
-				F1T00056 /* ProcessDrawerView.swift in Sources */,
+				F1T00103 /* RoleStore.swift in Sources */,
+				F1T00101 /* RolesHomeView.swift in Sources */,
+				F1T00099 /* ProcessDrawerView.swift in Sources */,
 				E5V300001 /* CollectionViewMessageListV3.swift in Sources */,
 				F1A00020 /* MessageListInfrastructure.swift in Sources */,
 				E54100001 /* SessionDataSimulator.swift in Sources */,
