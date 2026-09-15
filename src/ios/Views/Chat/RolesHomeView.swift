@@ -361,7 +361,7 @@ struct RoleEditorView: View {
         }
         .onAppear(perform: seed)
         .photosPicker(isPresented: $showPhotoPicker, selection: $pickerItem, matching: .images)
-        .onChange(of: pickerItem) { _, item in
+        .onChange(of: pickerItem) { item in
             loadPicker(item)
         }
     }
