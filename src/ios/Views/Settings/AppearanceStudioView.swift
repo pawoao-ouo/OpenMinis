@@ -8,7 +8,6 @@ struct AppearanceStudioView: View {
     @State private var wallpaperScope: AppearanceScope = .global
     @State private var wallpaperItem: PhotosPickerItem?
     @State private var userAvatarItem: PhotosPickerItem?
-    @State private var assistantAvatarItem: PhotosPickerItem?
     @State private var iconPickSlot: QuietIconSlot?
     @State private var iconItem: PhotosPickerItem?
     @State private var thinkingCardItem: PhotosPickerItem?
@@ -367,8 +366,13 @@ struct AppearanceStudioView: View {
                 }
             }
 
-            CollapsibleSection(title: "情头",
-                               footer: "两张图都会裁成方的，存在这台手机上。小梦的头像同时就是 Soul 图标，身份不会各处长不一样。",
+            // [T-roles-identity-09-16] Was a "情头" pair: my avatar + the
+            // assistant's. The assistant's half is gone — a role's avatar
+            // belongs to that role and is edited on the role's own page, so
+            // it cannot be a single global setting here. What remains is the
+            // one avatar that IS app-wide: the user's own.
+            CollapsibleSection(title: "我的头像",
+                               footer: "裁成方的，存在这台手机上。",
                                isExpanded: $showAvatars) {
                 pairedAvatarPreview
 
@@ -378,16 +382,6 @@ struct AppearanceStudioView: View {
                 if !studio.userAvatar.isEmpty {
                     Button("去掉我的头像", role: .destructive) {
                         studio.removeUserAvatar()
-                    }
-                }
-
-                PhotosPicker(selection: $assistantAvatarItem, matching: .images) {
-                    Label("选小梦的头像", systemImage: "sparkles.rectangle.stack")
-                }
-                if !SoulStore.cachedMetadata.icon.isEmpty {
-                    Button("去掉小梦的头像", role: .destructive) {
-                        do { try studio.removeAssistantAvatar() }
-                        catch { errorText = error.localizedDescription }
                     }
                 }
             }
@@ -429,15 +423,6 @@ struct AppearanceStudioView: View {
         .onChange(of: userAvatarItem) { item in
             guard let item else { return }
             Task { await importImage(item) { studio.setUserAvatar($0) } }
-        }
-        .onChange(of: assistantAvatarItem) { item in
-            guard let item else { return }
-            Task {
-                await importImage(item) { image in
-                    do { try studio.setAssistantAvatar(image) }
-                    catch { errorText = error.localizedDescription }
-                }
-            }
         }
         .onChange(of: iconItem) { item in
             guard let item, let slot = iconPickSlot else { return }
@@ -519,14 +504,7 @@ struct AppearanceStudioView: View {
         HStack(spacing: 12) {
             Spacer()
             VStack(spacing: 6) {
-                PersonAvatarView(kind: .assistant, size: 54)
-                Text(SoulStore.cachedMetadata.name.isEmpty ? "小梦" : SoulStore.cachedMetadata.name)
-                    .font(.caption)
-            }
-            Image(systemName: "link")
-                .foregroundStyle(studio.color(.accent))
-            VStack(spacing: 6) {
-                PersonAvatarView(kind: .user, size: 54)
+                PersonAvatarView(size: 54)
                 Text("醒醒").font(.caption)
             }
             Spacer()
@@ -540,7 +518,6 @@ struct AppearanceStudioView: View {
         defer {
             wallpaperItem = nil
             userAvatarItem = nil
-            assistantAvatarItem = nil
             thinkingCardItem = nil
             inputBarItem = nil
             categoryImageItem = nil

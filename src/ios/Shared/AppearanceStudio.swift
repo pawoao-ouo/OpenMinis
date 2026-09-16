@@ -349,19 +349,6 @@ final class AppearanceStudio: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Keys.userAvatar)
     }
 
-    func setAssistantAvatar(_ image: UIImage) throws {
-        guard case .success(let value) = SoulIconImage.encode(image) else { return }
-        var soul = SoulStore.load() ?? SoulFile(metadata: .default, body: "")
-        soul.metadata.icon = value
-        try SoulStore.save(soul)
-    }
-
-    func removeAssistantAvatar() throws {
-        var soul = SoulStore.load() ?? SoulFile(metadata: .default, body: "")
-        soul.metadata.icon = ""
-        try SoulStore.save(soul)
-    }
-
     // MARK: Replaceable icons
 
     func customIcon(for id: String) -> String? {
@@ -552,25 +539,27 @@ extension View {
     }
 }
 
+/// [T-roles-identity-09-16] The USER's avatar — the one avatar that is
+/// genuinely app-wide, so it belongs to the appearance settings.
+///
+/// This used to be a two-kind view (`kind: .user | .assistant`) reading the
+/// assistant half out of the global SOUL.md icon. The assistant half is gone:
+/// a role's avatar belongs to that role and is edited on its own page, so no
+/// role ever renders from a global setting. Use `RoleAvatar(path:)` for a
+/// persona.
 struct PersonAvatarView: View {
-    enum Kind { case user, assistant }
-    let kind: Kind
     let size: CGFloat
     @ObservedObject private var studio = AppearanceStudio.shared
-    @State private var soulIcon = SoulStore.cachedMetadata.icon
 
     var body: some View {
         Group {
-            let icon = kind == .user ? studio.userAvatar : soulIcon
-            if !icon.isEmpty {
-                SoulIconView(icon: icon, size: size)
+            if !studio.userAvatar.isEmpty {
+                SoulIconView(icon: studio.userAvatar, size: size)
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
-                        .fill(kind == .user
-                              ? studio.color(.userBubble, scope: .chat)
-                              : studio.color(.assistantBubble, scope: .chat))
-                    Image(systemName: kind == .user ? "person.fill" : "sparkles")
+                        .fill(studio.color(.userBubble, scope: .chat))
+                    Image(systemName: "person.fill")
                         .font(.system(size: size * 0.42, weight: .medium))
                         .foregroundStyle(studio.color(.accent, scope: .chat))
                 }
@@ -582,9 +571,6 @@ struct PersonAvatarView: View {
             RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
                 .stroke(studio.color(.border, scope: .chat), lineWidth: 0.7)
         )
-        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            soulIcon = SoulStore.cachedMetadata.icon
-        }
     }
 }
 

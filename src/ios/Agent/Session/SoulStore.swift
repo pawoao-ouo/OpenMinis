@@ -825,35 +825,34 @@ enum SoulStore {
     @MainActor
     static var cachedMetadata: SoulMetadata = .default
 
-    /// [T-identity-source 09-16] The assistant bound to the currently visible
-    /// chat session. UI identity (title pill, placeholder, "X is thinking"
-    /// bubble, sidebar title, Live Activity) reads this — NOT the global
-    /// `cachedMetadata` — so that chatting with a role called "艾莉" actually
-    /// surfaces "艾莉" instead of the global SOUL.md name.
+    /// [T-identity-source 09-16] The role bound to the currently visible chat
+    /// session. UI identity (title pill, placeholder, "X is thinking" bubble,
+    /// Live Activity) reads this — so chatting with a role called "艾莉"
+    /// surfaces "艾莉".
     ///
     /// Set by `AIChatView.refreshTitlePillSession` whenever a session loads.
-    /// nil while no session is visible (e.g. sidebar / settings). Callers fall
-    /// back to `cachedMetadata.name` then to "Minis" in `activeDisplayName()`.
+    /// nil while no session is visible (e.g. sidebar / settings).
     @MainActor
     static var activeAssistantId: String? = nil
 
-    /// The name to show in identity UI for the currently visible session.
-    /// Order: active assistant's name → cachedMetadata.name → "Minis".
+    /// [T-roles-identity-09-16] The name to show for the currently visible
+    /// session. Resolves the role by id; "Minis" only when there is no role to
+    /// resolve (no session open, or the role was deleted on another device).
+    ///
+    /// No fallback chain: there is no global identity to fall back TO. The
+    /// previous implementation ended with `cachedMetadata.name`, which meant a
+    /// deleted role silently inherited a name from a file nobody edits.
     @MainActor
     static func activeDisplayName() -> String {
-        if let id = activeAssistantId,
-           let a = cachedAssistants[id],
-           let n = a.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? nil : a.name.trimmingCharacters(in: .whitespacesAndNewlines) {
-            return n
-        }
-        let g = cachedMetadata.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return g.isEmpty ? "Minis" : g
+        guard let id = activeAssistantId,
+              let a = cachedAssistants[id] else { return "Minis" }
+        let n = a.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return n.isEmpty ? "Minis" : n
     }
 
-    /// Set the active session's assistant and notify identity UI to refresh.
-    /// Pass nil when leaving a session (sidebar / settings) so identity falls
-    /// back to the global SOUL name.
+    /// Set the active session's role and notify identity UI to refresh.
+    /// Pass nil when leaving a session (sidebar / settings); the name then
+    /// falls back to "Minis".
     @MainActor
     static func setActiveAssistant(_ id: String?) {
         guard activeAssistantId != id else { return }
@@ -1103,21 +1102,3 @@ enum SystemPromptBuilder {
     }
 }
 
-// MARK: - Reusable SwiftUI text view
-
-/// Renders the current SOUL.md `name` (falling back to "Minis") and
-/// auto-refreshes whenever SoulStore posts `.soulMdChanged`. Use this in
-/// any place that previously hard-coded "Minis" as a label.
-@MainActor
-struct AssistantSoulName: View {
-    @State private var name: String = SoulStore.activeDisplayName()
-    var body: some View {
-        Text(name)
-            .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-                name = SoulStore.activeDisplayName()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .sessionAssistantChanged)) { _ in
-                name = SoulStore.activeDisplayName()
-            }
-    }
-}

@@ -1148,10 +1148,11 @@ struct ThinkingBlockView: View {
 
 struct TypingIndicator: View {
     @State private var dotOffsets: [Bool] = [false, false, false]
-    /// Live Soul name so the indicator reads "<custom name> is thinking…" when
-    /// the user has renamed the assistant in Soul settings. Updates via
-    /// `.soulMdChanged` Notification — same wiring used by `AssistantSoulName`.
-    @State private var soulName: String = SoulStore.activeDisplayName()
+    /// [T-roles-identity-09-16] Live role name so the indicator reads
+    /// "<role name> is thinking…". `activeDisplayName()` resolves the OPEN
+    /// session's persona and republishes on `.sessionAssistantChanged` /
+    /// `.assistantDidChange`, so renaming a role updates this in place.
+    @State private var roleName: String = SoulStore.activeDisplayName()
 
     var body: some View {
         // The thinking-level badge that used to trail this indicator was
@@ -1160,17 +1161,17 @@ struct TypingIndicator: View {
         // duplicate here was redundant. ThinkingLevelSheetView is unchanged;
         // it's still presented from the nav-bar badge.
         HStack(spacing: 0) {
-            Text("\(soulName) is thinking")
+            Text("\(roleName) is thinking")
             ForEach(0..<3, id: \.self) { i in
                 Text(".")
                     .offset(y: dotOffsets[i] ? -3 : 1)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            soulName = SoulStore.activeDisplayName()
+        .onReceive(NotificationCenter.default.publisher(for: .assistantDidChange)) { _ in
+            roleName = SoulStore.activeDisplayName()
         }
         .onReceive(NotificationCenter.default.publisher(for: .sessionAssistantChanged)) { _ in
-            soulName = SoulStore.activeDisplayName()
+            roleName = SoulStore.activeDisplayName()
         }
         .font(.system(size: 15, weight: .medium))
         .foregroundStyle(ChatColors.tertiaryText)

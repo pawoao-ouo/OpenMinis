@@ -42,7 +42,7 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
     var onRetryMessage: ((UUID) -> Void)?
     var onRetryLast: (() -> Void)?
     /// [T-ios-assistant-header-open-soul] Tap on the assistant identity row.
-    var onOpenSoulSettings: (() -> Void)?
+    var onOpenRoleProfile: (() -> Void)?
     var onEdit: ((UUID) -> Void)?
     var onDeleteFrom: ((UUID) -> Void)?
     var onWithdraw: ((UUID) -> Void)?
@@ -85,7 +85,7 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
         // the buttons stayed hidden at diff≈2700pt from the bottom).
         coord.rebindViewModelIfNeeded(vm)
         coord.onRetryMessage = onRetryMessage
-        coord.onOpenSoulSettings = onOpenSoulSettings
+        coord.onOpenRoleProfile = onOpenRoleProfile
         coord.onRetryLast = onRetryLast
         coord.onEdit = onEdit
         coord.onDeleteFrom = onDeleteFrom
@@ -216,7 +216,12 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
 private struct BridgedAssistantHeaderV3: View {
     @ObservedObject var message: ChatMessage
     var maxWidth: CGFloat = 0
-    @State private var soulMeta: SoulMetadata = SoulStore.cachedMetadata
+    /// [T-roles-identity-09-16] The persona this message belongs to — the
+    /// SESSION's role, not a global one. There is no global identity any
+    /// more: the header used to read `SoulStore.cachedMetadata`, so every
+    /// message showed the same app-wide name/avatar regardless of which
+    /// role the conversation was with.
+    @ObservedObject var vm: AIChatViewModel
     /// [T-ios-assistant-header-open-soul] Injected, NOT read from the
     /// environment.
     ///
@@ -227,11 +232,11 @@ private struct BridgedAssistantHeaderV3: View {
     /// `.systemAction` and does nothing. (Verified on device: the tap fired, no
     /// navigation happened, and no deep-link log line appeared.) So the handler
     /// is threaded down the same way every other cell callback already is.
-    var onOpenSoulSettings: (() -> Void)?
+    var onOpenRoleProfile: (() -> Void)?
     var body: some View {
         HStack(spacing: 10) {
-            PersonAvatarView(kind: .assistant, size: 38)
-            Text(soulMeta.name.isEmpty ? "Minis" : soulMeta.name)
+            RoleAvatar(path: vm.assistantAvatarPath, size: 38)
+            Text(vm.assistantDisplayName)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(ChatColors.primaryText)
         }
@@ -256,14 +261,11 @@ private struct BridgedAssistantHeaderV3: View {
         // trade the surrounding code forces; growing it would need the height
         // constant re-measured, which is out of scope here.
         .contentShape(Rectangle())
-        .onTapGesture { onOpenSoulSettings?() }
+        .onTapGesture { onOpenRoleProfile?() }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(AppLocalized("Open Soul settings"))
-        .accessibilityHint(AppLocalized("Change the assistant's name, icon and personality"))
-        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            soulMeta = SoulStore.cachedMetadata
-        }
+        .accessibilityLabel(AppLocalized("Open role profile"))
+        .accessibilityHint(AppLocalized("Change this role's name, avatar and personality"))
         .padding(.top, 4)
         .padding(.bottom, 0)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -692,11 +694,14 @@ private struct BridgedAssistantFooterV3: View {
 private struct BridgedWholeMessageV3: View {
     @ObservedObject var message: ChatMessage
     @ObservedObject var bridge: CellStateBridgeV2
+    /// [T-roles-identity-09-16] Source of this row's persona (name/avatar).
+    @ObservedObject var vm: AIChatViewModel
     var maxWidth: CGFloat
 
     var body: some View {
         ChatMessageRow(
             message: message,
+            assistantId: vm.assistantId,
             isActiveMessage: false,
             commandStartTime: nil,
             onStop: nil,
@@ -769,7 +774,7 @@ extension CollectionViewMessageListV3 {
     final class Coordinator: NSObject, UICollectionViewDelegate, UIScrollViewDelegate, UICollectionViewDataSourcePrefetching {
         // Callbacks
         var onRetryMessage: ((UUID) -> Void)?
-        var onOpenSoulSettings: (() -> Void)?
+        var onOpenRoleProfile: (() -> Void)?
         var onRetryLast: (() -> Void)?
         var onEdit: ((UUID) -> Void)?
         var onDeleteFrom: ((UUID) -> Void)?
@@ -1245,6 +1250,7 @@ extension CollectionViewMessageListV3 {
                     BridgedWholeMessageV3(
                         message: message,
                         bridge: bridge,
+                        vm: vm,
                         maxWidth: width
                     )
                     // Suppress SwiftUI async display-link geometry observation
@@ -1275,7 +1281,8 @@ extension CollectionViewMessageListV3 {
                 cell.backgroundColor = .clear
                 let config = UIHostingConfiguration {
                     BridgedAssistantHeaderV3(message: message, maxWidth: width,
-                                            onOpenSoulSettings: onOpenSoulSettings)
+                                            vm: vm,
+                                            onOpenRoleProfile: onOpenRoleProfile)
                         .transaction { $0.disablesAnimations = true }
                         .environmentObject(vm)
                 }.minSize(width: 0, height: 0).margins(.all, 0)
@@ -2312,6 +2319,30 @@ extension CollectionViewMessageListV3 {
                     self.applySnapshot(messages: vm.messages)
                 }
                 .store(in: &subscriptions)
+
+            // [T-roles-identity-09-16] The assistant header draws the ROLE's
+            // name and avatar, so it must re-render when that role changes or
+            // when this conversation is re-assigned to a different one.
+            //
+            // applySnapshot() alone is NOT enough: the message IDs are
+            // unchanged, so the diffable data source sees no diff and never
+            // reconfigures a cell — the header would keep the old role's name
+            // and avatar until the cell happened to be recycled. Force a
+            // reconfigure of every realised item instead (same mechanism the
+            // attachment-size path uses).
+            NotificationCenter.default.publisher(for: .assistantDidChange)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    self?.reconfigureAllItemsForIdentityChange()
+                }
+                .store(in: &subscriptions)
+
+            NotificationCenter.default.publisher(for: .sessionAssistantChanged)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    self?.reconfigureAllItemsForIdentityChange()
+                }
+                .store(in: &subscriptions)
         }
 
         // MARK: - Footer height invalidation
@@ -2333,6 +2364,18 @@ extension CollectionViewMessageListV3 {
         ///
         /// `messageId == nil` invalidates every visible footer; passing an id
         /// narrows it to that message's footer.
+        /// [T-roles-identity-09-16] Force every item to be re-configured so
+        /// role-derived content (the assistant header's name + avatar) picks
+        /// up a change that did not touch the message list itself. No diff is
+        /// involved, so this costs one config pass over the realised cells.
+        private func reconfigureAllItemsForIdentityChange() {
+            guard let ds = dataSource else { return }
+            var snap = ds.snapshot()
+            guard !snap.itemIdentifiers.isEmpty else { return }
+            snap.reconfigureItems(snap.itemIdentifiers)
+            ds.apply(snap, animatingDifferences: false)
+        }
+
         private func invalidateFooterHeightCaches(messageId: UUID? = nil) {
             guard let cv = viewController?.collectionView,
                   let layout = viewController?.messageListLayout,

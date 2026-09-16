@@ -2108,6 +2108,24 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// rather than none.
     var assistantId: String = MinisFsRouter.defaultAssistantId
 
+    /// [T-roles-identity-09-16] The current persona's display name, resolved
+    /// from the SESSION's role. Falls back to "Minis" when the role is
+    /// missing (deleted on another device) so the UI never renders an empty
+    /// label. This is the single source the chat surfaces read — there is no
+    /// global identity to fall back to.
+    var assistantDisplayName: String {
+        let n = SoulStore.cachedAssistant(assistantId)?
+            .name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return n.isEmpty ? "Minis" : n
+    }
+
+    /// The current persona's avatar file name (relative to the avatars dir),
+    /// or nil for the default glyph. Read by the message header so each
+    /// conversation shows ITS role's picture rather than a shared one.
+    var assistantAvatarPath: String? {
+        SoulStore.cachedAssistant(assistantId)?.avatarPath
+    }
+
     /// The draft ID assigned by the parent view (e.g. "__new__<UUID>").
     /// Included in `.sessionDidCreate` notification so the parent can correlate.
     var draftId: String?

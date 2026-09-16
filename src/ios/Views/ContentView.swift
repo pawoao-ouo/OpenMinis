@@ -956,10 +956,22 @@ struct ContentView: View {
     /// reading it from the row closure costs nothing per frame. Rebuilt only
     /// when `sessions` changes (see .onChange below).
     @State private var sessionsByIdCache: [String: ChatSession] = [:]
-    /// Soul name shown as the sidebar title. Sourced from SOUL.md, falls
-    /// back to "Minis". Refreshed whenever SoulStore posts .soulMdChanged.
-    @State private var soulName: String = SoulStore.cachedMetadata.name.isEmpty
-        ? "Minis" : SoulStore.cachedMetadata.name
+    /// [T-roles-identity-09-16] Sidebar title = the role of the conversation
+    /// currently open, or "Minis" when none is (the list itself is the app's
+    /// home, so it carries the app name). Was a global SOUL.md name, which
+    /// meant one persona's name sat on top of every role's session list.
+    ///
+    /// Deliberately derived from `selectedSessionId` rather than stored: the
+    /// session list already owns that state, and a second copy would need its
+    /// own invalidation on switch, delete and role rename.
+    private var sidebarTitle: String {
+        guard let sid = selectedSessionId ?? newSessionRealId,
+              let session = sessionsByIdCache[sid] ?? sessions.first(where: { $0.id == sid })
+        else { return "Minis" }
+        let n = SoulStore.cachedAssistant(session.assistantId)?
+            .name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return n.isEmpty ? "Minis" : n
+    }
     /// Subtitle state shown under the "Minis" sidebar title. nil hides the
     /// row; otherwise it renders as small capsules per type or a single
     /// status string. Refreshed by a 5s timer.
@@ -2749,16 +2761,11 @@ struct ContentView: View {
         // app is backgrounded (the crash reproduced with the app in the background).
         // refreshMigrationSubtitle is idempotent (Task{@MainActor} + diff-before-assign).
         .task { await migrationSubtitleLoop() }
-        // [T-ios-soul-name-sidebar-stale] Refresh the sidebar title from SOUL.md.
-        // Moved here off the churny toolbar `titleLabel` Text (which rebuilds on
-        // every canOpenSync/soulName/migrationSubtitle/isSelecting change) for the
-        // same reason as the migration timer above: this Group's identity is stable
-        // across the sidebar's life, so the sink is never torn down mid-transaction
-        // and can't drop a .soulMdChanged notification arriving during reconstruction.
-        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            let n = SoulStore.cachedMetadata.name
-            soulName = n.isEmpty ? "Minis" : n
-        }
+        // [T-roles-identity-09-16] The sidebar title is now DERIVED from
+        // `selectedSessionId` + the role cache (see `sidebarTitle`), so there
+        // is nothing to subscribe to: both inputs are already @State the body
+        // re-reads. The old .soulMdChanged sink existed only to mirror a
+        // global SOUL.md name into a @State copy.
     }
 
     /// Plain List with NavigationLink for stack (iPhone) layout.
@@ -3326,18 +3333,13 @@ struct ContentView: View {
                 // When iCloud sync isn't enabled the title is a plain Text;
                 // wrapping it in a `.disabled` Button would drain SwiftUI's
                 // default disabled-button tint into the label and render the
-                // SOUL name grey, which read as a styling bug rather than the
+                // title grey, which read as a styling bug rather than the
                 // intended "no sync detail to open" state.
-                // [T-ios-soul-name-sidebar-stale] The `.onReceive(soulMdChanged)`
-                // that refreshes `soulName` used to live HERE. It was moved to the
-                // stable `sessionList(useNavigationLinks:)` body for the SAME reason
-                // the migration timer was (see the T-ios-migration-timer note below):
-                // this toolbar principal item rebuilds on every canOpenSync /
-                // soulName / migrationSubtitle / isSelecting change, so a sink
-                // attached here gets torn down and re-created constantly and can
-                // drop a .soulMdChanged notification that arrives during the gap.
-                // This Text now only READS `soulName`.
-                let titleLabel = Text(soulName)
+                //
+                // [T-roles-identity-09-16] Reads `sidebarTitle`, a pure
+                // function of `selectedSessionId` + the role cache — both
+                // already @State this body re-reads. No sink needed.
+                let titleLabel = Text(sidebarTitle)
                     .font(.system(size: 18.5, weight: .semibold))
                     .foregroundStyle(.primary)
                     .overlay(alignment: .leading) {
@@ -3356,7 +3358,7 @@ struct ContentView: View {
                 // [T-ios-migration-timer-toolbar-uaf-crash] The migration-subtitle
                 // refresh driver used to live HERE, on this `titleLabel` Text inside
                 // the churny toolbar principal item. That item rebuilds whenever
-                // canOpenSync / soulName / migrationSubtitle / isSelecting change, so
+                // canOpenSync / sidebarTitle / migrationSubtitle / isSelecting change, so
                 // AttributeGraph repeatedly tore down the driver's sink — a
                 // use-after-free release in the setBody transaction (EXC_BAD_ACCESS,
                 // build 309). The driver now lives on the stable

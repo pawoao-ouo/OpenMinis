@@ -496,9 +496,20 @@ struct AIChatView: View {
     @State private var titlePillSession: ChatSession?
     /// Session being edited via the title-pill tap. Drives the SessionEditSheet.
     @State private var titlePillEditSession: ChatSession?
-    /// Default chat title for sessions without a generated title. Sourced
-    /// from SOUL.md (`name`), falls back to "Minis". Refreshed on .soulMdChanged.
-    @State private var soulName: String = SoulStore.activeDisplayName()
+    /// [T-roles-identity-09-16] Owns the role editor presented from the
+    /// message header. AIChatView had no RoleStore before — the roles UI
+    /// lived entirely in the Roles tab.
+    @StateObject private var roleStore = RoleStore()
+    /// [T-roles-identity-09-16] Role being edited from the message header.
+    /// Non-nil presents the role editor as a sheet (this screen has no
+    /// navigation stack of its own — it IS pushed onto one).
+    @State private var editingRole: Assistant?
+    /// [T-roles-identity-09-16] The SESSION's role name — the default chat
+    /// title when no generated title exists, the input placeholder, and the
+    /// message-header label. Was a global SOUL.md name; now resolved from the
+    /// conversation's own persona, refreshed when the role or the session's
+    /// assignment changes.
+    @State private var assistantName: String = SoulStore.activeDisplayName()
 
     /// True when any sheet or fullScreenCover is presented (suppress auto-focus to avoid keyboard bugs).
     private var hasOverlayPresented: Bool {
@@ -757,6 +768,12 @@ struct AIChatView: View {
             })
             .equatable()
         )
+        // [T-roles-identity-09-16] Role editor, opened from the message
+        // header. The editor writes to the assistants table, so the persona
+        // the header shows and the one this sheet edits are the same record.
+        .sheet(item: $editingRole) { role in
+            RoleEditorView(store: roleStore, existing: role)
+        }
         .sheet(item: $titlePillEditSession) { session in
             SessionEditSheet(session: session) { newTitle, newCategory in
                 Task {
@@ -2182,7 +2199,7 @@ struct AIChatView: View {
         return NavTitleKey(
             sessionTitle: sessionTitle,
             canEditTitle: titlePillSession != nil,
-            soulName: soulName,
+            assistantName: assistantName,
             modelName: display.displayName(for: vm.sessionId),
             isGroupBound: display.isGroupBound(for: vm.sessionId),
             showFastBolt: codexFastModeEnabled && activeModelSupportsFastMode,
@@ -2272,7 +2289,7 @@ struct AIChatView: View {
                 // wrapped under the trailing "…" button. Drop one point
                 // on legacy iOS so they fit cleanly; keep the iOS 26
                 // size unchanged.
-                Text(sessionTitle ?? soulName)
+                Text(sessionTitle ?? assistantName)
                     // [T-navbar-title-size 2026-05-18 / -19 / -20] iOS 16-18
                     // principal toolbar is a fixed ~44pt band sitting just
                     // below the status bar with very little reserved padding.
@@ -2310,11 +2327,14 @@ struct AIChatView: View {
                     // breathing room above the semibold cap height without
                     // re-introducing the top crop.
                     .padding(.top, legacyLayout ? 0 : 2)
-                    .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-                        soulName = SoulStore.activeDisplayName()
+                    // [T-roles-identity-09-16] Republish on role edits and on
+                    // session re-assignment. Was .soulMdChanged (a file nobody
+                    // writes any more).
+                    .onReceive(NotificationCenter.default.publisher(for: .assistantDidChange)) { _ in
+                        assistantName = SoulStore.activeDisplayName()
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .sessionAssistantChanged)) { _ in
-                        soulName = SoulStore.activeDisplayName()
+                        assistantName = SoulStore.activeDisplayName()
                     }
             }
             .buttonStyle(.plain)
@@ -2747,9 +2767,15 @@ struct AIChatView: View {
                 // identity row and an agent-authored
                 // `[Soul](minis-clone://settings/soul)` link land identically —
                 // no second navigation path to keep in sync.
-                onOpenSoulSettings: {
-                    guard let url = URL(string: "minis-clone://settings/soul") else { return }
-                    _ = handleMinisURLTap(url)
+                onOpenRoleProfile: {
+                    // [T-roles-identity-09-16] The header IS this
+                    // conversation's role, so tapping it opens that role's
+                    // page — not the retired global Soul settings screen
+                    // (which no longer exists and no longer had anything to
+                    // edit). nil when the role was deleted on another device;
+                    // the tap then does nothing rather than opening a blank
+                    // editor.
+                    editingRole = SoulStore.cachedAssistant(vm.assistantId)
                 },
                 onEdit: { [self] msgId in
                     vm.editMessage(msgId)
@@ -3668,7 +3694,7 @@ struct AIChatView: View {
             // `%@` form ("Message %@ (@ to mention files)") as the lookup
             // key in Localizable.xcstrings, so translators get one
             // parameterized entry per locale instead of one per soul name.
-            placeholder: AppLocalized("Message \(soulName) (@ to mention files)"),
+            placeholder: AppLocalized("Message \(assistantName) (@ to mention files)"),
             onPasteImage: { image in vm.addImageAttachment(image) },
             onPasteFile: { url in vm.addFileAttachment(from: url) },
             onReturnKey: handleReturnKey,
@@ -5134,7 +5160,7 @@ private struct EquatableByValue<Key: Equatable, Content: View>: View, Equatable 
 private struct NavTitleKey: Equatable {
     let sessionTitle: String?
     let canEditTitle: Bool
-    let soulName: String
+    let assistantName: String
     let modelName: String
     let isGroupBound: Bool
     /// [T-codex-fast-mode] Circular ⚡ badge before the model name while
@@ -5204,7 +5230,7 @@ private struct ChatToolbarHost<Title: View, Trailing: View>: View, Equatable {
                 let l = lhs.key.navTitle, r = rhs.key.navTitle
                 if l.sessionTitle != r.sessionTitle { diffs.append("sessionTitle") }
                 if l.canEditTitle != r.canEditTitle { diffs.append("canEditTitle") }
-                if l.soulName != r.soulName { diffs.append("soulName") }
+                if l.assistantName != r.assistantName { diffs.append("assistantName") }
                 if l.modelName != r.modelName { diffs.append("modelName") }
                 if l.isGroupBound != r.isGroupBound { diffs.append("isGroupBound") }
                 if l.resolvedText != r.resolvedText { diffs.append("resolvedText") }

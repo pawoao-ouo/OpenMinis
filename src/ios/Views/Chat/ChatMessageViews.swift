@@ -177,6 +177,10 @@ private struct PreviewContentSizeKey: PreferenceKey {
 
 struct ChatMessageRow: View {
     @ObservedObject var message: ChatMessage
+    /// [T-roles-identity-09-16] The persona this message belongs to. The
+    /// assistant header renders ITS name and avatar; there is no global
+    /// identity left to fall back on.
+    var assistantId: String = MinisFsRouter.defaultAssistantId
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     /// Only the actively streaming message needs vm access (for typing indicator & stop button).
     let isActiveMessage: Bool
@@ -473,7 +477,7 @@ struct ChatMessageRow: View {
                 MessageContextMenuPreview(text: message.content)
             }
 
-            PersonAvatarView(kind: .user, size: 38)
+            PersonAvatarView(size: 38)
                 .padding(.top, 2)
         }
         .padding(.horizontal, 16)
@@ -493,12 +497,20 @@ struct ChatMessageRow: View {
 
     // MARK: Assistant Row
 
+    /// The role's display name, "Minis" when the row has none (role deleted
+    /// on another device). Same fallback rule as AIChatViewModel.
+    private var assistantDisplayName: String {
+        let n = SoulStore.cachedAssistant(assistantId)?
+            .name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return n.isEmpty ? "Minis" : n
+    }
+
     private var assistantRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Assistant label
+            // Assistant label — this message's ROLE, not a global name.
             HStack(spacing: 10) {
-                PersonAvatarView(kind: .assistant, size: 38)
-                AssistantSoulName()
+                RoleAvatar(path: SoulStore.cachedAssistant(assistantId)?.avatarPath, size: 38)
+                Text(assistantDisplayName)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(ChatColors.primaryText)
             }
