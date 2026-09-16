@@ -536,9 +536,12 @@ struct ModelUseReachCaller: ActiveReachModelCalling {
 enum ActiveReachMemorySnippet {
     static func load(now: Date = Date(), limit: Int = 2000) -> String {
         var chunks: [String] = []
-        if let body = SoulStore.load()?.body, !body.isEmpty {
-            chunks.append(String(body.prefix(800)))
-        }
+        // [T-roles-identity-09-16] The SOUL.md chunk is gone with the file.
+        // "Reach out" used to splice the single global persona into its
+        // prompt, which was never the persona the conversation actually used
+        // (that comes from the role, per session). What remains is memory,
+        // which is genuinely per-assistant and read from the shell's view of
+        // the memory directory.
         let dir = RootfsManager.shared.dataPath.appendingPathComponent("var/minis/memory")
         let global = dir.appendingPathComponent("GLOBAL.md")
         if let text = try? String(contentsOf: global, encoding: .utf8), !text.isEmpty {

@@ -119,6 +119,65 @@
         }
       }
     },
+    "GLOBAL.md and daily logs are listed by path — the agent reads them on demand (memory_get / file_read). Turn on a full-text switch below to inject a layer every turn." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GLOBAL.md und die Tagesprotokolle sind als Pfad aufgeführt – das Agent liest sie bei Bedarf (memory_get / file_read). Schalte unten einen Volltext-Schalter ein, um eine Schicht bei jeder Runde einzufügen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GLOBAL.md and daily logs are listed by path — the agent reads them on demand (memory_get / file_read). Turn on a full-text switch below to inject a layer every turn."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GLOBAL.md y los registros diarios se listan por ruta: el agente los lee cuando los necesita (memory_get / file_read). Activa abajo un interruptor de texto completo para inyectar una capa en cada turno."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GLOBAL.md et les journaux quotidiens sont listés par chemin — l'agent les lit à la demande (memory_get / file_read). Activez ci-dessous un commutateur de texte intégral pour injecter une couche à chaque tour."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GLOBAL.md と日次ログはパスとして一覧表示され、エージェントが必要に応じて読み込みます（memory_get / file_read）。毎ターン注入するには、下の全文スイッチをオンにしてください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GLOBAL.md와 일일 로그는 경로로 나열되며, 에이전트가 필요할 때 읽습니다(memory_get / file_read). 매 턴 주입하려면 아래의 전체 텍스트 스위치를 켜세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GLOBAL.md и ежедневные журналы указаны путём — агент читает их по мере необходимости (memory_get / file_read). Включите ниже переключатель полного текста, чтобы внедрять слой каждый ход."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GLOBAL.md 和每日日志按路径列出——agent 需要时自行读取（memory_get / file_read）。打开下面的全文开关，即可每轮注入一层。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GLOBAL.md 和每日日誌按路徑列出——agent 需要時自行讀取（memory_get / file_read）。開啟下面的全文開關，即可每輪注入一層。"
+          }
+        }
+      }
+    },
     "Open role profile" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -442,6 +501,65 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "朗读内容"
+          }
+        }
+      }
+    },
+    "The memory layers marked “Full text — injected” above are loaded into the system prompt each turn. The rest are listed by path — the agent reads them on demand (memory_get / file_read)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die oben mit „Volltext – eingefügt“ markierten Speicherschichten werden bei jeder Runde in den System-Prompt geladen. Die übrigen sind als Pfad aufgeführt – das Agent liest sie bei Bedarf (memory_get / file_read)."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The memory layers marked “Full text — injected” above are loaded into the system prompt each turn. The rest are listed by path — the agent reads them on demand (memory_get / file_read)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las capas de memoria marcadas arriba como «Texto completo — inyectado» se cargan en el prompt del sistema en cada turno. El resto se listan por ruta: el agente las lee cuando las necesita (memory_get / file_read)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les couches de mémoire marquées ci-dessus « Texte intégral — injecté » sont chargées dans le prompt système à chaque tour. Les autres sont listées par chemin — l'agent les lit à la demande (memory_get / file_read)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上で「全文 — 注入」と表示されているメモリ層は、毎ターンsystem promptに読み込まれます。それ以外はパスとして一覧表示され、エージェントが必要に応じて読み込みます（memory_get / file_read）。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "위에서 \"전체 텍스트 — 주입됨\"으로 표시된 메모리 계층은 매 턴 시스템 프롬프트에 로드됩니다. 나머지는 경로로 나열되며, 에이전트가 필요할 때 읽습니다(memory_get / file_read)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слои памяти, отмеченные выше как «Полный текст — внедряется», загружаются в системный промпт каждый ход. Остальные указаны путём — агент читает их по мере необходимости (memory_get / file_read)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上面标记为「全文——注入」的记忆层会在每一轮加载到系统提示词中。其余按路径列出——agent 需要时自行读取（memory_get / file_read）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上面標記為「全文——注入」的記憶層會在每一輪載入到系統提示詞中。其餘按路徑列出——agent 需要時自行讀取（memory_get / file_read）。"
           }
         }
       }
@@ -104481,64 +104599,6 @@
         }
       }
     },
-    "SOUL.md is loaded into the system prompt each turn. GLOBAL.md and daily logs are listed by path — the agent reads them on demand (memory_get / file_read)." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md wird bei jeder Runde in den System-Prompt geladen. GLOBAL.md und Tagesprotokolle werden nur mit Pfad aufgelistet — der Agent liest sie bei Bedarf (memory_get / file_read)."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md is loaded into the system prompt each turn. GLOBAL.md and daily logs are listed by path — the agent reads them on demand (memory_get / file_read)."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md se carga en el prompt del sistema en cada turno. GLOBAL.md y los registros diarios se listan solo por ruta: el agente los lee cuando los necesita (memory_get / file_read)."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md est chargé dans le prompt système à chaque tour. GLOBAL.md et les journaux quotidiens sont listés par chemin — l’agent les lit à la demande (memory_get / file_read)."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md は毎ターン system prompt に読み込まれます。GLOBAL.md と日次ログはパスのみ表示され、エージェントが必要時に読み込みます（memory_get / file_read）。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md는 매 턴 시스템 프롬프트에 로드됩니다. GLOBAL.md와 일일 로그는 경로만 표시되며, 에이전트가 필요할 때 읽습니다(memory_get / file_read)."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md загружается в системный промпт каждый ход. GLOBAL.md и дневные журналы указаны только путём — агент читает их по запросу (memory_get / file_read)."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md 每轮都会完整载入系统提示词。GLOBAL.md 和每日日志只列出路径——需要时由 agent 自行读取（memory_get / file_read）。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md 每輪都會完整載入系統提示詞。GLOBAL.md 和每日日誌只列出路徑——需要時由 agent 自行讀取（memory_get / file_read）。"
-          }
-        }
-      }
-    },
     "Full text — injected" : {
       "localizations" : {
         "de" : {
@@ -104883,64 +104943,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "關閉（預設）：提示詞只按路徑列出這些檔案，模型需要時才去讀——更省 token，但得先去找。開啟：檔案每回合完整放進提示詞，模型開局即知——檔案越長越費 token。"
-          }
-        }
-      }
-    },
-    "SOUL.md is loaded into the system prompt each turn, along with the memory layers marked “Full text — injected” above. The rest are listed by path — the agent reads them on demand (memory_get / file_read)." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md wird jede Runde in den System-Prompt geladen, ebenso die oben mit „Volltext — eingefügt“ markierten Speicherebenen. Der Rest wird nur mit Pfad aufgelistet — der Agent liest ihn bei Bedarf (memory_get / file_read)."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md is loaded into the system prompt each turn, along with the memory layers marked “Full text — injected” above. The rest are listed by path — the agent reads them on demand (memory_get / file_read)."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md se carga en el prompt del sistema en cada turno, igual que las capas de memoria marcadas arriba como «Texto completo — inyectado». El resto se listan por ruta — el agente las lee cuando las necesita (memory_get / file_read)."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md est chargé dans l'invite système à chaque tour, comme les couches de mémoire marquées « Texte intégral — injecté » ci-dessus. Les autres sont listées par chemin — l'agent les lit à la demande (memory_get / file_read)."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md は毎ターン system prompt に読み込まれ、上で「全文 — 注入済み」と表示されたメモリ層も同様です。それ以外はパスのみで、エージェントが必要時に読み込みます（memory_get / file_read）。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md는 매 턴 시스템 프롬프트에 포함되며, 위에서 '전체 텍스트 — 주입됨'으로 표시된 메모리 계층도 마찬가지입니다. 나머지는 경로만 나열되고 에이전트가 필요할 때 읽습니다(memory_get / file_read)."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md добавляется в системный промпт каждый ход, как и слои памяти, помеченные выше «Полный текст — внедрён». Остальные указаны только путём — агент читает их по запросу (memory_get / file_read)."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md 每回合都会载入系统提示词，上方标注「全文——已注入」的记忆层也一样。其余仅按路径列出——模型按需读取（memory_get / file_read）。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SOUL.md 每回合都會載入系統提示詞，上方標註「全文——已注入」的記憶層也一樣。其餘僅按路徑列出——模型按需讀取（memory_get / file_read）。"
           }
         }
       }

@@ -160,13 +160,13 @@ struct MinisApp: App {
         Bundle.enableLanguageOverride()
         let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? ""
         Bundle.setLanguage(lang.isEmpty ? nil : lang)
-        // [T-ios-soul-name-sidebar-stale] Pre-load cachedMetadata synchronously so
-        // ContentView's `@State soulName` gets the real SOUL.md name on its very
-        // first render instead of the `.default` stub ("Minis"). Without this the
-        // @State initializer (evaluated at ContentView instantiation, before any
-        // .onAppear refresh) locks the sidebar title to the default even when the
-        // user set a custom name. refreshCache() only reads the tiny SOUL.md file.
-        SoulStore.refreshCache()
+        // [T-roles-identity-09-16] Load the persona snapshot before the first
+        // render so any identity surface that resolves a role by id finds it
+        // populated. This used to be SoulStore.refreshCache(), which read the
+        // global SOUL.md — that file is gone; identity comes from the
+        // assistants table, which ChatStore has already opened and seeded by
+        // this point (its init runs first).
+        Task { await SoulStore.refreshAssistantCache() }
         // Pre-warm KaTeX WKWebView as fallback for formulas SwiftMath can't render
         KaTeXRenderer.shared.warmUp()
         // Pre-warm the biometric capability probe off the main thread. The
@@ -739,24 +739,12 @@ struct MinisApp: App {
             try? fm.createDirectory(at: root.appendingPathComponent(sub, isDirectory: true),
                                     withIntermediateDirectories: true)
         }
-        // [T-soul-md] Seed SOUL.md with default content on first launch so
-        // the Soul settings page and chat bubble identity have something
-        // to render before the user customizes anything. Never overwrites
-        // an existing file. Cache the parsed metadata so synchronous call
-        // sites (chat bubble header) see the user's name/emoji immediately.
-        SoulStore.ensureExists()
-        // [T-ios-soul-name-sidebar-stale] Refresh synchronously. This runs from
-        // the app's .onAppear (main thread) and refreshCache() is @MainActor, so
-        // the async hop only delayed cachedMetadata for no reason and let the
-        // sidebar title render stale first. App.init() already pre-loads it; this
-        // keeps the cache fresh after ensureExists() seeds a first-launch SOUL.md.
-        SoulStore.refreshCache()
-
-        // [T-multi-assistant 09-14] Populate the persona snapshot before the
-        // first prompt is built. ChatStore.init() has already run the SOUL.md
-        // migration by this point, so this sees the migrated persona. Without
-        // it the first prompt after launch would fall back to the legacy
-        // SOUL.md path — correct output, but it would miss the migrated row.
+        // [T-roles-identity-09-16] SOUL.md is gone. There is nothing to seed
+        // and nothing to cache from disk: ChatStore.init() has already opened
+        // the assistants table and seeded the "default" persona row when the
+        // address book was empty, which is what every identity surface reads.
+        // Populate the in-memory snapshot so the first prompt and the first
+        // rendered header see it.
         Task { await SoulStore.refreshAssistantCache() }
 
         // Clean up stale directory created by a bug where workingSet identifier

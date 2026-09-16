@@ -118,7 +118,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
         "ProviderConfigV2":   secretsZoneName,
         "EnvVarV2":           secretsZoneName,
         "EnvVarItem":         secretsZoneName,
-        "SoulV2":             sharedZoneName,
         "MemoryGlobalV2":     sharedZoneName,
         "MemoryDailyV2":      sharedZoneName,
         // [T-provider-sync-v3-zone-mapping] Per-record provider sync v3.
@@ -778,7 +777,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
             ("MCPServersV2", "updatedAt"),
             ("MCPServerItem", "updatedAt"),
             ("EnvVarItem", "updatedAt"),
-            ("SoulV2", "updatedAt"),
             ("MemoryGlobalV2", "updatedAt"),
             ("MemoryDailyV2", "updatedAt"),
             // [T-roles-sync-09-16] Personas + groups. Both carry createdAt and

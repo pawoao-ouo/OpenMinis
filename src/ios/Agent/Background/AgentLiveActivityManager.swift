@@ -286,10 +286,11 @@ final class AgentLiveActivityManager {
     }
 
     static func currentSoulName() -> String {
-        // [T-identity-source 09-16] Use the active session's persona name
-        // (falls back to cachedMetadata.name → "Minis"). same main-thread
-        // context as before — this is read during ActivityKit updates which
-        // run on the main actor.
+        // [T-roles-identity-09-16] The active session's role name, "Minis"
+        // when no session is open. Same main-thread context as before — this
+        // is read during ActivityKit updates, which run on the main actor.
+        // (Renaming the function is left for a separate pass; the Live
+        // Activity wire field it feeds is also called `soulName`.)
         let name = SoulStore.activeDisplayName()
         return name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "Minis" : name

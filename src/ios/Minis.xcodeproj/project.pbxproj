@@ -400,7 +400,6 @@
 		E5SHV0003 /* SharedFoldersSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SHV0103 /* SharedFoldersSettingsView.swift */; };
 		E5SHV0004 /* MountDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SHV0104 /* MountDetailView.swift */; };
 		E5SOUL001 /* SoulStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SOUL101 /* SoulStore.swift */; };
-		E5SOUL002 /* SoulSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SOUL102 /* SoulSettingsView.swift */; };
 		E5SVP0021 /* ShadowVoiceProviderDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SVP0031 /* ShadowVoiceProviderDetailView.swift */; };
 		E5T000001 /* SessionEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5T000011 /* SessionEntity.swift */; };
 		E5T000002 /* ListSessionsIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5T000012 /* ListSessionsIntent.swift */; };
@@ -1115,7 +1114,6 @@
 		E5SHV0103 /* SharedFoldersSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedFoldersSettingsView.swift; sourceTree = "<group>"; };
 		E5SHV0104 /* MountDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MountDetailView.swift; sourceTree = "<group>"; };
 		E5SOUL101 /* SoulStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulStore.swift; sourceTree = "<group>"; };
-		E5SOUL102 /* SoulSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulSettingsView.swift; sourceTree = "<group>"; };
 		E5SVP0031 /* ShadowVoiceProviderDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShadowVoiceProviderDetailView.swift; sourceTree = "<group>"; };
 		E5T000011 /* SessionEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntity.swift; sourceTree = "<group>"; };
 		E5T000012 /* ListSessionsIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListSessionsIntent.swift; sourceTree = "<group>"; };
@@ -2343,7 +2341,6 @@
 				E5SHV0101 /* SharedFolderVisibility.swift */,
 				E5SHV0103 /* SharedFoldersSettingsView.swift */,
 				E5SHV0104 /* MountDetailView.swift */,
-				E5SOUL102 /* SoulSettingsView.swift */,
 				E5LOCK102 /* FaceIDProtectionSettingsView.swift */,
 				E5LOCK103 /* AppLockOverlay.swift */,
 			);
@@ -3113,7 +3110,6 @@
 				F1VMCPB4 /* SessionMCPsView.swift in Sources */,
 				E5LOCK001 /* SessionLockStore.swift in Sources */,
 				E5SOUL001 /* SoulStore.swift in Sources */,
-				E5SOUL002 /* SoulSettingsView.swift in Sources */,
 				E5LOCK002 /* FaceIDProtectionSettingsView.swift in Sources */,
 				E5LOCK003 /* AppLockOverlay.swift in Sources */,
 				E5N0000042F3B941A00049557 /* MemoryManagementView.swift in Sources */,

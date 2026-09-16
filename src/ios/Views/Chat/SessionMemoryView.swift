@@ -21,7 +21,11 @@ struct SessionMemoryView: View {
     var body: some View {
         NavigationStack {
             List {
-                // Section 1: Always-in-context layers (SOUL full; GLOBAL/daily listed by path)
+                // Section 1: memory layers the model can see. GLOBAL.md and
+                // daily logs are listed by path (read on demand) unless their
+                // full-text switch is on. [T-roles-identity-09-16] A persona is
+                // NOT listed here any more: it lives on its role, not in this
+                // directory, and it is edited on the role's page.
                 Section {
                     ForEach(inContextItems, id: \.name) { item in
                         NavigationLink {
@@ -34,19 +38,20 @@ struct SessionMemoryView: View {
                     Text("In Context")
                 } footer: {
                     // [T-agent-prompt-claude-code 09-14] GLOBAL.md and daily
-                    // logs are no longer dumped into the system prompt as full
-                    // text — the agent gets a path catalog and reads on
-                    // demand. SOUL.md is still injected in full. The footer
-                    // says so, or the sheet would lie about what the model
-                    // actually has in front of it.
-                    // [T-agent-prompt-fulltext-toggle 09-14] With either
-                    // full-text switch on, that layer IS injected, so the
-                    // footer switches wording instead of contradicting the
-                    // row details above it.
+                    // logs are not dumped into the system prompt as full text —
+                    // the agent gets a path catalog and reads on demand, unless
+                    // the full-text switch below turns that layer back on. The
+                    // footer switches wording with the switch, so it never
+                    // contradicts the row details above it.
+                    //
+                    // [T-roles-identity-09-16] Dropped the sentence about the
+                    // persona being injected from here. It is injected, but it
+                    // does not live in this directory any more — it belongs to
+                    // the role, so this sheet cannot claim to show it.
                     if injectGlobalFullText || injectDailiesFullText {
-                        Text("SOUL.md is loaded into the system prompt each turn, along with the memory layers marked “Full text — injected” above. The rest are listed by path — the agent reads them on demand (memory_get / file_read).")
+                        Text("The memory layers marked “Full text — injected” above are loaded into the system prompt each turn. The rest are listed by path — the agent reads them on demand (memory_get / file_read).")
                     } else {
-                        Text("SOUL.md is loaded into the system prompt each turn. GLOBAL.md and daily logs are listed by path — the agent reads them on demand (memory_get / file_read).")
+                        Text("GLOBAL.md and daily logs are listed by path — the agent reads them on demand (memory_get / file_read). Turn on a full-text switch below to inject a layer every turn.")
                     }
                 }
 
@@ -122,27 +127,6 @@ struct SessionMemoryView: View {
         // the model can see this turn.
         let pathOnly = AppLocalized("Path only — read on demand")
         let fullText = AppLocalized("Full text — injected")
-
-        // SOUL.md — listed first because it's the identity/personality
-        // layer that SystemPromptBuilder.identitySection() injects at
-        // the very top of every turn's system prompt. The Memory Sheet
-        // previously only surfaced GLOBAL.md + daily logs, so users had
-        // no way to confirm SOUL.md was reaching the model.
-        let soulURL = memDir.appendingPathComponent("SOUL.md")
-        if fm.fileExists(atPath: soulURL.path),
-           let content = try? String(contentsOf: soulURL, encoding: .utf8),
-           !content.isEmpty {
-            let lineCount = content.components(separatedBy: "\n").count
-            items.append(AutoItem(
-                name: "SOUL.md",
-                detail: "\(lineCount) lines — " + AppLocalized("Full text — injected"),
-                icon: "person.fill",
-                content: content,
-                fileURL: soulURL
-            ))
-        } else {
-            items.append(AutoItem(name: "SOUL.md", detail: "Empty", icon: "person", content: "(empty)", fileURL: soulURL))
-        }
 
         // GLOBAL.md
         let globalURL = memDir.appendingPathComponent("GLOBAL.md")
@@ -337,16 +321,10 @@ private struct MemoryContentView: View {
         guard let url = fileURL else { return }
         do {
             try editedContent.write(to: url, atomically: true, encoding: .utf8)
-            // SOUL.md needs the same side effects SoulStore.save() does:
-            // refresh the in-memory metadata cache (so the chat header /
-            // SystemPromptBuilder pick up the new identity) and mark it
-            // dirty for iCloud sync. Without these, edits in this sheet
-            // would land on disk but the running app + peer devices
-            // would keep using the stale identity until next launch.
-            if url.lastPathComponent == "SOUL.md" {
-                SoulStore.refreshCache()
-                Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
-            }
+            // [T-roles-identity-09-16] The SOUL.md special case is gone: that
+            // file is no longer written or read, so editing it here needs no
+            // cache refresh and no sync enqueue. GLOBAL.md and daily logs are
+            // read on demand.
             isEditing = false
             withAnimation { saved = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

@@ -132,19 +132,6 @@ enum ChatStoreSyncHydrators {
             builder: { id in await buildDevice(id: id) },
             merger: { record in await mergeDevice(record: record) }
         )
-        // SyncCore loads dirty rows with v2Only: true, so the hydrator
-        // must register under the V2-suffixed name; otherwise lookup
-        // misses and the row keeps requeueing forever without ever
-        // hitting buildSoul. (Audit found: register("Soul") combined
-        // with v2-only dirty-row reader silently dropped every Soul
-        // push for the entire history of the v2 sync engine — the
-        // dashboard's NOT_FOUND-on-SoulV2 traffic is the downstream
-        // symptom because the schema was never auto-created.)
-        h.register(
-            recordType: "SoulV2",
-            builder: { _ in await buildSoul() },
-            merger: { record in await mergeSoul(record: record) }
-        )
         h.register(
             recordType: "MemoryGlobalV2",
             builder: { _ in await buildMemoryGlobal() },
@@ -158,8 +145,8 @@ enum ChatStoreSyncHydrators {
         // [T-roles-sync-09-16] Personas + address-book groups. Registering
         // under the V2-suffixed name is mandatory: SyncCore loads dirty rows
         // with v2Only:true, so a hydrator keyed "Assistant" would never be
-        // looked up and the row would requeue forever (the exact failure the
-        // SoulV2 comment above records).
+        // looked up and the row would requeue forever — the failure the
+        // whitelist comments in ChatStore.v2SyncRecordTypes document.
         h.register(
             recordType: "AssistantV2",
             builder: { id in await buildAssistant(id: id) },
@@ -1102,46 +1089,6 @@ enum ChatStoreSyncHydrators {
             default:           return nil
             }
         }
-    }
-
-    // MARK: - Soul (SOUL.md singleton)
-
-    /// Build the outbound SoulV2 record from the on-disk SOUL.md file.
-    /// Returns nil when the file is missing (e.g. first launch before
-    /// ensureExists has run) so we don't push an empty record and clobber
-    /// peer copies.
-    private static func buildSoul() async -> PortableRecord? {
-        let url = await MainActor.run { SoulStore.fileURL }
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url),
-              let text = String(data: data, encoding: .utf8) else {
-            logger.info("[SyncCore] buildSoul: SOUL.md missing on disk, skipping push")
-            return nil
-        }
-        // Use the file's mtime as updatedAt so a peer's older snapshot
-        // can't clobber a locally newer edit just because clocks drift.
-        let mtime: Date = {
-            if let attrs = try? fm.attributesOfItem(atPath: url.path),
-               let d = attrs[.modificationDate] as? Date { return d }
-            return Date()
-        }()
-        let synced = SyncedSoul(contentMarkdown: text, updatedAt: mtime)
-        return SyncableTypeRegistry.shared.metadata(for: "SoulV2")?.buildPortable(synced)
-    }
-
-    /// Apply an inbound SoulV2 record. LWW-by-updatedAt against the local
-    /// file mtime is implemented inside SoulStore.applyRemoteContent.
-    private static func mergeSoul(record: PortableRecord) async {
-        guard let text = stringField(record, "contentMarkdown") else {
-            logger.warning("[SyncCore] mergeSoul: missing contentMarkdown field")
-            return
-        }
-        let updatedAt = dateField(record, "updatedAt") ?? record.updatedAt
-        await MainActor.run {
-            SoulStore.applyRemoteContent(text, remoteUpdatedAt: updatedAt)
-        }
-        logger.info("[SyncCore] applied SoulV2 (\(text.count) chars, updatedAt=\(updatedAt))")
     }
 
     // MARK: - Memory Global (GLOBAL.md singleton)

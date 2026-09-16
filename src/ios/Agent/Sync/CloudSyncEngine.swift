@@ -812,17 +812,6 @@ final class CloudSyncEngine: ObservableObject {
         let rolesMarked = await ForceSyncHelper.markAssistantsDirty()
         logger.info("[CloudSync] markAllLocalContentDirty Roles rows marked: \(rolesMarked)")
 
-        // SOUL.md is a per-account singleton — only enqueue when the
-        // file actually exists, otherwise the dirty row would just
-        // keep cycling through buildSoul returning nil.
-        let soulURL = await MainActor.run { SoulStore.fileURL }
-        if FileManager.default.fileExists(atPath: soulURL.path) {
-            await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul")
-            logger.info("[CloudSync] markAllLocalContentDirty Soul marked dirty (file present)")
-        } else {
-            logger.info("[CloudSync] markAllLocalContentDirty: SOUL.md missing on disk — skipping SoulV2 enqueue")
-        }
-
         // GLOBAL.md + recent daily memory logs. Reuses ForceSyncHelper
         // so the file-presence rules stay in lockstep with the manual
         // "Force iCloud Sync" button on the Memory screen.
@@ -835,7 +824,7 @@ final class CloudSyncEngine: ObservableObject {
         logger.info("[CloudSync] markAllLocalContentDirty DONE total=\(after.total) byType=\(after.byType)")
         for category in ["Session", "Message", "CompactMarker", "SessionFile",
                           "Skill", "ProviderConfig", "EnvVar",
-                          "SoulV2", "MemoryGlobalV2", "MemoryDailyV2",
+                          "MemoryGlobalV2", "MemoryDailyV2",
                           // [T-roles-sync-09-16] Include personas in the
                           // "nothing was queued" check, so a future omission
                           // shows up in the log instead of silently shipping

@@ -341,9 +341,9 @@ extension BackupImporter {
             }
         }
 
-        // SOUL.md is cached in memory; a raw file write leaves that cache stale
-        // until something else refreshes it.
-        await MainActor.run { SoulStore.refreshCache() }
+        // [T-roles-identity-09-16] No cache refresh here any more: this used
+        // to re-read SOUL.md, which lived in this directory and was cached in
+        // memory. Memory files (GLOBAL.md / daily logs) are read on demand.
         return report
     }
 
@@ -389,8 +389,7 @@ extension BackupImporter {
         report.bytesWritten = files.bytes
         report.missingBlobs = files.missingBlobs
 
-        // Re-populate the prompt-side cache and refresh the roles UI.
-        await MainActor.run { SoulStore.refreshCache() }
+        // Re-populate the prompt-side persona cache and refresh the roles UI.
         await SoulStore.refreshAssistantCache()
         return report
     }

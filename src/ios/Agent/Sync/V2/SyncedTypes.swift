@@ -714,40 +714,11 @@ struct SyncedDevice: Syncable {
 
 /// Call once during app launch (before any sync activity) to register
 /// every Syncable type with the singleton registry. Idempotent.
-// MARK: - SyncedSoul (SOUL.md personality/identity file)
-//
-// One singleton record per iCloud account holding the full SOUL.md text
-// (frontmatter + body). LWW by updatedAt — SOUL.md is small and edited
-// rarely; per-field merging would not buy anything. The file lives at
-// <minisMemoryPersistentDir>/SOUL.md and is read/written by SoulStore.
-struct SyncedSoul: Syncable {
-    /// Constant id — only one SOUL.md per app/account.
-    var id: String = "soul"
-    /// Full SOUL.md serialized text (yaml frontmatter + markdown body).
-    var contentMarkdown: String
-    var updatedAt: Date
-
-    static let syncMetadata: SyncTypeMetadata<SyncedSoul> = {
-        typealias F = FieldDescriptor<SyncedSoul>
-        return SyncTypeMetadata<SyncedSoul>(
-            recordType: "SoulV2",
-            idKeyPath: \SyncedSoul.id,
-            scope: .global,
-            fields: [
-                F.string("contentMarkdown", \SyncedSoul.contentMarkdown),
-                F.date("updatedAt",          \SyncedSoul.updatedAt),
-            ],
-            conflictPolicy: .lastWriteWinsByField(\SyncedSoul.updatedAt),
-            version: 1
-        )
-    }()
-}
-
 // MARK: - SyncedMemoryGlobal (GLOBAL.md singleton)
 //
 // One singleton record per iCloud account holding the full GLOBAL.md text.
 // LWW by updatedAt (file mtime). Empty file is never pushed (builder returns nil).
-// Lives alongside SoulV2 in minis-shared zone.
+// Lives in the minis-shared zone.
 struct SyncedMemoryGlobal: Syncable {
     var id: String = "memory-global"   // constant — one record per account
     var contentMarkdown: String        // full GLOBAL.md text
@@ -981,7 +952,6 @@ enum SyncedTypesBootstrap {
         r.register(SyncedEnvVars.self)   // legacy whole-file, inbound only
         r.register(SyncedEnvVar.self)    // per-variable, current schema
         r.register(SyncedDevice.self)
-        r.register(SyncedSoul.self)
         r.register(SyncedMemoryGlobal.self)
         r.register(SyncedMemoryDaily.self)
         // [T-roles-sync-09-16] Personas + address-book groups. Without these

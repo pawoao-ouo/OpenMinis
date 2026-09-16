@@ -588,11 +588,17 @@ actor ChatStore {
     /// tab — instead of the identity layer silently falling back to "Minis"
     /// with no personality and no way to rename it.
     ///
-    /// Idempotent: only runs when `assistants` has zero rows. The name comes
-    /// from SOUL.md frontmatter (falling back to "Minis"); the prompt is the
-    /// SOUL.md body (empty on a fresh install, which is the same as the old
-    /// "no persona" fallback). SOUL.md itself is left in place for the sync
-    /// layer and as the cachedMetadata fallback.
+    /// [T-roles-identity-09-16] Seed a "default" persona when the address book
+    /// is empty, so every session's `assistant_id="default"` resolves to a real
+    /// row the user can see and edit in the Roles tab.
+    ///
+    /// This used to read SOUL.md for the initial name and personality. That
+    /// file is gone: a fresh install has no SOUL.md (it was never shipped) and
+    /// the only installs that had one are migrated, so this now seeds a plain
+    /// empty persona the user renames themselves — which is what a fresh
+    /// install always produced anyway.
+    ///
+    /// Idempotent: only runs when `assistants` has zero rows.
     private func seedDefaultAssistantIfNeeded() {
         var countStmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM assistants", -1, &countStmt, nil) == SQLITE_OK,
@@ -603,19 +609,13 @@ actor ChatStore {
         }
         sqlite3_finalize(countStmt)
 
-        let file = SoulStore.load()
-        let rawName = file?.metadata.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let name = rawName.isEmpty ? "Minis" : rawName
-        let prompt = file?.body ?? ""
-
         let now = Date().timeIntervalSince1970
         var stmt: OpaquePointer?
-        let sql = "INSERT OR REPLACE INTO assistants (id, name, avatar_path, system_prompt, group_id, sort_order, created_at, updated_at) VALUES ('default', ?, NULL, ?, NULL, 0, ?, ?)"
+        let sql = "INSERT OR REPLACE INTO assistants (id, name, avatar_path, system_prompt, group_id, sort_order, created_at, updated_at) VALUES ('default', ?, NULL, '', NULL, 0, ?, ?)"
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (prompt as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 1, ("Minis" as NSString).utf8String, -1, nil)
+            sqlite3_bind_double(stmt, 2, now)
             sqlite3_bind_double(stmt, 3, now)
-            sqlite3_bind_double(stmt, 4, now)
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
@@ -5831,7 +5831,7 @@ extension ChatStore {
             }
             sqlite3_finalize(stmt)
         }
-        if recordType.hasPrefix("Memory") || recordType == "SoulV2" {
+        if recordType.hasPrefix("Memory") {
             let errMsg = String(cString: sqlite3_errmsg(db))
             iCloudLogger.info("[iCloudTrace] markDirty SQL type=\(recordType) id=\(recordId.prefix(20)) prepareRC=\(prepareRC) stepRC=\(stepRC) changes=\(changesAfter) errmsg=\(errMsg) v1RowWritten=\(writeV1Row)")
         }
@@ -5890,7 +5890,6 @@ extension ChatStore {
         case "ProviderConfig":  return "ProviderConfigV2"
         case "EnvVar":          return "EnvVarV2"
         case "SyncDevice":      return "SyncDeviceV2"
-        case "Soul":            return "SoulV2"
         case "Folder":          return "FolderV2"
         case "MCPServers":      return "MCPServersV2"   // [T-mcp-integration-ios]
         // [T-roles-sync-09-16] Personas + address-book groups. Missing from
@@ -6296,7 +6295,7 @@ extension ChatStore {
         "SessionV2", "MessageV2", "CompactMarkerV2", "SessionFileV2",
         "FolderV2",
         "SkillV2", "ProviderConfigV2", "EnvVarV2", "EnvVarItem",
-        "SyncDeviceV2", "SoulV2",
+        "SyncDeviceV2",
         // File-backed singletons. Without these in the whitelist,
         // markDirty wrote a dirty row but loadDirtyRecords(v2Only:true)'s
         // WHERE-IN clause filtered them out, so they never got pushed
