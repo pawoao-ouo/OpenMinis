@@ -1,6 +1,65 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Exporting roles…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rollen werden exportiert…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporting roles…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportando roles…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportation des rôles…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ロールを書き出し中…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "역할 내보내는 중…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспорт ролей…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在导出角色…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在匯出角色…"
+          }
+        }
+      }
+    },
     "Start Chat" : {
       "comment" : "Primary action on the role detail page / + button in the role's chat list — start a new conversation bound to that role (P0-1).",
       "localizations" : {
@@ -265,6 +324,65 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "朗读内容"
+          }
+        }
+      }
+    },
+    "These categories failed and could not be restored to their previous state: %@. Your data may be partially replaced — re-run the restore or check the previous device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Kategorien sind fehlgeschlagen und konnten nicht in ihren vorherigen Zustand zurückversetzt werden: %@. Deine Daten wurden möglicherweise teilweise ersetzt – führe die Wiederherstellung erneut aus oder prüfe das vorherige Gerät."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These categories failed and could not be restored to their previous state: %@. Your data may be partially replaced — re-run the restore or check the previous device."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estas categorías fallaron y no se pudieron restaurar a su estado anterior: %@. Es posible que tus datos se hayan reemplazado parcialmente; vuelve a ejecutar la restauración o revisa el dispositivo anterior."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ces catégories ont échoué et n'ont pas pu être restaurées dans leur état précédent : %@. Vos données ont peut-être été partiellement remplacées — relancez la restauration ou vérifiez l'appareil précédent."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "これらのカテゴリは失敗し、以前の状態に戻せませんでした：%@。データが部分的に置き換えられている可能性があります。復元を再実行するか、以前のデバイスを確認してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다음 카테고리가 실패했고 이전 상태로 되돌리지 못했습니다: %@. 데이터가 부분적으로 교체되었을 수 있습니다. 복원을 다시 실행하거나 이전 기기를 확인하세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эти категории не удалось восстановить до предыдущего состояния: %@. Ваши данные могли быть частично заменены — повторите восстановление или проверьте прежнее устройство."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这些类别恢复失败，且未能还原到之前的状态：%@。你的数据可能已被部分替换——请重新执行恢复，或检查原设备。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這些類別還原失敗，且未能還原到先前的狀態：%@。你的資料可能已被部分取代——請重新執行還原，或檢查原裝置。"
           }
         }
       }

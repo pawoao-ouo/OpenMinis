@@ -56,7 +56,14 @@ extension BackupImporter {
         case .providers: liveDirs = []
         // Environment variables merge into the live store rather than
         // replacing a file, so there is nothing to snapshot.
-        case .chats, .skills, .voiceCorrections, .environmentVariables:
+        //
+        // [T-roles-backup-09-16] Roles joins chats/skills for the same reason
+        // the comment above gives: the persona merge is LWW-by-updatedAt and
+        // union-by-id — idempotent, nothing is deleted — so a copy-aside would
+        // only exist to undo something that re-running the restore already
+        // converges. Avatar files are written through restoreFileTree's
+        // per-file atomic swap.
+        case .chats, .skills, .roles, .voiceCorrections, .environmentVariables:
             liveDirs = []
         }
 
@@ -131,6 +138,7 @@ extension BackupImporter {
         case .memory: return try await importMemory(root: root)
         case .providers: return try await importProviders(root: root)
         case .mcpServers: return try await importMCPServers(root: root)
+        case .roles: return try await importRoles(root: root, fileIndex: fileIndex)
         case .voiceCorrections: return try await importVoiceCorrections(root: root)
         case .environmentVariables:
             return try await importEnvironmentVariables(root: root)
@@ -336,6 +344,54 @@ extension BackupImporter {
         // SOUL.md is cached in memory; a raw file write leaves that cache stale
         // until something else refreshes it.
         await MainActor.run { SoulStore.refreshCache() }
+        return report
+    }
+
+    // MARK: - Roles (personas + address-book groups)
+
+    /// [T-roles-backup-09-16] Restore personas, their groups and their avatar
+    /// files.
+    ///
+    /// Groups run before personas so a restored `group_id` resolves
+    /// immediately (same ordering rule as folders-before-sessions in chats).
+    /// Both go through the sync engine's `applyRemote*` mergers, which are
+    /// LWW-by-`updatedAt` and union-by-id: a persona that exists locally but
+    /// not in the package is kept, never deleted — matching the restore
+    /// sheet's "nothing is deleted" promise.
+    private func importRoles(root: URL, fileIndex: [BackupFileIndexEntry]) async throws
+        -> CategoryReport {
+        var report = CategoryReport(category: BackupCategory.roles.rawValue)
+        let store = ChatStore.shared
+        let dataDir = root.appendingPathComponent("data", isDirectory: true)
+
+        for g in readJSONL(dataDir, base: "assistant_groups", as: AssistantGroup.self) {
+            if await store.applyRemoteAssistantGroup(g) { report.imported += 1 }
+            else { report.skipped += 1 }
+        }
+
+        for a in readJSONL(dataDir, base: "assistants", as: Assistant.self) {
+            // The protected `default` row is never overwritten by a package
+            // whose copy is older — applyRemoteAssistant's LWW check already
+            // handles that; a newer packaged copy legitimately wins.
+            if await store.applyRemoteAssistant(a) { report.imported += 1 }
+            else { report.skipped += 1 }
+        }
+
+        // Avatar files: "roles/avatars/<name>" → <appGroup>/avatars/<name>.
+        let files = try restoreFileTree(
+            root: root, fileIndex: fileIndex, category: .roles,
+            destinationFor: { path in
+                let parts = path.split(separator: "/", maxSplits: 2).map(String.init)
+                guard parts.count >= 3, parts[0] == "roles", parts[1] == "avatars" else { return nil }
+                return AIChatViewModel.minisAvatarsDir.appendingPathComponent(parts[2])
+            })
+        report.filesWritten = files.written
+        report.bytesWritten = files.bytes
+        report.missingBlobs = files.missingBlobs
+
+        // Re-populate the prompt-side cache and refresh the roles UI.
+        await MainActor.run { SoulStore.refreshCache() }
+        await SoulStore.refreshAssistantCache()
         return report
     }
 
@@ -714,6 +770,7 @@ extension BackupImporter {
         case .sharedFiles: return AIChatViewModel.minisSharedPersistentDir
         case .skills: return AIChatViewModel.minisSkillsPersistentDir
         case .memory: return AIChatViewModel.minisMemoryPersistentDir
+        case .roles: return AIChatViewModel.minisAvatarsDir
         case .providers, .mcpServers, .voiceCorrections, .environmentVariables:
             // These write single known files, not index-driven trees; give them
             // the app-group root so the check is still meaningful if one ever

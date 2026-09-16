@@ -68,6 +68,12 @@ actor BackupImporter {
         var integrityChecked = 0
         var integrityFailed: [String] = []
         var rolledBack: [String] = []
+        /// [T-restore-half-failure-09-16] Categories that failed AND were not
+        /// successfully restored to their previous state (rollback threw, or
+        /// the category takes no snapshot). Distinct from `rolledBack`: this is
+        /// the "your data is half-replaced and we could not undo it" list, and
+        /// it must reach the user.
+        var unrecovered: [String] = []
         var wasEncrypted = false
         var warnings: [String] = []
         var duration: TimeInterval = 0
@@ -226,17 +232,35 @@ actor BackupImporter {
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         BackupRestoreJournal.begin(backupId: manifest.backupId,
                                    categories: orderedCategories(wanted).map(\.rawValue))
-        // Cleared only on a clean finish; if the process dies first the marker
-        // survives and the next launch reconciles.
-        defer { BackupRestoreJournal.finish(runId: String(runId)) }
+        // [T-restore-half-failure-09-16] Cleared only on a FULLY clean finish.
+        //
+        // This used to be an unconditional `defer { finish() }`. A category
+        // failing is caught below (a failed category deliberately does not
+        // abort the ones already done, §8.3) — but the defer still ran, so it
+        // deleted the marker AND the whole rollback staging even though the
+        // restore had left some categories half-applied. The next launch then
+        // found no marker, `interrupted()` returned nil, and `reconcileAtLaunch`
+        // did nothing: the half-restored state sat there permanently with
+        // nothing on disk recording that it had happened.
+        //
+        // `finish()` now runs only when every requested category succeeded. On
+        // a partial failure the marker + snapshots survive, so the next launch
+        // reconciles and the user is told.
+        var cleanFinish = false
+        defer { if cleanFinish { BackupRestoreJournal.finish(runId: String(runId)) } }
 
         // Order matters: sessions must exist before messages/markers reference
         // them, so chats runs as one unit internally.
         for category in orderedCategories(wanted) {
             progress?("Restoring \(category.rawValue)…")
             var snapshot: BackupRollbackSnapshot?
+            // True once the import itself starts. A failure BEFORE this point
+            // (taking the rollback snapshot) has written nothing, so it must
+            // not raise the "your data may be partially replaced" alarm.
+            var importAttempted = false
             do {
                 snapshot = try snapshotForRollback(category: category, staging: staging)
+                importAttempted = true
                 var cat = try await importCategory(category, root: root, fileIndex: fileIndex,
                                                    options: options)
                 cat.sizeSkippedInPackage = fileIndex
@@ -253,8 +277,27 @@ actor BackupImporter {
                 var cat = CategoryReport(category: category.rawValue)
                 cat.failed = error.localizedDescription
                 report.categories.append(cat)
-                if let snapshot, (try? rollback(snapshot)) != nil {
-                    report.rolledBack.append(category.rawValue)
+                // [T-restore-half-failure-09-16] A failed rollback used to be
+                // swallowed entirely: `try? rollback(...)` discarded the error
+                // and the success-only `!= nil` check meant a throw fell
+                // through with no entry in `rolledBack`, no mention in the
+                // failure text and no log — the one case the user MUST be told
+                // about (their data is half-replaced and not restored to the
+                // previous state) was the one case that said nothing.
+                if let snapshot {
+                    do {
+                        try rollback(snapshot)
+                        report.rolledBack.append(category.rawValue)
+                    } catch {
+                        logger.error("[Restore] ROLLBACK FAILED for \(category.rawValue): \(error.localizedDescription) — local state may be partially replaced")
+                        cat.failed = "\(cat.failed ?? "") · rollback also failed: \(error.localizedDescription)"
+                        report.unrecovered.append(category.rawValue)
+                    }
+                } else if importAttempted {
+                    // Nothing to roll back to (the category takes no snapshot:
+                    // chats / skills / env vars) and the import did start — so
+                    // there really is half-applied state with no undo.
+                    report.unrecovered.append(category.rawValue)
                 }
                 // §8.3: a failed category does not abort the ones already done.
                 continue
@@ -263,6 +306,12 @@ actor BackupImporter {
 
         progress?("Reloading stores…")
         await reloadStores(for: wanted)
+
+        // [T-restore-half-failure-09-16] Only a fully-clean run clears the
+        // marker + rollback staging (see the `defer` note above). A partial
+        // failure keeps both, so the next launch reconciles and can tell the
+        // user what was left half-applied.
+        cleanFinish = report.categories.allSatisfy { $0.failed == nil }
 
         report.duration = Date().timeIntervalSince(started)
         logger.info("[Restore] done id=\(manifest.backupId) imported=\(report.totalImported) updated=\(report.totalUpdated) skipped=\(report.totalSkipped)")
@@ -441,6 +490,7 @@ actor BackupImporter {
         // A category missing from this list is silently skipped, which is how
         // this one would have failed had it simply been appended to the enum.
         let order: [BackupCategory] = [.chats, .sharedFiles, .skills, .memory,
+                                       .roles,
                                        .providers, .environmentVariables,
                                        .mcpServers, .voiceCorrections]
         return order.filter { wanted.contains($0) }

@@ -58,6 +58,7 @@ struct BackupCategoryIcon: View {
         case .memory: return "brain.head.profile"
         case .providers: return "link"
         case .mcpServers: return "square.stack.3d.up.fill"
+        case .roles: return "person.2.fill"
         case .voiceCorrections: return "waveform"
         case .environmentVariables: return "terminal.fill"
         }
@@ -71,6 +72,7 @@ struct BackupCategoryIcon: View {
         case .memory: return .pink
         case .providers: return .teal
         case .mcpServers: return .cyan
+        case .roles: return .green
         case .voiceCorrections: return .purple
         case .environmentVariables: return .brown
         }

@@ -243,6 +243,19 @@ enum SyncV2Bootstrap {
                     )
                 }
                 logger.info("[SyncCore] v2 startup STEP=device registered (deviceId=\(DeviceIdentity.deviceId.prefix(8)))")
+                // [T-roles-sync-09-16] One-time: re-queue any persona/group
+                // rows left under the old un-suffixed type name, which the v2
+                // whitelist filtered out. Runs before the initial flush below
+                // so they ride the same batch. Idempotent + guarded by a flag
+                // so it costs nothing after the first launch.
+                await runGuarded("rolesBackfill") {
+                    let key = "cloudSync.v2.rolesBackfillDone"
+                    guard !UserDefaults.standard.bool(forKey: key) else { return }
+                    let n = await ForceSyncHelper.markAssistantsDirty()
+                    UserDefaults.standard.set(true, forKey: key)
+                    logger.info("[SyncCore] roles backfill queued \(n) record(s)")
+                }
+                logger.info("[SyncCore] v2 startup STEP=roles backfill done")
                 logger.info("[SyncCore] v2 startup STEP=migration begin")
                 await runGuarded("migration") {
                     await MigrationEngine.shared.runIfNeeded()

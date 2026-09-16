@@ -325,6 +325,12 @@ actor BackupExporter {
         try await run(.mcpServers, AppLocalized("Exporting MCP servers…")) {
             try exportMCPServers(dataDir: dataDir)
         }
+        // [T-roles-backup-09-16] Personas + groups + avatars. Runs after chats
+        // so a restore's chats category already has its sessions; the persona
+        // rows are what those sessions' `assistant_id` resolves against.
+        try await run(.roles, AppLocalized("Exporting roles…")) {
+            try await exportRoles(dataDir: dataDir, trees: trees)
+        }
         try await run(.environmentVariables,
                       AppLocalized("Exporting environment variables…")) {
             try await exportEnvironmentVariables(dataDir: dataDir)
@@ -704,6 +710,48 @@ actor BackupExporter {
             bytes += (try? fm.attributesOfItem(atPath: from.path)[.size] as? Int64) ?? 0
         }
         return BackupManifest.CategoryStat(entries: count, bytes: bytes, encrypted: false)
+    }
+
+    // MARK: - Roles (personas + address-book groups)
+
+    /// [T-roles-backup-09-16] Personas, their groups, and their avatar files.
+    ///
+    /// `Assistant` / `AssistantGroup` are already `Codable`, so the package
+    /// stores them directly — the same boundary `FolderV2` uses for
+    /// `ChatFolder`. Avatars are a plain file tree (`roles/avatars/<name>`),
+    /// exported wholesale because the DB column stores only a file name:
+    /// keeping the names stable is what makes the restored rows point at
+    /// pictures that are actually there.
+    private func exportRoles(dataDir: URL, trees: BackupFileTreeExporter) async throws
+        -> BackupManifest.CategoryStat {
+        // ChatStore is the authority (the SoulStore cache is a prompt-side
+        // snapshot that can lag or be empty on a cold path).
+        let assistants = await ChatStore.shared.listAssistants()
+        let groups = await ChatStore.shared.listAssistantGroups()
+
+        let aWriter = BackupJSONLWriter(directory: dataDir, baseName: "assistants")
+        defer { try? aWriter.close() }
+        for a in assistants {
+            try aWriter.write(BackupRecordEnvelope(t: "AssistantV2", d: a))
+        }
+        try aWriter.close()
+
+        let gWriter = BackupJSONLWriter(directory: dataDir, baseName: "assistant_groups")
+        defer { try? gWriter.close() }
+        for g in groups {
+            try gWriter.write(BackupRecordEnvelope(t: "AssistantGroupV2", d: g))
+        }
+        try gWriter.close()
+
+        // Avatars: whole directory, so stored file names stay meaningful.
+        let r = try trees.export(root: AIChatViewModel.minisAvatarsDir,
+                                 logicalPrefix: "roles/avatars",
+                                 category: .roles)
+        return BackupManifest.CategoryStat(
+            entries: assistants.count + groups.count,
+            bytes: aWriter.totalBytes + gWriter.totalBytes + r.bytesIncluded,
+            encrypted: false,
+            files: r.filesIncluded)
     }
 
     // MARK: - Providers

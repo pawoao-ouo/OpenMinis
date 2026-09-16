@@ -805,6 +805,13 @@ final class CloudSyncEngine: ObservableObject {
             logger.warning("[CloudSync] markAllLocalContentDirty: 0 skills on device — no Skill records will be uploaded")
         }
 
+        // [T-roles-sync-09-16] Personas + address-book groups. ChatStore's
+        // enumerate-everything helper above covers sessions/messages/providers/
+        // env vars but not the assistants tables, so without this the zone gets
+        // repopulated with every conversation and NOT the roles they belong to.
+        let rolesMarked = await ForceSyncHelper.markAssistantsDirty()
+        logger.info("[CloudSync] markAllLocalContentDirty Roles rows marked: \(rolesMarked)")
+
         // SOUL.md is a per-account singleton — only enqueue when the
         // file actually exists, otherwise the dirty row would just
         // keep cycling through buildSoul returning nil.
@@ -828,7 +835,12 @@ final class CloudSyncEngine: ObservableObject {
         logger.info("[CloudSync] markAllLocalContentDirty DONE total=\(after.total) byType=\(after.byType)")
         for category in ["Session", "Message", "CompactMarker", "SessionFile",
                           "Skill", "ProviderConfig", "EnvVar",
-                          "SoulV2", "MemoryGlobalV2", "MemoryDailyV2"] {
+                          "SoulV2", "MemoryGlobalV2", "MemoryDailyV2",
+                          // [T-roles-sync-09-16] Include personas in the
+                          // "nothing was queued" check, so a future omission
+                          // shows up in the log instead of silently shipping
+                          // an empty address book.
+                          "Assistant", "AssistantGroup"] {
             if (after.byType[category] ?? 0) == 0 {
                 logger.warning("[CloudSync] markAllLocalContentDirty: 0 \(category) records queued — category will not be uploaded")
             }
@@ -914,6 +926,11 @@ final class CloudSyncEngine: ObservableObject {
         } else {
             logger.warning("[CloudSync] Delete iCloud Data: 0 skills on device — no Skill records will be uploaded")
         }
+        // [T-roles-sync-09-16] Personas + groups — same gap as the skills loop
+        // above: the wipe emptied the zone, so every role has to be re-queued
+        // or the repopulated cloud has conversations with no personas.
+        let rolesMarked = await ForceSyncHelper.markAssistantsDirty()
+        logger.info("[CloudSync] Delete iCloud Data: marked \(rolesMarked) role/group records dirty for reupload")
         let dirtyAfter = await ChatStore.shared.countDirtyRecords()
         logger.info("[CloudSync] Delete iCloud Data: dirty records after reupload-mark total=\(dirtyAfter.total) byType=\(dirtyAfter.byType)")
 

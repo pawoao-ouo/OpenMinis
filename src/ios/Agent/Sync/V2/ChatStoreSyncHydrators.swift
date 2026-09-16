@@ -155,8 +155,180 @@ enum ChatStoreSyncHydrators {
             builder: { id in await buildMemoryDaily(dateKey: id) },
             merger: { record in await mergeMemoryDaily(record: record) }
         )
+        // [T-roles-sync-09-16] Personas + address-book groups. Registering
+        // under the V2-suffixed name is mandatory: SyncCore loads dirty rows
+        // with v2Only:true, so a hydrator keyed "Assistant" would never be
+        // looked up and the row would requeue forever (the exact failure the
+        // SoulV2 comment above records).
+        h.register(
+            recordType: "AssistantV2",
+            builder: { id in await buildAssistant(id: id) },
+            merger: { record in await mergeAssistant(record: record) },
+            deletionApplier: { id in await applyAssistantDeletion(id: id) }
+        )
+        h.register(
+            recordType: "AssistantGroupV2",
+            builder: { id in await buildAssistantGroup(id: id) },
+            merger: { record in await mergeAssistantGroup(record: record) },
+            deletionApplier: { id in await applyAssistantGroupDeletion(id: id) }
+        )
 
         logger.info("[SyncCore] ChatStoreSyncHydrators registered: \(SyncCoreHydrators.shared.registeredRecordTypes.count) types")
+    }
+
+    // MARK: - Assistant (persona) / AssistantGroup
+
+    /// Build an outbound AssistantV2 record. Returns nil when the row is gone,
+    /// which lets SyncCore drop the dirty row instead of requeueing it.
+    ///
+    /// The avatar bytes ride as a PortableAsset keyed "avatarAsset" — the DB
+    /// column only holds a file name, and the persona's picture must survive a
+    /// device migration like the name and prompt do.
+    private static func buildAssistant(id: String) async -> PortableRecord? {
+        guard let a = await ChatStore.shared.getAssistant(id) else { return nil }
+        // Resolve the avatar file before building: the metadata's field list
+        // doesn't know about assets, so it is injected after buildPortable
+        // (same shape as SessionFileV2 / SkillV2).
+        var avatarURL: URL?
+        if let p = a.avatarPath, !p.isEmpty, !p.hasPrefix("emoji:") {
+            let url = AIChatViewModel.minisAvatarsDir.appendingPathComponent(p)
+            if FileManager.default.fileExists(atPath: url.path) { avatarURL = url }
+        }
+        let synced = SyncedAssistant.from(a, avatarFileURL: avatarURL)
+        guard var portable = SyncableTypeRegistry.shared
+            .metadata(for: "AssistantV2")?.buildPortable(synced) else { return nil }
+        if let url = avatarURL,
+           let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int {
+            let asset = PortableAsset(key: "avatarAsset", fileURL: url, size: size,
+                                      mimeType: "image/png")
+            portable = PortableRecord(
+                id: portable.id, fields: portable.fields, assets: ["avatarAsset": asset],
+                schemaVersion: portable.schemaVersion,
+                minimumCompatibleVersion: portable.minimumCompatibleVersion,
+                unknownFields: portable.unknownFields, updatedAt: portable.updatedAt
+            )
+        }
+        return portable
+    }
+
+    private static func mergeAssistant(record: PortableRecord) async {
+        guard let id = stringField(record, "assistantId") else { return }
+        let updatedAt = dateField(record, "updatedAt") ?? record.updatedAt
+        // Same resurrection guard as mergeSkill / mergeFolder: a persona
+        // deleted locally moments ago can be re-pulled before the cloud delete
+        // lands.
+        if await ChatStore.shared.isRecentlyDeletedRecord(type: "Assistant", id: id, remoteUpdatedAt: updatedAt) {
+            logger.info("[SyncCore] mergeAssistant SKIP (recently deleted locally): id=\(id.prefix(8))")
+            return
+        }
+        var avatarPath = optionalStringField(record, "avatarPath")
+        // [T-roles-sync-09-16] Decide whether this record will actually be
+        // applied BEFORE writing the avatar file. Writing first and checking
+        // later left an orphaned file on every skipped record — the row kept
+        // its old path, so nothing referenced the bytes we had just written.
+        let existing = await ChatStore.shared.getAssistant(id)
+        let willApply: Bool
+        if let existing {
+            willApply = existing.updatedAt.timeIntervalSince1970 < updatedAt.timeIntervalSince1970
+        } else {
+            willApply = true
+        }
+        if willApply, let asset = record.assets["avatarAsset"] {
+            if let saved = await saveInboundAvatar(asset: asset, assistantId: id) {
+                avatarPath = saved
+            } else {
+                // Keep whatever the device already had rather than writing NULL
+                // — a failed asset download must not delete a local picture.
+                logger.warning("[SyncCore] mergeAssistant: avatar asset write failed for id=\(id.prefix(8)) — keeping local path")
+                avatarPath = existing?.avatarPath
+            }
+        } else if let remotePath = avatarPath, !remotePath.hasPrefix("emoji:") {
+            // Record claims an avatar but carried no bytes (peer built it with
+            // no file, or the asset was dropped). Only keep the pointer if the
+            // file is actually here; otherwise fall back to the local value so
+            // the row never references a picture this device cannot render.
+            let url = AIChatViewModel.minisAvatarsDir.appendingPathComponent(remotePath)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                avatarPath = existing?.avatarPath
+            }
+        }
+        let assistant = Assistant(
+            id: id,
+            name: stringField(record, "name") ?? "",
+            avatarPath: avatarPath,
+            systemPrompt: stringField(record, "systemPrompt") ?? "",
+            groupId: optionalStringField(record, "groupId"),
+            sortIndex: intField(record, "sortIndex") ?? 0,
+            createdAt: dateField(record, "createdAt") ?? Date(),
+            updatedAt: updatedAt
+        )
+        let applied = await ChatStore.shared.applyRemoteAssistant(assistant)
+        // Only after the row actually took the new path: drop the file it used
+        // to point at, or the peer's previous picture leaks on disk forever.
+        // Same rule as RoleStore.update's local-edit cleanup.
+        if applied, let old = existing?.avatarPath, old != avatarPath,
+           !old.isEmpty, !old.hasPrefix("emoji:") {
+            try? FileManager.default.removeItem(
+                at: AIChatViewModel.minisAvatarsDir.appendingPathComponent(old))
+        }
+    }
+
+    /// Inbound op=delete on AssistantV2. Local-only drop + tombstone, no
+    /// re-queue (the cloud already holds the tombstone).
+    private static func applyAssistantDeletion(id: String) async {
+        await ChatStore.shared.applyRemoteAssistantDeletion(id: id)
+    }
+
+    /// Write an inbound avatar asset into <appGroup>/avatars/ under a fresh
+    /// file name and return that name. A fresh name (rather than reusing the
+    /// remote one) keeps two devices from writing the same file concurrently
+    /// and guarantees the value we store matches bytes we actually wrote.
+    private static func saveInboundAvatar(asset: PortableAsset, assistantId: String) async -> String? {
+        let fm = FileManager.default
+        let dir = AIChatViewModel.minisAvatarsDir
+        do {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let name = "\(assistantId)-\(UUID().uuidString).png"
+            let dest = dir.appendingPathComponent(name)
+            let data = try Data(contentsOf: asset.fileURL)
+            try data.write(to: dest, options: .atomic)
+            return name
+        } catch {
+            logger.warning("[SyncCore] saveInboundAvatar failed for id=\(assistantId.prefix(8)): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private static func buildAssistantGroup(id: String) async -> PortableRecord? {
+        guard let g = await ChatStore.shared.listAssistantGroups().first(where: { $0.id == id })
+        else { return nil }
+        let synced = SyncedAssistantGroup.from(g)
+        return SyncableTypeRegistry.shared
+            .metadata(for: "AssistantGroupV2")?
+            .buildPortable(synced)
+    }
+
+    private static func mergeAssistantGroup(record: PortableRecord) async {
+        guard let id = stringField(record, "groupId") else { return }
+        let updatedAt = dateField(record, "updatedAt") ?? record.updatedAt
+        if await ChatStore.shared.isRecentlyDeletedRecord(type: "AssistantGroup", id: id, remoteUpdatedAt: updatedAt) {
+            logger.info("[SyncCore] mergeAssistantGroup SKIP (recently deleted locally): id=\(id.prefix(8))")
+            return
+        }
+        let group = AssistantGroup(
+            id: id,
+            name: stringField(record, "name") ?? "",
+            icon: optionalStringField(record, "icon"),
+            sortIndex: intField(record, "sortIndex") ?? 0,
+            createdAt: dateField(record, "createdAt") ?? Date(),
+            updatedAt: updatedAt
+        )
+        guard !group.name.isEmpty else { return }
+        await ChatStore.shared.applyRemoteAssistantGroup(group)
+    }
+
+    private static func applyAssistantGroupDeletion(id: String) async {
+        await ChatStore.shared.applyRemoteAssistantGroupDeletion(id: id)
     }
 
     // MARK: - Session

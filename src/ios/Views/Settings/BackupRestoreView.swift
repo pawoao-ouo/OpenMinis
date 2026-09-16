@@ -550,6 +550,15 @@ struct BackupRestoreView: View {
                     .font(.caption)
                     .foregroundStyle(MinisTheme.warning)
             }
+            // [T-restore-half-failure-09-16] Categories that failed and could
+            // NOT be rolled back. This is the one outcome the user must not
+            // have to infer — say it in the destructive colour, above the
+            // rolled-back line's tone.
+            if !r.unrecovered.isEmpty {
+                Text("These categories failed and could not be restored to their previous state: \(r.unrecovered.joined(separator: ", ")). Your data may be partially replaced — re-run the restore or check the previous device.")
+                    .font(.caption)
+                    .foregroundStyle(MinisTheme.destructive)
+            }
         } header: {
             Text("Restore Complete")
         } footer: {
@@ -794,6 +803,7 @@ struct BackupRestoreView: View {
         case .memory: return AppLocalized("Memory & Soul")
         case .providers: return AppLocalized("Providers")
         case .mcpServers: return AppLocalized("MCP Servers")
+        case .roles: return AppLocalized("Roles")
         case .voiceCorrections: return AppLocalized("Voice Corrections")
         case .environmentVariables: return AppLocalized("Environment Variables")
         }

@@ -40,6 +40,16 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     case providers
     case mcpServers = "mcp_servers"
     case voiceCorrections = "voice_corrections"
+    /// [T-roles-backup-09-16] Personas (`assistants`) + address-book groups
+    /// (`assistant_groups`) + their avatar files.
+    ///
+    /// These lived only in local SQLite: a backup restored every conversation
+    /// but not the role each conversation belonged to, so the restored
+    /// `assistant_id` pointed at a row that did not exist and every session
+    /// came back with an empty persona. The category is a plain JSONL record
+    /// stream plus a file tree for the avatars — no credentials, so it needs
+    /// no encryption (unlike `providers`).
+    case roles
     /// Shell environment variables (`Library/MinisChat/env-vars.json`).
     ///
     /// Their VALUES were already collected into secrets.json, but the metadata
@@ -71,6 +81,8 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     var carriesFileTree: Bool {
         switch self {
         case .chats, .sharedFiles, .skills: return true
+        // [T-roles-backup-09-16] Avatars are files, so the size cap applies.
+        case .roles: return true
         case .memory, .providers, .mcpServers, .voiceCorrections,
              .environmentVariables: return false
         }

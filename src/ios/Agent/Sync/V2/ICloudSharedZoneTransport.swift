@@ -145,6 +145,11 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
         // server name). Same secrets-zone placement as the legacy
         // whole-file record: headers/env can hold literal tokens.
         "MCPServerItem":        secretsZoneName,
+        // [T-roles-sync-09-16] Personas + address-book groups. Shared zone:
+        // a persona holds no credentials (the prompt is user text), and a
+        // peer must be able to pull it on a fresh install.
+        "AssistantV2":          sharedZoneName,
+        "AssistantGroupV2":     sharedZoneName,
     ]
 
     /// Asset threshold — payloads larger than this are written as a
@@ -304,6 +309,11 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
         // inside the 24h window), and sessions arriving before their folder
         // render as ungrouped until this pull anchors.
         "FolderV2",
+        // [T-roles-sync-09-16] Personas + groups are the same shape: created
+        // once, edited rarely, and a fresh device that only pulled the 24h
+        // window would come up with an empty address book while its
+        // sessions all point at personas that "don't exist".
+        "AssistantV2", "AssistantGroupV2",
     ]
     /// Per-type "we have completed at least one full-history pull AND the
     /// consumer was ready to apply it" flag. Until set, the type pulls full
@@ -771,6 +781,11 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
             ("SoulV2", "updatedAt"),
             ("MemoryGlobalV2", "updatedAt"),
             ("MemoryDailyV2", "updatedAt"),
+            // [T-roles-sync-09-16] Personas + groups. Both carry createdAt and
+            // updatedAt; sorted by updatedAt so a rename/edit on a peer lands
+            // in the incremental window like every other low-volume config type.
+            ("AssistantV2", "updatedAt"),
+            ("AssistantGroupV2", "updatedAt"),
         ]
         var totalFetched = 0
         var byType: [String: Int] = [:]

@@ -2431,7 +2431,12 @@ actor ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
-        markDirty(recordType: "Assistant", recordId: id)
+        // [T-roles-sync-09-16] operation MUST be "delete". Without it the row
+        // is queued as an upsert; the row is already gone, so buildAssistant
+        // returns nil and SyncCore treats that as "local row gone, clear the
+        // dirty" — the deletion never reaches a peer and the role lives on
+        // there forever. Mirrors dissolveFolder's call for FolderV2.
+        markDirty(recordType: "Assistant", recordId: id, operation: "delete")
         // 3. Wipe the per-assistant memory directory (persona files, daily
         //    logs, drawers — everything this role lived through).
         let memDir = AIChatViewModel.minisMemoryPersistentDir(for: id)
@@ -2584,7 +2589,10 @@ actor ChatStore {
             sqlite3_step(clear)
         }
         sqlite3_finalize(clear)
-        markDirty(recordType: "AssistantGroup", recordId: id)
+        // [T-roles-sync-09-16] "delete" for the same reason as deleteAssistant:
+        // an upsert on a row that no longer exists is dropped locally and
+        // never propagates, so the group would survive on every peer.
+        markDirty(recordType: "AssistantGroup", recordId: id, operation: "delete")
     }
 
     // MARK: - Folders
@@ -2955,6 +2963,149 @@ actor ChatStore {
     /// Fetch one folder (sync builder path).
     func getFolder(_ id: String) -> ChatFolder? {
         listFolders().first(where: { $0.id == id })
+    }
+
+    // MARK: - Remote persona application (AssistantV2 / AssistantGroupV2)
+
+    /// [T-roles-sync-09-16] Apply an inbound AssistantV2 record.
+    ///
+    /// LWW on `updatedAt`, same rule as `applyRemoteFolder`. The protected
+    /// `default` row is NOT special-cased here: a peer's copy of it is a
+    /// legitimate persona snapshot and merging it is how a fresh device gets
+    /// its migrated identity. `deleteAssistant` guards the row on the local
+    /// delete path; inbound deletes are refused below.
+    @discardableResult
+    func applyRemoteAssistant(_ a: Assistant) -> Bool {
+        var localUpdatedAt: Double?
+        var checkStmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT updated_at FROM assistants WHERE id = ?", -1, &checkStmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(checkStmt, 1, (a.id as NSString).utf8String, -1, nil)
+            if sqlite3_step(checkStmt) == SQLITE_ROW {
+                localUpdatedAt = sqlite3_column_double(checkStmt, 0)
+            }
+        }
+        sqlite3_finalize(checkStmt)
+
+        if let localTs = localUpdatedAt, localTs >= a.updatedAt.timeIntervalSince1970 {
+            iCloudLogger.info("[iCloud] applyRemoteAssistant SKIP (local newer/equal): id=\(a.id.prefix(8))")
+            return false
+        }
+        let sql = """
+            INSERT INTO assistants (id, name, avatar_path, system_prompt, group_id, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name, avatar_path = excluded.avatar_path,
+                system_prompt = excluded.system_prompt, group_id = excluded.group_id,
+                sort_order = excluded.sort_order,
+                updated_at = excluded.updated_at
+            """
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (a.id as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 2, (a.name as NSString).utf8String, -1, nil)
+            bindOptionalText(stmt, index: 3, value: a.avatarPath)
+            sqlite3_bind_text(stmt, 4, (a.systemPrompt as NSString).utf8String, -1, nil)
+            bindOptionalText(stmt, index: 5, value: a.groupId)
+            sqlite3_bind_int64(stmt, 6, Int64(a.sortIndex))
+            sqlite3_bind_double(stmt, 7, a.createdAt.timeIntervalSince1970)
+            sqlite3_bind_double(stmt, 8, a.updatedAt.timeIntervalSince1970)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        iCloudLogger.info("[iCloud] applyRemoteAssistant APPLIED: id=\(a.id.prefix(8)) name=\(a.name)")
+        return true
+    }
+
+    /// Inbound op=delete on AssistantV2. Refuses the protected `default` row
+    /// (deleting it would strand every legacy session with an empty persona),
+    /// drops the row otherwise, and leaves a tombstone so a fetchRecentV2 race
+    /// can't resurrect it. Members are NOT cascaded: sessions keep their
+    /// `assistant_id`, which simply stops resolving — `identitySection` falls
+    /// back to the generic identity sentence for those.
+    func applyRemoteAssistantDeletion(id: String) {
+        guard id != Self.defaultAssistantId else {
+            iCloudLogger.info("[iCloud] applyRemoteAssistantDeletion REFUSED (protected default): id=\(id.prefix(8))")
+            return
+        }
+        // Capture what the row owned before it goes — the same three things
+        // the local cascade (deleteAssistant) removes. A role deleted on one
+        // device must leave the same footprint behind on every device, or the
+        // peer keeps an orphaned avatar file and a memory directory nothing
+        // references.
+        let avatarFile = getAssistant(id)?.avatarPath
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "DELETE FROM assistants WHERE id = ?", -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        if let p = avatarFile, !p.isEmpty, !p.hasPrefix("emoji:") {
+            try? FileManager.default.removeItem(
+                at: AIChatViewModel.minisAvatarsDir.appendingPathComponent(p))
+        }
+        try? FileManager.default.removeItem(
+            at: AIChatViewModel.minisMemoryPersistentDir(for: id))
+        recordDeletedRecordTombstone(type: "Assistant", id: id)
+        iCloudLogger.info("[iCloud] applyRemoteAssistantDeletion: id=\(id.prefix(8))")
+    }
+
+    /// Apply an inbound AssistantGroupV2 record (LWW on `updatedAt`).
+    /// Returns false when the local row is newer or equal (nothing written).
+    @discardableResult
+    func applyRemoteAssistantGroup(_ g: AssistantGroup) -> Bool {
+        var localUpdatedAt: Double?
+        var checkStmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT updated_at FROM assistant_groups WHERE id = ?", -1, &checkStmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(checkStmt, 1, (g.id as NSString).utf8String, -1, nil)
+            if sqlite3_step(checkStmt) == SQLITE_ROW {
+                localUpdatedAt = sqlite3_column_double(checkStmt, 0)
+            }
+        }
+        sqlite3_finalize(checkStmt)
+
+        if let localTs = localUpdatedAt, localTs >= g.updatedAt.timeIntervalSince1970 {
+            iCloudLogger.info("[iCloud] applyRemoteAssistantGroup SKIP (local newer/equal): id=\(g.id.prefix(8))")
+            return false
+        }
+        let sql = """
+            INSERT INTO assistant_groups (id, name, icon, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name, icon = excluded.icon,
+                sort_order = excluded.sort_order, updated_at = excluded.updated_at
+            """
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (g.id as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 2, (g.name as NSString).utf8String, -1, nil)
+            bindOptionalText(stmt, index: 3, value: g.icon)
+            sqlite3_bind_int64(stmt, 4, Int64(g.sortIndex))
+            sqlite3_bind_double(stmt, 5, g.createdAt.timeIntervalSince1970)
+            sqlite3_bind_double(stmt, 6, g.updatedAt.timeIntervalSince1970)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        iCloudLogger.info("[iCloud] applyRemoteAssistantGroup APPLIED: id=\(g.id.prefix(8)) name=\(g.name)")
+        return true
+    }
+
+    /// Inbound op=delete on AssistantGroupV2: members fall back to ungrouped
+    /// (mirrors `deleteAssistantGroup`'s local rule), never deleted.
+    func applyRemoteAssistantGroupDeletion(id: String) {
+        var clear: OpaquePointer?
+        if sqlite3_prepare_v2(db, "UPDATE assistants SET group_id = NULL WHERE group_id = ?", -1, &clear, nil) == SQLITE_OK {
+            sqlite3_bind_text(clear, 1, (id as NSString).utf8String, -1, nil)
+            sqlite3_step(clear)
+        }
+        sqlite3_finalize(clear)
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "DELETE FROM assistant_groups WHERE id = ?", -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        recordDeletedRecordTombstone(type: "AssistantGroup", id: id)
+        iCloudLogger.info("[iCloud] applyRemoteAssistantGroupDeletion: id=\(id.prefix(8))")
     }
 
     func getMemoryEnabled(sessionId: String) -> Bool {
@@ -5608,7 +5759,11 @@ extension ChatStore {
         if operation == "delete",
            ["Skill", "EnvVarItem", "CompactMarker", "MCPServerItem", "Folder",
             "ProviderInstanceV3", "ProviderModelEntryV3", "ProviderModelGroupV3",
-            "ProviderThinkingRuleV3"].contains(recordType) {
+            "ProviderThinkingRuleV3",
+            // [T-roles-sync-09-16] A persona deleted locally must leave a
+            // tombstone, or fetchRecentV2 re-pulls the still-live cloud record
+            // and resurrects the role the user just deleted.
+            "Assistant", "AssistantGroup"].contains(recordType) {
             recordDeletedRecordTombstone(type: recordType, id: recordId)
         }
         // Trace priority=0 (user-driven) writes so we can follow a
@@ -5738,6 +5893,13 @@ extension ChatStore {
         case "Soul":            return "SoulV2"
         case "Folder":          return "FolderV2"
         case "MCPServers":      return "MCPServersV2"   // [T-mcp-integration-ios]
+        // [T-roles-sync-09-16] Personas + address-book groups. Missing from
+        // this map, the whitelist AND the Syncable registry — so a role's
+        // dirty row had no v2 counterpart, no builder and no schema, and
+        // never left the device. Same failure the MCPServersV2 comment
+        // below documents.
+        case "Assistant":       return "AssistantV2"
+        case "AssistantGroup":  return "AssistantGroupV2"
         default:                return v1Type
         }
     }
@@ -6159,6 +6321,13 @@ extension ChatStore {
         // now so (a) the one-time legacy-record op=delete can drain and
         // (b) any leftover upsert rows drain as no-ops (builder returns nil).
         "MCPServersV2", "MCPServerItem",
+        // [T-roles-sync-09-16] Personas + address-book groups. FOURTH
+        // recurrence of the same failure the comments above describe: the
+        // table, the CRUD and the markDirty calls all existed, but omitting
+        // the type here meant loadDirtyRecords(v2Only:true) filtered every
+        // row out and no persona ever reached iCloud. A role lived and died
+        // on one device.
+        "AssistantV2", "AssistantGroupV2",
     ]
 
     /// Pre-built SQL IN-list fragment for `v2SyncRecordTypes`. Values

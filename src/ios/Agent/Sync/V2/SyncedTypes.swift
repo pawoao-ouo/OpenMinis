@@ -851,6 +851,113 @@ struct SyncedFolder: Syncable {
     }
 }
 
+// MARK: - SyncedAssistant
+
+/// [T-roles-sync-09-16] A persona from the `assistants` table (AssistantV2).
+///
+/// WHY THIS EXISTS: the v2 engine shipped personas as a local-only SQLite
+/// table. `markDirty("Assistant")` wrote a dirty row, but the type had no
+/// `v2RecordType` mapping, no Syncable definition, no registry entry and no
+/// hydrator — so the row was filtered out of every send and a role (name,
+/// avatar, prompt) never left the device. Same shape as the MCPServersV2 and
+/// ProviderThinkingRuleV3 failures recorded in the whitelist comments.
+///
+/// Scope is perObject: each persona is an independent record, and a session
+/// references it by `assistant_id`. Deleting a persona propagates as a
+/// tombstone — the apply side refuses to delete the protected `default` row
+/// and leaves member sessions untouched (their id simply stops resolving,
+/// which `identitySection` already handles by falling back to the generic
+/// identity sentence).
+struct SyncedAssistant: Syncable {
+    var id: String
+    var name: String
+    /// File NAME relative to <appGroup>/avatars/ (e.g. "abc123.png"), or nil
+    /// for the default glyph. The bytes travel as a PortableAsset, not inline:
+    /// the DB column is a pointer by design (see the schema comment).
+    var avatarPath: String?
+    var systemPrompt: String
+    var groupId: String?
+    var sortIndex: Int
+    var createdAt: Date
+    var updatedAt: Date
+    /// Local URL of the avatar file, if one exists. Transmitted as an asset;
+    /// nil when the persona has no avatar (or a legacy "emoji:…" marker, which
+    /// never had a file).
+    var avatarFileURL: URL?
+
+    static let syncMetadata: SyncTypeMetadata<SyncedAssistant> = {
+        typealias F = FieldDescriptor<SyncedAssistant>
+        return SyncTypeMetadata<SyncedAssistant>(
+            recordType: "AssistantV2",
+            idKeyPath: \SyncedAssistant.id,
+            scope: .perObject(\SyncedAssistant.id),
+            fields: [
+                F.string("assistantId",     \SyncedAssistant.id),
+                F.string("name",            \SyncedAssistant.name),
+                F.optionalString("avatarPath", \SyncedAssistant.avatarPath),
+                F.string("systemPrompt",    \SyncedAssistant.systemPrompt),
+                F.optionalString("groupId", \SyncedAssistant.groupId),
+                F.int("sortIndex",          \SyncedAssistant.sortIndex),
+                F.date("createdAt",         \SyncedAssistant.createdAt),
+                F.date("updatedAt",         \SyncedAssistant.updatedAt),
+            ],
+            conflictPolicy: .lastWriteWinsByField(\SyncedAssistant.updatedAt),
+            version: 1
+        )
+    }()
+
+    static func from(_ a: Assistant, avatarFileURL: URL? = nil) -> SyncedAssistant {
+        SyncedAssistant(
+            id: a.id, name: a.name, avatarPath: a.avatarPath,
+            systemPrompt: a.systemPrompt, groupId: a.groupId,
+            sortIndex: a.sortIndex,
+            createdAt: a.createdAt, updatedAt: a.updatedAt,
+            avatarFileURL: avatarFileURL
+        )
+    }
+}
+
+// MARK: - SyncedAssistantGroup
+
+/// [T-roles-sync-09-16] An address-book group (AssistantGroupV2). Same
+/// rationale as SyncedAssistant — the table existed locally with no v2
+/// representation. Deleting a group does NOT delete its members; the apply
+/// side clears their groupId, mirroring `deleteAssistantGroup`'s local rule.
+struct SyncedAssistantGroup: Syncable {
+    var id: String
+    var name: String
+    var icon: String?
+    var sortIndex: Int
+    var createdAt: Date
+    var updatedAt: Date
+
+    static let syncMetadata: SyncTypeMetadata<SyncedAssistantGroup> = {
+        typealias F = FieldDescriptor<SyncedAssistantGroup>
+        return SyncTypeMetadata<SyncedAssistantGroup>(
+            recordType: "AssistantGroupV2",
+            idKeyPath: \SyncedAssistantGroup.id,
+            scope: .perObject(\SyncedAssistantGroup.id),
+            fields: [
+                F.string("groupId",   \SyncedAssistantGroup.id),
+                F.string("name",      \SyncedAssistantGroup.name),
+                F.optionalString("icon", \SyncedAssistantGroup.icon),
+                F.int("sortIndex",    \SyncedAssistantGroup.sortIndex),
+                F.date("createdAt",   \SyncedAssistantGroup.createdAt),
+                F.date("updatedAt",   \SyncedAssistantGroup.updatedAt),
+            ],
+            conflictPolicy: .lastWriteWinsByField(\SyncedAssistantGroup.updatedAt),
+            version: 1
+        )
+    }()
+
+    static func from(_ g: AssistantGroup) -> SyncedAssistantGroup {
+        SyncedAssistantGroup(
+            id: g.id, name: g.name, icon: g.icon, sortIndex: g.sortIndex,
+            createdAt: g.createdAt, updatedAt: g.updatedAt
+        )
+    }
+}
+
 enum SyncedTypesBootstrap {
     static func registerAll() {
         let r = SyncableTypeRegistry.shared
@@ -877,5 +984,10 @@ enum SyncedTypesBootstrap {
         r.register(SyncedSoul.self)
         r.register(SyncedMemoryGlobal.self)
         r.register(SyncedMemoryDaily.self)
+        // [T-roles-sync-09-16] Personas + address-book groups. Without these
+        // registrations the types are unknown to the transport (records are
+        // ignored inbound, never built outbound).
+        r.register(SyncedAssistant.self)
+        r.register(SyncedAssistantGroup.self)
     }
 }

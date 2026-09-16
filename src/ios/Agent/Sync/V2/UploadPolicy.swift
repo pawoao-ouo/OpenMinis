@@ -31,7 +31,14 @@ enum UploadPolicy {
             case .chatSessions:
                 return ["Session", "SessionV2", "Message", "MessageV2", "CompactMarker", "CompactMarkerV2",
                         // Folders organize sessions; the chat-sessions toggle governs them.
-                        "Folder", "FolderV2"]
+                        "Folder", "FolderV2",
+                        // [T-roles-sync-09-16] Personas + groups. They are what
+                        // a session's `assistant_id` points at, so they belong
+                        // under the same toggle as the sessions themselves —
+                        // otherwise turning Chat Sessions off would still
+                        // upload the address book that gives them meaning.
+                        "Assistant", "AssistantV2",
+                        "AssistantGroup", "AssistantGroupV2"]
             case .sessionFiles:
                 return ["SessionFile", "SessionFileV2"]
             case .skills:

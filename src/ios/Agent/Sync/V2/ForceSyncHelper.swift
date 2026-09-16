@@ -142,4 +142,29 @@ enum ForceSyncHelper {
         await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul")
         return 1
     }
+
+    /// [T-roles-sync-09-16] One-time backfill for personas + groups.
+    ///
+    /// Before this round `markDirty("Assistant")` wrote a dirty row under the
+    /// un-suffixed name, which the v2 whitelist filtered out — so every role
+    /// created on an existing install sits in `sync_dirty_records` under a
+    /// type no engine reads. Adding the mapping fixes NEW writes only; the
+    /// rows already queued still say "Assistant" and still never drain.
+    ///
+    /// This re-marks every persona/group under the correct V2 name once per
+    /// install. Cheap (a handful of rows) and idempotent.
+    @MainActor
+    @discardableResult
+    static func markAssistantsDirty() async -> Int {
+        var count = 0
+        for a in await ChatStore.shared.listAssistants() {
+            await ChatStore.shared.markDirty(recordType: "Assistant", recordId: a.id)
+            count += 1
+        }
+        for g in await ChatStore.shared.listAssistantGroups() {
+            await ChatStore.shared.markDirty(recordType: "AssistantGroup", recordId: g.id)
+            count += 1
+        }
+        return count
+    }
 }
