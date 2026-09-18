@@ -2490,18 +2490,33 @@ actor ChatStore {
     }
 
     /// Move a conversation to a different persona.
-    func setSessionAssistant(_ sessionId: String, assistantId: String) {
-        invalidateSessionListCache()
-        let sql = "UPDATE sessions SET assistant_id = ?, updated_at = ? WHERE id = ?"
+    /// Returns false when either record is missing or SQLite rejects the write.
+    @discardableResult
+    func setSessionAssistant(_ sessionId: String, assistantId: String) -> Bool {
         var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (assistantId as NSString).utf8String, -1, nil)
-            sqlite3_bind_double(stmt, 2, Date().timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 3, (sessionId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
+        let sql = """
+            UPDATE sessions
+            SET assistant_id = ?, updated_at = ?
+            WHERE id = ?
+              AND EXISTS (SELECT 1 FROM assistants WHERE id = ?)
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            sqlite3_finalize(stmt)
+            return false
         }
-        sqlite3_finalize(stmt)
+        defer { sqlite3_finalize(stmt) }
+
+        sqlite3_bind_text(stmt, 1, (assistantId as NSString).utf8String, -1, nil)
+        sqlite3_bind_double(stmt, 2, Date().timeIntervalSince1970)
+        sqlite3_bind_text(stmt, 3, (sessionId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 4, (assistantId as NSString).utf8String, -1, nil)
+
+        guard sqlite3_step(stmt) == SQLITE_DONE, sqlite3_changes(db) == 1 else {
+            return false
+        }
+        invalidateSessionListCache()
         markDirty(recordType: "Session", recordId: sessionId)
+        return true
     }
 
     // MARK: - Assistant Group CRUD

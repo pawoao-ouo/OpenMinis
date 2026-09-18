@@ -6728,7 +6728,13 @@ struct SessionEditSheet: View {
         guard session.assistantId != assistantId else { return }
         switchingRole = assistantId
         Task { @MainActor in
-            await ChatStore.shared.setSessionAssistant(session.id, assistantId: assistantId)
+            defer { switchingRole = nil }
+            guard await ChatStore.shared.setSessionAssistant(session.id, assistantId: assistantId) else {
+                AppLogger(category: "PersonaSwitch").error(
+                    "session=\(session.id) assistant=\(assistantId) failed"
+                )
+                return
+            }
             await SoulStore.refreshAssistantCache()
             SoulStore.setActiveAssistant(assistantId)
             dismiss()
