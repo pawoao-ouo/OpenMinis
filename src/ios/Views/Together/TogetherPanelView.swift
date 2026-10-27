@@ -217,7 +217,6 @@ struct TogetherPanelView: View {
         }
         .padding(2)
         .background(Capsule().fill(CSSThemeVariables.card(scope: .chat)))
-        .shadow(color: Color.black.opacity(0.1), radius: 3)
     }
 
     // MARK: - 中间核心视觉区（黑胶 ⇄ 原位歌词）
@@ -328,7 +327,6 @@ struct TogetherPanelView: View {
                 Text(line)
                     .font(ChatFont.font(13, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat).opacity(0.85))
-                    .togetherWallText()
                     .lineLimit(1)
                     .id(line)
                     .transition(.asymmetric(
@@ -368,7 +366,6 @@ struct TogetherPanelView: View {
         .padding(.top, 8 * s)
         .padding(.horizontal, 24)
         // 壁纸原样亮着，标题和歌手就得自己站得住：只给文字做局部阴影，不压整页。
-        .togetherWallText(strong: true)
     }
 
     private var currentLyricText: String? {
@@ -407,7 +404,6 @@ struct TogetherPanelView: View {
             mainControlsRow(s: s)
         }
         // 控制区整块给一圈局部阴影：不压整页，按键和时间在杂图上也看得清。
-        .togetherWallText()
     }
 
     private func actionRow(_ t: TogetherTrack, s: CGFloat) -> some View {
@@ -560,7 +556,6 @@ struct TogetherPanelView: View {
                     .frame(width: 66 * s, height: 66 * s)
                     .background(CSSThemeVariables.accent(scope: .chat))
                     .clipShape(Circle())
-                    .shadow(color: TogetherSkin.shadowSoft, radius: 10, x: 0, y: 5)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
@@ -708,7 +703,7 @@ struct TogetherPanelView: View {
         let bubble = EchoBubble(
             id: note.id,
             text: note.text,
-            name: note.from == TogetherActor.ai.rawValue ? ChatAddressing.assistant() : ChatAddressing.user(),
+            name: note.from == TogetherActor.ai.rawValue ? ChatAddressing.assistant(sessionPersonaId: sessionPersonaId) : ChatAddressing.user(),
             time: TogetherEchoClock.label(note.ts),
             isAI: note.from == TogetherActor.ai.rawValue,
             dx: corner.0,
@@ -845,7 +840,6 @@ struct TogetherInlineLyricsView: View {
             // 非当前行以前是 textDim 再乘 0.45，杂图上几乎看不见。
             // 现在不改颜色深浅、不压整页，只给文字自己一圈局部阴影：
             // 亮图暗图都读得清，当前行阴影更重、字更大更粗，区分照样在。
-            .togetherWallText(strong: isCurrent)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .scaleEffect(isCurrent ? 1.04 : 0.96)
@@ -914,7 +908,6 @@ struct EchoBubbleView: View {
         .overlay(
             Capsule().strokeBorder(CSSThemeVariables.bg(scope: .chat).opacity(0.95), lineWidth: 0.5)
         )
-        .shadow(color: TogetherSkin.shadowSoft, radius: 12, x: 0, y: 8)
         .scaleEffect(scaleValue)
         .opacity(opacityValue)
         .blur(radius: blurValue)
@@ -953,7 +946,6 @@ struct TogetherDiscView: View {
             disc
                 .rotationEffect(.degrees(spinDegrees))
                 .animation(.linear(duration: 0.5), value: spinDegrees)
-                .shadow(color: TogetherSkin.shadowDeep, radius: 26, x: 0, y: 16)
                 .onTapGesture(perform: onTap)
 
             arm
@@ -1040,6 +1032,7 @@ struct TogetherEchoDrawerView: View {
     let onSeek: (Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.togetherPersonaId) private var sessionPersonaId
     @State private var state = TogetherStore.shared.load()
     @State private var draft = ""
 
@@ -1111,7 +1104,7 @@ struct TogetherEchoDrawerView: View {
 
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
-                                Text(note.from == TogetherActor.ai.rawValue ? ChatAddressing.assistant() : ChatAddressing.user())
+                                Text(note.from == TogetherActor.ai.rawValue ? ChatAddressing.assistant(sessionPersonaId: sessionPersonaId) : ChatAddressing.user())
                                     .font(ChatFont.font(11, weight: .semibold))
                                     .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                                 Text(TogetherEchoClock.label(note.ts))
@@ -1315,7 +1308,6 @@ struct TogetherThemeCenterView: View {
         (TogetherImages.wallpaperLibrary, TogetherCopy.libraryWallpaper, AppLocalized("Wallpaper behind your playlist lists", comment: "一起听 · 歌单库壁纸说明")),
         (TogetherImages.wallpaperSync, TogetherCopy.syncWallpaper, AppLocalized("Background for the together page", comment: "一起听 · 伴听页壁纸说明")),
         (TogetherImages.wallpaperLiked, TogetherCopy.likedWallpaper, AppLocalized("Wallpaper behind liked songs", comment: "一起听 · 喜欢页壁纸说明")),
-        (TogetherImages.wallpaperSweet, TogetherCopy.sweetWallpaper, AppLocalized("A private wallpaper picked just for you", comment: "一起听 · 私藏壁纸说明")),
     ]
 
     private let columns = [
@@ -1454,7 +1446,7 @@ struct TogetherThemeCenterView: View {
                 activeSlot = slot.id
                 showPicker = true
             } label: {
-                Text(TogetherCopy.changeCoverTitle)
+                Text(TogetherCopy.changeWallpaper)
                     .font(ChatFont.font(11, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
                     .frame(maxWidth: .infinity)

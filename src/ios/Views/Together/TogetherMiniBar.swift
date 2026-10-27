@@ -44,7 +44,6 @@ struct TogetherMiniBar: View {
                 .strokeBorder(CSSThemeVariables.divider(scope: .chat).opacity(0.4), lineWidth: 0.5)
         )
         .overlay(alignment: .bottomLeading) { progressHairline }
-        .shadow(color: TogetherSkin.shadowSoft, radius: 10, x: 0, y: 3)
         .padding(.horizontal, 16)
         .padding(.bottom, 3)
         .onAppear {
@@ -83,7 +82,6 @@ struct TogetherMiniBar: View {
         .frame(width: 24, height: 24)
         .rotationEffect(.degrees(player.currentTime / 4.0 * 360))
         .animation(.linear(duration: 0.5), value: player.currentTime)
-        .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 2)
     }
 
     // MARK: 音波

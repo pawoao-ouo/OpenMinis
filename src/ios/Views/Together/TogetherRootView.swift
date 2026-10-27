@@ -128,7 +128,6 @@ struct TogetherRootView: View {
             }
         }
         // 半透之后字坐在壁纸上，给一圈局部阴影保住可读性。
-        .togetherWallText()
         .padding(.top, 10)
         .padding(.bottom, 6)
         .background(

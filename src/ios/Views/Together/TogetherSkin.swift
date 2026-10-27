@@ -161,6 +161,8 @@ enum TogetherCopy {
     static var oneLineOnly: String { AppLocalized("One line per listen — you've already left one", comment: "一起听 · 本轮已经刻过一句") }
     static var playlistInfo: String { AppLocalized("Playlist Info", comment: "一起听 · 歌单信息") }
     static var changeCoverTitle: String { AppLocalized("Change cover", comment: "一起听 · 更换封面") }
+    /// 壁纸槽的按钮：换的是壁纸，不是封面，文案不许混。
+    static var changeWallpaper: String { AppLocalized("Change wallpaper", comment: "一起听 · 更换壁纸") }
     static var tags: String { AppLocalized("Tags", comment: "一起听 · 标签") }
     static var noTags: String { AppLocalized("None", comment: "一起听 · 暂无") }
     static var descTitle: String { AppLocalized("Description", comment: "一起听 · 简介") }
@@ -176,7 +178,6 @@ enum TogetherCopy {
     static var libraryWallpaper: String { AppLocalized("Playlist Library Wallpaper", comment: "一起听 · 歌单库壁纸") }
     static var syncWallpaper: String { AppLocalized("Together Wallpaper", comment: "一起听 · 伴听页壁纸") }
     static var likedWallpaper: String { AppLocalized("Liked Songs Wallpaper", comment: "一起听 · 喜欢页壁纸") }
-    static var sweetWallpaper: String { AppLocalized("Secret Wallpaper", comment: "一起听 · 私藏壁纸") }
     static var queueTitle: String { AppLocalized("Playing Queue", comment: "一起听 · 播放队列") }
     static var historyEchoes: String { AppLocalized("Echo Wall", comment: "一起听 · 历史回声墙") }
 }

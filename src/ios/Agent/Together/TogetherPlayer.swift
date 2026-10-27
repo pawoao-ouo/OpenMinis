@@ -267,7 +267,7 @@ final class TogetherPlayer: ObservableObject {
 
         // 遥控器在谁手里，就听谁的。
         // 之前只看事件是谁发的，递给我之后她那边还会被 AI 的事件拽走。
-        let controller = state.playback.by
+        var controller = state.playback.by
 
         // 1.5 秒里 AI 连着推几条（换歌、拖动、暂停）时，只吃最后一条会把
         // 中间那次拖动吞掉。从上次吃到的那条往后按顺序逐条应用，游标最后才挪。
@@ -282,7 +282,14 @@ final class TogetherPlayer: ObservableObject {
         for ev in pending {
             seenEventId = ev.id
             // 递遥控器本身就是一条事件：谁接手本机就归谁，不单独触发播停。
-            if ev.type == "handoff" { continue }
+            // 但控制权得当场跟着事件换：1.5 秒里先递遥控器、后 AI 推歌时，
+            // 那条推歌要按递完之后的控制权判，否则用户刚接过手就被 AI 拽走。
+            if ev.type == "handoff" {
+                if let next = ev.detail?.text, !next.isEmpty {
+                    controller = next
+                }
+                continue
+            }
             guard controller == "ai", ev.by == "ai" else { continue }
             applyRemote(ev, state: state)
         }

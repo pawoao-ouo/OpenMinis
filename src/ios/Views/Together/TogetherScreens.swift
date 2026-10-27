@@ -63,12 +63,6 @@ extension View {
     func togetherWallpaper(_ slot: String) -> some View {
         background(TogetherWallpaperLayer(slot: slot))
     }
-
-    /// 壁纸上的字要在杂图里读得清，但不许靠整页压暗来凑。
-    /// 只在文字身上做局部处理：一圈细描边 + 一道近距阴影，背景原样透出来。
-    func togetherWallText(strong: Bool = false) -> some View {
-        shadow(color: .black.opacity(strong ? 0.60 : 0.42), radius: strong ? 4 : 3, x: 0, y: 1)
-    }
 }
 
 // MARK: - 共用：封面
@@ -327,7 +321,7 @@ struct TogetherLibraryView: View {
                     .overlay(Circle().strokeBorder(CSSThemeVariables.bg(scope: .chat), lineWidth: 2.5))
             }
 
-            Text("\(ChatAddressing.assistant()) & \(ChatAddressing.user())")
+            Text("\(ChatAddressing.assistant(sessionPersonaId: sessionPersonaId)) & \(ChatAddressing.user())")
                 .font(ChatFont.font(15.5, weight: .medium))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
 
@@ -734,7 +728,6 @@ struct TogetherLikedView: View {
                     .font(ChatFont.font(46, weight: .regular))
                     .foregroundStyle(CSSThemeVariables.card(scope: .chat).opacity(0.92))
             )
-            .shadow(color: TogetherSkin.shadowDeep, radius: 22, x: 0, y: 12)
     }
 
     private func reload() {
@@ -822,8 +815,7 @@ struct TogetherSyncView: View {
                 wallpaperError = nil
                 showWallpaperPicker = true
             } label: {
-                Label(AppLocalized("Change wallpaper", comment: "一起听 · 伴听页换壁纸"),
-                      systemImage: "photo.on.rectangle.angled")
+                Label(TogetherCopy.changeWallpaper, systemImage: "photo.on.rectangle.angled")
                     .font(ChatFont.font(12, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
                     .padding(.horizontal, 14)
@@ -852,7 +844,7 @@ struct TogetherSyncView: View {
             wave
                 .frame(width: 74, height: 26)
 
-            side(.ai, name: ChatAddressing.assistant(), size: 88)
+            side(.ai, name: ChatAddressing.assistant(sessionPersonaId: sessionPersonaId), size: 88)
                 .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 30)
@@ -960,7 +952,7 @@ struct TogetherSyncView: View {
             )
             Divider().overlay(CSSThemeVariables.divider(scope: .chat))
             deviceRow(
-                name: ChatAddressing.assistant(),
+                name: ChatAddressing.assistant(sessionPersonaId: sessionPersonaId),
                 detail: state.me.presence.mood.map { "\($0.word)" }
                     ?? AppLocalized("quiet", comment: "一起听 · 没说话"),
                 controlling: state.playback.by == "ai"
@@ -1034,7 +1026,7 @@ struct TogetherSyncView: View {
             state = TogetherStore.shared.load()
             MinisToast.show(AppLocalized("Handed over", comment: "一起听 · 递遥控器完成"))
         } label: {
-            Text("\(TogetherCopy.handoff) \(state.playback.by == "ai" ? ChatAddressing.user() : ChatAddressing.assistant())")
+            Text("\(TogetherCopy.handoff) \(state.playback.by == "ai" ? ChatAddressing.user() : ChatAddressing.assistant(sessionPersonaId: sessionPersonaId))")
                 .font(ChatFont.font(13, weight: .medium))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                 .frame(maxWidth: .infinity)
@@ -1472,7 +1464,8 @@ struct TogetherPlaylistDetail: View {
             }
             .padding(.bottom, 30)
         }
-        .background(CSSThemeVariables.bg(scope: .chat).ignoresSafeArea())
+        // 歌单库壁纸：库页、全部歌曲页、详情页同一套，装扮中心那句才不虚。
+        .togetherWallpaper(TogetherImages.wallpaperLibrary)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -1512,7 +1505,6 @@ struct TogetherPlaylistDetail: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(TogetherCover.fill(playlist?.bg))
                 .frame(width: 118, height: 118)
-                .shadow(color: TogetherSkin.shadowDeep, radius: 18, x: 0, y: 10)
 
             Text(playlist?.name ?? "")
                 .font(ChatFont.font(22, weight: .semibold))
@@ -1531,7 +1523,7 @@ struct TogetherPlaylistDetail: View {
                         .clipShape(Circle())
                         .overlay(Circle().strokeBorder(CSSThemeVariables.bg(scope: .chat), lineWidth: 2))
                 }
-                Text("\(ChatAddressing.assistant()) & \(ChatAddressing.user()) \(TogetherCopy.editedTogether)")
+                Text("\(ChatAddressing.assistant(sessionPersonaId: sessionPersonaId)) & \(ChatAddressing.user()) \(TogetherCopy.editedTogether)")
                     .font(ChatFont.font(10.5))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
             }
