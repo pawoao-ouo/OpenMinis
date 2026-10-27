@@ -23,7 +23,7 @@ import UniformTypeIdentifiers
 // 以前它还在图上盖了一层全局主题底色（wallpaperShade 0.45），
 // 结果是换主题会连带把壁纸压成别的颜色，App 里还没有开关；
 // 也没图时悄悄兜到私藏图，删掉某页的图它还从别处冒出来，看着像删不掉。
-// 现在：图上不压任何东西，没图就是主题底色。可读性交给文字自己的阴影。
+// 现在：图上不压任何东西，没图就是主题底色。可读性交给前景变量按明暗切换。
 
 struct TogetherWallpaperLayer: View {
     let slot: String
@@ -304,7 +304,6 @@ struct TogetherLibraryView: View {
                 .presentationDetents([.height(220)])
                 .presentationBackground(CSSThemeVariables.bg(scope: .chat))
         }
-        .togetherWallpaper(TogetherImages.wallpaperLibrary)
     }
 
     private var header: some View {
@@ -468,6 +467,7 @@ struct TogetherAllSongsView: View {
     static let routeID = "all-songs"
 
     @Environment(\.togetherPersonaId) private var sessionPersonaId
+    @Environment(\.togetherInSubpage) private var inSubpage
     @State private var tracks: [TogetherTrack] = []
     @State private var searchText = ""
     @State private var pendingDelete: TogetherTrack?
@@ -575,7 +575,11 @@ struct TogetherAllSongsView: View {
             }
             .padding(.bottom, 24)
         }
-        .onAppear { reload() }
+        .onAppear {
+            reload()
+            inSubpage.wrappedValue = true
+        }
+        .onDisappear { inSubpage.wrappedValue = false }
         .onReceive(ticker) { _ in reload() }
         .alert(TogetherCopy.deletePermanently, isPresented: $showDeleteConfirm, presenting: pendingDelete) { track in
             Button(AppLocalized("Delete", comment: "删除"), role: .destructive) {
@@ -585,7 +589,6 @@ struct TogetherAllSongsView: View {
         } message: { _ in
             Text(TogetherCopy.deleteTrackMessage)
         }
-        .togetherWallpaper(TogetherImages.wallpaperLibrary)
     }
 
     private func reload() {
@@ -717,7 +720,6 @@ struct TogetherLikedView: View {
         }
         .onAppear(perform: reload)
         .onReceive(ticker) { _ in reload() }
-        .togetherWallpaper(TogetherImages.wallpaperLiked)
     }
 
     private var cover: some View {
@@ -797,7 +799,6 @@ struct TogetherSyncView: View {
             let fresh = TogetherStore.shared.load()
             if fresh.revision != state.revision { state = fresh }
         }
-        .togetherWallpaper(TogetherImages.wallpaperSync)
         .photosPicker(isPresented: $showWallpaperPicker, selection: $wallpaperItem, matching: .images)
         .onChange(of: wallpaperItem) { item in
             guard let item else { return }
@@ -1238,14 +1239,6 @@ struct TogetherPlaylistEditor: View {
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
 
             ZStack(alignment: .topLeading) {
-                if desc.isEmpty {
-                    Text(TogetherCopy.descPlaceholder)
-                        .font(ChatFont.font(13.5))
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat).opacity(0.6))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                }
-
                 TextEditor(text: $desc)
                     .font(ChatFont.font(13.5))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
@@ -1254,11 +1247,23 @@ struct TogetherPlaylistEditor: View {
                     .frame(height: 110)
                     .padding(6)
                     .onChange(of: desc, perform: onDescChanged)
+
+                // 占位字画在输入框上面、且不吃点击，不再被输入区盖掉。
+                // 底下也不再垫一层灰板：那块灰就是"盖住输入区"的东西。
+                if desc.isEmpty {
+                    Text(TogetherCopy.descPlaceholder)
+                        .font(ChatFont.font(13.5))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat).opacity(0.6))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .allowsHitTesting(false)
+                }
             }
-            .background(
+            .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(CSSThemeVariables.optionBg(scope: .chat))
+                    .strokeBorder(CSSThemeVariables.divider(scope: .chat), lineWidth: 0.5)
             )
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             HStack {
                 Spacer()
@@ -1390,6 +1395,7 @@ struct TogetherPlaylistDetail: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.togetherPersonaId) private var sessionPersonaId
+    @Environment(\.togetherInSubpage) private var inSubpage
     @State private var playlist: TogetherPlaylist?
     @State private var tracks: [TogetherTrack] = []
     @State private var searchText = ""
@@ -1466,7 +1472,6 @@ struct TogetherPlaylistDetail: View {
             .padding(.bottom, 30)
         }
         // 歌单库壁纸：库页、全部歌曲页、详情页同一套，装扮中心那句才不虚。
-        .togetherWallpaper(TogetherImages.wallpaperLibrary)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -1475,7 +1480,11 @@ struct TogetherPlaylistDetail: View {
                     .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
             }
         }
-        .onAppear(perform: reload)
+        .onAppear {
+            reload()
+            inSubpage.wrappedValue = true
+        }
+        .onDisappear { inSubpage.wrappedValue = false }
         .onReceive(ticker) { _ in reload() }
         .alert(TogetherCopy.deletePermanently, isPresented: $showDeleteConfirm, presenting: pendingDelete) { track in
             Button(AppLocalized("Delete", comment: "删除"), role: .destructive) {
@@ -1503,8 +1512,8 @@ struct TogetherPlaylistDetail: View {
 
     private var header: some View {
         VStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(TogetherCover.fill(playlist?.bg))
+            // 头图跟编辑页同一套画法：有图就画图，没图才回落到主题渐变。
+            TogetherCoverView(key: playlist?.bg, corner: 22, imagePath: playlist?.image)
                 .frame(width: 118, height: 118)
 
             Text(playlist?.name ?? "")

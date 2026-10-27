@@ -32,6 +32,25 @@ import SwiftUI
 enum CSSThemeVariables {
     private static var studio: AppearanceStudio { .shared }
 
+    /// 一起听这一页的前景覆盖：壁纸深就用浅色那套变量，壁纸浅就用深色那套。
+    /// 只有一起听全屏打开时非 nil，关掉立刻回到 nil，别的页面一个像素都不受影响。
+    /// 由 TogetherRootView 按当前壁纸的明暗接上，换壁纸重算一次。
+    nonisolated(unsafe) static var togetherVariant: AppearanceVariant?
+
+    /// 一起听图标的字重与尺寸放大系数：画法统一在这一层定。
+    static let togetherIconWeight: Font.Weight = .semibold
+    static let togetherIconScale: CGFloat = 1.12
+
+    /// 有覆盖就按覆盖那套取色，没有就走原来的主题色。
+    private static func colored(_ role: AppearanceColorRole,
+                                scope: AppearanceScope) -> Color {
+        guard let variant = togetherVariant, scope == .chat else {
+            return studio.color(role, scope: scope)
+        }
+        return Color(uiColor: UIColor(hex: AppearanceStudio.snapshotHex(
+            role, scope: scope, variant: variant)))
+    }
+
     /// --color-card / var(--dudu-card)
     /// [4-1 醒醒] 背景卡接入全局 surface 角色，支持壁纸透明度
     static func card(scope: AppearanceScope = .chat) -> Color {
@@ -51,13 +70,13 @@ enum CSSThemeVariables {
     /// --color-text-main / var(--dudu-brown)
     /// [4-1 醒醒] 主文字接入全局 primaryText 角色
     static func textMain(scope: AppearanceScope = .chat) -> Color {
-        studio.color(.primaryText, scope: scope)
+        colored(.primaryText, scope: scope)
     }
 
     /// --color-text-dim / var(--dudu-text-dim)
     /// [4-1 醒醒] 次文字接入全局 secondaryText 角色
     static func textDim(scope: AppearanceScope = .chat) -> Color {
-        studio.color(.secondaryText, scope: scope)
+        colored(.secondaryText, scope: scope)
     }
 
     /// --color-divider / var(--dudu-divider)

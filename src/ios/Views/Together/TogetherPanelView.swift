@@ -52,8 +52,6 @@ struct TogetherPanelView: View {
             let s = min(1.15, max(0.85, h / 852))
 
             ZStack {
-                pageBackground
-
                 // 心动微光光环
                 if resonancePulse {
                     Circle()
@@ -79,7 +77,7 @@ struct TogetherPanelView: View {
                         // 黑胶和歌词同页：上面唱片，下面滚动歌词，不用任何切换。
                         // 歌名歌手夹在两者中间，谁都不藏。
                         VStack(spacing: 12 * s) {
-                            discSection(s: s)
+                            discSection(s: s, h: h)
 
                             titleBlock(t, s)
 
@@ -95,8 +93,8 @@ struct TogetherPanelView: View {
                                     TogetherStore.shared.seek(to: target, by: .user)
                                 }
                             )
-                            .frame(maxWidth: .infinity)
-                            .frame(height: lyricBlockHeight(h: h, s: s))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(minHeight: 26 * s)
                             .clipped()
                             .padding(.horizontal, 20)
                         }
@@ -160,14 +158,6 @@ struct TogetherPanelView: View {
     //
     // 改成 .background：只按宿主尺寸铺，不参与布局，图多大都撑不动任何子视图。
     // 标 @MainActor：压色走 TogetherSkin（@MainActor），从非隔离的 computed property 里调会编译不过。
-    // 整页唯一一张壁纸：播放页和歌词页共用它，切模式时背景一动不动。
-    // 铺法和其它页同一套（TogetherWallpaperLayer），不会再出现「这边 scaledToFill
-    // 从左上铺、那边独立一层裁到中段」的两段错位。
-    // 标 @MainActor：这层里读的是 TogetherImages（无隔离）但沿用调用方的隔离，不动它。
-    @MainActor private var pageBackground: some View {
-        TogetherWallpaperLayer(slot: TogetherImages.wallpaperNow)
-    }
-
     // MARK: - 顶栏
 
     private func topBar(_ s: CGFloat) -> some View {
@@ -233,10 +223,18 @@ struct TogetherPanelView: View {
     // MARK: - 黑胶（同页常驻，不再当切换开关）
 
     /// 黑胶和歌词同页同时出现，点唱片不再切页，所以 onTap 是空的、只留着点击判定。
-    private func discSection(s: CGFloat) -> some View {
-        ZStack {
+    /// 黑胶直径：小屏（667 / 568 那种）收着给，别把歌词和控制排挤出去。
+    private func discDiameter(h: CGFloat, s: CGFloat) -> CGFloat {
+        if h < 640 { return 136 * s }
+        if h < 720 { return 164 * s }
+        return 210 * s
+    }
+
+    private func discSection(s: CGFloat, h: CGFloat) -> some View {
+        let d = discDiameter(h: h, s: s)
+        return ZStack {
             TogetherDiscView(
-                size: 236 * s,
+                size: d,
                 spinDegrees: player.currentTime / 22.0 * 360,
                 isPlaying: player.isPlaying
             ) {}
@@ -248,7 +246,7 @@ struct TogetherPanelView: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(height: 244 * s)
+        .frame(height: d * 1.04)
     }
 
 
@@ -304,15 +302,7 @@ struct TogetherPanelView: View {
         }
         .padding(.top, 8 * s)
         .padding(.horizontal, 24)
-        // 壁纸原样亮着，标题和歌手就得自己站得住：只给文字做局部阴影，不压整页。
-    }
-
-    /// 歌词块高度：能看清当前行和前后几行，又不把进度条和控制排顶出屏幕。
-    /// 屏大给得多，屏小收着给，永远留出底部控制区的位置。
-    private func lyricBlockHeight(h: CGFloat, s: CGFloat) -> CGFloat {
-        let reserved = (44 + 120 + 244 + 96 + 30 + 140) * s   // 顶栏/头像/黑胶/歌名/小图标排/控制区
-        let spare = max(0, h - reserved - 40)
-        return max(84, min(150 * s, spare))
+        // 壁纸原样亮着，标题和歌手靠深浅两套前景变量站住；阴影已经全部删掉。
     }
 
     // MARK: - 底部控制套件（沉底布局）
@@ -325,7 +315,7 @@ struct TogetherPanelView: View {
             // 2. 核心播放控制排（播放模式、上一首、播放/暂停、下一首、播放队列）
             mainControlsRow(s: s)
         }
-        // 控制区整块给一圈局部阴影：不压整页，按键和时间在杂图上也看得清。
+        // 控制区不加任何阴影：按键和时间的可读性由前景变量负责。
     }
 
     /// 喜欢 / 回声 / 刻字：收成一排小图标，夹在歌词块和进度条中间。
@@ -341,7 +331,7 @@ struct TogetherPanelView: View {
                 state = TogetherStore.shared.load()
             } label: {
                 Image(systemName: liked ? "heart.fill" : "heart")
-                    .font(ChatFont.font(16 * s))
+                    .togetherIcon(16 * s)
                     .foregroundStyle(liked ? Color.red : CSSThemeVariables.textDim(scope: .chat))
                     .frame(width: 30 * s, height: 26 * s)
                     .contentShape(Rectangle())
@@ -354,7 +344,7 @@ struct TogetherPanelView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "bubble.left.and.bubble.right")
-                        .font(ChatFont.font(15 * s))
+                        .togetherIcon(15 * s)
                     if noteCount > 0 {
                         Text("\(noteCount)")
                             .font(ChatFont.font(9, weight: .bold))
@@ -371,8 +361,7 @@ struct TogetherPanelView: View {
                 activeSheet = .note
             } label: {
                 Image(systemName: "square.and.pencil")
-                    .font(ChatFont.font(15 * s))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                    .togetherIcon(15 * s)
                     .frame(width: 30 * s, height: 26 * s)
                     .contentShape(Rectangle())
             }
@@ -442,8 +431,9 @@ struct TogetherPanelView: View {
                 togglePlayMode()
             } label: {
                 Image(systemName: playModeIcon)
-                    .font(ChatFont.font(19 * s))
-                    .foregroundStyle(isModeActive ? CSSThemeVariables.accent(scope: .chat) : CSSThemeVariables.textDim(scope: .chat))
+                    .togetherIcon(19 * s)
+                    .foregroundStyle(isModeActive ? CSSThemeVariables.accent(scope: .chat)
+                                                  : CSSThemeVariables.textDim(scope: .chat))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
@@ -453,9 +443,8 @@ struct TogetherPanelView: View {
                 player.previousTrack()
                 state = TogetherStore.shared.load()
             } label: {
-                Image(systemName: "backward.fill")
-                    .font(ChatFont.font(23 * s, weight: .medium))
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                Image(systemName: "backward")
+                    .togetherIcon(22 * s, dim: false)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
@@ -480,9 +469,8 @@ struct TogetherPanelView: View {
                 player.nextTrack()
                 state = TogetherStore.shared.load()
             } label: {
-                Image(systemName: "forward.fill")
-                    .font(ChatFont.font(23 * s, weight: .medium))
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                Image(systemName: "forward")
+                    .togetherIcon(22 * s, dim: false)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
@@ -492,8 +480,7 @@ struct TogetherPanelView: View {
                 activeSheet = .queue
             } label: {
                 Image(systemName: "list.bullet")
-                    .font(ChatFont.font(19 * s))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                    .togetherIcon(19 * s)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
@@ -699,34 +686,39 @@ struct TogetherInlineLyricsView: View {
     }
 
     /// 歌词块：不再铺满整页、不再靠点击切回黑胶。
-    /// 高度由调用方给定，块内自己跟随滚动，当前行居中加粗，点一行跳过去。
+    /// 高度由外层给（跟随剩余空间），块内只显示整数行：
+    /// 行高固定、显示区高度取行高的整数倍，所以上下边缘永远不出现半截字。
     var body: some View {
         GeometryReader { geo in
-            let half = max(46, geo.size.height / 2)
+            let rowH = max(20, 26 * (geo.size.height > 240 ? 1.0 : 0.86))
+            let rows = max(1, Int(geo.size.height / rowH))
+            let visible = CGFloat(rows) * rowH
 
             if let lines = timedLines, !lines.isEmpty {
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(spacing: 18) {
-                            // 上下留白正好半个块高：第一句、最后一句也能停在正中
-                            Color.clear.frame(height: max(10, half - 26))
-
+                        LazyVStack(spacing: 0) {
                             ForEach(Array(lines.enumerated()), id: \.offset) { idx, line in
                                 lyricLine(line, isCurrent: idx == currentIndex)
+                                    .frame(height: rowH)
                                     .id(idx)
                             }
-
-                            Color.clear.frame(height: max(10, half - 26))
                         }
-                        .padding(.horizontal, 20)
+                        .scrollTargetLayout()
+                        // 首尾各留半屏，第一句和最后一句也能停在正中
+                        .padding(.vertical, (visible - rowH) / 2)
                     }
+                    .frame(height: visible)
+                    // 松手就对齐到整行：静止时边缘不会是半行
+                    .scrollTargetBehavior(.viewAligned)
                     .onAppear { center(proxy, animated: false) }
                     .onChange(of: currentIndex) { _ in center(proxy, animated: true) }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
             } else {
-                // 没歌词：给一句能读的提示，不再占整页
+                // 没歌词：一句能读的提示，不再占整页
                 VStack(spacing: 8) {
-                    Spacer(minLength: 0)
                     Text(loopLine ?? TogetherCopy.noLyrics)
                         .font(ChatFont.font(15, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
@@ -734,9 +726,8 @@ struct TogetherInlineLyricsView: View {
                     Text(TogetherCopy.noLyricsHint)
                         .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -752,8 +743,9 @@ struct TogetherInlineLyricsView: View {
             )
             // 不压整页、不加阴影：靠字号和字重拉开当前行，颜色只用主题本色。
             .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .frame(maxWidth: .infinity)
-            .scaleEffect(isCurrent ? 1.03 : 1.0)
             .animation(.easeOut(duration: 0.26), value: isCurrent)
             .contentShape(Rectangle())
             .onTapGesture { onSeek(line.at) }

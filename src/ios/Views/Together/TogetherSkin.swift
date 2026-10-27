@@ -13,6 +13,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 // MARK: - 皮肤
 
@@ -172,4 +173,50 @@ enum TogetherCopy {
     static var likedWallpaper: String { AppLocalized("Liked Songs Wallpaper", comment: "一起听 · 喜欢页壁纸") }
     static var queueTitle: String { AppLocalized("Playing Queue", comment: "一起听 · 播放队列") }
     static var historyEchoes: String { AppLocalized("Echo Wall", comment: "一起听 · 历史回声墙") }
+}
+
+// MARK: - 一起听：壁纸明暗 → 前景变量
+
+/// 壁纸是深是浅，决定这一页用哪套前景变量。
+/// 深壁纸配浅色那套，浅壁纸配深色那套；没图按浅底算（跟主题底色一致）。
+@MainActor
+enum TogetherTone {
+
+    /// 把图缩到 1×1 读平均亮度。0 全黑，1 全白。
+    static func brightness(of image: UIImage) -> Double {
+        guard let cg = image.cgImage else { return 1 }
+        var pixel = [UInt8](repeating: 255, count: 4)
+        let space = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: &pixel, width: 1, height: 1,
+                                  bitsPerComponent: 8, bytesPerRow: 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return 1
+        }
+        ctx.interpolationQuality = .medium
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let r = Double(pixel[0]) / 255
+        let g = Double(pixel[1]) / 255
+        let b = Double(pixel[2]) / 255
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    /// 当前槽位的壁纸该配哪套前景。图不在就当浅底。
+    static func variant(for slot: String) -> AppearanceVariant {
+        guard let url = TogetherImages.url(for: slot),
+              let img = TogetherImages.cachedImage(for: url) else { return .light }
+        return brightness(of: img) < 0.5 ? .dark : .light
+    }
+}
+
+extension View {
+    /// 一起听图标：实心变体 + 变量层定的字重、尺寸、前景色。
+    /// 图标自己不许再写死 font 和 foregroundStyle。
+    func togetherIcon(_ base: CGFloat, dim: Bool = true) -> some View {
+        self
+            .symbolVariant(.fill)
+            .font(ChatFont.font(base * CSSThemeVariables.togetherIconScale,
+                                weight: CSSThemeVariables.togetherIconWeight))
+            .foregroundStyle(dim ? CSSThemeVariables.textDim(scope: .chat)
+                                 : CSSThemeVariables.textMain(scope: .chat))
+    }
 }

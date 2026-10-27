@@ -47,6 +47,8 @@ struct TogetherRootView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var tab: TogetherTab = .now
     @State private var showPlaylistEditor: TogetherPlaylist?
+    /// 当前 tab 是不是进了子页（歌单详情这类）。进了就藏关闭键，只留返回。
+    @State private var inSubpage = false
 
     /// 从哪个会话打开，就带哪个会话绑的人设；nil = 全局。
     var togetherPersonaId: String?
@@ -55,10 +57,12 @@ struct TogetherRootView: View {
         ZStack(alignment: .bottom) {
             CSSThemeVariables.bg(scope: .chat).ignoresSafeArea()
 
-            // 全屏壁纸铺在最底下，连标签栏后面一起铺。
-            // 页面自己那层壁纸照旧，这一层只补底部和边角，避免标签栏后面露出纯色。
+            // 全屏壁纸只有这一层。各页自己不再各画一层——
+            // 每层按自己那页的高度单独裁一遍，裁法不一样，页面底边就会接出一条缝。
             TogetherWallpaperLayer(slot: wallpaperSlot)
                 .allowsHitTesting(false)
+                // 壁纸换了、切了 tab，都重算一次深浅，前景色跟着换。
+                .id(wallpaperSlot)
 
             Group {
                 switch tab {
@@ -76,7 +80,13 @@ struct TogetherRootView: View {
 
             tabBar
         }
-        .overlay(alignment: .topLeading) { closeButton }
+        .overlay(alignment: .topLeading) {
+            // 一个角只留一个键：进了子页只留系统返回，顶层才留关闭一起听。
+            if !inSubpage {
+                closeButton
+                    .transition(.opacity)
+            }
+        }
         .sheet(item: $showPlaylistEditor) { playlist in
             TogetherPlaylistEditor(playlist: playlist)
                 .presentationDetents([.large])
@@ -85,12 +95,29 @@ struct TogetherRootView: View {
         }
         // 会话人设一路传给四个 tab 里的头像和名字。
         .environment(\.togetherPersonaId, togetherPersonaId)
+        .environment(\.togetherInSubpage, $inSubpage)
         .onAppear {
+            syncForegroundTone()
             // 歌词页和播放页合成一张壁纸后的一次性搬迁：
             // 老数据只在 lyrics-cover 里、now 还空着 → 复制过去，存过的图不丢。
             // 幂等：now 已有图或两边都没有时什么都不做。
             TogetherStore.shared.mergeLyricsCoverIntoNow()
         }
+        .onChange(of: tab) { _ in
+            syncForegroundTone()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: TogetherImages.didSetNotification)) { _ in
+            syncForegroundTone()
+        }
+        .onDisappear {
+            // 关掉一起听立刻还原，聊天页和别的地方一个像素都不受影响。
+            CSSThemeVariables.togetherVariant = nil
+        }
+    }
+
+    /// 读当前壁纸的明暗，接到一起听这一页的前景变量上。
+    private func syncForegroundTone() {
+        CSSThemeVariables.togetherVariant = TogetherTone.variant(for: wallpaperSlot)
     }
 
     /// 当前 tab 该铺哪张壁纸。和页面各自读的槽一致，谁都不另起一套。
@@ -155,5 +182,20 @@ struct TogetherRootView: View {
         )
         .padding(.horizontal, 18)
         .padding(.bottom, 6)
+    }
+}
+// MARK: - 子页标记
+//
+// 一个角只留一个键：子页里要系统返回，就不要那个关一起听的下箭头。
+// 子页自己 onAppear/onDisappear 拨这个开关，根视图只读它。
+
+struct TogetherSubpageKey: EnvironmentKey {
+    static let defaultValue: Binding<Bool> = .constant(false)
+}
+
+extension EnvironmentValues {
+    var togetherInSubpage: Binding<Bool> {
+        get { self[TogetherSubpageKey.self] }
+        set { self[TogetherSubpageKey.self] = newValue }
     }
 }
