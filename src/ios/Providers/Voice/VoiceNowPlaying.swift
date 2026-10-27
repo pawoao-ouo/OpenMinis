@@ -186,7 +186,15 @@ final class VoiceNowPlaying {
 
     private func handleSeek(to time: TimeInterval) {
         if TogetherPlayer.shared.isActive {
-            TogetherPlayer.shared.seek(to: time)
+            let player = TogetherPlayer.shared
+            // 两头都夹住：锁屏给的时间也可能越界，越界的位置写进共享状态就错了。
+            let duration = player.duration
+            let clamped = duration > 0 ? min(max(0, time), duration) : max(0, time)
+            player.seek(to: clamped)
+            // 锁屏拖进度也要写进共享状态：只动本机不写盘，
+            // 锁屏和面板的两条进度就各说各的，AI 那边还会把旧位置推回来。
+            // 拖进度不抢遥控器：seek 不改 by，只记"谁最后动过"。
+            TogetherStore.shared.seek(to: clamped, by: TogetherStore.shared.load().playback.by == "ai" ? .ai : .user)
             refresh()
             return
         }
