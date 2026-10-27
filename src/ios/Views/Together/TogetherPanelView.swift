@@ -17,6 +17,7 @@ import PhotosUI
 struct TogetherPanelView: View {
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.togetherPersonaId) private var sessionPersonaId
     @ObservedObject private var player = TogetherPlayer.shared
 
     @State private var state = TogetherStore.shared.load()
@@ -45,7 +46,7 @@ struct TogetherPanelView: View {
 
     private let ticker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
     private var track: TogetherTrack? { state.track ?? player.track }
-    private var aiName: String { ChatAddressing.assistant() }
+    private var aiName: String { ChatAddressing.assistant(sessionPersonaId: sessionPersonaId) }
     private var userName: String { ChatAddressing.user() }
     private var effectivePosition: Double {
         isDragging ? optimisticPosition : player.currentTime
@@ -148,24 +149,12 @@ struct TogetherPanelView: View {
     //
     // 改成 .background：只按宿主尺寸铺，不参与布局，图多大都撑不动任何子视图。
     // 标 @MainActor：压色走 TogetherSkin（@MainActor），从非隔离的 computed property 里调会编译不过。
+    // 整页唯一一张壁纸：播放页和歌词页共用它，切模式时背景一动不动。
+    // 铺法和其它页同一套（TogetherWallpaperLayer），不会再出现「这边 scaledToFill
+    // 从左上铺、那边独立一层裁到中段」的两段错位。
+    // 标 @MainActor：这层里读的是 TogetherImages（无隔离）但沿用调用方的隔离，不动它。
     @MainActor private var pageBackground: some View {
-        ZStack {
-            CSSThemeVariables.bg(scope: .chat)
-            // 用缓存版:滚动时每帧重新解码整张图会掉帧,缓存也保证换图后立刻生效。
-            if let url = TogetherImages.url(for: TogetherImages.wallpaperNow),
-               let img = TogetherImages.cachedImage(for: url) {
-                Color.clear
-                    .overlay(
-                        Image(uiImage: img)
-                            .resizable()
-                            .scaledToFill()
-                    )
-                    // 先裁掉溢出的那部分，再压暗。顺序反了的话压暗层会被裁掉。
-                    .clipped()
-                    .overlay(CSSThemeVariables.bg(scope: .chat).opacity(TogetherWallpaperTone.opacity(for: TogetherImages.wallpaperNow)))
-            }
-        }
-        .ignoresSafeArea()
+        TogetherWallpaperLayer(slot: TogetherImages.wallpaperNow)
     }
 
     // MARK: - 顶栏
@@ -223,7 +212,7 @@ struct TogetherPanelView: View {
         HStack(spacing: -5) {
             PersonaAvatarView(iconRef: TogetherIdentity.userIcon, size: 18)
                 .clipShape(Circle())
-            PersonaAvatarView(iconRef: TogetherIdentity.aiIcon, size: 18)
+            PersonaAvatarView(iconRef: TogetherIdentity.aiIcon(sessionPersonaId: sessionPersonaId), size: 18)
                 .clipShape(Circle())
         }
         .padding(2)
@@ -290,7 +279,7 @@ struct TogetherPanelView: View {
     private func duoHeader(_ s: CGFloat) -> some View {
         VStack(spacing: 9 * s) {
             HStack(spacing: -14 * s) {
-                avatar(TogetherIdentity.aiIcon, size: 104 * s, ring: 3 * s)
+                avatar(TogetherIdentity.aiIcon(sessionPersonaId: sessionPersonaId), size: 104 * s, ring: 3 * s)
                     .zIndex(1)
                 avatar(TogetherIdentity.userIcon, size: 104 * s, ring: 3 * s)
             }
@@ -339,6 +328,7 @@ struct TogetherPanelView: View {
                 Text(line)
                     .font(ChatFont.font(13, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat).opacity(0.85))
+                    .togetherWallText()
                     .lineLimit(1)
                     .id(line)
                     .transition(.asymmetric(
@@ -377,6 +367,8 @@ struct TogetherPanelView: View {
         }
         .padding(.top, 8 * s)
         .padding(.horizontal, 24)
+        // 壁纸原样亮着，标题和歌手就得自己站得住：只给文字做局部阴影，不压整页。
+        .togetherWallText(strong: true)
     }
 
     private var currentLyricText: String? {
@@ -414,6 +406,8 @@ struct TogetherPanelView: View {
             // 3. 核心播放控制排（播放模式、上一首、播放/暂停、下一首、播放队列）
             mainControlsRow(s: s)
         }
+        // 控制区整块给一圈局部阴影：不压整页，按键和时间在杂图上也看得清。
+        .togetherWallText()
     }
 
     private func actionRow(_ t: TogetherTrack, s: CGFloat) -> some View {
@@ -834,7 +828,10 @@ struct TogetherInlineLyricsView: View {
                 .onTapGesture { onToggleDisc() }
             }
         }
-        .togetherWallpaper(TogetherImages.lyricsCover)
+        // 歌词区不自己铺图了。以前它单独铺 lyrics-cover，和播放页那张各自 scaledToFill、
+        // 裁的位置不一样，看着就是「上面米色、中间一条雪景、下面还是米色」两段错位。
+        // 现在它透明，吃播放页那张全屏壁纸：黑胶和歌词来回切，背景一动不动。
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func lyricLine(_ line: TogetherLyricLine, isCurrent: Bool) -> some View {
@@ -843,8 +840,12 @@ struct TogetherInlineLyricsView: View {
             .foregroundStyle(
                 isCurrent
                     ? CSSThemeVariables.textMain(scope: .chat)
-                    : CSSThemeVariables.textDim(scope: .chat).opacity(0.45)
+                    : CSSThemeVariables.textDim(scope: .chat)
             )
+            // 非当前行以前是 textDim 再乘 0.45，杂图上几乎看不见。
+            // 现在不改颜色深浅、不压整页，只给文字自己一圈局部阴影：
+            // 亮图暗图都读得清，当前行阴影更重、字更大更粗，区分照样在。
+            .togetherWallText(strong: isCurrent)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .scaleEffect(isCurrent ? 1.04 : 0.96)
@@ -1191,6 +1192,7 @@ struct TogetherEchoDrawerView: View {
 struct TogetherQueueDrawerView: View {
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.togetherPersonaId) private var sessionPersonaId
     @ObservedObject private var player = TogetherPlayer.shared
 
     @State private var tracks: [TogetherTrack] = []
@@ -1297,18 +1299,19 @@ private struct TogetherQueueRow: View {
 struct TogetherThemeCenterView: View {
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.togetherPersonaId) private var sessionPersonaId
 
     @State private var state = TogetherStore.shared.load()
     @State private var activeSlot: String?
     @State private var pickerItem: PhotosPickerItem?
     @State private var showPicker = false
 
-    private var aiName: String { ChatAddressing.assistant() }
+    private var aiName: String { ChatAddressing.assistant(sessionPersonaId: sessionPersonaId) }
     private var userName: String { ChatAddressing.user() }
 
     private let slots: [(id: String, title: String, subtitle: String)] = [
-        (TogetherImages.wallpaperNow, TogetherCopy.nowPlayingWallpaper, AppLocalized("Full-screen mood wallpaper on the player", comment: "一起听 · 播放页壁纸说明")),
-        (TogetherImages.lyricsCover, TogetherCopy.lyricsWallpaper, AppLocalized("Background and cover for the lyrics page", comment: "一起听 · 歌词页壁纸说明")),
+        // 歌词页不再单独一张卡：播放页这张就是全屏唯一壁纸，歌词页共用它。
+        (TogetherImages.wallpaperNow, TogetherCopy.nowPlayingWallpaper, AppLocalized("One full-screen wallpaper for the player and the lyrics", comment: "一起听 · 播放页壁纸说明")),
         (TogetherImages.wallpaperLibrary, TogetherCopy.libraryWallpaper, AppLocalized("Wallpaper behind your playlist lists", comment: "一起听 · 歌单库壁纸说明")),
         (TogetherImages.wallpaperSync, TogetherCopy.syncWallpaper, AppLocalized("Background for the together page", comment: "一起听 · 伴听页壁纸说明")),
         (TogetherImages.wallpaperLiked, TogetherCopy.likedWallpaper, AppLocalized("Wallpaper behind liked songs", comment: "一起听 · 喜欢页壁纸说明")),
@@ -1375,7 +1378,7 @@ struct TogetherThemeCenterView: View {
                 Text(String(format: AppLocalized("%@ & %@'s music nook", comment: "一起听 · 装扮中心横幅标题"), userName, aiName))
                     .font(ChatFont.font(14, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                Text(String(format: AppLocalized("Tap a cover to change it, or let %@ pick one for you", comment: "一起听 · 装扮中心横幅说明"), aiName))
+                Text(AppLocalized("Tap a picture to change it", comment: "一起听 · 装扮中心横幅说明"))
                     .font(ChatFont.font(11))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
             }
@@ -1393,24 +1396,32 @@ struct TogetherThemeCenterView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topTrailing) {
-                if let url = TogetherImages.url(for: slot.id),
-                   let img = TogetherImages.cachedImage(for: url) {
-                    Image(uiImage: img)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(height: 120)
-                        .frame(maxWidth: .infinity)
-                        .clipped()
-                } else {
-                    TogetherCover.fill(slot.id)
-                        .frame(height: 120)
-                        .frame(maxWidth: .infinity)
-                        .overlay(
-                            Image(systemName: "photo.on.rectangle")
-                                .font(ChatFont.font(26))
-                                .foregroundStyle(CSSThemeVariables.card(scope: .chat).opacity(0.8))
-                        )
+                // 图片区本身就是按钮：点预览图、点空占位，和下面那颗按钮完全等价。
+                // 以前只有按钮能用，横幅却写着"点封面直接换"，文案和实际不符。
+                Button {
+                    activeSlot = slot.id
+                    showPicker = true
+                } label: {
+                    if let url = TogetherImages.url(for: slot.id),
+                       let img = TogetherImages.cachedImage(for: url) {
+                        Image(uiImage: img)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(height: 120)
+                            .frame(maxWidth: .infinity)
+                            .clipped()
+                    } else {
+                        TogetherCover.fill(slot.id)
+                            .frame(height: 120)
+                            .frame(maxWidth: .infinity)
+                            .overlay(
+                                Image(systemName: "photo.on.rectangle")
+                                    .font(ChatFont.font(26))
+                                    .foregroundStyle(CSSThemeVariables.card(scope: .chat).opacity(0.8))
+                            )
+                    }
                 }
+                .buttonStyle(.plain)
 
                 if hasCustom {
                     Button {

@@ -736,6 +736,12 @@ extension TogetherStore {
 
 enum TogetherImages {
 
+    /// 换壁纸 / 删壁纸之后发一下。铺壁纸的页面收到就当场重画，
+    /// 不等 2 秒轮询、不用切 tab、不用杀进程重进。
+    static let didSetNotification = Notification.Name("together.images.didSet")
+
+    // 播放页和歌词页合成一张之后，这个槽不再被任何页面读取。
+    // 文件先留着不删（可能是她存了很久的图）；老数据搬迁见 mergeLyricsCoverIntoNow()。
     static let lyricsCover = "lyrics-cover"
     static let wallpaperNow = "wallpaper-now"
     static let wallpaperLibrary = "wallpaper-library"
@@ -806,6 +812,7 @@ extension TogetherStore {
         let rel = "together/images/\(dest.lastPathComponent)"
         TogetherImages.invalidate(slot)
         mutate(by: .user, event: "image") { $0.images[slot] = rel }
+        NotificationCenter.default.post(name: Self.didSetNotification, object: slot)
         return rel
     }
 
@@ -815,6 +822,8 @@ extension TogetherStore {
             try? fm.removeItem(at: TogetherImages.directory.appendingPathComponent("\(slot).\(ext)"))
         }
         mutate(by: .user, event: "image") { $0.images.removeValue(forKey: slot) }
+        TogetherImages.invalidate(slot)
+        NotificationCenter.default.post(name: Self.didSetNotification, object: slot)
     }
 
     /// 相对 shared 根的图片路径 → URL。文件不在就当没有。
@@ -906,6 +915,20 @@ extension TogetherStore {
         // 不然停在一首没文件的歌上，看着像还在放。
         if wasCurrent {
             Task { @MainActor in TogetherPlayer.shared.stop() }
+        }
+    }
+
+    /// 播放页和歌词页合成一张全屏壁纸后的一次性搬迁。
+    /// wallpaper-now 空着、lyrics-cover 有图：把那张复制一份过去，她存过的图不丢。
+    /// wallpaper-now 已经有图就以它为准；lyrics-cover 原文件留着不删，只是以后没人再读它。
+    /// 不在 TogetherStore.init 里做——那时 shared 还没建好，setImage 会重进同一把锁。
+    func mergeLyricsCoverIntoNow() {
+        guard TogetherImages.url(for: TogetherImages.wallpaperNow) == nil else { return }
+        guard let old = TogetherImages.url(for: TogetherImages.lyricsCover) else { return }
+        if TogetherImages.setImage(slot: TogetherImages.wallpaperNow, from: old) != nil {
+            togetherLogger.info("[Together] 歌词页背景已迁成播放页壁纸")
+        } else {
+            togetherLogger.error("[Together] 歌词页背景迁移失败，播放页仍无壁纸")
         }
     }
 

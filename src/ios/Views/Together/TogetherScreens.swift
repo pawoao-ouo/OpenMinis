@@ -18,24 +18,18 @@ import UniformTypeIdentifiers
 // MARK: - 共用：页面壁纸
 //
 // 主题中心每个壁纸槽位都得有页面真的去读，否则"换完没反应"。
-// 这里统一一层：主题底色 + 选中的图（压暗到和播放页一致），
-// 用 .background 挂上去，不参与布局，不改内容尺寸。
-
-/// 壁纸压色。以前 0.82 写死在两处，两处还不一样（播放页一处、这个文件一处）。
-/// 现在收成一个口子：`together/skin.json` 里的 `wallpaperShade`，0 = 原图直出，越大越暗。
-@MainActor
-enum TogetherWallpaperTone {
-    /// 浅色照片上直接压白字看不清，所以默认留一点（0.45，见 TogetherSkinValues）。
-    /// 要"换上去什么样就是什么样"，把 skin.json 里的 wallpaperShade 调成 0。
-    static func opacity(for slot: String) -> Double {
-        _ = slot   // 预留:以后可以按槽位给不同压色
-        let v = TogetherSkin.wallpaperShade
-        return min(0.9, max(0, v))
-    }
-}
+// 这一层只干一件事：把那张图原样铺满整页，挂在内容底下，不参与布局。
+//
+// 以前它还在图上盖了一层全局主题底色（wallpaperShade 0.45），
+// 结果是换主题会连带把壁纸压成别的颜色，App 里还没有开关；
+// 也没图时悄悄兜到私藏图，删掉某页的图它还从别处冒出来，看着像删不掉。
+// 现在：图上不压任何东西，没图就是主题底色。可读性交给文字自己的阴影。
 
 struct TogetherWallpaperLayer: View {
     let slot: String
+
+    /// 壁纸一变更就自增，逼这一层重读一遍文件。
+    @State private var redrawToken = 0
 
     var body: some View {
         // GeometryReader 只吃父给的尺寸、绝不反过来撑大父视图——这是这层不参与布局的关键。
@@ -43,27 +37,37 @@ struct TogetherWallpaperLayer: View {
         // 塞进 body 的 ZStack 当兄弟就会把内容往右下挤（换壁纸后整页错位就是这个）。
         GeometryReader { geo in
             ZStack {
-                CSSThemeVariables.bg(scope: .chat)
-                // 私藏壁纸是兜底:某一页没单独挑图时,用这张。以前它只写不读,等于死槽。
-                if let url = TogetherImages.url(for: slot) ?? TogetherImages.url(for: TogetherImages.wallpaperSweet),
+                // 没图时露主题底色；有图就把图原样铺满，图上不压任何全局底色。
+                if let url = TogetherImages.url(for: slot),
                    let img = TogetherImages.cachedImage(for: url) {
                     Image(uiImage: img)
                         .resizable()
                         .scaledToFill()
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
-                    CSSThemeVariables.bg(scope: .chat)
-                        .opacity(TogetherWallpaperTone.opacity(for: slot))
                 }
             }
         }
         .ignoresSafeArea()
+        // 换图 / 删图当场重画，不等页面的 2 秒轮询、不等切 tab。
+        // 用 slot 当 id：值一变就强制这一层重建，读到的一定是新文件。
+        .id(redrawToken)
+        .onReceive(NotificationCenter.default.publisher(for: TogetherImages.didSetNotification)) { note in
+            guard let changed = note.object as? String, changed == slot || changed.isEmpty else { return }
+            redrawToken += 1
+        }
     }
 }
 
 extension View {
     func togetherWallpaper(_ slot: String) -> some View {
         background(TogetherWallpaperLayer(slot: slot))
+    }
+
+    /// 壁纸上的字要在杂图里读得清，但不许靠整页压暗来凑。
+    /// 只在文字身上做局部处理：一圈细描边 + 一道近距阴影，背景原样透出来。
+    func togetherWallText(strong: Bool = false) -> some View {
+        shadow(color: .black.opacity(strong ? 0.60 : 0.42), radius: strong ? 4 : 3, x: 0, y: 1)
     }
 }
 
@@ -182,6 +186,7 @@ struct TogetherTrackRow: View {
 struct TogetherLibraryView: View {
 
     @Binding var editing: TogetherPlaylist?
+    @Environment(\.togetherPersonaId) private var sessionPersonaId
 
     @State private var playlists: [TogetherPlaylist] = []
     @State private var showNew = false
@@ -311,7 +316,7 @@ struct TogetherLibraryView: View {
     private var header: some View {
         VStack(spacing: 8) {
             HStack(spacing: -10) {
-                PersonaAvatarView(iconRef: TogetherIdentity.aiIcon, size: 84)
+                PersonaAvatarView(iconRef: TogetherIdentity.aiIcon(sessionPersonaId: sessionPersonaId), size: 84)
                     .frame(width: 84, height: 84)
                     .clipShape(Circle())
                     .overlay(Circle().strokeBorder(CSSThemeVariables.bg(scope: .chat), lineWidth: 2.5))
@@ -619,6 +624,7 @@ struct TogetherLikedView: View {
 
     @State private var liked: [TogetherTrack] = []
     @State private var state = TogetherState()
+    @Environment(\.togetherPersonaId) private var sessionPersonaId
     private let ticker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -639,7 +645,7 @@ struct TogetherLikedView: View {
                             .clipShape(Circle())
                             .overlay(Circle().strokeBorder(CSSThemeVariables.bg(scope: .chat), lineWidth: 2))
                             .zIndex(1)
-                        PersonaAvatarView(iconRef: TogetherIdentity.aiIcon, size: 30)
+                        PersonaAvatarView(iconRef: TogetherIdentity.aiIcon(sessionPersonaId: sessionPersonaId), size: 30)
                             .frame(width: 30, height: 30)
                             .clipShape(Circle())
                             .overlay(Circle().strokeBorder(CSSThemeVariables.bg(scope: .chat), lineWidth: 2))
@@ -746,7 +752,13 @@ struct TogetherSyncView: View {
 
     @State private var state = TogetherState()
     @State private var pulse = false
+    @Environment(\.togetherPersonaId) private var sessionPersonaId
     private let ticker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    /// 伴听页自己的换壁纸入口：不绕装扮中心，当场换当场见效。
+    @State private var showWallpaperPicker = false
+    @State private var wallpaperItem: PhotosPickerItem?
+    @State private var wallpaperError: String?
 
     var body: some View {
         ScrollView {
@@ -759,6 +771,9 @@ struct TogetherSyncView: View {
                     .tracking(0.6)
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
                     .padding(.top, 22)
+
+                wallpaperBar
+                    .padding(.top, 12)
 
                 currentCard
                     .padding(.horizontal, 22)
@@ -789,6 +804,44 @@ struct TogetherSyncView: View {
             if fresh.revision != state.revision { state = fresh }
         }
         .togetherWallpaper(TogetherImages.wallpaperSync)
+        .photosPicker(isPresented: $showWallpaperPicker, selection: $wallpaperItem, matching: .images)
+        .onChange(of: wallpaperItem) { item in
+            guard let item else { return }
+            wallpaperItem = nil
+            Task {
+                let ok = await TogetherPhotoImport.toSlot(item, slot: TogetherImages.wallpaperSync)
+                wallpaperError = ok ? nil : TogetherPhotoImport.reason
+            }
+        }
+    }
+
+    /// 换壁纸按钮 + 失败原因。失败不说"换个图试试"，直接讲卡在哪一步。
+    private var wallpaperBar: some View {
+        VStack(spacing: 6) {
+            Button {
+                wallpaperError = nil
+                showWallpaperPicker = true
+            } label: {
+                Label(AppLocalized("Change wallpaper", comment: "一起听 · 伴听页换壁纸"),
+                      systemImage: "photo.on.rectangle.angled")
+                    .font(ChatFont.font(12, weight: .medium))
+                    .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(
+                        Capsule().fill(CSSThemeVariables.card(scope: .chat).opacity(0.75))
+                    )
+            }
+            .buttonStyle(.plain)
+
+            if let wallpaperError {
+                Text(wallpaperError)
+                    .font(ChatFont.font(9.5))
+                    .foregroundStyle(CSSThemeVariables.danger(scope: .chat))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 30)
+            }
+        }
     }
 
     private var duo: some View {
@@ -808,7 +861,7 @@ struct TogetherSyncView: View {
     private func side(_ role: TogetherActor, name: String, size: CGFloat) -> some View {
         VStack(spacing: 9) {
             PersonaAvatarView(
-                iconRef: role == .ai ? TogetherIdentity.aiIcon : TogetherIdentity.userIcon,
+                iconRef: role == .ai ? TogetherIdentity.aiIcon(sessionPersonaId: sessionPersonaId) : TogetherIdentity.userIcon,
                 size: size
             )
             .frame(width: size, height: size)
@@ -945,7 +998,7 @@ struct TogetherSyncView: View {
 
     private func aiLine(_ note: TogetherNote) -> some View {
         HStack(alignment: .top, spacing: 9) {
-            PersonaAvatarView(iconRef: TogetherIdentity.aiIcon, size: 26)
+            PersonaAvatarView(iconRef: TogetherIdentity.aiIcon(sessionPersonaId: sessionPersonaId), size: 26)
                 .frame(width: 26, height: 26)
                 .clipShape(Circle())
 
@@ -1343,6 +1396,7 @@ struct TogetherPlaylistDetail: View {
     let playlistId: String
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.togetherPersonaId) private var sessionPersonaId
     @State private var playlist: TogetherPlaylist?
     @State private var tracks: [TogetherTrack] = []
     @State private var searchText = ""
@@ -1467,7 +1521,7 @@ struct TogetherPlaylistDetail: View {
 
             HStack(spacing: 7) {
                 HStack(spacing: -8) {
-                    PersonaAvatarView(iconRef: TogetherIdentity.aiIcon, size: 30)
+                    PersonaAvatarView(iconRef: TogetherIdentity.aiIcon(sessionPersonaId: sessionPersonaId), size: 30)
                         .frame(width: 30, height: 30)
                         .clipShape(Circle())
                         .overlay(Circle().strokeBorder(CSSThemeVariables.bg(scope: .chat), lineWidth: 2))
@@ -1693,25 +1747,41 @@ enum TogetherPhotoImport {
         try? await item.loadTransferable(type: Data.self)
     }
 
-    /// 落一张图到槽位。成功/失败都给一句反馈——以前全程静默，
-    /// 用户看不到到底成没成，体感就是"换图失败"。
+    /// 落一张图到壁纸槽。失败要说清卡在哪一步，不能只甩一句通用失败。
+    /// reason 留给调用方在当页再补一句，比如伴听页。
     @discardableResult
     static func toSlot(_ item: PhotosPickerItem, slot: String) async -> Bool {
+        reason = nil
         guard let bytes = await data(item) else {
-            MinisToast.show(TogetherCopy.importFailed, systemImage: "exclamationmark.circle")
-            return false
+            return fail(AppLocalized("Couldn't read that picture from Photos",
+                                     comment: "一起听 · 换壁纸失败 · 相册没给回数据"))
         }
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("together-\(slot)-\(UUID().uuidString).jpg")
         defer { try? FileManager.default.removeItem(at: tmp) }
         do {
             try bytes.write(to: tmp)
-            if TogetherStore.shared.setImage(slot: slot, from: tmp) != nil {
-                MinisToast.show(AppLocalized("Cover updated", comment: "一起听 · 换图成功"), systemImage: "checkmark.circle")
-                return true
-            }
-        } catch {}
-        MinisToast.show(TogetherCopy.importFailed, systemImage: "exclamationmark.circle")
+        } catch {
+            // 临时目录写不进：基本是沙盒权限或磁盘空间。
+            return fail(AppLocalized("Couldn't prepare the picture",
+                                     comment: "一起听 · 换壁纸失败 · 临时文件写不进") + ": " + error.localizedDescription)
+        }
+        guard TogetherStore.shared.setImage(slot: slot, from: tmp) != nil else {
+            // 存不进 together/images：目录不可写，或图片记录没落盘。
+            return fail(AppLocalized("Couldn't save the wallpaper",
+                                     comment: "一起听 · 换壁纸失败 · 存不进图片目录"))
+        }
+        MinisToast.show(AppLocalized("Wallpaper updated", comment: "一起听 · 壁纸更新成功提示"),
+                        systemImage: "checkmark.circle")
+        return true
+    }
+
+    /// 上一次换壁纸失败的具体原因。
+    private(set) static var reason: String?
+
+    private static func fail(_ text: String) -> Bool {
+        reason = text
+        MinisToast.show(text, systemImage: "exclamationmark.circle")
         return false
     }
 

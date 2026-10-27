@@ -48,6 +48,9 @@ struct TogetherRootView: View {
     @State private var tab: TogetherTab = .now
     @State private var showPlaylistEditor: TogetherPlaylist?
 
+    /// 从哪个会话打开，就带哪个会话绑的人设；nil = 全局。
+    var togetherPersonaId: String?
+
     var body: some View {
         ZStack(alignment: .bottom) {
             CSSThemeVariables.bg(scope: .chat).ignoresSafeArea()
@@ -74,6 +77,14 @@ struct TogetherRootView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(CSSThemeVariables.bg(scope: .chat))
+        }
+        // 会话人设一路传给四个 tab 里的头像和名字。
+        .environment(\.togetherPersonaId, togetherPersonaId)
+        .onAppear {
+            // 歌词页和播放页合成一张壁纸后的一次性搬迁：
+            // 老数据只在 lyrics-cover 里、now 还空着 → 复制过去，存过的图不丢。
+            // 幂等：now 已有图或两边都没有时什么都不做。
+            TogetherStore.shared.mergeLyricsCoverIntoNow()
         }
     }
 
@@ -116,11 +127,16 @@ struct TogetherRootView: View {
                 .buttonStyle(.plain)
             }
         }
+        // 半透之后字坐在壁纸上，给一圈局部阴影保住可读性。
+        .togetherWallText()
         .padding(.top, 10)
         .padding(.bottom, 6)
         .background(
             Rectangle()
-                .fill(CSSThemeVariables.card(scope: .chat).opacity(0.94))
+                // 之前 0.94 几乎是一块实色板，壁纸铺到这儿被硬切掉。
+                // 现在半透，壁纸从标签栏后面透出来。不加模糊：SwiftUI 的 material
+                // 不是只糊这一块，会把整页背景都糊上，比透出色板更难看。
+                .fill(CSSThemeVariables.card(scope: .chat).opacity(0.55))
                 .overlay(alignment: .top) {
                     Rectangle()
                         .fill(CSSThemeVariables.divider(scope: .chat))

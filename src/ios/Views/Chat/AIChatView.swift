@@ -1221,7 +1221,8 @@ struct AIChatView: View {
             }
         }
         .fullScreenCover(isPresented: $showTogether) {
-            TogetherRootView()
+            // 会话人设跟进来：回答的人的名字和头像按这个会话绑定的人设走。
+            TogetherRootView(togetherPersonaId: vm.sessionPersonaId)
         }
 
         .fullScreenCover(isPresented: $showTerminal) {

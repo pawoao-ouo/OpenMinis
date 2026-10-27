@@ -87,15 +87,30 @@ enum TogetherSkin {
 // 头像引用只在这里取一次。AI 走通讯录当前人设（SOUL.icon 只是镜像），
 // 用户走「我自己」档案。别的地方不许再各写一套取法。
 
+// 会话人设注入：AIChatView 打开一起听时把当前会话绑的人设带进来，
+// 没带（或别处直接摞 TogetherRootView）就回落全局当前人设，行为不变。
+private struct TogetherPersonaIDKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    var togetherPersonaId: String? {
+        get { self[TogetherPersonaIDKey.self] }
+        set { self[TogetherPersonaIDKey.self] = newValue }
+    }
+}
+
 @MainActor
 enum TogetherIdentity {
-    static var aiIcon: String? {
-        let id = SoulStore.displayPersonaId(nil)
+    /// 回答的人的头像：会话人设优先（avatar → SOUL icon），
+    /// 只有会话和全局都没定才落到全局缓存图标。绝不写死。
+    static func aiIcon(sessionPersonaId: String? = nil) -> String? {
+        let id = SoulStore.displayPersonaId(sessionPersonaId)
         if let p = PersonaStore.shared.personas.first(where: { $0.id == id }),
            let a = p.avatar, !a.isEmpty {
             return a
         }
-        return SoulStore.cachedMetadata.icon
+        return SoulStore.displayIcon(for: id) ?? SoulStore.cachedMetadata.icon
     }
 
     static var userIcon: String? {
