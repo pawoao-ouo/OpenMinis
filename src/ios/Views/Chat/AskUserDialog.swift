@@ -35,6 +35,12 @@ enum CSSThemeVariables {
     /// 一起听这一页的前景覆盖：壁纸深就用浅色那套变量，壁纸浅就用深色那套。
     /// 只有一起听全屏打开时非 nil，关掉立刻回到 nil，别的页面一个像素都不受影响。
     /// 由 TogetherRootView 按当前壁纸的明暗接上，换壁纸重算一次。
+    /// nonisolated(unsafe) 是留着的坑，不是随手写的：CSSThemeVariables 不是
+    /// @MainActor（全 App 的取色都走它，改隔离会牵一发动全身，这里没有
+    /// 编译器可验，不敢动）。全仓库只有两处碰它——RootView 写、colored() 读，
+    /// 约定只在主线程写；读到的是单个 Optional 值，最坏新旧二选一，不会崩。
+    /// 但这不是"安全"：以后谁要在这里放更复杂的状态、或从后台线程写，
+    /// 必须先把隔离改掉，不能直接往上加。
     nonisolated(unsafe) static var togetherVariant: AppearanceVariant?
 
     /// 一起听图标的字重与尺寸放大系数：画法统一在这一层定。

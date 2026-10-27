@@ -182,6 +182,7 @@ struct TogetherLibraryView: View {
     @Binding var editing: TogetherPlaylist?
     @Environment(\.togetherPersonaId) private var sessionPersonaId
     @ObservedObject private var hub = TogetherStateHub.shared
+    @ObservedObject private var player = TogetherPlayer.shared
 
     @State private var showNew = false
     @State private var newName = ""
@@ -434,9 +435,18 @@ struct TogetherLibraryView: View {
                 TogetherCoverView(key: playlist.bg, corner: 19, imagePath: playlist.image)
                     .aspectRatio(1, contentMode: .fit)
                     .overlay(alignment: .topTrailing) {
-                        if playlist.tracks.contains(TogetherPlayer.shared.track?.id ?? "") {
-                            playingBars
-                                .padding(10)
+                        // 卡片角标说的是"这首歌正在这张单子里响"：停着就画
+                        // 暂停符，不许拿跳动的音条装作还在放。
+                        if playlist.tracks.contains(player.track?.id ?? "") {
+                            if player.isPlaying {
+                                playingBars
+                                    .padding(10)
+                            } else {
+                                Image(systemName: "pause.fill")
+                                    .font(ChatFont.font(10, weight: .semibold))
+                                    .foregroundStyle(CSSThemeVariables.card(scope: .chat).opacity(0.9))
+                                    .padding(10)
+                            }
                         }
                     }
 
@@ -781,6 +791,14 @@ struct TogetherLikedView: View {
                     .togetherPress()
                     .disabled(liked.isEmpty)
 
+                    // 按钮为什么点不了，原因就写在按钮边上，不扔到 40pt 开外。
+                    if liked.isEmpty {
+                        Text(TogetherCopy.likedEmpty)
+                            .font(ChatFont.font(12))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                            .lineLimit(1)
+                    }
+
                     Spacer()
                 }
                 .padding(.horizontal, 22)
@@ -817,13 +835,6 @@ struct TogetherLikedView: View {
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 14)
-
-                if liked.isEmpty {
-                    Text(TogetherCopy.likedEmpty)
-                        .font(ChatFont.font(12.5))
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                        .padding(.top, 40)
-                }
             }
             .padding(.bottom, 24)
         }
@@ -2072,6 +2083,11 @@ struct TogetherAddSongsSheet: View {
     }
     private var all: [TogetherTrack] { hub.library.tracks }
 
+    /// 已经在歌单里的歌：行尾画对勾、点不了，免得重复加了还没动静。
+    private var playlistTracks: Set<String> {
+        Set(hub.state.playlists.first { $0.id == playlistId }?.tracks ?? [])
+    }
+
     var body: some View {
         if !playlistAlive {
             VStack(spacing: 12) {
@@ -2117,14 +2133,15 @@ struct TogetherAddSongsSheet: View {
                                         .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
                                 }
                                 Spacer()
-                                Image(systemName: "plus.circle")
+                                Image(systemName: playlistTracks.contains(track.id) ? "checkmark.circle.fill" : "plus.circle")
                                     .font(ChatFont.font(16))
-                                    .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+                                    .foregroundStyle(playlistTracks.contains(track.id) ? CSSThemeVariables.textDim(scope: .chat) : CSSThemeVariables.accent(scope: .chat))
                             }
                             .padding(.horizontal, 22)
                             .padding(.vertical, 9)
                         }
                         .togetherPress()
+                        .disabled(playlistTracks.contains(track.id))
                     }
                 }
             }

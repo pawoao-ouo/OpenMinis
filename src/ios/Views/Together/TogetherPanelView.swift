@@ -25,6 +25,8 @@ struct TogetherPanelView: View {
     @State private var lyrics: TogetherLyrics?
     @State private var optimisticPosition: Double = 0
     @State private var isDragging = false
+    /// 拖动开始时是哪首歌：拖着拖着换了歌，松手那一下不许落到新歌头上。
+    @State private var dragTrackId: String?
     /// state.json 里那首歌的文件不见了（restore 装不上）：面板说实话，不摆死控件。
     @State private var restoreFailed = false
 
@@ -134,6 +136,10 @@ struct TogetherPanelView: View {
             echoQueue.removeAll()
             echoGen += 1
             echoLastPosition = player.currentTime
+            // 换歌了：拖到一半的进度条作废，不给新歌留一个旧位置。
+            dragTrackId = nil
+            isDragging = false
+            optimisticPosition = 0
         }
         .onChange(of: player.currentTime) { pos in
             checkEcho(at: pos)
@@ -479,6 +485,8 @@ struct TogetherPanelView: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
+                            // 拖动开始时钉住歌的身份：中途换歌，松手也不提交。
+                            if dragTrackId == nil { dragTrackId = player.track?.id }
                             isDragging = true
                             let r = min(1, max(0, value.location.x / max(width, 1)))
                             optimisticPosition = Double(r) * duration
@@ -486,7 +494,13 @@ struct TogetherPanelView: View {
                         .onEnded { value in
                             let r = min(1, max(0, value.location.x / max(width, 1)))
                             let target = Double(r) * duration
-                            commitSeek(to: target)
+                            // 还是拖动开始时那首歌才提交：播完切歌、AI 推歌
+                            // 换了歌，这一拖就作废，不许落到新歌头上。
+                            // dragTrackId 没钉上（没经过 onChanged）也不提交。
+                            if dragTrackId != nil, dragTrackId == player.track?.id {
+                                commitSeek(to: target)
+                            }
+                            dragTrackId = nil
                             isDragging = false
                         }
                 )
@@ -1868,7 +1882,9 @@ struct TogetherThemeCenterView: View {
                         Image(systemName: "xmark.circle.fill")
                             .font(ChatFont.font(18))
                             .foregroundStyle(CSSThemeVariables.danger(scope: .chat))
-                            .background(Circle().fill(Color.white))
+                            // 叉号底下的实心圆：让红色在照片上读得出来，
+                            // 用主题底色，不许硬写白——深色主题里白盘子会跳出来。
+                            .background(Circle().fill(CSSThemeVariables.bg(scope: .chat)))
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
