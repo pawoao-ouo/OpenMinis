@@ -42,14 +42,14 @@ struct TogetherMiniBar: View {
                 TogetherHaptics.tap()
                 player.userToggle()
             } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
                     .font(ChatFont.font(15, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .togetherPress()
-            .accessibilityLabel(player.isPlaying ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
+            .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
 
             Button {
                 TogetherHaptics.select()

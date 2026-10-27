@@ -533,7 +533,7 @@ struct TogetherPanelView: View {
                 player.userToggle()
                 hub.refreshNow()
             } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
                     .font(ChatFont.font(26 * s, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
                     .frame(width: 62 * s, height: 62 * s)
@@ -543,7 +543,7 @@ struct TogetherPanelView: View {
             .togetherPress()
             .frame(minWidth: 44, minHeight: 44)
             .frame(maxWidth: .infinity)
-            .accessibilityLabel(player.isPlaying ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
+            .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
 
             // 下一首
             Button {

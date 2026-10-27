@@ -49,6 +49,12 @@ final class TogetherPlayer: ObservableObject {
     private var duckDepth = 0
     /// 这轮压音开始前是不是在放。结束时只有它为真才敢恢复。
     private var duckedWasPlaying = false
+    /// 正在被语音压住、且压音前在放：界面上的播放键这时不许画成"播放"，
+    /// 她按下去是"保持安静"而不是恢复。供面板 / 微控条 / 同步页刷新图标。
+    @Published private(set) var isVoiceDucked = false
+    /// 控制键该画成"暂停"还是"播放"：真在放、或者正被语音压住（压音前在放），
+    /// 都画暂停——按下去是停 / 保持安静，不会盖过语音去。
+    var showsPauseControl: Bool { isPlaying || isVoiceDucked }
     /// 压音期间她亲手按了暂停：说完也不许自己响。
     private var userPausedDuringDuck = false
     /// 来电/耳机打断时是不是在放：打断结束只有它为真才敢恢复。
@@ -190,6 +196,9 @@ final class TogetherPlayer: ObservableObject {
     /// 只要播放器活着就落盘：文件里记着"AI 在放"时她按播放，是她接过了遥控器，
     /// by 也得跟着回来，不能只看文件是不是已经写着 playing。
     func userPlay() {
+        // 压音期间、且压音前在放：她按"播放"是让它保持安静，绝不盖过语音。
+        // 以前这里直接 play()，音乐盖过语音、TTS 结束时还在响，她的暂停意图就丢了。
+        if duckDepth > 0, duckedWasPlaying { recordSilenceDuringDuck(); return }
         markUserIntent()
         userHeldPause = false          // 她自己恢复了，AI 可以再说话
         userPausedDuringDuck = false
@@ -199,9 +208,28 @@ final class TogetherPlayer: ObservableObject {
         }
     }
 
+    /// 压音展示态：只有"压音前在放"才算被语音压住；压音前本来就停着，
+    /// 播放键照常画"播放"，按下去是她真的想恢复，不走保持安静那条路。
+    private func syncVoiceDucked() {
+        isVoiceDucked = duckDepth > 0 && duckedWasPlaying
+    }
+
+    /// 压音期间记下"她要安静"：内存 latch + 落盘 latch 一起写，TTS 结束的    /// 恢复条件（userPausedDuringDuck / userHeldPause / 文件 playing）三道全关上，
+    /// 说完必须保持停住；绝不调用 play()。面板、锁屏、耳机都走 userToggle /
+    /// userPlay / userPause，所以三处入口都被这一道拦住。
+    private func recordSilenceDuringDuck() {
+        markUserIntent()
+        userPausedDuringDuck = true
+        userHeldPause = true
+        store.setPlaying(false, by: .user, heldPause: true)
+    }
+
     /// 用户亲手按的暂停（锁屏 pause / 耳机暂停键）。没在放就不写，免得平白把 by 改成 user。
     /// 攥住的暂停落盘：冷启动、语音压音、来电打断都得先过它这一关。
     func userPause() {
+        // 压音期间 isPlaying 已经是 false，guard 会把她的暂停直接吞掉，
+        // 于是 userPausedDuringDuck 永远记不上——这条分支必须先于 guard。
+        if duckDepth > 0, duckedWasPlaying { recordSilenceDuringDuck(); return }
         guard isPlaying else { return }
         markUserIntent()
         userHeldPause = true           // 她亲手停的，AI 推歌一律压住
@@ -654,6 +682,7 @@ final class TogetherPlayer: ObservableObject {
                 guard self.duckDepth == 1 else { return }
                 self.duckedWasPlaying = self.isPlaying
                 self.userPausedDuringDuck = false
+                self.syncVoiceDucked()
                 if self.isPlaying { self.pause() }
             }
         })
@@ -671,6 +700,7 @@ final class TogetherPlayer: ObservableObject {
                     && self.store.load().playback.playing
                 self.duckedWasPlaying = false
                 self.userPausedDuringDuck = false
+                self.syncVoiceDucked()
                 if shouldResume { self.play() }
             }
         })

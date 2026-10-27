@@ -1018,7 +1018,7 @@ struct TogetherSyncView: View {
                 player.userToggle()
                 hub.refreshNow()
             } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
                     .font(ChatFont.font(14, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
                     .frame(width: 44, height: 44)
@@ -1027,7 +1027,7 @@ struct TogetherSyncView: View {
                     .contentShape(Rectangle())
             }
             .togetherPress()
-            .accessibilityLabel(player.isPlaying ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
+            .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
         }
         .padding(12)
         .background(
