@@ -552,6 +552,11 @@ final class TogetherPlayer: ObservableObject {
 
     /// Hub 推来的新状态：先落定递交，再逐条回放事件，最后收敛"当前这首"。
     private func followState(_ state: TogetherState) {
+        // 遥控器在谁手里，就听谁的：先取快照里的 by；下面落定成功时
+        // 再按新控制权改——回放不拿旧控制权判新命令。声明必须在落定块
+        // 之前，落定成功那句赋值（controller = pending.to）才找得到它。
+        var controller = state.playback.by
+
         // 递交落定：递给他的等 10 秒，他有时间从 shell 那边接手，
         // 超时 App 替他落定。递给她的绝不自动接手——她没按"接过遥控器"，
         // 遥控器就还在原来那个人手里；她不理，超时这笔递交作废。
@@ -573,10 +578,6 @@ final class TogetherPlayer: ObservableObject {
         } else {
             cancelHandoffWatchdog()
         }
-
-        // 遥控器在谁手里，就听谁的。先取快照里的 by，上面落定成功时
-        // 已经按新控制权改过——回放不拿旧控制权判新命令。
-        var controller = state.playback.by
 
         // 冷启动时先认盘上的状态：上一轮是"她亲手按的暂停"，这轮继续压着 AI。
         if userHeldPause == nil {
