@@ -5,7 +5,12 @@
 //  一起听 · 状态读写。
 //
 //  只有一份文件：<root>/state.json。面板、App、我（shell）写的是同一份。
-//  所有写操作走同一把文件锁 + 原子替换，revision 单调递增。
+//  写盘协议（App 侧）：state.json 和 index.json 共用 <root>/.lock 的
+//  flock(LOCK_EX)；锁内读 → 改 → 写前 revision/字节比对 → 原子替换；
+//  revision 单调递增。比对失败重算、3 次撞上放弃，绝不静默覆盖。
+//  shell 侧（不在这个仓库里）是否守同一把锁、写盘是否 bump revision，
+//  无法验证：不守规矩的写者只能靠比对发现，revision 不动的内容改动
+//  发现不了——这是已知残余风险，不是已修复。
 //
 //  路径只有一套，和内置音乐目录共用：
 //    音乐    /var/minis/shared/music     ← apple-player 播的就是这里
@@ -128,11 +133,21 @@ final class TogetherStore {
     /// index.json 只当元数据缓存（标题/歌手/时长/歌词），目录里新出现的自动补进来。
     func library() -> TogetherLibrary {
         queue.sync {
-            var lib = loadLibraryLocked()
-            if reconcileLibraryLocked(&lib) {
-                _ = saveLibraryLocked(lib)
+            guard let fd = acquireFileLock() else {
+                togetherLogger.error("[Together] 拿不到文件锁，曲库只读不写")
+                return loadLibraryLocked()
             }
-            return lib
+            defer { flock(fd, LOCK_UN); close(fd) }
+            for _ in 0..<2 {
+                let before = Self.fileBytes(at: libraryURL)
+                var lib = loadLibraryLocked()
+                if reconcileLibraryLocked(&lib) {
+                    guard Self.fileBytes(at: libraryURL) == before else { continue }
+                    _ = saveLibraryLocked(lib)
+                }
+                return lib
+            }
+            return loadLibraryLocked()
         }
     }
 
@@ -170,7 +185,13 @@ final class TogetherStore {
 
     @discardableResult
     func saveLibrary(_ library: TogetherLibrary) -> Bool {
-        queue.sync { saveLibraryLocked(library) }
+        queue.sync {
+            // 直接整库写回：没有"读 → 改"可重算，比对无从做起，只能靠锁。
+            // 调用方应优先走 mutateLibrary；这个入口只留给整库替换。
+            guard let fd = acquireFileLock() else { return false }
+            defer { flock(fd, LOCK_UN); close(fd) }
+            return saveLibraryLocked(library)
+        }
     }
 
     /// 在锁内「读库 → 改 → 写回」一次做完。
@@ -179,16 +200,33 @@ final class TogetherStore {
     @discardableResult
     func mutateLibrary(_ body: (inout TogetherLibrary) -> Void) -> Bool {
         queue.sync {
-            var lib = loadLibraryLocked()
-            body(&lib)
-            return saveLibraryLocked(lib)
+            guard let fd = acquireFileLock() else { return false }
+            defer { flock(fd, LOCK_UN); close(fd) }
+            for _ in 0..<3 {
+                let before = Self.fileBytes(at: libraryURL)
+                var lib = loadLibraryLocked()
+                body(&lib)
+                guard Self.fileBytes(at: libraryURL) == before else {
+                    togetherLogger.info("[Together] 写 index 之前库被别人改过，重算一遍")
+                    continue
+                }
+                return saveLibraryLocked(lib)
+            }
+            togetherLogger.error("[Together] index.json 写盘重试 3 次仍撞上别人，放弃这次写")
+            return false
         }
     }
 
+    /// 调用方必须已持有文件锁（见 acquireFileLock），且在同一串行队列里。
     @discardableResult
     private func saveLibraryLocked(_ library: TogetherLibrary) -> Bool {
         try? FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-        return Self.encode(library, to: libraryURL)
+        // 按 id 去重：写前比对失败重算 body 时，追加类 body 会跑两遍，
+        // 同一条歌不能在库里出现两次。保留第一次出现的顺序和内容。
+        var seen: Set<String> = []
+        var deduped = library
+        deduped.tracks = library.tracks.filter { seen.insert($0.id).inserted }
+        return Self.encode(deduped, to: libraryURL)
     }
 
     private func loadLibraryLocked() -> TogetherLibrary {
@@ -276,11 +314,18 @@ final class TogetherStore {
     func updateDuration(trackId: String, duration: Double) {
         guard duration.isFinite, duration > 0 else { return }
         queue.sync {
-            var lib = loadLibraryLocked()
-            guard let i = lib.tracks.firstIndex(where: { $0.id == trackId }) else { return }
-            if abs(lib.tracks[i].duration - duration) < 0.5 { return }
-            lib.tracks[i].duration = (duration * 100).rounded() / 100
-            _ = saveLibraryLocked(lib)
+            guard let fd = acquireFileLock() else { return }
+            defer { flock(fd, LOCK_UN); close(fd) }
+            for _ in 0..<3 {
+                let before = Self.fileBytes(at: libraryURL)
+                var lib = loadLibraryLocked()
+                guard let i = lib.tracks.firstIndex(where: { $0.id == trackId }) else { return }
+                if abs(lib.tracks[i].duration - duration) < 0.5 { return }
+                lib.tracks[i].duration = (duration * 100).rounded() / 100
+                guard Self.fileBytes(at: libraryURL) == before else { continue }
+                _ = saveLibraryLocked(lib)
+                return
+            }
         }
     }
 
@@ -329,68 +374,96 @@ final class TogetherStore {
     /// 和 `mutate` 同一把锁，但闭包可以拒写：返回 false 就一个字都不落盘。
     /// 「判完就得立刻占住」的规矩（比如一轮一句的刻字名额）必须判在这里——
     /// 判在锁外面，两个同时进来会都通过。
+    /// 写前比对（CAS）：body 算完、落盘之前再读一次 revision。拿锁的写者
+    /// 不可能插进来；不拿锁的写者一旦插进来 revision 必然变了——重算 body，
+    /// 而不是盖掉它的字段。3 次都撞上就放弃这次写（返回 nil），绝不静默覆盖。
+    /// body 会被重算：所有 body 必须是纯状态改动（已核过调用方），不能带文件 I/O。
+    /// 协议要求写盘方必须 bump revision：revision 不动却改了内容的写，这里
+    /// 发现不了——shell 侧不在仓库里，无法验证，残余风险，见文件头。
     @discardableResult
     func mutateOrReject(by actor: TogetherActor,
                         event: String,
                         detail: TogetherEventDetail? = nil,
                         _ body: (inout TogetherState) -> Bool) -> TogetherState? {
         queue.sync {
-            let fd = openLockFile()
-            guard fd >= 0 else {
-                togetherLogger.error("[Together] 打不开锁文件")
-                return nil
-            }
-            defer { close(fd) }
-            guard flock(fd, LOCK_EX) == 0 else {
-                togetherLogger.error("[Together] 拿不到锁")
-                return nil
-            }
-            defer { flock(fd, LOCK_UN) }
+            guard let fd = acquireFileLock() else { return nil }
+            defer { flock(fd, LOCK_UN); close(fd) }
 
-            var state = loadLocked()
-            let before = state.revision
-            guard body(&state) else {
-                togetherLogger.info("[Together] \(event) 被拒：写盘前再判没通过")
-                return nil
-            }
-
-            state.revision = max(before + 1, state.revision + 1)
-            state.updatedAt = Self.now()
-
-            if !event.isEmpty {
-                state.events.append(TogetherEvent(
-                    id: "e_\(Self.now())_\(state.revision)",
-                    type: event,
-                    by: actor.rawValue,
-                    ts: Self.now(),
-                    detail: detail
-                ))
-                if state.events.count > TogetherStore.eventCap {
-                    state.events = Array(state.events.suffix(TogetherStore.eventCap))
+            for _ in 0..<3 {
+                var state = loadLocked()
+                let before = state.revision
+                guard body(&state) else {
+                    togetherLogger.info("[Together] \(event) 被拒：写盘前再判没通过")
+                    return nil
                 }
-            }
-            if state.notes.count > TogetherStore.noteCap {
-                state.notes = Array(state.notes.suffix(TogetherStore.noteCap))
-            }
-            if state.me.history.count > TogetherStore.historyCap {
-                state.me.history = Array(state.me.history.suffix(TogetherStore.historyCap))
-            }
-            if state.loopLines.count > TogetherStore.loopLineCap {
-                let keep = state.loopLines.keys.sorted().suffix(TogetherStore.loopLineCap)
-                state.loopLines = Dictionary(uniqueKeysWithValues: keep.map { ($0, state.loopLines[$0]!) })
-            }
+                guard loadLocked().revision == before else {
+                    togetherLogger.info("[Together] 写盘前 revision 变了，重算一遍")
+                    continue
+                }
 
-            guard writeLocked(state) else { return nil }
-            // 一次有意义的写：让 Hub 立刻重读，不等轮询。进度回写不走这里，
-            // 所以播歌时不会每 3 秒把所有视图都叫醒。
-            NotificationCenter.default.post(name: .togetherStateDidChange, object: nil)
-            return state
+                state.revision = max(before + 1, state.revision + 1)
+                state.updatedAt = Self.now()
+
+                if !event.isEmpty {
+                    state.events.append(TogetherEvent(
+                        id: "e_\(Self.now())_\(state.revision)",
+                        type: event,
+                        by: actor.rawValue,
+                        ts: Self.now(),
+                        detail: detail
+                    ))
+                    if state.events.count > TogetherStore.eventCap {
+                        state.events = Array(state.events.suffix(TogetherStore.eventCap))
+                    }
+                }
+                if state.notes.count > TogetherStore.noteCap {
+                    state.notes = Array(state.notes.suffix(TogetherStore.noteCap))
+                }
+                if state.me.history.count > TogetherStore.historyCap {
+                    state.me.history = Array(state.me.history.suffix(TogetherStore.historyCap))
+                }
+                if state.loopLines.count > TogetherStore.loopLineCap {
+                    let keep = state.loopLines.keys.sorted().suffix(TogetherStore.loopLineCap)
+                    state.loopLines = Dictionary(uniqueKeysWithValues: keep.map { ($0, state.loopLines[$0]!) })
+                }
+
+                guard writeLocked(state) else { return nil }
+                // 一次有意义的写：让 Hub 立刻重读，不等轮询。进度回写不走这里，
+                // 所以播歌时不会每 3 秒把所有视图都叫醒。
+                NotificationCenter.default.post(name: .togetherStateDidChange, object: nil)
+                return state
+            }
+            togetherLogger.error("[Together] state.json 写盘重试 3 次仍撞上别人，放弃这次写")
+            return nil
         }
     }
 
     private func openLockFile() -> Int32 {
         let path = rootURL.appendingPathComponent(".lock").path
         return open(path, O_CREAT | O_RDWR, 0o644)
+    }
+
+    /// 拿住 state.json / index.json 共用的那把文件锁。
+    /// 两份文件共用一把锁：写 state 的同时另一头写 index 也会被挡住，
+    /// 两份文件之间不会互相踩。返回 fd，调用方负责 flock(LOCK_UN) + close。
+    /// 锁只防守规矩的写者；不拿锁的写者靠写前比对发现（见 mutateOrReject）。
+    private func acquireFileLock() -> Int32? {
+        let fd = openLockFile()
+        guard fd >= 0 else {
+            togetherLogger.error("[Together] 打不开锁文件")
+            return nil
+        }
+        guard flock(fd, LOCK_EX) == 0 else {
+            togetherLogger.error("[Together] 拿不到锁")
+            close(fd)
+            return nil
+        }
+        return fd
+    }
+
+    /// index.json 写盘前的原始字节：写之前比对，另一头不拿锁改了库就重算。
+    private static func fileBytes(at url: URL) -> Data? {
+        try? Data(contentsOf: url)
     }
 
     @discardableResult
@@ -523,18 +596,23 @@ extension TogetherStore {
     /// 只写 position / updatedAt，不碰 playback.by，不动 revision、不发通知：
     /// 遥控器在谁手里是"谁点了遥控"决定的，不是"谁的进度在跑"；
     /// 进度只是播放器自己的事，没必要把所有视图叫醒重读。
+    /// 写前比对 revision：另一头改了文件就把进度重贴到新状态上再写，
+    /// 绝不拿旧状态整份盖回去；3 次都撞上就丢掉这一笔（下一笔还会来）。
     func reportProgress(position: Double) {
         queue.sync {
-            let fd = openLockFile()
-            guard fd >= 0, flock(fd, LOCK_EX) == 0 else {
-                if fd >= 0 { close(fd) }
+            guard let fd = acquireFileLock() else { return }
+            defer { flock(fd, LOCK_UN); close(fd) }
+            for _ in 0..<3 {
+                let state = loadLocked()
+                let before = state.revision
+                var updated = state
+                updated.playback.position = position
+                updated.playback.updatedAt = TogetherStore.now()
+                guard loadLocked().revision == before else { continue }
+                _ = writeLocked(updated)
                 return
             }
-            defer { flock(fd, LOCK_UN); close(fd) }
-            var state = loadLocked()
-            state.playback.position = position
-            state.playback.updatedAt = TogetherStore.now()
-            _ = writeLocked(state)
+            togetherLogger.info("[Together] 进度回写撞上别人的写，丢掉这一笔")
         }
     }
 
@@ -1090,9 +1168,16 @@ extension TogetherStore {
 
         // 强行刷一遍 library 触发 reconcile
         queue.sync {
-            var currentLib = loadLibraryLocked()
-            currentLib.tracks.removeAll { $0.id == trackId }
-            _ = saveLibraryLocked(currentLib)
+            guard let fd = acquireFileLock() else { return }
+            defer { flock(fd, LOCK_UN); close(fd) }
+            for _ in 0..<3 {
+                let before = Self.fileBytes(at: libraryURL)
+                var currentLib = loadLibraryLocked()
+                currentLib.tracks.removeAll { $0.id == trackId }
+                guard Self.fileBytes(at: libraryURL) == before else { continue }
+                _ = saveLibraryLocked(currentLib)
+                return
+            }
         }
 
         // 级联清理所有 state 引用
