@@ -579,7 +579,8 @@ final class TogetherPlayer: ObservableObject {
 
         if let last = state.events.last, last.id != seenEventId {
             // AI 连着推几条（换歌、拖动、暂停）时，只吃最后一条会把
-            // 中间那次拖动吞掉。从上次吃到的那条往后按顺序逐条应用，游标最后才挪。
+            // 中间那次拖动吞掉。从上次吃到的那条往后按顺序逐条应用，
+            // 游标每条都挪——被护栏压住的先上报再挪，绝不先挪后判。
             let pending: [TogetherEvent]
             if let i = state.events.firstIndex(where: { $0.id == seenEventId }) {
                 pending = Array(state.events[(i + 1)...])
@@ -593,29 +594,54 @@ final class TogetherPlayer: ObservableObject {
             let userBusyUntil = lastUserIntentAt + TogetherPlayer.aiQuietSeconds
 
             for ev in pending {
-                seenEventId = ev.id
+                // 游标每条都挪——但被护栏压住的要先上报再挪：
+                // 绝不能在护栏前面就把 id 记掉（以前这里先记 id 再判，
+                // 被压住的命令就静默消失了，AI 那边永远不知道）。
                 // 递遥控器本身就是一条事件：谁接手本机就归谁，不单独触发播停。
                 // 递过来的人当场拿到控制权，那一条之后的命令按新控制权判。
                 // 但递交已经在 pending 里走流程时，旧的 handoff 事件不许再翻一次盘。
                 if ev.type == "handoff" {
+                    seenEventId = ev.id
                     if state.pendingHandoff == nil,
                        let next = ev.detail?.text, !next.isEmpty {
                         controller = next
                     }
                     continue
                 }
+                // 上报过的压住记录：只挪游标，不执行、不再上报。
+                if ev.type == "suppressed" {
+                    seenEventId = ev.id
+                    continue
+                }
                 // 遥控器递在 AI 手上才吃 AI 的命令；by 只是第一道门，
                 // 真正决定"这一下算不算数"的是下面三个时间戳护栏。
-                guard controller == "ai", ev.by == "ai" else { continue }
+                // 不是 AI 的命令（她自己的、旧控制权下的）不归这里管，
+                // 游标照挪，不上报。
+                guard controller == "ai", ev.by == "ai" else {
+                    seenEventId = ev.id
+                    continue
+                }
 
-                // 三个护栏，全部按时间戳判，不靠 by 一个人说了算：
-                // 1) 比用户最后一次手动动作还旧的命令，压住；
-                // 2) 用户暂停期间到的命令，压住，等她恢复再说；
-                // 3) 用户刚动过手的两秒内，AI 不许把歌顶回去。
-                if ev.ts < lastUserIntentAt { continue }
-                if userHeldPause == true, ev.type != "pause" { continue }
-                if ev.ts < userBusyUntil { continue }
+                // 三个护栏，全部按时间戳判，不靠 by 一个人说了算。
+                // 压住的先记游标、再上报：上报写盘会触发新一轮回放，
+                // 游标没先挪，那条命令会在下一轮里被重复上报。
+                if ev.ts < lastUserIntentAt {
+                    seenEventId = ev.id
+                    store.reportSuppressed(original: ev, reason: "stale")
+                    continue
+                }
+                if userHeldPause == true, ev.type != "pause" {
+                    seenEventId = ev.id
+                    store.reportSuppressed(original: ev, reason: "held-pause")
+                    continue
+                }
+                if ev.ts < userBusyUntil {
+                    seenEventId = ev.id
+                    store.reportSuppressed(original: ev, reason: "quiet-window")
+                    continue
+                }
 
+                seenEventId = ev.id
                 applyRemote(ev, state: state)
             }
         }

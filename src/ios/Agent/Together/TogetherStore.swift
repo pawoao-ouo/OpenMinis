@@ -631,6 +631,21 @@ extension TogetherStore {
         }
     }
 
+    /// 被压住的 AI 动作要上报、不能静默吃掉：记一条 type == "suppressed" 的事件，
+    /// 带着原来那条的类型、原因、目标和时间戳，shell 那边能读到"这一下被压住了"。
+    /// 上报事件本身在回放里只挪游标（见 followState），不会再被上报一次。
+    func reportSuppressed(original: TogetherEvent, reason: String) {
+        mutate(by: .ai, event: "suppressed",
+               detail: TogetherEventDetail(
+                trackId: original.detail?.trackId,
+                position: original.detail?.position,
+                count: original.ts,
+                text: original.type,
+                suppressedType: original.type,
+                suppressedReason: reason
+               )) { _ in }
+    }
+
     /// 遥控器递交：只记一个 pending，不动 playback.by。
     /// 旧持有人继续说了算，直到对方接手或超时落定。
     @discardableResult

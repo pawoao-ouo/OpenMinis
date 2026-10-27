@@ -289,14 +289,21 @@ struct TogetherEventDetail: Codable, Equatable {
     var count: Int?
     var path: String?
     var text: String?
+    /// 被压住的 AI 动作（只在 type == "suppressed" 的事件上）：原来那条事件的 type。
+    var suppressedType: String?
+    /// 被压住的原因：held-pause（她攥着暂停）/ quiet-window（她刚动过手两秒内）/ stale（比她最后一次手动还旧）。
+    var suppressedReason: String?
 
     init(trackId: String? = nil, position: Double? = nil, count: Int? = nil,
-         path: String? = nil, text: String? = nil) {
+         path: String? = nil, text: String? = nil,
+         suppressedType: String? = nil, suppressedReason: String? = nil) {
         self.trackId = trackId
         self.position = position
         self.count = count
         self.path = path
         self.text = text
+        self.suppressedType = suppressedType
+        self.suppressedReason = suppressedReason
     }
 
     init(from decoder: Decoder) throws {
@@ -306,6 +313,8 @@ struct TogetherEventDetail: Codable, Equatable {
         count = try? c.decodeIfPresent(Int.self, forKey: .count)
         path = try? c.decodeIfPresent(String.self, forKey: .path)
         text = try? c.decodeIfPresent(String.self, forKey: .text)
+        suppressedType = try? c.decodeIfPresent(String.self, forKey: .suppressedType)
+        suppressedReason = try? c.decodeIfPresent(String.self, forKey: .suppressedReason)
     }
 }
 
