@@ -74,6 +74,10 @@ struct TogetherRootView: View {
                         TogetherPanelView()
                     case .library:
                         NavigationStack { TogetherLibraryView(editing: $showPlaylistEditor) }
+                            // 导航栈自己不垫底色、不画顶栏底：根视图那一层壁纸是唯一的底，
+                            // 各页（库、全部歌曲、详情）都透同一张壁纸，换壁纸当场全页见效。
+                            .toolbarBackground(.hidden, for: .navigationBar)
+                            .background(Color.clear)
                     case .sync:
                         TogetherSyncView()
                     case .liked:

@@ -34,11 +34,18 @@ final class LocalFileImporter: MusicImporter {
         [.audio, .movie, .mpeg4Movie, .quickTimeMovie]
     }
 
+    /// 最近一次导入里没收进来的文件名（给界面报数用，不存盘）。
+    /// importFiles 开始时清零，之后每失败一个就记一个。
+    private(set) var lastFailedNames: [String] = []
+
     func importFiles(_ urls: [URL]) async -> [TogetherTrack] {
+        lastFailedNames = []
         var added: [TogetherTrack] = []
         for url in urls {
             if let track = await importOne(url) {
                 added.append(track)
+            } else {
+                lastFailedNames.append(url.lastPathComponent)
             }
         }
         return added
@@ -64,6 +71,13 @@ final class LocalFileImporter: MusicImporter {
         // 落到内置 shared/music，扩展名按真实编码来。
         guard let dest = await writeIntoLibrary(from: url, id: id) else {
             logger.error("[TogetherImport] 落地失败 \(url.lastPathComponent)")
+            return nil
+        }
+        // 落地了还得真能播：播不了的字节不进库、不占一条记录。
+        // 播不了就把刚落地的碎文件清掉，别留在 music 里。
+        guard await Self.isPlayable(dest) else {
+            try? FileManager.default.removeItem(at: dest)
+            logger.error("[TogetherImport] 落地后播不了 \(url.lastPathComponent)")
             return nil
         }
         let destName = dest.lastPathComponent
@@ -104,8 +118,10 @@ final class LocalFileImporter: MusicImporter {
     // MARK: 落地
 
     /// 把选中的文件放进 shared/music。
-    /// mp3 原样搬；其它先试抽成 m4a；抽不出来就原样搬并保留原扩展名——
-    /// 不能给 m4a 的字节起个 .mp3 的名。
+    /// mp3 原样搬；其它先试抽成 m4a；抽不出来时只有音频才原样搬（扩展名是真的），
+    /// 视频抽不出来就是失败——不能把一个 .mp4 原样搬进来：
+    /// reconcile 只认音频扩展名，搬进来也播不了，还占着一条"已导入"的记录。
+    /// 抽音轨失败不静默：返回 nil，调用方记失败名、界面报数。
     private func writeIntoLibrary(from source: URL, id: String) async -> URL? {
         let fm = FileManager.default
         let dir = TogetherStore.shared.musicDirectory
@@ -135,8 +151,8 @@ final class LocalFileImporter: MusicImporter {
             }
         }
 
-        let ext = srcExt.isEmpty ? "audio" : srcExt
-        let dest = dir.appendingPathComponent("\(id).\(ext)")
+        guard Self.audioExtensions.contains(srcExt) else { return nil }
+        let dest = dir.appendingPathComponent("\(id).\(srcExt)")
         try? fm.removeItem(at: dest)
         do {
             try fm.copyItem(at: source, to: dest)
@@ -144,6 +160,12 @@ final class LocalFileImporter: MusicImporter {
         } catch {
             return nil
         }
+    }
+
+    /// 这份落地文件是不是真能播。只看 AVFoundation 的判断，不猜扩展名。
+    private static func isPlayable(_ url: URL) async -> Bool {
+        let asset = AVURLAsset(url: url)
+        return (try? await asset.load(.isPlayable)) ?? false
     }
 
     // MARK: 元数据

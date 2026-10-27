@@ -59,12 +59,6 @@ struct TogetherWallpaperLayer: View {
     }
 }
 
-extension View {
-    func togetherWallpaper(_ slot: String) -> some View {
-        background(TogetherWallpaperLayer(slot: slot))
-    }
-}
-
 // MARK: - 共用：封面
 
 @MainActor
@@ -124,48 +118,54 @@ struct TogetherTrackRow: View {
     var onTap: () -> Void = {}
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                TogetherCoverView(key: track.cover, corner: 9)
-                    .frame(width: 40, height: 40)
-                    .overlay(
-                        Image(systemName: "music.note")
-                            .font(ChatFont.font(13, weight: .medium))
-                            .foregroundStyle(CSSThemeVariables.card(scope: .chat).opacity(0.85))
-                    )
+        // 尾巴（爱心/菜单）是尾巴的兄弟，不是行按钮的孩子：
+        // 按钮里套按钮，里层那下点不点得着要看系统心情——
+        // 喜欢页爱心时灵时不灵就是这个结构。
+        HStack(spacing: 8) {
+            Button(action: onTap) {
+                HStack(spacing: 12) {
+                    TogetherCoverView(key: track.cover, corner: 9)
+                        .frame(width: 40, height: 40)
+                        .overlay(
+                            Image(systemName: "music.note")
+                                .font(ChatFont.font(13, weight: .medium))
+                                .foregroundStyle(CSSThemeVariables.card(scope: .chat).opacity(0.85))
+                        )
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 5) {
-                        Text(track.title)
-                            .font(ChatFont.font(14, weight: .medium))
-                            .foregroundStyle(
-                                isPlaying
-                                    ? CSSThemeVariables.accent(scope: .chat)
-                                    : CSSThemeVariables.textMain(scope: .chat)
-                            )
-                            .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 5) {
+                            Text(track.title.isEmpty ? TogetherCopy.untitledTrack : track.title)
+                                .font(ChatFont.font(14, weight: .medium))
+                                .foregroundStyle(
+                                    isPlaying
+                                        ? CSSThemeVariables.accent(scope: .chat)
+                                        : CSSThemeVariables.textMain(scope: .chat)
+                                )
+                                .lineLimit(1)
 
-                        if noteCount > 0 {
-                            Text("\"")
-                                .font(ChatFont.font(13, weight: .semibold))
-                                .foregroundStyle(CSSThemeVariables.textDim(scope: .chat).opacity(0.8))
+                            if noteCount > 0 {
+                                Text("\"")
+                                    .font(ChatFont.font(13, weight: .semibold))
+                                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat).opacity(0.8))
+                            }
                         }
+
+                        Text("\(track.artist) · \(mmss(track.duration))")
+                            .font(ChatFont.font(11.5))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                            .lineLimit(1)
                     }
 
-                    Text("\(track.artist) · \(mmss(track.duration))")
-                        .font(ChatFont.font(11.5))
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                        .lineLimit(1)
+                    Spacer(minLength: 0)
                 }
-
-                Spacer(minLength: 0)
-
-                if let trailing { trailing }
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
+            .togetherPress()
+
+            if let trailing { trailing }
         }
-        .buttonStyle(.plain)
+        .frame(minHeight: 44)
+        .padding(.vertical, 8)
     }
 
     private func mmss(_ seconds: Double) -> String {
@@ -181,8 +181,8 @@ struct TogetherLibraryView: View {
 
     @Binding var editing: TogetherPlaylist?
     @Environment(\.togetherPersonaId) private var sessionPersonaId
+    @ObservedObject private var hub = TogetherStateHub.shared
 
-    @State private var playlists: [TogetherPlaylist] = []
     @State private var showNew = false
     @State private var newName = ""
     @State private var showImporter = false
@@ -191,9 +191,17 @@ struct TogetherLibraryView: View {
     @State private var pendingPicks: [URL] = []
     /// 正在换封面的那个歌单
     @State private var coverTarget: TogetherPlaylist?
+    /// 删掉的歌单还能捡回来：这张单子就是后悔药。
+    @State private var showDeleted = false
     private let importer = LocalFileImporter()
-    /// 一起听的状态在别的进程也会变（AI 那边改歌单），列表得自己刷，别等重进 App。
-    private let ticker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    /// 活着的歌单：Hub 推过来，AI 那边改了也跟着变，不用轮询。
+    private var playlists: [TogetherPlaylist] {
+        hub.state.playlists.filter { !$0.deleted }
+    }
+    private var deleted: [TogetherPlaylist] {
+        hub.state.playlists.filter { $0.deleted }
+    }
 
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -208,14 +216,19 @@ struct TogetherLibraryView: View {
                         .font(ChatFont.font(15, weight: .semibold))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                     Spacer()
-                    Button { showImporter = true } label: {
+                    Button {
+                        TogetherHaptics.select()
+                        showImporter = true
+                    } label: {
                         if importing {
                             ProgressView().scaleEffect(0.7)
                         } else {
                             Image(systemName: "square.and.arrow.down")
                         }
                     }
-                    .buttonStyle(.plain)
+                    .togetherPress()
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
                     .padding(.trailing, 14)
                     // 侧载包上 .fileImporter 会「选中了但点了没反应」——那是
                     // FileProvider 的 security-scope 授权被静默拒了。
@@ -233,9 +246,14 @@ struct TogetherLibraryView: View {
                             Task {
                                 let added = await importer.importFiles(urls)
                                 importing = false
-                                playlists = TogetherStore.shared.livePlaylists()
-                                if added.isEmpty {
+                                let failed = importer.lastFailedNames
+                                hub.refreshLibraryNow()
+                                hub.refreshNow()
+                                if added.isEmpty, !failed.isEmpty {
                                     MinisToast.show(TogetherCopy.importFailed, systemImage: "exclamationmark.circle")
+                                } else if !failed.isEmpty {
+                                    // 进来几个、没进来几个，各说各的：只报"成功"会让她以为全进来了。
+                                    MinisToast.show(TogetherCopy.importFailedCount(failed.count), systemImage: "exclamationmark.circle")
                                 } else {
                                     MinisToast.show("\(added.count) \(TogetherCopy.importDone)")
                                 }
@@ -244,6 +262,7 @@ struct TogetherLibraryView: View {
                     }
 
                     Button {
+                        TogetherHaptics.select()
                         newName = ""
                         showNew = true
                     } label: {
@@ -253,8 +272,10 @@ struct TogetherLibraryView: View {
                         }
                         .font(ChatFont.font(12, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .togetherPress()
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 22)
@@ -280,17 +301,34 @@ struct TogetherLibraryView: View {
                             _ = TogetherStore.shared.setPlaylistImage(id: playlist.id, from: url)
                         } onDone: {
                             coverTarget = nil
-                            playlists = TogetherStore.shared.livePlaylists()
+                            hub.refreshNow()
                         }
                     }
+                }
+
+                // 删掉的歌单一直能捡回来：入口常驻在列表底，不只在空态里。
+                if !deleted.isEmpty {
+                    Button {
+                        TogetherHaptics.select()
+                        showDeleted = true
+                    } label: {
+                        Text("\(TogetherCopy.deletedPlaylists) (\(deleted.count))")
+                            .font(ChatFont.font(12, weight: .medium))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .togetherPress()
+                    .padding(.top, 8)
                 }
             }
             .padding(.bottom, 24)
         }
-        .onAppear { playlists = TogetherStore.shared.livePlaylists() }
-        .onReceive(ticker) { _ in
-            let fresh = TogetherStore.shared.livePlaylists()
-            if fresh != playlists { playlists = fresh }
+        .sheet(isPresented: $showDeleted) {
+            deletedPlaylistsSheet
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(CSSThemeVariables.bg(scope: .chat))
         }
         .navigationDestination(for: String.self) { id in
             if id == TogetherAllSongsView.routeID {
@@ -332,9 +370,42 @@ struct TogetherLibraryView: View {
     }
 
     private var summaryLine: String {
-        let songs = TogetherStore.shared.library().tracks.count
+        let songs = hub.library.tracks.count
         let lists = playlists.count
         return String(format: AppLocalized("%1$d songs · %2$d playlists", comment: "一起听 · 库概览"), songs, lists)
+    }
+
+    /// 删掉的歌单：一行一个，点"恢复"就回来。删错了不用重建。
+    private var deletedPlaylistsSheet: some View {
+        NavigationStack {
+            List {
+                ForEach(deleted) { playlist in
+                    HStack {
+                        Text(playlist.name)
+                            .font(ChatFont.font(14))
+                            .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                            .lineLimit(1)
+                        Spacer()
+                        Button(TogetherCopy.restore) {
+                            TogetherHaptics.select()
+                            TogetherStore.shared.restorePlaylist(id: playlist.id)
+                            hub.refreshNow()
+                        }
+                        .font(ChatFont.font(13, weight: .semibold))
+                        .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                        .togetherPress()
+                    }
+                    .listRowBackground(CSSThemeVariables.bg(scope: .chat))
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(CSSThemeVariables.bg(scope: .chat).ignoresSafeArea())
+            .navigationTitle(TogetherCopy.deletedPlaylists)
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 
     private func playlistCard(_ playlist: TogetherPlaylist) -> some View {
@@ -359,13 +430,13 @@ struct TogetherLibraryView: View {
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
             }
         }
-        .buttonStyle(.plain)
+        .togetherPress()
         .contextMenu {
             Button(TogetherCopy.changeCover) { coverTarget = playlist }
             if playlist.image != nil {
                 Button(TogetherCopy.resetCover, role: .destructive) {
                     TogetherStore.shared.clearPlaylistImage(id: playlist.id)
-                    playlists = TogetherStore.shared.livePlaylists()
+                    hub.refreshNow()
                 }
             }
         }
@@ -387,7 +458,7 @@ struct TogetherLibraryView: View {
                     Text(TogetherCopy.allSongs)
                         .font(ChatFont.font(14, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                    Text(String(format: AppLocalized("%d songs", comment: "一起听 · 歌曲数"), TogetherStore.shared.library().tracks.count))
+                    Text(String(format: AppLocalized("%d songs", comment: "一起听 · 歌曲数"), hub.library.tracks.count))
                         .font(ChatFont.font(11.5))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
                 }
@@ -400,7 +471,7 @@ struct TogetherLibraryView: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .togetherPress()
     }
 
     private var playingBars: some View {
@@ -418,6 +489,19 @@ struct TogetherLibraryView: View {
             Text(TogetherCopy.noSongsYet)
                 .font(ChatFont.font(13))
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+            if !deleted.isEmpty {
+                Button {
+                    TogetherHaptics.select()
+                    showDeleted = true
+                } label: {
+                    Text(TogetherCopy.deletedPlaylists)
+                        .font(ChatFont.font(12, weight: .medium))
+                        .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .togetherPress()
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 40)
@@ -440,9 +524,10 @@ struct TogetherLibraryView: View {
             HStack {
                 Spacer()
                 Button(TogetherCopy.done) {
+                    TogetherHaptics.select()
                     if let id = TogetherStore.shared.createPlaylist(name: newName),
                        let created = TogetherStore.shared.livePlaylists().first(where: { $0.id == id }) {
-                        playlists = TogetherStore.shared.livePlaylists()
+                        hub.refreshNow()
                         editing = created
                     }
                     showNew = false
@@ -450,8 +535,9 @@ struct TogetherLibraryView: View {
                 .font(ChatFont.font(14, weight: .semibold))
                 .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
                 .padding(.horizontal, 22)
-                .padding(.vertical, 9)
+                .frame(minHeight: 44)
                 .background(Capsule().fill(CSSThemeVariables.accent(scope: .chat)))
+                .togetherPress()
             }
         }
         .padding(22)
@@ -468,11 +554,14 @@ struct TogetherAllSongsView: View {
 
     @Environment(\.togetherPersonaId) private var sessionPersonaId
     @Environment(\.togetherInSubpage) private var inSubpage
-    @State private var tracks: [TogetherTrack] = []
+    @ObservedObject private var hub = TogetherStateHub.shared
+    @ObservedObject private var player = TogetherPlayer.shared
     @State private var searchText = ""
     @State private var pendingDelete: TogetherTrack?
     @State private var showDeleteConfirm = false
-    private let ticker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    /// 曲库就是 Hub 的那一份：AI 删了歌、她导了歌，这里都跟着变。
+    private var tracks: [TogetherTrack] { hub.library.tracks }
 
     private var filtered: [TogetherTrack] {
         guard !searchText.isEmpty else { return tracks }
@@ -507,7 +596,10 @@ struct TogetherAllSongsView: View {
                             Image(systemName: "xmark.circle.fill")
                                 .font(ChatFont.font(13))
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
+                        .togetherPress()
                     }
                 }
                 .padding(.horizontal, 12)
@@ -520,13 +612,12 @@ struct TogetherAllSongsView: View {
                     ForEach(filtered) { track in
                         TogetherTrackRow(
                             track: track,
-                            isPlaying: TogetherPlayer.shared.track?.id == track.id,
+                            isPlaying: player.track?.id == track.id,
                             noteCount: 0,
                             trailing: AnyView(
                                 Menu {
                                     Button(role: .destructive) {
                                         deleteTrack(track)
-                                        reload()
                                     } label: {
                                         Label(TogetherCopy.deletePermanently, systemImage: "trash")
                                     }
@@ -534,19 +625,19 @@ struct TogetherAllSongsView: View {
                                     Image(systemName: "ellipsis")
                                         .font(ChatFont.font(14))
                                         .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                                        .frame(width: 24, height: 24)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(Rectangle())
                                 }
                             ),
                             onTap: {
-                                TogetherPlayer.shared.load(track)
-                                TogetherStore.shared.play(trackId: track.id, at: 0, by: .user,
-                                                           queue: filtered.map { $0.id })
+                                TogetherHaptics.select()
+                                // 点哪首就从哪首开始，队列就是眼前这个列表（搜过就是搜到的列表）。
+                                player.start(track, by: .user, queue: filtered.map { $0.id })
                             }
                         )
                         .contextMenu {
                             Button(role: .destructive) {
                                 deleteTrack(track)
-                                reload()
                             } label: {
                                 Label(TogetherCopy.deletePermanently, systemImage: "trash")
                             }
@@ -576,11 +667,9 @@ struct TogetherAllSongsView: View {
             .padding(.bottom, 24)
         }
         .onAppear {
-            reload()
             inSubpage.wrappedValue = true
         }
         .onDisappear { inSubpage.wrappedValue = false }
-        .onReceive(ticker) { _ in reload() }
         .alert(TogetherCopy.deletePermanently, isPresented: $showDeleteConfirm, presenting: pendingDelete) { track in
             Button(AppLocalized("Delete", comment: "删除"), role: .destructive) {
                 performDelete(track)
@@ -591,13 +680,6 @@ struct TogetherAllSongsView: View {
         }
     }
 
-    private func reload() {
-        // 确认框还挂着时先别重排列表，否则待删的那首歌可能已经从数组里消失，确认就落空了。
-        guard !showDeleteConfirm else { return }
-        let fresh = TogetherStore.shared.library().tracks
-        if fresh != tracks { tracks = fresh }
-    }
-
     private func deleteTrack(_ track: TogetherTrack) {
         // 删音频文件不可逆，先问一句，确认后才真删。
         pendingDelete = track
@@ -605,14 +687,14 @@ struct TogetherAllSongsView: View {
     }
 
     private func performDelete(_ track: TogetherTrack) {
-        // 先把确认态收掉：reload 在确认态下会故意不重排列表。
         showDeleteConfirm = false
         pendingDelete = nil
-        if TogetherPlayer.shared.track?.id == track.id {
-            TogetherPlayer.shared.stop()
+        if player.track?.id == track.id {
+            player.stop()
         }
         TogetherStore.shared.deleteTrackPermanently(track.id, by: .user)
-        reload()
+        hub.refreshLibraryNow()
+        hub.refreshNow()
     }
 }
 
@@ -620,10 +702,14 @@ struct TogetherAllSongsView: View {
 
 struct TogetherLikedView: View {
 
-    @State private var liked: [TogetherTrack] = []
-    @State private var state = TogetherState()
     @Environment(\.togetherPersonaId) private var sessionPersonaId
-    private let ticker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    @ObservedObject private var hub = TogetherStateHub.shared
+    @ObservedObject private var player = TogetherPlayer.shared
+
+    /// 喜欢的歌：Hub 的状态 + Hub 的曲库拼出来，喜欢了/取消了当场变。
+    private var liked: [TogetherTrack] {
+        hub.state.liked.compactMap { hub.library.track(id: $0) }
+    }
 
     var body: some View {
         ScrollView {
@@ -657,9 +743,10 @@ struct TogetherLikedView: View {
 
                 HStack(spacing: 12) {
                     Button {
+                        TogetherHaptics.tap()
                         guard let first = liked.first else { return }
                         // 从喜欢页点全部播放：队列就是喜欢页这个列表，不是整个曲库。
-                        TogetherPlayer.shared.start(first, by: .user, queue: liked.map { $0.id })
+                        player.start(first, by: .user, queue: liked.map { $0.id })
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "play.fill")
@@ -668,10 +755,10 @@ struct TogetherLikedView: View {
                         .font(ChatFont.font(13, weight: .semibold))
                         .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
                         .padding(.horizontal, 22)
-                        .padding(.vertical, 10)
+                        .frame(minHeight: 44)
                         .background(Capsule().fill(CSSThemeVariables.accent(scope: .chat)))
                     }
-                    .buttonStyle(.plain)
+                    .togetherPress()
                     .disabled(liked.isEmpty)
 
                     Spacer()
@@ -683,22 +770,24 @@ struct TogetherLikedView: View {
                     ForEach(liked) { track in
                         TogetherTrackRow(
                             track: track,
-                            isPlaying: TogetherPlayer.shared.track?.id == track.id,
+                            isPlaying: player.track?.id == track.id,
                             trailing: AnyView(
                                 Button {
+                                    TogetherHaptics.select()
                                     TogetherStore.shared.toggleLike(trackId: track.id, by: .user)
-                                    reload()
+                                    hub.refreshNow()
                                 } label: {
                                     Image(systemName: "heart.fill")
                                         .font(ChatFont.font(14))
                                         .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(Rectangle())
                                 }
-                                .buttonStyle(.plain)
+                                .togetherPress()
                             ),
                             onTap: {
-                                TogetherPlayer.shared.load(track)
-                                TogetherStore.shared.play(trackId: track.id, at: 0, by: .user,
-                                                           queue: liked.map { $0.id })
+                                TogetherHaptics.select()
+                                player.start(track, by: .user, queue: liked.map { $0.id })
                             }
                         )
                         Divider()
@@ -718,13 +807,12 @@ struct TogetherLikedView: View {
             }
             .padding(.bottom, 24)
         }
-        .onAppear(perform: reload)
-        .onReceive(ticker) { _ in reload() }
     }
 
     private var cover: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(TogetherCover.fill("cover-now"))
+        // 封面先用她给喜欢页挑的那张壁纸：喜欢页的脸就是她挑的那张图，
+        // 没挑才回落到主题渐变。
+        TogetherCoverView(key: TogetherImages.wallpaperLiked, corner: 22)
             .frame(width: 172, height: 172)
             .overlay(
                 Image(systemName: "heart.fill")
@@ -733,23 +821,21 @@ struct TogetherLikedView: View {
             )
     }
 
-    private func reload() {
-        let fresh = TogetherStore.shared.load()
-        if fresh.revision != state.revision { state = fresh }
-        let lib = TogetherStore.shared.library()
-        let freshLiked = state.liked.compactMap { id in lib.track(id: id) }
-        if freshLiked != liked { liked = freshLiked }
-    }
 }
 
 // MARK: - 一起听（双人状态）
 
 struct TogetherSyncView: View {
 
-    @State private var state = TogetherState()
-    @State private var pulse = false
     @Environment(\.togetherPersonaId) private var sessionPersonaId
-    private let ticker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    @ObservedObject private var hub = TogetherStateHub.shared
+    @ObservedObject private var player = TogetherPlayer.shared
+
+    private var state: TogetherState { hub.state }
+    /// 在场证明只看最近 10 分钟有没有动静：光写 online=true 不算数，
+    /// 那两个布尔以前只会被写成 true，从没被写成 false。
+    private var aiHere: Bool { state.devices.ai.seenRecently(now: TogetherStore.now()) }
+    private var userHere: Bool { state.devices.user.seenRecently(now: TogetherStore.now()) }
 
     /// 伴听页自己的换壁纸入口：不绕装扮中心，当场换当场见效。
     @State private var showWallpaperPicker = false
@@ -762,7 +848,7 @@ struct TogetherSyncView: View {
                 duo
                     .padding(.top, 34)
 
-                Text(statusLine)
+                Text(driverLine)
                     .font(ChatFont.font(10.5))
                     .tracking(0.6)
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
@@ -792,12 +878,9 @@ struct TogetherSyncView: View {
             .padding(.bottom, 30)
         }
         .onAppear {
-            state = TogetherStore.shared.load()
-            pulse = true
-        }
-        .onReceive(ticker) { _ in
-            let fresh = TogetherStore.shared.load()
-            if fresh.revision != state.revision { state = fresh }
+            // 她打开这页就是她在场：刷新她这一侧的在场时间，AI 那边才能看见她来了。
+            TogetherStore.shared.markSeen(by: .user)
+            hub.refreshNow()
         }
         .photosPicker(isPresented: $showWallpaperPicker, selection: $wallpaperItem, matching: .images)
         .onChange(of: wallpaperItem) { item in
@@ -814,6 +897,7 @@ struct TogetherSyncView: View {
     private var wallpaperBar: some View {
         VStack(spacing: 6) {
             Button {
+                TogetherHaptics.select()
                 wallpaperError = nil
                 showWallpaperPicker = true
             } label: {
@@ -821,12 +905,12 @@ struct TogetherSyncView: View {
                     .font(ChatFont.font(12, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
+                    .frame(minHeight: 44)
                     .background(
                         Capsule().fill(CSSThemeVariables.card(scope: .chat).opacity(0.75))
                     )
             }
-            .buttonStyle(.plain)
+            .togetherPress()
 
             if let wallpaperError {
                 Text(wallpaperError)
@@ -879,42 +963,49 @@ struct TogetherSyncView: View {
         }
     }
 
+    /// 两人之间的那道波纹：静态的，不转、不闪——这页是"在场"的证明，
+    /// 不是等她看的动画。播着还是停着，看中间那张卡就够了。
     private var wave: some View {
         HStack(spacing: 4) {
-            ForEach(0..<5, id: \.self) { i in
+            ForEach([6, 16, 10, 16, 6], id: \.self) { h in
                 Capsule()
                     .fill(CSSThemeVariables.textDim(scope: .chat).opacity(0.55))
-                    .frame(width: 2.5, height: pulse ? 16 : 6)
-                    .animation(
-                        .easeInOut(duration: 1.1)
-                        .repeatForever(autoreverses: true)
-                        .delay(Double(i) * 0.12),
-                        value: pulse
-                    )
+                    .frame(width: 2.5, height: CGFloat(h))
             }
         }
+        .accessibilityHidden(true)
     }
 
-    private var statusLine: String {
-        let online = state.devices.user.online && state.devices.ai.online
-        return online
-            ? AppLocalized("In sync", comment: "一起听 · 同步中")
-            : AppLocalized("One side offline, changes are queued",
-                           comment: "一起听 · 一端离线")
+    /// 谁在掌控 + 他现在的心情，一句话，不说"同步中"这种没法验证的话。
+    /// 没心情就不写心情，安安静静一句话。
+    private var driverLine: String {
+        let driver = state.playback.by == "ai"
+            ? ChatAddressing.assistant(sessionPersonaId: sessionPersonaId)
+            : ChatAddressing.user()
+        let driving = state.playback.by == "ai"
+            ? TogetherCopy.driving(driver)
+            : TogetherCopy.youDriving
+        if let mood = state.me.presence.mood {
+            return "\(driving) · \(mood.word)"
+        }
+        return driving
     }
 
     private var currentCard: some View {
-        HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(TogetherCover.fill(TogetherPlayer.shared.track?.cover))
+        // 这张卡读的是共享状态里的那首歌（state.track），不是本机播放器的那首：
+        // 两边说的必须同一首，面板、卡片、小卡三处才不会各说各的。
+        // 本机还没跟上时（刚打开），先显示共享的那首，播放器随后会跟过来。
+        let sharedTrack = state.track ?? player.track
+        return HStack(spacing: 12) {
+            TogetherCoverView(key: sharedTrack?.cover, corner: 12)
                 .frame(width: 52, height: 52)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(TogetherPlayer.shared.track?.title ?? TogetherCopy.untitledTrack)
+                Text(sharedTrack?.title ?? TogetherCopy.untitledTrack)
                     .font(ChatFont.font(14, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                     .lineLimit(1)
-                Text(TogetherPlayer.shared.track?.artist ?? "")
+                Text(sharedTrack?.artist ?? "")
                     .font(ChatFont.font(11.5))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
                     .lineLimit(1)
@@ -922,15 +1013,21 @@ struct TogetherSyncView: View {
 
             Spacer(minLength: 0)
 
-            Button { TogetherPlayer.shared.userToggle(); state = TogetherStore.shared.load() } label: {
-                Image(systemName: TogetherPlayer.shared.isPlaying ? "pause.fill" : "play.fill")
+            Button {
+                TogetherHaptics.tap()
+                player.userToggle()
+                hub.refreshNow()
+            } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(ChatFont.font(14, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
-                    .frame(width: 34, height: 34)
+                    .frame(width: 44, height: 44)
                     .background(CSSThemeVariables.accent(scope: .chat))
                     .clipShape(Circle())
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .togetherPress()
+            .accessibilityLabel(player.isPlaying ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
         }
         .padding(12)
         .background(
@@ -947,16 +1044,15 @@ struct TogetherSyncView: View {
         VStack(spacing: 0) {
             deviceRow(
                 name: "\(ChatAddressing.user())\(AppLocalized("'s iPhone", comment: "一起听 · 设备"))",
-                detail: state.devices.user.online
-                    ? AppLocalized("online", comment: "一起听 · 在线")
-                    : AppLocalized("away", comment: "一起听 · 离线"),
+                detail: userHere ? TogetherCopy.onlineStatus : TogetherCopy.awayStatus,
                 controlling: state.playback.by == "user"
             )
             Divider().overlay(CSSThemeVariables.divider(scope: .chat))
             deviceRow(
                 name: ChatAddressing.assistant(sessionPersonaId: sessionPersonaId),
-                detail: state.me.presence.mood.map { "\($0.word)" }
-                    ?? AppLocalized("quiet", comment: "一起听 · 没说话"),
+                detail: aiHere
+                    ? (state.me.presence.mood.map { "\($0.word)" } ?? TogetherCopy.onlineStatus)
+                    : TogetherCopy.awayStatus,
                 controlling: state.playback.by == "ai"
             )
         }
@@ -986,8 +1082,10 @@ struct TogetherSyncView: View {
     }
 
     private var latestAINote: TogetherNote? {
-        guard let trackId = TogetherPlayer.shared.track?.id else { return nil }
-        return state.notes.filter { $0.trackId == trackId }.max(by: { $0.ts < $1.ts })
+        guard let trackId = state.track?.id ?? player.track?.id else { return nil }
+        return state.notes
+            .filter { $0.trackId == trackId && $0.from == TogetherActor.ai.rawValue }
+            .max(by: { $0.ts < $1.ts })
     }
 
     private func aiLine(_ note: TogetherNote) -> some View {
@@ -1010,35 +1108,83 @@ struct TogetherSyncView: View {
         )
     }
 
+    /// 遥控器不是一按就翻的：先递出去，对方接了才算换手。
+    /// 递给他的那 10 秒里，他接了就换、没接就原样——不会出现
+    /// "她点了递出、他那边还在播旧的、状态却已经写成他的"那种错位。
     private var handoffButton: some View {
-        Button {
-            // 把遥控器递过去：谁在控制，翻转给另一方。
-            let next: TogetherActor = state.playback.by == "ai" ? .user : .ai
-            TogetherStore.shared.mutate(
-                by: .user,
-                event: "handoff",
-                detail: TogetherEventDetail(text: next.rawValue)
-            ) { s in
-                s.playback.by = next.rawValue
-                s.playback.updatedAt = TogetherStore.now()
-                // 递过去那一方就是"在控制"，另一方的在线状态跟着真实
-                s.devices.ai.online = true
-                s.me.presence.updatedAt = TogetherStore.now()
+        VStack(spacing: 10) {
+            if let pending = state.pendingHandoff {
+                if pending.to == TogetherActor.user.rawValue {
+                    Text(TogetherCopy.remoteOffered(ChatAddressing.user()))
+                        .font(ChatFont.font(12))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                    HStack(spacing: 12) {
+                        Button {
+                            TogetherHaptics.select()
+                            _ = TogetherStore.shared.acceptHandoff()
+                            hub.refreshNow()
+                        } label: {
+                            Text(AppLocalized("Take the remote", comment: "一起听 · 接过遥控器"))
+                                .font(ChatFont.font(13, weight: .semibold))
+                                .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
+                                .frame(maxWidth: .infinity)
+                                .frame(minHeight: 44)
+                                .background(Capsule().fill(CSSThemeVariables.accent(scope: .chat)))
+                        }
+                        .togetherPress()
+                        Button {
+                            TogetherHaptics.select()
+                            TogetherStore.shared.cancelHandoff(by: .user)
+                            hub.refreshNow()
+                        } label: {
+                            Text(TogetherCopy.cancel)
+                                .font(ChatFont.font(13, weight: .medium))
+                                .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                                .frame(maxWidth: .infinity)
+                                .frame(minHeight: 44)
+                                .background(Capsule().fill(CSSThemeVariables.optionBg(scope: .chat)))
+                        }
+                        .togetherPress()
+                    }
+                } else {
+                    Text(TogetherCopy.waitingForHandoff(ChatAddressing.assistant(sessionPersonaId: sessionPersonaId)))
+                        .font(ChatFont.font(12))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                    Button {
+                        TogetherHaptics.select()
+                        TogetherStore.shared.cancelHandoff(by: .user)
+                        hub.refreshNow()
+                    } label: {
+                        Text(TogetherCopy.cancel)
+                            .font(ChatFont.font(13, weight: .medium))
+                            .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 44)
+                            .background(Capsule().fill(CSSThemeVariables.optionBg(scope: .chat)))
+                    }
+                    .togetherPress()
+                }
+            } else {
+                Button {
+                    TogetherHaptics.select()
+                    let next = state.playback.by == TogetherActor.ai.rawValue ? TogetherActor.user : TogetherActor.ai
+                    // 已经在他手里就不用递：requestHandoff 会拒绝，界面原样不动。
+                    _ = TogetherStore.shared.requestHandoff(to: next.rawValue, by: .user)
+                    hub.refreshNow()
+                } label: {
+                    Text("\(TogetherCopy.handoff) \(state.playback.by == "ai" ? ChatAddressing.user() : ChatAddressing.assistant(sessionPersonaId: sessionPersonaId))")
+                        .font(ChatFont.font(13, weight: .medium))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(CSSThemeVariables.optionBg(scope: .chat))
+                        )
+                }
+                .togetherPress()
             }
-            state = TogetherStore.shared.load()
-            MinisToast.show(AppLocalized("Handed over", comment: "一起听 · 递遥控器完成"))
-        } label: {
-            Text("\(TogetherCopy.handoff) \(state.playback.by == "ai" ? ChatAddressing.user() : ChatAddressing.assistant(sessionPersonaId: sessionPersonaId))")
-                .font(ChatFont.font(13, weight: .medium))
-                .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(CSSThemeVariables.optionBg(scope: .chat))
-                )
         }
-        .buttonStyle(.plain)
     }
 }
 
@@ -1055,6 +1201,9 @@ struct TogetherPlaylistEditor: View {
     @State private var bg: String = "cover-1"
     @State private var showCoverPicker = false
     @State private var coverItem: PhotosPickerItem?
+    /// 草稿封面：只存在内存里，点了"保存"才落盘；点了"取消"就当没选过。
+    /// 以前选完图当场就写盘，取消也撤不回——封面比名字先"保存"了。
+    @State private var draftCover: UIImage?
     @State private var showTagSheet = false
     @State private var confirmDelete = false
     @State private var pendingDelete: TogetherTrack?
@@ -1117,6 +1266,9 @@ struct TogetherPlaylistEditor: View {
                     Button(AppLocalized("Cancel", comment: "取消")) { dismiss() }
                         .font(ChatFont.font(14))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                        .togetherPress()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(AppLocalized("Save", comment: "保存")) {
@@ -1125,6 +1277,9 @@ struct TogetherPlaylistEditor: View {
                     }
                     .font(ChatFont.font(14, weight: .bold))
                     .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+                    .togetherPress()
                 }
             }
             .onAppear(perform: reload)
@@ -1141,9 +1296,12 @@ struct TogetherPlaylistEditor: View {
             .onChange(of: coverItem) { item in
                 guard let item else { return }
                 Task {
-                    await TogetherPhotoImport.toPlaylist(item, id: playlist.id)
+                    // 只读成图、留在草稿里：不写盘，取消键才作数。
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        draftCover = image
+                    }
                     coverItem = nil
-                    reload()
                 }
             }
             .sheet(isPresented: $showTagSheet) {
@@ -1170,17 +1328,29 @@ struct TogetherPlaylistEditor: View {
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                 Spacer()
                 Button {
+                    TogetherHaptics.select()
                     showCoverPicker = true
                 } label: {
                     HStack(spacing: 8) {
-                        TogetherCoverView(key: bg, corner: 8, imagePath: playlist.image)
-                            .frame(width: 44, height: 44)
+                        // 有草稿就看草稿：预览的就是保存后会成的样子。
+                        if let draftCover {
+                            Image(uiImage: draftCover)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 44, height: 44)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        } else {
+                            TogetherCoverView(key: bg, corner: 8, imagePath: playlist.image)
+                                .frame(width: 44, height: 44)
+                        }
                         Image(systemName: "chevron.right")
                             .font(ChatFont.font(12))
                             .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
                     }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .togetherPress()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -1209,6 +1379,7 @@ struct TogetherPlaylistEditor: View {
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                 Spacer()
                 Button {
+                    TogetherHaptics.select()
                     showTagSheet = true
                 } label: {
                     HStack(spacing: 6) {
@@ -1220,8 +1391,10 @@ struct TogetherPlaylistEditor: View {
                             .font(ChatFont.font(12))
                             .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
                     }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .togetherPress()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -1293,7 +1466,7 @@ struct TogetherPlaylistEditor: View {
                         .fill(CSSThemeVariables.dangerSoft(scope: .chat))
                 )
         }
-        .buttonStyle(.plain)
+        .togetherPress()
         .padding(.top, 10)
     }
 
@@ -1327,6 +1500,7 @@ struct TogetherPlaylistEditor: View {
         let bgColor = isSelected ? CSSThemeVariables.accent(scope: .chat).opacity(0.15) : CSSThemeVariables.optionBg(scope: .chat)
 
         return Button {
+            TogetherHaptics.select()
             if isSelected {
                 tags.removeAll { $0 == t }
             } else {
@@ -1337,10 +1511,10 @@ struct TogetherPlaylistEditor: View {
                 .font(ChatFont.font(12, weight: isSelected ? .semibold : .regular))
                 .foregroundStyle(fgColor)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .frame(minHeight: 44)
                 .background(Capsule().fill(bgColor))
         }
-        .buttonStyle(.plain)
+        .togetherPress()
     }
 
     private func onDescChanged(_ val: String) {
@@ -1373,9 +1547,19 @@ struct TogetherPlaylistEditor: View {
         desc = live.desc
         bg = live.bg ?? "cover-1"
         originalBg = bg
+        draftCover = nil
     }
 
     private func save() {
+        // 草稿封面在保存这一刻才落盘：先写图、再写文字，取消键全程作数。
+        if let draftCover, let data = draftCover.jpegData(compressionQuality: 0.9) {
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("together-playlist-\(playlist.id)-\(UUID().uuidString).jpg")
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            if (try? data.write(to: tmp)) != nil {
+                _ = TogetherStore.shared.setPlaylistImage(id: playlist.id, from: tmp)
+            }
+        }
         _ = TogetherStore.shared.updatePlaylistInfo(id: playlist.id, name: name, tags: tags, desc: desc, by: .user)
         // 背景不是名字的一部分，updatePlaylistInfo 不碰它；改过就单独存一次，否则退出再进会丢。
         if bg != originalBg {
@@ -1396,15 +1580,22 @@ struct TogetherPlaylistDetail: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.togetherPersonaId) private var sessionPersonaId
     @Environment(\.togetherInSubpage) private var inSubpage
-    @State private var playlist: TogetherPlaylist?
-    @State private var tracks: [TogetherTrack] = []
     @State private var searchText = ""
     @State private var showEditor = false
     @State private var showAddSongs = false
-    @State private var state = TogetherState()
     @State private var pendingDelete: TogetherTrack?
     @State private var showDeleteConfirm = false
-    private let ticker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    @ObservedObject private var hub = TogetherStateHub.shared
+    @ObservedObject private var player = TogetherPlayer.shared
+
+    /// 活着的歌单 + 它的歌：Hub 推过来，删了歌单这里就变成 nil，
+    /// 页面自己退场，不留一个空标题的僵尸页。
+    private var playlist: TogetherPlaylist? {
+        hub.state.playlists.first { $0.id == playlistId && !$0.deleted }
+    }
+    private var tracks: [TogetherTrack] {
+        (playlist?.tracks ?? []).compactMap { hub.library.track(id: $0) }
+    }
 
     private var filteredTracks: [TogetherTrack] {
         if searchText.isEmpty { return tracks }
@@ -1415,6 +1606,11 @@ struct TogetherPlaylistDetail: View {
     }
 
     var body: some View {
+        // 歌单已经删了：不留空页，退回歌单库。
+        if playlist == nil {
+            Color.clear
+                .onAppear { dismiss() }
+        } else {
         ScrollView {
             VStack(spacing: 0) {
                 header
@@ -1433,7 +1629,10 @@ struct TogetherPlaylistDetail: View {
                             Image(systemName: "xmark.circle.fill")
                                 .font(ChatFont.font(13))
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
+                        .togetherPress()
                     }
                 }
                 .padding(.horizontal, 12)
@@ -1462,9 +1661,17 @@ struct TogetherPlaylistDetail: View {
                         Text(TogetherCopy.noSongsYet)
                             .font(ChatFont.font(13))
                             .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                        Button(TogetherCopy.addSongs) { showAddSongs = true }
+                        Button {
+                            TogetherHaptics.select()
+                            showAddSongs = true
+                        } label: {
+                            Text(TogetherCopy.addSongs)
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
                             .font(ChatFont.font(13, weight: .medium))
                             .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+                            .togetherPress()
                     }
                     .padding(.top, 40)
                 }
@@ -1475,17 +1682,27 @@ struct TogetherPlaylistDetail: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(TogetherCopy.edit) { showEditor = true }
+                Button {
+                    TogetherHaptics.select()
+                    showEditor = true
+                } label: {
+                    Text(TogetherCopy.edit)
+                }
                     .font(ChatFont.font(14, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+                    .togetherPress()
             }
         }
         .onAppear {
-            reload()
             inSubpage.wrappedValue = true
         }
         .onDisappear { inSubpage.wrappedValue = false }
-        .onReceive(ticker) { _ in reload() }
+        .onChange(of: hub.state.revision) { _ in
+            // 歌单在别处被删了：这页立刻退场，不留僵尸页。
+            if playlist == nil { dismiss() }
+        }
         .alert(TogetherCopy.deletePermanently, isPresented: $showDeleteConfirm, presenting: pendingDelete) { track in
             Button(AppLocalized("Delete", comment: "删除"), role: .destructive) {
                 performDelete(track)
@@ -1494,7 +1711,7 @@ struct TogetherPlaylistDetail: View {
         } message: { _ in
             Text(TogetherCopy.deleteTrackMessage)
         }
-        .sheet(isPresented: $showEditor, onDismiss: reload) {
+        .sheet(isPresented: $showEditor) {
             if let playlist {
                 TogetherPlaylistEditor(playlist: playlist)
                     .presentationDetents([.large])
@@ -1502,11 +1719,12 @@ struct TogetherPlaylistDetail: View {
                     .presentationBackground(CSSThemeVariables.bg(scope: .chat))
             }
         }
-        .sheet(isPresented: $showAddSongs, onDismiss: reload) {
+        .sheet(isPresented: $showAddSongs) {
             TogetherAddSongsSheet(playlistId: playlistId)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(CSSThemeVariables.bg(scope: .chat))
+        }
         }
     }
 
@@ -1543,9 +1761,10 @@ struct TogetherPlaylistDetail: View {
     private var actionRow: some View {
         HStack(spacing: 12) {
             Button {
+                TogetherHaptics.tap()
                 guard let first = tracks.first else { return }
                 // 歌单详情全部播放：队列就是这个歌单
-                TogetherPlayer.shared.start(first, by: .user, queue: tracks.map { $0.id })
+                player.start(first, by: .user, queue: tracks.map { $0.id })
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "play.fill")
@@ -1554,51 +1773,60 @@ struct TogetherPlaylistDetail: View {
                 .font(ChatFont.font(13, weight: .semibold))
                 .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
                 .padding(.horizontal, 22)
-                .padding(.vertical, 10)
+                .frame(minHeight: 44)
                 .background(Capsule().fill(CSSThemeVariables.accent(scope: .chat)))
             }
-            .buttonStyle(.plain)
+            .togetherPress()
             .disabled(tracks.isEmpty)
 
             Button {
+                TogetherHaptics.select()
                 guard let pick = tracks.randomElement() else { return }
                 // 随机按钮要真的打开随机模式，不是"悄悄放一首随机的、模式还关着"。
-                TogetherStore.shared.setShuffle(true)
-                TogetherStore.shared.setRepeatOne(false, repeatAll: false)
-                TogetherPlayer.shared.start(pick, by: .user, queue: tracks.map { $0.id })
+                // 一次写完：随机开、两个循环关，状态里只记一条事件。
+                TogetherStore.shared.setModes(shuffle: true, repeatOne: false, repeatAll: false, by: .user)
+                player.start(pick, by: .user, queue: tracks.map { $0.id })
             } label: {
                 Image(systemName: "shuffle")
                     .font(ChatFont.font(14, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                    .frame(width: 38, height: 38)
+                    .frame(width: 44, height: 44)
                     .background(Circle().fill(CSSThemeVariables.optionBg(scope: .chat)))
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .togetherPress()
+            .accessibilityLabel(TogetherCopy.a11yShuffle)
 
-            Button(TogetherCopy.addSongs) { showAddSongs = true }
+            Button {
+                TogetherHaptics.select()
+                showAddSongs = true
+            } label: {
+                Text(TogetherCopy.addSongs)
+            }
                 .font(ChatFont.font(12.5, weight: .medium))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                 .padding(.horizontal, 15)
-                .padding(.vertical, 9)
+                .frame(minHeight: 44)
                 .overlay(Capsule().strokeBorder(CSSThemeVariables.optionBorder(scope: .chat), lineWidth: 0.8))
+                .togetherPress()
 
             Spacer()
         }
     }
 
     private func noteCount(for trackId: String) -> Int {
-        state.notes.filter { $0.trackId == trackId }.count
+        hub.state.notes.filter { $0.trackId == trackId }.count
     }
 
     private func playlistTrackRow(_ track: TogetherTrack) -> some View {
         TogetherTrackRow(
             track: track,
-            isPlaying: TogetherPlayer.shared.track?.id == track.id,
+            isPlaying: player.track?.id == track.id,
             noteCount: noteCount(for: track.id),
             trailing: AnyView(rowTrailing(track)),
             onTap: {
-                TogetherPlayer.shared.load(track)
-                TogetherStore.shared.play(trackId: track.id, at: 0, by: .user, queue: tracks.map { $0.id })
+                TogetherHaptics.select()
+                player.start(track, by: .user, queue: tracks.map { $0.id })
             }
         )
         .contextMenu { rowContextMenu(track) }
@@ -1607,19 +1835,23 @@ struct TogetherPlaylistDetail: View {
     private func rowTrailing(_ track: TogetherTrack) -> some View {
         HStack(spacing: 12) {
             Button {
+                TogetherHaptics.select()
                 TogetherStore.shared.toggleLike(trackId: track.id, by: .user)
-                state = TogetherStore.shared.load()
+                hub.refreshNow()
             } label: {
-                Image(systemName: state.liked.contains(track.id) ? "heart.fill" : "heart")
+                Image(systemName: hub.state.liked.contains(track.id) ? "heart.fill" : "heart")
                     .font(ChatFont.font(14))
-                    .foregroundStyle(state.liked.contains(track.id) ? Color.red : CSSThemeVariables.textDim(scope: .chat))
+                    .foregroundStyle(hub.state.liked.contains(track.id) ? CSSThemeVariables.accent(scope: .chat) : CSSThemeVariables.textDim(scope: .chat))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .togetherPress()
+            .accessibilityLabel(hub.state.liked.contains(track.id) ? TogetherCopy.a11yUnlike : TogetherCopy.a11yLike)
 
             Menu {
                 Button(TogetherCopy.removeFromPlaylist, role: .destructive) {
                     TogetherStore.shared.removeTrack(track.id, from: playlistId)
-                    reload()
+                    hub.refreshNow()
                 }
                 Button(TogetherCopy.deletePermanently, role: .destructive) {
                     deleteTrack(track)
@@ -1628,7 +1860,8 @@ struct TogetherPlaylistDetail: View {
                 Image(systemName: "ellipsis")
                     .font(ChatFont.font(14))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                    .frame(width: 24, height: 24)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
         }
     }
@@ -1636,14 +1869,13 @@ struct TogetherPlaylistDetail: View {
     @ViewBuilder
     private func rowContextMenu(_ track: TogetherTrack) -> some View {
         Button {
-            TogetherPlayer.shared.load(track)
-            TogetherStore.shared.play(trackId: track.id, at: 0, by: .user, queue: tracks.map { $0.id })
+            player.start(track, by: .user, queue: tracks.map { $0.id })
         } label: {
             Label(AppLocalized("Play", comment: "一起听 · 播放"), systemImage: "play.fill")
         }
         Button(role: .destructive) {
             TogetherStore.shared.removeTrack(track.id, from: playlistId)
-            reload()
+            hub.refreshNow()
         } label: {
             Label(TogetherCopy.removeFromPlaylist, systemImage: "minus.circle")
         }
@@ -1661,26 +1893,14 @@ struct TogetherPlaylistDetail: View {
     }
 
     private func performDelete(_ track: TogetherTrack) {
-        // 先把确认态收掉：reload 在确认态下会故意不重排列表。
         showDeleteConfirm = false
         pendingDelete = nil
-        if TogetherPlayer.shared.track?.id == track.id {
-            TogetherPlayer.shared.stop()
+        if player.track?.id == track.id {
+            player.stop()
         }
         TogetherStore.shared.deleteTrackPermanently(track.id, by: .user)
-        reload()
-    }
-
-    private func reload() {
-        // 确认框还挂着时先别重排列表，否则待删的那首歌可能已经从数组里消失，确认就落空了。
-        guard !showDeleteConfirm else { return }
-        let freshState = TogetherStore.shared.load()
-        if freshState.revision != state.revision { state = freshState }
-        let freshPlaylist = TogetherStore.shared.livePlaylists().first { $0.id == playlistId }
-        if freshPlaylist != playlist { playlist = freshPlaylist }
-        let lib = TogetherStore.shared.library()
-        let freshTracks = (freshPlaylist?.tracks ?? []).compactMap { lib.track(id: $0) }
-        if freshTracks != tracks { tracks = freshTracks }
+        hub.refreshLibraryNow()
+        hub.refreshNow()
     }
 }
 
@@ -1691,9 +1911,30 @@ struct TogetherAddSongsSheet: View {
     let playlistId: String
 
     @Environment(\.dismiss) private var dismiss
-    @State private var all: [TogetherTrack] = []
+    @ObservedObject private var hub = TogetherStateHub.shared
+
+    /// 这张单子只给活着的歌单加歌：歌单删了， sheet 里就直说，不再往死单子里加。
+    private var playlistAlive: Bool {
+        hub.state.playlists.contains { $0.id == playlistId && !$0.deleted }
+    }
+    private var all: [TogetherTrack] { hub.library.tracks }
 
     var body: some View {
+        if !playlistAlive {
+            VStack(spacing: 12) {
+                Text(TogetherCopy.fileMissing)
+                    .font(ChatFont.font(14, weight: .medium))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                Button(TogetherCopy.cancel) { dismiss() }
+                    .font(ChatFont.font(13, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
+                    .padding(.horizontal, 20)
+                    .frame(minHeight: 44)
+                    .background(Capsule().fill(CSSThemeVariables.accent(scope: .chat)))
+                    .togetherPress()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
         VStack(alignment: .leading, spacing: 0) {
             Text(TogetherCopy.addSongs)
                 .font(ChatFont.font(16, weight: .semibold))
@@ -1706,7 +1947,9 @@ struct TogetherAddSongsSheet: View {
                 VStack(spacing: 0) {
                     ForEach(all) { track in
                         Button {
+                            TogetherHaptics.select()
                             TogetherStore.shared.addTrack(track.id, to: playlistId)
+                            hub.refreshNow()
                         } label: {
                             HStack(spacing: 12) {
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -1728,13 +1971,11 @@ struct TogetherAddSongsSheet: View {
                             .padding(.horizontal, 22)
                             .padding(.vertical, 9)
                         }
-                        .buttonStyle(.plain)
+                        .togetherPress()
                     }
                 }
             }
         }
-        .onAppear {
-            all = TogetherStore.shared.library().tracks
         }
     }
 }
