@@ -178,33 +178,38 @@ enum TogetherCopy {
 // MARK: - 一起听：壁纸明暗 → 前景变量
 
 /// 壁纸是深是浅，决定这一页用哪套前景变量。
-/// 深壁纸配浅色那套，浅壁纸配深色那套；没图按浅底算（跟主题底色一致）。
+/// 不看"我觉得深"——直接把壁纸平均色拿出来，跟两套主文字色算真实对比度，哪套读得清用哪套。
+/// 没图就返回 nil：这时页面底就是主题底色，前景回主题那套，字和底永远成套。
 @MainActor
 enum TogetherTone {
 
-    /// 把图缩到 1×1 读平均亮度。0 全黑，1 全白。
-    static func brightness(of image: UIImage) -> Double {
-        guard let cg = image.cgImage else { return 1 }
+    /// 把图缩到 1×1 读平均色（十六进制）。
+    static func averageHex(of image: UIImage) -> String? {
+        guard let cg = image.cgImage else { return nil }
         var pixel = [UInt8](repeating: 255, count: 4)
         let space = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(data: &pixel, width: 1, height: 1,
                                   bitsPerComponent: 8, bytesPerRow: 4, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
-            return 1
+            return nil
         }
         ctx.interpolationQuality = .medium
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-        let r = Double(pixel[0]) / 255
-        let g = Double(pixel[1]) / 255
-        let b = Double(pixel[2]) / 255
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return String(format: "#%02X%02X%02X", pixel[0], pixel[1], pixel[2])
     }
 
-    /// 当前槽位的壁纸该配哪套前景。图不在就当浅底。
-    static func variant(for slot: String) -> AppearanceVariant {
+    /// 当前槽位该配哪套前景。图不在返回 nil。
+    static func variant(for slot: String) -> AppearanceVariant? {
         guard let url = TogetherImages.url(for: slot),
-              let img = TogetherImages.cachedImage(for: url) else { return .light }
-        return brightness(of: img) < 0.5 ? .dark : .light
+              let img = TogetherImages.cachedImage(for: url),
+              let avg = averageHex(of: img) else { return nil }
+
+        // 深色那套 = 浅字，浅色那套 = 深字。谁的对比度高用谁。
+        let onDark = AppearanceStudio.snapshotHex(.primaryText, scope: .chat, variant: .dark)
+        let onLight = AppearanceStudio.snapshotHex(.primaryText, scope: .chat, variant: .light)
+        let lightTextContrast = AppearanceContrast.ratio(onDark, on: avg)
+        let darkTextContrast = AppearanceContrast.ratio(onLight, on: avg)
+        return lightTextContrast >= darkTextContrast ? .dark : .light
     }
 }
 

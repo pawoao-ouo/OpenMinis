@@ -135,9 +135,9 @@ struct TogetherRootView: View {
             Image(systemName: "chevron.down")
                 .font(ChatFont.font(14, weight: .semibold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                .frame(width: 34, height: 34)
-                .background(CSSThemeVariables.optionBg(scope: .chat))
-                .clipShape(Circle())
+                .frame(width: 36, height: 36)
+                // 跟黑胶、底栏同一套语言：系统玻璃，不垫色块
+                .glassEffect(.regular, in: .circle)
         }
         .buttonStyle(.plain)
         .padding(.leading, 22)
@@ -152,34 +152,29 @@ struct TogetherRootView: View {
                 Button {
                     withAnimation(.easeOut(duration: 0.18)) { tab = item }
                 } label: {
-                    VStack(spacing: 4) {
+                    VStack(spacing: 3) {
+                        // 选中换实心 + 加字重，不只靠颜色，扫一眼就分得清
                         Image(systemName: tab == item ? item.symbolFilled : item.symbol)
-                            .font(ChatFont.font(17, weight: .medium))
+                            .font(ChatFont.font(17, weight: tab == item ? .semibold : .regular))
+                            .frame(height: 20)
                         Text(item.title)
-                            .font(ChatFont.font(9.5, weight: .medium))
-                            .tracking(0.6)
+                            .font(ChatFont.font(9.5, weight: tab == item ? .semibold : .medium))
+                            .tracking(0.4)
                     }
                     .foregroundStyle(
                         tab == item
-                            ? CSSThemeVariables.accent(scope: .chat)
-                            : CSSThemeVariables.textDim(scope: .chat).opacity(0.7)
+                            ? CSSThemeVariables.textMain(scope: .chat)
+                            : CSSThemeVariables.textDim(scope: .chat).opacity(0.65)
                     )
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .frame(height: 56)
-        // 悬浮胶囊：左右留边、底部让出安全区，壁纸从胶囊四周透出来。
-        // 不再画满宽实色条，也不再贴一条分界线——那都会把壁纸硬切断。
-        .background(
-            Capsule(style: .continuous)
-                .fill(CSSThemeVariables.card(scope: .chat).opacity(0.55))
-                .overlay(
-                    Capsule(style: .continuous)
-                        .strokeBorder(CSSThemeVariables.divider(scope: .chat).opacity(0.5), lineWidth: 0.5)
-                )
-        )
+        .frame(height: 58)
+        // 系统玻璃胶囊：壁纸从栏里透出来，不垫灰、不描边。
+        // 手拼的「模糊 + 阴影 + 半透明」不算玻璃，这里只用系统给的 glassEffect。
+        .glassEffect(.regular, in: .capsule)
         .padding(.horizontal, 18)
         .padding(.bottom, 6)
     }

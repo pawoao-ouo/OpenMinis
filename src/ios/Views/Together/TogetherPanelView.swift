@@ -857,46 +857,51 @@ struct TogetherDiscView: View {
 
     private var disc: some View {
         ZStack {
-            Circle().fill(vinylFill)
+            // 盘身是系统玻璃，不是颜色片：壁纸从唱片里透出来，深壁纸浅壁纸都是玻璃唱片。
+            // 这里不许引用任何文字色变量——一引用就成了会跟着主题变白变灰的假唱片。
+            Circle()
+                .fill(Color.clear)
+                .glassEffect(.regular, in: .circle)
+
             rings
             label
             hole
         }
         .frame(width: size, height: size)
+        .contentShape(Circle())
     }
 
-    private var vinylFill: RadialGradient {
-        RadialGradient(colors: [TogetherSkin.vinyl.opacity(0.92),
-                                TogetherSkin.vinyl,
-                                TogetherSkin.vinyl],
-                       center: .center, startRadius: 10, endRadius: size / 2)
-    }
-
+    /// 纹路用中性黑白极淡叠出来的，不取主题色：任何底上都看得见，也不改变玻璃的通透。
     private var rings: some View {
         ForEach(1..<26, id: \.self) { i in
             Circle()
-                .strokeBorder(TogetherSkin.vinylRing, lineWidth: 1)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.22), Color.black.opacity(0.12)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.8
+                )
                 .padding(size / 2 * CGFloat(i) / 26 * 0.94)
         }
     }
 
+    /// 中心标：系统材质圆片，字用系统次级颜色，深浅底上都读得清。
     private var label: some View {
         Circle()
-            .fill(CSSThemeVariables.card(scope: .chat))
+            .fill(.regularMaterial)
             .frame(width: size * 0.552, height: size * 0.552)
             .overlay(
                 Image(systemName: "headphones")
-                    .font(ChatFont.font(size * 0.16, weight: .light))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-            )
-            .overlay(
-                Circle().strokeBorder(CSSThemeVariables.bg(scope: .chat).opacity(0.25), lineWidth: 0.8)
+                    .font(ChatFont.font(size * 0.16, weight: .regular))
+                    .foregroundStyle(.secondary)
             )
     }
 
     private var hole: some View {
         Circle()
-            .fill(CSSThemeVariables.bg(scope: .chat).opacity(0.9))
+            .fill(Color.black.opacity(0.45))
             .frame(width: 6, height: 6)
     }
 
@@ -904,7 +909,9 @@ struct TogetherDiscView: View {
         HStack {
             Spacer()
             Capsule()
-                .fill(CSSThemeVariables.textMain(scope: .chat).opacity(0.35))
+                // 唱臂也走中性色：跟着文字色走会在深底上消失。
+                .fill(LinearGradient(colors: [Color.white.opacity(0.55), Color.black.opacity(0.28)],
+                                     startPoint: .top, endPoint: .bottom))
                 .frame(width: 2.5, height: size * 0.384)
                 .rotationEffect(.degrees(21))
                 .offset(x: -6, y: -size * 0.30)
@@ -1026,7 +1033,7 @@ struct TogetherEchoDrawerView: View {
                     }
                     .padding(12)
                     .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .fill(CSSThemeVariables.card(scope: .chat))
                     )
                 }
@@ -1044,7 +1051,7 @@ struct TogetherEchoDrawerView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
                 .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(CSSThemeVariables.optionBg(scope: .chat))
                 )
 
@@ -1356,7 +1363,7 @@ struct TogetherThemeCenterView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
                     .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(CSSThemeVariables.optionBg(scope: .chat))
                     )
             }

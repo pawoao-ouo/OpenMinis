@@ -449,7 +449,7 @@ struct TogetherLibraryView: View {
                 }
                 .font(ChatFont.font(14, weight: .semibold))
                 .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 22)
                 .padding(.vertical, 9)
                 .background(Capsule().fill(CSSThemeVariables.accent(scope: .chat)))
             }
@@ -667,7 +667,7 @@ struct TogetherLikedView: View {
                         }
                         .font(ChatFont.font(13, weight: .semibold))
                         .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, 22)
                         .padding(.vertical, 10)
                         .background(Capsule().fill(CSSThemeVariables.accent(scope: .chat)))
                     }
@@ -723,7 +723,7 @@ struct TogetherLikedView: View {
     }
 
     private var cover: some View {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
             .fill(TogetherCover.fill("cover-now"))
             .frame(width: 172, height: 172)
             .overlay(
@@ -934,11 +934,11 @@ struct TogetherSyncView: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(CSSThemeVariables.card(scope: .chat))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(CSSThemeVariables.optionBorder(scope: .chat), lineWidth: 0.5)
         )
     }
@@ -1005,7 +1005,7 @@ struct TogetherSyncView: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(CSSThemeVariables.optionBg(scope: .chat).opacity(0.6))
         )
     }
@@ -1553,7 +1553,7 @@ struct TogetherPlaylistDetail: View {
                 }
                 .font(ChatFont.font(13, weight: .semibold))
                 .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 22)
                 .padding(.vertical, 10)
                 .background(Capsule().fill(CSSThemeVariables.accent(scope: .chat)))
             }
@@ -1709,7 +1709,7 @@ struct TogetherAddSongsSheet: View {
                             TogetherStore.shared.addTrack(track.id, to: playlistId)
                         } label: {
                             HStack(spacing: 12) {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
                                     .fill(TogetherCover.fill(track.cover))
                                     .frame(width: 36, height: 36)
                                 VStack(alignment: .leading, spacing: 2) {
