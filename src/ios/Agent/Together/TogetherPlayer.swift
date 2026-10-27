@@ -153,7 +153,7 @@ final class TogetherPlayer: ObservableObject {
     /// 先看音频文件在不在——不在就一个字都不改、不打断当前这首，只报一声错。
     @discardableResult
     func start(_ newTrack: TogetherTrack, from position: Double = 0,
-               by actor: TogetherActor, queue: [String]? = nil) -> Bool {
+               by actor: TogetherActor, queue: [String]? = nil, queueSource: String? = nil) -> Bool {
         guard let url = store.audioURL(for: newTrack),
               FileManager.default.fileExists(atPath: url.path) else {
             logger.error("[Together] \(newTrack.title) 的音频文件不在，没换歌")
@@ -161,7 +161,7 @@ final class TogetherPlayer: ObservableObject {
             return false
         }
         load(newTrack, from: position)
-        store.play(trackId: newTrack.id, at: position, by: actor, queue: queue)
+        store.play(trackId: newTrack.id, at: position, by: actor, queue: queue, queueSource: queueSource)
         return true
     }
 

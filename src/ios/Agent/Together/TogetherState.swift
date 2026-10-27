@@ -70,6 +70,9 @@ struct TogetherPlayback: Codable, Equatable {
     var repeatAll: Bool = false
     /// 真正的播放队列（trackId 顺序）。空就按曲库顺序播。
     var queue: [String] = []
+    /// 当前队列是从哪个列表点进来的（"liked" / "all-songs" / "library" / 歌单 id）。
+    /// 只记来源、不记人名：队列页标"这串歌从哪来"用。老文件没有 → nil，不编。
+    var queueSource: String?
     /// 随机播放时的固定出牌顺序（Nuage 的两数组做法：queue 不动，顺序单独存）。
     /// 持久化：切歌/切列表/开关随机都不重洗，当前这首钉在原地。
     var shuffleOrder: [String] = []
@@ -90,6 +93,7 @@ struct TogetherPlayback: Codable, Equatable {
         // 老数据没有这一项：读成"关"，不崩、不丢别的字段。
         repeatAll = (try? c.decodeIfPresent(Bool.self, forKey: .repeatAll)) ?? false
         queue = (try? c.decodeIfPresent([String].self, forKey: .queue)) ?? []
+        queueSource = try? c.decodeIfPresent(String.self, forKey: .queueSource)
         shuffleOrder = (try? c.decodeIfPresent([String].self, forKey: .shuffleOrder)) ?? []
         heldPause = (try? c.decodeIfPresent(Bool.self, forKey: .heldPause)) ?? false
     }
@@ -366,8 +370,9 @@ struct TogetherDevice: Codable, Equatable {
         lastSeen = (try? c.decodeIfPresent(Int.self, forKey: .lastSeen)) ?? 0
     }
 
-    /// 在场是量出来的，不是按钮按出来的：online 标志位 + lastSeen 在窗口内才算在场。
-    /// 只有写过东西（播放/切歌/开面板）才刷新 lastSeen，按钮本身不许把它按成 true。
+    /// 在场是量出来的：online 只是"曾经在场过"的闩（markSeen 在真实在场
+    /// 入口——打开面板/同步页、点播放——才置 true），lastSeen 在 10 分钟
+    /// 窗口内才算在场。光 online=true、lastSeen 旧了，一律算不在场。
     func seenRecently(now: Int, window: Int = 600) -> Bool {
         online && lastSeen > 0 && now - lastSeen <= window
     }

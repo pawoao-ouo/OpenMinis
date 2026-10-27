@@ -652,7 +652,7 @@ struct TogetherAllSongsView: View {
                             onTap: {
                                 TogetherHaptics.select()
                                 // 点哪首就从哪首开始，队列就是眼前这个列表（搜过就是搜到的列表）。
-                                player.start(track, by: .user, queue: filtered.map { $0.id })
+                                player.start(track, by: .user, queue: filtered.map { $0.id }, queueSource: "all-songs")
                             }
                         )
                         .contextMenu {
@@ -766,7 +766,7 @@ struct TogetherLikedView: View {
                         TogetherHaptics.tap()
                         guard let first = liked.first else { return }
                         // 从喜欢页点全部播放：队列就是喜欢页这个列表，不是整个曲库。
-                        player.start(first, by: .user, queue: liked.map { $0.id })
+                        player.start(first, by: .user, queue: liked.map { $0.id }, queueSource: "liked")
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "play.fill")
@@ -807,7 +807,7 @@ struct TogetherLikedView: View {
                             ),
                             onTap: {
                                 TogetherHaptics.select()
-                                player.start(track, by: .user, queue: liked.map { $0.id })
+                                player.start(track, by: .user, queue: liked.map { $0.id }, queueSource: "liked")
                             }
                         )
                         Divider()
@@ -1915,7 +1915,7 @@ struct TogetherPlaylistDetail: View {
                 TogetherHaptics.tap()
                 guard let first = tracks.first else { return }
                 // 歌单详情全部播放：队列就是这个歌单
-                player.start(first, by: .user, queue: tracks.map { $0.id })
+                player.start(first, by: .user, queue: tracks.map { $0.id }, queueSource: playlistId)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "play.fill")
@@ -1935,7 +1935,7 @@ struct TogetherPlaylistDetail: View {
                 guard let pick = tracks.randomElement() else { return }
                 // 随机按钮要真的打开随机模式，不是"悄悄放一首随机的、模式还关着"。
                 // 先播、播成了再翻模式：文件不见了播不成，模式也不许被翻过去。
-                if player.start(pick, by: .user, queue: tracks.map { $0.id }) {
+                if player.start(pick, by: .user, queue: tracks.map { $0.id }, queueSource: playlistId) {
                     // 一次写完：随机开、两个循环关，状态里只记一条事件。
                     TogetherStore.shared.setModes(shuffle: true, repeatOne: false, repeatAll: false, by: .user)
                 }
@@ -1979,7 +1979,7 @@ struct TogetherPlaylistDetail: View {
             trailing: AnyView(rowTrailing(track)),
             onTap: {
                 TogetherHaptics.select()
-                player.start(track, by: .user, queue: tracks.map { $0.id })
+                player.start(track, by: .user, queue: tracks.map { $0.id }, queueSource: playlistId)
             }
         )
         .contextMenu { rowContextMenu(track) }
@@ -2022,7 +2022,7 @@ struct TogetherPlaylistDetail: View {
     @ViewBuilder
     private func rowContextMenu(_ track: TogetherTrack) -> some View {
         Button {
-            player.start(track, by: .user, queue: tracks.map { $0.id })
+            player.start(track, by: .user, queue: tracks.map { $0.id }, queueSource: playlistId)
         } label: {
             Label(AppLocalized("Play", comment: "一起听 · 播放"), systemImage: "play.fill")
         }

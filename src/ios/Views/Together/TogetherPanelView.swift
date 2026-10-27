@@ -1414,6 +1414,94 @@ struct TogetherQueueDrawerView: View {
         return TogetherCopy.inOrderEcho
     }
 
+    /// 队列顶上的模式开关：随机 / 循环，点一下就改，不用回面板。
+    /// 和面板底下那排是同一套写盘口（setModes），状态永远一致。
+    /// 来源标在同一行：只写真的记下来的来源，没记就什么都不写，不编一个出来。
+    private var modeControls: some View {
+        Section {
+            HStack(spacing: 10) {
+                modeButton(
+                    label: TogetherCopy.shuffleEcho,
+                    systemImage: "shuffle",
+                    active: state.playback.shuffle
+                ) {
+                    TogetherHaptics.select()
+                    TogetherStore.shared.setModes(shuffle: !state.playback.shuffle)
+                    hub.refreshNow()
+                }
+                modeButton(
+                    label: repeatButtonLabel,
+                    systemImage: state.playback.repeatOne ? "repeat.1" : "repeat",
+                    active: state.playback.repeatOne || state.playback.repeatAll
+                ) {
+                    TogetherHaptics.select()
+                    cycleRepeatMode()
+                    hub.refreshNow()
+                }
+                if let source = queueSourceLabel {
+                    Spacer(minLength: 0)
+                    Text(source)
+                        .font(ChatFont.font(11))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                        .lineLimit(1)
+                }
+            }
+            .listRowBackground(CSSThemeVariables.bg(scope: .chat))
+        }
+    }
+
+    private var repeatButtonLabel: String {
+        if state.playback.repeatOne { return TogetherCopy.repeatOneEcho }
+        if state.playback.repeatAll { return TogetherCopy.repeatAllEcho }
+        return TogetherCopy.a11yRepeat
+    }
+
+    /// 循环三态：关 → 全部循环 → 单曲循环 → 关。和面板底下那颗键同一套。
+    private func cycleRepeatMode() {
+        let p = state.playback
+        if p.repeatOne {
+            TogetherStore.shared.setModes(repeatOne: false, repeatAll: false)
+        } else if p.repeatAll {
+            TogetherStore.shared.setModes(repeatOne: true, repeatAll: false)
+        } else {
+            TogetherStore.shared.setModes(repeatOne: false, repeatAll: true)
+        }
+    }
+
+    private func modeButton(label: String, systemImage: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                Text(label)
+            }
+            .font(ChatFont.font(12, weight: .medium))
+            .foregroundStyle(active ? CSSThemeVariables.accentFg(scope: .chat) : CSSThemeVariables.textMain(scope: .chat))
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .background(Capsule().fill(active ? CSSThemeVariables.accent(scope: .chat) : CSSThemeVariables.optionBg(scope: .chat)))
+            .contentShape(Rectangle())
+        }
+        .togetherPress()
+        .accessibilityLabel(label)
+    }
+
+    /// 队列来源：只认点歌时记下来的那份（"liked" / "all-songs" / "library" / 歌单 id）。
+    /// 没记（老文件、AI 接歌）就不写；歌单删了、名字没了，也不写。
+    private var queueSourceLabel: String? {
+        switch state.playback.queueSource {
+        case "liked":
+            return AppLocalized("Liked songs", comment: "一起听 · 喜欢列表")
+        case "all-songs":
+            return TogetherCopy.allSongs
+        case "library":
+            return TogetherCopy.libraryOrderTitle
+        case let id?:
+            return hub.state.playlists.first { $0.id == id && !$0.deleted }?.name
+        case nil:
+            return nil
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -1446,6 +1534,7 @@ struct TogetherQueueDrawerView: View {
     /// 随机 + 知道当前在哪：已播过的那段 + 接下来那段，分两组，当前这首钉在交界。
     private var shuffledList: some View {
         List {
+            modeControls
             if currentIndex > 0 {
                 Section {
                     ForEach(Array(displayOrder[0..<currentIndex].enumerated()), id: \.element.id) { idx, track in
@@ -1468,6 +1557,7 @@ struct TogetherQueueDrawerView: View {
     /// 顺序播放（或当前这首不在列表里）：一组到底，当前这首标出来。
     private var plainList: some View {
         List {
+            modeControls
             Section {
                 ForEach(Array(displayOrder.enumerated()), id: \.element.id) { idx, track in
                     queueRow(track, index: "\(idx + 1)", section: .plain)
@@ -1488,14 +1578,20 @@ struct TogetherQueueDrawerView: View {
 
     private func queueRow(_ track: TogetherTrack, index: String, section: QueueSection) -> some View {
         let isCurrent = player.track?.id == track.id
-        let hasNote = state.notes.contains { $0.trackId == track.id }
+        let trackNotes = state.notes.filter { $0.trackId == track.id }
+        let hasNote = !trackNotes.isEmpty
+        // 两人都刻过字（from 两边都有）：才是"我们一起刻的"，配一枚不一样的标记。
+        // 只有一方刻过，还是原来那枚小引号。
+        let hasJointNote = trackNotes.contains { $0.from == TogetherActor.user.rawValue }
+            && trackNotes.contains { $0.from == TogetherActor.ai.rawValue }
         return Button {
             TogetherHaptics.select()
             // 点哪首就从哪首开始，队列保持存着的那一份（随机时游标跟过去，
             // 不重洗）；队列是空的才用曲库顺序当队列。
             let queue = storedQueue.isEmpty ? library.tracks.map { $0.id } : storedQueue
-            // 播成了才关抽屉：文件不见了播不成，抽屉留着、报错看得见，她还能点别的。
-            if TogetherPlayer.shared.start(track, by: .user, queue: queue) {
+            // 来源留着原来那份（没存队列时才是曲库顺序）：换一首不许把来源洗掉。
+            let source = storedQueue.isEmpty ? "library" : state.playback.queueSource
+            if TogetherPlayer.shared.start(track, by: .user, queue: queue, queueSource: source) {
                 dismiss()
             }
         } label: {
@@ -1504,7 +1600,8 @@ struct TogetherQueueDrawerView: View {
                 index: index,
                 isCurrent: isCurrent,
                 isPlaying: player.isPlaying,
-                hasNote: hasNote
+                hasNote: hasNote,
+                hasJointNote: hasJointNote
             )
             .opacity(section == .played ? 0.55 : 1)
         }
@@ -1515,6 +1612,7 @@ struct TogetherQueueDrawerView: View {
     /// 队列是空的：直说空，再把曲库顺序标明身份列出来，点一首就以曲库为队列开始播。
     private var emptyQueueView: some View {
         List {
+            modeControls
             Section {
                 VStack(spacing: 8) {
                     Image(systemName: "list.bullet")
@@ -1569,6 +1667,8 @@ private struct TogetherQueueRow: View {
     let isCurrent: Bool
     let isPlaying: Bool
     let hasNote: Bool
+    /// 两人都刻过字：合刻标记，和单方刻字的引号不一样。
+    let hasJointNote: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1598,8 +1698,13 @@ private struct TogetherQueueRow: View {
 
             Spacer()
 
-            // 这首歌上有我们刻的字：一枚小引号，不抢眼。
-            if hasNote {
+            // 刻字标记：两人都刻过是一枚实心引号气泡（合刻），
+            // 只有一方刻过是原来那枚小引号，不抢眼。
+            if hasJointNote {
+                Image(systemName: "quote.bubble.fill")
+                    .font(ChatFont.font(12, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+            } else if hasNote {
                 Image(systemName: "text.quote")
                     .font(ChatFont.font(10, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))

@@ -556,9 +556,11 @@ extension TogetherStore {
     /// 所有"点歌/切歌/播完接歌"最后都落在这里：先验文件在不在，
     /// 不在就一个字都不写（上一首接着响），只报一声错。
     /// queue 传了就用传的那个列表；传空数组 = 明确清掉；没传 = 保持原样——
-    /// 谁按播放都不许顺手把对方的队列清掉。
+    /// 谁按播放都不许顺手把对方的队列清掉。queueSource 是队列的来源
+    /// （"liked" / "all-songs" / "library" / 歌单 id），给了才记；
+    /// 没给（AI 续播/接歌）就留着原来那份，不许清成 nil。
     func play(trackId: String, at position: Double = 0, by actor: TogetherActor,
-              queue: [String]? = nil) {
+              queue: [String]? = nil, queueSource: String? = nil) {
         guard let track = library().track(id: trackId) else {
             togetherLogger.error("[Together] 曲库里没有 \(trackId)")
             return
@@ -580,6 +582,9 @@ extension TogetherStore {
             state.playback.updatedAt = TogetherStore.now()
             if let q = queue {
                 state.playback.queue = q
+                if let source = queueSource {
+                    state.playback.queueSource = source
+                }
             }
             state.me.presence.listening = true
             state.me.presence.updatedAt = TogetherStore.now()
@@ -1311,6 +1316,10 @@ extension TogetherStore {
             state.notes.removeAll { deadIds.contains($0.trackId) }
             // 队列和历史里也留着它的 id：不清的话，删完再点下一首会又把它捞回来。
             state.playback.queue.removeAll { deadIds.contains($0) }
+            if state.playback.queue.isEmpty {
+                // 队列空了就是"按曲库顺序"，来源也没了，不留一个指着空列表的来源。
+                state.playback.queueSource = nil
+            }
             state.me.history.removeAll { deadIds.contains($0.trackId) }
             if let current = state.track?.id, deadIds.contains(current) {
                 state.track = nil
