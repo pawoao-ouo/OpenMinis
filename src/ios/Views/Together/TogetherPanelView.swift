@@ -46,7 +46,8 @@ struct TogetherPanelView: View {
     @State private var resonancePulse = false
     @State private var heartbeatGen = 0
 
-    /// 唯一真源：Hub 的状态。面板/Sync/微控条读的是同一份，
+    /// 唯一真源：Hub 的状态 + 本机播放器。当前这首歌以播放器为准
+    /// （player.track），面板 / Sync / 微控条三处读同一处，
     /// 不会再出现面板一首歌、别处另一首歌。
     private var state: TogetherState { hub.state }
     /// 正在响的那首：播放器说了算。文件没了、播放器没装上时，

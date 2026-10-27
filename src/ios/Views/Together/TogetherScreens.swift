@@ -828,6 +828,7 @@ struct TogetherLikedView: View {
 struct TogetherSyncView: View {
 
     @Environment(\.togetherPersonaId) private var sessionPersonaId
+    @Environment(\.togetherSelectedTab) private var selectedTab
     @ObservedObject private var hub = TogetherStateHub.shared
     @ObservedObject private var player = TogetherPlayer.shared
 
@@ -878,6 +879,9 @@ struct TogetherSyncView: View {
             .padding(.bottom, 30)
         }
         .onAppear {
+            // 先恢复播放器：面板没开过时，本机还没装上那首歌，卡片不能
+            // 拿共享状态当幌子。恢复按文件状态走（在放就响、停着就停）。
+            player.restoreIfNeeded()
             // 她打开这页就是她在场：刷新她这一侧的在场时间，AI 那边才能看见她来了。
             TogetherStore.shared.markSeen(by: .user)
             hub.refreshNow()
@@ -991,21 +995,33 @@ struct TogetherSyncView: View {
         return driving
     }
 
+    /// 当前这首卡：读本机播放器的那首（player.track），和面板、微控条同一处真相。
+    /// 跟随收敛没接过来之前，共享状态里的歌和本机正在播的可能不是同一首，
+    /// 卡片不能一边显示共享的歌、一边拿本机的歌当按钮目标。
+    /// 播放器还没恢复时（刚打开 App、面板没开过），才拿共享的那首当"待装载"：
+    /// 按钮先恢复再决定播停。两边都没有歌，就老实说没歌，不画假按钮。
+    @ViewBuilder
     private var currentCard: some View {
-        // 这张卡读的是共享状态里的那首歌（state.track），不是本机播放器的那首：
-        // 两边说的必须同一首，面板、卡片、小卡三处才不会各说各的。
-        // 本机还没跟上时（刚打开），先显示共享的那首，播放器随后会跟过来。
-        let sharedTrack = state.track ?? player.track
-        return HStack(spacing: 12) {
-            TogetherCoverView(key: sharedTrack?.cover, corner: 12)
+        if let track = player.track {
+            liveCard(track: track)
+        } else if let shared = state.track {
+            pendingCard(track: shared)
+        } else {
+            emptyCard
+        }
+    }
+
+    private func liveCard(track: TogetherTrack) -> some View {
+        HStack(spacing: 12) {
+            TogetherCoverView(key: track.cover, corner: 12)
                 .frame(width: 52, height: 52)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(sharedTrack?.title ?? TogetherCopy.untitledTrack)
+                Text(track.title)
                     .font(ChatFont.font(14, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                     .lineLimit(1)
-                Text(sharedTrack?.artist ?? "")
+                Text(track.artist)
                     .font(ChatFont.font(11.5))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
                     .lineLimit(1)
@@ -1028,6 +1044,102 @@ struct TogetherSyncView: View {
             }
             .togetherPress()
             .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(CSSThemeVariables.card(scope: .chat))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(CSSThemeVariables.optionBorder(scope: .chat), lineWidth: 0.5)
+        )
+    }
+
+    /// 共享状态里有歌、本机还没装上：显示共享的那首，按钮先恢复。
+    /// 恢复时文件说"在放"会直接响，不用再按；文件说"停着"，这一按
+    /// 才是恢复并清掉攥住的暂停。文件不见了就报一声，不装作能播。
+    private func pendingCard(track: TogetherTrack) -> some View {
+        HStack(spacing: 12) {
+            TogetherCoverView(key: track.cover, corner: 12)
+                .frame(width: 52, height: 52)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(track.title)
+                    .font(ChatFont.font(14, weight: .medium))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                    .lineLimit(1)
+                Text(track.artist)
+                    .font(ChatFont.font(11.5))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                TogetherHaptics.tap()
+                player.restoreIfNeeded()
+                hub.refreshNow()
+                if player.track != nil, !player.isPlaying {
+                    player.userPlay()
+                    hub.refreshNow()
+                } else if player.track == nil {
+                    MinisToast.show(TogetherCopy.fileMissing, systemImage: "exclamationmark.triangle.fill")
+                }
+            } label: {
+                Image(systemName: "play.fill")
+                    .font(ChatFont.font(14, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
+                    .frame(width: 44, height: 44)
+                    .background(CSSThemeVariables.accent(scope: .chat))
+                    .clipShape(Circle())
+                    .contentShape(Rectangle())
+            }
+            .togetherPress()
+            .accessibilityLabel(TogetherCopy.a11yPlay)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(CSSThemeVariables.card(scope: .chat))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(CSSThemeVariables.optionBorder(scope: .chat), lineWidth: 0.5)
+        )
+    }
+
+    /// 两边都没有歌：不画"Untitled track"，不画点了没反应的播放键。
+    /// 只有一个去曲库的真按钮。
+    private var emptyCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "music.note")
+                .font(ChatFont.font(20, weight: .medium))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                .frame(width: 52, height: 52)
+                .background(Circle().fill(CSSThemeVariables.optionBg(scope: .chat)))
+
+            Text(TogetherCopy.nothingPlaying)
+                .font(ChatFont.font(14, weight: .medium))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            Button {
+                TogetherHaptics.select()
+                selectedTab.wrappedValue = .library
+            } label: {
+                Text(TogetherCopy.browseSongs)
+                    .font(ChatFont.font(12, weight: .medium))
+                    .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
+                    .background(CSSThemeVariables.accent(scope: .chat))
+                    .clipShape(Capsule())
+            }
+            .togetherPress()
         }
         .padding(12)
         .background(
@@ -1082,7 +1194,8 @@ struct TogetherSyncView: View {
     }
 
     private var latestAINote: TogetherNote? {
-        guard let trackId = state.track?.id ?? player.track?.id else { return nil }
+        // 和卡片同一处真相：本机正在播的那首优先，共享状态只当没恢复时的后备。
+        guard let trackId = player.track?.id ?? state.track?.id else { return nil }
         return state.notes
             .filter { $0.trackId == trackId && $0.from == TogetherActor.ai.rawValue }
             .max(by: { $0.ts < $1.ts })
