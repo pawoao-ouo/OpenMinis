@@ -812,7 +812,7 @@ extension TogetherStore {
         let rel = "together/images/\(dest.lastPathComponent)"
         TogetherImages.invalidate(slot)
         mutate(by: .user, event: "image") { $0.images[slot] = rel }
-        NotificationCenter.default.post(name: Self.didSetNotification, object: slot)
+        NotificationCenter.default.post(name: TogetherImages.didSetNotification, object: slot)
         return rel
     }
 
@@ -823,7 +823,7 @@ extension TogetherStore {
         }
         mutate(by: .user, event: "image") { $0.images.removeValue(forKey: slot) }
         TogetherImages.invalidate(slot)
-        NotificationCenter.default.post(name: Self.didSetNotification, object: slot)
+        NotificationCenter.default.post(name: TogetherImages.didSetNotification, object: slot)
     }
 
     /// 相对 shared 根的图片路径 → URL。文件不在就当没有。
@@ -925,7 +925,7 @@ extension TogetherStore {
     func mergeLyricsCoverIntoNow() {
         guard TogetherImages.url(for: TogetherImages.wallpaperNow) == nil else { return }
         guard let old = TogetherImages.url(for: TogetherImages.lyricsCover) else { return }
-        if TogetherImages.setImage(slot: TogetherImages.wallpaperNow, from: old) != nil {
+        if setImage(slot: TogetherImages.wallpaperNow, from: old) != nil {
             togetherLogger.info("[Together] 歌词页背景已迁成播放页壁纸")
         } else {
             togetherLogger.error("[Together] 歌词页背景迁移失败，播放页仍无壁纸")
