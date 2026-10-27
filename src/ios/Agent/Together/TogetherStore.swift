@@ -121,15 +121,42 @@ final class TogetherStore {
         queue.sync { loadLocked() }
     }
 
-    /// 只读 revision：轮询判断"变了没有"用，不解码整份状态。
-    /// 文件不在或读不出数字返回 nil，调用方当"变了"处理、走全量重读。
+    /// 只读 revision：轮询判断"变了没有"用。先读文件头找 revision 数字，
+    /// 找不到（写盘方换了字段顺序、用了紧凑格式、截断处正好切在数字上）
+    /// 才全量解析。文件不在或读不出数字返回 nil，调用方当"变了"处理、走全量重读。
     func peekRevision() -> Int? {
         queue.sync {
+            if let head = Self.fileHead(at: stateURL, limit: 1024),
+               let rev = Self.revision(in: head) {
+                return rev
+            }
             guard let data = try? Data(contentsOf: stateURL),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let rev = obj["revision"] as? Int else { return nil }
             return rev
         }
+    }
+
+    /// 文件头部的原始字节：找 revision 数字只读头，不用把整份文件读进来。
+    private static func fileHead(at url: URL, limit: Int) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        do {
+            return try handle.read(upToCount: limit)
+        } catch {
+            return nil
+        }
+    }
+
+    /// 在一小段 JSON 文本里找 "revision" 后面的整数。找不到返回 nil，
+    /// 调用方走全量解析那条路。
+    private static func revision(in head: Data) -> Int? {
+        let text = String(decoding: head, as: UTF8.self)
+        guard let keyRange = text.range(of: "\"revision\"") else { return nil }
+        let rest = text[keyRange.upperBound...]
+        guard let colon = rest.firstIndex(of: ":") else { return nil }
+        let digits = rest[rest.index(after: colon)...].prefix(while: { $0.isNumber })
+        return Int(digits)
     }
 
     /// 曲库以目录为准：shared/music 里有什么音频就有什么歌。
@@ -584,17 +611,25 @@ extension TogetherStore {
 
     /// 拖进度条。她拖的时候记一条 seek 事件，我能看见她跳到了哪。
     /// seek 是导航，不是夺遥控：不碰 playback.by，只刷新拖动这一方的 lastSeen。
+    /// 位置夹到 [0, 时长]：拖出尾巴没有意义。时长还不知道（0）就不夹上限，
+    /// 只夹 0——事件里记的和落盘的是同一个夹法，换歌插进来时以锁内最新状态为准。
     func seek(to position: Double, by actor: TogetherActor) {
-        let clamped = max(0, position)
+        let known = load().track?.duration ?? 0
+        let clamped = Self.clampedSeek(position, duration: known)
         mutate(by: actor, event: "seek",
                detail: TogetherEventDetail(position: clamped)) { state in
-            state.playback.position = clamped
+            state.playback.position = Self.clampedSeek(position, duration: state.track?.duration ?? 0)
             state.playback.updatedAt = TogetherStore.now()
             switch actor {
             case .user: state.devices.user.lastSeen = TogetherStore.now()
             case .ai: state.devices.ai.lastSeen = TogetherStore.now()
             }
         }
+    }
+
+    /// 拖动位置夹到 [0, 时长]：时长已知才夹上限，不知道就不夹。
+    private static func clampedSeek(_ position: Double, duration: Double) -> Double {
+        duration > 0 ? min(max(0, position), duration) : max(0, position)
     }
 
     /// 播放进度回写。这个不进事件流——每秒一条会把文件淹了。
@@ -1000,9 +1035,25 @@ extension TogetherStore {
     }
 
     /// 随机出牌顺序落盘。队列不变时顺序也不变，关了随机再开还是同一副牌。
+    /// 随机顺序落盘：只改 shuffleOrder 一个字段，不记事件、不动 revision、
+    /// 不发通知——顺序是播歌的副产品，不是"一次有意义的写"；每次换歌都
+    /// 叫醒所有视图重读，纯属添乱。调用方（persistShufflePlanIfNeeded）只在
+    /// 切歌流程里调，后面紧跟着 play() 的写，Hub 那边不会漏读。
+    /// 写前比对 revision，撞上别人的写就重贴到新状态上再写。
     func setShuffleOrder(_ order: [String]) {
-        mutate(by: .user, event: "") { state in
-            state.playback.shuffleOrder = order
+        queue.sync {
+            guard let fd = acquireFileLock() else { return }
+            defer { flock(fd, LOCK_UN); close(fd) }
+            for _ in 0..<3 {
+                let state = loadLocked()
+                let before = state.revision
+                var updated = state
+                updated.playback.shuffleOrder = order
+                guard loadLocked().revision == before else { continue }
+                _ = writeLocked(updated)
+                return
+            }
+            togetherLogger.info("[Together] 随机顺序回写撞上别人的写，丢掉这一笔")
         }
     }
 }

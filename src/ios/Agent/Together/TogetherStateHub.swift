@@ -89,8 +89,8 @@ final class TogetherStateHub: ObservableObject {
     // MARK: - 内部
 
     private func tick() {
-        // 轻量判断先行：只读 revision 数字，没变就不解码整份文件。
-        // revision 只在有意义的写盘时 +1，进度回写不算。
+        // 轻量判断先行：只读文件头找 revision 数字（找不到才全量解析），
+        // 没变就不解码整份文件。revision 只在有意义的写盘时 +1，进度回写不算。
         if let rev = TogetherStore.shared.peekRevision(), rev == lastStateRevision {
             refreshLibraryIfNeeded()
             return

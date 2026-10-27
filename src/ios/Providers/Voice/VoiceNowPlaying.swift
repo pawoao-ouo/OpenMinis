@@ -193,8 +193,10 @@ final class VoiceNowPlaying {
             player.seek(to: clamped)
             // 锁屏拖进度也要写进共享状态：只动本机不写盘，
             // 锁屏和面板的两条进度就各说各的，AI 那边还会把旧位置推回来。
-            // 拖进度不抢遥控器：seek 不改 by，只记"谁最后动过"。
-            TogetherStore.shared.seek(to: clamped, by: TogetherStore.shared.load().playback.by == "ai" ? .ai : .user)
+            // 锁屏 / 控制中心 / 耳机的手势一定是她本人的：by 写 .user，
+            // 刷新她这一侧的 lastSeen。以前按文件里的 by 派，AI 拿着遥控器时
+            // 她拖一下，反而把 AI 的 lastSeen 刷了，AI 就"一直在场"了。
+            TogetherStore.shared.seek(to: clamped, by: .user)
             refresh()
             return
         }
