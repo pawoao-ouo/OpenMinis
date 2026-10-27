@@ -653,14 +653,31 @@ extension TogetherStore {
 
     /// 递交落定：遥控器正式到对方手里，pending 清掉。
     @discardableResult
-    func acceptHandoff() -> Bool {
+    /// 接手递交：把 playback.by 交给 pending.to。requestedAt 传了就只认那一笔，
+    /// 新的一笔顶上来时，旧的超时落定不许错手接走新递交。
+    func acceptHandoff(requestedAt: Int? = nil) -> Bool {
         guard let pending = load().pendingHandoff, !pending.to.isEmpty else { return false }
         return mutateOrReject(by: pending.requestedBy == TogetherActor.ai.rawValue ? .ai : .user,
                               event: "handoff.accept",
                               detail: TogetherEventDetail(text: pending.to)) { state in
-            guard let p = state.pendingHandoff else { return false }
+            guard let p = state.pendingHandoff,
+                  requestedAt == nil || p.requestedAt == requestedAt else { return false }
             state.playback.by = p.to
             state.playback.updatedAt = TogetherStore.now()
+            state.pendingHandoff = nil
+            return true
+        } != nil
+    }
+
+    /// 递给她的遥控器超时没人接：递交作废，控制权原地不动。
+    /// 绝不替她接手——她没按"接过遥控器"，遥控器就还在原来那个人手里。
+    /// requestedAt 对不上（已经是新的一笔）就不动。记一条 handoff.expired，
+    /// AI 那边能看见这笔递交是过期作废、不是被谁接走了。
+    @discardableResult
+    func expireHandoff(requestedAt: Int) -> Bool {
+        mutate(by: .ai, event: "handoff.expired") { state in
+            guard let p = state.pendingHandoff,
+                  p.requestedAt == requestedAt, p.to == "user" else { return false }
             state.pendingHandoff = nil
             return true
         } != nil

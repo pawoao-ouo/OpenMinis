@@ -44,6 +44,10 @@ final class TogetherPlayer: ObservableObject {
     private var seenEventId = ""
     /// Hub 订阅：状态变了才跟，不再按秒空转。
     private var hubCancellable: AnyCancellable?
+    /// 递交看门狗：pending 悬着、又一直没有状态变化时，超时也要落定。
+    /// 只盯当前这一笔（requestedAt 对上才动），新的一笔来了旧任务作废。
+    private var handoffWatchdog: Task<Void, Never>?
+    private var watchedHandoffAt: Int?
     /// 语音压音的嵌套层数：同一段语音可能前后脚来两次开始通知，
     /// 单个 Bool 会被第二次"开始"吃掉、第一次"结束"就提前恢复。
     private var duckDepth = 0
@@ -495,23 +499,77 @@ final class TogetherPlayer: ObservableObject {
             .sink { [weak self] state in
                 Task { @MainActor in self?.followState(state) }
             }
+        // 上一轮就悬着的递交：没有状态变化它永远等不到 followState，
+        // 先给它上看门狗，超时照样落定。
+        if let pending = initial.pendingHandoff, !pending.to.isEmpty {
+            scheduleHandoffWatchdog(pending)
+        }
     }
 
     func stopFollowing() {
+        cancelHandoffWatchdog()
         hubCancellable?.cancel()
         hubCancellable = nil
         didStartFollow = false
     }
 
-    /// Hub 推来的新状态：先落定递交，再逐条回放事件，最后收敛"当前这首"。
-    private func followState(_ state: TogetherState) {
-        // 递交落定：递给她的马上接手（她就在跟前）；递给他的等 10 秒，
-        // 他有时间从 shell 那边接手，超时 App 替他落定，绝不悬着。
-        if let pending = state.pendingHandoff, !pending.to.isEmpty {
-            if pending.to == "user" || TogetherStore.now() - pending.requestedAt >= Self.handoffTimeoutSeconds {
-                if store.acceptHandoff() { return }
+    /// 递交超时看门狗：睡到 deadline，醒来再核一遍"还是同一笔、真的超时了"
+    /// 才落定。递给他的超时替他接手；递给她的超时作废——绝不替她接。
+    private func scheduleHandoffWatchdog(_ pending: TogetherPendingHandoff) {
+        guard watchedHandoffAt != pending.requestedAt else { return }
+        handoffWatchdog?.cancel()
+        watchedHandoffAt = pending.requestedAt
+        let requestedAt = pending.requestedAt
+        let to = pending.to
+        handoffWatchdog = Task { @MainActor [weak self] in
+            let remaining = max(0, requestedAt + Self.handoffTimeoutSeconds - TogetherStore.now())
+            try? await Task.sleep(nanoseconds: UInt64(remaining) * 1_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            let current = self.store.load()
+            guard let still = current.pendingHandoff,
+                  still.requestedAt == requestedAt,
+                  TogetherStore.now() - requestedAt >= Self.handoffTimeoutSeconds else { return }
+            if to == "ai" {
+                _ = self.store.acceptHandoff(requestedAt: requestedAt)
+            } else {
+                _ = self.store.expireHandoff(requestedAt: requestedAt)
             }
         }
+    }
+
+    private func cancelHandoffWatchdog() {
+        handoffWatchdog?.cancel()
+        handoffWatchdog = nil
+        watchedHandoffAt = nil
+    }
+
+    /// Hub 推来的新状态：先落定递交，再逐条回放事件，最后收敛"当前这首"。
+    private func followState(_ state: TogetherState) {
+        // 递交落定：递给他的等 10 秒，他有时间从 shell 那边接手，
+        // 超时 App 替他落定。递给她的绝不自动接手——她没按"接过遥控器"，
+        // 遥控器就还在原来那个人手里；她不理，超时这笔递交作废。
+        // 没有状态变化时看门狗也会落定（见 scheduleHandoffWatchdog）。
+        // 落定后不 return：这一轮的事件回放照常走，递交事件本身也要在
+        // 回放里把控制权翻过去，跳过回放会丢掉同一轮里别的命令。
+        if let pending = state.pendingHandoff, !pending.to.isEmpty {
+            scheduleHandoffWatchdog(pending)
+            if TogetherStore.now() - pending.requestedAt >= Self.handoffTimeoutSeconds {
+                if pending.to == "ai" {
+                    if store.acceptHandoff(requestedAt: pending.requestedAt) {
+                        // 这一轮的回放就按新控制权判：快照里的 by 还是旧的。
+                        controller = pending.to
+                    }
+                } else {
+                    _ = store.expireHandoff(requestedAt: pending.requestedAt)
+                }
+            }
+        } else {
+            cancelHandoffWatchdog()
+        }
+
+        // 遥控器在谁手里，就听谁的。先取快照里的 by，上面落定成功时
+        // 已经按新控制权改过——回放不拿旧控制权判新命令。
+        var controller = state.playback.by
 
         // 冷启动时先认盘上的状态：上一轮是"她亲手按的暂停"，这轮继续压着 AI。
         if userHeldPause == nil {
@@ -520,9 +578,6 @@ final class TogetherPlayer: ObservableObject {
         }
 
         if let last = state.events.last, last.id != seenEventId {
-            // 遥控器在谁手里，就听谁的。
-            var controller = state.playback.by
-
             // AI 连着推几条（换歌、拖动、暂停）时，只吃最后一条会把
             // 中间那次拖动吞掉。从上次吃到的那条往后按顺序逐条应用，游标最后才挪。
             let pending: [TogetherEvent]
