@@ -655,8 +655,8 @@ struct TogetherLikedView: View {
                 HStack(spacing: 12) {
                     Button {
                         guard let first = liked.first else { return }
-                        TogetherPlayer.shared.load(first)
-                        TogetherStore.shared.play(trackId: first.id, at: 0, by: .user)
+                        // 从喜欢页点全部播放：队列就是喜欢页这个列表，不是整个曲库。
+                        TogetherPlayer.shared.start(first, by: .user, queue: liked.map { $0.id })
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "play.fill")
@@ -1535,8 +1535,8 @@ struct TogetherPlaylistDetail: View {
         HStack(spacing: 12) {
             Button {
                 guard let first = tracks.first else { return }
-                TogetherPlayer.shared.load(first)
-                TogetherStore.shared.play(trackId: first.id, at: 0, by: .user)
+                // 歌单详情全部播放：队列就是这个歌单
+                TogetherPlayer.shared.start(first, by: .user, queue: tracks.map { $0.id })
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "play.fill")
@@ -1553,8 +1553,10 @@ struct TogetherPlaylistDetail: View {
 
             Button {
                 guard let pick = tracks.randomElement() else { return }
-                TogetherPlayer.shared.load(pick)
-                TogetherStore.shared.play(trackId: pick.id, at: 0, by: .user)
+                // 随机按钮要真的打开随机模式，不是"悄悄放一首随机的、模式还关着"。
+                TogetherStore.shared.setShuffle(true)
+                TogetherStore.shared.setRepeatOne(false, repeatAll: false)
+                TogetherPlayer.shared.start(pick, by: .user, queue: tracks.map { $0.id })
             } label: {
                 Image(systemName: "shuffle")
                     .font(ChatFont.font(14, weight: .medium))

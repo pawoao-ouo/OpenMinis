@@ -65,6 +65,9 @@ struct TogetherPlayback: Codable, Equatable {
     /// 顺序 / 单曲循环。面板和自动续播读同一份，不然两边各有一套。
     var shuffle: Bool = false
     var repeatOne: Bool = false
+    /// 全部循环：只有开了，最后一首的下一首才绕回第一首；关着就停在最后一首。
+    /// 旧 state.json 里没有这个字段 → 读进来当关，不许崩、不许丢别的字段。
+    var repeatAll: Bool = false
     /// 真正的播放队列（trackId 顺序）。空就按曲库顺序播。
     var queue: [String] = []
 
@@ -78,6 +81,8 @@ struct TogetherPlayback: Codable, Equatable {
         updatedAt = (try? c.decodeIfPresent(Int.self, forKey: .updatedAt)) ?? 0
         shuffle = (try? c.decodeIfPresent(Bool.self, forKey: .shuffle)) ?? false
         repeatOne = (try? c.decodeIfPresent(Bool.self, forKey: .repeatOne)) ?? false
+        // 老数据没有这一项：读成"关"，不崩、不丢别的字段。
+        repeatAll = (try? c.decodeIfPresent(Bool.self, forKey: .repeatAll)) ?? false
         queue = (try? c.decodeIfPresent([String].self, forKey: .queue)) ?? []
     }
 }

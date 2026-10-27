@@ -561,27 +561,34 @@ struct TogetherPanelView: View {
 
     private var playModeIcon: String {
         if state.playback.repeatOne { return "repeat.1" }
+        if state.playback.repeatAll { return "repeat" }
         if state.playback.shuffle { return "shuffle" }
-        return "repeat"
+        return "arrow.right"
     }
 
     private var isModeActive: Bool {
-        state.playback.repeatOne || state.playback.shuffle
+        state.playback.repeatOne || state.playback.shuffle || state.playback.repeatAll
     }
 
+    /// 四个状态轮着走：顺序 → 随机 → 单曲循环 → 全部循环 → 顺序。
+    /// 图标跟着状态走，四个状态一眼分得清。
     private func togglePlayMode() {
-        if !state.playback.shuffle && !state.playback.repeatOne {
-            // 顺序 -> 随机
-            TogetherStore.shared.setShuffle(true)
-            TogetherStore.shared.setRepeatOne(false)
-        } else if state.playback.shuffle {
-            // 随机 -> 单曲循环
+        let p = state.playback
+        if p.shuffle {
+            // 随机 → 单曲循环
             TogetherStore.shared.setShuffle(false)
-            TogetherStore.shared.setRepeatOne(true)
+            TogetherStore.shared.setRepeatOne(true, repeatAll: false)
+        } else if p.repeatOne {
+            // 单曲循环 → 全部循环
+            TogetherStore.shared.setRepeatOne(false, repeatAll: true)
+        } else if p.repeatAll {
+            // 全部循环 → 顺序
+            TogetherStore.shared.setShuffle(false)
+            TogetherStore.shared.setRepeatOne(false, repeatAll: false)
         } else {
-            // 单曲循环 -> 顺序
-            TogetherStore.shared.setShuffle(false)
-            TogetherStore.shared.setRepeatOne(false)
+            // 顺序 → 随机
+            TogetherStore.shared.setShuffle(true)
+            TogetherStore.shared.setRepeatOne(false, repeatAll: false)
         }
         state = TogetherStore.shared.load()
     }
@@ -1104,8 +1111,9 @@ struct TogetherQueueDrawerView: View {
                             index: "\(idx + 1)",
                             isCurrent: player.track?.id == track.id
                         ) {
-                            player.load(track)
-                            TogetherStore.shared.play(trackId: track.id, at: 0, by: .user)
+                            // 队列抽屉点歌：队列保持抽屉里这一份，不换成整个曲库。
+                            TogetherPlayer.shared.start(track, by: .user,
+                                                        queue: tracks.map { $0.id })
                             dismiss()
                         }
                     }

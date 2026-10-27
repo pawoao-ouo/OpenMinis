@@ -425,10 +425,20 @@ final class TogetherStore {
 extension TogetherStore {
 
     /// 她或者我按了播放。
+    /// 所有"点歌/切歌/播完接歌"最后都落在这里：先验文件在不在，
+    /// 不在就一个字都不写（上一首接着响），只报一声错。
+    /// queue 传了就用传的那个列表；传空数组 = 明确清掉；AI 没传队列就当清掉，
+    /// 免得它还照着上一个列表往下走。
     func play(trackId: String, at position: Double = 0, by actor: TogetherActor,
               queue: [String]? = nil) {
         guard let track = library().track(id: trackId) else {
             togetherLogger.error("[Together] 曲库里没有 \(trackId)")
+            return
+        }
+        guard let url = audioURL(for: track),
+              FileManager.default.fileExists(atPath: url.path) else {
+            togetherLogger.error("[Together] 音频文件不在，没换歌：\(trackId)")
+            MinisToast.show(TogetherCopy.importFailed, systemImage: "exclamationmark.triangle.fill")
             return
         }
         beginListenIfNeeded(trackId: trackId)
@@ -440,7 +450,11 @@ extension TogetherStore {
             state.playback.playing = true
             state.playback.by = actor.rawValue
             state.playback.updatedAt = TogetherStore.now()
-            if let q = queue, !q.isEmpty { state.playback.queue = q }
+            if let q = queue {
+                state.playback.queue = q
+            } else if actor == .ai {
+                state.playback.queue = []
+            }
             state.me.presence.listening = true
             state.me.presence.updatedAt = TogetherStore.now()
             state.devices.ai.online = true
@@ -527,9 +541,15 @@ extension TogetherStore {
     }
 
     /// 我推一首。理由必须留下，否则下一回合我就不记得为什么推它。
+    /// 推歌不跟着上一个列表走：队列在这里明确清掉。
     @discardableResult
     func radio(trackId: String, why: String) -> Bool {
         guard let track = library().track(id: trackId) else { return false }
+        guard let url = audioURL(for: track),
+              FileManager.default.fileExists(atPath: url.path) else {
+            togetherLogger.error("[Together] 推的歌没有音频文件，没换歌：\(trackId)")
+            return false
+        }
         return mutate(by: .ai, event: "radio",
                       detail: TogetherEventDetail(trackId: trackId, text: why)) { state in
             state.track = track
@@ -537,6 +557,7 @@ extension TogetherStore {
             state.playback.playing = true
             state.playback.by = TogetherActor.ai.rawValue
             state.playback.updatedAt = TogetherStore.now()
+            state.playback.queue = []
             state.me.presence.listening = true
             state.me.presence.updatedAt = TogetherStore.now()
             state.me.history.append(TogetherHistoryItem(
@@ -700,8 +721,17 @@ extension TogetherStore {
         mutate(by: .user, event: "") { $0.playback.shuffle = on }
     }
 
-    func setRepeatOne(_ on: Bool) {
-        mutate(by: .user, event: "") { $0.playback.repeatOne = on }
+    /// 单曲循环和全部循环互斥：开一个就把另一个关掉。
+    /// repeatAll 传 nil 时只动单曲循环（老调用方的语义不变）。
+    func setRepeatOne(_ on: Bool, repeatAll: Bool? = nil) {
+        mutate(by: .user, event: "") { state in
+            state.playback.repeatOne = on
+            if on { state.playback.repeatAll = false }
+            if let all = repeatAll {
+                state.playback.repeatAll = all
+                if all { state.playback.repeatOne = false }
+            }
+        }
     }
 }
 
