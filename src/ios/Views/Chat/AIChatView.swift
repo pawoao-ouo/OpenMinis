@@ -193,7 +193,7 @@ struct AIChatView: View {
     @State private var inputAtScrollBottom: Bool = true
     @State private var inputBarHeight: CGFloat = 0
 
-    /// 一起听微控条占的高度：38 条 + 2 间距。
+    /// 一起听胶囊占的高度：只一处定义，见 TogetherMiniBar.stackHeight（48 胶囊 + 2 间距）。
     private var showTogetherBar: Bool {
         // 以前还要求 isPlaying：一暂停、或一首放完，整条直接消失，而全 App 没有第二个
         // 常驻入口（只有聊天菜单里那个），用户暂停一次就找不到回播放页的路。
@@ -202,7 +202,7 @@ struct AIChatView: View {
     }
 
     private var togetherBarInset: CGFloat {
-        showTogetherBar ? 42 : 0
+        showTogetherBar ? TogetherMiniBar.stackHeight : 0
     }
     @State private var inputBarHeightDebounce: Task<Void, Never>?
     /// [T-inputbar-stretch] Delay before the plus drawer opens after a keyboard
@@ -632,10 +632,12 @@ struct AIChatView: View {
                         VStack(spacing: 2) {
                             if showTogetherBar {
                                 TogetherMiniBar(onOpen: { showTogether = true })
-                                    .transition(.opacity)
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
                             inputBar
                         }
+                        // 胶囊出现/消失是滑入滑出，不是瞬移：斜杠弹窗跟着它一起平移，不跳变。
+                        .animation(.easeInOut(duration: 0.28), value: showTogetherBar)
                         inputPopupOverlay
                             .padding(.bottom, inputBarHeight + togetherBarInset)
                     }
@@ -694,8 +696,8 @@ struct AIChatView: View {
                         messages: vm.messages,
                         personaID: vm.sessionPersonaId ?? PersonaStore.currentID()
                     )
-                    // 让开输入栏高度，不然对话框压在输入框上
-                    .padding(.bottom, inputBarHeight + 8)
+                    // 让开输入栏 + 一起听胶囊的高度，不然对话框压在胶囊上
+                    .padding(.bottom, inputBarHeight + togetherBarInset + 8)
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .animation(.easeInOut(duration: 0.2), value: novelMode)
@@ -2908,7 +2910,8 @@ struct AIChatView: View {
                     fullBrowserURL = url
                 },
                 maxContentWidth: maxContentWidth ?? 0,
-                floatingBarHeight: floatingBarHeight,
+                // 胶囊的高度也要给消息列表留出来：不留，最后一条气泡就盖在胶囊底下。
+                floatingBarHeight: floatingBarHeight + togetherBarInset,
                 inputBarHeight: inputBarHeight
             )
             // Empty/loading overlay for tap-to-dismiss-keyboard.
@@ -2975,7 +2978,7 @@ struct AIChatView: View {
                 .padding(.trailing, 4)
                 .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
                 .padding(.horizontal, 12)
-                .padding(.bottom, inputBarHeight + 12)
+                .padding(.bottom, inputBarHeight + togetherBarInset + 12)
                 .animation(.easeInOut(duration: 0.2), value: vm.isNearBottom)
                 .animation(.easeInOut(duration: 0.2), value: vm.isAtFirstTurn)
                 }
