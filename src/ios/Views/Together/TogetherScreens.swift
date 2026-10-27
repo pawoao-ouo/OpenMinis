@@ -1410,40 +1410,49 @@ struct TogetherPlaylistEditor: View {
         "\(desc.count)/1000"
     }
 
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    cardSection
-                    descSection
-                    deleteSection
-                }
-                .padding(20)
+    /// 编辑页主体：ScrollView + 标题 / 背景。单独成一个表达式，
+    /// 原来整个 body 是一条过长的修饰链，编译器在单个表达式里推不完类型。
+    private var editorContent: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                cardSection
+                descSection
+                deleteSection
             }
-            .background(CSSThemeVariables.bg(scope: .chat).ignoresSafeArea())
-            .navigationTitle(TogetherCopy.playlistInfo)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(AppLocalized("Cancel", comment: "取消")) { dismiss() }
-                        .font(ChatFont.font(14))
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentShape(Rectangle())
-                        .togetherPress()
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(AppLocalized("Save", comment: "保存")) {
-                        save()
-                        dismiss()
-                    }
-                    .font(ChatFont.font(14, weight: .bold))
-                    .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
-                    .togetherPress()
-                }
+            .padding(20)
+        }
+        .background(CSSThemeVariables.bg(scope: .chat).ignoresSafeArea())
+        .navigationTitle(TogetherCopy.playlistInfo)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ToolbarContentBuilder
+    private var editorToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button(AppLocalized("Cancel", comment: "取消")) { dismiss() }
+                .font(ChatFont.font(14))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+                .togetherPress()
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button(AppLocalized("Save", comment: "保存")) {
+                save()
+                dismiss()
             }
+            .font(ChatFont.font(14, weight: .bold))
+            .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+            .togetherPress()
+        }
+    }
+
+    /// 工具栏 + 删除歌单确认：修饰链的上一段，顺序和原来 body 里一致。
+    private var editorContentWithToolbar: some View {
+        editorContent
+            .toolbar { editorToolbar }
             .onAppear(perform: reload)
             .alert(TogetherCopy.deletePlaylist, isPresented: $confirmDelete) {
                 Button(AppLocalized("Delete", comment: "删除"), role: .destructive) {
@@ -1452,6 +1461,11 @@ struct TogetherPlaylistEditor: View {
                 }
                 Button(AppLocalized("Cancel", comment: "取消"), role: .cancel) {}
             }
+    }
+
+    /// 选图 / 标签页 / 删歌确认：修饰链的下一段，顺序和原来 body 里一致。
+    private var editorContentWithOverlays: some View {
+        editorContentWithToolbar
             .photosPicker(isPresented: $showCoverPicker,
                           selection: $coverItem,
                           matching: .images)
@@ -1479,6 +1493,11 @@ struct TogetherPlaylistEditor: View {
             } message: { _ in
                 Text(TogetherCopy.deleteTrackMessage)
             }
+    }
+
+    var body: some View {
+        NavigationStack {
+            editorContentWithOverlays
         }
     }
 
