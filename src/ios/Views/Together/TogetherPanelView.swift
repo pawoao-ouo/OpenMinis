@@ -690,7 +690,7 @@ struct TogetherInlineLyricsView: View {
     /// 行高固定、显示区高度取行高的整数倍，所以上下边缘永远不出现半截字。
     var body: some View {
         GeometryReader { geo in
-            let rowH = max(20, 26 * (geo.size.height > 240 ? 1.0 : 0.86))
+            let rowH: CGFloat = geo.size.height > 240 ? 26 : 22
             let rows = max(1, Int(geo.size.height / rowH))
             let visible = CGFloat(rows) * rowH
 
