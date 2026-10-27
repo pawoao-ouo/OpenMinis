@@ -25,9 +25,6 @@ struct TogetherPanelView: View {
     @State private var optimisticPosition: Double = 0
     @State private var isDragging = false
 
-    /// 图1：原位歌词模式切换（点胶片原位切成歌词，再点切回胶片）
-    @State private var isLyricsMode = false
-
     /// 回声气泡
     @State private var echoOn = true
     @State private var echoBubbles: [EchoBubble] = []
@@ -48,9 +45,6 @@ struct TogetherPanelView: View {
     private var track: TogetherTrack? { state.track ?? player.track }
     private var aiName: String { ChatAddressing.assistant(sessionPersonaId: sessionPersonaId) }
     private var userName: String { ChatAddressing.user() }
-    private var effectivePosition: Double {
-        isDragging ? optimisticPosition : player.currentTime
-    }
 
     var body: some View {
         GeometryReader { geo in
@@ -79,20 +73,37 @@ struct TogetherPanelView: View {
                     topBar(s)
 
                     if let t = track {
-                        // 我们的头像，回到 C 位
+                        // 我们的头像
                         duoHeader(s)
 
-                        // 中间大视觉区：弹性撑开，黑胶/歌词居中，歌名在下
-                        VStack(spacing: 0) {
-                            noteStrip(s)
-                                .padding(.top, 4 * s)
-
-                            middleVisualSection(t, s: s)
+                        // 黑胶和歌词同页：上面唱片，下面滚动歌词，不用任何切换。
+                        // 歌名歌手夹在两者中间，谁都不藏。
+                        VStack(spacing: 12 * s) {
+                            discSection(s: s)
 
                             titleBlock(t, s)
-                                .padding(.bottom, 4 * s)
+
+                            // 歌词块：跟随进度滚、当前行加粗、点一行跳过去。
+                            // 高度收死在这里，不许把下面的进度条和控制排顶出屏幕。
+                            TogetherInlineLyricsView(
+                                track: t,
+                                lyrics: lyrics,
+                                loopLine: state.loopLines[t.id],
+                                position: player.currentTime,
+                                onSeek: { target in
+                                    player.seek(to: target)
+                                    TogetherStore.shared.seek(to: target, by: .user)
+                                }
+                            )
+                            .frame(maxWidth: .infinity)
+                            .frame(height: lyricBlockHeight(h: h, s: s))
+                            .clipped()
+                            .padding(.horizontal, 20)
                         }
                         .frame(maxHeight: .infinity)
+
+                        // 喜欢 / 回声 / 刻字：一排小图标，歌词下方、进度条上方
+                        actionRow(t, s: s)
 
                         // 底部控制区：贴底
                         bottomControlSuite(t, s: s)
@@ -219,49 +230,16 @@ struct TogetherPanelView: View {
         .background(Capsule().fill(CSSThemeVariables.card(scope: .chat)))
     }
 
-    // MARK: - 中间核心视觉区（黑胶 ⇄ 原位歌词）
+    // MARK: - 黑胶（同页常驻，不再当切换开关）
 
-    private func middleVisualSection(_ t: TogetherTrack, s: CGFloat) -> some View {
-        ZStack {
-            if isLyricsMode {
-                // 图1同款：原位滚动歌词
-                TogetherInlineLyricsView(
-                    track: t,
-                    lyrics: lyrics,
-                    loopLine: state.loopLines[t.id],
-                    position: player.currentTime,
-                    onSeek: { target in
-                        player.seek(to: target)
-                        TogetherStore.shared.seek(to: target, by: .user)
-                    },
-                    onToggleDisc: {
-                        withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
-                            isLyricsMode = false
-                        }
-                    }
-                )
-                .transition(.opacity)
-            } else {
-                // 黑胶唱片模式（点击原位翻转到歌词）
-                discSection(s: s)
-                    .transition(.opacity)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-    }
-
+    /// 黑胶和歌词同页同时出现，点唱片不再切页，所以 onTap 是空的、只留着点击判定。
     private func discSection(s: CGFloat) -> some View {
         ZStack {
             TogetherDiscView(
-                size: 256 * s,
+                size: 236 * s,
                 spinDegrees: player.currentTime / 22.0 * 360,
                 isPlaying: player.isPlaying
-            ) {
-                withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
-                    isLyricsMode = true
-                }
-            }
+            ) {}
 
             // 回声弹幕浮在黑胶四周
             ForEach(echoBubbles) { bubble in
@@ -270,6 +248,7 @@ struct TogetherPanelView: View {
                     .allowsHitTesting(false)
             }
         }
+        .frame(height: 244 * s)
     }
 
 
@@ -301,46 +280,6 @@ struct TogetherPanelView: View {
             )
     }
 
-    // MARK: - 我留的话
-
-    private func noteStrip(_ s: CGFloat) -> some View {
-        Group {
-            if let note = noteNearPlayhead {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(CSSThemeVariables.accent(scope: .chat))
-                        .frame(width: 5, height: 5)
-
-                    (Text(aiName).fontWeight(.semibold)
-                        + Text("  ") + Text(note.text))
-                        .font(ChatFont.font(12.5))
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    Capsule().fill(CSSThemeVariables.optionBg(scope: .chat).opacity(0.7))
-                )
-                .transition(.opacity)
-            } else if let line = currentLyricText {
-                Text(line)
-                    .font(ChatFont.font(13, weight: .medium))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat).opacity(0.85))
-                    .lineLimit(1)
-                    .id(line)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .bottom).combined(with: .opacity),
-                        removal: .move(edge: .top).combined(with: .opacity)
-                    ))
-                    .animation(.easeOut(duration: 0.18), value: line)
-            } else {
-                Color.clear.frame(height: 20)
-            }
-        }
-        .frame(height: 36 * s)
-    }
-
     // MARK: - 歌名
 
     private func titleBlock(_ t: TogetherTrack, _ s: CGFloat) -> some View {
@@ -368,58 +307,44 @@ struct TogetherPanelView: View {
         // 壁纸原样亮着，标题和歌手就得自己站得住：只给文字做局部阴影，不压整页。
     }
 
-    private var currentLyricText: String? {
-        if let lyr = lyrics, lyr.timed, let trackId = track?.id,
-           lyr.trackId.isEmpty || lyr.trackId == trackId,
-           let line = lyr.line(at: effectivePosition)?.text,
-           !line.trimmingCharacters(in: CharacterSet.whitespaces).isEmpty {
-            return line
-        }
-        if let id = track?.id, let loop = state.loopLines[id],
-           !loop.trimmingCharacters(in: CharacterSet.whitespaces).isEmpty {
-            return loop
-        }
-        return nil
-    }
-
-    private var noteNearPlayhead: TogetherNote? {
-        guard let trackId = track?.id else { return nil }
-        let pos = effectivePosition
-        return state.notes
-            .filter { $0.trackId == trackId && abs($0.at - pos) <= 12 }
-            .min(by: { abs($0.at - pos) < abs($1.at - pos) })
+    /// 歌词块高度：能看清当前行和前后几行，又不把进度条和控制排顶出屏幕。
+    /// 屏大给得多，屏小收着给，永远留出底部控制区的位置。
+    private func lyricBlockHeight(h: CGFloat, s: CGFloat) -> CGFloat {
+        let reserved = (44 + 120 + 244 + 96 + 30 + 140) * s   // 顶栏/头像/黑胶/歌名/小图标排/控制区
+        let spare = max(0, h - reserved - 40)
+        return max(84, min(150 * s, spare))
     }
 
     // MARK: - 底部控制套件（沉底布局）
 
     private func bottomControlSuite(_ t: TogetherTrack, s: CGFloat) -> some View {
         VStack(spacing: 18 * s) {
-            // 1. 动作栏（红心喜欢、历史回声墙、加入歌单、写备注）
-            actionRow(t, s: s)
-
-            // 2. 进度条
+            // 1. 进度条（喜欢、回声、刻字收在它上面那一排小图标里，不占大块）
             progressBar(s: s)
 
-            // 3. 核心播放控制排（播放模式、上一首、播放/暂停、下一首、播放队列）
+            // 2. 核心播放控制排（播放模式、上一首、播放/暂停、下一首、播放队列）
             mainControlsRow(s: s)
         }
         // 控制区整块给一圈局部阴影：不压整页，按键和时间在杂图上也看得清。
     }
 
+    /// 喜欢 / 回声 / 刻字：收成一排小图标，夹在歌词块和进度条中间。
+    /// 功能一个不少，只是不再一人占四分之一的宽度。
     private func actionRow(_ t: TogetherTrack, s: CGFloat) -> some View {
         let liked = state.liked.contains(t.id)
         let noteCount = state.notes.filter { $0.trackId == t.id }.count
 
-        return HStack(spacing: 0) {
+        return HStack(spacing: 34 * s) {
             // 喜欢
             Button {
                 TogetherStore.shared.toggleLike(trackId: t.id, by: .user)
                 state = TogetherStore.shared.load()
             } label: {
                 Image(systemName: liked ? "heart.fill" : "heart")
-                    .font(ChatFont.font(20 * s))
+                    .font(ChatFont.font(16 * s))
                     .foregroundStyle(liked ? Color.red : CSSThemeVariables.textDim(scope: .chat))
-                    .frame(maxWidth: .infinity)
+                    .frame(width: 30 * s, height: 26 * s)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -429,14 +354,15 @@ struct TogetherPanelView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "bubble.left.and.bubble.right")
-                        .font(ChatFont.font(19 * s))
+                        .font(ChatFont.font(15 * s))
                     if noteCount > 0 {
                         Text("\(noteCount)")
-                            .font(ChatFont.font(10, weight: .bold))
+                            .font(ChatFont.font(9, weight: .bold))
                     }
                 }
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                .frame(maxWidth: .infinity)
+                .frame(height: 26 * s)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -445,25 +371,14 @@ struct TogetherPanelView: View {
                 activeSheet = .note
             } label: {
                 Image(systemName: "square.and.pencil")
-                    .font(ChatFont.font(19 * s))
+                    .font(ChatFont.font(15 * s))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-
-            // 歌词/胶片快速切换按钮
-            Button {
-                withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
-                    isLyricsMode.toggle()
-                }
-            } label: {
-                Image(systemName: isLyricsMode ? "opticaldisc" : "quote.bubble")
-                    .font(ChatFont.font(19 * s))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                    .frame(maxWidth: .infinity)
+                    .frame(width: 30 * s, height: 26 * s)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
+        .frame(maxWidth: .infinity)
     }
 
     private func progressBar(s: CGFloat) -> some View {
@@ -760,7 +675,6 @@ struct TogetherInlineLyricsView: View {
     let loopLine: String?
     let position: Double
     let onSeek: (Double) -> Void
-    let onToggleDisc: () -> Void
 
     private var timedLines: [TogetherLyricLine]? {
         guard let lyr = lyrics, lyr.timed, !lyr.lines.isEmpty else { return nil }
@@ -777,72 +691,62 @@ struct TogetherInlineLyricsView: View {
         return hit
     }
 
+    /// 歌词块：不再铺满整页、不再靠点击切回黑胶。
+    /// 高度由调用方给定，块内自己跟随滚动，当前行居中加粗，点一行跳过去。
     var body: some View {
         GeometryReader { geo in
-            let half = max(90, geo.size.height / 2)
+            let half = max(46, geo.size.height / 2)
 
             if let lines = timedLines, !lines.isEmpty {
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(spacing: 22) {
-                            // 上方留白：第一句也能停在正中间；点一下收回黑胶
-                            Color.clear
-                                .frame(height: half - 40)
-                                .contentShape(Rectangle())
-                                .onTapGesture { onToggleDisc() }
+                        LazyVStack(spacing: 18) {
+                            // 上下留白正好半个块高：第一句、最后一句也能停在正中
+                            Color.clear.frame(height: max(10, half - 26))
 
                             ForEach(Array(lines.enumerated()), id: \.offset) { idx, line in
                                 lyricLine(line, isCurrent: idx == currentIndex)
                                     .id(idx)
                             }
 
-                            Color.clear
-                                .frame(height: half - 40)
-                                .contentShape(Rectangle())
-                                .onTapGesture { onToggleDisc() }
+                            Color.clear.frame(height: max(10, half - 26))
                         }
-                        .padding(.horizontal, 28)
+                        .padding(.horizontal, 20)
                     }
                     .onAppear { center(proxy, animated: false) }
                     .onChange(of: currentIndex) { _ in center(proxy, animated: true) }
                 }
             } else {
-                VStack(spacing: 12) {
-                    Spacer()
+                // 没歌词：给一句能读的提示，不再占整页
+                VStack(spacing: 8) {
+                    Spacer(minLength: 0)
                     Text(loopLine ?? TogetherCopy.noLyrics)
-                        .font(ChatFont.font(16, weight: .medium))
+                        .font(ChatFont.font(15, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 36)
                     Text(TogetherCopy.noLyricsHint)
                         .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { onToggleDisc() }
+                .frame(maxWidth: .infinity)
             }
         }
-        // 歌词区不自己铺图了。以前它单独铺 lyrics-cover，和播放页那张各自 scaledToFill、
-        // 裁的位置不一样，看着就是「上面米色、中间一条雪景、下面还是米色」两段错位。
-        // 现在它透明，吃播放页那张全屏壁纸：黑胶和歌词来回切，背景一动不动。
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func lyricLine(_ line: TogetherLyricLine, isCurrent: Bool) -> some View {
         Text(line.text)
-            .font(ChatFont.font(isCurrent ? 18 : 14, weight: isCurrent ? .bold : .regular))
+            .font(ChatFont.font(isCurrent ? 17 : 13, weight: isCurrent ? .bold : .regular))
             .foregroundStyle(
                 isCurrent
                     ? CSSThemeVariables.textMain(scope: .chat)
                     : CSSThemeVariables.textDim(scope: .chat)
             )
-            // 非当前行以前是 textDim 再乘 0.45，杂图上几乎看不见。
-            // 现在不改颜色深浅、不压整页，只给文字自己一圈局部阴影：
-            // 亮图暗图都读得清，当前行阴影更重、字更大更粗，区分照样在。
+            // 不压整页、不加阴影：靠字号和字重拉开当前行，颜色只用主题本色。
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
-            .scaleEffect(isCurrent ? 1.04 : 0.96)
+            .scaleEffect(isCurrent ? 1.03 : 1.0)
             .animation(.easeOut(duration: 0.26), value: isCurrent)
             .contentShape(Rectangle())
             .onTapGesture { onSeek(line.at) }

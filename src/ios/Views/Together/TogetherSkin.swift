@@ -66,14 +66,6 @@ enum TogetherSkin {
         CSSThemeVariables.bg(scope: .chat).opacity(values.vinylRing)
     }
 
-    static var shadowDeep: Color {
-        .black.opacity(0.22 * values.shadow)
-    }
-
-    static var shadowSoft: Color {
-        .black.opacity(0.14 * values.shadow)
-    }
-
     static var cardRadius: CGFloat { CGFloat(values.cardRadius) }
 
     /// 壁纸压色。收口到一处，播放页和另外四页都读它。
@@ -127,13 +119,13 @@ enum TogetherIdentity {
 
 enum TogetherCopy {
     static var title: String { AppLocalized("Together", comment: "一起听 · 面板标题") }
-    // 这两个要读人设名(主线程隔离),所以自己标注;其余成员保持非隔离,
-    // 好让 Agent 层(非主线程)也能取到纯文案。
-    @MainActor static var emptyTitle: String {
-        String(format: AppLocalized("%@'s library is empty", comment: "一起听 · 空状态标题"), ChatAddressing.assistant())
+    /// 空状态里的"回答的人"从调用方传进来，跟同一个会话人设。
+    /// TogetherCopy 是静态的、读不到环境变量，不许在这里偷偷读全局人设名。
+    @MainActor static func emptyTitle(_ aiName: String) -> String {
+        String(format: AppLocalized("%@'s library is empty", comment: "一起听 · 空状态标题"), aiName)
     }
-    @MainActor static var emptyHint: String {
-        String(format: AppLocalized("Add a song, or ask %@ to add one.", comment: "一起听 · 空状态说明"), ChatAddressing.assistant())
+    @MainActor static func emptyHint(_ aiName: String) -> String {
+        String(format: AppLocalized("Add a song, or ask %@ to add one.", comment: "一起听 · 空状态说明"), aiName)
     }
     /// 喜欢列表空了 ≠ 歌库空了,不能共用一句。
     static var likedEmpty: String { AppLocalized("Nothing liked yet", comment: "一起听 · 喜欢空态") }

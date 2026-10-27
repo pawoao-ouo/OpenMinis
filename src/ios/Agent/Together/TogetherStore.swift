@@ -748,9 +748,9 @@ enum TogetherImages {
     static let wallpaperSync = "wallpaper-sync"
     static let wallpaperLiked = "wallpaper-liked"
 
-    static let wallpaperSweet = "wallpaper-sweet"
-    static let slots = [lyricsCover, wallpaperNow, wallpaperLibrary, wallpaperSync, wallpaperLiked, wallpaperSweet,
-                        "cover-1", "cover-2", "cover-3", "cover-4", "cover-now"]
+    // 私藏壁纸槽已经下线（没有页面读它，换了不会有反应）。
+    // 常量和 slots 清掉了；旧 state.json 里万一还留着 "wallpaper-sweet" 这条键，
+    // 解码字典时多余的键会被忽略，文件原样留着不删、不崩。
 
     static let extensions = ["jpg", "jpeg", "png", "heic", "webp"]
 

@@ -467,6 +467,7 @@ struct TogetherAllSongsView: View {
 
     static let routeID = "all-songs"
 
+    @Environment(\.togetherPersonaId) private var sessionPersonaId
     @State private var tracks: [TogetherTrack] = []
     @State private var searchText = ""
     @State private var pendingDelete: TogetherTrack?
@@ -560,10 +561,10 @@ struct TogetherAllSongsView: View {
 
                 if tracks.isEmpty {
                     VStack(spacing: 6) {
-                        Text(TogetherCopy.emptyTitle)
+                        Text(TogetherCopy.emptyTitle(ChatAddressing.assistant(sessionPersonaId: sessionPersonaId)))
                             .font(ChatFont.font(13.5, weight: .semibold))
                             .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                        Text(TogetherCopy.emptyHint)
+                        Text(TogetherCopy.emptyHint(ChatAddressing.assistant(sessionPersonaId: sessionPersonaId)))
                             .font(ChatFont.font(12.5))
                             .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
                             .multilineTextAlignment(.center)

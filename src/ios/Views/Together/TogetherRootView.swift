@@ -55,6 +55,11 @@ struct TogetherRootView: View {
         ZStack(alignment: .bottom) {
             CSSThemeVariables.bg(scope: .chat).ignoresSafeArea()
 
+            // 全屏壁纸铺在最底下，连标签栏后面一起铺。
+            // 页面自己那层壁纸照旧，这一层只补底部和边角，避免标签栏后面露出纯色。
+            TogetherWallpaperLayer(slot: wallpaperSlot)
+                .allowsHitTesting(false)
+
             Group {
                 switch tab {
                 case .now:
@@ -67,7 +72,7 @@ struct TogetherRootView: View {
                     TogetherLikedView()
                 }
             }
-            .padding(.bottom, 78)
+            .padding(.bottom, 92)
 
             tabBar
         }
@@ -85,6 +90,16 @@ struct TogetherRootView: View {
             // 老数据只在 lyrics-cover 里、now 还空着 → 复制过去，存过的图不丢。
             // 幂等：now 已有图或两边都没有时什么都不做。
             TogetherStore.shared.mergeLyricsCoverIntoNow()
+        }
+    }
+
+    /// 当前 tab 该铺哪张壁纸。和页面各自读的槽一致，谁都不另起一套。
+    private var wallpaperSlot: String {
+        switch tab {
+        case .now: return TogetherImages.wallpaperNow
+        case .library: return TogetherImages.wallpaperLibrary
+        case .sync: return TogetherImages.wallpaperSync
+        case .liked: return TogetherImages.wallpaperLiked
         }
     }
 
@@ -127,21 +142,18 @@ struct TogetherRootView: View {
                 .buttonStyle(.plain)
             }
         }
-        // 半透之后字坐在壁纸上，给一圈局部阴影保住可读性。
-        .padding(.top, 10)
-        .padding(.bottom, 6)
+        .frame(height: 56)
+        // 悬浮胶囊：左右留边、底部让出安全区，壁纸从胶囊四周透出来。
+        // 不再画满宽实色条，也不再贴一条分界线——那都会把壁纸硬切断。
         .background(
-            Rectangle()
-                // 之前 0.94 几乎是一块实色板，壁纸铺到这儿被硬切掉。
-                // 现在半透，壁纸从标签栏后面透出来。不加模糊：SwiftUI 的 material
-                // 不是只糊这一块，会把整页背景都糊上，比透出色板更难看。
+            Capsule(style: .continuous)
                 .fill(CSSThemeVariables.card(scope: .chat).opacity(0.55))
-                .overlay(alignment: .top) {
-                    Rectangle()
-                        .fill(CSSThemeVariables.divider(scope: .chat))
-                        .frame(height: 0.5)
-                }
-                .ignoresSafeArea(edges: .bottom)
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(CSSThemeVariables.divider(scope: .chat).opacity(0.5), lineWidth: 0.5)
+                )
         )
+        .padding(.horizontal, 18)
+        .padding(.bottom, 6)
     }
 }
