@@ -200,6 +200,10 @@ enum TogetherCopy {
     static var a11yShuffle: String { AppLocalized("Shuffle", comment: "一起听 · 无障碍：随机") }
     static var a11yRepeat: String { AppLocalized("Repeat", comment: "一起听 · 无障碍：循环") }
     static var a11yQueue: String { AppLocalized("Queue", comment: "一起听 · 无障碍：队列") }
+    static var a11yLike: String { AppLocalized("Like", comment: "一起听 · 无障碍：喜欢") }
+    static var a11yUnlike: String { AppLocalized("Unlike", comment: "一起听 · 无障碍：取消喜欢") }
+    static var leaveALine: String { AppLocalized("Leave a line at this second", comment: "一起听 · 无障碍：留一句话") }
+    static var progressLabel: String { AppLocalized("Playback progress", comment: "一起听 · 无障碍：播放进度") }
 }
 
 // MARK: - 一起听：壁纸明暗 → 前景变量
