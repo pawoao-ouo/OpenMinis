@@ -55,13 +55,11 @@ final class LocalFileImporter: MusicImporter {
         }
 
         let store = TogetherStore.shared
-        var index = store.library()
 
         let baseTitle = url.deletingPathExtension().lastPathComponent
-        var id = Self.slug(baseTitle)
-        if index.tracks.contains(where: { $0.id == id }) {
-            id = "\(id)-\(Int(Date().timeIntervalSince1970))"
-        }
+        // slug 只当可读前缀，唯一性交给 UUID：以前同名同秒导入会撞 ID，后一首把前一首的文件盖掉。
+        let stem = Self.slug(baseTitle)
+        let id = stem.isEmpty ? UUID().uuidString : "\(stem)-\(UUID().uuidString)"
 
         // 落到内置 shared/music，扩展名按真实编码来。
         guard let dest = await writeIntoLibrary(from: url, id: id) else {
@@ -76,17 +74,25 @@ final class LocalFileImporter: MusicImporter {
         let title = await Self.stringValue(meta, identifier: .commonIdentifierTitle) ?? baseTitle
         let artist = await Self.stringValue(meta, identifier: .commonIdentifierArtist) ?? ""
 
-        let track = TogetherTrack(
+        // 读库、算封面位、追加、写回，全部在 store 的锁内一次做完。
+        // 分成「队列外读 → 追加 → 存回」的话，两个同时导入会各拿一份旧 index 互相覆盖。
+        var track = TogetherTrack(
             id: id,
             title: title,
             artist: artist,
             duration: duration,
-            cover: "cover-\(index.tracks.count % 4 + 1)",
+            cover: "cover-1",
             file: "music/\(destName)",
             lyrics: nil
         )
-        index.tracks.append(track)
-        store.saveLibrary(index)
+        let saved = store.mutateLibrary { lib in
+            track.cover = "cover-\(lib.tracks.count % 4 + 1)"
+            lib.tracks.append(track)
+        }
+        guard saved else {
+            logger.error("[TogetherImport] 写 index 失败 \(url.lastPathComponent)")
+            return nil
+        }
 
         // 收了歌就把歌词补上：同目录同名 .lrc 优先，没有就留空（抓词走 shell）。
         if let sidecar = Self.sidecarLyrics(for: url) {
@@ -170,10 +176,11 @@ final class LocalFileImporter: MusicImporter {
         try? FileManager.default.removeItem(at: dest)
         try? FileManager.default.copyItem(at: source, to: dest)
 
-        var index = store.library()
-        guard let i = index.tracks.firstIndex(where: { $0.id == id }) else { return }
-        index.tracks[i].lyrics = "lyrics/\(id).lrc"
-        store.saveLibrary(index)
+        // 同样走锁内改：队列外读一份、改完存回，会把并发导入刚追加的那首冲掉。
+        store.mutateLibrary { lib in
+            guard let i = lib.tracks.firstIndex(where: { $0.id == id }) else { return }
+            lib.tracks[i].lyrics = "lyrics/\(id).lrc"
+        }
     }
 
     // MARK: 命名
@@ -191,6 +198,8 @@ final class LocalFileImporter: MusicImporter {
             .split(separator: "-", omittingEmptySubsequences: true)
             .joined(separator: "-")
         if joined.count >= 2 { return String(joined.prefix(40)) }
-        return "track-\(Int(Date().timeIntervalSince1970))"
+        // 名字里一个能转写的字符都没有（全符号 / 全表情）就返回空，
+        // 由调用方直接用 UUID 当 ID。以前这里回落到秒级时间戳，同秒会撞。
+        return ""
     }
 }

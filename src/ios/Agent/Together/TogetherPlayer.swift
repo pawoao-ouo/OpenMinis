@@ -180,45 +180,44 @@ final class TogetherPlayer: ObservableObject {
         guard !lib.tracks.isEmpty else { return }
 
         let state = store.load()
-        let ids = state.playback.queue.isEmpty ? lib.tracks.map { $0.id } : state.playback.queue
-        let currentId = track?.id ?? ""
-
-        // 按原队列顺序留下还活着的歌。
-        let livePool = ids.compactMap { lib.track(id: $0) }
-        guard !livePool.isEmpty else { return }
-
-        if state.playback.shuffle {
-            let next = livePool.filter { $0.id != currentId }.randomElement() ?? livePool[0]
-            // 只剩当前这一首有效歌：停住，别从头重放。
-            if next.id == currentId { return }
-            load(next, from: 0)
-            store.play(trackId: next.id, at: 0, by: .user)
-            return
-        }
-
-        // 顺序 / 单曲：从当前在原始队列里的位置出发，按方向逐格走，
-        // 跳过已删的孤儿 ID，直到踩到下一首有效歌。
-        // 以前用过滤前的下标取歌，取到已删的歌就回落第一首，原地重复当前这首；
-        // 删歌后点下一首等于没反应。现在只在整圈走完都没有别的有效歌时，才停在当前这首。
-        var picked: TogetherTrack?
-        if let start = ids.firstIndex(of: currentId) {
-            var step = 1
-            while step <= ids.count {
-                let pos = ((start + delta * step) % ids.count + ids.count) % ids.count
-                if let t = lib.track(id: ids[pos]), t.id != currentId {
-                    picked = t
-                    break
-                }
-                step += 1
-            }
-        } else {
-            // 当前歌不在队列里（比如队列刚被清过）：往后取第一首有效，往前取最后一首有效。
-            picked = delta >= 0 ? livePool.first : livePool.last
-        }
-
-        guard let next = picked else { return }
+        // 删歌后点下一首要真的跳过那首：只在原始队列里按方向逐格走，
+        // 除了当前这首之外一首有效的都没有，才停住不动。
+        guard let next = pickNext(in: state, lib: lib, delta: delta, currentId: track?.id ?? "") else { return }
         load(next, from: 0)
         store.play(trackId: next.id, at: 0, by: .user)
+    }
+
+    /// 队列来源只有一处：`playback.queue` 非空就用它，空才按曲库顺序。
+    /// 手动切歌和一首播完共用这一个口子，两边不会各长一套规则。
+    private func queueIds(_ state: TogetherState, _ lib: TogetherLibrary) -> [String] {
+        state.playback.queue.isEmpty ? lib.tracks.map { $0.id } : state.playback.queue
+    }
+
+    /// 按原始队列、按方向逐格找下一首有效歌，跳过已删的孤儿 ID。
+    /// 队列里除了当前这首没有别的有效歌时返回 nil，由调用方决定停住还是重放当前这首。
+    private func pickNext(in state: TogetherState, lib: TogetherLibrary,
+                          delta: Int, currentId: String) -> TogetherTrack? {
+        let ids = queueIds(state, lib)
+        let livePool = ids.compactMap { lib.track(id: $0) }
+        guard !livePool.isEmpty else { return nil }
+
+        if state.playback.shuffle {
+            return livePool.filter { $0.id != currentId }.randomElement()
+        }
+
+        guard let start = ids.firstIndex(of: currentId) else {
+            // 当前歌不在队列里（比如队列刚被清过）：往后取第一首有效，往前取最后一首有效。
+            return delta >= 0 ? livePool.first : livePool.last
+        }
+        var step = 1
+        while step <= ids.count {
+            let pos = ((start + delta * step) % ids.count + ids.count) % ids.count
+            if let t = lib.track(id: ids[pos]), t.id != currentId {
+                return t
+            }
+            step += 1
+        }
+        return nil
     }
 
     func stop() {
@@ -264,27 +263,49 @@ final class TogetherPlayer: ObservableObject {
 
     private func followTick() {
         let state = store.load()
-        guard let last = state.events.last else { return }
-        guard last.id != seenEventId else { return }
-        seenEventId = last.id
+        guard let last = state.events.last, last.id != seenEventId else { return }
 
         // 遥控器在谁手里，就听谁的。
         // 之前只看事件是谁发的，递给我之后她那边还会被 AI 的事件拽走。
         let controller = state.playback.by
 
-        // 递遥控器本身就是一条事件：谁接手，本机就归谁。
-        if last.type == "handoff" { return }
+        // 1.5 秒里 AI 连着推几条（换歌、拖动、暂停）时，只吃最后一条会把
+        // 中间那次拖动吞掉。从上次吃到的那条往后按顺序逐条应用，游标最后才挪。
+        let pending: [TogetherEvent]
+        if let i = state.events.firstIndex(where: { $0.id == seenEventId }) {
+            pending = Array(state.events[(i + 1)...])
+        } else {
+            // 游标那条被事件上限挤掉了：只补最近一条，不把历史整串重放。
+            pending = [last]
+        }
 
-        guard controller == "ai", last.by == "ai" else { return }
+        for ev in pending {
+            seenEventId = ev.id
+            // 递遥控器本身就是一条事件：谁接手本机就归谁，不单独触发播停。
+            if ev.type == "handoff" { continue }
+            guard controller == "ai", ev.by == "ai" else { continue }
+            applyRemote(ev, state: state)
+        }
+    }
 
-        switch last.type {
+    /// AI 遥控器的四种动作，按事件自己带的信息落地。
+    private func applyRemote(_ ev: TogetherEvent, state: TogetherState) {
+        switch ev.type {
         case "play", "radio":
-            guard let t = state.track else { return }
-            let target = state.playback.position
+            // 逐条回放时不能拿 state.track 当目标——那是最后一条事件的歌，
+            // 中间那次换歌会被顶掉。事件里带了 id 就按 id 取。
+            let target: TogetherTrack?
+            if let tid = ev.detail?.trackId, !tid.isEmpty {
+                target = store.library().track(id: tid)
+            } else {
+                target = state.track
+            }
+            guard let t = target else { return }
+            let pos = ev.detail?.position ?? state.playback.position
             if track?.id != t.id {
-                load(t, from: target)
-            } else if abs(currentTime - target) > 2 {
-                seek(to: target)
+                load(t, from: pos)
+            } else if abs(currentTime - pos) > 2 {
+                seek(to: pos)
             }
             if !isPlaying { play() }
 
@@ -295,7 +316,7 @@ final class TogetherPlayer: ObservableObject {
             if !isPlaying { play() }
 
         case "seek":
-            if let pos = last.detail?.position, abs(currentTime - pos) > 1.5 {
+            if let pos = ev.detail?.position, abs(currentTime - pos) > 1.5 {
                 seek(to: pos)
             }
 
@@ -385,27 +406,28 @@ final class TogetherPlayer: ObservableObject {
         }
 
         let lib = store.library()
-        guard !lib.tracks.isEmpty else {
-            isPlaying = false
-            currentTime = duration
-            reportProgress(force: true)
-            VoiceNowPlaying.shared.refresh()
+        let currentId = track?.id ?? ""
+
+        // 播完走哪首和手动点下一首是同一套：队列里有歌单就听歌单，
+        // 空队列才回落曲库。以前这里直接按曲库找，播歌单到最后一首会跳到曲库第一首。
+        if let next = pickNext(in: state, lib: lib, delta: 1, currentId: currentId) {
+            load(next, from: 0)
+            store.play(trackId: next.id, at: 0, by: .user)
             return
         }
 
-        let currentId = track?.id ?? ""
-        let next: TogetherTrack
-        if state.playback.shuffle {
-            let pool = lib.tracks.filter { $0.id != currentId }
-            next = pool.randomElement() ?? lib.tracks[0]
-        } else if let i = lib.tracks.firstIndex(where: { $0.id == currentId }) {
-            next = lib.tracks[(i + 1) % lib.tracks.count]
-        } else {
-            next = lib.tracks[0]
+        // 队列里只剩当前这一首有效歌：按老规矩不停在最后一句等人点，接着重放这首。
+        if let cur = lib.track(id: currentId) {
+            load(cur, from: 0)
+            store.play(trackId: cur.id, at: 0, by: .user)
+            return
         }
 
-        load(next, from: 0)
-        store.play(trackId: next.id, at: 0, by: .user)
+        // 曲库真的一首都不剩（或当前这首已被删）：收掉播放。
+        isPlaying = false
+        currentTime = duration
+        reportProgress(force: true)
+        VoiceNowPlaying.shared.refresh()
     }
 
     private func reportProgress(force: Bool = false) {

@@ -158,6 +158,18 @@ final class TogetherStore {
         queue.sync { saveLibraryLocked(library) }
     }
 
+    /// 在锁内「读库 → 改 → 写回」一次做完。
+    /// 导入如果在队列外先读、再追加、再存回，两个同时导入会各拿一份旧库互相覆盖，丢一首。
+    /// 追加动作走这里。
+    @discardableResult
+    func mutateLibrary(_ body: (inout TogetherLibrary) -> Void) -> Bool {
+        queue.sync {
+            var lib = loadLibraryLocked()
+            body(&lib)
+            return saveLibraryLocked(lib)
+        }
+    }
+
     @discardableResult
     private func saveLibraryLocked(_ library: TogetherLibrary) -> Bool {
         try? FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -293,6 +305,20 @@ final class TogetherStore {
                 event: String,
                 detail: TogetherEventDetail? = nil,
                 _ body: (inout TogetherState) -> Void) -> TogetherState? {
+        mutateOrReject(by: actor, event: event, detail: detail) { state in
+            body(&state)
+            return true
+        }
+    }
+
+    /// 和 `mutate` 同一把锁，但闭包可以拒写：返回 false 就一个字都不落盘。
+    /// 「判完就得立刻占住」的规矩（比如一轮一句的刻字名额）必须判在这里——
+    /// 判在锁外面，两个同时进来会都通过。
+    @discardableResult
+    func mutateOrReject(by actor: TogetherActor,
+                        event: String,
+                        detail: TogetherEventDetail? = nil,
+                        _ body: (inout TogetherState) -> Bool) -> TogetherState? {
         queue.sync {
             let fd = openLockFile()
             guard fd >= 0 else {
@@ -308,7 +334,10 @@ final class TogetherStore {
 
             var state = loadLocked()
             let before = state.revision
-            body(&state)
+            guard body(&state) else {
+                togetherLogger.info("[Together] \(event) 被拒：写盘前再判没通过")
+                return nil
+            }
 
             state.revision = max(before + 1, state.revision + 1)
             state.updatedAt = Self.now()
@@ -469,12 +498,18 @@ extension TogetherStore {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         // 一轮只听一首，一轮里她和我各只能刻一句。
+        // 外面这次只是给调用方早退用的；真正的名额在写盘闭包里再判一次。
         guard canStamp(by: actor, trackId: target) else {
             togetherLogger.info("[Together] 这一轮 \(actor.rawValue) 已经刻过了")
             return false
         }
-        return mutate(by: actor, event: "note",
+        return mutateOrReject(by: actor, event: "note",
                       detail: TogetherEventDetail(trackId: target, position: second)) { state in
+            // 拿锁之后再判一次：两句同时刻进来，先落盘的把名额占掉，后那句直接拒写。
+            if state.listen.trackId == target, state.listen.spoke(actor) {
+                togetherLogger.info("[Together] 这一轮 \(actor.rawValue) 的名额被占了")
+                return false
+            }
             state.notes.append(TogetherNote(
                 id: "n_\(TogetherStore.now())_\(state.revision + 1)",
                 trackId: target,
@@ -487,6 +522,7 @@ extension TogetherStore {
                 if actor == .user { state.listen.userSpoke = true }
                 else { state.listen.aiSpoke = true }
             }
+            return true
         } != nil
     }
 
@@ -587,7 +623,8 @@ extension TogetherStore {
     func createPlaylist(name: String, by actor: TogetherActor = .user) -> String? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = trimmed.isEmpty ? TogetherCopy.untitledPlaylist : trimmed
-        let id = "p_\(TogetherStore.now())"
+        // 秒级时间戳会同秒撞车，两首歌盖成一首。ID 改成 UUID，名字里的 slug 只当可读前缀。
+        let id = "p_\(UUID().uuidString)"
         let ok = mutate(by: actor, event: "playlist.new",
                         detail: TogetherEventDetail(text: finalName)) { state in
             state.playlists.append(TogetherPlaylist(
@@ -841,8 +878,10 @@ extension TogetherStore {
     /// 3. index.json 元数据
     /// 4. 所有歌单里的 trackId
     /// 5. 喜欢列表、刻字、单句循环
+    /// 6. 播放队列、听歌历史，以及正在播它时的播放状态
     func deleteTrackPermanently(_ trackId: String, by actor: TogetherActor = .user) {
         let fm = FileManager.default
+        let wasCurrent = load().track?.id == trackId
         let lib = library()
         if let t = lib.track(id: trackId), let rel = t.file {
             let audioPath = Self.sharedRootURL.appendingPathComponent(rel)
@@ -861,6 +900,13 @@ extension TogetherStore {
 
         // 级联清理所有 state 引用
         cleanupOrphanTracks(Set([trackId]))
+
+        // 删的是正在播的那首：曲库和 state 都清了，本机播放器也得停下。
+        // UI 那三处已经各自 stop() 了，这里兜住 AI / shell 直接删歌的路径，
+        // 不然停在一首没文件的歌上，看着像还在放。
+        if wasCurrent {
+            Task { @MainActor in TogetherPlayer.shared.stop() }
+        }
     }
 
     /// 内部级联清理孤儿引用
@@ -875,6 +921,9 @@ extension TogetherStore {
                 state.loopLines.removeValue(forKey: tid)
             }
             state.notes.removeAll { deadIds.contains($0.trackId) }
+            // 队列和历史里也留着它的 id：不清的话，删完再点下一首会又把它捞回来。
+            state.playback.queue.removeAll { deadIds.contains($0) }
+            state.me.history.removeAll { deadIds.contains($0.trackId) }
             if let current = state.track?.id, deadIds.contains(current) {
                 state.track = nil
                 state.playback.playing = false
