@@ -53,8 +53,10 @@ enum CSSThemeVariables {
 
     /// --color-card / var(--dudu-card)
     /// [4-1 醒醒] 背景卡接入全局 surface 角色，支持壁纸透明度
+    /// 一起听打开时（togetherVariant 非 nil）跟壁纸明暗那套走：
+    /// 只配主文字、卡片还留在另一套变量里，页面会一半深一半浅。
     static func card(scope: AppearanceScope = .chat) -> Color {
-        let surface = studio.color(.surface, scope: scope)
+        let surface = colored(.surface, scope: scope)
         if studio.hasWallpaper(scope) {
             return surface.opacity(studio.surfaceOpacity)
         }
@@ -63,8 +65,9 @@ enum CSSThemeVariables {
 
     /// --color-bg / var(--dudu-cream)
     /// [4-1 醒醒] 背景底衬接入全局 canvas 角色
+    /// 同 card：一起听打开时跟壁纸明暗那套走。
     static func bg(scope: AppearanceScope = .chat) -> Color {
-        studio.color(.canvas, scope: scope)
+        colored(.canvas, scope: scope)
     }
 
     /// --color-text-main / var(--dudu-brown)
@@ -81,8 +84,9 @@ enum CSSThemeVariables {
 
     /// --color-divider / var(--dudu-divider)
     /// [4-1 醒醒] 分隔线接入全局 border 角色
+    /// 同 card：一起听打开时跟壁纸明暗那套走。
     static func divider(scope: AppearanceScope = .chat) -> Color {
-        studio.color(.border, scope: scope)
+        colored(.border, scope: scope)
     }
 
     /// --color-accent-soft / var(--dudu-pink-soft)
@@ -141,14 +145,16 @@ enum CSSThemeVariables {
 
     /// --color-option-bg (输入框/未选中胶囊底色)
     /// [10-15 1-3 醒醒] 输入框与选项底色接入全局 input 角色（同族统一，不再硬编码 hex）
+    /// 同 card：一起听打开时跟壁纸明暗那套走。
     static func optionBg(scope: AppearanceScope = .chat) -> Color {
-        studio.color(.field, scope: scope)
+        colored(.field, scope: scope)
     }
 
     /// --color-option-border (输入框/未选中胶囊边框)
     /// [10-15 1-3 醒醒] 输入框与选项边线接入全局 border 角色
+    /// 同 divider：一起听打开时跟壁纸明暗那套走。
     static func optionBorder(scope: AppearanceScope = .chat) -> Color {
-        studio.color(.border, scope: scope)
+        colored(.border, scope: scope)
     }
 
     /// --color-scrim / 遮罩层

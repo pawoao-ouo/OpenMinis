@@ -7,8 +7,9 @@
 //  结构层定死（六屏布局、坐标、动效曲线），皮肤层全可换。
 //  默认值一律从 App 主题派生：换 minis-theme 这一页跟着变，代码里没有裸色值。
 //
-//  额外留了一层自己的覆盖：together/skin.json。
-//  我（shell 里的 together set skin.xxx）和你都能改它，改完面板不重启就变。
+//  额外留了一层自己的覆盖：together/skin.json，只剩 vinylDepth 一个可调项
+//  （唱片深浅）。以前那套 shadow / vinylRing / wallpaperShade / wall /
+//  cardRadius 没人读，删了——调不到的配置不是配置，是藏 bug 的地方。
 //  全局主题管基础色，这一层管"这一间屋子"的味道。
 //
 
@@ -18,29 +19,14 @@ import UIKit
 // MARK: - 皮肤
 
 struct TogetherSkinValues: Codable, Equatable {
-    /// 唱片本体：0 = 用主题主文字色，1 = 纯黑。中间值是深浅。
+    /// 唱片本体深浅：0 = 浅灰，1 = 近黑。色相永远是中性灰，不跟文字色走。
     var vinylDepth: Double = 0.9
-    /// 唱片纹路的透明度
-    var vinylRing: Double = 0.055
-    /// 卡片/唱片中心圆的圆角
-    var cardRadius: Double = 20
-    /// 阴影强度 0–1
-    var shadow: Double = 1.0
-    /// 壁纸档位：warm / cool / rose（对应主题里三套背景）
-    var wall: String = "warm"
-    /// 壁纸压色：0 = 原图直出，越大越暗。以前写死 0.82，现在可调。
-    var wallpaperShade: Double = 0.45
 
     init() {}
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         vinylDepth = (try? c.decodeIfPresent(Double.self, forKey: .vinylDepth)) ?? 0.9
-        vinylRing = (try? c.decodeIfPresent(Double.self, forKey: .vinylRing)) ?? 0.055
-        cardRadius = (try? c.decodeIfPresent(Double.self, forKey: .cardRadius)) ?? 20
-        shadow = (try? c.decodeIfPresent(Double.self, forKey: .shadow)) ?? 1.0
-        wall = (try? c.decodeIfPresent(String.self, forKey: .wall)) ?? "warm"
-        wallpaperShade = (try? c.decodeIfPresent(Double.self, forKey: .wallpaperShade)) ?? 0.45
     }
 }
 
@@ -48,30 +34,30 @@ struct TogetherSkinValues: Codable, Equatable {
 @MainActor
 enum TogetherSkin {
 
+    /// skin.json 只在文件变了时才重读：以前每次访问都读盘解码一次，
+    /// 每一帧 body 都在为它付钱。
+    private static var cachedValues: (mtime: Date?, values: TogetherSkinValues)?
+
     static var values: TogetherSkinValues {
         let url = TogetherStore.shared.rootURL.appendingPathComponent("skin.json")
-        guard let data = try? Data(contentsOf: url),
-              let v = try? JSONDecoder().decode(TogetherSkinValues.self, from: data) else {
-            return TogetherSkinValues()
+        let mtime = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        if let cached = cachedValues, cached.mtime == mtime { return cached.values }
+        let decoded: TogetherSkinValues
+        if let data = try? Data(contentsOf: url),
+           let v = try? JSONDecoder().decode(TogetherSkinValues.self, from: data) {
+            decoded = v
+        } else {
+            decoded = TogetherSkinValues()
         }
-        return v
+        cachedValues = (mtime, decoded)
+        return decoded
     }
 
-    /// 唱片色。深浅由 vinylDepth 控制，色相永远来自主题主文字色。
+    /// 唱片色：固定中性灰，深浅只由 vinylDepth 控制。
+    /// 绝不取主题主文字色——Batch 2 前景变浅时唱片跟着变白的教训。
     static var vinyl: Color {
         let depth = min(1, max(0, values.vinylDepth))
-        return CSSThemeVariables.textMain(scope: .chat).opacity(0.72 + 0.28 * depth)
-    }
-
-    static var vinylRing: Color {
-        CSSThemeVariables.bg(scope: .chat).opacity(values.vinylRing)
-    }
-
-    static var cardRadius: CGFloat { CGFloat(values.cardRadius) }
-
-    /// 壁纸压色。收口到一处，播放页和另外四页都读它。
-    static var wallpaperShade: Double {
-        min(0.9, max(0, values.wallpaperShade))
+        return Color(white: 0.28 - 0.20 * depth)
     }
 }
 
@@ -141,7 +127,7 @@ enum TogetherCopy {
     static var deletePlaylist: String { AppLocalized("Delete this playlist", comment: "一起听 · 删歌单") }
     static var playlistName: String { AppLocalized("Playlist name", comment: "一起听 · 歌单名") }
     static var addSongs: String { AppLocalized("Add songs", comment: "一起听 · 加歌") }
-    static var editedTogether: String { AppLocalized("edited", comment: "一起听 · 共同编辑") }
+    static var editedTogether: String { AppLocalized("edited this together", comment: "一起听 · 共同编辑") }
     static var importDone: String { AppLocalized("added", comment: "一起听 · 导入成功") }
     static var importFailed: String { AppLocalized("Couldn't read that file", comment: "一起听 · 导入失败") }
     static var handoff: String { AppLocalized("Hand the remote to", comment: "一起听 · 递遥控器") }
@@ -167,51 +153,125 @@ enum TogetherCopy {
     static var searchSongOrArtist: String { AppLocalized("Search title or artist", comment: "一起听 · 搜索歌名或歌手") }
     static var themeCenter: String { AppLocalized("Theme Center", comment: "一起听 · 装扮中心") }
     static var nowPlayingWallpaper: String { AppLocalized("Now Playing Wallpaper", comment: "一起听 · 播放页壁纸") }
-    static var lyricsWallpaper: String { AppLocalized("Lyrics Cover & Wallpaper", comment: "一起听 · 歌词页背景") }
     static var libraryWallpaper: String { AppLocalized("Playlist Library Wallpaper", comment: "一起听 · 歌单库壁纸") }
     static var syncWallpaper: String { AppLocalized("Together Wallpaper", comment: "一起听 · 伴听页壁纸") }
     static var likedWallpaper: String { AppLocalized("Liked Songs Wallpaper", comment: "一起听 · 喜欢页壁纸") }
     static var queueTitle: String { AppLocalized("Playing Queue", comment: "一起听 · 播放队列") }
     static var historyEchoes: String { AppLocalized("Echo Wall", comment: "一起听 · 历史回声墙") }
+    // MARK: - 重建新增文案（全部走本地化，不许在视图里写死）
+    static var endOfQueue: String { AppLocalized("End of the queue", comment: "一起听 · 到队尾了") }
+    static var unplayableTrack: String { AppLocalized("Couldn't play this song", comment: "一起听 · 播不出来的歌") }
+    static var cancel: String { AppLocalized("Cancel", comment: "一起听 · 取消") }
+    static var restore: String { AppLocalized("Restore", comment: "一起听 · 恢复") }
+    static var deletedPlaylists: String { AppLocalized("Deleted playlists", comment: "一起听 · 已删除的歌单") }
+    static var browseSongs: String { AppLocalized("Browse songs", comment: "一起听 · 去曲库看看") }
+    static var nothingPlaying: String { AppLocalized("Nothing playing", comment: "一起听 · 什么都没在放") }
+    static var onlineStatus: String { AppLocalized("Online", comment: "一起听 · 在线状态") }
+    static var awayStatus: String { AppLocalized("Away", comment: "一起听 · 不在状态") }
+    static var fileMissing: String { AppLocalized("This song's file is missing", comment: "一起听 · 文件不见了") }
+    static var queueEmptyTitle: String { AppLocalized("Queue is empty", comment: "一起听 · 队列空态") }
+    static var queueEmptyHint: String { AppLocalized("Play something from a list and it will show up here.", comment: "一起听 · 队列空态说明") }
+    static var libraryOrderTitle: String { AppLocalized("Library order", comment: "一起听 · 曲库顺序") }
+    static var playedSection: String { AppLocalized("Played", comment: "一起听 · 已播分组") }
+    static var upNextSection: String { AppLocalized("Up next", comment: "一起听 · 接下来分组") }
+    static var shuffleEcho: String { AppLocalized("Shuffle", comment: "一起听 · 随机模式") }
+    static var repeatAllEcho: String { AppLocalized("Repeat all", comment: "一起听 · 全部循环") }
+    static var repeatOneEcho: String { AppLocalized("Repeat one", comment: "一起听 · 单曲循环") }
+    static var inOrderEcho: String { AppLocalized("In order", comment: "一起听 · 顺序播放") }
+    static var backToCurrent: String { AppLocalized("Back to the current line", comment: "一起听 · 回到当前歌词") }
+    @MainActor static func driving(_ name: String) -> String {
+        String(format: AppLocalized("%@ is driving", comment: "一起听 · 谁在掌控"), name)
+    }
+    static var youDriving: String { AppLocalized("You're driving", comment: "一起听 · 你在掌控") }
+    @MainActor static func waitingForHandoff(_ name: String) -> String {
+        String(format: AppLocalized("Waiting for %@ to take the remote…", comment: "一起听 · 等待接手遥控器"), name)
+    }
+    @MainActor static func remoteOffered(_ name: String) -> String {
+        String(format: AppLocalized("Remote offered to %@", comment: "一起听 · 遥控器已递出"), name)
+    }
+    @MainActor static func importFailedCount(_ count: Int) -> String {
+        String(format: AppLocalized("%d file(s) couldn't be added", comment: "一起听 · 导入部分失败"), count)
+    }
+    // 无障碍标签：图标按钮不能只有图形。
+    static var a11yPlay: String { AppLocalized("Play", comment: "一起听 · 无障碍：播放") }
+    static var a11yPause: String { AppLocalized("Pause", comment: "一起听 · 无障碍：暂停") }
+    static var a11yPrevious: String { AppLocalized("Previous", comment: "一起听 · 无障碍：上一首") }
+    static var a11yNext: String { AppLocalized("Next", comment: "一起听 · 无障碍：下一首") }
+    static var a11yShuffle: String { AppLocalized("Shuffle", comment: "一起听 · 无障碍：随机") }
+    static var a11yRepeat: String { AppLocalized("Repeat", comment: "一起听 · 无障碍：循环") }
+    static var a11yQueue: String { AppLocalized("Queue", comment: "一起听 · 无障碍：队列") }
 }
 
 // MARK: - 一起听：壁纸明暗 → 前景变量
 
 /// 壁纸是深是浅，决定这一页用哪套前景变量。
-/// 不看"我觉得深"——直接把壁纸平均色拿出来，跟两套主文字色算真实对比度，哪套读得清用哪套。
+/// 不看整张图的平均色——一张上亮下暗的照片，平均出来是中灰，
+/// 两套字都看不清。按上/中/下三条带分别取平均色（标题、歌词、控制区
+/// 各自待的地方），选"最差的那条带也读得清"的那套前景。
 /// 没图就返回 nil：这时页面底就是主题底色，前景回主题那套，字和底永远成套。
+/// 结果按图片实例缓存：换图才重算，tab 切换不重算。
 @MainActor
 enum TogetherTone {
 
-    /// 把图缩到 1×1 读平均色（十六进制）。
-    static func averageHex(of image: UIImage) -> String? {
-        guard let cg = image.cgImage else { return nil }
-        var pixel = [UInt8](repeating: 255, count: 4)
-        let space = CGColorSpaceCreateDeviceRGB()
-        guard let ctx = CGContext(data: &pixel, width: 1, height: 1,
-                                  bitsPerComponent: 8, bytesPerRow: 4, space: space,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
-            return nil
-        }
-        ctx.interpolationQuality = .medium
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-        return String(format: "#%02X%02X%02X", pixel[0], pixel[1], pixel[2])
-    }
+    private static var cache: [String: (image: ObjectIdentifier, variant: AppearanceVariant?)] = [:]
 
     /// 当前槽位该配哪套前景。图不在返回 nil。
     static func variant(for slot: String) -> AppearanceVariant? {
         guard let url = TogetherImages.url(for: slot),
-              let img = TogetherImages.cachedImage(for: url),
-              let avg = averageHex(of: img) else { return nil }
+              let img = TogetherImages.cachedImage(for: url) else {
+            cache.removeValue(forKey: slot)
+            return nil
+        }
+        let key = ObjectIdentifier(img)
+        if let hit = cache[slot], hit.image == key { return hit.variant }
+        let result = variant(for: img)
+        cache[slot] = (key, result)
+        return result
+    }
 
-        // 深色那套 = 浅字，浅色那套 = 深字。谁的对比度高用谁。
-        let onDark = AppearanceStudio.snapshotHex(.primaryText, scope: .chat, variant: .dark)
-        let onLight = AppearanceStudio.snapshotHex(.primaryText, scope: .chat, variant: .light)
-        let lightTextContrast = AppearanceContrast.ratio(onDark, on: avg)
-        let darkTextContrast = AppearanceContrast.ratio(onLight, on: avg)
-        return lightTextContrast >= darkTextContrast ? .dark : .light
+    /// 一张图该配哪套前景：三条带的平均色，取最差带对比度更高的那套。
+    static func variant(for image: UIImage) -> AppearanceVariant? {
+        let bands = bandHexes(of: image)
+        guard !bands.isEmpty else { return nil }
+        // 深色那套 = 浅字，浅色那套 = 深字。
+        let lightText = AppearanceStudio.snapshotHex(.primaryText, scope: .chat, variant: .dark)
+        let darkText = AppearanceStudio.snapshotHex(.primaryText, scope: .chat, variant: .light)
+        let worstLight = bands.map { AppearanceContrast.ratio(lightText, on: $0) }.min() ?? 0
+        let worstDark = bands.map { AppearanceContrast.ratio(darkText, on: $0) }.min() ?? 0
+        return worstLight >= worstDark ? .dark : .light
+    }
+
+    /// 把图缩到 48×48，取上/中/下三条带的平均色（十六进制）。
+    private static func bandHexes(of image: UIImage) -> [String] {
+        guard let cg = image.cgImage else { return [] }
+        let w = 48, h = 48
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        let space = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: &pixels, width: w, height: h,
+                                  bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return []
+        }
+        ctx.interpolationQuality = .low
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var hexes: [String] = []
+        for band in 0..<3 {
+            let y0 = band * h / 3, y1 = (band + 1) * h / 3
+            var r = 0, g = 0, b = 0, count = 0
+            for y in y0..<y1 {
+                for x in 0..<w {
+                    let i = (y * w + x) * 4
+                    r += Int(pixels[i]); g += Int(pixels[i + 1]); b += Int(pixels[i + 2])
+                    count += 1
+                }
+            }
+            guard count > 0 else { continue }
+            hexes.append(String(format: "#%02X%02X%02X", r / count, g / count, b / count))
+        }
+        return hexes
     }
 }
+
 
 extension View {
     /// 一起听图标：实心变体 + 变量层定的字重、尺寸、前景色。
