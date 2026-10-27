@@ -47,6 +47,11 @@ struct TogetherRootView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var tab: TogetherTab = .now
     @State private var showPlaylistEditor: TogetherPlaylist?
+    /// 对比度底线垫的纱（TogetherTone 判的）：0 = 不用垫；
+    /// >0 = 壁纸太"花"，两套字都看不清，垫一层纯色把字托出来。
+    /// 方向跟着前景那套走，厚度是刚好够用的最小值。
+    @State private var toneScrimAlpha: Double = 0
+    @State private var toneScrimIsDark = true
     /// 当前 tab 是不是进了子页（歌单详情这类）。进了就藏关闭键，只留返回。
     @State private var inSubpage = false
 
@@ -67,6 +72,15 @@ struct TogetherRootView: View {
                     .allowsHitTesting(false)
                     // 壁纸换了、切了 tab，都重算一次深浅，前景色跟着换。
                     .id(wallpaperSlot)
+
+                // 对比度底线垫的纱：纯色一层，不用玻璃、不用渐变，
+                // 就是把字托出来，免得再跟 Liquid Glass 抢层次。
+                if toneScrimAlpha > 0 {
+                    (toneScrimIsDark ? Color.black : Color.white)
+                        .opacity(toneScrimAlpha)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
 
                 Group {
                     switch tab {
@@ -121,13 +135,18 @@ struct TogetherRootView: View {
             .onDisappear {
                 // 关掉一起听立刻还原，聊天页和别的地方一个像素都不受影响。
                 CSSThemeVariables.togetherVariant = nil
+                toneScrimAlpha = 0
             }
         }
     }
 
-    /// 读当前壁纸的明暗，接到一起听这一页的前景变量上。
+    /// 读当前壁纸的明暗，接到一起听这一页的前景变量上；
+    /// 字看不清时，顺带记下要垫多厚的纱。
     private func syncForegroundTone() {
-        CSSThemeVariables.togetherVariant = TogetherTone.variant(for: wallpaperSlot)
+        let decision = TogetherTone.decision(for: wallpaperSlot)
+        CSSThemeVariables.togetherVariant = decision.variant
+        toneScrimAlpha = decision.scrimAlpha
+        toneScrimIsDark = decision.scrimIsDark
     }
 
     /// 当前 tab 该铺哪张壁纸。和页面各自读的槽一致，谁都不另起一套。

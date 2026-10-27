@@ -162,41 +162,119 @@ enum TogetherCopy {
 
 // MARK: - 一起听：壁纸明暗 → 前景变量
 
+/// 一次壁纸明暗判定：选哪套前景 + 要不要垫纱。
+struct TogetherToneDecision {
+    var variant: AppearanceVariant?
+    /// 0 = 不用垫纱；>0 = 垫一层纯色纱。纱的方向跟着 variant 走：
+    /// 深色前景（浅字）垫黑纱，浅色前景（深字）垫白纱。
+    var scrimAlpha: Double = 0
+    var scrimIsDark: Bool = true
+}
+
 /// 壁纸是深是浅，决定这一页用哪套前景变量。
 /// 不看整张图的平均色——一张上亮下暗的照片，平均出来是中灰，
 /// 两套字都看不清。按上/中/下三条带分别取平均色（标题、歌词、控制区
 /// 各自待的地方），选"最差的那条带也读得清"的那套前景。
+/// 底线：正文 4.5:1（WCAG 正文级），次要文字和强调色 3:1（UI 件级——
+/// 次要文字是主题定的灰色，4.5:1 在照片上常常垫纱也够不着，硬要
+/// 会把壁纸压成一块黑板；3:1 是这套代码里 AppearanceContrast.Level.ui
+/// 本来的线）。两套前景都不达标时，垫一层纱把带子往"字能看清"的方向压，
+/// 压到刚好达标为止；再压不动就取最强那档 + 最好那套，字至少能看清。
 /// 没图就返回 nil：这时页面底就是主题底色，前景回主题那套，字和底永远成套。
 /// 结果按图片实例缓存：换图才重算，tab 切换不重算。
 @MainActor
 enum TogetherTone {
 
-    private static var cache: [String: (image: ObjectIdentifier, variant: AppearanceVariant?)] = [:]
+    private static var cache: [String: (image: ObjectIdentifier, decision: TogetherToneDecision)] = [:]
 
-    /// 当前槽位该配哪套前景。图不在返回 nil。
-    static func variant(for slot: String) -> AppearanceVariant? {
+    /// 当前槽位该配哪套前景 + 要不要垫纱。图不在返回空判定（variant nil）。
+    static func decision(for slot: String) -> TogetherToneDecision {
         guard let url = TogetherImages.url(for: slot),
               let img = TogetherImages.cachedImage(for: url) else {
             cache.removeValue(forKey: slot)
-            return nil
+            return TogetherToneDecision()
         }
         let key = ObjectIdentifier(img)
-        if let hit = cache[slot], hit.image == key { return hit.variant }
-        let result = variant(for: img)
+        if let hit = cache[slot], hit.image == key { return hit.decision }
+        let result = decision(for: img)
         cache[slot] = (key, result)
         return result
     }
 
+    /// 当前槽位该配哪套前景。图不在返回 nil。
+    static func variant(for slot: String) -> AppearanceVariant? {
+        decision(for: slot).variant
+    }
+
     /// 一张图该配哪套前景：三条带的平均色，取最差带对比度更高的那套。
+    /// （垫纱判定走 decision(for:)；这里只取 variant。）
     static func variant(for image: UIImage) -> AppearanceVariant? {
+        decision(for: image).variant
+    }
+
+    /// 一张图的完整判定：纱由薄到厚试，同一厚度两套都过线时，
+    /// 取正文最差对比度更高的那套；一张带子再怎么垫都过不了线时，
+    /// 取最强那档纱 + 正文最差对比度最高的那套。
+    static func decision(for image: UIImage) -> TogetherToneDecision {
         let bands = bandHexes(of: image)
-        guard !bands.isEmpty else { return nil }
-        // 深色那套 = 浅字，浅色那套 = 深字。
-        let lightText = AppearanceStudio.snapshotHex(.primaryText, scope: .chat, variant: .dark)
-        let darkText = AppearanceStudio.snapshotHex(.primaryText, scope: .chat, variant: .light)
-        let worstLight = bands.map { AppearanceContrast.ratio(lightText, on: $0) }.min() ?? 0
-        let worstDark = bands.map { AppearanceContrast.ratio(darkText, on: $0) }.min() ?? 0
-        return worstLight >= worstDark ? .dark : .light
+        guard !bands.isEmpty else { return TogetherToneDecision() }
+        let alphas: [Double] = [0, 0.2, 0.35, 0.5, 0.65]
+        for alpha in alphas {
+            var passing: [(decision: TogetherToneDecision, primary: Double)] = []
+            for variant in [AppearanceVariant.dark, AppearanceVariant.light] {
+                let tried = scrimmedBands(bands, variant: variant, alpha: alpha)
+                let worst = worstRatios(tried, variant: variant)
+                guard worst.primary >= AppearanceContrast.threshold(.body),
+                      worst.dim >= AppearanceContrast.threshold(.ui),
+                      worst.accent >= AppearanceContrast.threshold(.ui) else { continue }
+                passing.append((
+                    TogetherToneDecision(variant: variant, scrimAlpha: alpha, scrimIsDark: variant == .dark),
+                    worst.primary
+                ))
+            }
+            if let winner = passing.max(by: { $0.primary < $1.primary }) {
+                return winner.decision
+            }
+        }
+        var fallback: (decision: TogetherToneDecision, primary: Double)?
+        for variant in [AppearanceVariant.dark, AppearanceVariant.light] {
+            let tried = scrimmedBands(bands, variant: variant, alpha: alphas.last!)
+            let worst = worstRatios(tried, variant: variant)
+            let candidate = TogetherToneDecision(
+                variant: variant, scrimAlpha: alphas.last!, scrimIsDark: variant == .dark)
+            if fallback == nil || worst.primary > fallback!.primary {
+                fallback = (candidate, worst.primary)
+            }
+        }
+        return fallback?.decision ?? TogetherToneDecision(variant: .dark)
+    }
+
+    /// 三条带在某套前景下的最差对比度：正文 / 次要文字 / 强调色各取最差带。
+    private static func worstRatios(_ bands: [String], variant: AppearanceVariant) -> (primary: Double, dim: Double, accent: Double) {
+        let primary = AppearanceStudio.snapshotHex(.primaryText, scope: .chat, variant: variant)
+        let dim = AppearanceStudio.snapshotHex(.secondaryText, scope: .chat, variant: variant)
+        let accent = AppearanceStudio.snapshotHex(.accent, scope: .chat, variant: variant)
+        return (
+            bands.map { AppearanceContrast.ratio(primary, on: $0) }.min() ?? 0,
+            bands.map { AppearanceContrast.ratio(dim, on: $0) }.min() ?? 0,
+            bands.map { AppearanceContrast.ratio(accent, on: $0) }.min() ?? 0
+        )
+    }
+
+    /// 垫纱后的带色：深色前景（浅字）往黑压，浅色前景（深字）往白压。
+    private static func scrimmedBands(_ bands: [String], variant: AppearanceVariant, alpha: Double) -> [String] {
+        guard alpha > 0 else { return bands }
+        return bands.map { blend($0, towardDark: variant == .dark, alpha: alpha) }
+    }
+
+    /// 一条带往黑或白压 alpha，模拟垫纱后的带色。
+    private static func blend(_ hex: String, towardDark: Bool, alpha: Double) -> String {
+        guard let c = RGB(hex: hex) else { return hex }
+        let target = towardDark ? 0.0 : 255.0
+        func ch(_ v: Double) -> Int {
+            Int((v * (1 - alpha) + target * alpha).rounded())
+        }
+        return String(format: "#%02X%02X%02X", ch(c.r), ch(c.g), ch(c.b))
     }
 
     /// 把图缩到 48×48，取上/中/下三条带的平均色（十六进制）。
