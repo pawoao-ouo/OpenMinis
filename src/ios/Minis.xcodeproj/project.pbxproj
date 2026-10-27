@@ -32,7 +32,9 @@
 		E5TG0003 /* TogetherPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0013 /* TogetherPlayer.swift */; };
 		E5TG0004 /* TogetherPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0014 /* TogetherPanelView.swift */; };
 		E5TG0005 /* TogetherMiniBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0015 /* TogetherMiniBar.swift */; };
+		E5TG000C /* TogetherControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG001C /* TogetherControls.swift */; };
 		E5TG0001 /* TogetherState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0011 /* TogetherState.swift */; };
+		E5TG000B /* TogetherStateHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG001B /* TogetherStateHub.swift */; };
 		E5TG0002 /* TogetherStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0012 /* TogetherStore.swift */; };
 		E5CBK0002 /* UserProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CBK0012 /* UserProfileView.swift */; };
 		E5CBK0001 /* AIChatViewModel+CodeBlockEditing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CBK0011 /* AIChatViewModel+CodeBlockEditing.swift */; };
@@ -774,7 +776,9 @@
 		E5TG0013 /* TogetherPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherPlayer.swift"; path = "Agent/Together/TogetherPlayer.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG0014 /* TogetherPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherPanelView.swift"; path = "Views/Together/TogetherPanelView.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG0015 /* TogetherMiniBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherMiniBar.swift"; path = "Views/Together/TogetherMiniBar.swift"; sourceTree = SOURCE_ROOT; };
+		E5TG001C /* TogetherControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherControls.swift"; path = "Views/Together/TogetherControls.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG0011 /* TogetherState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherState.swift"; path = "Agent/Together/TogetherState.swift"; sourceTree = SOURCE_ROOT; };
+		E5TG001B /* TogetherStateHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherStateHub.swift"; path = "Agent/Together/TogetherStateHub.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG0012 /* TogetherStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherStore.swift"; path = "Agent/Together/TogetherStore.swift"; sourceTree = SOURCE_ROOT; };
 		E5CBK0012 /* UserProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "UserProfileView.swift"; path = "Views/Chat/UserProfileView.swift"; sourceTree = SOURCE_ROOT; };
 		E5CBK0011 /* AIChatViewModel+CodeBlockEditing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AIChatViewModel+CodeBlockEditing.swift"; path = "Agent/Chat/AIChatViewModel+CodeBlockEditing.swift"; sourceTree = SOURCE_ROOT; };
@@ -2627,7 +2631,9 @@
 				E5TG0013 /* TogetherPlayer.swift */,
 				E5TG0014 /* TogetherPanelView.swift */,
 				E5TG0015 /* TogetherMiniBar.swift */,
+				E5TG001C /* TogetherControls.swift */,
 				E5TG0011 /* TogetherState.swift */,
+				E5TG001B /* TogetherStateHub.swift */,
 				E5TG0012 /* TogetherStore.swift */,
 				E5CBK0012 /* UserProfileView.swift */,
 				E5CBK0011 /* AIChatViewModel+CodeBlockEditing.swift */,
@@ -3168,7 +3174,9 @@
 				E5TG0003 /* TogetherPlayer.swift in Sources */,
 				E5TG0004 /* TogetherPanelView.swift in Sources */,
 				E5TG0005 /* TogetherMiniBar.swift in Sources */,
+				E5TG000C /* TogetherControls.swift in Sources */,
 				E5TG0001 /* TogetherState.swift in Sources */,
+				E5TG000B /* TogetherStateHub.swift in Sources */,
 				E5TG0002 /* TogetherStore.swift in Sources */,
 				E5CBK0002 /* UserProfileView.swift in Sources */,
 				E5CBK0001 /* AIChatViewModel+CodeBlockEditing.swift in Sources */,
