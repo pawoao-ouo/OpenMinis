@@ -279,17 +279,29 @@ struct TogetherPanelView: View {
     }
 
     /// "谁在掌控 · 心情词"。心情是他留下的一个词，只展示，不打分、不滑条。
+    /// 谁在掌控还不知道（还没放过歌）时，不许默认说她在掌控——只写心情，
+    /// 心情也没有就空着，不编一句。
+    @ViewBuilder
     private func driverLine(_ s: CGFloat) -> some View {
         let mood = state.me.presence.mood?.word.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return HStack(spacing: 4) {
-            Text(state.playback.by == TogetherActor.ai.rawValue ? TogetherCopy.driving(aiName) : TogetherCopy.youDriving)
-            if !mood.isEmpty {
-                Text("·")
-                Text(mood).italic()
+        let by = state.playback.by
+        let driverText: String? = by == TogetherActor.ai.rawValue ? TogetherCopy.driving(aiName)
+            : by == TogetherActor.user.rawValue ? TogetherCopy.youDriving : nil
+        if driverText != nil || !mood.isEmpty {
+            HStack(spacing: 4) {
+                if let driverText {
+                    Text(driverText)
+                }
+                if driverText != nil, !mood.isEmpty {
+                    Text("·")
+                }
+                if !mood.isEmpty {
+                    Text(mood).italic()
+                }
             }
+            .font(ChatFont.font(11, weight: .medium))
+            .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
         }
-        .font(ChatFont.font(11, weight: .medium))
-        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
     }
 
     /// 遥控器正在递交：说一声在等谁，可取消。pending 期间旧持有人继续说了算。

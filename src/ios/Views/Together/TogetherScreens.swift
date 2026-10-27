@@ -849,11 +849,13 @@ struct TogetherSyncView: View {
                 duo
                     .padding(.top, 34)
 
-                Text(driverLine)
-                    .font(ChatFont.font(10.5))
-                    .tracking(0.6)
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                    .padding(.top, 22)
+                if !driverLine.isEmpty {
+                    Text(driverLine)
+                        .font(ChatFont.font(10.5))
+                        .tracking(0.6)
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                        .padding(.top, 22)
+                }
 
                 wallpaperBar
                     .padding(.top, 12)
@@ -955,9 +957,7 @@ struct TogetherSyncView: View {
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                 .lineLimit(1)
 
-            Text(role == .ai && state.playback.by == "ai"
-                 ? AppLocalized("controlling", comment: "一起听 · 在控制")
-                 : AppLocalized("following", comment: "一起听 · 跟着听"))
+            Text(sideWord(role))
                 .font(ChatFont.font(9.5, weight: .medium))
                 .tracking(0.5)
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
@@ -965,6 +965,23 @@ struct TogetherSyncView: View {
                 .padding(.vertical, 3)
                 .background(Capsule().fill(CSSThemeVariables.optionBg(scope: .chat)))
         }
+    }
+
+    /// 她 / 他头上的小标签：只有真正在掌控的才叫"在控制"，对方就是"跟着听"；
+    /// 谁在掌控还不知道（还没放过歌）时，不许默认说她在"跟着听"——只说"在听"。
+    private func sideWord(_ role: TogetherActor) -> String {
+        let by = state.playback.by
+        if by == TogetherActor.ai.rawValue {
+            return role == .ai
+                ? AppLocalized("controlling", comment: "一起听 · 在控制")
+                : AppLocalized("following", comment: "一起听 · 跟着听")
+        }
+        if by == TogetherActor.user.rawValue {
+            return role == .ai
+                ? AppLocalized("following", comment: "一起听 · 跟着听")
+                : AppLocalized("controlling", comment: "一起听 · 在控制")
+        }
+        return AppLocalized("Listening", comment: "一起听 · 在听（不知道谁在掌控时）")
     }
 
     /// 两人之间的那道波纹：静态的，不转、不闪——这页是"在场"的证明，
@@ -982,17 +999,18 @@ struct TogetherSyncView: View {
 
     /// 谁在掌控 + 他现在的心情，一句话，不说"同步中"这种没法验证的话。
     /// 没心情就不写心情，安安静静一句话。
+    /// 谁在掌控还不知道时，不许默认说她在掌控：有心情只写心情，
+    /// 都没有就空着，调用处不画这行。
     private var driverLine: String {
-        let driver = state.playback.by == "ai"
-            ? ChatAddressing.assistant(sessionPersonaId: sessionPersonaId)
-            : ChatAddressing.user()
-        let driving = state.playback.by == "ai"
-            ? TogetherCopy.driving(driver)
-            : TogetherCopy.youDriving
+        let by = state.playback.by
+        let driving: String? = by == "ai"
+            ? TogetherCopy.driving(ChatAddressing.assistant(sessionPersonaId: sessionPersonaId))
+            : by == "user" ? TogetherCopy.youDriving : nil
         if let mood = state.me.presence.mood {
-            return "\(driving) · \(mood.word)"
+            if let driving { return "\(driving) · \(mood.word)" }
+            return mood.word
         }
-        return driving
+        return driving ?? ""
     }
 
     /// 当前这首卡：读本机播放器的那首（player.track），和面板、微控条同一处真相。
