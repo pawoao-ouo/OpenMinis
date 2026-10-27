@@ -45,6 +45,8 @@ struct TogetherPanelView: View {
     /// 小惊喜：心动共振光效脉冲（一次性的进场，不是循环）
     @State private var resonancePulse = false
     @State private var heartbeatGen = 0
+    /// 上一次共振写盘的时间：连点只写一次，光效照常跑（见 triggerHeartbeat）。
+    @State private var lastResonanceWrite: Date?
 
     /// 唯一真源：Hub 的状态 + 本机播放器。当前这首歌以播放器为准
     /// （player.track），面板 / Sync / 微控条三处读同一处，
@@ -87,7 +89,7 @@ struct TogetherPanelView: View {
                         // 黑胶和歌词同页：上面唱片，下面滚动歌词，不用任何切换。
                         // 歌名歌手夹在两者中间，谁都不藏。
                         VStack(spacing: 12 * s) {
-                            discSection(s: s, h: h)
+                            discSection(s: s, h: h, w: geo.size.width)
 
                             titleBlock(t, s)
 
@@ -229,7 +231,7 @@ struct TogetherPanelView: View {
         return min(tier, max(96, (h - 380) * 0.55))
     }
 
-    private func discSection(s: CGFloat, h: CGFloat) -> some View {
+    private func discSection(s: CGFloat, h: CGFloat, w: CGFloat) -> some View {
         let d = discDiameter(h: h, s: s)
         return ZStack {
             TogetherDiscView(
@@ -238,15 +240,28 @@ struct TogetherPanelView: View {
                 isPlaying: player.isPlaying
             )
 
-            // 回声弹幕浮在黑胶四周
+            // 回声弹幕浮在黑胶四周：偏移夹在屏幕里——气泡最宽 220，
+            // 横向按屏幕宽夹，纵向夹在唱片区上下，不压住头像和歌名。
             ForEach(echoBubbles) { bubble in
                 EchoBubbleView(bubble: bubble)
-                    .offset(x: bubble.dx * s, y: bubble.dy * s)
+                    .offset(clampedEchoOffset(bubble, width: w, scale: s))
                     .allowsHitTesting(false)
             }
         }
         .frame(height: d)
         .allowsHitTesting(false)
+    }
+
+    /// 回声气泡的偏移夹取：横向保证整个气泡在屏幕里（半宽 110 + 8 边距），
+    /// 纵向夹在唱片区——气泡是 4.65 秒的浮层，不交互，纵向只求不压住
+    /// 上下两块内容，不求像素级不重叠。
+    private func clampedEchoOffset(_ bubble: EchoBubble, width w: CGFloat, scale s: CGFloat) -> CGSize {
+        let maxDx = max(0, w / 2 - 118)
+        let maxDy: CGFloat = 96 * s
+        return CGSize(
+            width: min(max(bubble.dx * s, -maxDx), maxDx),
+            height: min(max(bubble.dy * s, -maxDy), maxDy)
+        )
     }
 
 
@@ -697,8 +712,14 @@ struct TogetherPanelView: View {
         heartbeatGen += 1
         let gen = heartbeatGen
         resonancePulse = true
-        let whisper = String(format: AppLocalized("%@ nudged %@", comment: "一起听 · 心动共振低语"), userName, aiName)
-        TogetherStore.shared.triggerResonance(from: .user, whisper: whisper)
+        // 共振写盘节流：3 秒内连点只写一次。每一 tap 都全量写盘 + 记事件，
+        // 是拿文件当鼓敲；光效和震动照常跑，点的手感不受影响。
+        let now = Date()
+        if lastResonanceWrite == nil || now.timeIntervalSince(lastResonanceWrite!) >= 3 {
+            lastResonanceWrite = now
+            let whisper = String(format: AppLocalized("%@ nudged %@", comment: "一起听 · 心动共振低语"), userName, aiName)
+            TogetherStore.shared.triggerResonance(from: .user, whisper: whisper)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             if gen == heartbeatGen { resonancePulse = false }
         }

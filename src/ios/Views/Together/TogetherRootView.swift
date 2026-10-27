@@ -197,7 +197,9 @@ struct TogetherRootView: View {
                                 .font(ChatFont.font(17, weight: tab == item ? .semibold : .regular))
                                 .frame(height: 20)
                             Text(item.title)
-                                .font(ChatFont.font(9.5, weight: tab == item ? .semibold : .medium))
+                                // 11pt 是 HIG 给自定义文字的下限：9.5pt 在小屏上
+                                // 扫一眼认不出，底栏 58pt 也装得下 11pt。
+                                .font(ChatFont.font(11, weight: tab == item ? .semibold : .medium))
                                 .tracking(0.4)
                         }
                         .foregroundStyle(
