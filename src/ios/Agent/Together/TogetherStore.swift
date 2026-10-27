@@ -39,6 +39,10 @@ final class TogetherStore {
     static let eventCap = 500
     /// 留言上限。
     static let noteCap = 400
+    /// 听歌历史上限。无上限的历史会让每次读文件越来越贵。
+    static let historyCap = 200
+    /// 单句循环上限。字典无序，超了就按 key 排序丢最前面的。
+    static let loopLineCap = 200
 
     private let queue = DispatchQueue(label: "com.openminis.together.store")
 
@@ -107,6 +111,17 @@ final class TogetherStore {
 
     func load() -> TogetherState {
         queue.sync { loadLocked() }
+    }
+
+    /// 只读 revision：轮询判断"变了没有"用，不解码整份状态。
+    /// 文件不在或读不出数字返回 nil，调用方当"变了"处理、走全量重读。
+    func peekRevision() -> Int? {
+        queue.sync {
+            guard let data = try? Data(contentsOf: stateURL),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let rev = obj["revision"] as? Int else { return nil }
+            return rev
+        }
     }
 
     /// 曲库以目录为准：shared/music 里有什么音频就有什么歌。
@@ -357,8 +372,18 @@ final class TogetherStore {
             if state.notes.count > TogetherStore.noteCap {
                 state.notes = Array(state.notes.suffix(TogetherStore.noteCap))
             }
+            if state.me.history.count > TogetherStore.historyCap {
+                state.me.history = Array(state.me.history.suffix(TogetherStore.historyCap))
+            }
+            if state.loopLines.count > TogetherStore.loopLineCap {
+                let keep = state.loopLines.keys.sorted().suffix(TogetherStore.loopLineCap)
+                state.loopLines = Dictionary(uniqueKeysWithValues: keep.map { ($0, state.loopLines[$0]!) })
+            }
 
             guard writeLocked(state) else { return nil }
+            // 一次有意义的写：让 Hub 立刻重读，不等轮询。进度回写不走这里，
+            // 所以播歌时不会每 3 秒把所有视图都叫醒。
+            NotificationCenter.default.post(name: .togetherStateDidChange, object: nil)
             return state
         }
     }
@@ -427,8 +452,8 @@ extension TogetherStore {
     /// 她或者我按了播放。
     /// 所有"点歌/切歌/播完接歌"最后都落在这里：先验文件在不在，
     /// 不在就一个字都不写（上一首接着响），只报一声错。
-    /// queue 传了就用传的那个列表；传空数组 = 明确清掉；AI 没传队列就当清掉，
-    /// 免得它还照着上一个列表往下走。
+    /// queue 传了就用传的那个列表；传空数组 = 明确清掉；没传 = 保持原样——
+    /// 谁按播放都不许顺手把对方的队列清掉。
     func play(trackId: String, at position: Double = 0, by actor: TogetherActor,
               queue: [String]? = nil) {
         guard let track = library().track(id: trackId) else {
@@ -452,45 +477,121 @@ extension TogetherStore {
             state.playback.updatedAt = TogetherStore.now()
             if let q = queue {
                 state.playback.queue = q
-            } else if actor == .ai {
-                state.playback.queue = []
             }
             state.me.presence.listening = true
             state.me.presence.updatedAt = TogetherStore.now()
-            state.devices.ai.online = true
-            if actor == .user {
+            // 按播放键是真活动：刷新按下这一方的 lastSeen。另一方不动——
+            // 以前这里无条件把 ai.online 写成 true，按钮按出来的"在线"不算数。
+            switch actor {
+            case .user:
                 state.devices.user.online = true
                 state.devices.user.lastSeen = TogetherStore.now()
+            case .ai:
+                state.devices.ai.online = true
+                state.devices.ai.lastSeen = TogetherStore.now()
             }
         }
     }
 
-    func setPlaying(_ playing: Bool, by actor: TogetherActor) {
+    /// 播放/暂停。heldPause 只在调用方明确知道时传：她攥住的暂停要落盘，
+    /// 系统原因（来电、耳机）的暂停不攥，免得下次打开还以为她按了暂停。
+    func setPlaying(_ playing: Bool, by actor: TogetherActor, heldPause: Bool? = nil) {
         mutate(by: actor, event: playing ? "resume" : "pause") { state in
             state.playback.playing = playing
             state.playback.by = actor.rawValue
             state.playback.updatedAt = TogetherStore.now()
+            if let held = heldPause { state.playback.heldPause = held }
         }
     }
 
     /// 拖进度条。她拖的时候记一条 seek 事件，我能看见她跳到了哪。
+    /// seek 是导航，不是夺遥控：不碰 playback.by，只刷新拖动这一方的 lastSeen。
     func seek(to position: Double, by actor: TogetherActor) {
         let clamped = max(0, position)
         mutate(by: actor, event: "seek",
                detail: TogetherEventDetail(position: clamped)) { state in
             state.playback.position = clamped
-            state.playback.by = actor.rawValue
             state.playback.updatedAt = TogetherStore.now()
+            switch actor {
+            case .user: state.devices.user.lastSeen = TogetherStore.now()
+            case .ai: state.devices.ai.lastSeen = TogetherStore.now()
+            }
         }
     }
 
     /// 播放进度回写。这个不进事件流——每秒一条会把文件淹了。
-    /// 只写 position / updatedAt，不碰 playback.by：
-    /// 遥控器在谁手里是"谁点了遥控"决定的，不是"谁的进度在跑"。
+    /// 只写 position / updatedAt，不碰 playback.by，不动 revision、不发通知：
+    /// 遥控器在谁手里是"谁点了遥控"决定的，不是"谁的进度在跑"；
+    /// 进度只是播放器自己的事，没必要把所有视图叫醒重读。
     func reportProgress(position: Double) {
-        mutate(by: .user, event: "") { state in
+        queue.sync {
+            let fd = openLockFile()
+            guard fd >= 0, flock(fd, LOCK_EX) == 0 else {
+                if fd >= 0 { close(fd) }
+                return
+            }
+            defer { flock(fd, LOCK_UN); close(fd) }
+            var state = loadLocked()
             state.playback.position = position
             state.playback.updatedAt = TogetherStore.now()
+            _ = writeLocked(state)
+        }
+    }
+
+    /// 某一方真的在场活动过（打开面板、点播放）：刷新它的 lastSeen。
+    /// 按钮本身不许把 online 按成 true——在场是量出来的。
+    func markSeen(by actor: TogetherActor) {
+        mutate(by: actor, event: "") { state in
+            switch actor {
+            case .user:
+                state.devices.user.online = true
+                state.devices.user.lastSeen = TogetherStore.now()
+            case .ai:
+                state.devices.ai.online = true
+                state.devices.ai.lastSeen = TogetherStore.now()
+            }
+        }
+    }
+
+    /// 遥控器递交：只记一个 pending，不动 playback.by。
+    /// 旧持有人继续说了算，直到对方接手或超时落定。
+    @discardableResult
+    func requestHandoff(to: String, by actor: TogetherActor) -> Bool {
+        let current = load().playback.by
+        guard let from = current, !from.isEmpty, from != to else {
+            // 已经在对方手里，或根本没人持：不用递。
+            return false
+        }
+        return mutateOrReject(by: actor, event: "handoff.request",
+                            detail: TogetherEventDetail(text: to)) { state in
+            guard state.pendingHandoff == nil else { return false }
+            state.pendingHandoff = TogetherPendingHandoff(
+                to: to, from: from,
+                requestedAt: TogetherStore.now(), requestedBy: actor.rawValue
+            )
+            return true
+        } != nil
+    }
+
+    /// 递交落定：遥控器正式到对方手里，pending 清掉。
+    @discardableResult
+    func acceptHandoff() -> Bool {
+        guard let pending = load().pendingHandoff, !pending.to.isEmpty else { return false }
+        return mutateOrReject(by: pending.requestedBy == TogetherActor.ai.rawValue ? .ai : .user,
+                              event: "handoff.accept",
+                              detail: TogetherEventDetail(text: pending.to)) { state in
+            guard let p = state.pendingHandoff else { return false }
+            state.playback.by = p.to
+            state.playback.updatedAt = TogetherStore.now()
+            state.pendingHandoff = nil
+            return true
+        } != nil
+    }
+
+    /// 取消还没落定的递交。
+    func cancelHandoff(by actor: TogetherActor) {
+        mutate(by: actor, event: "handoff.cancel") { state in
+            state.pendingHandoff = nil
         }
     }
 
@@ -541,7 +642,7 @@ extension TogetherStore {
     }
 
     /// 我推一首。理由必须留下，否则下一回合我就不记得为什么推它。
-    /// 推歌不跟着上一个列表走：队列在这里明确清掉。
+    /// 推歌不许清队列：她正在听的列表留着，推的这首插进来播，听完还回得去。
     @discardableResult
     func radio(trackId: String, why: String) -> Bool {
         guard let track = library().track(id: trackId) else { return false }
@@ -557,7 +658,8 @@ extension TogetherStore {
             state.playback.playing = true
             state.playback.by = TogetherActor.ai.rawValue
             state.playback.updatedAt = TogetherStore.now()
-            state.playback.queue = []
+            state.devices.ai.online = true
+            state.devices.ai.lastSeen = TogetherStore.now()
             state.me.presence.listening = true
             state.me.presence.updatedAt = TogetherStore.now()
             state.me.history.append(TogetherHistoryItem(
@@ -597,6 +699,8 @@ extension TogetherStore {
     }
 
     /// 我说话。她那边看到的是留在当前这一秒的一句。
+    /// 名额（一天三句 + 一轮一句）全在写盘锁里再判一次：判在锁外面，
+    /// 两个同时进来会都通过；没歌可留时一句都不消耗。
     @discardableResult
     func speak(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -606,23 +710,19 @@ extension TogetherStore {
             return false
         }
         let day = TogetherStore.today()
-        var allowed = false
-        if let tid = load().track?.id, !tid.isEmpty, !canStamp(by: .ai, trackId: tid) {
-            togetherLogger.info("[Together] 这一轮我已经刻过了")
-            return false
-        }
-        let result = mutate(by: .ai, event: "reply",
-                            detail: TogetherEventDetail(text: trimmed)) { state in
+        // 没歌时不开口：以前这条路也会先把三句名额吃掉一句。
+        guard let trackId = load().track?.id, !trackId.isEmpty else { return false }
+        return mutateOrReject(by: .ai, event: "reply",
+                              detail: TogetherEventDetail(text: trimmed)) { state in
             if state.me.spokenDay != day {
                 state.me.spokenDay = day
                 state.me.spokenToday = 0
             }
-            guard state.me.spokenToday < 3 else { return }
-            allowed = true
+            guard state.me.spokenToday < 3 else { return false }
+            // 一轮一句：这轮已经刻过，就不开口。
+            if state.listen.trackId == trackId, state.listen.aiSpoke { return false }
             state.me.spokenToday += 1
             state.me.lastSpokeAt = TogetherStore.now()
-            let trackId = state.track?.id ?? ""
-            guard !trackId.isEmpty else { return }
             if state.listen.trackId == trackId { state.listen.aiSpoke = true }
             state.notes.append(TogetherNote(
                 id: "n_\(TogetherStore.now())_\(state.revision + 1)",
@@ -632,8 +732,8 @@ extension TogetherStore {
                 text: trimmed,
                 ts: TogetherStore.now()
             ))
-        }
-        return allowed && result != nil
+            return true
+        } != nil
     }
 }
 // MARK: - 歌单
@@ -668,13 +768,32 @@ extension TogetherStore {
     }
 
     /// 软删除。真删会被集合并集捞回来，这一条规矩在 SYNC.md 里定死了。
+    /// 删歌单连它的自定义封面文件一起清，不然孤儿图片永远占着地方；
+    /// 封面清理在写盘之后做，不嵌进同一把锁。
     func deletePlaylist(id: String, by actor: TogetherActor = .user) {
+        let coverPath = load().playlists.first(where: { $0.id == id })?.image
         mutate(by: actor, event: "playlist.delete") { state in
             guard let i = state.playlists.firstIndex(where: { $0.id == id }) else { return }
             state.playlists[i].deleted = true
             state.playlists[i].updatedBy = actor.rawValue
             state.playlists[i].ts = TogetherStore.now()
         }
+        if coverPath != nil { clearPlaylistImage(id: id) }
+    }
+
+    /// 删错了能回来。软删除的意义就在这里。
+    func restorePlaylist(id: String, by actor: TogetherActor = .user) {
+        mutate(by: actor, event: "playlist.restore") { state in
+            guard let i = state.playlists.firstIndex(where: { $0.id == id }) else { return }
+            state.playlists[i].deleted = false
+            state.playlists[i].updatedBy = actor.rawValue
+            state.playlists[i].ts = TogetherStore.now()
+        }
+    }
+
+    /// 被软删的那批，给"最近删除"界面用。
+    func deletedPlaylists() -> [TogetherPlaylist] {
+        load().playlists.filter { $0.deleted }
     }
 
     func setPlaylistBackground(id: String, bg: String, by actor: TogetherActor = .user) {
@@ -714,23 +833,57 @@ extension TogetherStore {
 }
 
 // MARK: - 播放选项
+//
+// 随机和循环是两套独立开关（Apple 的做法）：随机只管出牌顺序，循环只管到头怎么办。
+// 面板上的两个按钮各管各的，状态变化都记一条事件——我能看见她改了模式，
+// 以前 setShuffle / setRepeatOne 是静默写，事件流里根本没有。
 
 extension TogetherStore {
 
+    /// 一次写完三个开关：面板换模式时不留"只改了一半"的中间状态。
+    /// 哪个参数是 nil 就不动哪个。
+    func setModes(shuffle: Bool? = nil, repeatOne: Bool? = nil, repeatAll: Bool? = nil,
+                  by actor: TogetherActor = .user) {
+        mutate(by: actor, event: "mode") { state in
+            if let s = shuffle { state.playback.shuffle = s }
+            if let one = repeatOne {
+                state.playback.repeatOne = one
+                if one { state.playback.repeatAll = false }
+            }
+            if let all = repeatAll {
+                state.playback.repeatAll = all
+                if all { state.playback.repeatOne = false }
+            }
+        }
+    }
+
     func setShuffle(_ on: Bool) {
-        mutate(by: .user, event: "") { $0.playback.shuffle = on }
+        mutate(by: .user, event: "shuffle",
+               detail: TogetherEventDetail(text: on ? "on" : "off")) { state in
+            state.playback.shuffle = on
+        }
     }
 
     /// 单曲循环和全部循环互斥：开一个就把另一个关掉。
     /// repeatAll 传 nil 时只动单曲循环（老调用方的语义不变）。
     func setRepeatOne(_ on: Bool, repeatAll: Bool? = nil) {
-        mutate(by: .user, event: "") { state in
+        let modeText: String
+        if let all = repeatAll, all { modeText = "all" } else { modeText = on ? "one" : "off" }
+        mutate(by: .user, event: "repeat",
+               detail: TogetherEventDetail(text: modeText)) { state in
             state.playback.repeatOne = on
             if on { state.playback.repeatAll = false }
             if let all = repeatAll {
                 state.playback.repeatAll = all
                 if all { state.playback.repeatOne = false }
             }
+        }
+    }
+
+    /// 随机出牌顺序落盘。队列不变时顺序也不变，关了随机再开还是同一副牌。
+    func setShuffleOrder(_ order: [String]) {
+        mutate(by: .user, event: "") { state in
+            state.playback.shuffleOrder = order
         }
     }
 }
@@ -788,14 +941,19 @@ enum TogetherImages {
         TogetherStore.shared.rootURL.appendingPathComponent("images", isDirectory: true)
     }
 
-    /// 封面小图缓存：列表滚动时不要每次都读盘。
-    private static let cache = NSCache<NSString, UIImage>()
+    /// 封面小图缓存：列表滚动时不要每次都读盘。有上限，别让一整个曲库的图赖在内存里。
+    private static let cache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 48
+        c.totalCostLimit = 60_000_000
+        return c
+    }()
 
     static func cachedImage(for url: URL) -> UIImage? {
         let key = url.path as NSString
         if let hit = cache.object(forKey: key) { return hit }
         guard let img = UIImage(contentsOfFile: url.path) else { return nil }
-        cache.setObject(img, forKey: key)
+        cache.setObject(img, forKey: key, cost: Int(img.size.width * img.size.height))
         return img
     }
 

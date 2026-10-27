@@ -70,6 +70,12 @@ struct TogetherPlayback: Codable, Equatable {
     var repeatAll: Bool = false
     /// 真正的播放队列（trackId 顺序）。空就按曲库顺序播。
     var queue: [String] = []
+    /// 随机播放时的固定出牌顺序（Nuage 的两数组做法：queue 不动，顺序单独存）。
+    /// 持久化：切歌/切列表/开关随机都不重洗，当前这首钉在原地。
+    var shuffleOrder: [String] = []
+    /// 她按下的暂停是否还"攥在手里"。存在文件里，冷启动也能推导，
+    /// 语音压音/来电/耳机拔掉的自动恢复都得先过这一关。
+    var heldPause: Bool = false
 
     init() {}
 
@@ -84,6 +90,8 @@ struct TogetherPlayback: Codable, Equatable {
         // 老数据没有这一项：读成"关"，不崩、不丢别的字段。
         repeatAll = (try? c.decodeIfPresent(Bool.self, forKey: .repeatAll)) ?? false
         queue = (try? c.decodeIfPresent([String].self, forKey: .queue)) ?? []
+        shuffleOrder = (try? c.decodeIfPresent([String].self, forKey: .shuffleOrder)) ?? []
+        heldPause = (try? c.decodeIfPresent(Bool.self, forKey: .heldPause)) ?? false
     }
 }
 
@@ -301,6 +309,35 @@ struct TogetherEventDetail: Codable, Equatable {
     }
 }
 
+/// 遥控器正在递交中：已经提出、还没落到对方手里。
+/// 交接不是一拍即合——pending 期间旧的持有人继续说了算，
+/// 直到对方接手或超时自动落定。字段是新增的，老文件读进来是 nil。
+struct TogetherPendingHandoff: Codable, Equatable {
+    /// "user" / "ai"：遥控器要递给谁
+    var to: String = ""
+    /// "user" / "ai"：谁递出的
+    var from: String = ""
+    var requestedAt: Int = 0
+    var requestedBy: String = ""
+
+    init() {}
+
+    init(to: String, from: String, requestedAt: Int, requestedBy: String) {
+        self.to = to
+        self.from = from
+        self.requestedAt = requestedAt
+        self.requestedBy = requestedBy
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        to = (try? c.decodeIfPresent(String.self, forKey: .to)) ?? ""
+        from = (try? c.decodeIfPresent(String.self, forKey: .from)) ?? ""
+        requestedAt = (try? c.decodeIfPresent(Int.self, forKey: .requestedAt)) ?? 0
+        requestedBy = (try? c.decodeIfPresent(String.self, forKey: .requestedBy)) ?? ""
+    }
+}
+
 // MARK: - 设备
 
 struct TogetherDevice: Codable, Equatable {
@@ -318,6 +355,12 @@ struct TogetherDevice: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         online = (try? c.decodeIfPresent(Bool.self, forKey: .online)) ?? false
         lastSeen = (try? c.decodeIfPresent(Int.self, forKey: .lastSeen)) ?? 0
+    }
+
+    /// 在场是量出来的，不是按钮按出来的：online 标志位 + lastSeen 在窗口内才算在场。
+    /// 只有写过东西（播放/切歌/开面板）才刷新 lastSeen，按钮本身不许把它按成 true。
+    func seenRecently(now: Int, window: Int = 600) -> Bool {
+        online && lastSeen > 0 && now - lastSeen <= window
     }
 }
 
@@ -357,6 +400,8 @@ struct TogetherState: Codable, Equatable {
     var resonance: TogetherResonance?
     /// 这一轮"听这首歌"的刻录额度：每次听，你和我各只能刻一句。
     var listen = TogetherListen()
+    /// 正在递交中的遥控器。nil = 没有交接在进行。
+    var pendingHandoff: TogetherPendingHandoff?
 
     init() {}
 
@@ -376,6 +421,7 @@ struct TogetherState: Codable, Equatable {
         devices = (try? c.decodeIfPresent(TogetherDevices.self, forKey: .devices)) ?? TogetherDevices()
         images = (try? c.decodeIfPresent([String: String].self, forKey: .images)) ?? [:]
         listen = (try? c.decodeIfPresent(TogetherListen.self, forKey: .listen)) ?? TogetherListen()
+        pendingHandoff = try? c.decodeIfPresent(TogetherPendingHandoff.self, forKey: .pendingHandoff)
     }
 
     /// 当前这首歌上、已经播过的那几条留言。
