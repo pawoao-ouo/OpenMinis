@@ -737,7 +737,7 @@ extension TogetherStore {
     /// AI 那边能看见这笔递交是过期作废、不是被谁接走了。
     @discardableResult
     func expireHandoff(requestedAt: Int) -> Bool {
-        mutate(by: .ai, event: "handoff.expired") { state in
+        mutateOrReject(by: .ai, event: "handoff.expired") { state in
             guard let p = state.pendingHandoff,
                   p.requestedAt == requestedAt, p.to == "user" else { return false }
             state.pendingHandoff = nil
