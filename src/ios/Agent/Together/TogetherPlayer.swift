@@ -63,6 +63,9 @@ final class TogetherPlayer: ObservableObject {
     private var userPausedDuringDuck = false
     /// 来电/耳机打断时是不是在放：打断结束只有它为真才敢恢复。
     private var interruptedWhilePlaying = false
+    /// 来电打断开始时写过落盘 latch：打断结束恢复时要把它清掉，
+    /// 不恢复时文件里已经是"停着 + 攥住"，不用再写一遍。
+    private var interruptionLatchHeld = false
     /// 用户最后一次亲手动作的时间（秒）。只在内存里，不进 state.json。
     /// AI 的命令要跟它比时间：比它旧的、或者落在它后面两秒内的，一律压住。
     private var lastUserIntentAt: Int = 0
@@ -300,13 +303,14 @@ final class TogetherPlayer: ObservableObject {
 
         // 下一首走到队列末尾、又没开全部循环：停下，不绕回第一首。
         // 停下也是她按出来的：攥住，别让下一条 AI 命令悄悄续上。
+        // 已经停着时也要把 latch 写进文件：只靠内存，杀进程重开就丢了。
         userHeldPause = true
         if isPlaying {
             pause()
-            store.setPlaying(false, by: .user, heldPause: true)
         } else {
             MinisToast.show(TogetherCopy.endOfQueue, systemImage: "exclamationmark.circle")
         }
+        store.setPlaying(false, by: .user, heldPause: true)
     }
 
     /// 队列来源只有一处：`playback.queue` 非空就用它，空才按曲库顺序。
@@ -796,17 +800,33 @@ final class TogetherPlayer: ObservableObject {
                 switch type {
                 case .began:
                     self.interruptedWhilePlaying = self.isPlaying
-                    if self.isPlaying { self.pause() }
+                    // 停下就要落盘攥住：只靠内存，通话中杀进程重开，
+                    // 文件里还写着 playing，会自己响起来。
+                    // 内存里的 userHeldPause 不动——打断结束系统说该恢复时
+                    // 还要接着放，动了它就恢复不了了。
+                    if self.isPlaying {
+                        self.pause()
+                        self.store.setPlaying(false, by: self.preservedActor(), heldPause: true)
+                        self.interruptionLatchHeld = true
+                    }
                 case .ended:
                     let options = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt)
                         .map { AVAudioSession.InterruptionOptions(rawValue: $0) } ?? []
                     let wasPlaying = self.interruptedWhilePlaying
                     self.interruptedWhilePlaying = false
+                    let latchHeld = self.interruptionLatchHeld
+                    self.interruptionLatchHeld = false
                     if wasPlaying, options.contains(.shouldResume), self.userHeldPause != true {
                         self.play()
-                    } else if wasPlaying {
-                        // 打断完了没恢复：文件里也记停，别让重开 App 又自己响起来。
-                        self.store.setPlaying(false, by: self.preservedActor())
+                        // 恢复了就把打断开始时写的 latch 清掉：文件要跟"在放"一致，
+                        // 不然下次冷启动还以为她攥着暂停。
+                        if latchHeld {
+                            self.store.setPlaying(true, by: self.preservedActor(), heldPause: false)
+                        }
+                    } else if wasPlaying, !latchHeld {
+                        // 打断完了没恢复、开始时又没写过 latch：文件里也记停攥住，
+                        // 别让重开 App 又自己响起来。
+                        self.store.setPlaying(false, by: self.preservedActor(), heldPause: true)
                     }
                 @unknown default:
                     break
@@ -892,10 +912,11 @@ final class TogetherPlayer: ObservableObject {
         }
 
         // 队列到头、没开全部循环：停在这儿，不自己绕回第一首。
-        // "停下"也要落盘，不然重开 App 又自己响起来。
+        // "停下"也要落盘攥住，不然重开 App 又自己响起来，也别让 AI 悄悄续上。
+        userHeldPause = true
         isPlaying = false
         currentTime = duration
-        store.setPlaying(false, by: actor)
+        store.setPlaying(false, by: actor, heldPause: true)
         reportProgress(force: true)
         VoiceNowPlaying.shared.refresh()
     }

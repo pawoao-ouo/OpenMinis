@@ -566,8 +566,10 @@ extension TogetherStore {
         }
     }
 
-    /// 播放/暂停。heldPause 只在调用方明确知道时传：她攥住的暂停要落盘，
-    /// 系统原因（来电、耳机）的暂停不攥，免得下次打开还以为她按了暂停。
+    /// 播放/暂停。heldPause 只在调用方明确知道时传：她攥住的暂停要落盘；
+    /// 来电打断的暂停也要落盘攥住（通话中杀进程重开不能自己响），
+    /// 打断结束恢复时由打断处理自己清掉。耳机拔掉的暂停不攥——
+    /// 插回去从不自动恢复，文件里"停着"就够了。
     func setPlaying(_ playing: Bool, by actor: TogetherActor, heldPause: Bool? = nil) {
         mutate(by: actor, event: playing ? "resume" : "pause") { state in
             state.playback.playing = playing
