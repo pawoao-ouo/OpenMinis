@@ -191,9 +191,21 @@ struct TogetherLibraryView: View {
     @State private var pendingPicks: [URL] = []
     /// 正在换封面的那个歌单
     @State private var coverTarget: TogetherPlaylist?
+    /// 导入失败清单：名字 + 原因，alert 里列出来，不只报个数。
+    @State private var importFailures: [LocalFileImporter.Failure] = []
+    @State private var showImportFailures = false
     /// 删掉的歌单还能捡回来：这张单子就是后悔药。
     @State private var showDeleted = false
     private let importer = LocalFileImporter()
+
+    /// 导入失败清单：前 5 条列名字 + 原因，多的只报个数（标题里有总数）。
+    private var importFailureMessage: String {
+        var lines = importFailures.prefix(5).map { "\($0.name) — \($0.reason)" }
+        if importFailures.count > 5 {
+            lines.append(String(format: AppLocalized("and %d more", comment: "一起听 · 导入失败清单"), importFailures.count - 5))
+        }
+        return lines.joined(separator: "\n")
+    }
 
     /// 活着的歌单：Hub 推过来，AI 那边改了也跟着变，不用轮询。
     private var playlists: [TogetherPlaylist] {
@@ -246,19 +258,27 @@ struct TogetherLibraryView: View {
                             Task {
                                 let added = await importer.importFiles(urls)
                                 importing = false
-                                let failed = importer.lastFailedNames
+                                let failed = importer.lastFailures
                                 hub.refreshLibraryNow()
                                 hub.refreshNow()
-                                if added.isEmpty, !failed.isEmpty {
-                                    MinisToast.show(TogetherCopy.importFailed, systemImage: "exclamationmark.circle")
-                                } else if !failed.isEmpty {
-                                    // 进来几个、没进来几个，各说各的：只报"成功"会让她以为全进来了。
-                                    MinisToast.show(TogetherCopy.importFailedCount(failed.count), systemImage: "exclamationmark.circle")
-                                } else {
+                                if !added.isEmpty {
                                     MinisToast.show("\(added.count) \(TogetherCopy.importDone)")
+                                }
+                                if !failed.isEmpty {
+                                    // 失败的要列名字 + 原因：只报个数，她不知道是哪几个、卡在哪。
+                                    importFailures = failed
+                                    showImportFailures = true
                                 }
                             }
                         }
+                    }
+                    .alert(
+                        TogetherCopy.importFailedCount(importFailures.count),
+                        isPresented: $showImportFailures
+                    ) {
+                        Button(TogetherCopy.done) {}
+                    } message: {
+                        Text(importFailureMessage)
                     }
 
                     Button {
@@ -1914,9 +1934,11 @@ struct TogetherPlaylistDetail: View {
                 TogetherHaptics.select()
                 guard let pick = tracks.randomElement() else { return }
                 // 随机按钮要真的打开随机模式，不是"悄悄放一首随机的、模式还关着"。
-                // 一次写完：随机开、两个循环关，状态里只记一条事件。
-                TogetherStore.shared.setModes(shuffle: true, repeatOne: false, repeatAll: false, by: .user)
-                player.start(pick, by: .user, queue: tracks.map { $0.id })
+                // 先播、播成了再翻模式：文件不见了播不成，模式也不许被翻过去。
+                if player.start(pick, by: .user, queue: tracks.map { $0.id }) {
+                    // 一次写完：随机开、两个循环关，状态里只记一条事件。
+                    TogetherStore.shared.setModes(shuffle: true, repeatOne: false, repeatAll: false, by: .user)
+                }
             } label: {
                 Image(systemName: "shuffle")
                     .font(ChatFont.font(14, weight: .medium))
@@ -2158,26 +2180,6 @@ enum TogetherPhotoImport {
     private static func fail(_ text: String) -> Bool {
         reason = text
         MinisToast.show(text, systemImage: "exclamationmark.circle")
-        return false
-    }
-
-    @discardableResult
-    static func toPlaylist(_ item: PhotosPickerItem, id: String) async -> Bool {
-        guard let bytes = await data(item) else {
-            MinisToast.show(TogetherCopy.importFailed, systemImage: "exclamationmark.circle")
-            return false
-        }
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("together-playlist-\(id)-\(UUID().uuidString).jpg")
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        do {
-            try bytes.write(to: tmp)
-            if TogetherStore.shared.setPlaylistImage(id: id, from: tmp) {
-                MinisToast.show(AppLocalized("Cover updated", comment: "一起听 · 换图成功"), systemImage: "checkmark.circle")
-                return true
-            }
-        } catch {}
-        MinisToast.show(TogetherCopy.importFailed, systemImage: "exclamationmark.circle")
         return false
     }
 }

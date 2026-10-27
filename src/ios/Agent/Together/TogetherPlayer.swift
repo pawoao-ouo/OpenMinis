@@ -157,7 +157,7 @@ final class TogetherPlayer: ObservableObject {
         guard let url = store.audioURL(for: newTrack),
               FileManager.default.fileExists(atPath: url.path) else {
             logger.error("[Together] \(newTrack.title) 的音频文件不在，没换歌")
-            MinisToast.show(TogetherCopy.importFailed, systemImage: "exclamationmark.triangle.fill")
+            MinisToast.show(TogetherCopy.trackFileMissing(newTrack.title), systemImage: "exclamationmark.triangle.fill")
             return false
         }
         load(newTrack, from: position)
@@ -486,6 +486,10 @@ final class TogetherPlayer: ObservableObject {
     // 不轮询进度（进度是本机播出来的事实，反过来写会把播放器拽回去），
     // 只跟三个动作：换歌 / 播停 / 拖动。这三个的 by == "ai" 才动。
 
+    /// 跟随跟 App 同寿命：面板关着也要跟（她在聊天里、AI 推歌要响），
+    /// 所以没有"面板关闭时 teardown"这回事；stopFollowing 只留给将来
+    /// 需要彻底停掉跟随的调用方。成本：Hub 是全 App 唯一的一只 2 秒
+    /// timer，跟随本身不另起 timer、不轮询，闲时只有 Hub 的 tick 在跑。
     func startFollowing() {
         observeVoice()
         guard !didStartFollow else { return }

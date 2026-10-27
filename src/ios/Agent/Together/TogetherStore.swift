@@ -48,6 +48,9 @@ final class TogetherStore {
     static let historyCap = 200
     /// 单句循环上限。字典无序，超了就按 key 排序丢最前面的。
     static let loopLineCap = 200
+    /// 歌单故意不设上限：事件/留言/历史/循环句都是自动追加的，才需要 cap；
+    /// 歌单是她亲手一个一个建的，超了就"丢最旧的"等于悄悄删她的东西。
+    /// 歌单数量只跟着她亲手点的次数长，每条又小，不会把文件撑爆。
 
     private let queue = DispatchQueue(label: "com.openminis.together.store")
 
@@ -536,7 +539,7 @@ extension TogetherStore {
         guard let url = audioURL(for: track),
               FileManager.default.fileExists(atPath: url.path) else {
             togetherLogger.error("[Together] 音频文件不在，没换歌：\(trackId)")
-            MinisToast.show(TogetherCopy.importFailed, systemImage: "exclamationmark.triangle.fill")
+            MinisToast.show(TogetherCopy.trackFileMissing(track.title), systemImage: "exclamationmark.triangle.fill")
             return
         }
         beginListenIfNeeded(trackId: trackId)
@@ -618,8 +621,10 @@ extension TogetherStore {
         }
     }
 
-    /// 某一方真的在场活动过（打开面板、点播放）：刷新它的 lastSeen。
-    /// 按钮本身不许把 online 按成 true——在场是量出来的。
+    /// 某一方真的在场活动过（打开面板/同步页、点播放）：刷新它的 lastSeen，
+    /// 并把 online 置为 true——online 只是"曾经在场过"的闩，真正算不算
+    /// 在场看 seenRecently 的 10 分钟窗口，旧的 online=true 永远不算数。
+    /// 只有真实在场入口才调这里，普通按钮不许调。
     func markSeen(by actor: TogetherActor) {
         mutate(by: actor, event: "") { state in
             switch actor {
@@ -755,6 +760,8 @@ extension TogetherStore {
 
     /// 我推一首。理由必须留下，否则下一回合我就不记得为什么推它。
     /// 推歌不许清队列：她正在听的列表留着，推的这首插进来播，听完还回得去。
+    /// Swift 里没有调用方：这是 shell（`together` 命令）推歌的入口，
+    /// 返回值是给 shell 的成功信号。App 内推歌走事件流，不走这里。
     @discardableResult
     func radio(trackId: String, why: String) -> Bool {
         guard let track = library().track(id: trackId) else { return false }

@@ -83,7 +83,12 @@ enum TogetherCopy {
     static var addSongs: String { AppLocalized("Add songs", comment: "一起听 · 加歌") }
     static var editedTogether: String { AppLocalized("edited this together", comment: "一起听 · 共同编辑") }
     static var importDone: String { AppLocalized("added", comment: "一起听 · 导入成功") }
-    static var importFailed: String { AppLocalized("Couldn't read that file", comment: "一起听 · 导入失败") }
+    /// 播不了：点了哪首、为什么、接下来怎么办，三样全说。
+    /// 标题空的（元数据没扫出来）就用占位标题，不报一个空名字。
+    @MainActor static func trackFileMissing(_ title: String) -> String {
+        let name = title.isEmpty ? untitledTrack : title
+        return String(format: AppLocalized("%@ couldn't be played — its file is missing. Choose another song.", comment: "一起听 · 文件不见了"), name)
+    }
     static var handoff: String { AppLocalized("Hand the remote to", comment: "一起听 · 递遥控器") }
     static var noSongsYet: String { AppLocalized("Nothing here yet", comment: "一起听 · 空列表") }
     static var allSongs: String { AppLocalized("All songs", comment: "一起听 · 全部歌曲（目录直读）") }

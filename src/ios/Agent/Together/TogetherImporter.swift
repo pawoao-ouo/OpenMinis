@@ -34,31 +34,44 @@ final class LocalFileImporter: MusicImporter {
         [.audio, .movie, .mpeg4Movie, .quickTimeMovie]
     }
 
-    /// 最近一次导入里没收进来的文件名（给界面报数用，不存盘）。
+    /// 一次导入里没收进来的文件：名字 + 原因（给界面报用，不存盘）。
+    struct Failure {
+        var name: String
+        var reason: String
+    }
+
+    /// 最近一次导入里没收进来的文件（名字 + 原因，给界面报用，不存盘）。
     /// importFiles 开始时清零，之后每失败一个就记一个。
-    private(set) var lastFailedNames: [String] = []
+    private(set) var lastFailures: [Failure] = []
+
+    /// 失败原因：只说卡在哪一步，不甩通用失败。
+    private static var reasonUnsupported: String { AppLocalized("Unsupported file type", comment: "一起听 · 导入失败原因") }
+    private static var reasonSaveFailed: String { AppLocalized("Couldn't save the file", comment: "一起听 · 导入失败原因") }
+    private static var reasonUnplayable: String { AppLocalized("The file couldn't be played", comment: "一起听 · 导入失败原因") }
 
     func importFiles(_ urls: [URL]) async -> [TogetherTrack] {
-        lastFailedNames = []
+        lastFailures = []
         var added: [TogetherTrack] = []
         for url in urls {
-            if let track = await importOne(url) {
+            switch await importOne(url) {
+            case .success(let track):
                 added.append(track)
-            } else {
-                lastFailedNames.append(url.lastPathComponent)
+            case .failure(let reason):
+                lastFailures.append(Failure(name: url.lastPathComponent, reason: reason))
             }
         }
         return added
     }
 
-    private func importOne(_ url: URL) async -> TogetherTrack? {
+    /// 收一首歌：成功给 track，失败给原因（调用方记名字 + 原因，界面报）。
+    private func importOne(_ url: URL) async -> Result<TogetherTrack, String> {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
         let ext = url.pathExtension.lowercased()
         guard Self.audioExtensions.contains(ext) || Self.videoExtensions.contains(ext) else {
             logger.error("[TogetherImport] 不支持的类型 .\(ext)")
-            return nil
+            return .failure(Self.reasonUnsupported)
         }
 
         let store = TogetherStore.shared
@@ -71,14 +84,14 @@ final class LocalFileImporter: MusicImporter {
         // 落到内置 shared/music，扩展名按真实编码来。
         guard let dest = await writeIntoLibrary(from: url, id: id) else {
             logger.error("[TogetherImport] 落地失败 \(url.lastPathComponent)")
-            return nil
+            return .failure(Self.reasonSaveFailed)
         }
         // 落地了还得真能播：播不了的字节不进库、不占一条记录。
         // 播不了就把刚落地的碎文件清掉，别留在 music 里。
         guard await Self.isPlayable(dest) else {
             try? FileManager.default.removeItem(at: dest)
             logger.error("[TogetherImport] 落地后播不了 \(url.lastPathComponent)")
-            return nil
+            return .failure(Self.reasonUnplayable)
         }
         let destName = dest.lastPathComponent
 
@@ -105,14 +118,14 @@ final class LocalFileImporter: MusicImporter {
         }
         guard saved else {
             logger.error("[TogetherImport] 写 index 失败 \(url.lastPathComponent)")
-            return nil
+            return .failure(Self.reasonSaveFailed)
         }
 
         // 收了歌就把歌词补上：同目录同名 .lrc 优先，没有就留空（抓词走 shell）。
         if let sidecar = Self.sidecarLyrics(for: url) {
             Self.copyLyrics(sidecar, for: id, store: store)
         }
-        return track
+        return .success(track)
     }
 
     // MARK: 落地
@@ -121,7 +134,7 @@ final class LocalFileImporter: MusicImporter {
     /// mp3 原样搬；其它先试抽成 m4a；抽不出来时只有音频才原样搬（扩展名是真的），
     /// 视频抽不出来就是失败——不能把一个 .mp4 原样搬进来：
     /// reconcile 只认音频扩展名，搬进来也播不了，还占着一条"已导入"的记录。
-    /// 抽音轨失败不静默：返回 nil，调用方记失败名、界面报数。
+    /// 抽音轨失败不静默：返回失败原因，调用方记失败名 + 原因、界面报。
     private func writeIntoLibrary(from source: URL, id: String) async -> URL? {
         let fm = FileManager.default
         let dir = TogetherStore.shared.musicDirectory

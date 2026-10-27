@@ -320,8 +320,8 @@ struct TogetherPanelView: View {
                 }
                 .font(ChatFont.font(11, weight: .semibold))
                 .foregroundStyle(CSSThemeVariables.accent(scope: .chat))
-                .padding(.vertical, 10)
                 .padding(.horizontal, 6)
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
                 .togetherPress()
             }
@@ -1473,8 +1473,10 @@ struct TogetherQueueDrawerView: View {
             // 点哪首就从哪首开始，队列保持存着的那一份（随机时游标跟过去，
             // 不重洗）；队列是空的才用曲库顺序当队列。
             let queue = storedQueue.isEmpty ? library.tracks.map { $0.id } : storedQueue
-            TogetherPlayer.shared.start(track, by: .user, queue: queue)
-            dismiss()
+            // 播成了才关抽屉：文件不见了播不成，抽屉留着、报错看得见，她还能点别的。
+            if TogetherPlayer.shared.start(track, by: .user, queue: queue) {
+                dismiss()
+            }
         } label: {
             TogetherQueueRow(
                 track: track,
