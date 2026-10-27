@@ -22,8 +22,12 @@ struct TogetherPressStyle: ButtonStyle {
     }
 }
 
-extension Button {
+extension View {
     /// 一起听按钮的默认样式：按压态 + 不抢布局。
+    /// 必须是 View 扩展：按钮上的修饰符（.font/.frame/.contentShape 等）
+    /// 会把 Button 包成别的 View 类型，Button 扩展在那之后就找不到成员；
+    /// NavigationLink 本来就不是 Button。样式本身是 View 修饰符，
+    /// 对包着的那个按钮 / 链接照样生效，行为不变。
     func togetherPress() -> some View {
         buttonStyle(TogetherPressStyle())
     }
