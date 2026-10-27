@@ -2,64 +2,18 @@
 //  TogetherSkin.swift
 //  MinisApp
 //
-//  一起听 · 皮肤层 + 文案层。
+//  一起听 · 文案层 + 壁纸明暗层。
 //
-//  结构层定死（六屏布局、坐标、动效曲线），皮肤层全可换。
-//  默认值一律从 App 主题派生：换 minis-theme 这一页跟着变，代码里没有裸色值。
-//
-//  额外留了一层自己的覆盖：together/skin.json，只剩 vinylDepth 一个可调项
-//  （唱片深浅）。以前那套 shadow / vinylRing / wallpaperShade / wall /
-//  cardRadius 没人读，删了——调不到的配置不是配置，是藏 bug 的地方。
+//  结构层定死（六屏布局、坐标、动效曲线），颜色一律从 App 主题派生：
+//  换 minis-theme 这一页跟着变，代码里没有裸色值。
+//  曾经还有一层自己的覆盖 together/skin.json（vinylDepth 等）：
+//  没有任何代码读它，shell 侧的 `together set skin.xxx` 在仓库里也没有实现——
+//  调不到的配置不是配置，是藏 bug 的地方，整层删了（2026-10-27 重建）。
 //  全局主题管基础色，这一层管"这一间屋子"的味道。
 //
 
 import SwiftUI
 import UIKit
-
-// MARK: - 皮肤
-
-struct TogetherSkinValues: Codable, Equatable {
-    /// 唱片本体深浅：0 = 浅灰，1 = 近黑。色相永远是中性灰，不跟文字色走。
-    var vinylDepth: Double = 0.9
-
-    init() {}
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        vinylDepth = (try? c.decodeIfPresent(Double.self, forKey: .vinylDepth)) ?? 0.9
-    }
-}
-
-/// 颜色从主题派生，而主题的取值入口是 @MainActor 的，这里跟着标。
-@MainActor
-enum TogetherSkin {
-
-    /// skin.json 只在文件变了时才重读：以前每次访问都读盘解码一次，
-    /// 每一帧 body 都在为它付钱。
-    private static var cachedValues: (mtime: Date?, values: TogetherSkinValues)?
-
-    static var values: TogetherSkinValues {
-        let url = TogetherStore.shared.rootURL.appendingPathComponent("skin.json")
-        let mtime = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
-        if let cached = cachedValues, cached.mtime == mtime { return cached.values }
-        let decoded: TogetherSkinValues
-        if let data = try? Data(contentsOf: url),
-           let v = try? JSONDecoder().decode(TogetherSkinValues.self, from: data) {
-            decoded = v
-        } else {
-            decoded = TogetherSkinValues()
-        }
-        cachedValues = (mtime, decoded)
-        return decoded
-    }
-
-    /// 唱片色：固定中性灰，深浅只由 vinylDepth 控制。
-    /// 绝不取主题主文字色——Batch 2 前景变浅时唱片跟着变白的教训。
-    static var vinyl: Color {
-        let depth = min(1, max(0, values.vinylDepth))
-        return Color(white: 0.28 - 0.20 * depth)
-    }
-}
 
 // MARK: - 身份
 //

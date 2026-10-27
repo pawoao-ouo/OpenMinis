@@ -768,7 +768,7 @@ struct TogetherPanelView: View {
                 .padding(.horizontal, 32)
             Button {
                 TogetherHaptics.select()
-                selectedTab = .library
+                selectedTab.wrappedValue = .library
             } label: {
                 Text(TogetherCopy.browseSongs)
                     .font(ChatFont.font(14, weight: .semibold))
@@ -1494,7 +1494,7 @@ struct TogetherQueueDrawerView: View {
                     Button {
                         TogetherHaptics.select()
                         dismiss()
-                        selectedTab = .library
+                        selectedTab.wrappedValue = .library
                     } label: {
                         Text(TogetherCopy.browseSongs)
                             .font(ChatFont.font(13, weight: .semibold))
