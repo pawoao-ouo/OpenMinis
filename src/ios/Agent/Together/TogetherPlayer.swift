@@ -369,7 +369,7 @@ final class TogetherPlayer: ObservableObject {
     // MARK: 随机播放的固定顺序
     //
     // 随机也得有"上一首"：抽出来就按抽到的顺序记着，往回走是上一首播过的，
-    // 往前只在没播过的里面抽，一轮抽完才重排。
+    // 往前只在没播过的里面抽，一轮播完再播同一轮，不重洗。
     // 顺序落盘（playback.shuffleOrder）：队列不变就不重洗，App 重开还是同一副牌。
 
     /// 队列变了、或者当前歌不在计划里，就重排一次。
@@ -429,14 +429,13 @@ final class TogetherPlayer: ObservableObject {
         }
 
         guard repeatAll else { return nil }
-        // 全部循环：重排一轮，从没播过的头一首接着来
-        var nextPlan = ids.shuffled()
-        nextPlan.removeAll { $0 == currentId }
-        guard !nextPlan.isEmpty else { return nil }
-        shufflePlan = nextPlan
+        // 全部循环：同一副牌再播一轮，不重洗。顺序就是落过盘的那副，
+        // 这一轮播完、下一轮还是它——每轮重洗会让她觉得"刚才那首怎么又来了"。
+        // 计划没变，落盘那份不用重写。plan[0] 就是当前这首时（计划和游标
+        // 脱节的退化情形）不原地重播，交给调用方按"到头"处理。
         shuffleCursor = 0
-        persistShufflePlanIfNeeded()
-        return lib.track(id: shufflePlan[0])
+        guard let id = shufflePlan.first, id != currentId else { return nil }
+        return lib.track(id: id)
     }
 
     private func shuffleBackward(_ ids: [String], currentId: String,
