@@ -415,7 +415,10 @@ final class TogetherStore {
                         event: String,
                         detail: TogetherEventDetail? = nil,
                         _ body: (inout TogetherState) -> Bool) -> TogetherState? {
-        queue.sync {
+        // 闭包签上显式的 TogetherState?：拿不到锁时 return nil 是诚实的
+        // 失败信号（一个字都没写），调用方本来就按 nil 当失败处理；
+        // 绝不为此编一个假状态出来冒充写成功了。
+        return queue.sync { () -> TogetherState? in
             guard let fd = acquireFileLock() else { return nil }
             defer { flock(fd, LOCK_UN); close(fd) }
 

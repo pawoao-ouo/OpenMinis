@@ -85,7 +85,11 @@ enum TogetherCopy {
     static var importDone: String { AppLocalized("added", comment: "一起听 · 导入成功") }
     /// 播不了：点了哪首、为什么、接下来怎么办，三样全说。
     /// 标题空的（元数据没扫出来）就用占位标题，不报一个空名字。
-    @MainActor static func trackFileMissing(_ title: String) -> String {
+    /// 不标 @MainActor：只做 AppLocalized + String(format:)，都是非隔离的；
+    /// TogetherStore.play() 是同步非隔离上下文，必须能直接调它——
+    /// 标了 @MainActor 就会在那条同步路径上编不过，异步跳 MainActor
+    /// 反而会让报错 toast 滞后、还可能打乱调用方的顺序。
+    static func trackFileMissing(_ title: String) -> String {
         let name = title.isEmpty ? untitledTrack : title
         return String(format: AppLocalized("%@ couldn't be played — its file is missing. Choose another song.", comment: "一起听 · 文件不见了"), name)
     }
