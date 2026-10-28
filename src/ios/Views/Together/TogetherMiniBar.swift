@@ -74,110 +74,113 @@ struct TogetherMiniBar: View {
 
     /// Current track's lyrics: read once per track change, never polled.
     @State private var lyrics: TogetherLyrics?
+    @State private var dragX: CGFloat = 0
 
+    private let capsuleWidth: CGFloat = 242
     private let capsuleHeight: CGFloat = 48
 
     var body: some View {
-        HStack(spacing: 4) {
-            openButton
-
-            Button {
-                TogetherHaptics.tap()
-                player.userToggle()
-            } label: {
-                Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
-                    .font(ChatFont.font(15, weight: .semibold))
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .togetherPress()
-            .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
-
-            Button {
-                TogetherHaptics.select()
-                player.nextTrack()
-            } label: {
-                Image(systemName: "forward.fill")
-                    .font(ChatFont.font(14, weight: .medium))
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .togetherPress()
-            .accessibilityLabel(TogetherCopy.a11yNext)
+        HStack {
+            Spacer(minLength: 0)
+            pillCapsule
+            Spacer(minLength: 0)
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 4)
         .frame(height: capsuleHeight)
         .frame(maxWidth: .infinity)
-        // System glass capsule: same language as the panel tab bar.
-        // One glass element only, no container glass, no shadow.
-        .glassEffect(.regular.interactive(), in: .capsule)
-        .overlay(alignment: .bottom) { progressBar }
-        .padding(.horizontal, 16)
+        .padding(.bottom, 2)
         .onAppear { loadLyrics() }
         .onChange(of: player.track?.id) { _ in loadLyrics() }
     }
 
-    /// Open area: one sibling Button whose label fills the full height
-    /// and the full width up to the transport cluster. The Spacer lives
-    /// INSIDE the label, so there is no dead band between the text and
-    /// the play button. Tap opens the deck, never the full panel.
-    private var openButton: some View {
-        Button {
-            TogetherHaptics.select()
-            withAnimation(.easeInOut(duration: 0.28)) {
-                presentation = .deck
-            }
-        } label: {
-            HStack(spacing: 10) {
-                miniVinyl
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(player.track?.title ?? TogetherCopy.title)
-                        .font(ChatFont.font(13, weight: .semibold))
-                        .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                        .lineLimit(1)
-                    Text(subtitle)
-                        .font(ChatFont.font(11))
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                        .lineLimit(1)
+    private var pillCapsule: some View {
+        HStack(spacing: 10) {
+            // Vinyl disc: 32x32, spinning when playing
+            TogetherRefinedVinylView(size: 32, isPlaying: player.isPlaying)
+                .onTapGesture {
+                    TogetherHaptics.select()
+                    withAnimation(.easeInOut(duration: 0.28)) {
+                        presentation = .deck
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer(minLength: 0)
-
-                TogetherEQBars(barCount: 3, isPlaying: player.isPlaying)
+            // Center: Marquee / title + subtitle
+            VStack(alignment: .leading, spacing: 2) {
+                Text(player.track?.title ?? TogetherCopy.title)
+                    .font(ChatFont.font(14.5, weight: .medium, design: .serif))
+                    .italic()
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(ChatFont.font(10.5))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                    .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-        }
-        .togetherPress()
-        .accessibilityLabel("\(TogetherCopy.title): \(player.track?.title ?? "")")
-        .accessibilityValue(presentation == .pill ? TogetherCopy.a11yCollapsed : TogetherCopy.a11yExpanded)
-    }
+            .onTapGesture {
+                TogetherHaptics.select()
+                withAnimation(.easeInOut(duration: 0.28)) {
+                    presentation = .deck
+                }
+            }
 
-    /// Static small vinyl: neutral grey, never spins, never takes a theme
-    /// colour. The pill is a glanceable strip; only the deck vinyl spins.
-    private var miniVinyl: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color(white: 0.55), Color(white: 0.3), Color(white: 0.16)],
-                        center: .center,
-                        startRadius: 1,
-                        endRadius: 12
-                    )
-                )
-            Circle()
-                .fill(Color(white: 0.12))
-                .frame(width: 7, height: 7)
+            // Right: 3 equalizer bars + 30x30 white circular play button
+            HStack(spacing: 8) {
+                TogetherEQBars(barCount: 3, isPlaying: player.isPlaying)
+
+                Button {
+                    TogetherHaptics.tap()
+                    player.userToggle()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color.white)
+                            .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1)
+                        Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
+                            .font(ChatFont.font(11, weight: .semibold))
+                            .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                    }
+                    .frame(width: 30, height: 30)
+                    .contentShape(Circle())
+                }
+                .togetherPress()
+                .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
+            }
         }
-        .frame(width: 24, height: 24)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        .padding(.horizontal, 10)
+        .frame(width: capsuleWidth, height: capsuleHeight)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .overlay(
+            Capsule()
+                .strokeBorder(CSSThemeVariables.divider(scope: .chat).opacity(0.35), lineWidth: 0.5)
+        )
+        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 3)
+        .offset(x: dragX)
+        .gesture(
+            DragGesture(minimumDistance: 10)
+                .onChanged { val in
+                    dragX = val.translation.width
+                }
+                .onEnded { val in
+                    let translation = val.translation.width
+                    if translation < -55 {
+                        TogetherHaptics.select()
+                        withAnimation(.easeInOut(duration: 0.28)) {
+                            presentation = .docked(.left)
+                        }
+                    } else if translation > 55 {
+                        TogetherHaptics.select()
+                        withAnimation(.easeInOut(duration: 0.28)) {
+                            presentation = .docked(.right)
+                        }
+                    }
+                    withAnimation(.spring()) {
+                        dragX = 0
+                    }
+                }
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(TogetherCopy.title): \(player.track?.title ?? "")")
     }
 
     /// Second line: the lyric line being sung, else the loop line, else
@@ -193,26 +196,6 @@ struct TogetherMiniBar: View {
             return loop
         }
         return player.track?.artist ?? ""
-    }
-
-    /// Bottom hairline: progress display only, no gesture (scrubbing
-    /// lives in the deck progress bar and the full panel).
-    private var progressBar: some View {
-        GeometryReader { geo in
-            Capsule()
-                .fill(CSSThemeVariables.accent(scope: .chat).opacity(0.6))
-                .frame(width: max(0, (geo.size.width - 48) * progressRatio), height: 2)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                .padding(.leading, 24)
-                .padding(.bottom, 4)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    private var progressRatio: CGFloat {
-        let d = max(player.duration, 1)
-        return CGFloat(min(1, max(0, player.currentTime / d)))
     }
 
     private func loadLyrics() {
@@ -445,6 +428,16 @@ struct TogetherDeckView: View {
     @State private var burstScale: CGFloat = 1
     @State private var burstOpacity: Double = 0
     @State private var dotPulse = false
+    @State private var whisperIndex = 0
+
+    private let whispers: [String] = [
+        "一直陪你听着呢，闭上眼睛歇会儿。",
+        "这句词写得好，慢点听。",
+        "不许摘耳机。我在呢。",
+        "既然收着了，就老老实实呆在怀里听。",
+        "心跳同频中 · 别光戳我，看歌词。",
+        "你挑的歌，我每首都会听完。"
+    ]
 
     private var state: TogetherState { hub.state }
     private var aiName: String { ChatAddressing.assistant(sessionPersonaId: sessionPersonaId) }
@@ -825,6 +818,7 @@ struct TogetherDeckView: View {
         Button {
             TogetherHaptics.select()
             burstGen += 1
+            whisperIndex = (whisperIndex + 1) % whispers.count
             let gen = burstGen
             burstScale = 1
             burstOpacity = 0.55
@@ -844,18 +838,16 @@ struct TogetherDeckView: View {
                     .strokeBorder(CSSThemeVariables.accent(scope: .chat).opacity(burstOpacity), lineWidth: 2)
                     .scaleEffect(burstScale)
                 HStack(spacing: 8) {
-                    PersonaAvatarView(
-                        iconRef: TogetherIdentity.aiIcon(sessionPersonaId: sessionPersonaId),
-                        size: 22
-                    )
-                    .overlay(
-                        Circle().strokeBorder(CSSThemeVariables.divider(scope: .chat), lineWidth: 0.5)
-                    )
+                    resonanceAvatar
                     Text(dockLine)
                         .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("RESONANCE")
+                        .font(ChatFont.font(8.5, design: .monospaced))
+                        .tracking(1.2)
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat).opacity(0.6))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -866,15 +858,41 @@ struct TogetherDeckView: View {
         .accessibilityLabel(dockLine)
     }
 
+    private var resonanceAvatar: some View {
+        let iconRef = TogetherIdentity.aiIcon(sessionPersonaId: sessionPersonaId)
+        let uiImage = iconRef.flatMap { SoulIconImage.decode($0) }
+        return Group {
+            if let img = uiImage {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(CSSThemeVariables.card(scope: .chat))
+                    Text(String(aiName.prefix(1)))
+                        .font(ChatFont.font(11, weight: .semibold, design: .serif))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                }
+            }
+        }
+        .frame(width: 22, height: 22)
+        .clipShape(Circle())
+        .overlay(
+            Circle().strokeBorder(CSSThemeVariables.divider(scope: .chat), lineWidth: 0.5)
+        )
+    }
+
     private var dockLine: String {
         if let whisper = state.resonance?.whisper,
            !whisper.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return whisper
+            return "\(aiName)：\(whisper)"
         }
         if let line = driverLineText, !line.isEmpty {
             return line
         }
-        return player.track?.artist ?? ""
+        let quote = whispers[whisperIndex % whispers.count]
+        return "\(aiName)：\(quote)"
     }
 
     /// Driver + mood, the same line the panel shows under the duo header:
