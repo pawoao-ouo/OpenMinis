@@ -163,6 +163,14 @@ enum TogetherCopy {
     static var a11yShuffle: String { AppLocalized("Shuffle", comment: "一起听 · 无障碍：随机") }
     static var a11yRepeat: String { AppLocalized("Repeat", comment: "一起听 · 无障碍：循环") }
     static var a11yQueue: String { AppLocalized("Queue", comment: "一起听 · 无障碍：队列") }
+    static var a11yCollapse: String { AppLocalized("Collapse", comment: "一起听 · 无障碍：收起胶囊") }
+    static var a11yMinimize: String { AppLocalized("Minimize", comment: "一起听 · 无障碍：贴边最小化") }
+    static var a11yOpenLyrics: String { AppLocalized("Open lyrics", comment: "一起听 · 无障碍：展开歌词") }
+    static var a11yCloseLyrics: String { AppLocalized("Close lyrics", comment: "一起听 · 无障碍：关闭歌词") }
+    static var a11yOpenPlayer: String { AppLocalized("Open full player", comment: "一起听 · 无障碍：打开完整播放页") }
+    static var a11yExpandCapsule: String { AppLocalized("Expand player", comment: "一起听 · 无障碍：展开播放器") }
+    static var a11yExpanded: String { AppLocalized("Expanded", comment: "一起听 · 无障碍：已展开状态") }
+    static var a11yCollapsed: String { AppLocalized("Collapsed", comment: "一起听 · 无障碍：已收起状态") }
     static var a11yLike: String { AppLocalized("Like", comment: "一起听 · 无障碍：喜欢") }
     static var a11yUnlike: String { AppLocalized("Unlike", comment: "一起听 · 无障碍：取消喜欢") }
     static var leaveALine: String { AppLocalized("Leave a line at this second", comment: "一起听 · 无障碍：留一句话") }
