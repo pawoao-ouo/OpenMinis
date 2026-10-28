@@ -123,3 +123,11 @@ jobs:
           path: build/OpenMinis-clone-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload OpenMinis clone dSYM
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenMinis-clone-iOS-dSYM-${{ github.run_number }}
+          path: build/OpenMinis.xcarchive/dSYMs/
+          if-no-files-found: error
+          retention-days: 14
