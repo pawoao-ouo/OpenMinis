@@ -418,7 +418,11 @@ final class TogetherStore {
         // 闭包签上显式的 TogetherState?：拿不到锁时 return nil 是诚实的
         // 失败信号（一个字都没写），调用方本来就按 nil 当失败处理；
         // 绝不为此编一个假状态出来冒充写成功了。
-        return queue.sync { () -> TogetherState? in
+        // 只在锁内记下“写成了”，通知发在锁外：观察者收到通知会重读
+        // store、再进同一条 queue，锁内发通知会让它 dispatch_sync 到
+        // 当前线程已持有的队列上，直接崩掉。
+        var didWrite = false
+        let result = queue.sync { () -> TogetherState? in
             guard let fd = acquireFileLock() else { return nil }
             defer { flock(fd, LOCK_UN); close(fd) }
 
@@ -461,14 +465,18 @@ final class TogetherStore {
                 }
 
                 guard writeLocked(state) else { return nil }
-                // 一次有意义的写：让 Hub 立刻重读，不等轮询。进度回写不走这里，
-                // 所以播歌时不会每 3 秒把所有视图都叫醒。
-                NotificationCenter.default.post(name: .togetherStateDidChange, object: nil)
+                didWrite = true
                 return state
             }
             togetherLogger.error("[Together] state.json 写盘重试 3 次仍撞上别人，放弃这次写")
             return nil
         }
+        if didWrite {
+            // 一次有意义的写：让 Hub 立刻重读，不等轮询。进度回写不走这里，
+            // 所以播歌时不会每 3 秒把所有视图都叫醒。
+            NotificationCenter.default.post(name: .togetherStateDidChange, object: nil)
+        }
+        return result
     }
 
     private func openLockFile() -> Int32 {
