@@ -68,63 +68,85 @@ struct TogetherMiniBar: View {
 
     private var pillCapsule: some View {
         HStack(spacing: 10) {
-            // Vinyl disc: 32x32, spinning when playing
-            TogetherRefinedVinylView(size: 32, isPlaying: player.isPlaying)
-                .onTapGesture {
-                    TogetherHaptics.select()
-                    deckShown = true
+            TogetherVinylDisc(size: 32, spinning: player.isPlaying)
+                .contentShape(Circle())
+                .onTapGesture { deckShown = true }
+
+            marqueeBlock
+                .contentShape(Rectangle())
+                .onTapGesture { deckShown = true }
+
+            TogetherEQLed(barCount: 3, active: player.isPlaying)
+
+            Button {
+                TogetherHaptics.tap()
+                player.userToggle()
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.white)
+                        .overlay(Circle().strokeBorder(Color.black.opacity(0.08), lineWidth: 1))
+                        .shadow(color: .black.opacity(0.06), radius: 3, x: 0, y: 2)
+                    Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(TogetherSpec.charcoal)
                 }
-
-            // Center: Marquee / title + subtitle
-            VStack(alignment: .leading, spacing: 2) {
-                Text(player.track?.title ?? TogetherCopy.title)
-                    .font(ChatFont.font(14.5, weight: .medium, design: .serif))
-                    .italic()
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(ChatFont.font(10.5))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                    .lineLimit(1)
+                .frame(width: 30, height: 30)
+                .contentShape(Circle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                TogetherHaptics.select()
-                deckShown = true
-            }
-
-            // Right: 3 equalizer bars + 30x30 white circular play button
-            HStack(spacing: 8) {
-                TogetherEQBars(barCount: 3, isPlaying: player.isPlaying)
-
-                Button {
-                    TogetherHaptics.tap()
-                    player.userToggle()
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(Color.white)
-                            .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1)
-                        Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
-                            .font(ChatFont.font(11, weight: .semibold))
-                            .foregroundStyle(Color(white: 0.12))
-                            .offset(x: player.showsPauseControl ? 0 : 0.8)
-                    }
-                    .frame(width: 30, height: 30)
-                    .contentShape(Circle())
-                }
-                .togetherPress()
-                .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
+            .buttonStyle(.plain)
+            .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 242, height: 48)
+        .background {
+            ZStack {
+                TogetherBlurBackdrop()
+                TogetherSpec.capsuleSurface
             }
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 10)
-        .frame(width: capsuleWidth, height: capsuleHeight)
-        .glassEffect(.regular.interactive(), in: .capsule)
-        .overlay(alignment: .bottom) { progressBar }
+        .clipShape(Capsule(style: .continuous))
+        .overlay(Capsule(style: .continuous).strokeBorder(TogetherSpec.capsuleBorder, lineWidth: 1))
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(TogetherSpec.capsuleOuter, lineWidth: 1)
+                .padding(-1)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 16, x: 0, y: 12)
+        .shadow(color: .black.opacity(0.02), radius: 4, x: 0, y: 2)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(TogetherCopy.title)：\(player.track?.title ?? "")")
+    }
+
+    /// .pill-marquee：标题 15.5 衬线斜体 / 副行 10.5，两侧 6% 淡出
+    private var marqueeBlock: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(player.track?.title ?? TogetherCopy.title)
+                .font(ChatFont.font(15.5, weight: .medium, design: .serif))
+                .italic()
+                .tracking(0.5)
+                .foregroundStyle(TogetherSpec.charcoal)
+                .lineLimit(1)
+            Text(subtitle)
+                .font(ChatFont.font(10.5))
+                .tracking(0.3)
+                .foregroundStyle(TogetherSpec.muted)
+                .padding(.top, 1)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .mask(
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: 0.06),
+                    .init(color: .black, location: 0.94),
+                    .init(color: .clear, location: 1)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
     }
 
     private var subtitle: String {
@@ -138,19 +160,6 @@ struct TogetherMiniBar: View {
             return loop
         }
         return player.track?.artist ?? ""
-    }
-
-    private var progressBar: some View {
-        GeometryReader { geo in
-            Capsule()
-                .fill(CSSThemeVariables.accent(scope: .chat).opacity(0.6))
-                .frame(width: max(0, (geo.size.width - 36) * progressRatio), height: 2)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                .padding(.leading, 18)
-                .padding(.bottom, 3)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 
     private var progressRatio: CGFloat {
