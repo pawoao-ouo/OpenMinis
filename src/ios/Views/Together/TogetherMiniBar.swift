@@ -37,8 +37,7 @@ struct TogetherMiniBar: View {
     @ObservedObject private var player = TogetherPlayer.shared
     @ObservedObject private var hub = TogetherStateHub.shared
 
-    @State private var isExpanded = false
-    @State private var curtainShown = false
+    @State private var deckShown = false
     @State private var lyrics: TogetherLyrics?
 
     private let capsuleWidth: CGFloat = 242
@@ -47,35 +46,21 @@ struct TogetherMiniBar: View {
     var body: some View {
         HStack {
             Spacer(minLength: 0)
-            if !isExpanded {
-                pillCapsule
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            } else {
-                TogetherDeckView(
-                    sessionPersonaId: sessionPersonaId ?? envPersonaId,
-                    onOpenPanel: onOpen,
-                    onOpenCurtain: {
-                        withAnimation(.easeInOut(duration: 0.28)) {
-                            curtainShown = true
-                        }
-                    },
-                    onCollapse: {
-                        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-                            isExpanded = false
-                        }
-                    }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
+            pillCapsule
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, 2)
-        .sheet(isPresented: $curtainShown) {
-            TogetherLyricCurtainView(isPresented: $curtainShown)
-                .presentationDetents([.fraction(0.82), .large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(32)
+        // Deck 必须从聊天输入栏的 VStack 里跳出来，否则被拉满整屏。
+        // fullScreenCover + 透明底 = 浮在聊天上的幕布卡片，AIChatView 一行不用碰。
+        .fullScreenCover(isPresented: $deckShown) {
+            TogetherDeckOverlay(
+                sessionPersonaId: sessionPersonaId ?? envPersonaId,
+                onOpenPanel: onOpen
+            ) {
+                deckShown = false
+            }
+            .presentationBackground(.clear)
         }
         .onAppear { loadLyrics() }
         .onChange(of: player.track?.id) { _ in loadLyrics() }
@@ -87,9 +72,7 @@ struct TogetherMiniBar: View {
             TogetherRefinedVinylView(size: 32, isPlaying: player.isPlaying)
                 .onTapGesture {
                     TogetherHaptics.select()
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-                        isExpanded = true
-                    }
+                    deckShown = true
                 }
 
             // Center: Marquee / title + subtitle
@@ -108,9 +91,7 @@ struct TogetherMiniBar: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 TogetherHaptics.select()
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-                    isExpanded = true
-                }
+                deckShown = true
             }
 
             // Right: 3 equalizer bars + 30x30 white circular play button
@@ -358,6 +339,49 @@ struct TogetherRefinedVinylView: View {
 
 // MARK: - Deck (Expanded Card)
 
+// MARK: - Deck overlay (floating card over blurred backdrop)
+
+struct TogetherDeckOverlay: View {
+
+    let sessionPersonaId: String?
+    var onOpenPanel: () -> Void = {}
+    var onClose: () -> Void = {}
+
+    @State private var curtainShown = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.26)
+                .ignoresSafeArea()
+                .onTapGesture { onClose() }
+                .accessibilityLabel(TogetherCopy.a11yCollapse)
+
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                TogetherDeckView(
+                    sessionPersonaId: sessionPersonaId,
+                    onOpenPanel: {
+                        onClose()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onOpenPanel() }
+                    },
+                    onOpenCurtain: {
+                        withAnimation(.easeInOut(duration: 0.28)) { curtainShown = true }
+                    },
+                    onCollapse: { onClose() }
+                )
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+        }
+        .sheet(isPresented: $curtainShown) {
+            TogetherLyricCurtainView(isPresented: $curtainShown)
+                .presentationDetents([.fraction(0.82), .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(32)
+        }
+    }
+}
+
 struct TogetherDeckView: View {
     let sessionPersonaId: String?
     var onOpenPanel: () -> Void = {}
@@ -392,7 +416,7 @@ struct TogetherDeckView: View {
     var body: some View {
         card
             .frame(maxWidth: 360)
-            .padding(.horizontal, 16)
+            .fixedSize(horizontal: false, vertical: true)
             .onAppear { loadLyrics() }
             .onChange(of: player.track?.id) { _ in loadLyrics() }
     }
@@ -527,7 +551,7 @@ struct TogetherDeckView: View {
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(CSSThemeVariables.optionBg(scope: .chat))
+                    .fill(Color.white.opacity(0.34))
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(CSSThemeVariables.divider(scope: .chat).opacity(0.6), lineWidth: 0.5)
                 ScrollView(.vertical, showsIndicators: false) {
@@ -554,7 +578,7 @@ struct TogetherDeckView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                 }
-                .frame(maxHeight: 160)
+                .frame(height: 124)
             }
         }
         .togetherPress()
@@ -734,7 +758,7 @@ struct TogetherDeckView: View {
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(CSSThemeVariables.optionBg(scope: .chat))
+                    .fill(Color.white.opacity(0.24))
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(CSSThemeVariables.accent(scope: .chat).opacity(burstOpacity), lineWidth: 2)
                     .scaleEffect(burstScale)
