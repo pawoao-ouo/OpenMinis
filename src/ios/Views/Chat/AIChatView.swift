@@ -723,31 +723,7 @@ struct AIChatView: View {
             // them and they return in the same presentation when it
             // closes. Placed before the session-lock gate so a locked
             // session still covers the capsule.
-            if showTogetherBar, togetherCapsulePresentation == .deck {
-                TogetherDeckView(
-                    presentation: $togetherCapsulePresentation,
-                    curtainShown: $togetherCurtainShown,
-                    sessionPersonaId: vm.sessionPersonaId,
-                    dockSide: togetherDockSide,
-                    onOpenPanel: { showTogether = true }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
-                .animation(.easeInOut(duration: 0.28), value: togetherCapsulePresentation)
-            }
-            if showTogetherBar, togetherCapsulePresentation.isDocked {
-                TogetherDockedBallView(
-                    presentation: $togetherCapsulePresentation,
-                    dockSide: $togetherDockSide,
-                    yOffset: $togetherBallYOffset,
-                    bottomClearance: inputBarHeight + 12
-                )
-                .animation(.easeInOut(duration: 0.28), value: togetherCapsulePresentation)
-            }
-            if showTogetherBar, togetherCurtainShown {
-                TogetherLyricCurtainView(isPresented: $togetherCurtainShown)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .animation(.easeInOut(duration: 0.28), value: togetherCurtainShown)
-            }
+            togetherCapsuleOverlays
 
             // [P-12] 会话锁遮罩盖整页（消息区 + 输入栏）。原来挂在 messagesArea
             // 上，锁着的时候输入栏露在外面还能打字、还能发送。
@@ -2747,6 +2723,41 @@ struct AIChatView: View {
                     titlePillSession = next
                 }
             }
+        }
+    }
+
+    /// Together capsule layers: deck card, docked ball, lyric curtain.
+    /// Kept OUT of `body` on purpose — inlined they added ~9 levels of
+    /// generic nesting to the chat body type, which overflows the main
+    /// thread stack while Swift demangles that type at first render
+    /// (SIGSEGV in TypeDecoder::decodeMangledType). One opaque type
+    /// here costs body exactly one level.
+    @ViewBuilder
+    private var togetherCapsuleOverlays: some View {
+        if showTogetherBar, togetherCapsulePresentation == .deck {
+            TogetherDeckView(
+                presentation: $togetherCapsulePresentation,
+                curtainShown: $togetherCurtainShown,
+                sessionPersonaId: vm.sessionPersonaId,
+                dockSide: togetherDockSide,
+                onOpenPanel: { showTogether = true }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
+            .animation(.easeInOut(duration: 0.28), value: togetherCapsulePresentation)
+        }
+        if showTogetherBar, togetherCapsulePresentation.isDocked {
+            TogetherDockedBallView(
+                presentation: $togetherCapsulePresentation,
+                dockSide: $togetherDockSide,
+                yOffset: $togetherBallYOffset,
+                bottomClearance: inputBarHeight + 12
+            )
+            .animation(.easeInOut(duration: 0.28), value: togetherCapsulePresentation)
+        }
+        if showTogetherBar, togetherCurtainShown {
+            TogetherLyricCurtainView(isPresented: $togetherCurtainShown)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.easeInOut(duration: 0.28), value: togetherCurtainShown)
         }
     }
 
