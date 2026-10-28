@@ -532,6 +532,14 @@ struct AIChatView: View {
     }
 
     var body: some View {
+        chatLayer7
+    }
+
+    // 这 83 个修饰符以前全串在 body 一个表达式上，类型名长到 11KB，
+    // Swift 反混淆它时递归撑爆主线程栈（TypeDecoder::decodeMangledType，
+    // 首帧 SIGSEGV）。切成几层不透明类型只改类型形状，视图树和先后顺序不动。
+
+    private var chatLayer0: some View {
         ZStack {
             // [10-19 醒醒] 视觉小说模式。立绘铺在最底下，不改消息数据。
             if novelMode == .stage || novelMode == .galgame {
@@ -734,6 +742,10 @@ struct AIChatView: View {
             // Full-screen kernel boot overlay
             kernelBootOverlay
         }
+    }
+
+    private var chatLayer1: some View {
+        chatLayer0
         .appearancePage(.chat)
         .onDrop(of: [.image, .movie, .fileURL, .data], isTargeted: $isDropTargeted) { providers in
             handleDropProviders(providers)
@@ -821,6 +833,10 @@ struct AIChatView: View {
         // download button (mounted next to the scroll buttons, see
         // downloadFloatingButton). Completed rows jump to the file browser
         // located at the downloaded file in the session workspace.
+    }
+
+    private var chatLayer2: some View {
+        chatLayer1
         .sheet(isPresented: $showDownloadsPanel) {
             BrowserDownloadPanelSheet(sessionId: vm.sessionId ?? "") { filename in
                 showDownloadsPanel = false
@@ -953,6 +969,10 @@ struct AIChatView: View {
         // a stretched bar survived until the user left the app.
         .onChange(of: showPlusPanel) { _ in reseedInputBarHeight() }
         .onChange(of: showStickerPanel) { _ in reseedInputBarHeight() }
+    }
+
+    private var chatLayer3: some View {
+        chatLayer2
         .alert(AppLocalized("Compact Above"), isPresented: Binding(
             get: { compactConfirmMessageId != nil },
             set: { if !$0 { compactConfirmMessageId = nil } }
@@ -1003,6 +1023,10 @@ struct AIChatView: View {
             }
         }
         .modifier(DismissImmersiveCoversListener(onDismiss: dismissAllOwnedImmersiveCovers))
+    }
+
+    private var chatLayer4: some View {
+        chatLayer3
         .onReceive(vm.requestComposerFocusSignal) {
             // VM fires this after filling the composer programmatically
             // (e.g. /skill tap) so the keyboard pops up immediately and
@@ -1077,6 +1101,10 @@ struct AIChatView: View {
             }
             MinisOpenURLBroker.shared.consume()
         }
+    }
+
+    private var chatLayer5: some View {
+        chatLayer4
         .sheet(item: $previewHTMLFile) { fileURL in
             MinisHTMLPreviewView(fileURL: fileURL, onExpand: { _ in
                 fullBrowserIsLocal = true
@@ -1173,6 +1201,10 @@ struct AIChatView: View {
             let title = (info["title"] as? String) ?? ""
             helperSheetTarget = HelperSheetTarget(id: childId, title: title)
         }
+    }
+
+    private var chatLayer6: some View {
+        chatLayer5
         .sheet(item: $helperSheetTarget) { target in
             HelperTranscriptPage(target: target)
                 .helperTranscriptSheetStyle()
@@ -1248,7 +1280,6 @@ struct AIChatView: View {
             // 会话人设跟进来：回答的人的名字和头像按这个会话绑定的人设走。
             TogetherRootView(togetherPersonaId: vm.sessionPersonaId)
         }
-
         .fullScreenCover(isPresented: $showTerminal) {
             terminalInitCommand = nil
         } content: {
@@ -1500,6 +1531,10 @@ struct AIChatView: View {
             // are correctly skipped.
             tryMarkWorkflowChatReady(reason: "onAppear")
         }
+    }
+
+    private var chatLayer7: some View {
+        chatLayer6
         .observingQuickActions(modifier: quickActionObserver)
         .onChange(of: vm.sessionId) { _ in
             refreshTitlePillSession()
