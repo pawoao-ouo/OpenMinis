@@ -359,54 +359,61 @@ struct TogetherDeckOverlay: View {
     @State private var curtainShown = false
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.26)
-                .ignoresSafeArea()
-                .onTapGesture { onClose() }
-                .accessibilityLabel(TogetherCopy.a11yCollapse)
+        GeometryReader { geo in
+            let drawerHeight = geo.size.height * 0.82
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(curtainShown ? 0.3 : 0.26)
+                    .background(TogetherBlurBackdrop(style: .systemUltraThinMaterial))
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        if curtainShown {
+                            withAnimation(TogetherCurve.springPhysics) { curtainShown = false }
+                        } else {
+                            onClose()
+                        }
+                    }
 
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                TogetherDeckView(
-                    sessionPersonaId: sessionPersonaId,
-                    onOpenPanel: {
-                        onClose()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onOpenPanel() }
-                    },
-                    onOpenCurtain: {
-                        withAnimation(.easeInOut(duration: 0.28)) { curtainShown = true }
-                    },
-                    onCollapse: { onClose() }
-                )
-                Spacer(minLength: 0)
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    TogetherDeckView(
+                        sessionPersonaId: sessionPersonaId,
+                        onOpenPanel: {
+                            onClose()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onOpenPanel() }
+                        },
+                        onOpenCurtain: {
+                            withAnimation(TogetherCurve.springPhysics) { curtainShown = true }
+                        },
+                        onCollapse: { onClose() }
+                    )
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 15)
+
+                // 82vh 固定抽屉：滑上来就不动，手指只滚歌词
+                TogetherLyricDrawer(isPresented: $curtainShown, sessionPersonaId: sessionPersonaId)
+                    .frame(height: drawerHeight)
+                    .offset(y: curtainShown ? 0 : drawerHeight + 60)
+                    .animation(TogetherCurve.springPhysics, value: curtainShown)
+                    .allowsHitTesting(curtainShown)
             }
-            .padding(.horizontal, 16)
-        }
-        .sheet(isPresented: $curtainShown) {
-            TogetherLyricCurtainView(isPresented: $curtainShown)
-                .presentationDetents([.fraction(0.82), .large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(32)
+            .ignoresSafeArea(edges: .bottom)
         }
     }
 }
 
 struct TogetherDeckView: View {
+
     let sessionPersonaId: String?
     var onOpenPanel: () -> Void = {}
     var onOpenCurtain: () -> Void = {}
     var onCollapse: () -> Void = {}
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var player = TogetherPlayer.shared
     @ObservedObject private var hub = TogetherStateHub.shared
 
     @State private var lyrics: TogetherLyrics?
-    @State private var thumbGen = 0
     @State private var thumbVisible = false
-    @State private var burstGen = 0
-    @State private var burstScale: CGFloat = 1
-    @State private var burstOpacity: Double = 0
     @State private var dotPulse = false
     @State private var whisperIndex = 0
 
@@ -423,132 +430,124 @@ struct TogetherDeckView: View {
     private var aiName: String { ChatAddressing.assistant(sessionPersonaId: sessionPersonaId) }
 
     var body: some View {
-        card
-            .frame(maxWidth: 360)
-            .fixedSize(horizontal: false, vertical: true)
-            .onAppear { loadLyrics() }
-            .onChange(of: player.track?.id) { _ in loadLyrics() }
-    }
-
-    private var card: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             header
             lyricBox
             progressSection
             controlsRow
             resonanceDock
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: Color.black.opacity(0.08), radius: 20, x: 0, y: 8)
+        .padding(EdgeInsets(top: 16, leading: 18, bottom: 14, trailing: 18))
+        .frame(width: 360, alignment: .top)
+        .background {
+            ZStack {
+                TogetherBlurBackdrop()
+                TogetherSpec.capsuleSurface
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .strokeBorder(TogetherSpec.capsuleBorder, lineWidth: 1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .strokeBorder(TogetherSpec.capsuleOuter, lineWidth: 1)
+                .padding(-1)
+        )
+        .shadow(color: .black.opacity(0.12), radius: 28, x: 0, y: 26)
+        .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 6)
+        .onAppear { loadLyrics() }
+        .onChange(of: player.track?.id) { _ in loadLyrics() }
     }
 
     // MARK: Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                TogetherRefinedVinylView(size: 44, isPlaying: player.isPlaying)
+        HStack(spacing: 12) {
+            TogetherVinylDisc(size: 44, spinning: player.isPlaying)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(player.track?.title ?? TogetherCopy.title)
-                        .font(ChatFont.font(20, weight: .medium, design: .serif))
-                        .italic()
-                        .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
-                    HStack(spacing: 8) {
-                        Text(player.track?.artist ?? "")
-                            .font(ChatFont.font(10.5, design: .monospaced))
-                            .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                            .tracking(1)
-                            .textCase(.uppercase)
-                            .lineLimit(1)
-                        togetherBadge
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(player.track?.title ?? TogetherCopy.title)
+                    .font(ChatFont.font(20, weight: .medium, design: .serif))
+                    .italic()
+                    .tracking(0.5)
+                    .foregroundStyle(TogetherSpec.charcoal)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                artistRow
+                    .padding(.top, 3)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 4) {
-                headerButton(
-                    systemName: "music.note.list",
-                    label: TogetherCopy.a11yOpenLyrics
-                ) {
+            HStack(spacing: 6) {
+                deckIconButton(lines: 3, label: TogetherCopy.a11yOpenLyrics) {
                     onOpenCurtain()
                 }
-                headerButton(
-                    systemName: "arrow.up.left.and.arrow.down.right",
-                    label: TogetherCopy.a11yOpenPlayer
-                ) {
-                    onOpenPanel()
-                }
-                headerButton(
-                    systemName: "chevron.down",
-                    label: TogetherCopy.a11yCollapse,
-                    accessibilityValue: TogetherCopy.a11yExpanded
-                ) {
+                deckIconButton(lines: 1, label: TogetherCopy.a11yCollapse) {
                     onCollapse()
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 
-    private var togetherBadge: some View {
+    private var artistRow: some View {
+        HStack(spacing: 8) {
+            Text((player.track?.artist ?? "").uppercased())
+                .font(ChatFont.font(10.5, design: .monospaced))
+                .tracking(1)
+                .foregroundStyle(TogetherSpec.sub)
+                .lineLimit(1)
+            silverBadge
+        }
+    }
+
+    private var silverBadge: some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(CSSThemeVariables.textMain(scope: .chat))
+                .fill(TogetherSpec.charcoal)
                 .frame(width: 3.5, height: 3.5)
-                .scaleEffect(dotPulse && player.isPlaying && !reduceMotion ? 1.3 : 0.8)
-                .opacity(dotPulse && player.isPlaying && !reduceMotion ? 1 : 0.35)
-                .animation(
-                    player.isPlaying && !reduceMotion
-                        ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
-                        : .easeOut(duration: 0.2),
-                    value: dotPulse
-                )
-            Text(TogetherCopy.title)
+                .opacity(dotPulse ? 1 : 0.3)
+                .scaleEffect(dotPulse ? 1.3 : 0.8)
+            Text("TOGETHER")
                 .font(ChatFont.font(8.5, design: .monospaced))
                 .tracking(0.6)
-                .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                .foregroundStyle(TogetherSpec.charcoal)
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
-        .background(Capsule().fill(CSSThemeVariables.optionBg(scope: .chat)))
-        .overlay(
-            Capsule().strokeBorder(CSSThemeVariables.divider(scope: .chat), lineWidth: 0.5)
-        )
-        .fixedSize(horizontal: true, vertical: false)
-        .accessibilityHidden(true)
+        .background(Capsule().fill(Color.black.opacity(0.04)))
+        .overlay(Capsule().strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5))
+        .fixedSize()
+        .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dotPulse)
         .onAppear { dotPulse = true }
+        .accessibilityHidden(true)
     }
 
-    private func headerButton(
-        systemName: String,
-        label: String,
-        accessibilityValue: String? = nil,
-        action: @escaping () -> Void
-    ) -> some View {
+    /// .icon-btn 28×28 / r8 / 1px 描边 / 13pt 线稿
+    private func deckIconButton(lines: Int, label: String, action: @escaping () -> Void) -> some View {
         Button {
             TogetherHaptics.select()
             action()
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(CSSThemeVariables.optionBg(scope: .chat))
-                    .frame(width: 28, height: 28)
-                Image(systemName: systemName)
-                    .font(ChatFont.font(13, weight: .medium))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                    .fill(Color.black.opacity(0.04))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+                VStack(spacing: 3.6) {
+                    ForEach(0..<lines, id: \.self) { _ in
+                        Capsule()
+                            .fill(TogetherSpec.sub)
+                            .frame(width: 13, height: 1.4)
+                    }
+                }
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 28, height: 28)
             .contentShape(Rectangle())
         }
-        .togetherPress()
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
-        .accessibilityValue(accessibilityValue ?? "")
     }
 
     // MARK: Lyric box
@@ -558,39 +557,59 @@ struct TogetherDeckView: View {
             TogetherHaptics.select()
             onOpenCurtain()
         } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.34))
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(CSSThemeVariables.divider(scope: .chat).opacity(0.6), lineWidth: 0.5)
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .top, spacing: 8) {
-                            Text(currentLyricText)
-                                .font(ChatFont.font(16, weight: .medium, design: .serif))
-                                .italic()
-                                .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Image(systemName: "chevron.up")
-                                .font(ChatFont.font(11, weight: .semibold))
-                                .foregroundStyle(CSSThemeVariables.textDim(scope: .chat).opacity(0.5))
-                                .padding(.top, 4)
-                                .accessibilityHidden(true)
-                        }
-                        if let sub = subLyricText, !sub.isEmpty {
-                            Text(sub)
-                                .font(ChatFont.font(11))
-                                .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(currentLyricText)
+                        .font(ChatFont.font(16, weight: .medium, design: .serif))
+                        .italic()
+                        .tracking(0.4)
+                        .lineSpacing(4)
+                        .foregroundStyle(TogetherSpec.charcoal)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(TogetherSpec.sub)
+                        .opacity(0.3)
+                        .padding(.top, 4)
                 }
-                .frame(height: 124)
+                if let sub = subLyricText, !sub.isEmpty {
+                    Text(sub)
+                        .font(ChatFont.font(11))
+                        .tracking(0.2)
+                        .lineSpacing(2)
+                        .foregroundStyle(TogetherSpec.muted)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 3)
+                }
             }
+            .padding(EdgeInsets(top: 11, leading: 14, bottom: 10, trailing: 14))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.62))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.05), lineWidth: 1)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.9), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: .black.opacity(0.02), radius: 4, x: 0, y: 2)
         }
-        .togetherPress()
+        .buttonStyle(.plain)
         .accessibilityLabel(currentLyricText)
         .accessibilityHint(TogetherCopy.a11yOpenLyrics)
     }
@@ -631,37 +650,31 @@ struct TogetherDeckView: View {
                 let ratio = progressRatio
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(CSSThemeVariables.textDim(scope: .chat).opacity(0.4))
+                        .fill(Color.black.opacity(0.06))
                         .frame(height: 4)
                     Capsule()
-                        .fill(CSSThemeVariables.accent(scope: .chat))
+                        .fill(TogetherSpec.charcoal)
                         .frame(width: max(0, width * ratio), height: 4)
                     Circle()
-                        .fill(CSSThemeVariables.accent(scope: .chat))
+                        .fill(Color.white)
+                        .overlay(Circle().strokeBorder(TogetherSpec.charcoal, lineWidth: 1.5))
                         .frame(width: 10, height: 10)
-                        .overlay(Circle().strokeBorder(Color.white, lineWidth: 1.5))
+                        .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
                         .offset(x: max(0, min(width - 10, width * ratio - 5)))
-                        .opacity(thumbVisible ? 1 : 0)
+                        .scaleEffect(thumbVisible ? 1 : 0.01)
+                        .animation(.easeInOut(duration: 0.15), value: thumbVisible)
                 }
-                .frame(height: 20)
+                .frame(height: 16)
                 .contentShape(Rectangle())
-                .onTapGesture(count: 1, coordinateSpace: .local) { point in
+                .onTapGesture(coordinateSpace: .local) { point in
                     let r = min(1, max(0, point.x / max(width, 1)))
                     commitSeek(to: Double(r) * max(player.duration, 1))
-                    flashThumb()
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(TogetherCopy.progressLabel)
                 .accessibilityValue("\(togetherMMSS(player.currentTime)) / \(togetherMMSS(player.duration))")
-                .accessibilityAdjustableAction { direction in
-                    switch direction {
-                    case .increment: commitSeek(to: min(player.duration, player.currentTime + 5))
-                    case .decrement: commitSeek(to: max(0, player.currentTime - 5))
-                    @unknown default: break
-                    }
-                }
             }
-            .frame(height: 20)
+            .frame(height: 16)
 
             HStack {
                 Text(togetherMMSS(player.currentTime))
@@ -669,7 +682,8 @@ struct TogetherDeckView: View {
                 Text(togetherMMSS(player.duration))
             }
             .font(ChatFont.font(9.5, design: .monospaced))
-            .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+            .tracking(0.5)
+            .foregroundStyle(TogetherSpec.muted)
         }
     }
 
@@ -678,20 +692,13 @@ struct TogetherDeckView: View {
         return CGFloat(min(1, max(0, player.currentTime / d)))
     }
 
-    private func flashThumb() {
-        thumbGen += 1
-        let gen = thumbGen
-        thumbVisible = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            if gen == thumbGen { thumbVisible = false }
-        }
-    }
-
     private func commitSeek(to target: Double) {
         player.seek(to: target)
         TogetherStore.shared.seek(to: target, by: .user)
         hub.refreshNow()
         TogetherHaptics.tap()
+        thumbVisible = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { thumbVisible = false }
     }
 
     // MARK: Controls
@@ -703,12 +710,14 @@ struct TogetherDeckView: View {
                 player.previousTrack()
                 hub.refreshNow()
             } label: {
-                Image(systemName: "backward")
-                    .togetherIcon(22, dim: false)
-                    .frame(width: 44, height: 44)
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(TogetherSpec.charcoal)
+                    .opacity(0.65)
+                    .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
             }
-            .togetherPress()
+            .buttonStyle(.plain)
             .accessibilityLabel(TogetherCopy.a11yPrevious)
 
             Button {
@@ -718,16 +727,17 @@ struct TogetherDeckView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(CSSThemeVariables.accent(scope: .chat))
+                        .fill(TogetherSpec.charcoal)
                         .frame(width: 44, height: 44)
+                        .shadow(color: .black.opacity(0.16), radius: 9, x: 0, y: 6)
                     Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
-                        .font(ChatFont.font(17, weight: .semibold))
-                        .foregroundStyle(CSSThemeVariables.accentFg(scope: .chat))
+                        .font(.system(size: 17))
+                        .foregroundStyle(.white)
                 }
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
             }
-            .togetherPress()
+            .buttonStyle(.plain)
             .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
 
             Button {
@@ -735,60 +745,63 @@ struct TogetherDeckView: View {
                 player.nextTrack()
                 hub.refreshNow()
             } label: {
-                Image(systemName: "forward")
-                    .togetherIcon(22, dim: false)
-                    .frame(width: 44, height: 44)
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(TogetherSpec.charcoal)
+                    .opacity(0.65)
+                    .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
             }
-            .togetherPress()
+            .buttonStyle(.plain)
             .accessibilityLabel(TogetherCopy.a11yNext)
         }
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: Resonance dock (Xiaomeng Dock)
+    // MARK: Resonance dock
 
     private var resonanceDock: some View {
         Button {
             TogetherHaptics.select()
-            burstGen += 1
             whisperIndex = (whisperIndex + 1) % whispers.count
-            let gen = burstGen
-            burstScale = 1
-            burstOpacity = 0.55
-            withAnimation(.easeOut(duration: 0.65)) {
-                burstScale = reduceMotion ? 1 : 1.08
-                burstOpacity = 0
-            }
             hub.refreshNow()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                if gen == burstGen { burstScale = 1 }
-            }
         } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.white.opacity(0.24))
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(CSSThemeVariables.accent(scope: .chat).opacity(burstOpacity), lineWidth: 2)
-                    .scaleEffect(burstScale)
+            HStack(spacing: 0) {
                 HStack(spacing: 8) {
                     resonanceAvatar
                     Text(dockLine)
                         .font(ChatFont.font(11))
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                        .tracking(0.2)
+                        .foregroundStyle(TogetherSpec.sub)
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("RESONANCE")
-                        .font(ChatFont.font(8.5, design: .monospaced))
-                        .tracking(1.2)
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat).opacity(0.6))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .clipped()
+
+                Text("RESONANCE")
+                    .font(ChatFont.font(8, design: .monospaced))
+                    .tracking(0.8)
+                    .foregroundStyle(TogetherSpec.muted)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .strokeBorder(Color.black.opacity(0.1), lineWidth: 0.5)
+                    )
+                    .fixedSize()
             }
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.7))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+            )
         }
-        .togetherPress()
+        .buttonStyle(.plain)
         .accessibilityLabel(dockLine)
     }
 
@@ -802,19 +815,18 @@ struct TogetherDeckView: View {
                     .scaledToFill()
             } else {
                 ZStack {
-                    Circle()
-                        .fill(CSSThemeVariables.card(scope: .chat))
+                    Circle().fill(TogetherSpec.charcoal)
                     Text(String(aiName.prefix(1)))
-                        .font(ChatFont.font(11, weight: .semibold, design: .serif))
-                        .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
                 }
             }
         }
-        .frame(width: 22, height: 22)
+        .frame(width: 17, height: 17)
         .clipShape(Circle())
-        .overlay(
-            Circle().strokeBorder(CSSThemeVariables.divider(scope: .chat), lineWidth: 0.5)
-        )
+        .padding(1.5)
+        .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 1))
+        .frame(width: 22, height: 22)
     }
 
     private var dockLine: String {
@@ -825,8 +837,7 @@ struct TogetherDeckView: View {
         if let line = driverLineText, !line.isEmpty {
             return line
         }
-        let quote = whispers[whisperIndex % whispers.count]
-        return "\(aiName)：\(quote)"
+        return "\(aiName)：\(whispers[whisperIndex % whispers.count])"
     }
 
     private var driverLineText: String? {
@@ -843,20 +854,17 @@ struct TogetherDeckView: View {
         lyrics = player.track.flatMap { TogetherStore.shared.lyrics(for: $0) }
     }
 }
+// MARK: - Lyric drawer (82vh 固定抽屉，不可拖动)
 
-// MARK: - Lyric curtain
-
-struct TogetherLyricCurtainView: View {
+struct TogetherLyricDrawer: View {
     @Binding var isPresented: Bool
+    let sessionPersonaId: String?
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var player = TogetherPlayer.shared
     @ObservedObject private var hub = TogetherStateHub.shared
 
     @State private var lyrics: TogetherLyrics?
     @State private var followPaused = false
-    @State private var followGen = 0
-    @State private var lastTime: Double = 0
 
     private var timedLines: [TogetherLyricLine]? {
         guard let lyr = lyrics, lyr.timed, !lyr.lines.isEmpty else { return nil }
@@ -865,12 +873,6 @@ struct TogetherLyricCurtainView: View {
 
     private var currentIndex: Int {
         lyrics?.index(at: player.currentTime) ?? -1
-    }
-
-    private var loopLine: String? {
-        guard let id = player.track?.id else { return nil }
-        let loop = hub.state.loopLines[id]
-        return loop?.trimmingCharacters(in: .whitespaces).isEmpty == false ? loop : nil
     }
 
     private var curtainArtist: String {
@@ -882,161 +884,143 @@ struct TogetherLyricCurtainView: View {
         VStack(spacing: 0) {
             header
             Rectangle()
-                .fill(CSSThemeVariables.divider(scope: .chat))
-                .frame(height: 0.5)
-            lyricArea
+                .fill(Color.black.opacity(0.06))
+                .frame(height: 1)
+                .padding(.bottom, 0)
+            scrollArea
         }
+        .padding(EdgeInsets(top: 24, leading: 24, bottom: 40, trailing: 24))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CSSThemeVariables.bg(scope: .chat))
-        .onAppear {
-            loadLyrics()
-            lastTime = player.currentTime
-        }
-        .onChange(of: player.track?.id) { _ in
-            loadLyrics()
-            followPaused = false
-            followGen += 1
-        }
-        .onChange(of: player.currentTime) { time in
-            if abs(time - lastTime) > 2 {
-                followPaused = false
+        .background {
+            ZStack {
+                TogetherBlurBackdrop(style: .systemThinMaterialLight)
+                Color.white.opacity(0.94)
             }
-            lastTime = time
         }
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 32,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 32,
+                style: .continuous
+            )
+        )
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.black.opacity(0.08))
+                .frame(height: 1)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 30, x: 0, y: -20)
+        .onAppear { loadLyrics() }
+        .onChange(of: player.track?.id) { _ in loadLyrics() }
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(player.track?.title ?? TogetherCopy.title)
-                    .font(ChatFont.font(22, weight: .medium, design: .serif))
+                    .font(ChatFont.font(24, design: .serif))
                     .italic()
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                    .lineLimit(2)
-                Text(curtainArtist)
+                    .tracking(0.6)
+                    .foregroundStyle(TogetherSpec.charcoal)
+                    .lineLimit(1)
+                Text(curtainArtist.uppercased())
                     .font(ChatFont.font(11, design: .monospaced))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
                     .tracking(1.5)
-                    .textCase(.uppercase)
+                    .foregroundStyle(TogetherSpec.muted)
                     .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
+            Spacer(minLength: 12)
             Button {
+                TogetherHaptics.select()
                 isPresented = false
             } label: {
                 ZStack {
                     Circle()
-                        .fill(CSSThemeVariables.optionBg(scope: .chat))
-                        .frame(width: 32, height: 32)
+                        .fill(Color.black.opacity(0.04))
+                        .overlay(Circle().strokeBorder(Color.black.opacity(0.08), lineWidth: 1))
                     Image(systemName: "xmark")
-                        .font(ChatFont.font(13, weight: .semibold))
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(TogetherSpec.sub)
                 }
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+                .frame(width: 32, height: 32)
+                .contentShape(Circle())
             }
-            .togetherPress()
+            .buttonStyle(.plain)
             .accessibilityLabel(TogetherCopy.a11yCloseLyrics)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 24)
         .padding(.bottom, 20)
     }
 
-    private var lyricArea: some View {
-        Group {
-            if let lines = timedLines {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(lines.enumerated()), id: \.offset) { idx, line in
-                                lyricRow(line, idx: idx, isCurrent: idx == currentIndex)
-                                    .id(idx)
-                            }
+    private var scrollArea: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let lines = timedLines {
+                        ForEach(Array(lines.enumerated()), id: \.offset) { idx, line in
+                            lyricLine(text: line.text, active: idx == currentIndex, time: line.at)
+                                .id(idx)
                         }
-                        .padding(.vertical, 32)
-                        .padding(.horizontal, 24)
-                    }
-                    .onAppear { center(proxy, animated: false) }
-                    .onChange(of: currentIndex) { _ in center(proxy, animated: true) }
-                    .onScrollPhaseChange { _, newPhase in
-                        if newPhase == .interacting {
-                            followPaused = true
+                    } else {
+                        lyricLine(text: TogetherCopy.noLyrics, active: true, time: nil)
+                        if let loop = loopLine {
+                            lyricLine(text: "“\(loop)”", active: false, time: nil)
                         }
                     }
                 }
-            } else {
-                VStack(spacing: 8) {
-                    Spacer()
-                    Text(loopLine ?? TogetherCopy.noLyrics)
-                        .font(ChatFont.font(17, weight: .medium, design: .serif))
-                        .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                        .multilineTextAlignment(.center)
-                    Text(TogetherCopy.noLyricsHint)
-                        .font(ChatFont.font(11))
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                        .multilineTextAlignment(.center)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, 32)
+                .padding(.top, 40)
+                .padding(.bottom, 120)
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func lyricRow(_ line: TogetherLyricLine, idx: Int, isCurrent: Bool) -> some View {
-        Button {
-            TogetherHaptics.select()
-            followPaused = false
-            commitSeek(to: line.at)
-        } label: {
-            rowText(line, isCurrent: isCurrent)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 10)
-                .contentShape(Rectangle())
-        }
-        .togetherPress()
-        .accessibilityLabel(line.text)
-    }
-
-    @ViewBuilder
-    private func rowText(_ line: TogetherLyricLine, isCurrent: Bool) -> some View {
-        if isCurrent {
-            Text(line.text)
-                .font(ChatFont.font(22, weight: .medium, design: .serif))
-                .italic()
-                .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-        } else {
-            Text(line.text)
-                .font(ChatFont.font(17, design: .serif))
-                .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-        }
-    }
-
-    private func center(_ proxy: ScrollViewProxy, animated: Bool) {
-        let idx = currentIndex
-        guard idx >= 0, !followPaused else { return }
-        followGen += 1
-        let gen = followGen
-        DispatchQueue.main.async {
-            guard gen == followGen, !followPaused, idx == currentIndex else { return }
-            if animated, !reduceMotion {
-                withAnimation(.easeOut(duration: 0.38)) {
+            .scrollDisabled(false)
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.15),
+                        .init(color: .black, location: 0.85),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .onChange(of: currentIndex) { idx in
+                guard !followPaused, idx >= 0 else { return }
+                withAnimation(.easeInOut(duration: 0.35)) {
                     proxy.scrollTo(idx, anchor: .center)
                 }
-            } else {
-                proxy.scrollTo(idx, anchor: .center)
             }
         }
     }
 
-    private func commitSeek(to target: Double) {
-        player.seek(to: target)
-        TogetherStore.shared.seek(to: target, by: .user)
-        hub.refreshNow()
-        TogetherHaptics.tap()
+    private func lyricLine(text: String, active: Bool, time: Double?) -> some View {
+        Button {
+            guard let t = time else { return }
+            TogetherHaptics.select()
+            player.seek(to: t)
+            TogetherStore.shared.seek(to: t, by: .user)
+            hub.refreshNow()
+        } label: {
+            Text(text)
+                .font(ChatFont.font(active ? 25 : 19, weight: active ? .medium : .regular, design: .serif))
+                .italic(active)
+                .tracking(0.4)
+                .lineSpacing(6)
+                .foregroundStyle(active ? TogetherSpec.charcoal : TogetherSpec.muted)
+                .opacity(active ? 1 : 0.55)
+                .scaleEffect(active ? 1.02 : 1, anchor: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 10)
+                .animation(.easeInOut(duration: 0.35), value: active)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var loopLine: String? {
+        guard let id = player.track?.id else { return nil }
+        let loop = hub.state.loopLines[id]
+        return loop?.trimmingCharacters(in: .whitespaces).isEmpty == false ? loop : nil
     }
 
     private func loadLyrics() {
