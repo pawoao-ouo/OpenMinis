@@ -32,8 +32,10 @@ enum TogetherCapsuleDockSide: Equatable {
 }
 
 /// Capsule presentation. Presentation state only (no persistence, no
-/// state.json field): it lives in the chat view and resets to pill when
-/// the app restarts or the full panel opens.
+/// state.json field): it lives in the chat view and starts as pill.
+/// Opening or closing the full panel never changes it — the panel
+/// only covers the capsule — so the capsule returns in the same
+/// presentation it had when the panel opened.
 enum TogetherCapsulePresentation: Equatable {
     case pill
     case deck
@@ -266,19 +268,50 @@ struct TogetherEQBars: View {
 
 // MARK: - Refined vinyl (deck + ball)
 
+/// Holds the vinyl's interpolated rotation angle. A class (not @State
+/// data) so the animating modifier can record the angle actually on
+/// screen without triggering a state update on every animation frame.
+private final class TogetherSpinAngle {
+    var angle: Double = 0
+}
+
+/// Rotation modifier whose animatableData records every interpolated
+/// angle into `tracker`, so pausing can freeze at the angle on screen
+/// instead of snapping back to the start of the spin run.
+private struct TogetherSpinRotationModifier: AnimatableModifier {
+    var angle: Double
+    var tracker: TogetherSpinAngle
+
+    var animatableData: Double {
+        get { angle }
+        set {
+            angle = newValue
+            tracker.angle = newValue
+        }
+    }
+
+    func body(content: Content) -> some View {
+        content.rotationEffect(.degrees(angle))
+    }
+}
+
 /// Porcelain-hub vinyl with grooves. The grooves and hub rotate as one
 /// group while playing (7s linear); the sheen overlay stays static so a
 /// pause never has to unwind a gradient. Rotation is a single repeating
 /// animation toggled by the playing flag — never a TimelineView tick.
-/// Pausing freezes by snapping the (near-symmetric) disc to its rest
-/// angle with animations disabled for that one transition; the grooves
-/// are concentric, so the snap reads as the disc stopping, not jumping.
+/// Pausing freezes the disc at the angle on screen: the animating
+/// modifier records its interpolated angle, and the pause adopts that
+/// angle as the next run's start with animations disabled, so the
+/// offset hub mark stops in place instead of teleporting to angle 0.
+/// Resuming continues from the frozen angle at the same speed.
 struct TogetherRefinedVinylView: View {
     let size: CGFloat
     let isPlaying: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spinning = false
+    @State private var baseAngle: Double = 0
+    @State private var spinTracker = TogetherSpinAngle()
 
     var body: some View {
         ZStack {
@@ -320,7 +353,12 @@ struct TogetherRefinedVinylView: View {
             hub
         }
         .frame(width: size, height: size)
-        .rotationEffect(.degrees(spinning ? 360 : 0))
+        .modifier(
+            TogetherSpinRotationModifier(
+                angle: spinning ? baseAngle + 360 : baseAngle,
+                tracker: spinTracker
+            )
+        )
         .animation(
             spinning ? .linear(duration: 7).repeatForever(autoreverses: false) : nil,
             value: spinning
@@ -365,9 +403,18 @@ struct TogetherRefinedVinylView: View {
         if isPlaying, !reduceMotion {
             spinning = true
         } else if spinning {
+            // Freeze at the angle actually on screen: adopt the last
+            // interpolated angle as the next run's start, with
+            // animations disabled, so the disc stops instead of
+            // snapping to 0. A full turn is the same orientation, so
+            // normalize to a single turn to keep the angle bounded.
+            let frozen = spinTracker.angle.truncatingRemainder(dividingBy: 360)
             var transaction = Transaction()
             transaction.disablesAnimations = true
-            withTransaction(transaction) { spinning = false }
+            withTransaction(transaction) {
+                baseAngle = frozen < 0 ? frozen + 360 : frozen
+                spinning = false
+            }
         }
     }
 }
@@ -430,28 +477,41 @@ struct TogetherDeckView: View {
 
     // MARK: Header
 
+    /// Two-row header. The single-row header starved the readout: the
+    /// card content width is min(360, screen - 32) - 36pt of padding
+    /// (252pt at 320pt, 307pt at 375pt, 324pt at 430pt), and one row
+    /// spent 242pt of fixed chrome (44pt vinyl + 16pt spacing + four
+    /// 44pt buttons + 6pt button spacing), leaving 10/65/82pt for the
+    /// title/artist column. Here the title/artist row takes the full
+    /// width minus the vinyl (200/255/272pt), the artist keeps a
+    /// further ~67pt for the TOGETHER badge (~125/180/197pt left for
+    /// the artist), and the four 44pt controls sit on their own row
+    /// (182pt, fitting even the 252pt width). No button is removed,
+    /// shrunk, or given a smaller hit target.
     private var header: some View {
-        HStack(spacing: 8) {
-            TogetherRefinedVinylView(size: 44, isPlaying: player.isPlaying)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                TogetherRefinedVinylView(size: 44, isPlaying: player.isPlaying)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(player.track?.title ?? TogetherCopy.title)
-                    .font(ChatFont.font(20, weight: .medium, design: .serif))
-                    .italic()
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
-                HStack(spacing: 8) {
-                    Text(player.track?.artist ?? "")
-                        .font(ChatFont.font(10.5, design: .monospaced))
-                        .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
-                        .tracking(1)
-                        .textCase(.uppercase)
-                        .lineLimit(1)
-                    togetherBadge
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(player.track?.title ?? TogetherCopy.title)
+                        .font(ChatFont.font(20, weight: .medium, design: .serif))
+                        .italic()
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                    HStack(spacing: 8) {
+                        Text(player.track?.artist ?? "")
+                            .font(ChatFont.font(10.5, design: .monospaced))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                            .tracking(1)
+                            .textCase(.uppercase)
+                            .lineLimit(1)
+                        togetherBadge
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 2) {
                 headerButton(
@@ -484,6 +544,7 @@ struct TogetherDeckView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 
