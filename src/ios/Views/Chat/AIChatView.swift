@@ -202,7 +202,10 @@ struct AIChatView: View {
     }
 
     private var togetherBarInset: CGFloat {
-        showTogetherBar ? TogetherMiniBar.stackHeight : 0
+        // Docked ball reclaims the space: the pill is hidden, so no inset.
+        // Deck keeps the pill mounted, so the inset stays at stackHeight
+        // and opening the deck never shifts the chat list.
+        showTogetherBar && !togetherCapsulePresentation.isDocked ? TogetherMiniBar.stackHeight : 0
     }
     @State private var inputBarHeightDebounce: Task<Void, Never>?
     /// [T-inputbar-stretch] Delay before the plus drawer opens after a keyboard
@@ -308,6 +311,15 @@ struct AIChatView: View {
     // [R24] 一起听：全屏空间。叉掉之后不是关掉，是缩成悬浮卡继续放。
     @State private var showTogether = false
     @ObservedObject private var togetherPlayer = TogetherPlayer.shared
+    /// Together capsule presentation (pill / deck / docked ball). UI-only
+    /// state: no persistence, no state.json field. The lyric curtain is a
+    /// separate flag because it layers over the deck.
+    @State private var togetherCapsulePresentation: TogetherCapsulePresentation = .pill
+    @State private var togetherCurtainShown = false
+    @State private var togetherDockSide: TogetherCapsuleDockSide = .left
+    /// Ball vertical offset from its default anchor (45% of the safe
+    /// height), kept here so a drag position survives deck/panel trips.
+    @State private var togetherBallYOffset: CGFloat = 0
     @State private var showPlusPanel = false
     @State private var showStickerPanel = false
     /// [K-2] The tile the user tapped, while the drawer is still animating out
@@ -628,16 +640,18 @@ struct AIChatView: View {
                                 }
                         }
                         // 一起听微控条：跟输入栏同一个 VStack，
-                        // 谁也别想让它跟着气泡飘走。
+                        // 谁也别想让它跟着气泡飘走。贴边收起时胶囊藏起来，
+                        // 展开成卡片时胶囊留着（卡片是盖在上面的浮层）。
                         VStack(spacing: 2) {
-                            if showTogetherBar {
-                                TogetherMiniBar(onOpen: { showTogether = true })
+                            if showTogetherBar, !togetherCapsulePresentation.isDocked {
+                                TogetherMiniBar(presentation: $togetherCapsulePresentation)
                                     .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
                             inputBar
                         }
                         // 胶囊出现/消失是滑入滑出，不是瞬移：斜杠弹窗跟着它一起平移，不跳变。
                         .animation(.easeInOut(duration: 0.28), value: showTogetherBar)
+                        .animation(.easeInOut(duration: 0.28), value: togetherCapsulePresentation)
                         inputPopupOverlay
                             .padding(.bottom, inputBarHeight + togetherBarInset)
                     }
@@ -701,6 +715,38 @@ struct AIChatView: View {
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .animation(.easeInOut(duration: 0.2), value: novelMode)
+            }
+
+            // Together capsule overlays: deck card, docked ball, lyric
+            // curtain. Gated on showTogetherBar (a track exists and the
+            // full panel is closed), so the panel sheet always covers
+            // them and they return in the same presentation when it
+            // closes. Placed before the session-lock gate so a locked
+            // session still covers the capsule.
+            if showTogetherBar, togetherCapsulePresentation == .deck {
+                TogetherDeckView(
+                    presentation: $togetherCapsulePresentation,
+                    curtainShown: $togetherCurtainShown,
+                    sessionPersonaId: vm.sessionPersonaId,
+                    dockSide: togetherDockSide,
+                    onOpenPanel: { showTogether = true }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
+                .animation(.easeInOut(duration: 0.28), value: togetherCapsulePresentation)
+            }
+            if showTogetherBar, togetherCapsulePresentation.isDocked {
+                TogetherDockedBallView(
+                    presentation: $togetherCapsulePresentation,
+                    dockSide: $togetherDockSide,
+                    yOffset: $togetherBallYOffset,
+                    bottomClearance: inputBarHeight + 12
+                )
+                .animation(.easeInOut(duration: 0.28), value: togetherCapsulePresentation)
+            }
+            if showTogetherBar, togetherCurtainShown {
+                TogetherLyricCurtainView(isPresented: $togetherCurtainShown)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.easeInOut(duration: 0.28), value: togetherCurtainShown)
             }
 
             // [P-12] 会话锁遮罩盖整页（消息区 + 输入栏）。原来挂在 messagesArea
