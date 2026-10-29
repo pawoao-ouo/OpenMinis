@@ -48,6 +48,7 @@ struct TogetherMiniBar: View {
     @State private var dockDragX: CGFloat = 0
     @State private var dockDragY: CGFloat = 0
     @State private var pillDragX: CGFloat = 0
+    @State private var isDraggingCapsule = false
 
     private let capsuleWidth: CGFloat = 242
     private let capsuleHeight: CGFloat = 48
@@ -72,9 +73,10 @@ struct TogetherMiniBar: View {
             let currentHeight: CGFloat = isDocked ? 40 : capsuleHeight
 
             ZStack {
+                ghostPreview(totalWidth: totalW)
                 morphingCapsule(width: currentWidth, height: currentHeight, isDocked: isDocked)
                     .offset(x: curOffsetX, y: curOffsetY)
-                    .gesture(activeGesture)
+                    .gesture(activeGesture(totalWidth: totalW))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
@@ -96,14 +98,20 @@ struct TogetherMiniBar: View {
     private func morphingCapsule(width: CGFloat, height: CGFloat, isDocked: Bool) -> some View {
         ZStack {
             // Pill 完整内容：展开时居中，收进侧边时平滑渐隐且不换行变形
+            // Crossfade 时序照 HTML：淡出 180ms，新内容延迟 70ms 淡入并由 0.94
+            // 轻微放大回 1。尺寸 morph 仍走 withAnimation 里的 springPhysics。
             pillContent
                 .opacity(isDocked ? 0 : 1)
+                .scaleEffect(isDocked ? 0.94 : 1)
                 .allowsHitTesting(!isDocked)
+                .animation(isDocked ? .easeOut(duration: 0.18) : .easeIn(duration: 0.24).delay(0.07), value: isDocked)
 
             // Dock 悬浮球内容：贴靠侧边时柔和浮现
             dockIndicatorContent
                 .opacity(isDocked ? 1 : 0)
+                .scaleEffect(isDocked ? 1 : 0.94)
                 .allowsHitTesting(isDocked)
+                .animation(isDocked ? .easeIn(duration: 0.24).delay(0.07) : .easeOut(duration: 0.18), value: isDocked)
         }
         .frame(width: width, height: height)
         .background {
@@ -179,9 +187,10 @@ struct TogetherMiniBar: View {
         }
     }
 
-    private var activeGesture: some Gesture {
+    private func activeGesture(totalWidth: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 8)
             .onChanged { val in
+                isDraggingCapsule = true
                 if dockSide != nil {
                     dockDragX = val.translation.width
                     dockDragY = val.translation.height
@@ -190,6 +199,7 @@ struct TogetherMiniBar: View {
                 }
             }
             .onEnded { val in
+                isDraggingCapsule = false
                 if let side = dockSide {
                     let totalX = val.translation.width
                     if (side == .left && totalX > 35) || (side == .right && totalX < -35) {
@@ -210,13 +220,23 @@ struct TogetherMiniBar: View {
                 } else {
                     let w = val.translation.width
                     let v = val.predictedEndTranslation.width
-                    if w < -45 || v < -80 {
+                    // 中心点语义：胶囊静止时居中，松手时中心 = 条宽一半 + 平移量。
+                    // 吸边判定读中心落点，不只读手指移动量。70pt 边缘区在当前
+                    // 屏宽下已被 45pt 位移阈值包含，留作显式规则，不改行为。
+                    // 速度继承如实说明：predictedEndTranslation 只是 SwiftUI 的
+                    // 速度估计，不是松手真速度；Animation.spring 没有初速度参数，
+                    // 本次不手写弹簧驱动器，仍用 TogetherCurve.springPhysics。
+                    let releaseCenterX = totalWidth / 2 + w
+                    let predictedCenterX = totalWidth / 2 + v
+                    let crossedLeftEdgeZone = releaseCenterX < 70 || predictedCenterX < 70
+                    let crossedRightEdgeZone = releaseCenterX > totalWidth - 70 || predictedCenterX > totalWidth - 70
+                    if w < -45 || v < -80 || crossedLeftEdgeZone {
                         TogetherHaptics.select()
                         withAnimation(TogetherCurve.springPhysics) {
                             dockSide = .left
                             pillDragX = 0
                         }
-                    } else if w > 45 || v > 80 {
+                    } else if w > 45 || v > 80 || crossedRightEdgeZone {
                         TogetherHaptics.select()
                         withAnimation(TogetherCurve.springPhysics) {
                             dockSide = .right
@@ -229,6 +249,53 @@ struct TogetherMiniBar: View {
                     }
                 }
             }
+    }
+
+    // MARK: - Dock ghost preview (dragging only)
+
+    /// 拖拽时最近边缘的 58x40 轮廓预览：只在未吸边拖拽中出现，
+    /// 距边 140pt 内按接近程度淡入，松手即消失。抽成独立 helper，
+    /// 不进 body 的类型推断链。
+    private func ghostPreview(totalWidth: CGFloat) -> some View {
+        Group {
+            if isDraggingCapsule, dockSide == nil, let ghost = ghostState(totalWidth: totalWidth) {
+                ghostCapsule(side: ghost.side)
+                    .frame(width: 58, height: 40)
+                    .offset(x: ghost.offsetX)
+                    .opacity(ghost.opacity)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private func ghostState(totalWidth: CGFloat) -> (side: TogetherCapsuleDockSide, offsetX: CGFloat, opacity: Double)? {
+        // 胶囊条占满聊天区宽度，条内中心 x 即屏幕方向的中心 x，
+        // 不另做 global 帧上报（上报会比手势滞后一帧）。
+        let centerX = totalWidth / 2 + pillDragX
+        let edgeDistance = min(centerX, totalWidth - centerX)
+        guard edgeDistance < 140 else { return nil }
+        let side: TogetherCapsuleDockSide = centerX <= totalWidth / 2 ? .left : .right
+        let offsetX = side == .left ? -(totalWidth / 2 - 29) : (totalWidth / 2 - 29)
+        let opacity = max(0, min(1, 1 - edgeDistance / 140))
+        return (side: side, offsetX: offsetX, opacity: opacity)
+    }
+
+    private func ghostCapsule(side: TogetherCapsuleDockSide) -> some View {
+        ZStack {
+            TogetherBlurBackdrop()
+            Color.white.opacity(0.55)
+        }
+        .clipShape(capsuleShape(for: side))
+        .overlay(
+            capsuleShape(for: side)
+                .strokeBorder(Color.white.opacity(0.9), lineWidth: 1)
+        )
+        .overlay(
+            capsuleShape(for: side)
+                .strokeBorder(TogetherSpec.capsuleOuter, lineWidth: 1)
+                .padding(-1)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 12, x: side == .left ? 2 : -2, y: 6)
     }
 
     private var dockIndicatorContent: some View {
@@ -298,14 +365,13 @@ struct TogetherMiniBar: View {
     }
 
     /// .pill-marquee：标题 14.5 衬线斜体 / 副行 11.5，高对比深炭黑，歌词清晰柔和
+    /// 标题只在溢出时滚动（TogetherCapsuleMarqueeTitle），副行逻辑原样不动。
     private var marqueeBlock: some View {
         VStack(alignment: .leading, spacing: 1.5) {
-            Text(player.track?.title ?? TogetherCopy.title)
-                .font(ChatFont.font(14.5, weight: .semibold, design: .serif))
-                .italic()
-                .tracking(0.3)
-                .foregroundStyle(TogetherSpec.charcoal)
-                .lineLimit(1)
+            TogetherCapsuleMarqueeTitle(
+                title: player.track?.title ?? TogetherCopy.title,
+                isDragging: isDraggingCapsule
+            )
             Text(subtitle)
                 .font(ChatFont.font(11.5, weight: .medium))
                 .tracking(0.2)
@@ -347,6 +413,120 @@ struct TogetherMiniBar: View {
 
     private func loadLyrics() {
         lyrics = player.track.flatMap { TogetherStore.shared.lyrics(for: $0) }
+    }
+}
+
+// MARK: - Capsule marquee title (scrolls only on overflow)
+
+private struct TogetherMarqueeTextWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// 曲名跑马灯：只在标题宽于容器时滚动，短标题静止。
+/// 量宽走 GeometryReader + PreferenceKey：测得的宽只决定
+/// 是否滚动与滚动距离，不回填进被测文字自身的宽，不产生布局循环。
+/// 拖拽与减动效时停止滚动（停在起点，不做半程冻结——SwiftUI 的
+/// repeatForever 动画没有暂停接口，松手后从起点重滚）。
+/// 速度约 28pt/s，时长按 HTML 夹在 6...20 秒。
+private struct TogetherCapsuleMarqueeTitle: View {
+    let title: String
+    let isDragging: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var textWidth: CGFloat = 0
+    @State private var containerWidth: CGFloat = 0
+    @State private var offset: CGFloat = 0
+    @State private var isAnimating = false
+    @State private var animatedDistance: CGFloat = 0
+
+    private var shouldScroll: Bool {
+        !reduceMotion && !isDragging && containerWidth > 0 && textWidth > containerWidth + 1
+    }
+
+    private var scrollDistance: CGFloat { textWidth + 28 }
+
+    private var scrollDuration: Double {
+        max(6, min(20, Double(scrollDistance) / 28))
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 28) {
+                marqueeLabel
+                if shouldScroll {
+                    marqueeLabel
+                }
+            }
+            .offset(x: offset)
+            .onAppear {
+                containerWidth = proxy.size.width
+            }
+            .onChange(of: proxy.size.width) { newWidth in
+                containerWidth = newWidth
+                syncMarquee()
+            }
+            .onPreferenceChange(TogetherMarqueeTextWidthKey.self) { newWidth in
+                textWidth = newWidth
+                syncMarquee()
+            }
+            .onChange(of: title) { _ in
+                stopMarquee()
+                syncMarquee()
+            }
+            .onChange(of: shouldScroll) { _ in
+                syncMarquee()
+            }
+            .onChange(of: isDragging) { _ in
+                syncMarquee()
+            }
+        }
+        .frame(height: 20, alignment: .leading)
+        .clipped()
+    }
+
+    private var marqueeLabel: some View {
+        Text(title)
+            .font(ChatFont.font(14.5, weight: .semibold, design: .serif))
+            .italic()
+            .tracking(0.3)
+            .foregroundStyle(TogetherSpec.charcoal)
+            .lineLimit(1)
+            .fixedSize()
+            .background(
+                GeometryReader { labelProxy in
+                    Color.clear.preference(
+                        key: TogetherMarqueeTextWidthKey.self,
+                        value: labelProxy.size.width
+                    )
+                }
+            )
+    }
+
+    private func syncMarquee() {
+        guard shouldScroll else {
+            stopMarquee()
+            return
+        }
+        guard !isAnimating || abs(animatedDistance - scrollDistance) > 0.5 else { return }
+        stopMarquee()
+        animatedDistance = scrollDistance
+        isAnimating = true
+        withAnimation(.linear(duration: scrollDuration).repeatForever(autoreverses: false)) {
+            offset = -scrollDistance
+        }
+    }
+
+    private func stopMarquee() {
+        guard isAnimating || offset != 0 else { return }
+        isAnimating = false
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            offset = 0
+        }
     }
 }
 
