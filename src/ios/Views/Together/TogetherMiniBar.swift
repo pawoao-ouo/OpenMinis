@@ -777,6 +777,7 @@ struct TogetherDeckView: View {
     @State private var scrubGeneration = 0
     @State private var scrubConfirmations = 0
     @State private var scrubReleasedAt: Date? = nil
+    @State private var previousObservedTime: Double? = nil
     @State private var dotPulse = false
     @State private var whisperIndex = 0
 
@@ -1082,8 +1083,24 @@ struct TogetherDeckView: View {
                     // landed; reports arrive 0.5s apart, so the second
                     // counted report can sit a full interval past the
                     // first — the window allows up to 1.5s forward drift.
+                    // Track every report, including early-return ones, so
+                    // a backward jump is always measured against the most
+                    // recent report: the optimistic seek write passes
+                    // through here first and becomes the new baseline, so
+                    // it can never read as a restart below.
+                    let previousTime = previousObservedTime
+                    previousObservedTime = newTime
                     guard !isScrubbing, let target = scrubTarget, let releasedAt = scrubReleasedAt else { return }
                     guard Date().timeIntervalSince(releasedAt) >= 0.25 else { return }
+                    // Auto same-track replay restarts from 0 without
+                    // changing the track id, so no track-change clear
+                    // runs. A backward jump of more than 0.5s from the
+                    // previous report is a restart: drop the held preview
+                    // instead of freezing it at the old target.
+                    if let previousTime = previousTime, newTime < previousTime - 0.5 {
+                        clearScrubState()
+                        return
+                    }
                     let delta = newTime - target
                     if delta >= -0.4, delta <= 1.5 {
                         scrubConfirmations += 1
