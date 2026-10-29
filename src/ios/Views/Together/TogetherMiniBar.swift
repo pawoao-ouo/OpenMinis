@@ -268,7 +268,7 @@ struct TogetherMiniBar: View {
         }
     }
 
-    private func ghostState(totalWidth: CGFloat) -> (side: TogetherCapsuleDockSide, offsetX: CGFloat, opacity: Double)? {
+    private func ghostState(totalWidth: CGFloat) -> (side: TogetherCapsuleDockSide, offsetX: CGFloat, opacity: CGFloat)? {
         // 胶囊条占满聊天区宽度，条内中心 x 即屏幕方向的中心 x，
         // 不另做 global 帧上报（上报会比手势滞后一帧）。
         let centerX = totalWidth / 2 + pillDragX
