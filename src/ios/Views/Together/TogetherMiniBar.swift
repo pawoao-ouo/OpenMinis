@@ -53,28 +53,32 @@ struct TogetherMiniBar: View {
     private let capsuleHeight: CGFloat = 48
 
     var body: some View {
-        HStack(spacing: 0) {
-            if let side = dockSide {
-                if side == .left {
-                    dockedBall(side: .left)
-                        .offset(x: dockDragX, y: dockYOffset + dockDragY)
-                        .gesture(dockDragGesture(side: .left))
-                    Spacer(minLength: 0)
+        GeometryReader { geo in
+            let totalW = geo.size.width
+            let isDocked = dockSide != nil
+            let leftEdgeOffset = -(totalW / 2 - 29)
+            let rightEdgeOffset = (totalW / 2 - 29)
+
+            let curOffsetX: CGFloat = {
+                if let side = dockSide {
+                    return (side == .left ? leftEdgeOffset : rightEdgeOffset) + dockDragX
                 } else {
-                    Spacer(minLength: 0)
-                    dockedBall(side: .right)
-                        .offset(x: dockDragX, y: dockYOffset + dockDragY)
-                        .gesture(dockDragGesture(side: .right))
+                    return pillDragX
                 }
-            } else {
-                Spacer(minLength: 0)
-                pillCapsule
-                    .offset(x: pillDragX)
-                    .simultaneousGesture(pillSwipeGesture)
-                Spacer(minLength: 0)
+            }()
+            let curOffsetY: CGFloat = isDocked ? (dockYOffset + dockDragY) : 0
+
+            let currentWidth: CGFloat = isDocked ? 58 : capsuleWidth
+            let currentHeight: CGFloat = isDocked ? 40 : capsuleHeight
+
+            ZStack {
+                morphingCapsule(width: currentWidth, height: currentHeight, isDocked: isDocked)
+                    .offset(x: curOffsetX, y: curOffsetY)
+                    .gesture(activeGesture)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
-        .frame(maxWidth: .infinity)
+        .frame(height: 50)
         .padding(.bottom, 2)
         .fullScreenCover(isPresented: $deckShown) {
             TogetherDeckOverlay(
@@ -89,62 +93,147 @@ struct TogetherMiniBar: View {
         .onChange(of: player.track?.id) { _ in loadLyrics() }
     }
 
-    private var pillSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 15)
+    private func morphingCapsule(width: CGFloat, height: CGFloat, isDocked: Bool) -> some View {
+        ZStack {
+            // Pill 完整内容：展开时居中，收进侧边时平滑渐隐且不换行变形
+            pillContent
+                .opacity(isDocked ? 0 : 1)
+                .allowsHitTesting(!isDocked)
+
+            // Dock 悬浮球内容：贴靠侧边时柔和浮现
+            dockIndicatorContent
+                .opacity(isDocked ? 1 : 0)
+                .allowsHitTesting(isDocked)
+        }
+        .frame(width: width, height: height)
+        .background {
+            ZStack {
+                TogetherBlurBackdrop()
+                TogetherSpec.capsuleSurface
+            }
+        }
+        .clipShape(capsuleShape(for: dockSide))
+        .overlay(
+            capsuleShape(for: dockSide)
+                .strokeBorder(TogetherSpec.capsuleBorder, lineWidth: 1)
+        )
+        .overlay(
+            capsuleShape(for: dockSide)
+                .strokeBorder(TogetherSpec.capsuleOuter, lineWidth: 1)
+                .padding(-1)
+        )
+        .shadow(
+            color: Color.black.opacity(isDocked ? 0.08 : 0.06),
+            radius: isDocked ? 8 : 16,
+            x: isDocked ? (dockSide == .left ? 2 : -2) : 0,
+            y: isDocked ? 3 : 12
+        )
+        .shadow(
+            color: Color.black.opacity(0.02),
+            radius: isDocked ? 2 : 4,
+            x: 0,
+            y: 2
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            TogetherHaptics.select()
+            if isDocked {
+                withAnimation(TogetherCurve.springPhysics) {
+                    dockSide = nil
+                    dockYOffset = 0
+                    dockDragX = 0
+                    dockDragY = 0
+                }
+            } else {
+                deckShown = true
+            }
+        }
+    }
+
+    private func capsuleShape(for side: TogetherCapsuleDockSide?) -> UnevenRoundedRectangle {
+        switch side {
+        case .left:
+            return UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 20,
+                topTrailingRadius: 20,
+                style: .continuous
+            )
+        case .right:
+            return UnevenRoundedRectangle(
+                topLeadingRadius: 20,
+                bottomLeadingRadius: 20,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 0,
+                style: .continuous
+            )
+        case .none:
+            return UnevenRoundedRectangle(
+                topLeadingRadius: 24,
+                bottomLeadingRadius: 24,
+                bottomTrailingRadius: 24,
+                topTrailingRadius: 24,
+                style: .continuous
+            )
+        }
+    }
+
+    private var activeGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
             .onChanged { val in
-                pillDragX = val.translation.width
+                if dockSide != nil {
+                    dockDragX = val.translation.width
+                    dockDragY = val.translation.height
+                } else {
+                    pillDragX = val.translation.width
+                }
             }
             .onEnded { val in
-                let w = val.translation.width
-                let v = val.predictedEndTranslation.width
-                if w < -60 || v < -100 {
-                    TogetherHaptics.select()
-                    withAnimation(TogetherCurve.springPhysics) {
-                        dockSide = .left
-                        pillDragX = 0
-                    }
-                } else if w > 60 || v > 100 {
-                    TogetherHaptics.select()
-                    withAnimation(TogetherCurve.springPhysics) {
-                        dockSide = .right
-                        pillDragX = 0
+                if let side = dockSide {
+                    let totalX = val.translation.width
+                    if (side == .left && totalX > 35) || (side == .right && totalX < -35) {
+                        TogetherHaptics.select()
+                        withAnimation(TogetherCurve.springPhysics) {
+                            dockSide = nil
+                            dockDragX = 0
+                            dockDragY = 0
+                            dockYOffset = 0
+                        }
+                    } else {
+                        withAnimation(TogetherCurve.springPhysics) {
+                            dockYOffset = max(-450, min(0, dockYOffset + val.translation.height))
+                            dockDragX = 0
+                            dockDragY = 0
+                        }
                     }
                 } else {
-                    withAnimation(TogetherCurve.springPhysics) {
-                        pillDragX = 0
+                    let w = val.translation.width
+                    let v = val.predictedEndTranslation.width
+                    if w < -45 || v < -80 {
+                        TogetherHaptics.select()
+                        withAnimation(TogetherCurve.springPhysics) {
+                            dockSide = .left
+                            pillDragX = 0
+                        }
+                    } else if w > 45 || v > 80 {
+                        TogetherHaptics.select()
+                        withAnimation(TogetherCurve.springPhysics) {
+                            dockSide = .right
+                            pillDragX = 0
+                        }
+                    } else {
+                        withAnimation(TogetherCurve.springPhysics) {
+                            pillDragX = 0
+                        }
                     }
                 }
             }
     }
 
-    private func dockDragGesture(side: TogetherCapsuleDockSide) -> some Gesture {
-        DragGesture(minimumDistance: 5)
-            .onChanged { val in
-                dockDragX = val.translation.width
-                dockDragY = val.translation.height
-            }
-            .onEnded { val in
-                let totalX = val.translation.width
-                if (side == .left && totalX > 40) || (side == .right && totalX < -40) {
-                    TogetherHaptics.select()
-                    withAnimation(TogetherCurve.springPhysics) {
-                        dockSide = nil
-                        dockDragX = 0
-                        dockDragY = 0
-                    }
-                } else {
-                    withAnimation(TogetherCurve.springPhysics) {
-                        dockYOffset = max(-450, min(0, dockYOffset + val.translation.height))
-                        dockDragX = 0
-                        dockDragY = 0
-                    }
-                }
-            }
-    }
-
-    private func dockedBall(side: TogetherCapsuleDockSide) -> some View {
+    private var dockIndicatorContent: some View {
         HStack(spacing: 6) {
-            if side == .left {
+            if dockSide == .left {
                 dockVinylRing
                 dockPulseBars
             } else {
@@ -152,43 +241,8 @@ struct TogetherMiniBar: View {
                 dockVinylRing
             }
         }
-        .padding(side == .left ? EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 8) : EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 6))
+        .padding(dockSide == .left ? EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 8) : EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 6))
         .frame(width: 58, height: 40)
-        .background {
-            ZStack {
-                TogetherBlurBackdrop()
-                TogetherSpec.capsuleSurface
-            }
-        }
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: side == .left ? 0 : 20,
-                bottomLeadingRadius: side == .left ? 0 : 20,
-                bottomTrailingRadius: side == .left ? 20 : 0,
-                topTrailingRadius: side == .left ? 20 : 0,
-                style: .continuous
-            )
-        )
-        .overlay(
-            UnevenRoundedRectangle(
-                topLeadingRadius: side == .left ? 0 : 20,
-                bottomLeadingRadius: side == .left ? 0 : 20,
-                bottomTrailingRadius: side == .left ? 20 : 0,
-                topTrailingRadius: side == .left ? 20 : 0,
-                style: .continuous
-            )
-            .strokeBorder(TogetherSpec.capsuleBorder, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.10), radius: 10, x: side == .left ? 3 : -3, y: 3)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            TogetherHaptics.select()
-            withAnimation(TogetherCurve.springPhysics) {
-                dockSide = nil
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(TogetherCopy.a11yCollapsed)
     }
 
     private var dockVinylRing: some View {
@@ -208,7 +262,7 @@ struct TogetherMiniBar: View {
         TogetherEQLed(barCount: 2, active: player.isPlaying)
     }
 
-    private var pillCapsule: some View {
+    private var pillContent: some View {
         HStack(spacing: 10) {
             TogetherVinylDisc(size: 32, spinning: player.isPlaying)
                 .contentShape(Circle())
@@ -240,27 +294,10 @@ struct TogetherMiniBar: View {
             .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
         }
         .padding(.horizontal, 10)
-        .frame(width: 242, height: 48)
-        .background {
-            ZStack {
-                TogetherBlurBackdrop()
-                TogetherSpec.capsuleSurface
-            }
-        }
-        .clipShape(Capsule(style: .continuous))
-        .overlay(Capsule(style: .continuous).strokeBorder(TogetherSpec.capsuleBorder, lineWidth: 1))
-        .overlay(
-            Capsule(style: .continuous)
-                .strokeBorder(TogetherSpec.capsuleOuter, lineWidth: 1)
-                .padding(-1)
-        )
-        .shadow(color: .black.opacity(0.06), radius: 16, x: 0, y: 12)
-        .shadow(color: .black.opacity(0.02), radius: 4, x: 0, y: 2)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(TogetherCopy.title)：\(player.track?.title ?? "")")
+        .frame(width: capsuleWidth, height: capsuleHeight)
     }
 
-    /// .pill-marquee：标题 14.5 衬线斜体 / 副行 11.5，高对比深炭黑，去除左侧模糊遮罩，歌词清晰易读
+    /// .pill-marquee：标题 14.5 衬线斜体 / 副行 11.5，高对比深炭黑，歌词清晰柔和
     private var marqueeBlock: some View {
         VStack(alignment: .leading, spacing: 1.5) {
             Text(player.track?.title ?? TogetherCopy.title)
@@ -987,14 +1024,33 @@ struct TogetherDeckView: View {
         .frame(width: 22, height: 22)
     }
 
+    private var activeTimedNote: TogetherNote? {
+        guard let trackId = player.track?.id else { return nil }
+        let cur = player.currentTime
+        // 查找当前曲目里在当前秒数（允许往前找最近10秒内）的最新留言
+        return state.notes
+            .filter { $0.trackId == trackId && $0.at <= cur && (cur - $0.at) <= 10 }
+            .sorted { $0.at > $1.at }
+            .first
+    }
+
     private var dockLine: String {
+        // 1. 优先展示曲目里在该时间点留下的专属互动/留言 (xx分xx秒刻字)
+        if let note = activeTimedNote {
+            let author = note.from == TogetherActor.ai.rawValue ? aiName : TogetherCopy.youDriving
+            let mmss = togetherMMSS(note.at)
+            return "\(author) [\(mmss)]：\(note.text)"
+        }
+        // 2. 其次展示双人/人设心动共振私语
         if let whisper = state.resonance?.whisper,
            !whisper.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "\(aiName)：\(whisper)"
         }
+        // 3. 再次展示谁在掌控 / 你来带 / 心情词
         if let line = driverLineText, !line.isEmpty {
             return line
         }
+        // 4. 轮换小梦陪伴情话
         return "\(aiName)：\(whispers[whisperIndex % whispers.count])"
     }
 
@@ -1211,13 +1267,13 @@ enum TogetherSpec {
     static let capsuleOuter   = Color(red: 0x18/255, green: 0x18/255, blue: 0x1b/255).opacity(0.07)
 }
 
-/// 复刻 CSS 的 cubic-bezier(0.16, 1, 0.3, 1)（spring-physics 曲线）
+/// 复刻苹果原生物理质感：高阻尼无震荡柔和弹簧，彻底消除残影与突兀抖动
 enum TogetherCurve {
     static var springPhysics: Animation {
-        .timingCurve(0.16, 1, 0.3, 1, duration: 0.45)
+        .spring(response: 0.44, dampingFraction: 0.88, blendDuration: 0.1)
     }
     static var springPhysicsShort: Animation {
-        .timingCurve(0.16, 1, 0.3, 1, duration: 0.4)
+        .spring(response: 0.32, dampingFraction: 0.90, blendDuration: 0.08)
     }
 }
 
