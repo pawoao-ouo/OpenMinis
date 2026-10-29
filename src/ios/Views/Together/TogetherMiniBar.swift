@@ -1079,11 +1079,13 @@ struct TogetherDeckView: View {
                     // this handler at once, so a single near-target value
                     // proves nothing. Two consecutive observer reports
                     // inside the landing window prove the seek actually
-                    // landed; the window allows forward drift while playing.
+                    // landed; reports arrive 0.5s apart, so the second
+                    // counted report can sit a full interval past the
+                    // first — the window allows up to 1.5s forward drift.
                     guard !isScrubbing, let target = scrubTarget, let releasedAt = scrubReleasedAt else { return }
                     guard Date().timeIntervalSince(releasedAt) >= 0.25 else { return }
                     let delta = newTime - target
-                    if delta >= -0.4, delta <= 1.0 {
+                    if delta >= -0.4, delta <= 1.5 {
                         scrubConfirmations += 1
                         if scrubConfirmations >= 2 {
                             scrubTarget = nil
@@ -1153,6 +1155,7 @@ struct TogetherDeckView: View {
         HStack(spacing: 24) {
             Button {
                 TogetherHaptics.select()
+                clearScrubState()
                 player.previousTrack()
                 hub.refreshNow()
             } label: {
@@ -1188,6 +1191,7 @@ struct TogetherDeckView: View {
 
             Button {
                 TogetherHaptics.select()
+                clearScrubState()
                 player.nextTrack()
                 hub.refreshNow()
             } label: {
