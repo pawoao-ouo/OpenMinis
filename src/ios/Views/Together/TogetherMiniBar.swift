@@ -772,6 +772,8 @@ struct TogetherDeckView: View {
 
     @State private var lyrics: TogetherLyrics?
     @State private var thumbVisible = false
+    @State private var scrubRatio: CGFloat? = nil
+    @State private var scrubTarget: Double? = nil
     @State private var dotPulse = false
     @State private var whisperIndex = 0
 
@@ -1010,7 +1012,7 @@ struct TogetherDeckView: View {
         VStack(spacing: 2) {
             GeometryReader { geo in
                 let width = geo.size.width
-                let ratio = progressRatio
+                let ratio = displayRatio
                 ZStack(alignment: .leading) {
                     Capsule()
                         .fill(Color.black.opacity(0.06))
@@ -1029,18 +1031,43 @@ struct TogetherDeckView: View {
                 }
                 .frame(height: 16)
                 .contentShape(Rectangle())
-                .onTapGesture(coordinateSpace: .local) { point in
-                    let r = min(1, max(0, point.x / max(width, 1)))
-                    commitSeek(to: Double(r) * max(player.duration, 1))
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            let r = min(1, max(0, value.location.x / max(width, 1)))
+                            scrubRatio = r
+                            scrubTarget = Double(r) * max(player.duration, 1)
+                            thumbVisible = true
+                        }
+                        .onEnded { value in
+                            let r = min(1, max(0, value.location.x / max(width, 1)))
+                            let target = Double(r) * max(player.duration, 1)
+                            scrubRatio = r
+                            scrubTarget = target
+                            thumbVisible = true
+                            commitSeek(to: target)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                if scrubTarget == target {
+                                    scrubRatio = nil
+                                    scrubTarget = nil
+                                }
+                            }
+                        }
+                )
+                .onChange(of: player.currentTime) { newTime in
+                    if let target = scrubTarget, abs(newTime - target) < 0.4 {
+                        scrubRatio = nil
+                        scrubTarget = nil
+                    }
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(TogetherCopy.progressLabel)
-                .accessibilityValue("\(togetherMMSS(player.currentTime)) / \(togetherMMSS(player.duration))")
+                .accessibilityValue("\(togetherMMSS(displayTime)) / \(togetherMMSS(player.duration))")
             }
             .frame(height: 16)
 
             HStack {
-                Text(togetherMMSS(player.currentTime))
+                Text(togetherMMSS(displayTime))
                 Spacer()
                 Text(togetherMMSS(player.duration))
             }
@@ -1048,6 +1075,15 @@ struct TogetherDeckView: View {
             .tracking(0.5)
             .foregroundStyle(TogetherSpec.muted)
         }
+    }
+
+    private var displayRatio: CGFloat {
+        scrubRatio ?? progressRatio
+    }
+
+    private var displayTime: Double {
+        if let r = scrubRatio { return Double(r) * max(player.duration, 1) }
+        return player.currentTime
     }
 
     private var progressRatio: CGFloat {
