@@ -772,8 +772,11 @@ struct TogetherDeckView: View {
 
     @State private var lyrics: TogetherLyrics?
     @State private var thumbVisible = false
-    @State private var scrubRatio: CGFloat? = nil
     @State private var scrubTarget: Double? = nil
+    @State private var isScrubbing = false
+    @State private var scrubGeneration = 0
+    @State private var scrubConfirmations = 0
+    @State private var scrubReleasedAt: Date? = nil
     @State private var dotPulse = false
     @State private var whisperIndex = 0
 
@@ -823,7 +826,11 @@ struct TogetherDeckView: View {
         .shadow(color: .black.opacity(0.12), radius: 28, x: 0, y: 26)
         .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 6)
         .onAppear { loadLyrics() }
-        .onChange(of: player.track?.id) { _ in loadLyrics() }
+        .onChange(of: player.track?.id) { _ in
+            clearScrubState()
+            loadLyrics()
+        }
+        .onDisappear { clearScrubState() }
     }
 
     // MARK: Header
@@ -1034,30 +1041,57 @@ struct TogetherDeckView: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
+                            if !isScrubbing {
+                                isScrubbing = true
+                                scrubGeneration += 1
+                                scrubConfirmations = 0
+                                scrubReleasedAt = nil
+                            }
                             let r = min(1, max(0, value.location.x / max(width, 1)))
-                            scrubRatio = r
                             scrubTarget = Double(r) * max(player.duration, 1)
                             thumbVisible = true
                         }
                         .onEnded { value in
                             let r = min(1, max(0, value.location.x / max(width, 1)))
                             let target = Double(r) * max(player.duration, 1)
-                            scrubRatio = r
                             scrubTarget = target
+                            isScrubbing = false
+                            scrubConfirmations = 0
+                            scrubReleasedAt = Date()
                             thumbVisible = true
+                            let generation = scrubGeneration
                             commitSeek(to: target)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                                if scrubTarget == target {
-                                    scrubRatio = nil
+                            // Safety net only: the sustained-observer clear
+                            // below is the normal path. Generation-guarded so
+                            // an old timer can never clear a newer drag.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                if scrubGeneration == generation, !isScrubbing, scrubTarget == target {
                                     scrubTarget = nil
+                                    scrubConfirmations = 0
+                                    scrubReleasedAt = nil
                                 }
                             }
                         }
                 )
                 .onChange(of: player.currentTime) { newTime in
-                    if let target = scrubTarget, abs(newTime - target) < 0.4 {
-                        scrubRatio = nil
-                        scrubTarget = nil
+                    // Only after release, and only on sustained observer
+                    // evidence: the optimistic write inside seek() fires
+                    // this handler at once, so a single near-target value
+                    // proves nothing. Two consecutive observer reports
+                    // inside the landing window prove the seek actually
+                    // landed; the window allows forward drift while playing.
+                    guard !isScrubbing, let target = scrubTarget, let releasedAt = scrubReleasedAt else { return }
+                    guard Date().timeIntervalSince(releasedAt) >= 0.25 else { return }
+                    let delta = newTime - target
+                    if delta >= -0.4, delta <= 1.0 {
+                        scrubConfirmations += 1
+                        if scrubConfirmations >= 2 {
+                            scrubTarget = nil
+                            scrubConfirmations = 0
+                            scrubReleasedAt = nil
+                        }
+                    } else {
+                        scrubConfirmations = 0
                     }
                 }
                 .accessibilityElement(children: .ignore)
@@ -1077,13 +1111,26 @@ struct TogetherDeckView: View {
         }
     }
 
+    /// Drop any scrub preview. Bumping the generation invalidates the
+    /// pending fallback timer; call on track change and on disappear so
+    /// an interrupted gesture can never leave a stale preview behind.
+    private func clearScrubState() {
+        scrubGeneration += 1
+        scrubTarget = nil
+        isScrubbing = false
+        scrubConfirmations = 0
+        scrubReleasedAt = nil
+    }
+
     private var displayRatio: CGFloat {
-        scrubRatio ?? progressRatio
+        if let target = scrubTarget {
+            return CGFloat(min(1, max(0, target / max(player.duration, 1))))
+        }
+        return progressRatio
     }
 
     private var displayTime: Double {
-        if let r = scrubRatio { return Double(r) * max(player.duration, 1) }
-        return player.currentTime
+        scrubTarget ?? player.currentTime
     }
 
     private var progressRatio: CGFloat {
