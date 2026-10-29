@@ -23,10 +23,14 @@ private func togetherMMSS(_ s: Double) -> String {
 
 // MARK: - Main Mini Bar (Pill / Deck Container)
 
+enum TogetherCapsuleDockSide: String, Equatable {
+    case left
+    case right
+}
+
 struct TogetherMiniBar: View {
 
     /// The full stack height (48pt capsule + 2pt gap to the input bar).
-    /// Used by chat view's layout insets.
     static let stackHeight: CGFloat = 50
 
     /// Open full Together panel.
@@ -39,20 +43,39 @@ struct TogetherMiniBar: View {
 
     @State private var deckShown = false
     @State private var lyrics: TogetherLyrics?
+    @State private var dockSide: TogetherCapsuleDockSide? = nil
+    @State private var dockYOffset: CGFloat = 0
+    @State private var dockDragX: CGFloat = 0
+    @State private var dockDragY: CGFloat = 0
+    @State private var pillDragX: CGFloat = 0
 
     private let capsuleWidth: CGFloat = 242
     private let capsuleHeight: CGFloat = 48
 
     var body: some View {
-        HStack {
-            Spacer(minLength: 0)
-            pillCapsule
-            Spacer(minLength: 0)
+        HStack(spacing: 0) {
+            if let side = dockSide {
+                if side == .left {
+                    dockedBall(side: .left)
+                        .offset(x: dockDragX, y: dockYOffset + dockDragY)
+                        .gesture(dockDragGesture(side: .left))
+                    Spacer(minLength: 0)
+                } else {
+                    Spacer(minLength: 0)
+                    dockedBall(side: .right)
+                        .offset(x: dockDragX, y: dockYOffset + dockDragY)
+                        .gesture(dockDragGesture(side: .right))
+                }
+            } else {
+                Spacer(minLength: 0)
+                pillCapsule
+                    .offset(x: pillDragX)
+                    .simultaneousGesture(pillSwipeGesture)
+                Spacer(minLength: 0)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, 2)
-        // Deck 必须从聊天输入栏的 VStack 里跳出来，否则被拉满整屏。
-        // fullScreenCover + 透明底 = 浮在聊天上的幕布卡片，AIChatView 一行不用碰。
         .fullScreenCover(isPresented: $deckShown) {
             TogetherDeckOverlay(
                 sessionPersonaId: sessionPersonaId ?? envPersonaId,
@@ -64,6 +87,125 @@ struct TogetherMiniBar: View {
         }
         .onAppear { loadLyrics() }
         .onChange(of: player.track?.id) { _ in loadLyrics() }
+    }
+
+    private var pillSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 15)
+            .onChanged { val in
+                pillDragX = val.translation.width
+            }
+            .onEnded { val in
+                let w = val.translation.width
+                let v = val.predictedEndTranslation.width
+                if w < -60 || v < -100 {
+                    TogetherHaptics.select()
+                    withAnimation(TogetherCurve.springPhysics) {
+                        dockSide = .left
+                        pillDragX = 0
+                    }
+                } else if w > 60 || v > 100 {
+                    TogetherHaptics.select()
+                    withAnimation(TogetherCurve.springPhysics) {
+                        dockSide = .right
+                        pillDragX = 0
+                    }
+                } else {
+                    withAnimation(TogetherCurve.springPhysics) {
+                        pillDragX = 0
+                    }
+                }
+            }
+    }
+
+    private func dockDragGesture(side: TogetherCapsuleDockSide) -> some Gesture {
+        DragGesture(minimumDistance: 5)
+            .onChanged { val in
+                dockDragX = val.translation.width
+                dockDragY = val.translation.height
+            }
+            .onEnded { val in
+                let totalX = val.translation.width
+                if (side == .left && totalX > 40) || (side == .right && totalX < -40) {
+                    TogetherHaptics.select()
+                    withAnimation(TogetherCurve.springPhysics) {
+                        dockSide = nil
+                        dockDragX = 0
+                        dockDragY = 0
+                    }
+                } else {
+                    withAnimation(TogetherCurve.springPhysics) {
+                        dockYOffset = max(-450, min(0, dockYOffset + val.translation.height))
+                        dockDragX = 0
+                        dockDragY = 0
+                    }
+                }
+            }
+    }
+
+    private func dockedBall(side: TogetherCapsuleDockSide) -> some View {
+        HStack(spacing: 6) {
+            if side == .left {
+                dockVinylRing
+                dockPulseBars
+            } else {
+                dockPulseBars
+                dockVinylRing
+            }
+        }
+        .padding(side == .left ? EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 8) : EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 6))
+        .frame(width: 58, height: 40)
+        .background {
+            ZStack {
+                TogetherBlurBackdrop()
+                TogetherSpec.capsuleSurface
+            }
+        }
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: side == .left ? 0 : 20,
+                bottomLeadingRadius: side == .left ? 0 : 20,
+                bottomTrailingRadius: side == .left ? 20 : 0,
+                topTrailingRadius: side == .left ? 20 : 0,
+                style: .continuous
+            )
+        )
+        .overlay(
+            UnevenRoundedRectangle(
+                topLeadingRadius: side == .left ? 0 : 20,
+                bottomLeadingRadius: side == .left ? 0 : 20,
+                bottomTrailingRadius: side == .left ? 20 : 0,
+                topTrailingRadius: side == .left ? 20 : 0,
+                style: .continuous
+            )
+            .strokeBorder(TogetherSpec.capsuleBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.10), radius: 10, x: side == .left ? 3 : -3, y: 3)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            TogetherHaptics.select()
+            withAnimation(TogetherCurve.springPhysics) {
+                dockSide = nil
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(TogetherCopy.a11yCollapsed)
+    }
+
+    private var dockVinylRing: some View {
+        ZStack {
+            Circle()
+                .stroke(TogetherSpec.charcoal.opacity(0.12), lineWidth: 1.5)
+            Circle()
+                .trim(from: 0, to: max(0.01, min(1, progressRatio)))
+                .stroke(TogetherSpec.charcoal, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            TogetherVinylDisc(size: 26, spinning: player.isPlaying)
+        }
+        .frame(width: 30, height: 30)
+    }
+
+    private var dockPulseBars: some View {
+        TogetherEQLed(barCount: 2, active: player.isPlaying)
     }
 
     private var pillCapsule: some View {
@@ -118,29 +260,27 @@ struct TogetherMiniBar: View {
         .accessibilityLabel("\(TogetherCopy.title)：\(player.track?.title ?? "")")
     }
 
-    /// .pill-marquee：标题 15.5 衬线斜体 / 副行 10.5，两侧 6% 淡出
+    /// .pill-marquee：标题 14.5 衬线斜体 / 副行 11.5，高对比深炭黑，去除左侧模糊遮罩，歌词清晰易读
     private var marqueeBlock: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 1.5) {
             Text(player.track?.title ?? TogetherCopy.title)
-                .font(ChatFont.font(15.5, weight: .medium, design: .serif))
+                .font(ChatFont.font(14.5, weight: .semibold, design: .serif))
                 .italic()
-                .tracking(0.5)
+                .tracking(0.3)
                 .foregroundStyle(TogetherSpec.charcoal)
                 .lineLimit(1)
             Text(subtitle)
-                .font(ChatFont.font(10.5))
-                .tracking(0.3)
-                .foregroundStyle(TogetherSpec.muted)
-                .padding(.top, 1)
+                .font(ChatFont.font(11.5, weight: .medium))
+                .tracking(0.2)
+                .foregroundStyle(TogetherSpec.charcoal.opacity(0.85))
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .mask(
             LinearGradient(
                 stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.06),
-                    .init(color: .black, location: 0.94),
+                    .init(color: .black, location: 0),
+                    .init(color: .black, location: 0.90),
                     .init(color: .clear, location: 1)
                 ],
                 startPoint: .leading,
@@ -159,7 +299,8 @@ struct TogetherMiniBar: View {
            !loop.trimmingCharacters(in: .whitespaces).isEmpty {
             return loop
         }
-        return player.track?.artist ?? ""
+        let artist = player.track?.artist ?? ""
+        return artist.isEmpty ? TogetherCopy.title : artist
     }
 
     private var progressRatio: CGFloat {
@@ -417,13 +558,18 @@ struct TogetherDeckView: View {
     @State private var dotPulse = false
     @State private var whisperIndex = 0
 
+    @State private var whisperOpacity: Double = 1.0
+    @State private var avatarScale: CGFloat = 1.0
+
     private let whispers: [String] = [
-        "一直陪你听着呢，闭上眼睛歇会儿。",
-        "这句词写得好，慢点听。",
-        "不许摘耳机。我在呢。",
-        "既然收着了，就老老实实呆在怀里听。",
+        "在听呢，手一直给你牵着。",
+        "刚才这句词我也很喜欢。",
+        "靠在我怀里慢慢听，别想别的。",
+        "这首的前奏很舒服吧？",
         "心跳同频中 · 别光戳我，看歌词。",
-        "你挑的歌，我每首都会听完。"
+        "温度刚好，窝着别乱动。",
+        "今天想听多久，我都陪你挂机。",
+        "不许摘耳机。我在呢。"
     ]
 
     private var state: TogetherState { hub.state }
@@ -762,17 +908,29 @@ struct TogetherDeckView: View {
 
     private var resonanceDock: some View {
         Button {
-            TogetherHaptics.select()
-            whisperIndex = (whisperIndex + 1) % whispers.count
+            TogetherHaptics.tap()
+            withAnimation(.easeOut(duration: 0.15)) {
+                whisperOpacity = 0.2
+                avatarScale = 1.15
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                whisperIndex = (whisperIndex + 1) % whispers.count
+                withAnimation(.easeIn(duration: 0.2)) {
+                    whisperOpacity = 1.0
+                    avatarScale = 1.0
+                }
+            }
             hub.refreshNow()
         } label: {
             HStack(spacing: 0) {
                 HStack(spacing: 8) {
                     resonanceAvatar
+                        .scaleEffect(avatarScale)
                     Text(dockLine)
-                        .font(ChatFont.font(11))
+                        .font(ChatFont.font(11, weight: .medium))
                         .tracking(0.2)
                         .foregroundStyle(TogetherSpec.sub)
+                        .opacity(whisperOpacity)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
