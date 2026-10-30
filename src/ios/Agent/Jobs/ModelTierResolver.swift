@@ -26,6 +26,12 @@ enum HelperModelOrigin: String {
     /// Auto + `scheduled_helper`: the user's scheduled-helper group, or the
     /// default group when that slot follows the primary group (Q2).
     case scheduledHelper = "scheduled_helper"
+    /// Q3: the user hand-picked one member of a failed group in the
+    /// pre-run ask card, and the run is bound directly to that entry.
+    /// Neither a definition pin nor an inheritance — the finish() note
+    /// logic keys Q7 off `.pinned` only, so this origin never earns the
+    /// pinned sentence.
+    case userPicked = "user_picked"
 }
 
 /// [T-sub-agents-v1] What the delegating model asked for when the chosen sub

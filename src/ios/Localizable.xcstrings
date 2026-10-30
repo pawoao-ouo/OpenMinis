@@ -140354,6 +140354,16 @@
         }
       }
     },
+    "Picked for this run": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次手动选择"
+          }
+        }
+      }
+    },
     "Prominent Style": {
       "localizations": {
         "zh-Hans": {

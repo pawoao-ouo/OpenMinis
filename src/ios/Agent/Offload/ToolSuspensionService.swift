@@ -184,8 +184,13 @@ final class ToolSuspensionService: ObservableObject {
         return await suspend(tag: tag, kind: .approval(payload), sessionId: sessionId, timeoutSeconds: timeoutSeconds)
     }
 
-    /// 问用户类挂起：先持久化（App 被杀可恢复），再挂起等点按；无超时。
-    func suspendAsk(payload: AskPayload, toolName: String, toolCallId: String, sessionId: String?) async -> SuspensionDecision {
+    /// 问用户类挂起：先持久化（App 被杀可恢复），再挂起等点按；默认无超时。
+    /// [T-model-groups-slots] Q3: the pre-run model question passes a
+    /// timeout — a run nobody answers must fall back (Q4) instead of
+    /// holding the parent turn forever. The clock starts when the request
+    /// is activated (see activate()).
+    func suspendAsk(payload: AskPayload, toolName: String, toolCallId: String, sessionId: String?,
+                    timeoutSeconds: TimeInterval? = nil) async -> SuspensionDecision {
         let ask = PersistedAsk(
             id: UUID().uuidString,
             sessionId: sessionId ?? "",
@@ -201,7 +206,7 @@ final class ToolSuspensionService: ObservableObject {
             kind: .askUser(payload),
             sessionId: sessionId,
             createdAt: ask.createdAt,
-            timeoutSeconds: nil
+            timeoutSeconds: timeoutSeconds
         )
         return await wait(for: request)
     }
@@ -379,6 +384,15 @@ final class ToolSuspensionService: ObservableObject {
     private func handleTimeout(id: String) {
         guard current?.id == id else { return }
         logger.info("Suspension timed out: \(id)")
+        // [T-model-groups-slots] A timed-out question must not come back
+        // as a "restored ask" on the next launch: the run already fell
+        // back, so a late answer would be injected into the session as a
+        // stray message about a decision that no longer matters. Only
+        // timeout-capable asks (today: the Q3 pre-run question) can reach
+        // here — ordinary asks have no timeout.
+        if let kind = current?.kind, case .askUser = kind {
+            removePersistedAsk(id: id)
+        }
         finish(id: id, decision: .timedOut)
     }
 

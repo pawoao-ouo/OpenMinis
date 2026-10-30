@@ -1380,7 +1380,8 @@ extension AIChatViewModel {
             let (delegateOutput, delegateOK) = await executeSubAgentTask(args: toolArgs,
                                                                         toolUseId: tu.id,
                                                                         msgIdx: msgIdx,
-                                                                        blockIdx: blockIdx)
+                                                                        blockIdx: blockIdx,
+                                                                        deferredAssistantRaw: deferredAssistantRaw)
             toolOutput = delegateOutput
             toolSuccess = delegateOK
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {

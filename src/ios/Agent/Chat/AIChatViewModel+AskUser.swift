@@ -16,7 +16,11 @@ extension AIChatViewModel {
     /// 挂起前先把它写进 DB——否则 App 在等待时被杀，DB 里就没有这条 tool_use，
     /// 重开后补的 tool_result 配不上对，调模型直接 400。写的是和正常批量提交同一行，
     /// 批量提交时凭 assistantMessagePersistedForSuspension 跳过，不会写两遍。
-    func handleAskUser(toolArgs: [String: Any], toolId: String, deferredAssistantRaw: RawMessage?) async -> (output: String, success: Bool, summary: String) {
+    /// timeoutSeconds：默认 nil（一直等用户点按）。传值时超时按 timedOut 解决，
+    /// 调用方按自己的 fallback 处理——Q3 的跑前提问用它，免得没人回答时 turn
+    /// 一直挂着。
+    func handleAskUser(toolArgs: [String: Any], toolId: String, deferredAssistantRaw: RawMessage?,
+                       timeoutSeconds: TimeInterval? = nil) async -> (output: String, success: Bool, summary: String) {
         // —— 解析 questions（JSON 字符串，仿 browser_use 的 cookies 写法）——
         guard let questionsJSON = toolArgs["questions"] as? String,
               let data = questionsJSON.data(using: .utf8),
@@ -54,7 +58,7 @@ extension AIChatViewModel {
             questions: questions
         )
 
-        // —— 挂起等用户点按（底座：先持久化再挂起，App 被杀可恢复；问用户不设超时）——
+        // —— 挂起等用户点按（底座：先持久化再挂起，App 被杀可恢复；默认不设超时）——
         // 先落当轮 assistant 消息（含 tool_use），见函数头注释。
         if let raw = deferredAssistantRaw, raw.id != assistantMessagePersistedForSuspension {
             await ChatStore.shared.appendMessage(raw)
@@ -67,7 +71,8 @@ extension AIChatViewModel {
             payload: payload,
             toolName: Self.askUserToolName,
             toolCallId: toolId,
-            sessionId: sessionId
+            sessionId: sessionId,
+            timeoutSeconds: timeoutSeconds
         )
 
         // —— 决策 → toolOutput ——
@@ -84,11 +89,130 @@ extension AIChatViewModel {
             let json = (try? JSONSerialization.data(withJSONObject: nulls)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
             return (json, true, "用户跳过了这 \(questions.count) 道题，按你的判断继续。")
         case .timedOut:
-            // 问用户不设超时，防御性分支。
+            // 只有调用方传了 timeoutSeconds 才会走到这里；超时按调用方的
+            // fallback 处理（Q3：退回默认并在结果顶部注明）。
             return ("{\"error\":\"question timed out without an answer\"}", false, "提问超时未回答。")
         case .approved, .denied:
             return ("{\"error\":\"question dismissed\"}", false, "提问被关闭。")
         }
+    }
+
+    // MARK: - [T-model-groups-slots] Q3: 跑前提问
+
+    /// 预选分组不可用时，在活对话里先问用户再跑的决策。
+    enum ModelGroupFallbackDecision {
+        /// 按用户选的模型跑（已解析好的新 resolution）。
+        case runWith(HelperModelResolution)
+        /// 用户选了"这次不跑"：不要创建会话、不要跑。
+        case doNotRun
+        /// 没问成、跳过、超时或答案无法识别：按 Q4 退回默认跑，结果顶部注明。
+        case fallback
+    }
+
+    /// Q3：预选分组不可用、且正在活对话里时，跑之前用咱自己的提问卡片
+    /// 问用户一次。选项最多 4 个（卡片上限）：预选组里最合适的模型（标
+    /// 推荐）、主分组、副分组、"这次不跑"。只在调用方确认是活对话时调用
+    /// （前台 + 有当轮 assistant 落盘形态）；后台、排队重放、超时，一律
+    /// 不问，直接回 .fallback。
+    ///
+    /// "组里最合适" = 组内按顺序第一个还存在的成员：该组整体不可路由
+    /// （成员被隐藏/停用/没凭证），路由器已无可选；用户亲手点它，就是
+    /// 明确指令，跑的时候直接绑定该成员，不再过路由器筛。
+    func askModelGroupFallback(subAgent: SubAgentDefinition?,
+                               choice: SubAgentModelChoice,
+                               toolId: String,
+                               deferredAssistantRaw: RawMessage?) async -> ModelGroupFallbackDecision {
+        let store = ProviderConfigStore.shared
+
+        // 哪个分组没生效：定义点名的优先；否则看 AI 选的意图对应的分组
+        // （scheduled_helper 未设时跟随主分组，Q2）。
+        let failedGroupId: String?
+        if let gid = subAgent?.modelGroupId {
+            failedGroupId = gid
+        } else {
+            switch choice {
+            case .scheduledHelper:
+                failedGroupId = store.scheduledHelperGroupId ?? store.defaultPrimaryGroupId
+            case .defaultModel:
+                failedGroupId = store.defaultPrimaryGroupId
+            case .subModel:
+                failedGroupId = store.defaultSubGroupId
+            case .sameAsParent:
+                failedGroupId = nil
+            }
+        }
+        let failedGroup = failedGroupId.flatMap { store.group(for: $0) }
+        let best = failedGroup?.memberEntryIds.compactMap { store.entry(for: $0) }.first
+
+        var options: [String] = []
+        var bestOptionIndex: Int?
+        if let best {
+            options.append("推荐：\(best.model.displayName)")
+            bestOptionIndex = 0
+        }
+        let primaryLabel = store.defaultPrimaryGroupId.flatMap { store.group(for: $0)?.name } ?? "主分组"
+        let subLabel = store.defaultSubGroupId.flatMap { store.group(for: $0)?.name } ?? "副分组"
+        options.append(primaryLabel)
+        options.append(subLabel)
+        options.append("这次不跑")
+        let primaryOptionIndex = options.count - 3
+
+        let question: String
+        if let name = failedGroup?.name, !name.isEmpty {
+            question = "预选的分组“\(name)”不可用，这次任务用哪个模型运行？"
+        } else {
+            question = "预选的分组不可用，这次任务用哪个模型运行？"
+        }
+        let questionsJSON: String = {
+            let obj: [[String: Any]] = [[
+                "id": "model_choice_q",
+                "question": question,
+                "type": "single",
+                "options": options,
+            ]]
+            let data = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data()
+            return String(data: data, encoding: .utf8) ?? "[]"
+        }()
+
+        // 90 秒：够读题做决定；没人回答就退回，不一直挂着 turn。
+        let askResult = await handleAskUser(
+            toolArgs: ["questions": questionsJSON, "tool_title": "选择运行模型"],
+            toolId: toolId,
+            deferredAssistantRaw: deferredAssistantRaw,
+            timeoutSeconds: 90)
+        guard askResult.success else { return .fallback }
+        let answers = (try? JSONSerialization.jsonObject(with: Data(askResult.output.utf8)) as? [String: Any]) ?? [:]
+        let pickedString: String? = {
+            if let s = answers["model_choice_q"] as? String, !s.isEmpty { return s }
+            if let arr = answers["model_choice_q"] as? [String] { return arr.first }
+            return nil
+        }()
+        guard let pickedString, let pickedIndex = options.firstIndex(of: pickedString) else {
+            // 跳过（答案全 null）或答案无法识别：退回默认。
+            return .fallback
+        }
+        if pickedIndex == options.count - 1 { return .doNotRun }
+        if let bestOptionIndex, pickedIndex == bestOptionIndex, let best {
+            // 用户亲手点的成员：直接绑定，绕过路由器筛；origin 记为
+            // userPicked——它既不是定义点名，也不是继承，finish() 的 Q7
+            // 句只认 pinned，不会误写。
+            return .runWith(HelperModelResolution(
+                source: .directEntry(modelEntryId: best.id),
+                entry: best,
+                origin: .userPicked))
+        }
+        // 主 / 副分组：重走 resolver（定义点名已失效，不再带 pin），拿到
+        // 的仍是退回结果时，保留 unavailable 标记，结果顶部照样注明。
+        let repickChoice: SubAgentModelChoice = (pickedIndex == primaryOptionIndex) ? .defaultModel : .subModel
+        let repickGroupId = (pickedIndex == primaryOptionIndex) ? store.defaultPrimaryGroupId : store.defaultSubGroupId
+        guard var repicked = SubAgentModelResolver.resolve(subAgent: nil, parent: self, choice: repickChoice) else {
+            return .fallback
+        }
+        if let gid = repickGroupId, let group = store.group(for: gid),
+           ModelGroupRouter.resolve(group: group, sessionId: sessionId ?? UUID().uuidString, store: store) == nil {
+            repicked.modelGroupUnavailable = true
+        }
+        return .runWith(repicked)
     }
 
     /// 答案 JSON → 工具块里显示的一句话摘要。

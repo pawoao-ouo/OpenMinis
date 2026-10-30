@@ -40,7 +40,9 @@ struct HelperModelIdentity: Equatable, Codable {
     /// never written by current code.
     var tierRequested: String?
     var tierUsed: String?
-    /// [T-sub-agents-v1] "pinned" / "inherited". The current field.
+    /// "pinned" / "inherited" / group intents ("default_group",
+    /// "sub_group", "scheduled_helper") / "user_picked" (Q3 hand-pick).
+    /// The current field.
     var modelOrigin: String?
     // 2. resolved (ModelTierResolver)
     var resolvedEntryId: String?
@@ -293,6 +295,8 @@ struct HelperModelIdentity: Equatable, Codable {
             return named(AppLocalized("Auto · default group"))
         case "sub_group":
             return named(AppLocalized("Auto · light group"))
+        case "user_picked":
+            return AppLocalized("Picked for this run")
         default:
             return origin
         }

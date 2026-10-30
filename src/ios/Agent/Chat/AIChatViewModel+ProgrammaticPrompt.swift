@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UIKit
 
 private let logger = AppLogger(category: "ProgrammaticPrompt")
 
@@ -480,11 +481,13 @@ extension AIChatViewModel {
     func executeSubAgentTask(args: [String: Any],
                              toolUseId: String,
                              msgIdx: Int,
-                             blockIdx: Int) async -> (output: String, success: Bool) {
+                             blockIdx: Int,
+                             deferredAssistantRaw: RawMessage? = nil) async -> (output: String, success: Bool) {
         let action = Self.argString(args, "action").lowercased()
         switch action {
         case "", "delegate":
-            return await executeDelegateTask(args: args, toolUseId: toolUseId, msgIdx: msgIdx, blockIdx: blockIdx)
+            return await executeDelegateTask(args: args, toolUseId: toolUseId, msgIdx: msgIdx, blockIdx: blockIdx,
+                                             deferredAssistantRaw: deferredAssistantRaw)
         case "cancel":
             return cancelSubAgentTask(args: args)
         case "status":
@@ -874,7 +877,8 @@ extension AIChatViewModel {
     func executeDelegateTask(args: [String: Any],
                              toolUseId: String,
                              msgIdx: Int,
-                             blockIdx: Int) async -> (output: String, success: Bool) {
+                             blockIdx: Int,
+                             deferredAssistantRaw: RawMessage? = nil) async -> (output: String, success: Bool) {
         let title = Self.argString(args, "tool_title")
         let task = Self.argString(args, "task")
         let requestedAgentName = (args["agent"] as? String)
@@ -941,9 +945,36 @@ extension AIChatViewModel {
         // delegations replay through this same function with the stored
         // args, so the choice survives queuing. Absent/unknown = same_as_me.
         let modelChoice = SubAgentModelChoice.parse(args["model_choice"] as? String)
-        guard let resolution = SubAgentModelResolver.resolve(subAgent: subAgent, parent: self,
+        guard var resolution = SubAgentModelResolver.resolve(subAgent: subAgent, parent: self,
                                                             choice: modelChoice) else {
             return reject("no_model", "This conversation has no resolvable model, so a sub agent cannot run. Pick a model for this session first.")
+        }
+
+        // [T-model-groups-slots] Q3: the preselected group did not apply
+        // and this is a LIVE dialog (app in the foreground, and the
+        // current turn's assistant message available to anchor the ask
+        // card) — ask the user which model to run BEFORE creating the
+        // child session. Background runs, queued replays (no deferred
+        // raw) and timeouts never ask: they fall back per Q4 and the
+        // result says so at the top. The ask card is the fork's own
+        // ask_user_input_v0 — never upstream user_ask.
+        if resolution.modelGroupUnavailable, let deferredAssistantRaw,
+           UIApplication.shared.applicationState == .active {
+            switch await askModelGroupFallback(subAgent: subAgent, choice: modelChoice,
+                                               toolId: toolUseId, deferredAssistantRaw: deferredAssistantRaw) {
+            case .runWith(let picked):
+                resolution = picked
+            case .doNotRun:
+                let json = Self.delegateJSON([
+                    "ok": true,
+                    "status": "not_run",
+                    "detail": "The user chose not to run this delegation: the preselected model group was unavailable and they picked \"don't run this time\". Do not re-delegate it unless the user asks.",
+                ])
+                writeDelegateBlock(msgIdx: msgIdx, blockIdx: blockIdx, json)
+                return (json, true)
+            case .fallback:
+                break
+            }
         }
 
         let budgetMinutes = AIChatViewModel.helperMaxMinutes
