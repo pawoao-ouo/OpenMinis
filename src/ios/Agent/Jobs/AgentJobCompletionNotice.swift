@@ -140,7 +140,17 @@ final class AgentJobCompletionNotice {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = Self.notificationTitle(name: name, state: state)
+        // Unified batch-1 format: title = current persona name, subtitle =
+        // event state + job name, body = tap hint verbatim. The state wording
+        // is the same localized wording the background-task notification uses.
+        let stateText: String? = switch state {
+        case .done: AppLocalized("Task completed")
+        case .failed: AppLocalized("Task failed")
+        case .timeout: AppLocalized("Task timed out")
+        case .cancelled, .pending, .running: nil
+        }
+        let subtitle = stateText.map { "\($0): \(name)" } ?? name
+        NotificationPersonaPresentation.apply(to: content, subtitle: subtitle)
         content.body = AppLocalized("点一下查看结果")
         content.sound = .default
         content.categoryIdentifier = Self.categoryId
@@ -158,12 +168,4 @@ final class AgentJobCompletionNotice {
         }
     }
 
-    private static func notificationTitle(name: String, state: AgentJobState) -> String {
-        switch state {
-        case .done: return "✅ " + name
-        case .failed: return "❌ " + name
-        case .timeout: return "⏱ " + name
-        case .cancelled, .pending, .running: return name
-        }
-    }
 }
