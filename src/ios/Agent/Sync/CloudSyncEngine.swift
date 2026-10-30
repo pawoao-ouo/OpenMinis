@@ -2394,6 +2394,10 @@ final class CloudSyncEngine: ObservableObject {
             if let v = local.judgeGroupId, let replacement = groupIdRewrites[v] {
                 local.judgeGroupId = replacement
             }
+            // [T-model-groups-slots] 定时小帮手指针指向同一批组，一起改写。
+            if let v = local.scheduledHelperGroupId, let replacement = groupIdRewrites[v] {
+                local.scheduledHelperGroupId = replacement
+            }
             for (sid, var binding) in local.sessionBindings {
                 func rewrite(_ source: SessionModelSource) -> SessionModelSource {
                     if case .group(let gid, let resolved) = source,
