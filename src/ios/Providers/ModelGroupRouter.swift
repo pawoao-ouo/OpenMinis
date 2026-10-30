@@ -359,3 +359,123 @@ enum JudgeGroupResolver {
         return Int(hash & 0x7FFF_FFFF_FFFF_FFFF)
     }
 }
+
+// MARK: - [T-wire-video] Video Output group resolver
+
+/// Resolves video-generation runs to the user's configured Video Output group.
+///
+/// Mirrors `ImageOutputGroupResolver` in shape (three-case Resolution,
+/// per-member resolution, group order/strategy honored) with the
+/// `.videoOutput` modality filter: the bit exists (`LLMTypes.swift`,
+/// 1 << 8) and catalogs tag video models with it (keyword mapping for
+/// video-gen / video-generation / veo / sora, plus OpenAI / OpenRouter /
+/// ModelsDev taggers), so a video job must not land on a member that
+/// declares no video-output capability. Availability reuses the router's
+/// own predicate (`ModelGroupRouter.availableEntryIds`) — the same gate
+/// the shipped slots use. Deliberately lives in this file rather than a
+/// new one: a new Swift file plus a hand-edited pbxproj entry is the
+/// highest-risk combination in this repo's history, and nothing here
+/// needs a file of its own.
+///
+/// RESOLUTION ONLY — no execution path exists behind this resolver yet.
+/// No provider in the tree implements video generation (no generateVideo
+/// function, no video endpoint, no polling; the only video-adjacent code
+/// is catalog modality tagging and the bridge's --output extension
+/// validation). A tool definition, AI disclosure, and row ungrey are
+/// deliberately withheld until a real provider video call exists:
+/// disclosing a tool that can never produce video would be a dead
+/// button, and a greyed slot must stay hidden from the AI.
+@MainActor
+enum VideoGroupResolver {
+
+    /// Outcome of resolving the Video Output pointer. The three cases
+    /// exist so a future caller can tell "nothing configured" (discovery
+    /// flow) from "configured but unusable" (Q4: fall back flagged,
+    /// never stall, never silently substitute) without re-deriving it
+    /// from the pointer — the same distinction `ModelTierResolver`
+    /// draws.
+    enum Resolution {
+        /// No Video Output group is configured (pointer nil or dangling).
+        case unset
+        /// A group is configured but holds no usable video-output member.
+        case unroutable(groupName: String, reason: String)
+        /// A usable video-output member, in the group's own order/strategy.
+        case resolved(entry: ModelEntry, groupName: String)
+    }
+
+    /// Resolve the Video Output pointer for one run. `sessionId` only
+    /// stabilises `.loadBalance` rotation within a session, mirroring
+    /// `ModelGroupRouter.resolve`.
+    static func resolve(sessionId: String) -> Resolution {
+        let store = ProviderConfigStore.shared
+        guard let gid = store.videoOutputGroupId, let group = store.group(for: gid) else {
+            return .unset
+        }
+        let members = candidates(seed: stableSeed(for: sessionId))
+        guard let first = members.first else {
+            return .unroutable(groupName: group.name, reason: unroutableReason(group: group, store: store))
+        }
+        return .resolved(entry: first, groupName: group.name)
+    }
+
+    /// Every usable video-output member of the configured Video Output
+    /// group, in the group's own order. `.loadBalance` groups are rotated
+    /// by `seed` so repeated calls spread across members; `.fallback`
+    /// groups keep author order and the caller walks the list on failure —
+    /// the same contract as `VisionGroupResolver.candidates`.
+    static func candidates(seed: Int = 0) -> [ModelEntry] {
+        let store = ProviderConfigStore.shared
+        guard let gid = store.videoOutputGroupId, let group = store.group(for: gid) else { return [] }
+
+        let available = Set(ModelGroupRouter.availableEntryIds(group: group, store: store))
+        var members = group.memberEntryIds.compactMap { entryId -> ModelEntry? in
+            guard available.contains(entryId),
+                  let entry = store.entry(for: entryId),
+                  entry.model.capabilities.supportedModalities.contains(.videoOutput) else { return nil }
+            return entry
+        }
+
+        if group.strategy == .loadBalance, members.count > 1 {
+            let offset = seed % members.count
+            members = Array(members[offset...] + members[..<offset])
+        }
+        return members
+    }
+
+    /// One sentence saying why a configured group cannot serve a video
+    /// run, so a future Q4 fallback note can tell the user what to fix.
+    private static func unroutableReason(group: ModelGroup, store: ProviderConfigStore) -> String {
+        let ids = group.memberEntryIds
+        guard !ids.isEmpty else { return "the group has no members" }
+        let available = Set(ModelGroupRouter.availableEntryIds(group: group, store: store))
+        let noCapability = ids.filter { id in
+            available.contains(id)
+                && !(store.entry(for: id)?.model.capabilities.supportedModalities.contains(.videoOutput) ?? false)
+        }.count
+        let unavailable = ids.filter { !available.contains($0) }.count
+        switch (noCapability, unavailable) {
+        case (0, 0):
+            return "no usable member"
+        case (_, 0):
+            return "none of its \(ids.count) member(s) declare video-output capability"
+        case (0, _):
+            return "all \(ids.count) member(s) are unavailable (hidden, disabled, or not logged in)"
+        default:
+            return "\(noCapability) member(s) declare no video-output capability and "
+                + "\(unavailable) are unavailable (hidden, disabled, or not logged in)"
+        }
+    }
+
+    /// Non-negative FNV-1a seed, same algorithm as
+    /// `ImageOutputGroupResolver.stableSeed` (duplicated rather than
+    /// shared: the resolvers must stay independently movable, and
+    /// the function is six lines).
+    private static func stableSeed(for sessionId: String) -> Int {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in sessionId.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return Int(hash & 0x7FFF_FFFF_FFFF_FFFF)
+    }
+}
