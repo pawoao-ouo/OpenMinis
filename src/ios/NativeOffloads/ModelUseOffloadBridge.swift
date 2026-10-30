@@ -996,9 +996,12 @@ private let logger = AppLogger(category: "ModelUseOffload")
         /// Name of the Image Output group the entry was resolved from, if any.
         let imageOutputGroupName: String?
         /// Name of the Judge group the entry was resolved from, if any.
-        /// Defaulted so the existing Image Output construction sites keep
-        /// compiling unchanged.
-        let judgeGroupName: String? = nil
+        /// No default value here: a defaulted `let` cannot be assigned
+        /// again in init under this toolchain (CI run 41030069843:
+        /// "immutable value may only be initialized once"). The default
+        /// lives on the explicit init's parameter instead, so existing
+        /// construction sites keep compiling unchanged.
+        let judgeGroupName: String?
         /// Q4 note: set when the configured Image Output group could not
         /// serve the run and the Agent Loop pool was used instead. The
         /// caller must surface this first in the result — never silently
