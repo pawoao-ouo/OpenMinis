@@ -156,8 +156,7 @@ struct ModelGroupsView: View {
                             get: { store.videoOutputGroupId },
                             set: { store.videoOutputGroupId = $0 }
                         ),
-                        preferModality: .videoOutput,
-                        isInactive: true
+                        preferModality: .videoOutput
                     )
                     GroupSlotPicker(
                         label: "Realtime Voice",
@@ -173,8 +172,7 @@ struct ModelGroupsView: View {
                         selection: Binding(
                             get: { store.embeddingGroupId },
                             set: { store.embeddingGroupId = $0 }
-                        ),
-                        isInactive: true
+                        )
                     )
                     GroupSlotPicker(
                         label: "Judge",
@@ -186,7 +184,7 @@ struct ModelGroupsView: View {
                 } header: {
                     Text("Defaults")
                 } footer: {
-                    Text("Primary is used for main agent tasks. Sub is used for lightweight tasks like title generation. Voice Input/Output pick a group whose audio-capable models drive speech-to-text and text-to-speech; if none is set, the offline System voice is used. Vision Input picks a group whose image-capable models describe images when the chat model cannot see them itself; if none is set, models without vision cannot read images at all. Image/Video Output, Realtime Voice, Embedding and Judge name the group to use for those jobs; if one is left empty, the AI looks for a capable model in your configured APIs and asks you before using it.")
+                    Text("Primary is used for main agent tasks. Sub is used for lightweight tasks like title generation. Voice Input/Output pick a group whose audio-capable models drive speech-to-text and text-to-speech; if none is set, the offline System voice is used. Vision Input picks a group whose image-capable models describe images when the chat model cannot see them itself; if none is set, models without vision cannot read images at all. Image/Video Output, Embedding and Judge name the group to use for those jobs; if one is left empty, the AI looks for a capable model in your configured APIs and asks you before using it. Realtime Voice is not yet active.")
                 }
             }
 

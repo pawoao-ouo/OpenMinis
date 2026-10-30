@@ -658,7 +658,7 @@ public final class ToolCatalogRouter: @unchecked Sendable {
                 id: "minis-model-use",
                 name: "minis-model-use",
                 category: .system,
-                synopsis: "Single-shot invocation of pre-configured secondary models. For image generation, --model may be omitted: the run uses the configured Image Output model group. If no Image Output group is configured, the run lists image-capable models from your configured APIs instead of running: ask the user which one to use, then re-run with --model.",
+                synopsis: "Single-shot invocation of pre-configured secondary models. For image generation, --model may be omitted: the run uses the configured Image Output model group. If no Image Output group is configured, the run lists image-capable models from your configured APIs instead of running: ask the user which one to use, then re-run with --model. For video generation, pass --slot video with --model omitted: the run uses the configured Video Output model group (same listing + ask flow when unset); the video model generates the video, this command pipes it back. For embeddings, pass --slot embedding with --model omitted: the run uses the configured Embedding group (same listing + ask flow when unset); embedding models are called through passthrough to the provider's embeddings endpoint.",
                 quickSyntax: "minis-model-use run --model <id> --input <json>",
                 docRef: "minis-model-use --help"
             ),

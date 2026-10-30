@@ -114,6 +114,30 @@ private let logger = AppLogger(category: "ModelUseOffload")
         return result
     }
 
+    /// [T-wire-remaining-slots] Embedding discovery: no embedding
+    /// modality bit exists in `ModelModality`, so filter by model name
+    /// instead — catalogs themselves mark embedding models by name
+    /// (OpenAI "-embedding" suffix, models.dev "embedding" family).
+    /// Same gates as `discoverCandidates` (enabled instances, credential
+    /// present, picker order, caller-capped). Usually empty, because
+    // catalogs hide embedding models; the unset error then tells the
+    /// caller to configure the group (hand-add the model if needed).
+    @MainActor
+    static func discoverEmbeddingCandidates(limit: Int) -> [ModelEntry] {
+        let store = ProviderConfigStore.shared
+        var result: [ModelEntry] = []
+        for entry in Self.allConfiguredEntries(store: store) {
+            let id = entry.model.id.lowercased()
+            let name = entry.model.displayName.lowercased()
+            guard id.contains("embed") || name.contains("embed") else { continue }
+            guard let instance = store.instance(for: entry.providerInstanceId),
+                  instance.hasAnyCredential else { continue }
+            result.append(entry)
+            if result.count >= limit { break }
+        }
+        return result
+    }
+
     /// Hint string appended to non-empty list/search results so the agent knows
     /// exactly how to invoke a model. Three forms are supported by `run --model`:
     ///   1. Plain `model_id` (e.g. `claude-sonnet-4-6`) — works when unique.
@@ -160,6 +184,9 @@ private let logger = AppLogger(category: "ModelUseOffload")
         " Judge calls: the `judge` tool runs a judging prompt you write "
         + "yourself through the configured Judge model group — see the tool's "
         + "description for when to call it."
+        // [T-wire-remaining-slots] Video and Embedding calls: the model
+        // generates the result; this command only pipes it.
+        + " Video generation without --model: omit --model and pass --slot video to use the configured Video Output group; with --output <video file> the provider's returned media is saved there, and for provider-native video endpoints use passthrough (see --help) and drive submit/poll yourself — the raw response comes back to you. Embedding without --model: omit --model and pass --slot embedding to use the configured Embedding group; call through passthrough to the provider's embeddings endpoint (e.g. /v1/embeddings) and the vectors come back raw. If no group is configured, the run does not run: it lists capable models found in your configured APIs instead — ask the user with ask_user which one may be used, then re-run with --model <approved model id>."
 
     // MARK: - Entry Serialization
 
@@ -337,9 +364,11 @@ private let logger = AppLogger(category: "ModelUseOffload")
                                        temperature: Double,
                                        outputHostPath: String?,
                                        streamFd: Int32,
+                                       slotName: String?,
                                        completion: @escaping ([String: Any]?, String?) -> Void) {
         Task {
             do {
+                let slot = try Self.resolutionSlot(for: slotName)
                 let result = try await performRun(
                     modelIdOrName: modelIdOrName,
                     providerFilter: providerFilter,
@@ -348,7 +377,8 @@ private let logger = AppLogger(category: "ModelUseOffload")
                     maxTokens: maxTokens,
                     temperature: temperature,
                     outputHostPath: outputHostPath,
-                    streamFd: streamFd
+                    streamFd: streamFd,
+                    slot: slot
                 )
                 completion(result, nil)
             } catch {
@@ -358,6 +388,23 @@ private let logger = AppLogger(category: "ModelUseOffload")
                 let combined = hint.isEmpty ? base : "\(base)\n\n\(hint)"
                 completion(nil, combined)
             }
+        }
+    }
+
+    /// Map the CLI's --slot value to a resolution slot. Empty/absent
+    /// means the shipped default (Image Output). An unknown value fails
+    /// loudly instead of silently resolving through the wrong slot.
+    private static func resolutionSlot(for name: String?) throws -> ResolutionSlot {
+        switch name?.lowercased() {
+        case nil, "", "image":
+            return .imageOutput
+        case "video":
+            return .videoOutput
+        case "embedding":
+            return .embedding
+        default:
+            throw ModelUseError.invalidInput(
+                "--slot must be image, video, or embedding, got '\(name ?? "")'.")
         }
     }
 
@@ -433,9 +480,10 @@ private let logger = AppLogger(category: "ModelUseOffload")
                                     maxTokens: Int,
                                     temperature: Double,
                                     outputHostPath: String?,
-                                    streamFd: Int32) async throws -> [String: Any] {
+                                    streamFd: Int32,
+                                    slot: ResolutionSlot = .imageOutput) async throws -> [String: Any] {
         // 1. Resolve model entry
-        let resolved = try await resolveModelEntry(modelIdOrName, providerFilter: providerFilter)
+        let resolved = try await resolveModelEntry(modelIdOrName, providerFilter: providerFilter, slot: slot)
         let entry = resolved.entry
         let provider = try await LLMProviderFactory.makeProvider(for: entry)
 
@@ -460,7 +508,9 @@ private let logger = AppLogger(category: "ModelUseOffload")
                 inputJSON: inputJSON, systemPrompt: systemPrompt,
                 maxTokens: maxTokens, outputHostPath: outputHostPath,
                 fallbackNote: resolved.fallbackNote,
-                imageOutputGroupName: resolved.imageOutputGroupName)
+                imageOutputGroupName: resolved.imageOutputGroupName,
+                videoOutputGroupName: resolved.videoOutputGroupName,
+                embeddingGroupName: resolved.embeddingGroupName)
         }
 
         // 2. Parse OpenAI-format messages and optional generation config
@@ -492,6 +542,12 @@ private let logger = AppLogger(category: "ModelUseOffload")
         }
         if let imageOutputGroupName = resolved.imageOutputGroupName {
             appliedExtras["image_output_group"] = imageOutputGroupName
+        }
+        if let videoOutputGroupName = resolved.videoOutputGroupName {
+            appliedExtras["video_output_group"] = videoOutputGroupName
+        }
+        if let embeddingGroupName = resolved.embeddingGroupName {
+            appliedExtras["embedding_group"] = embeddingGroupName
         }
         if let openAI = provider as? OpenAIProvider {
             if let data = inputJSON.data(using: .utf8),
@@ -1030,7 +1086,11 @@ private let logger = AppLogger(category: "ModelUseOffload")
         /// lives on the explicit init's parameter instead, so existing
         /// construction sites keep compiling unchanged.
         let judgeGroupName: String?
-        /// Q4 note: set when the configured Image Output group could not
+        /// Name of the Video Output group the entry was resolved from, if any.
+        let videoOutputGroupName: String?
+        /// Name of the Embedding group the entry was resolved from, if any.
+        let embeddingGroupName: String?
+        /// Q4 note: set when the configured group could not
         /// serve the run and the Agent Loop pool was used instead. The
         /// caller must surface this first in the result — never silently
         /// substitute.
@@ -1041,10 +1101,12 @@ private let logger = AppLogger(category: "ModelUseOffload")
         /// 41028687471: "extra argument 'judgeGroupName' in call" at the
         /// three judge construction sites), so spell the initializer out
         /// instead of relying on synthesis. No behavior change.
-        init(entry: ModelEntry, imageOutputGroupName: String?, judgeGroupName: String? = nil, fallbackNote: String?) {
+        init(entry: ModelEntry, imageOutputGroupName: String?, judgeGroupName: String? = nil, videoOutputGroupName: String? = nil, embeddingGroupName: String? = nil, fallbackNote: String?) {
             self.entry = entry
             self.imageOutputGroupName = imageOutputGroupName
             self.judgeGroupName = judgeGroupName
+            self.videoOutputGroupName = videoOutputGroupName
+            self.embeddingGroupName = embeddingGroupName
             self.fallbackNote = fallbackNote
         }
     }
@@ -1056,6 +1118,8 @@ private let logger = AppLogger(category: "ModelUseOffload")
     private enum ResolutionSlot {
         case imageOutput
         case judge
+        case videoOutput
+        case embedding
     }
 
     @MainActor
@@ -1163,6 +1227,92 @@ private let logger = AppLogger(category: "ModelUseOffload")
                     throw ModelUseError.modelNotFound(
                         "No model was given and no Judge group is configured. "
                         + "Pass a model explicitly, or configure a Judge group in Settings > Model Groups.")
+                }
+            case .videoOutput:
+                switch VideoGroupResolver.resolve(
+                    sessionId: ISHExecutionCoordinator.mountedSessionIdSnapshot ?? "") {
+                case .resolved(let slotEntry, let groupName):
+                    return ResolvedModelEntry(entry: slotEntry, imageOutputGroupName: nil, videoOutputGroupName: groupName, fallbackNote: nil)
+                case .unroutable(let groupName, let reason):
+                    if let first = agentEntries.first {
+                        let note = "Video Output group '\(groupName)' is configured but unusable (\(reason)). "
+                            + "Falling back to the Agent Loop pool model '\(first.model.displayName)' instead. "
+                            + "Pass --model explicitly or fix the group to use the configured video model."
+                        return ResolvedModelEntry(entry: first, imageOutputGroupName: nil, videoOutputGroupName: nil, fallbackNote: note)
+                    }
+                    throw ModelUseError.modelNotFound(
+                        "Video Output group '\(groupName)' is configured but unusable (\(reason)), "
+                        + "and no Agent Loop model is available. \(Self.noModelsHint)")
+                case .unset:
+                    // [T-wire-remaining-slots] Same honest split as image:
+                    // this path runs in the minis-model-use offload, which
+                    // cannot present the ask card itself. It enumerates
+                    // video-capable models from the user's configured APIs
+                    // and fails with the candidates + an instruction
+                    // instead of running: the dialog AI asks the user via
+                    // ask_user which one may be used, then re-runs with
+                    // --model. No run happens without the user's approval.
+                    let candidates = Self.discoverCandidates(required: [.videoOutput], limit: 3)
+                    guard !candidates.isEmpty else {
+                        throw ModelUseError.modelNotFound(
+                            "No --model was given and no Video Output group is configured, "
+                            + "and no video-capable model was found in your configured APIs. "
+                            + "Pass --model <id>, or configure a Video Output group in Settings > Model Groups.")
+                    }
+                    let listed = candidates.map { entry in
+                        let label = store.instance(for: entry.providerInstanceId)?.label ?? ""
+                        return label.isEmpty
+                            ? "\(entry.model.displayName) (\(entry.model.id))"
+                            : "\(entry.model.displayName) (\(label)/\(entry.model.id))"
+                    }.joined(separator: ", ")
+                    throw ModelUseError.modelNotFound(
+                        "No --model was given and no Video Output group is configured. "
+                        + "Video-capable models found in your configured APIs: \(listed). "
+                        + "Ask the user with ask_user which of these models may be used for video generation, "
+                        + "then re-run with --model <approved model id>. Do not run without the user's approval.")
+                }
+            case .embedding:
+                switch EmbeddingGroupResolver.resolve(
+                    sessionId: ISHExecutionCoordinator.mountedSessionIdSnapshot ?? "") {
+                case .resolved(let slotEntry, let groupName):
+                    return ResolvedModelEntry(entry: slotEntry, imageOutputGroupName: nil, embeddingGroupName: groupName, fallbackNote: nil)
+                case .unroutable(let groupName, let reason):
+                    if let first = agentEntries.first {
+                        let note = "Embedding group '\(groupName)' is configured but unusable (\(reason)). "
+                            + "Falling back to the Agent Loop pool model '\(first.model.displayName)' instead. "
+                            + "Pass --model explicitly or fix the group to use the configured embedding model."
+                        return ResolvedModelEntry(entry: first, imageOutputGroupName: nil, embeddingGroupName: nil, fallbackNote: note)
+                    }
+                    throw ModelUseError.modelNotFound(
+                        "Embedding group '\(groupName)' is configured but unusable (\(reason)), "
+                        + "and no Agent Loop model is available. \(Self.noModelsHint)")
+                case .unset:
+                    // [T-wire-remaining-slots] Same honest split as image.
+                    // No embedding modality bit exists, so discovery is by
+                    // model name: catalogs themselves mark embedding models
+                    // by name (OpenAI "-embedding" suffix, models.dev
+                    // "embedding" family). No candidates usually means the
+                    // catalog hid them — the error says to configure the
+                    // group (hand-add the model if the catalog omits it).
+                    let candidates = Self.discoverEmbeddingCandidates(limit: 3)
+                    guard !candidates.isEmpty else {
+                        throw ModelUseError.modelNotFound(
+                            "No --model was given and no Embedding group is configured, "
+                            + "and no embedding model was found in your configured APIs. "
+                            + "Pass --model <id>, or configure an Embedding group in Settings > Model Groups "
+                            + "(add the model as a custom model if the catalog does not list it).")
+                    }
+                    let listed = candidates.map { entry in
+                        let label = store.instance(for: entry.providerInstanceId)?.label ?? ""
+                        return label.isEmpty
+                            ? "\(entry.model.displayName) (\(entry.model.id))"
+                            : "\(entry.model.displayName) (\(label)/\(entry.model.id))"
+                    }.joined(separator: ", ")
+                    throw ModelUseError.modelNotFound(
+                        "No --model was given and no Embedding group is configured. "
+                        + "Embedding models found in your configured APIs: \(listed). "
+                        + "Ask the user with ask_user which of these models may be used for embeddings, "
+                        + "then re-run with --model <approved model id>. Do not run without the user's approval.")
                 }
             }
         }
@@ -1742,7 +1892,9 @@ private let logger = AppLogger(category: "ModelUseOffload")
         maxTokens: Int,
         outputHostPath: String?,
         fallbackNote: String? = nil,
-        imageOutputGroupName: String? = nil
+        imageOutputGroupName: String? = nil,
+        videoOutputGroupName: String? = nil,
+        embeddingGroupName: String? = nil
     ) async throws -> [String: Any] {
         // Baseline body for merge mode: the standard OpenAI-shape conversion
         // of the input (messages + system + max_tokens), so callers add ONLY
@@ -1828,9 +1980,14 @@ private let logger = AppLogger(category: "ModelUseOffload")
             out["warnings"] = warnings
         }
         // [T-wire-image-output] Attribution: the serving Image Output group
-        // rides applied_extras, same as the standard path.
-        if let imageOutputGroupName {
-            out["applied_extras"] = ["image_output_group": imageOutputGroupName]
+        // rides applied_extras, same as the standard path. Video and
+        // Embedding groups ride the same way when they served the run.
+        var groupExtras: [String: String] = [:]
+        if let imageOutputGroupName { groupExtras["image_output_group"] = imageOutputGroupName }
+        if let videoOutputGroupName { groupExtras["video_output_group"] = videoOutputGroupName }
+        if let embeddingGroupName { groupExtras["embedding_group"] = embeddingGroupName }
+        if !groupExtras.isEmpty {
+            out["applied_extras"] = groupExtras
         }
         // [T-log-noise-privacy 2026-07-18] Strip the query/fragment before
         // logging: custom passthrough endpoints can carry credentials in the

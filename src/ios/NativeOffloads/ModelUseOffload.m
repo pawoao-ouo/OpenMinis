@@ -33,9 +33,8 @@ static NSString *const HELP_TEXT =
      "\n"
      "RUN OPTIONS:\n"
      "  --model <id_or_name>           Model id, display name, or entry_id.\n"
-     "                                 Optional when generating images: omitted,\n"
-     "                                 the run uses the configured Image Output\n"
-     "                                 model group (Settings > Model Groups).\n"
+     "                                 Optional: omitted, the run uses the model\n"
+     "                                 group for --slot (Settings > Model Groups).\n"
      "                                 Use qualified `<instance_label>/<model_id>`\n"
      "                                 (e.g. `deepseek/deepseek-v4-flash`) to\n"
      "                                 disambiguate when the same model_id is\n"
@@ -45,6 +44,10 @@ static NSString *const HELP_TEXT =
      "                                 instance. Matches `instance_label` (case-insensitive)\n"
      "                                 or instance UUID. Alternative to the qualified\n"
      "                                 `<label>/<model_id>` form when --model id is ambiguous.\n"
+     "  --slot <kind>                  Which model group an unnamed run resolves\n"
+     "                                 through: image (default) | video | embedding.\n"
+     "                                 Only matters when --model is omitted; an\n"
+     "                                 explicit --model always wins.\n"
      "  --input <path>                 Path to input JSON file (OpenAI messages format)\n"
      "  --prompt <text>                Inline user-message text. Mutually exclusive with --input.\n"
      "  --prompt-file <path>           Read user-message text from file (plain text, not JSON).\n"
@@ -247,14 +250,19 @@ static int cmd_run(int argc, char **argv, int stdin_fd, int stdout_fd, int stder
     NSString *modelIdOrName = noff_find_arg(argc, argv, "--model");
     if (!modelIdOrName) {
         // [T-wire-image-output] --model is optional: without it, the Swift
-        // bridge resolves the run from the configured Image Output model
-        // group, falling back to the Agent Loop pool with a flagged note
-        // when the group cannot serve. An empty name is the sentinel.
+        // bridge resolves the run from the configured model group for
+        // --slot (default image = Image Output group), falling back to
+        // the Agent Loop pool with a flagged note when the group cannot
+        // serve. An empty name is the sentinel.
         modelIdOrName = @"";
     }
 
     // Optional provider scoping — disambiguates when multiple instances expose the same model_id.
     NSString *providerFilter = noff_find_arg(argc, argv, "--provider");
+
+    // [T-wire-remaining-slots] Which group an unnamed run resolves
+    // through (image/video/embedding); nil = Swift default (image).
+    NSString *slotName = noff_find_arg(argc, argv, "--slot");
 
     // Read messages from --input file, --prompt/--prompt-file inline text, or stdin
     NSString *inputPath = noff_find_arg(argc, argv, "--input");
@@ -486,6 +494,7 @@ static int cmd_run(int argc, char **argv, int stdin_fd, int stdout_fd, int stder
                                        temperature:temperature
                                     outputHostPath:outputHostPath
                                           streamFd:stdout_fd
+                                         slotName:slotName
                                         completion:^(NSDictionary *data, NSString *error) {
             result = data;
             errorMsg = error;
@@ -500,6 +509,7 @@ static int cmd_run(int argc, char **argv, int stdin_fd, int stdout_fd, int stder
                                        temperature:temperature
                                     outputHostPath:outputHostPath
                                           streamFd:-1
+                                         slotName:slotName
                                         completion:^(NSDictionary *data, NSString *error) {
             result = data;
             errorMsg = error;
