@@ -4,6 +4,7 @@ import Combine
 import CoreLocation
 import Foundation
 import SwiftUI
+import UIKit
 import UserNotifications
 import os.log
 
@@ -26,6 +27,13 @@ private let logger = AppLogger(category: "BackgroundKeepAlive")
 /// of a collapsed banner is chosen by the system from the main app icon
 /// and cannot be replaced by a persona avatar in code. The persona avatar
 /// appears in the expanded notification through the attachment below.
+/// Fallback, also stated honestly: when the current persona has no
+/// avatar file, or that file is missing, the attachment falls back to
+/// a real bundled image — the main app icon file already shipped in
+/// the bundle (AlternateIcons/AppIcon-Primary.png, byte-identical to
+/// the main app icon) — never an emoji and never a generated
+/// placeholder. If neither that file nor the asset-catalog app icon
+/// is available at runtime, there is simply no attachment.
 enum NotificationPersonaPresentation {
     static var currentName: String {
         if let persona = currentPersona(),
@@ -36,19 +44,43 @@ enum NotificationPersonaPresentation {
     }
 
     static var currentAvatarAttachment: UNNotificationAttachment? {
-        guard let ref = currentPersona()?.avatar?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !ref.isEmpty, SoulIconImage.isImageReference(ref) else { return nil }
-        if let url = SoulIconImage.fileURL(forReference: ref),
-           FileManager.default.fileExists(atPath: url.path) {
-            return try? UNNotificationAttachment(identifier: "persona-avatar", url: url)
+        if let ref = currentPersona()?.avatar?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ref.isEmpty, SoulIconImage.isImageReference(ref) {
+            if let url = SoulIconImage.fileURL(forReference: ref),
+               FileManager.default.fileExists(atPath: url.path) {
+                return try? UNNotificationAttachment(identifier: "persona-avatar", url: url)
+            }
+            // Legacy inline data URI: persist it so the attachment
+            // survives scheduling (the system copies the file when the
+            // request is added). Unique filename per notification:
+            // a fixed temp name let two quick notifications overwrite
+            // each other before the system copied the first file.
+            if let data = SoulIconImage.pngData(from: ref) {
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("persona-avatar-\(UUID().uuidString).png")
+                do { try data.write(to: url, options: .atomic) } catch { return fallbackAttachment() }
+                return try? UNNotificationAttachment(identifier: "persona-avatar", url: url)
+            }
         }
-        // Legacy inline data URI: persist it once so the attachment
-        // survives scheduling (the system copies the file when the
-        // request is added).
-        guard let data = SoulIconImage.pngData(from: ref) else { return nil }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("persona-avatar.png")
+        return fallbackAttachment()
+    }
+
+    /// Bundled default image for a persona with no avatar, or a missing
+    /// avatar file. First the main app icon file shipped as a folder
+    /// reference in the bundle; failing that, the asset-catalog app
+    /// icon rendered to a unique temp file. Returns nil — honestly,
+    /// no attachment — only if neither is available at runtime.
+    private static func fallbackAttachment() -> UNNotificationAttachment? {
+        if let url = Bundle.main.url(forResource: "AppIcon-Primary", withExtension: "png", subdirectory: "AlternateIcons"),
+           FileManager.default.fileExists(atPath: url.path) {
+            return try? UNNotificationAttachment(identifier: "persona-avatar-fallback", url: url)
+        }
+        guard let image = UIImage(named: "AppIcon") ?? UIImage(named: "AppIcon60x60"),
+              let data = image.pngData() else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("app-icon-fallback-\(UUID().uuidString).png")
         do { try data.write(to: url, options: .atomic) } catch { return nil }
-        return try? UNNotificationAttachment(identifier: "persona-avatar", url: url)
+        return try? UNNotificationAttachment(identifier: "persona-avatar-fallback", url: url)
     }
 
     static func apply(to content: UNMutableNotificationContent, subtitle: String) {
