@@ -369,7 +369,9 @@ enum ShortcutNotification {
         NotificationCategoryRegistry.register(category)
 
         let content = UNMutableNotificationContent()
-        content.title = title
+        // Unified batch-1 format: title = current persona name, subtitle =
+        // the caller-supplied headline verbatim, body = body verbatim.
+        NotificationPersonaPresentation.apply(to: content, subtitle: title)
         content.body = body
         content.sound = .default
         content.categoryIdentifier = categoryId

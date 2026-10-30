@@ -189,7 +189,11 @@ final class ScheduledPromptStore: ObservableObject {
 
     private func buildContent(_ prompt: ScheduledPrompt) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        content.title = prompt.title.isEmpty ? AppLocalized("Scheduled prompt") : prompt.title
+        // Unified batch-1 format: title = current persona name, subtitle =
+        // the user-set prompt title (or the scheduled-prompt label when
+        // empty), body = prompt text verbatim.
+        let subtitle = prompt.title.isEmpty ? AppLocalized("Scheduled prompt") : prompt.title
+        NotificationPersonaPresentation.apply(to: content, subtitle: subtitle)
         content.body = prompt.prompt.isEmpty
             ? AppLocalized("Tap to wake the agent with this prompt.")
             : prompt.prompt
