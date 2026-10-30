@@ -63,6 +63,10 @@ struct ProviderConfig: Codable, Equatable {
     var embeddingGroupId: String?
     /// 打分/评判模型（如 Jev 这类）。
     var judgeGroupId: String?
+    /// [T-model-groups-slots] 定时小帮手分组：定时任务新开会话时用的模型分组。
+    /// nil = 跟随主分组（Q2：界面上永远显示“跟随主分组”，不留空白）。
+    /// 语义与上面各指针一致：指向普通 ModelGroup，nil = 没单独指定。
+    var scheduledHelperGroupId: String?
     /// Per-session inference settings (thinking toggle, etc.).
     var sessionInferenceConfigs: [String: SessionInferenceConfig]
     /// Soft-delete tombstones. Required to make deletes survive
@@ -81,7 +85,7 @@ struct ProviderConfig: Codable, Equatable {
          visionGroupId: String? = nil,
          imageOutputGroupId: String? = nil, videoOutputGroupId: String? = nil,
          realtimeVoiceGroupId: String? = nil, embeddingGroupId: String? = nil,
-         judgeGroupId: String? = nil,
+         judgeGroupId: String? = nil, scheduledHelperGroupId: String? = nil,
          sessionInferenceConfigs: [String: SessionInferenceConfig] = [:],
          deletedInstances: [ProviderConfigTombstone] = [],
          deletedModelEntries: [ProviderConfigTombstone] = [],
@@ -102,6 +106,7 @@ struct ProviderConfig: Codable, Equatable {
         self.realtimeVoiceGroupId = realtimeVoiceGroupId
         self.embeddingGroupId = embeddingGroupId
         self.judgeGroupId = judgeGroupId
+        self.scheduledHelperGroupId = scheduledHelperGroupId
         self.sessionInferenceConfigs = sessionInferenceConfigs
         self.deletedInstances = deletedInstances
         self.deletedModelEntries = deletedModelEntries
@@ -132,6 +137,7 @@ struct ProviderConfig: Codable, Equatable {
         realtimeVoiceGroupId = try container.decodeIfPresent(String.self, forKey: .realtimeVoiceGroupId)
         embeddingGroupId = try container.decodeIfPresent(String.self, forKey: .embeddingGroupId)
         judgeGroupId = try container.decodeIfPresent(String.self, forKey: .judgeGroupId)
+        scheduledHelperGroupId = try container.decodeIfPresent(String.self, forKey: .scheduledHelperGroupId)
         sessionInferenceConfigs = try container.decodeIfPresent([String: SessionInferenceConfig].self, forKey: .sessionInferenceConfigs) ?? [:]
         deletedInstances = try container.decodeIfPresent([ProviderConfigTombstone].self, forKey: .deletedInstances) ?? []
         deletedModelEntries = try container.decodeIfPresent([ProviderConfigTombstone].self, forKey: .deletedModelEntries) ?? []
@@ -143,7 +149,7 @@ struct ProviderConfig: Codable, Equatable {
         case sessionBindings, agentLoopModelEntryIds, agentLoopGroupIds, sessionInferenceConfigs
         case voiceInputGroupId, voiceOutputGroupId, visionGroupId
         case imageOutputGroupId, videoOutputGroupId, realtimeVoiceGroupId
-        case embeddingGroupId, judgeGroupId
+        case embeddingGroupId, judgeGroupId, scheduledHelperGroupId
         case deletedInstances, deletedModelEntries, deletedModelGroups
     }
 
@@ -631,6 +637,18 @@ final class ProviderConfigStore: ObservableObject {
             if let def = config.defaultSubGroupId, emptyGroupIds.contains(def) {
                 config.defaultSubGroupId = nil
             }
+            // [T-model-groups-slots] 其余分组指针同样不能留 dangling id：被删的
+            // 空组曾是某个用途的指向时，该用途回到没配的状态（定时小帮手回到
+            // 跟随主分组），而不是指着一个不存在的组。
+            if let p = config.voiceInputGroupId, emptyGroupIds.contains(p) { config.voiceInputGroupId = nil }
+            if let p = config.voiceOutputGroupId, emptyGroupIds.contains(p) { config.voiceOutputGroupId = nil }
+            if let p = config.visionGroupId, emptyGroupIds.contains(p) { config.visionGroupId = nil }
+            if let p = config.imageOutputGroupId, emptyGroupIds.contains(p) { config.imageOutputGroupId = nil }
+            if let p = config.videoOutputGroupId, emptyGroupIds.contains(p) { config.videoOutputGroupId = nil }
+            if let p = config.realtimeVoiceGroupId, emptyGroupIds.contains(p) { config.realtimeVoiceGroupId = nil }
+            if let p = config.embeddingGroupId, emptyGroupIds.contains(p) { config.embeddingGroupId = nil }
+            if let p = config.judgeGroupId, emptyGroupIds.contains(p) { config.judgeGroupId = nil }
+            if let p = config.scheduledHelperGroupId, emptyGroupIds.contains(p) { config.scheduledHelperGroupId = nil }
         }
         // Restore default group pointer if lost (e.g. missing key in JSON) but groups exist.
         if config.defaultPrimaryGroupId == nil, let firstGroup = config.modelGroups.first {
@@ -1092,6 +1110,12 @@ final class ProviderConfigStore: ObservableObject {
             if let p = config.voiceInputGroupId, removedGroupIds.contains(p) { config.voiceInputGroupId = nil }
             if let p = config.voiceOutputGroupId, removedGroupIds.contains(p) { config.voiceOutputGroupId = nil }
             if let p = config.visionGroupId, removedGroupIds.contains(p) { config.visionGroupId = nil }
+            if let p = config.imageOutputGroupId, removedGroupIds.contains(p) { config.imageOutputGroupId = nil }
+            if let p = config.videoOutputGroupId, removedGroupIds.contains(p) { config.videoOutputGroupId = nil }
+            if let p = config.realtimeVoiceGroupId, removedGroupIds.contains(p) { config.realtimeVoiceGroupId = nil }
+            if let p = config.embeddingGroupId, removedGroupIds.contains(p) { config.embeddingGroupId = nil }
+            if let p = config.judgeGroupId, removedGroupIds.contains(p) { config.judgeGroupId = nil }
+            if let p = config.scheduledHelperGroupId, removedGroupIds.contains(p) { config.scheduledHelperGroupId = nil }
             config.agentLoopGroupIds.removeAll { removedGroupIds.contains($0) }
         }
         // Remove from agent loop list
@@ -1933,6 +1957,14 @@ final class ProviderConfigStore: ObservableObject {
         if config.visionGroupId == groupId { config.visionGroupId = nil }
         if config.voiceInputGroupId == groupId { config.voiceInputGroupId = nil }
         if config.voiceOutputGroupId == groupId { config.voiceOutputGroupId = nil }
+        // [T-model-groups-slots] Q5 存储修复的一部分：删组必须清掉全部六个
+        // 用途指针，否则界面上“选了组却没生效”（dangling id）。
+        if config.imageOutputGroupId == groupId { config.imageOutputGroupId = nil }
+        if config.videoOutputGroupId == groupId { config.videoOutputGroupId = nil }
+        if config.realtimeVoiceGroupId == groupId { config.realtimeVoiceGroupId = nil }
+        if config.embeddingGroupId == groupId { config.embeddingGroupId = nil }
+        if config.judgeGroupId == groupId { config.judgeGroupId = nil }
+        if config.scheduledHelperGroupId == groupId { config.scheduledHelperGroupId = nil }
         config.agentLoopGroupIds.removeAll { $0 == groupId }
         Self.recordTombstone(in: &config.deletedModelGroups, ids: [groupId])
         save()
@@ -2039,6 +2071,12 @@ final class ProviderConfigStore: ObservableObject {
     var judgeGroupId: String? {
         get { config.judgeGroupId }
         set { config.judgeGroupId = newValue; save() }
+    }
+
+    /// [T-model-groups-slots] 定时小帮手分组指针。nil = 跟随主分组（Q2）。
+    var scheduledHelperGroupId: String? {
+        get { config.scheduledHelperGroupId }
+        set { config.scheduledHelperGroupId = newValue; save() }
     }
 
     /// Ensure a default Voice INPUT group exists and is bound when the user hasn't

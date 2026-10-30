@@ -931,6 +931,27 @@ actor ProviderConfigDB {
         if let v = config.visionGroupId {
             setLocalKVRow("visionGroupId", value: v)
         }
+        // [T-model-groups-slots] Q5 存储修复：下面六个指针以前只存在 JSON 里，
+        // V3 DB 是权威存储时 reloadFromDisk 经 dumpProviderConfig 重载会全部
+        // 丢掉（重启就回到没配）。与上面五个指针同写同读，nil = 不写行。
+        if let v = config.imageOutputGroupId {
+            setLocalKVRow("imageOutputGroupId", value: v)
+        }
+        if let v = config.videoOutputGroupId {
+            setLocalKVRow("videoOutputGroupId", value: v)
+        }
+        if let v = config.realtimeVoiceGroupId {
+            setLocalKVRow("realtimeVoiceGroupId", value: v)
+        }
+        if let v = config.embeddingGroupId {
+            setLocalKVRow("embeddingGroupId", value: v)
+        }
+        if let v = config.judgeGroupId {
+            setLocalKVRow("judgeGroupId", value: v)
+        }
+        if let v = config.scheduledHelperGroupId {
+            setLocalKVRow("scheduledHelperGroupId", value: v)
+        }
         // Restore the local-only legacy uuid map captured before the wipe.
         if let existingLegacyUuidMap {
             setLocalKVRow("legacyUuidMap", value: existingLegacyUuidMap)
@@ -1138,6 +1159,14 @@ actor ProviderConfigDB {
         let voiceInputGroup = localKV("voiceInputGroupId")
         let voiceOutputGroup = localKV("voiceOutputGroupId")
         let visionGroup = localKV("visionGroupId")
+        // [T-model-groups-slots] 与 bulkReplace 的写侧对应：读回全部六个指针，
+        // 否则 V3 重载后选择丢失（Q5）。
+        let imageOutputGroup = localKV("imageOutputGroupId")
+        let videoOutputGroup = localKV("videoOutputGroupId")
+        let realtimeVoiceGroup = localKV("realtimeVoiceGroupId")
+        let embeddingGroup = localKV("embeddingGroupId")
+        let judgeGroup = localKV("judgeGroupId")
+        let scheduledHelperGroup = localKV("scheduledHelperGroupId")
 
         return ProviderConfig(
             instances: instances,
@@ -1151,6 +1180,12 @@ actor ProviderConfigDB {
             voiceInputGroupId: voiceInputGroup,
             voiceOutputGroupId: voiceOutputGroup,
             visionGroupId: visionGroup,
+            imageOutputGroupId: imageOutputGroup,
+            videoOutputGroupId: videoOutputGroup,
+            realtimeVoiceGroupId: realtimeVoiceGroup,
+            embeddingGroupId: embeddingGroup,
+            judgeGroupId: judgeGroup,
+            scheduledHelperGroupId: scheduledHelperGroup,
             sessionInferenceConfigs: inferCfgs
         )
     }
