@@ -1032,7 +1032,16 @@ extension AIChatViewModel {
             job.task?.cancel()
             job.task = nil
             registry.finish(job.id, state: state, result: text)
-            let result = text.isEmpty ? Self.emptyResultNote(status: state.rawValue) : text
+            // [T-model-groups-slots] Q4/Q7: finish() prepends the
+            // plain-words note to job.resultText; prefer the stored text so
+            // the wait-mode return carries the note at the top too.
+            let storedResult = job.resultText
+            let result: String
+            if let storedResult, !storedResult.isEmpty {
+                result = storedResult
+            } else {
+                result = text.isEmpty ? Self.emptyResultNote(status: state.rawValue) : text
+            }
             let json = Self.delegateJSON([
                 "ok": !text.isEmpty,
                 "status": state.rawValue,

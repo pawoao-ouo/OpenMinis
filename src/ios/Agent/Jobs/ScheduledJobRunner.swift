@@ -218,12 +218,20 @@ enum ScheduledJobRunner {
 
         switch job.target {
         case .new:
-            guard let entry = resolveModel(for: job) else {
+            guard let choice = resolveModel(for: job) else {
                 logger.warning("[Sched] fire \(job.id.prefix(8)): no model to run on")
                 registry.recordFire(job.id, sessionId: nil, ok: false,
                                     preview: AppLocalized("没跑成：这个任务没有可用的模型，去设置里给它指定一个。"))
                 return nil
             }
+            let entry = choice.entry
+            // [T-model-groups-slots] Q4: record the flag + identity on the
+            // job, so finish() can put the plain-words fallback note at the
+            // top of the result and any completion callback built from this
+            // job carries the flag. A logger warning alone is invisible to
+            // the user.
+            job.modelIdentity = Self.scheduledIdentity(for: choice)
+            job.modelOrigin = choice.origin?.rawValue
             let session = await ChatStore.shared.createSession(modelId: entry.model.id,
                                                                title: job.label.map { "Scheduled · \($0)" },
                                                                source: sourceTag)
@@ -544,26 +552,81 @@ enum ScheduledJobRunner {
         logger.info("[Sched] \(job.id.prefix(8)) thinking=\(level.rawValue) on \(sessionId.prefix(8))")
     }
 
-    private static func resolveModel(for job: AgentJob) -> ModelEntry? {
+    /// What a `.new` scheduled session runs on, plus whether the preselected
+    /// scheduled-helper group failed (Q4). The sub agent resolver is
+    /// bypassed here by design (no definition, no parent choice) — but the
+    /// failure must still be RECORDED (flag + identity on the job) so
+    /// finish() can put the plain-words note at the top of the result,
+    /// exactly like the delegated path. A warning log alone is invisible
+    /// to the user.
+    private struct ScheduledModelChoice {
+        let entry: ModelEntry
+        /// The scheduled-helper pointer named a group that could not be
+        /// routed, so a fallback entry runs instead.
+        let groupUnavailable: Bool
+        /// Name of the group that supplied the entry — or, on fallback, of
+        /// the preselected group that failed. Mirrors what
+        /// HelperModelIdentity.make records as modelGroupName.
+        let groupName: String?
+        /// Which group actually supplied the entry, for modelOrigin. nil
+        /// for a per-job --model override or an Agent Loop fallback entry,
+        /// neither of which names a group.
+        let origin: HelperModelOrigin?
+    }
+
+    /// Identity record for a `.new` fire, built the same way
+    /// HelperModelIdentity.make builds one from a resolver resolution:
+    /// resolved entry + provider, group name, origin, and the Q4 flag.
+    private static func scheduledIdentity(for choice: ScheduledModelChoice) -> HelperModelIdentity {
+        let entry = choice.entry
+        var id = HelperModelIdentity(modelOrigin: choice.origin?.rawValue)
+        id.modelGroupUnavailable = choice.groupUnavailable
+        id.modelGroupName = choice.groupName
+        id.resolvedEntryId = entry.id
+        id.resolvedModelId = entry.model.id
+        id.resolvedModelName = entry.model.displayName
         let store = ProviderConfigStore.shared
-        if let override = job.modelEntryId, let e = store.entry(for: override) { return e }
+        if let inst = store.instance(for: entry.providerInstanceId) {
+            id.resolvedProviderLabel = inst.label
+            id.resolvedProviderType = inst.providerType.rawValue
+        } else {
+            id.resolvedProviderType = entry.model.provider
+        }
+        return id
+    }
+
+    private static func resolveModel(for job: AgentJob) -> ScheduledModelChoice? {
+        let store = ProviderConfigStore.shared
+        if let override = job.modelEntryId, let e = store.entry(for: override) {
+            return ScheduledModelChoice(entry: e, groupUnavailable: false, groupName: nil, origin: nil)
+        }
         // [T-model-groups-slots] Q2: the scheduled-helper slot sits between
         // the per-job --model override and the primary group. Unset = follow
-        // the primary group (today's behavior). A set but unroutable pointer
-        // falls through to the primary group and logs — the job must still
-        // fire; the preselection-failure note in the result is follow-up work
-        // in the completion-payload builder (Q4), which lives outside this
-        // file's scope.
+        // the primary group (today's behavior).
         if let gid = store.scheduledHelperGroupId, let group = store.group(for: gid),
            let id = ModelGroupRouter.resolve(group: group, sessionId: job.id, store: store),
-           let e = store.entry(for: id) { return e }
+           let e = store.entry(for: id) {
+            return ScheduledModelChoice(entry: e, groupUnavailable: false, groupName: group.name, origin: .scheduledHelper)
+        }
+        // Reaching here with a pointer set means the preselected group
+        // could not be routed (missing group, or no routable member). The
+        // job must still fire; the fallback is flagged so the result says
+        // so (Q4) instead of silently running on another model.
+        let failedGroupName = store.scheduledHelperGroupId.flatMap { store.group(for: $0)?.name }
+        let helperFailed = store.scheduledHelperGroupId != nil
         if store.scheduledHelperGroupId != nil {
             logger.warning("[Sched] scheduled-helper group \\(store.scheduledHelperGroupId!.prefix(8)) has no routable member — falling back to the primary group")
         }
         if let gid = store.defaultPrimaryGroupId, let group = store.group(for: gid),
            let id = ModelGroupRouter.resolve(group: group, sessionId: job.id, store: store),
-           let e = store.entry(for: id) { return e }
-        return store.resolvedAgentLoopEntries.first
+           let e = store.entry(for: id) {
+            return ScheduledModelChoice(entry: e, groupUnavailable: helperFailed,
+                                        groupName: helperFailed ? failedGroupName : group.name,
+                                        origin: .defaultGroup)
+        }
+        guard let e = store.resolvedAgentLoopEntries.first else { return nil }
+        return ScheduledModelChoice(entry: e, groupUnavailable: helperFailed,
+                                    groupName: failedGroupName, origin: nil)
     }
 
     /// Sleep until `date`. Returns false when cancelled.

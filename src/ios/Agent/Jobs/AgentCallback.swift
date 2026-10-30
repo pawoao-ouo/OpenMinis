@@ -110,11 +110,16 @@ struct AgentCallback: Equatable {
     }
 
     /// The attribute subset of the identity payload carried on the tag.
+    /// [T-model-groups-slots] Q4: `model_group_unavailable` rides along so
+    /// a callback built from a job whose preselected group failed still
+    /// says so after a reload — the note itself is written into the result
+    /// text by finish(), the flag is what survives on the envelope.
     static let identityAttrs: [String] = [
         "tier_requested", "model_resolved", "model_resolved_entry_id", "model_resolved_provider",
         "model_resolved_id", "model_resolved_name",
         "model_effective", "model_effective_entry_id", "model_effective_provider",
         "model_effective_id", "model_effective_name", "model_effective_source", "model_response",
+        "model_group_unavailable",
     ]
 
     // MARK: Detection
@@ -161,6 +166,10 @@ struct AgentCallback: Equatable {
             let payload = id.payload()
             for key in Self.identityAttrs {
                 if let v = payload[key] as? String, !v.isEmpty { attrs.append((key, v)) }
+                // The unavailable flag is a Bool in the payload (emitted
+                // only when true); serialise it as "true" so parse() —
+                // which reads it back through the String branch — recovers it.
+                else if let b = payload[key] as? Bool, b { attrs.append((key, "true")) }
             }
         }
         let open = "<\(Self.tag) " + attrs.map { "\($0.0)=\"\(Self.escapeAttr($0.1))\"" }.joined(separator: " ") + ">"

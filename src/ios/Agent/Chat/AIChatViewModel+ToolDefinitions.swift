@@ -305,13 +305,13 @@ extension AIChatViewModel {
         if showModelChoice {
             subagentParams["model_choice"] = AgentToolParam(
                 type: .string,
-                description: "action=delegate only. Which model the sub agent runs on, as an INTENT — never name a specific model. same_as_me (default): this conversation's model. default_model: the user's default group. sub_model: the user's light/cheap group, for dirty work that does not need the strongest model. scheduled_helper: the user's scheduled-helper group (it follows the default group when unset). Only deviate from same_as_me when the task itself has a reason (e.g. cheap bulk work goes to sub_model). Your choice stays inside the group the user configured and never escapes it. If the chosen sub agent pins a model group in its definition, that group runs instead and your choice is ignored — the result reports model_origin=pinned, so do not re-delegate or retry over it.",
+                description: "action=delegate only. Which model the sub agent runs on, as an INTENT — never name a specific model. same_as_me (default): this conversation's model. default_model: the user's default group. sub_model: the user's light/cheap group, for dirty work that does not need the strongest model. scheduled_helper: the user's scheduled-helper group (it follows the default group when unset). Only deviate from same_as_me when the task itself has a reason (e.g. cheap bulk work goes to sub_model). Your choice stays inside the group the user configured and never escapes it. If the chosen sub agent pins a model group in its definition, that group runs instead and your choice is ignored — the result states this in plain words at the very top (Q7), so do not re-delegate or retry over it.",
                 enumValues: ["same_as_me", "default_model", "sub_model", "scheduled_helper"])
             subagentOrdering.insert("model_choice", at: 4)
         }
         tools.append(AgentToolDefinition(
             name: "subagent_task",
-            description: "Delegate a self-contained task to a sub agent — its own isolated context and tool loop, in a hidden child session running concurrently with you — and inspect, steer, stop or restart the ones you started. action defaults to 'delegate'. Available actions: delegate, status, steer, cancel, resume. If the chosen sub agent's definition pins a model group, that group runs and model_choice is ignored (Q7: the result says so via model_origin=pinned).",
+            description: "Delegate a self-contained task to a sub agent — its own isolated context and tool loop, in a hidden child session running concurrently with you — and inspect, steer, stop or restart the ones you started. action defaults to 'delegate'. Available actions: delegate, status, steer, cancel, resume. If the chosen sub agent's definition pins a model group, that group runs and model_choice is ignored (Q7: the result states this in plain words at the top).",
             parameters: subagentParams,
             required: ["tool_title"],
             propertyOrdering: subagentOrdering

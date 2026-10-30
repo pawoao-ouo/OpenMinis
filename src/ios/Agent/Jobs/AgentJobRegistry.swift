@@ -826,9 +826,19 @@ final class AgentJobRegistry: ObservableObject {
         // outcome passes through (completed / failed / cancelled).
         // PerfProbe.subAgentEnd(job: job.id, agent: job.subAgentName,
         //                       outcome: final.rawValue, started: job.startedAt)
+        // [T-model-groups-slots] Q4/Q7: the result the parent model and the
+        // user read must SAY, in plain words at the very top, when the model
+        // that ran is not the one the user preselected (Q4 fallback) or when
+        // a sub agent definition's pinned group overrode the delegating
+        // model's choice (Q7). The machine fields (model_origin /
+        // model_group_unavailable) are not user-readable sentences, so the
+        // note is prepended HERE — the single choke point every delivery
+        // path (wait-mode return, completion hook, follow-up callback)
+        // reads job.resultText from — rather than in each of them.
+        let deliveredResult = Self.resultWithModelNote(result, identity: job.modelIdentity)
         // [AUD-06] `cancelTask: !rearm` — a repeating job's task IS its
         // schedule and must outlive each single fire.
-        job.markFinished(final, result: result, cancelTask: !rearm)
+        job.markFinished(final, result: deliveredResult, cancelTask: !rearm)
         // [T-agent-model-identity] Last chance to read what the child really
         // ran on before the callback / completion hook serialise it.
         if let sid = runSid, let vm = ViewModelCache.shared.get(for: sid) {
@@ -1308,6 +1318,35 @@ final class AgentJobRegistry: ObservableObject {
         }
         guard !parts.isEmpty else { return nil }
         return "Other sub agents in this conversation: " + parts.joined(separator: ", ") + "."
+    }
+
+    /// [T-model-groups-slots] Q4/Q7: the plain-words note prepended to a
+    /// finished job's result text, so the fallback / pin override is stated
+    /// at the VERY TOP of the result instead of living only in the machine
+    /// fields. Q4 (preselected group unavailable): names the model that
+    /// actually ran. Q7 (a definition's pinned group routed): the user's
+    /// exact sentence, verbatim. No note for any other origin. A nil result
+    /// stays nil — a run that never started must not gain a fabricated
+    /// result; an empty result becomes the note alone so the fallback is
+    /// still visible instead of vanishing into the empty-result note.
+    static func resultWithModelNote(_ result: String?, identity: HelperModelIdentity?) -> String? {
+        guard let identity else { return result }
+        let note: String
+        if identity.modelGroupUnavailable {
+            if let label = identity.resolvedLabel, !label.isEmpty {
+                note = "预选的分组不可用，已改用「\(label)」运行。"
+            } else {
+                note = "预选的分组不可用，已改用其他模型运行。"
+            }
+        } else if identity.modelOrigin == HelperModelOrigin.pinned.rawValue {
+            note = "已按子代理定义指定的分组运行。"
+        } else {
+            return result
+        }
+        guard let result else { return nil }
+        if result.isEmpty { return note }
+        guard !result.hasPrefix(note) else { return result }
+        return note + "\n\n" + result
     }
 
     static func completionCallback(for job: AgentJob, result: String) -> AgentCallback {
