@@ -11,6 +11,64 @@ private let logger = AppLogger(category: "BackgroundKeepAlive")
 
 // MARK: - Background Keep Alive Manager
 
+// MARK: - Unified notification presentation (batch 1)
+/// Every local notification in batch 1 uses this one format:
+/// title = current persona name, subtitle = event headline,
+/// body = content verbatim, avatar = current persona avatar file as an
+/// attachment. Nothing here hardcodes a persona name: the name and avatar
+/// are read from personas.json at posting time (the same nonisolated
+/// pattern PersonaStore's own helpers use), so switching personas changes
+/// the next notification automatically. When no persona name exists, the
+/// generic assistant name already used elsewhere in the app is the
+/// fallback, never a blank title and never an emoji.
+///
+/// Collapsed-banner limit, stated honestly: the small icon on the left
+/// of a collapsed banner is chosen by the system from the main app icon
+/// and cannot be replaced by a persona avatar in code. The persona avatar
+/// appears in the expanded notification through the attachment below.
+enum NotificationPersonaPresentation {
+    static var currentName: String {
+        if let persona = currentPersona(),
+           !persona.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return persona.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return "嘟嘟"
+    }
+
+    static var currentAvatarAttachment: UNNotificationAttachment? {
+        guard let ref = currentPersona()?.avatar?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ref.isEmpty, SoulIconImage.isImageReference(ref) else { return nil }
+        if let url = SoulIconImage.fileURL(forReference: ref),
+           FileManager.default.fileExists(atPath: url.path) {
+            return try? UNNotificationAttachment(identifier: "persona-avatar", url: url)
+        }
+        // Legacy inline data URI: persist it once so the attachment
+        // survives scheduling (the system copies the file when the
+        // request is added).
+        guard let data = SoulIconImage.pngData(from: ref) else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("persona-avatar.png")
+        do { try data.write(to: url, options: .atomic) } catch { return nil }
+        return try? UNNotificationAttachment(identifier: "persona-avatar", url: url)
+    }
+
+    static func apply(to content: UNMutableNotificationContent, subtitle: String) {
+        content.title = currentName
+        content.subtitle = subtitle
+        if let attachment = currentAvatarAttachment {
+            content.attachments = [attachment]
+        }
+    }
+
+    private static func currentPersona() -> Persona? {
+        let id = PersonaStore.currentID()
+        let url = AIChatViewModel.minisConfigRoot.appendingPathComponent("personas.json")
+        guard let data = try? Data(contentsOf: url),
+              let list = try? JSONDecoder().decode([Persona].self, from: data) else { return nil }
+        return list.first(where: { $0.id == id && !$0.isUserProfile })
+            ?? list.first(where: { $0.id == PersonaStore.defaultPersonaID && !$0.isUserProfile })
+    }
+}
+
 @MainActor
 final class BackgroundKeepAliveManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     static let shared = BackgroundKeepAliveManager()
@@ -885,7 +943,8 @@ final class BackgroundKeepAliveManager: NSObject, ObservableObject, CLLocationMa
 
     /// Post a local notification when a background task completes.
     /// - Parameters:
-    ///   - sessionTitle: Session/conversation title (shown as notification title)
+    ///   - sessionTitle: Session/conversation title (shown in the notification
+    ///     subtitle, after the completed/failed state)
     ///   - responseSummary: Truncated assistant response text (shown as notification body)
     ///   - sessionId: The session ID for tap-to-open navigation
     ///   - isError: Whether the task ended with an error
@@ -930,19 +989,18 @@ final class BackgroundKeepAliveManager: NSObject, ObservableObject, CLLocationMa
         NotificationCategoryRegistry.register(category)
 
         let content = UNMutableNotificationContent()
+        let stateText = isError ? AppLocalized("Task failed") : AppLocalized("Task completed")
         if liveActivityPrivacyMode {
             // [T-ios-live-activity-privacy-mode] Neutral report only: no session
             // title, no reply summary. sessionId stays in userInfo below so the
             // tap-to-open jump keeps working, and the badge logic is untouched.
-            content.title = isError
-                ? AppLocalized("❌ Task failed")
-                : AppLocalized("✅ Task completed")
+            NotificationPersonaPresentation.apply(to: content, subtitle: stateText)
             content.body = Self.privacyNotificationBody(
                 isError: isError,
                 startedAt: AgentLiveActivityManager.shared.taskStartTime
             )
         } else {
-            content.title = "\(isError ? "❌" : "✅") \(sessionTitle)"
+            NotificationPersonaPresentation.apply(to: content, subtitle: "\(stateText): \(sessionTitle)")
             content.body = responseSummary
         }
         content.sound = .default
