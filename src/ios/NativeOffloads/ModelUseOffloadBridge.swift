@@ -417,10 +417,17 @@ private let logger = AppLogger(category: "ModelUseOffload")
                     + "'\(type(of: provider))' yet — only OpenAI-compatible "
                     + "providers. Use the standard OpenAI input format instead.")
             }
+            // [T-wire-image-output] Q4: the passthrough early return must
+            // carry the fallback note + attribution like every other return
+            // — resolveModelEntry already ran above, so thread both through
+            // instead of dropping them (previously this was the only
+            // unwrapped return in performRun).
             return try await Self.performRawPassthrough(
                 spec: ptSpec, entry: entry, openAI: openAI,
                 inputJSON: inputJSON, systemPrompt: systemPrompt,
-                maxTokens: maxTokens, outputHostPath: outputHostPath)
+                maxTokens: maxTokens, outputHostPath: outputHostPath,
+                fallbackNote: resolved.fallbackNote,
+                imageOutputGroupName: resolved.imageOutputGroupName)
         }
 
         // 2. Parse OpenAI-format messages and optional generation config
@@ -1554,12 +1561,19 @@ private let logger = AppLogger(category: "ModelUseOffload")
         inputJSON: String,
         systemPrompt: String?,
         maxTokens: Int,
-        outputHostPath: String?
+        outputHostPath: String?,
+        fallbackNote: String? = nil,
+        imageOutputGroupName: String? = nil
     ) async throws -> [String: Any] {
         // Baseline body for merge mode: the standard OpenAI-shape conversion
         // of the input (messages + system + max_tokens), so callers add ONLY
         // their provider-specific extras. replace mode: spec.body verbatim.
         var warnings = spec.warnings
+        // [T-wire-image-output] Q4: surface the slot fallback note FIRST,
+        // mirroring the standard path — never silently substitute.
+        if let fallbackNote {
+            warnings.insert(fallbackNote, at: 0)
+        }
         var bodyObject: [String: Any]?
         if spec.bodyMode == "replace" {
             bodyObject = spec.body.isEmpty ? nil : spec.body
@@ -1633,6 +1647,11 @@ private let logger = AppLogger(category: "ModelUseOffload")
         }
         if !warnings.isEmpty {
             out["warnings"] = warnings
+        }
+        // [T-wire-image-output] Attribution: the serving Image Output group
+        // rides applied_extras, same as the standard path.
+        if let imageOutputGroupName {
+            out["applied_extras"] = ["image_output_group": imageOutputGroupName]
         }
         // [T-log-noise-privacy 2026-07-18] Strip the query/fragment before
         // logging: custom passthrough endpoints can carry credentials in the
