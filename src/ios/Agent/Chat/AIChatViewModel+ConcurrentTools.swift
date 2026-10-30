@@ -1394,6 +1394,14 @@ extension AIChatViewModel {
             // resolves and formats. Throws (empty prompt aside, which is
             // answered inline) land in the outer catch and surface as
             // "Error: ..." like every other tool.
+            // [T-slot-discovery] Scenario 2: no Judge group + no explicit
+            // model. Unlike the image CLI path (a subprocess that cannot
+            // present a card), this handler runs in the agent loop with a
+            // live dialog, so it asks through the EXISTING ask mechanism
+            // (handleAskUser, the same card askModelGroupFallback uses) —
+            // no second card system. Live-dialog predicate reused from Q3
+            // verbatim: deferred raw present + app foreground. Otherwise
+            // no ask: Q4 fallback to the pool model, note first.
             let judgePrompt = (toolArgs["prompt"] as? String ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if judgePrompt.isEmpty {
@@ -1402,28 +1410,135 @@ extension AIChatViewModel {
             } else {
                 let modelArg = (toolArgs["model"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                let result = try await ModelUseOffloadBridge.runJudgePrompt(
-                    prompt: judgePrompt,
-                    modelName: (modelArg?.isEmpty == true ? nil : modelArg))
-                // Q4: the fallback note, when present, is the very first
-                // line of the result — the caller must see the substitution
-                // before anything else.
-                var lines: [String] = []
-                if let warnings = result["warnings"] as? [String], let note = warnings.first {
-                    lines.append(note)
+                let explicitModel = (modelArg?.isEmpty == true ? nil : modelArg)
+                var runModel = explicitModel
+                var discoveryApproved = false
+                var discoveryFallbackNote: String? = nil
+                var discoveryDeclined = false
+                if explicitModel == nil {
+                    switch JudgeGroupResolver.resolve(sessionId: sessionId ?? UUID().uuidString) {
+                    case .resolved, .unroutable:
+                        break // runJudgePrompt handles these exactly as before
+                    case .unset:
+                        let candidates = ModelUseOffloadBridge.discoverCandidates(
+                            required: [.textInput, .textOutput], limit: 3)
+                        if !candidates.isEmpty, let deferredAssistantRaw,
+                           UIApplication.shared.applicationState == .active {
+                            // Ask card: recommended first + decline = max 4
+                            // options (Q3 shape). Display names collide
+                            // across instances → disambiguate with the
+                            // instance label, so an answer can never pick
+                            // the wrong twin.
+                            let displayNames = candidates.map { $0.model.displayName }
+                            let options: [String] = {
+                                var opts: [String] = []
+                                for (idx, entry) in candidates.enumerated() {
+                                    var label = entry.model.displayName
+                                    if displayNames.filter({ $0 == label }).count > 1,
+                                       let instLabel = ProviderConfigStore.shared
+                                        .instance(for: entry.providerInstanceId)?.label,
+                                       !instLabel.isEmpty {
+                                        label += " (\(instLabel))"
+                                    }
+                                    opts.append(idx == 0 ? "推荐：\(label)" : label)
+                                }
+                                opts.append("这次不跑")
+                                return opts
+                            }()
+                            let questionsJSON: String = {
+                                let obj: [[String: Any]] = [[
+                                    "id": "judge_discovery_q",
+                                    "question": "没有设置打分模型分组，在你已配置的 API 里找到这几个能打分的模型，这次用哪个？",
+                                    "type": "single",
+                                    "options": options,
+                                ]]
+                                let data = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data()
+                                return String(data: data, encoding: .utf8) ?? "[]"
+                            }()
+                            let askResult = await handleAskUser(
+                                toolArgs: ["questions": questionsJSON, "tool_title": "选择打分模型"],
+                                toolId: tu.id,
+                                deferredAssistantRaw: deferredAssistantRaw,
+                                timeoutSeconds: 90)
+                            let answers = (try? JSONSerialization.jsonObject(
+                                with: Data(askResult.output.utf8)) as? [String: Any]) ?? [:]
+                            let pickedString: String? = {
+                                if let s = answers["judge_discovery_q"] as? String, !s.isEmpty { return s }
+                                if let arr = answers["judge_discovery_q"] as? [String] { return arr.first }
+                                return nil
+                            }()
+                            if !askResult.success || pickedString == nil
+                                || options.firstIndex(of: pickedString!) == nil {
+                                // Timeout, dismissed, skipped, or unrecognized:
+                                // Q4 fallback, same as Q3's .fallback.
+                                if let first = ProviderConfigStore.shared.resolvedAgentLoopEntries.first(where: {
+                                    ProviderConfigStore.shared.instance(for: $0.providerInstanceId)?.isEnabled == true
+                                }) {
+                                    runModel = first.model.id
+                                    discoveryFallbackNote = "No Judge group is configured and approval could not be obtained, "
+                                        + "so this run used the Agent Loop pool model '\(first.model.displayName)' instead. "
+                                        + "Configure a Judge group in Settings > Model Groups to use a chosen judge model."
+                                }
+                                // Pool empty → runModel stays nil: runJudgePrompt
+                                // throws today's plain error below.
+                            } else if options.firstIndex(of: pickedString!) == options.count - 1 {
+                                discoveryDeclined = true
+                            } else if let pickedIndex = options.firstIndex(of: pickedString!) {
+                                // User-approved: explicit wins from here on.
+                                runModel = candidates[pickedIndex].model.id
+                                discoveryApproved = true
+                            }
+                        } else if !candidates.isEmpty {
+                            // Not a live dialog: never ask into the void —
+                            // Q4 fallback to the pool model, note first.
+                            if let first = ProviderConfigStore.shared.resolvedAgentLoopEntries.first(where: {
+                                ProviderConfigStore.shared.instance(for: $0.providerInstanceId)?.isEnabled == true
+                            }) {
+                                runModel = first.model.id
+                                discoveryFallbackNote = "No Judge group is configured and this is not a live dialog, "
+                                    + "so no approval could be asked; this run used the Agent Loop pool model "
+                                    + "'\(first.model.displayName)' instead. "
+                                    + "Configure a Judge group in Settings > Model Groups to use a chosen judge model."
+                            }
+                            // Pool empty → runModel stays nil: runJudgePrompt
+                            // throws today's plain error below.
+                        }
+                        // Candidates empty → runModel stays nil: runJudgePrompt
+                        // throws today's plain "configure a Judge group" error.
+                    }
                 }
-                let judgedModelName = result["model_name"] as? String ?? ""
-                let judgedModelId = result["model_id"] as? String ?? ""
-                var attribution = "Judged by \(judgedModelName) (\(judgedModelId))"
-                if let extras = result["applied_extras"] as? [String: Any],
-                   let group = extras["judge_group"] as? String {
-                    attribution += " via Judge group '\(group)'"
+                if discoveryDeclined {
+                    toolOutput = "Not run: the user chose not to use a discovered judge model this time."
+                    toolSuccess = true
+                } else {
+                    let result = try await ModelUseOffloadBridge.runJudgePrompt(
+                        prompt: judgePrompt,
+                        modelName: runModel)
+                    // Q4: the fallback note, when present, is the very first
+                    // line of the result — the caller must see the substitution
+                    // before anything else.
+                    var lines: [String] = []
+                    if let note = discoveryFallbackNote {
+                        lines.append(note)
+                    } else if let warnings = result["warnings"] as? [String], let note = warnings.first {
+                        lines.append(note)
+                    }
+                    let judgedModelName = result["model_name"] as? String ?? ""
+                    let judgedModelId = result["model_id"] as? String ?? ""
+                    var attribution = "Judged by \(judgedModelName) (\(judgedModelId))"
+                    if let extras = result["applied_extras"] as? [String: Any],
+                       let group = extras["judge_group"] as? String {
+                        attribution += " via Judge group '\(group)'"
+                    }
+                    if discoveryApproved {
+                        attribution += " (you approved this model from configured APIs; no Judge group is set)"
+                    }
+                    lines.append(attribution)
+                    lines.append("")
+                    lines.append(result["output_text"] as? String ?? "")
+                    toolOutput = lines.joined(separator: "\n")
+                    toolSuccess = true
                 }
-                lines.append(attribution)
-                lines.append("")
-                lines.append(result["output_text"] as? String ?? "")
-                toolOutput = lines.joined(separator: "\n")
-                toolSuccess = true
             }
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
                 messages[msgIdx].blocks[blockIdx].content = toolOutput

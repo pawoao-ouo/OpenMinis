@@ -186,7 +186,7 @@ struct ModelGroupsView: View {
                 } header: {
                     Text("Defaults")
                 } footer: {
-                    Text("Primary is used for main agent tasks. Sub is used for lightweight tasks like title generation. Voice Input/Output pick a group whose audio-capable models drive speech-to-text and text-to-speech; if none is set, the offline System voice is used. Vision Input picks a group whose image-capable models describe images when the chat model cannot see them itself; if none is set, models without vision cannot read images at all. Image/Video Output, Realtime Voice, Embedding and Judge name the group to use for those jobs; leave one empty and that job simply has no model.")
+                    Text("Primary is used for main agent tasks. Sub is used for lightweight tasks like title generation. Voice Input/Output pick a group whose audio-capable models drive speech-to-text and text-to-speech; if none is set, the offline System voice is used. Vision Input picks a group whose image-capable models describe images when the chat model cannot see them itself; if none is set, models without vision cannot read images at all. Image/Video Output, Realtime Voice, Embedding and Judge name the group to use for those jobs; if one is left empty, the AI looks for a capable model in your configured APIs and asks you before using it.")
                 }
             }
 

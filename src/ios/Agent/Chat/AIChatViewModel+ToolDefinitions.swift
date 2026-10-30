@@ -387,7 +387,7 @@ extension AIChatViewModel {
         // what to check.
         tools.append(AgentToolDefinition(
             name: "judge",
-            description: "Ask an independent model to judge or score work. You write the judging prompt yourself, free-form: what to judge, what criteria to apply, and what verdict shape you want back are all your judgment — this tool imposes no fixed rubric, no fixed trigger, and no approval step. Primary use case: after you finish something yourself, if you want that work scored or verified, just call this tool yourself with a prompt describing what to check. If `model` is omitted, the run uses the configured Judge model group (Settings > Model Groups); if that group is set but unusable, the run falls back to the Agent Loop pool model and says so first in the result, never silently. If no Judge group is configured and no model is given, the call fails and tells you to configure one. The result names the serving model and group.",
+            description: "Ask an independent model to judge or score work. You write the judging prompt yourself, free-form: what to judge, what criteria to apply, and what verdict shape you want back are all your judgment — this tool imposes no fixed rubric, no fixed trigger, and no approval step. Primary use case: after you finish something yourself, if you want that work scored or verified, just call this tool yourself with a prompt describing what to check. If `model` is omitted, the run uses the configured Judge model group (Settings > Model Groups); if that group is set but unusable, the run falls back to the Agent Loop pool model and says so first in the result, never silently. If no Judge group is configured and no model is given, the run looks for chat-capable models in the user's configured APIs and asks the user which one may be used; it runs only after the user approves, does not run if the user declines, and falls back to the Agent Loop pool model with a note first if no one can answer. The result names the serving model and group.",
             parameters: [
                 "tool_title": AgentToolParam(type: .string, description: "Optional summary shown in UI."),
                 "prompt": AgentToolParam(type: .string, description: "The judging prompt, written by you, free-form. Include the work to judge and the criteria or verdict shape you want — e.g. 'Score this summary for completeness and factual accuracy, 0-10 with one line of reasoning per point: <work>'."),
@@ -658,7 +658,7 @@ public final class ToolCatalogRouter: @unchecked Sendable {
                 id: "minis-model-use",
                 name: "minis-model-use",
                 category: .system,
-                synopsis: "Single-shot invocation of pre-configured secondary models. For image generation, --model may be omitted: the run uses the configured Image Output model group.",
+                synopsis: "Single-shot invocation of pre-configured secondary models. For image generation, --model may be omitted: the run uses the configured Image Output model group. If no Image Output group is configured, the run lists image-capable models from your configured APIs instead of running: ask the user which one to use, then re-run with --model.",
                 quickSyntax: "minis-model-use run --model <id> --input <json>",
                 docRef: "minis-model-use --help"
             ),

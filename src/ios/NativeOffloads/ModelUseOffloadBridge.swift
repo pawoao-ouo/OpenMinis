@@ -93,6 +93,27 @@ private let logger = AppLogger(category: "ModelUseOffload")
         return result
     }
 
+    /// [T-slot-discovery] Scenario 2 candidates: models from the user's
+    /// configured APIs that can do the job, for when a slot's group is
+    /// unset. LOCAL enumeration only — `allConfiguredEntries` (enabled
+    /// instances, non-hidden entries, picker order) plus the router's
+    /// credential gate, plus the required-modality subset filter. No new
+    /// provider API, no network fetch, no placeholder models. The caller
+    /// caps the list to the ask card's option budget.
+    @MainActor
+    static func discoverCandidates(required: ModelModality, limit: Int) -> [ModelEntry] {
+        let store = ProviderConfigStore.shared
+        var result: [ModelEntry] = []
+        for entry in Self.allConfiguredEntries(store: store) {
+            guard required.isSubset(of: entry.model.capabilities.supportedModalities) else { continue }
+            guard let instance = store.instance(for: entry.providerInstanceId),
+                  instance.hasAnyCredential else { continue }
+            result.append(entry)
+            if result.count >= limit { break }
+        }
+        return result
+    }
+
     /// Hint string appended to non-empty list/search results so the agent knows
     /// exactly how to invoke a model. Three forms are supported by `run --model`:
     ///   1. Plain `model_id` (e.g. `claude-sonnet-4-6`) — works when unique.
@@ -118,10 +139,17 @@ private let logger = AppLogger(category: "ModelUseOffload")
         // resolves from the configured Image Output model group
         // (Settings > Model Groups). If that group is set but unusable, the
         // run falls back to the Agent Loop pool with a flagged note first in
-        // `warnings`; if no group is configured and no --model is given,
-        // the run fails with a message saying so.
+        // `warnings`.
+        // [T-slot-discovery] Scenario 2: if no group is configured and no
+        // --model is given, the run does NOT run — it fails with the
+        // image-capable models found in the user's configured APIs. Ask
+        // the user with ask_user which one may be used, then re-run with
+        // --model. Never run without the user's approval.
         "Image generation without --model: omit --model and the run uses the "
-        + "configured Image Output model group. " +
+        + "configured Image Output model group. If no group is configured, the run "
+        + "does not run: it lists image-capable models found in your configured APIs "
+        + "instead — ask the user with ask_user which one may be used, then re-run "
+        + "with --model <approved model id>. " +
         "Topics/params you can pass per call: messages, generation_config (size/quality/n/" +
         "aspect_ratio/image_size), image_endpoint, and — for OpenAI-compatible image models — " +
         "PASSTHROUGH via `extra_body`, `extra_headers`, `endpoint_path`, or any unknown " +
@@ -1086,9 +1114,35 @@ private let logger = AppLogger(category: "ModelUseOffload")
                         "Image Output group '\(groupName)' is configured but unusable (\(reason)), "
                         + "and no Agent Loop model is available. \(Self.noModelsHint)")
                 case .unset:
+                    // [T-slot-discovery] Scenario 2: no Image Output group
+                    // is configured. This path runs in the minis-model-use
+                    // offload — a shell CLI whose result is JSON on stdout —
+                    // so it has no view model and cannot present the ask
+                    // card itself. It enumerates image-capable models from
+                    // the user's configured APIs and fails with the
+                    // candidates + an instruction instead of running: the
+                    // dialog AI asks the user via ask_user which one may be
+                    // used, then re-runs with --model. No run happens
+                    // without the user's approval. Nothing to discover →
+                    // today's plain error, unchanged.
+                    let candidates = Self.discoverCandidates(required: [.imageOutput], limit: 3)
+                    guard !candidates.isEmpty else {
+                        throw ModelUseError.modelNotFound(
+                            "No --model was given and no Image Output group is configured, "
+                            + "and no image-capable model was found in your configured APIs. "
+                            + "Pass --model <id>, or configure an Image Output group in Settings > Model Groups.")
+                    }
+                    let listed = candidates.map { entry in
+                        let label = store.instance(for: entry.providerInstanceId)?.label ?? ""
+                        return label.isEmpty
+                            ? "\(entry.model.displayName) (\(entry.model.id))"
+                            : "\(entry.model.displayName) (\(label)/\(entry.model.id))"
+                    }.joined(separator: ", ")
                     throw ModelUseError.modelNotFound(
                         "No --model was given and no Image Output group is configured. "
-                        + "Pass --model <id>, or configure an Image Output group in Settings > Model Groups.")
+                        + "Image-capable models found in your configured APIs: \(listed). "
+                        + "Ask the user with ask_user which of these models may be used for image generation, "
+                        + "then re-run with --model <approved model id>. Do not run without the user's approval.")
                 }
             case .judge:
                 switch JudgeGroupResolver.resolve(
