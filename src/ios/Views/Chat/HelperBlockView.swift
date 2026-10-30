@@ -1006,13 +1006,17 @@ struct HelperDetailCard: View {
             rows.append((AppLocalized("Switched"),
                          String(format: AppLocalized("Fell back to %@"), to), mono: false, badge: nil))
         }
-        // [T-subagent-ui-honesty] The pin did not apply. Stated as its own row
-        // rather than folded into "Resolved model", because the resolved model
-        // IS the parent's — the surprising part is not which model ran but that
-        // the user's choice was silently dropped.
+        // [T-subagent-ui-honesty] The selected group did not apply. The
+        // flag is set for a pinned group that could not be routed AND for
+        // an AI-chosen group (scheduled_helper) that could not be routed,
+        // and the fallback is not always the conversation's model — it may
+        // be the primary group — so the wording must stay true in both
+        // cases. Stated as its own row rather than folded into "Resolved
+        // model", because the resolved model IS the fallback — the
+        // surprising part is that the user's choice was dropped.
         if model.modelGroupUnavailable {
             rows.append((AppLocalized("Model group"),
-                         AppLocalized("Pinned group unavailable — ran on the conversation's model"),
+                         AppLocalized("Selected model group unavailable — ran on another model"),
                          mono: false, badge: nil))
         }
         return rows

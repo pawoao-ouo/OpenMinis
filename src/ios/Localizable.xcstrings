@@ -138878,6 +138878,22 @@
         }
       }
     },
+    "Selected model group unavailable — ran on another model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected model group unavailable — ran on another model"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选定的模型分组不可用，已改用其他模型运行"
+          }
+        }
+      }
+    },
     "Progress report": {
       "extractionState": "manual",
       "localizations": {
