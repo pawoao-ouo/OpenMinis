@@ -269,23 +269,52 @@ extension AIChatViewModel {
         // with optional wait), status, steer, cancel, resume. The runtime
         // answers each of them — the old "declared but not dispatched"
         // half-state is gone.
+        // [T-model-groups-slots] model_choice restored: the resolver always
+        // understood it, but the fork dropped the parameter when rewriting
+        // this definition, so the model could never ask for it. Q6: the
+        // parameter is only exposed when there is actually something to
+        // choose between — the parent conversation's model and the
+        // configured groups resolving to at least two different entries.
+        // One model everywhere means no choice; showing the parameter then
+        // only invites a meaningless decision.
+        var choiceEntryIds = Set<String>()
+        if let entry = resolveCurrentEntry() { choiceEntryIds.insert(entry.id) }
+        let choiceSessionId = sessionId ?? "model-choice"
+        let choiceStore = ProviderConfigStore.shared
+        for gid in [choiceStore.defaultPrimaryGroupId, choiceStore.defaultSubGroupId,
+                    choiceStore.scheduledHelperGroupId] {
+            guard let gid, let group = choiceStore.group(for: gid),
+                  let id = ModelGroupRouter.resolve(group: group, sessionId: choiceSessionId, store: choiceStore)
+            else { continue }
+            choiceEntryIds.insert(id)
+        }
+        let showModelChoice = choiceEntryIds.count > 1
+        var subagentParams: [String: AgentToolParam] = [
+            "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user on the block in the tool bar."),
+            "action": AgentToolParam(type: .string, description: "The subagent action to perform: delegate (default), status, steer, cancel or resume."),
+            "task": AgentToolParam(type: .string, description: "action=delegate only, required. The complete, self-contained brief: goal, constraints, and return format."),
+            // [T-sub-agents-v1] enumValues are the enabled sub agent names,
+            // rebuilt every turn (the schema is not cached), so a rename takes
+            // effect on the next request and the model cannot invent a name.
+            "agent": AgentToolParam(type: .string, description: "action=delegate only. Which sub agent runs this task. Pick the one whose description matches the work; omit it to use the general one.", enumValues: SubAgentStore.shared.subAgents.map(\.name)),
+            "wait": AgentToolParam(type: .boolean, description: "action=delegate only. false (default) returns at once with status=running; true blocks until done."),
+            "job_id": AgentToolParam(type: .string, description: "action=status/steer/cancel/resume. The job_id returned when the task started. status may omit it to list every delegation of this conversation."),
+            "message": AgentToolParam(type: .string, description: "action=steer only, required. The correction instruction to the running sub agent.")
+        ]
+        var subagentOrdering = ["tool_title", "action", "task", "agent", "wait", "job_id", "message"]
+        if showModelChoice {
+            subagentParams["model_choice"] = AgentToolParam(
+                type: .string,
+                description: "action=delegate only. Which model the sub agent runs on, as an INTENT — never name a specific model. same_as_me (default): this conversation's model. default_model: the user's default group. sub_model: the user's light/cheap group, for dirty work that does not need the strongest model. scheduled_helper: the user's scheduled-helper group (it follows the default group when unset). Only deviate from same_as_me when the task itself has a reason (e.g. cheap bulk work goes to sub_model). Your choice stays inside the group the user configured and never escapes it. If the chosen sub agent pins a model group in its definition, that group runs instead and your choice is ignored — the result reports model_origin=pinned, so do not re-delegate or retry over it.",
+                enumValues: ["same_as_me", "default_model", "sub_model", "scheduled_helper"])
+            subagentOrdering.insert("model_choice", at: 4)
+        }
         tools.append(AgentToolDefinition(
             name: "subagent_task",
-            description: "Delegate a self-contained task to a sub agent — its own isolated context and tool loop, in a hidden child session running concurrently with you — and inspect, steer, stop or restart the ones you started. action defaults to 'delegate'. Available actions: delegate, status, steer, cancel, resume.",
-            parameters: [
-                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user on the block in the tool bar."),
-                "action": AgentToolParam(type: .string, description: "The subagent action to perform: delegate (default), status, steer, cancel or resume."),
-                "task": AgentToolParam(type: .string, description: "action=delegate only, required. The complete, self-contained brief: goal, constraints, and return format."),
-                // [T-sub-agents-v1] enumValues are the enabled sub agent names,
-                // rebuilt every turn (the schema is not cached), so a rename takes
-                // effect on the next request and the model cannot invent a name.
-                "agent": AgentToolParam(type: .string, description: "action=delegate only. Which sub agent runs this task. Pick the one whose description matches the work; omit it to use the general one.", enumValues: SubAgentStore.shared.subAgents.map(\.name)),
-                "wait": AgentToolParam(type: .boolean, description: "action=delegate only. false (default) returns at once with status=running; true blocks until done."),
-                "job_id": AgentToolParam(type: .string, description: "action=status/steer/cancel/resume. The job_id returned when the task started. status may omit it to list every delegation of this conversation."),
-                "message": AgentToolParam(type: .string, description: "action=steer only, required. The correction instruction to the running sub agent.")
-            ],
+            description: "Delegate a self-contained task to a sub agent — its own isolated context and tool loop, in a hidden child session running concurrently with you — and inspect, steer, stop or restart the ones you started. action defaults to 'delegate'. Available actions: delegate, status, steer, cancel, resume. If the chosen sub agent's definition pins a model group, that group runs and model_choice is ignored (Q7: the result says so via model_origin=pinned).",
+            parameters: subagentParams,
             required: ["tool_title"],
-            propertyOrdering: ["tool_title", "action", "task", "agent", "wait", "job_id", "message"]
+            propertyOrdering: subagentOrdering
         ))
 
         // [Kelivo 本地工具 13 项真定义落地]
