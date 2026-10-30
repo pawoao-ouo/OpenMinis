@@ -21,6 +21,16 @@ struct GroupSlotPicker: View {
     /// [问题3 / G2] 建组时优先筛选的模态。用于新增的图片输出/视频输出/
     /// 实时语音槽位——它们跟 isVision 是同一个用途：把候选收窄到能干的模型。
     var preferModality: ModelModality? = nil
+    /// [T-model-groups-slots] Text shown when no group is selected, in place
+    /// of "None" — e.g. the scheduled-helper slot shows "Follow Primary
+    /// Group" because nil means "follow the primary group" (Q2), never
+    /// "unset or broken".
+    var noneLabel: LocalizedStringKey? = nil
+    /// [T-model-groups-slots] Q5: the slot names a job with no runtime
+    /// consumer yet. Rendered disabled with a "Not yet active" mark; the
+    /// stored selection is preserved but cannot be changed, and nothing
+    /// about the slot is told to the AI.
+    var isInactive: Bool = false
 
     @State private var showCreate = false
     /// [问题3] `TTSServiceStore` 不是 ObservableObject（它用锁保护、跨线程读），
@@ -57,8 +67,13 @@ struct GroupSlotPicker: View {
             return s.name
         }
         if let id = selection, let g = store.group(for: id) { return g.name }
+        if let noneLabel { return String(localized: noneLabel) }
         return AppLocalized("None", comment: "No group selected")
     }
+
+    /// The "no selection" row label: the slot's `noneLabel` when one is set
+    /// (Q2 follow-primary wording), else the plain "None".
+    private var noneText: LocalizedStringKey { noneLabel ?? "None" }
 
     var body: some View {
         Menu {
@@ -73,7 +88,7 @@ struct GroupSlotPicker: View {
                     selection = newValue
                 }
             )) {
-                Text("None", comment: "No group selected").tag(String?.none)
+                Text(noneText).tag(String?.none)
                 ForEach(store.modelGroups) { group in
                     Text(group.name).tag(Optional(group.id))
                 }
@@ -118,11 +133,22 @@ struct GroupSlotPicker: View {
                 Spacer()
                 Text(selectedName)
                     .foregroundStyle(MinisTheme.secondaryText)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
+                if isInactive {
+                    Text("Not yet active")
+                        .font(.caption)
+                        .foregroundStyle(MinisTheme.secondaryText)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(MinisTheme.secondaryText.opacity(0.12))
+                        .clipShape(Capsule())
+                } else {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
+                }
             }
         }
+        .disabled(isInactive)
         .onAppear { ttsRevision &+= 1 }
         .sheet(isPresented: $showCreate) {
             NavigationStack {

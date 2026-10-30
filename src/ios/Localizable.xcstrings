@@ -61820,6 +61820,54 @@
         }
       }
     },
+    "Scheduled Helper": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheduled Helper"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定时小帮手"
+          }
+        }
+      }
+    },
+    "Follow Primary Group": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow Primary Group"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随主分组"
+          }
+        }
+      }
+    },
+    "Not yet active": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not yet active"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂未生效"
+          }
+        }
+      }
+    },
     "Defaults": {
       "localizations": {
         "de": {

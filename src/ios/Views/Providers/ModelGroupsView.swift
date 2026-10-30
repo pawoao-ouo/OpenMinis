@@ -104,6 +104,16 @@ struct ModelGroupsView: View {
                             set: { store.defaultSubGroupId = $0 }
                         )
                     )
+                    // [T-model-groups-slots] 定时小帮手：定时任务新开会话用的
+                    // 分组。没选时显示“跟随主分组”（Q2），行为与现在一致。
+                    GroupSlotPicker(
+                        label: "Scheduled Helper",
+                        selection: Binding(
+                            get: { store.scheduledHelperGroupId },
+                            set: { store.scheduledHelperGroupId = $0 }
+                        ),
+                        noneLabel: "Follow Primary Group"
+                    )
                     GroupSlotPicker(
                         label: "Voice Input",
                         selection: Binding(
@@ -138,7 +148,8 @@ struct ModelGroupsView: View {
                             get: { store.imageOutputGroupId },
                             set: { store.imageOutputGroupId = $0 }
                         ),
-                        preferModality: .imageOutput
+                        preferModality: .imageOutput,
+                        isInactive: true
                     )
                     GroupSlotPicker(
                         label: "Video Output",
@@ -146,7 +157,8 @@ struct ModelGroupsView: View {
                             get: { store.videoOutputGroupId },
                             set: { store.videoOutputGroupId = $0 }
                         ),
-                        preferModality: .videoOutput
+                        preferModality: .videoOutput,
+                        isInactive: true
                     )
                     GroupSlotPicker(
                         label: "Realtime Voice",
@@ -154,21 +166,24 @@ struct ModelGroupsView: View {
                             get: { store.realtimeVoiceGroupId },
                             set: { store.realtimeVoiceGroupId = $0 }
                         ),
-                        preferModality: .audioOutput
+                        preferModality: .audioOutput,
+                        isInactive: true
                     )
                     GroupSlotPicker(
                         label: "Embedding",
                         selection: Binding(
                             get: { store.embeddingGroupId },
                             set: { store.embeddingGroupId = $0 }
-                        )
+                        ),
+                        isInactive: true
                     )
                     GroupSlotPicker(
                         label: "Judge",
                         selection: Binding(
                             get: { store.judgeGroupId },
                             set: { store.judgeGroupId = $0 }
-                        )
+                        ),
+                        isInactive: true
                     )
                 } header: {
                     Text("Defaults")
