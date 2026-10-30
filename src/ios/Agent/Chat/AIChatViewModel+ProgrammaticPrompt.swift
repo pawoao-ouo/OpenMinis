@@ -931,9 +931,18 @@ extension AIChatViewModel {
             return (json, true)
         }
 
-        // Which model the child runs on: the definition's pinned Model Group, or
-        // the parent conversation's binding. Never the delegating model's guess.
-        guard let resolution = SubAgentModelResolver.resolve(subAgent: subAgent, parent: self) else {
+        // Which model the child runs on: the definition's pinned Model Group
+        // wins; otherwise the delegating model's model_choice intent
+        // (same_as_me / default_model / sub_model / scheduled_helper).
+        // [T-model-groups-slots] Parsed HERE, in the live dispatch: the
+        // parse in HelperRunner.swift is dead code (that file is not
+        // compiled), so without this line the restored schema parameter
+        // and the resolver's choice branches would never fire. Queued
+        // delegations replay through this same function with the stored
+        // args, so the choice survives queuing. Absent/unknown = same_as_me.
+        let modelChoice = SubAgentModelChoice.parse(args["model_choice"] as? String)
+        guard let resolution = SubAgentModelResolver.resolve(subAgent: subAgent, parent: self,
+                                                            choice: modelChoice) else {
             return reject("no_model", "This conversation has no resolvable model, so a sub agent cannot run. Pick a model for this session first.")
         }
 
