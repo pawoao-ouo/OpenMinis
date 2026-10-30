@@ -217,7 +217,9 @@ final class ConfigConfirmationGate: ObservableObject {
         )
 
         let content = UNMutableNotificationContent()
-        content.title = "⚙️ Config change awaiting approval"
+        // Unified batch-1 format: title = current persona name, subtitle =
+        // the approval event, body = caption verbatim below. No emoji.
+        NotificationPersonaPresentation.apply(to: content, subtitle: AppLocalized("Config change awaiting approval"))
         // Show the caption (e.g. "Update multi-model writing workflow: …") so
         // the user gets the gist without opening the app; fall back to a
         // row-count summary when there's no caption.
