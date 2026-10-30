@@ -126,7 +126,12 @@ private let logger = AppLogger(category: "ModelUseOffload")
         "aspect_ratio/image_size), image_endpoint, and — for OpenAI-compatible image models — " +
         "PASSTHROUGH via `extra_body`, `extra_headers`, `endpoint_path`, or any unknown " +
         "top-level field (forwarded verbatim; enables provider-specific params like Seedream " +
-        "image-to-image). Read the target model's `hint` for concrete examples."
+        "image-to-image). Read the target model's `hint` for concrete examples." +
+        // [T-wire-judge] Point at the judge tool: it runs a free-form
+        // judging prompt through the configured Judge model group.
+        " Judge calls: the `judge` tool runs a judging prompt you write "
+        + "yourself through the configured Judge model group — see the tool's "
+        + "description for when to call it."
 
     // MARK: - Entry Serialization
 
@@ -990,6 +995,10 @@ private let logger = AppLogger(category: "ModelUseOffload")
         let entry: ModelEntry
         /// Name of the Image Output group the entry was resolved from, if any.
         let imageOutputGroupName: String?
+        /// Name of the Judge group the entry was resolved from, if any.
+        /// Defaulted so the existing Image Output construction sites keep
+        /// compiling unchanged.
+        let judgeGroupName: String? = nil
         /// Q4 note: set when the configured Image Output group could not
         /// serve the run and the Agent Loop pool was used instead. The
         /// caller must surface this first in the result — never silently
@@ -997,8 +1006,17 @@ private let logger = AppLogger(category: "ModelUseOffload")
         let fallbackNote: String?
     }
 
+    /// Which group pointer an unnamed run resolves through. The CLI's
+    /// unnamed path is the Image Output slot (shipped behavior); the
+    /// judge tool's unnamed path is the Judge slot. The explicit-name
+    /// lookup chain below is shared and slot-independent.
+    private enum ResolutionSlot {
+        case imageOutput
+        case judge
+    }
+
     @MainActor
-    private static func resolveModelEntry(_ idOrName: String, providerFilter: String? = nil) throws -> ResolvedModelEntry {
+    private static func resolveModelEntry(_ idOrName: String, providerFilter: String? = nil, slot: ResolutionSlot = .imageOutput) throws -> ResolvedModelEntry {
         let store = ProviderConfigStore.shared
         let q = idOrName.lowercased()
 
@@ -1028,29 +1046,55 @@ private let logger = AppLogger(category: "ModelUseOffload")
         // never stall, never silently substitute. An empty name must never
         // reach the lookup chain below: step 3's `hasPrefix("")` is true for
         // every id and would silently return the first pool entry.
+        // [T-wire-judge] The judge tool's unnamed call resolves through
+        // the Judge slot instead (same shape, judge wording); the slot
+        // parameter picks which pointer an empty name means.
         if q.isEmpty {
             guard providerFilter?.isEmpty ?? true else {
                 throw ModelUseError.modelNotFound(
                     "--provider requires --model: pass --model <id> to use --provider.")
             }
-            switch ImageOutputGroupResolver.resolve(
-                sessionId: ISHExecutionCoordinator.mountedSessionIdSnapshot ?? "") {
-            case .resolved(let slotEntry, let groupName):
-                return ResolvedModelEntry(entry: slotEntry, imageOutputGroupName: groupName, fallbackNote: nil)
-            case .unroutable(let groupName, let reason):
-                if let first = agentEntries.first {
-                    let note = "Image Output group '\(groupName)' is configured but unusable (\(reason)). "
-                        + "Falling back to the Agent Loop pool model '\(first.model.displayName)' instead. "
-                        + "Pass --model explicitly or fix the group to use the configured image model."
-                    return ResolvedModelEntry(entry: first, imageOutputGroupName: nil, fallbackNote: note)
+            switch slot {
+            case .imageOutput:
+                switch ImageOutputGroupResolver.resolve(
+                    sessionId: ISHExecutionCoordinator.mountedSessionIdSnapshot ?? "") {
+                case .resolved(let slotEntry, let groupName):
+                    return ResolvedModelEntry(entry: slotEntry, imageOutputGroupName: groupName, fallbackNote: nil)
+                case .unroutable(let groupName, let reason):
+                    if let first = agentEntries.first {
+                        let note = "Image Output group '\(groupName)' is configured but unusable (\(reason)). "
+                            + "Falling back to the Agent Loop pool model '\(first.model.displayName)' instead. "
+                            + "Pass --model explicitly or fix the group to use the configured image model."
+                        return ResolvedModelEntry(entry: first, imageOutputGroupName: nil, fallbackNote: note)
+                    }
+                    throw ModelUseError.modelNotFound(
+                        "Image Output group '\(groupName)' is configured but unusable (\(reason)), "
+                        + "and no Agent Loop model is available. \(Self.noModelsHint)")
+                case .unset:
+                    throw ModelUseError.modelNotFound(
+                        "No --model was given and no Image Output group is configured. "
+                        + "Pass --model <id>, or configure an Image Output group in Settings > Model Groups.")
                 }
-                throw ModelUseError.modelNotFound(
-                    "Image Output group '\(groupName)' is configured but unusable (\(reason)), "
-                    + "and no Agent Loop model is available. \(Self.noModelsHint)")
-            case .unset:
-                throw ModelUseError.modelNotFound(
-                    "No --model was given and no Image Output group is configured. "
-                    + "Pass --model <id>, or configure an Image Output group in Settings > Model Groups.")
+            case .judge:
+                switch JudgeGroupResolver.resolve(
+                    sessionId: ISHExecutionCoordinator.mountedSessionIdSnapshot ?? "") {
+                case .resolved(let slotEntry, let groupName):
+                    return ResolvedModelEntry(entry: slotEntry, imageOutputGroupName: nil, judgeGroupName: groupName, fallbackNote: nil)
+                case .unroutable(let groupName, let reason):
+                    if let first = agentEntries.first {
+                        let note = "Judge group '\(groupName)' is configured but unusable (\(reason)). "
+                            + "Falling back to the Agent Loop pool model '\(first.model.displayName)' instead. "
+                            + "Pass a model explicitly or fix the group to use the configured judge model."
+                        return ResolvedModelEntry(entry: first, imageOutputGroupName: nil, judgeGroupName: nil, fallbackNote: note)
+                    }
+                    throw ModelUseError.modelNotFound(
+                        "Judge group '\(groupName)' is configured but unusable (\(reason)), "
+                        + "and no Agent Loop model is available. \(Self.noModelsHint)")
+                case .unset:
+                    throw ModelUseError.modelNotFound(
+                        "No model was given and no Judge group is configured. "
+                        + "Pass a model explicitly, or configure a Judge group in Settings > Model Groups.")
+                }
             }
         }
 
@@ -1104,6 +1148,72 @@ private let logger = AppLogger(category: "ModelUseOffload")
             throw ModelUseError.modelNotFound("\(idOrName) — \(Self.noModelsHint)")
         }
         throw ModelUseError.modelNotFound(idOrName)
+    }
+
+    // MARK: - Judge runs [T-wire-judge]
+
+    /// Run a free-form judging prompt through the Judge model group.
+    ///
+    /// Mirrors the image-model call shape: the caller writes its own prompt
+    /// (what to judge, what criteria to apply, what verdict shape to return)
+    /// and this function only resolves WHICH model runs it. No fixed rubric,
+    /// no fixed trigger, no approval step — the AI decides at call time that
+    /// it wants a judgment, exactly as it decides what to draw when calling
+    /// an image model. Internal: called by the `judge` native tool handler.
+    ///
+    /// Precedence: explicit model > Judge group (set+routable) > Agent Loop
+    /// pool first entry, flagged (Q4) when the group is set-but-unroutable —
+    /// never silent, never stall. Group unset + no explicit model → plain
+    /// error telling the caller to configure the group. A group-resolved
+    /// entry whose provider cannot be built (e.g. voice-only provider type)
+    /// is treated as unroutable and degrades to the same flagged pool
+    /// fallback; an explicit model that cannot be built fails loudly
+    /// (explicit wins means explicit failures, no silent substitution),
+    /// and an already-flagged fallback gets no second hop.
+    /// `maxTokens` mirrors the minis-model-use CLI default (4096): the
+    /// judge tool takes no token knob by design.
+    @MainActor
+    static func runJudgePrompt(prompt: String, modelName: String?) async throws -> [String: Any] {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ModelUseError.invalidInput("Judge prompt must not be empty.")
+        }
+        var resolved = try await resolveModelEntry(modelName ?? "", slot: .judge)
+        var provider: any LLMProvider
+        do {
+            provider = try await LLMProviderFactory.makeProvider(for: resolved.entry)
+        } catch {
+            guard let groupName = resolved.judgeGroupName else { throw error }
+            let store = ProviderConfigStore.shared
+            let pool = store.resolvedAgentLoopEntries.filter {
+                store.instance(for: $0.providerInstanceId)?.isEnabled == true
+            }
+            guard let first = pool.first else { throw error }
+            let note = "Judge group '\(groupName)' resolved to '\(resolved.entry.model.displayName)' "
+                + "but that model cannot be called (\(error.localizedDescription)). "
+                + "Falling back to the Agent Loop pool model '\(first.model.displayName)' instead. "
+                + "Pass a model explicitly or fix the group to use a callable judge model."
+            resolved = ResolvedModelEntry(entry: first, imageOutputGroupName: nil, judgeGroupName: nil, fallbackNote: note)
+            provider = try await LLMProviderFactory.makeProvider(for: first)
+        }
+        let response = try await withTransientRetry(label: "judge \(resolved.entry.model.id)") {
+            try await provider.sendMessage(
+                messages: [LLMMessage(role: .user, content: trimmed)],
+                systemPrompt: nil,
+                maxTokens: 4096,
+                temperature: nil
+            )
+        }
+        var warnings: [String] = []
+        if let note = resolved.fallbackNote { warnings.append(note) }
+        var extras: [String: Any] = [:]
+        if let groupName = resolved.judgeGroupName { extras["judge_group"] = groupName }
+        return Self.attachCallFeedback([
+            "model_id": resolved.entry.model.id,
+            "model_name": resolved.entry.model.displayName,
+            "output_text": response.text,
+            "stop_reason": response.stopReason ?? "end_turn",
+        ], warnings: warnings, extras: extras)
     }
 
     // MARK: - OpenAI Message Parsing

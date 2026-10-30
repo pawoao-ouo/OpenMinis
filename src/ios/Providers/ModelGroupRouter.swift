@@ -260,3 +260,102 @@ enum ImageOutputGroupResolver {
         return Int(hash & 0x7FFF_FFFF_FFFF_FFFF)
     }
 }
+
+// MARK: - [T-wire-judge] Judge group resolver
+
+/// Resolves judge runs to the user's configured Judge group.
+///
+/// Mirrors `ImageOutputGroupResolver` in shape (three-case Resolution,
+/// per-member resolution, group order/strategy honored) but deliberately
+/// has NO modality filter: no `.judge` bit exists in `ModelModality`
+/// (verified by grep: the bits are text/image/pdf/audio/video in/out
+/// only, and no model anywhere declares judge capability), and a judge
+/// call is a plain chat-text prompt — the caller writes its own judging
+/// prompt and any group member reachable through the chat runtime can
+/// run it. Availability reuses the router's own predicate
+/// (`ModelGroupRouter.availableEntryIds`) — the same gate the shipped
+/// slots use. A member whose provider cannot be built at call time is
+/// handled by the judge runner (flagged pool fallback), not here, so
+/// this resolver never needs provider knowledge. Deliberately lives in
+/// this file rather than a new one: a new Swift file plus a hand-edited
+/// pbxproj entry is the highest-risk combination in this repo's history,
+/// and nothing here needs a file of its own.
+@MainActor
+enum JudgeGroupResolver {
+
+    /// Outcome of resolving the Judge pointer. The three cases exist so
+    /// the caller can tell "nothing configured" (plain error) from
+    /// "configured but unusable" (Q4: fall back flagged, never stall,
+    /// never silently substitute) without re-deriving it from the pointer
+    /// — the same distinction `ModelTierResolver` draws.
+    enum Resolution {
+        /// No Judge group is configured (pointer nil or dangling).
+        case unset
+        /// A group is configured but holds no usable member.
+        case unroutable(groupName: String, reason: String)
+        /// A usable member, in the group's own order/strategy.
+        case resolved(entry: ModelEntry, groupName: String)
+    }
+
+    /// Resolve the Judge pointer for one run. `sessionId` only stabilises
+    /// `.loadBalance` rotation within a session, mirroring
+    /// `ModelGroupRouter.resolve`.
+    static func resolve(sessionId: String) -> Resolution {
+        let store = ProviderConfigStore.shared
+        guard let gid = store.judgeGroupId, let group = store.group(for: gid) else {
+            return .unset
+        }
+        let members = candidates(seed: stableSeed(for: sessionId))
+        guard let first = members.first else {
+            return .unroutable(groupName: group.name, reason: unroutableReason(group: group, store: store))
+        }
+        return .resolved(entry: first, groupName: group.name)
+    }
+
+    /// Every usable member of the configured Judge group, in the group's
+    /// own order. `.loadBalance` groups are rotated by `seed` so repeated
+    /// calls spread across members; `.fallback` groups keep author order
+    /// and the caller walks the list on failure — the same contract as
+    /// `VisionGroupResolver.candidates`.
+    static func candidates(seed: Int = 0) -> [ModelEntry] {
+        let store = ProviderConfigStore.shared
+        guard let gid = store.judgeGroupId, let group = store.group(for: gid) else { return [] }
+
+        let available = Set(ModelGroupRouter.availableEntryIds(group: group, store: store))
+        var members = group.memberEntryIds.compactMap { entryId -> ModelEntry? in
+            guard available.contains(entryId),
+                  let entry = store.entry(for: entryId) else { return nil }
+            return entry
+        }
+
+        if group.strategy == .loadBalance, members.count > 1 {
+            let offset = seed % members.count
+            members = Array(members[offset...] + members[..<offset])
+        }
+        return members
+    }
+
+    /// One sentence saying why a configured group cannot serve a judge
+    /// run, so the Q4 fallback note can tell the user what to fix.
+    private static func unroutableReason(group: ModelGroup, store: ProviderConfigStore) -> String {
+        let ids = group.memberEntryIds
+        guard !ids.isEmpty else { return "the group has no members" }
+        let available = Set(ModelGroupRouter.availableEntryIds(group: group, store: store))
+        let unavailable = ids.filter { !available.contains($0) }.count
+        guard unavailable > 0 else { return "no usable member" }
+        return "all \(ids.count) member(s) are unavailable (hidden, disabled, or not logged in)"
+    }
+
+    /// Non-negative FNV-1a seed, same algorithm as
+    /// `ImageOutputGroupResolver.stableSeed` (duplicated rather than
+    /// shared: the two resolvers must stay independently movable, and
+    /// the function is six lines).
+    private static func stableSeed(for sessionId: String) -> Int {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in sessionId.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return Int(hash & 0x7FFF_FFFF_FFFF_FFFF)
+    }
+}
