@@ -408,7 +408,7 @@ enum ScheduledJobRunner {
             JobInsuranceNotification.schedule(
                 jobId: job.id,
                 at: Date().addingTimeInterval(TimeInterval(AIChatViewModel.helperMaxMinutes * 60)),
-                title: AppLocalized("Minis agent"),
+                title: AppLocalized("Agent task"),
                 body: String(format: AppLocalized("The agent \"%@\" may have finished or been interrupted. Open to check."), title),
                 userInfo: ["sessionId": parentSid, "childSessionId": session.id, "helperJobId": job.id])
             // markRunning already counted the fire; record the history row only.
@@ -719,10 +719,10 @@ enum ScheduledJobRunner {
             title = AppLocalized("自主脉搏")
             body = deferred
                 ? AppLocalized("夜里有一个自主脉搏到过点，没有打扰你。现在告诉你一声。")
-                : AppLocalized("一个自主脉搏到点了。打开 Minis 看看它做了什么。")
+                : AppLocalized("一个自主脉搏到点了。打开看看它做了什么。")
         } else {
-            title = AppLocalized("Minis scheduled task")
-            body = String(format: AppLocalized("\"%@\" is due. Open Minis to see whether it ran."), name)
+            title = AppLocalized("Scheduled task")
+            body = String(format: AppLocalized("\"%@\" is due. Open to see whether it ran."), name)
         }
         JobInsuranceNotification.schedule(
             jobId: job.id, at: fireAt,

@@ -199,7 +199,7 @@ struct SendPromptIntent: AppIntent {
             let promptPreview = String(prompt.prefix(50))
             ShortcutNotification.post(
                 id: "shortcut-start-\(sid)",
-                title: AppLocalized("嘟嘟 Task Started"),
+                title: AppLocalized("Task Started"),
                 body: "\(modelName): \(promptPreview)\(prompt.count > 50 ? "…" : "")",
                 sessionId: sid
             )
@@ -221,7 +221,7 @@ struct SendPromptIntent: AppIntent {
             if sendCompletionNotification {
                 ShortcutNotification.post(
                     id: "shortcut-done-\(sid)",
-                    title: AppLocalized("嘟嘟 Task Completed"),
+                    title: AppLocalized("Task Completed"),
                     body: "\(modelName): \(String(responseText.prefix(200)))",
                     sessionId: sid
                 )
@@ -256,7 +256,7 @@ struct SendPromptIntent: AppIntent {
             if capturedSendCompletionNotification {
                 ShortcutNotification.post(
                     id: "shortcut-done-\(capturedSid)",
-                    title: AppLocalized("嘟嘟 Task Completed"),
+                    title: AppLocalized("Task Completed"),
                     body: "\(capturedModelName): \(summary)",
                     sessionId: capturedSid
                 )

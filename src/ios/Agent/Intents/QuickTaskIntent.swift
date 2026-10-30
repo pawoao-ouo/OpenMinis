@@ -192,7 +192,7 @@ struct QuickTaskIntent: AppIntent {
         if sendCompletionNotification {
             ShortcutNotification.post(
                 id: "shortcut-start-\(sid)",
-                title: AppLocalized("嘟嘟: \(taskName)"),
+                title: taskName,
                 body: AppLocalized("\(modelName) is working on it…"),
                 sessionId: sid
             )
@@ -214,7 +214,7 @@ struct QuickTaskIntent: AppIntent {
             if sendCompletionNotification {
                 ShortcutNotification.post(
                     id: "shortcut-done-\(sid)",
-                    title: AppLocalized("嘟嘟: \(taskName) Done"),
+                    title: AppLocalized("\(taskName) Done"),
                     body: "\(modelName): \(String(responseText.prefix(200)))",
                     sessionId: sid
                 )
@@ -250,7 +250,7 @@ struct QuickTaskIntent: AppIntent {
             if capturedSendCompletionNotification {
                 ShortcutNotification.post(
                     id: "shortcut-done-\(capturedSid)",
-                    title: AppLocalized("嘟嘟: \(capturedTaskName) Done"),
+                    title: AppLocalized("\(capturedTaskName) Done"),
                     body: "\(capturedModelName): \(summary)",
                     sessionId: capturedSid
                 )
