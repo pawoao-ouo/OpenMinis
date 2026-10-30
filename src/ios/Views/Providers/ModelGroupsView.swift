@@ -181,8 +181,7 @@ struct ModelGroupsView: View {
                         selection: Binding(
                             get: { store.judgeGroupId },
                             set: { store.judgeGroupId = $0 }
-                        ),
-                        isInactive: true
+                        )
                     )
                 } header: {
                     Text("Defaults")

@@ -378,6 +378,25 @@ extension AIChatViewModel {
             propertyOrdering: ["tool_title", "expression"]
         ))
 
+        // 5b. judge (打分) [T-wire-judge] — mirrors the image-model call
+        // shape: the caller writes its own judging prompt, free-form, and
+        // this tool only resolves WHICH model runs it. No fixed rubric, no
+        // fixed trigger, no approval step. Primary use case: after you
+        // finish something yourself, if you want that work scored or
+        // verified, just call this tool yourself with a prompt describing
+        // what to check.
+        tools.append(AgentToolDefinition(
+            name: "judge",
+            description: "Ask an independent model to judge or score work. You write the judging prompt yourself, free-form: what to judge, what criteria to apply, and what verdict shape you want back are all your judgment — this tool imposes no fixed rubric, no fixed trigger, and no approval step. Primary use case: after you finish something yourself, if you want that work scored or verified, just call this tool yourself with a prompt describing what to check. If `model` is omitted, the run uses the configured Judge model group (Settings > Model Groups); if that group is set but unusable, the run falls back to the Agent Loop pool model and says so first in the result, never silently. If no Judge group is configured and no model is given, the call fails and tells you to configure one. The result names the serving model and group.",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "Optional summary shown in UI."),
+                "prompt": AgentToolParam(type: .string, description: "The judging prompt, written by you, free-form. Include the work to judge and the criteria or verdict shape you want — e.g. 'Score this summary for completeness and factual accuracy, 0-10 with one line of reasoning per point: <work>'."),
+                "model": AgentToolParam(type: .string, description: "Optional model id, display name, or entry id. If given it wins; if omitted the run uses the configured Judge model group.")
+            ],
+            required: ["prompt"],
+            propertyOrdering: ["tool_title", "prompt", "model"]
+        ))
+
         // 6. calendarQuery (查询日历)
         tools.append(AgentToolDefinition(
             name: "calendarQuery",

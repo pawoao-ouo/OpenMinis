@@ -1388,6 +1388,47 @@ extension AIChatViewModel {
                 messages[msgIdx].blocks[blockIdx].content = toolOutput
             }
 
+        case "judge":
+            // [T-wire-judge] Free-form judging prompt through the Judge
+            // model group. The model writes the prompt; this case only
+            // resolves and formats. Throws (empty prompt aside, which is
+            // answered inline) land in the outer catch and surface as
+            // "Error: ..." like every other tool.
+            let judgePrompt = (toolArgs["prompt"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if judgePrompt.isEmpty {
+                toolOutput = "Error: Missing required 'prompt' parameter."
+                toolSuccess = false
+            } else {
+                let modelArg = (toolArgs["model"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let result = try await ModelUseOffloadBridge.runJudgePrompt(
+                    prompt: judgePrompt,
+                    modelName: (modelArg?.isEmpty == true ? nil : modelArg))
+                // Q4: the fallback note, when present, is the very first
+                // line of the result — the caller must see the substitution
+                // before anything else.
+                var lines: [String] = []
+                if let warnings = result["warnings"] as? [String], let note = warnings.first {
+                    lines.append(note)
+                }
+                let judgedModelName = result["model_name"] as? String ?? ""
+                let judgedModelId = result["model_id"] as? String ?? ""
+                var attribution = "Judged by \(judgedModelName) (\(judgedModelId))"
+                if let extras = result["applied_extras"] as? [String: Any],
+                   let group = extras["judge_group"] as? String {
+                    attribution += " via Judge group '\(group)'"
+                }
+                lines.append(attribution)
+                lines.append("")
+                lines.append(result["output_text"] as? String ?? "")
+                toolOutput = lines.joined(separator: "\n")
+                toolSuccess = true
+            }
+            if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                messages[msgIdx].blocks[blockIdx].content = toolOutput
+            }
+
         default:
             toolOutput = "Error: Unknown tool '\(tu.name)'"
             toolSuccess = false
