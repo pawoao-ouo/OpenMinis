@@ -132,7 +132,7 @@ static CLLocation *get_location_sync(int argc, char **argv) {
                                userInfo:@{NSLocalizedDescriptionKey:
                                    @"Location access denied. To grant access, open "
                                     "Settings > Privacy & Security > Location Services "
-                                    "and enable 分身版."}];
+                                    "and enable 嘟嘟2."}];
             dispatch_semaphore_signal(delegate.semaphore);
         }
     });

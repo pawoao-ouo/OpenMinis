@@ -385,7 +385,7 @@ static int cmd_schedule(int argc, char **argv, int stdout_fd, int stderr_fd, BOO
         NSDictionary *err = noff_json_error(TOOL_NAME, @"schedule",
                                              NOFF_ERR_AUTHORIZATION_DENIED,
                                              @"Notification permission not granted. "
-                                              "To grant access, open Settings > Notifications > 分身版 "
+                                              "To grant access, open Settings > Notifications > 嘟嘟2 "
                                               "and enable notifications.");
         noff_emit_json(stdout_fd, err, compact, quiet);
         return NOFF_EXIT_AUTH_DENIED;
