@@ -148,8 +148,7 @@ struct ModelGroupsView: View {
                             get: { store.imageOutputGroupId },
                             set: { store.imageOutputGroupId = $0 }
                         ),
-                        preferModality: .imageOutput,
-                        isInactive: true
+                        preferModality: .imageOutput
                     )
                     GroupSlotPicker(
                         label: "Video Output",

@@ -639,7 +639,7 @@ public final class ToolCatalogRouter: @unchecked Sendable {
                 id: "minis-model-use",
                 name: "minis-model-use",
                 category: .system,
-                synopsis: "Single-shot invocation of pre-configured secondary models.",
+                synopsis: "Single-shot invocation of pre-configured secondary models. For image generation, --model may be omitted: the run uses the configured Image Output model group.",
                 quickSyntax: "minis-model-use run --model <id> --input <json>",
                 docRef: "minis-model-use --help"
             ),

@@ -114,6 +114,14 @@ private let logger = AppLogger(category: "ModelUseOffload")
         "Capabilities by modality (run without --model, or inspect a model's `hint` field, " +
         "for the exact JSON shape): text generation, image generation, image-to-image, " +
         "image editing, audio (TTS/STT), embeddings. " +
+        // [T-wire-image-output] Image generation without --model: the run
+        // resolves from the configured Image Output model group
+        // (Settings > Model Groups). If that group is set but unusable, the
+        // run falls back to the Agent Loop pool with a flagged note first in
+        // `warnings`; if no group is configured and no --model is given,
+        // the run fails with a message saying so.
+        "Image generation without --model: omit --model and the run uses the "
+        + "configured Image Output model group. " +
         "Topics/params you can pass per call: messages, generation_config (size/quality/n/" +
         "aspect_ratio/image_size), image_endpoint, and — for OpenAI-compatible image models — " +
         "PASSTHROUGH via `extra_body`, `extra_headers`, `endpoint_path`, or any unknown " +
@@ -324,7 +332,8 @@ private let logger = AppLogger(category: "ModelUseOffload")
     /// listing the params it actually accepts. Empty string for non-image models
     /// (or when resolution fails — we don't want to mask the original error).
     private static func imageParamHint(forModelIdOrName idOrName: String) async -> String {
-        guard let entry = try? await resolveModelEntry(idOrName) else { return "" }
+        guard let resolved = try? await resolveModelEntry(idOrName) else { return "" }
+        let entry = resolved.entry
         guard entry.model.capabilities.supportedModalities.contains(.imageOutput) else {
             return ""
         }
@@ -393,7 +402,8 @@ private let logger = AppLogger(category: "ModelUseOffload")
                                     outputHostPath: String?,
                                     streamFd: Int32) async throws -> [String: Any] {
         // 1. Resolve model entry
-        let entry = try await resolveModelEntry(modelIdOrName, providerFilter: providerFilter)
+        let resolved = try await resolveModelEntry(modelIdOrName, providerFilter: providerFilter)
+        let entry = resolved.entry
         let provider = try await LLMProviderFactory.makeProvider(for: entry)
 
         // [T-model-use-passthrough-mode] Explicit passthrough envelope — the
@@ -433,6 +443,16 @@ private let logger = AppLogger(category: "ModelUseOffload")
         // AI caller can verify/self-correct without reading device logs.
         var callWarnings: [String] = ptSpec.warnings
         var appliedExtras: [String: Any] = [:]
+        // [T-wire-image-output] Q4 + attribution: the fallback note goes
+        // FIRST in warnings so the caller sees the substitution before any
+        // other call feedback; the serving group rides appliedExtras so
+        // every result shape carries it via attachCallFeedback.
+        if let fallbackNote = resolved.fallbackNote {
+            callWarnings.insert(fallbackNote, at: 0)
+        }
+        if let imageOutputGroupName = resolved.imageOutputGroupName {
+            appliedExtras["image_output_group"] = imageOutputGroupName
+        }
         if let openAI = provider as? OpenAIProvider {
             if let data = inputJSON.data(using: .utf8),
                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -726,11 +746,15 @@ private let logger = AppLogger(category: "ModelUseOffload")
                         ProviderConfigStore.shared.setImageEndpointResolved(
                             instanceId: instance.id, endpoint: .imagesGenerations)
                     }
-                    return try Self.buildMediaResult(
+                    // [T-wire-image-output] This return previously skipped
+                    // attachCallFeedback, silently dropping call warnings and
+                    // extras on the auto-probe success path — including the
+                    // Q4 fallback note. Wrapping is a no-op when both are empty.
+                    return Self.attachCallFeedback(try Self.buildMediaResult(
                         response: response, entry: entry,
                         outputHostPath: outputHostPath, outputExt: outputExt0,
                         imageEndpointUsed: .imagesGenerations
-                    )
+                    ), warnings: callWarnings, extras: appliedExtras)
                 } catch let LLMError.providerError(message) where Self.looksLikeEndpointMissing(message) {
                     logger.info("🖼️ /images/generations rejected (\(message.prefix(120))) — falling back to /chat/completions")
                     await MainActor.run {
@@ -952,8 +976,22 @@ private let logger = AppLogger(category: "ModelUseOffload")
 
     // MARK: - Model Resolution
 
+    /// Outcome of model resolution: the entry plus, when the run was routed
+    /// through a group pointer rather than an explicit --model, which group
+    /// served it and whether a preselection failure was flagged (Q4).
+    private struct ResolvedModelEntry {
+        let entry: ModelEntry
+        /// Name of the Image Output group the entry was resolved from, if any.
+        let imageOutputGroupName: String?
+        /// Q4 note: set when the configured Image Output group could not
+        /// serve the run and the Agent Loop pool was used instead. The
+        /// caller must surface this first in the result — never silently
+        /// substitute.
+        let fallbackNote: String?
+    }
+
     @MainActor
-    private static func resolveModelEntry(_ idOrName: String, providerFilter: String? = nil) throws -> ModelEntry {
+    private static func resolveModelEntry(_ idOrName: String, providerFilter: String? = nil) throws -> ResolvedModelEntry {
         let store = ProviderConfigStore.shared
         let q = idOrName.lowercased()
 
@@ -976,6 +1014,39 @@ private let logger = AppLogger(category: "ModelUseOffload")
             agentEntries = filtered
         }
 
+        // [T-wire-image-output] Unnamed call (--model omitted at the CLI):
+        // resolve through the Image Output slot. Precedence: explicit
+        // --model wins (the chain below); else the slot group when set and
+        // routable; else the Agent Loop pool's first entry, flagged (Q4) —
+        // never stall, never silently substitute. An empty name must never
+        // reach the lookup chain below: step 3's `hasPrefix("")` is true for
+        // every id and would silently return the first pool entry.
+        if q.isEmpty {
+            guard providerFilter?.isEmpty ?? true else {
+                throw ModelUseError.modelNotFound(
+                    "--provider requires --model: pass --model <id> to use --provider.")
+            }
+            switch ImageOutputGroupResolver.resolve(
+                sessionId: ISHExecutionCoordinator.mountedSessionIdSnapshot ?? "") {
+            case .resolved(let slotEntry, let groupName):
+                return ResolvedModelEntry(entry: slotEntry, imageOutputGroupName: groupName, fallbackNote: nil)
+            case .unroutable(let groupName, let reason):
+                if let first = agentEntries.first {
+                    let note = "Image Output group '\(groupName)' is configured but unusable (\(reason)). "
+                        + "Falling back to the Agent Loop pool model '\(first.model.displayName)' instead. "
+                        + "Pass --model explicitly or fix the group to use the configured image model."
+                    return ResolvedModelEntry(entry: first, imageOutputGroupName: nil, fallbackNote: note)
+                }
+                throw ModelUseError.modelNotFound(
+                    "Image Output group '\(groupName)' is configured but unusable (\(reason)), "
+                    + "and no Agent Loop model is available. \(Self.noModelsHint)")
+            case .unset:
+                throw ModelUseError.modelNotFound(
+                    "No --model was given and no Image Output group is configured. "
+                    + "Pass --model <id>, or configure an Image Output group in Settings > Model Groups.")
+            }
+        }
+
         // 0. Qualified form `<instance_label>/<model_id>` — disambiguates when
         //    the same model_id exists under multiple provider instances.
         //    Match is case-insensitive on both halves; model_id may itself contain
@@ -989,29 +1060,29 @@ private let logger = AppLogger(category: "ModelUseOffload")
                     return inst.label.lowercased() == labelPart
                         && entry.model.id.lowercased() == modelPart
                 }) {
-                    return entry
+                    return ResolvedModelEntry(entry: entry, imageOutputGroupName: nil, fallbackNote: nil)
                 }
             }
         }
 
         // 1. Exact match by model ID
         if let entry = agentEntries.first(where: { $0.model.id.lowercased() == q }) {
-            return entry
+            return ResolvedModelEntry(entry: entry, imageOutputGroupName: nil, fallbackNote: nil)
         }
 
         // 2. Exact match by display name
         if let entry = agentEntries.first(where: { $0.model.displayName.lowercased() == q }) {
-            return entry
+            return ResolvedModelEntry(entry: entry, imageOutputGroupName: nil, fallbackNote: nil)
         }
 
         // 3. Prefix match by model ID
         if let entry = agentEntries.first(where: { $0.model.id.lowercased().hasPrefix(q) }) {
-            return entry
+            return ResolvedModelEntry(entry: entry, imageOutputGroupName: nil, fallbackNote: nil)
         }
 
         // 4. Contains match by display name
         if let entry = agentEntries.first(where: { $0.model.displayName.lowercased().contains(q) }) {
-            return entry
+            return ResolvedModelEntry(entry: entry, imageOutputGroupName: nil, fallbackNote: nil)
         }
 
         // 5. Try entry ID directly (must be in agent loop list)
@@ -1019,7 +1090,7 @@ private let logger = AppLogger(category: "ModelUseOffload")
         if allAgentEntryIds.contains(idOrName),
            let entry = store.entry(for: idOrName),
            store.instance(for: entry.providerInstanceId)?.isEnabled == true {
-            return entry
+            return ResolvedModelEntry(entry: entry, imageOutputGroupName: nil, fallbackNote: nil)
         }
 
         if agentEntries.isEmpty {

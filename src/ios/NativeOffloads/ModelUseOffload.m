@@ -32,11 +32,15 @@ static NSString *const HELP_TEXT =
      "  --modality <type>              Filter by modality (image, audio, video, pdf, text)\n"
      "\n"
      "RUN OPTIONS:\n"
-     "  --model <id_or_name>           Model id, display name, or entry_id (required).\n"
-     "                                 Use qualified `<instance_label>/<model_id>` (e.g.\n"
-     "                                 `deepseek/deepseek-v4-flash`) to disambiguate when\n"
-     "                                 the same model_id is configured under multiple\n"
-     "                                 provider instances. See `list` output for labels.\n"
+     "  --model <id_or_name>           Model id, display name, or entry_id.\n"
+     "                                 Optional when generating images: omitted,\n"
+     "                                 the run uses the configured Image Output\n"
+     "                                 model group (Settings > Model Groups).\n"
+     "                                 Use qualified `<instance_label>/<model_id>`\n"
+     "                                 (e.g. `deepseek/deepseek-v4-flash`) to\n"
+     "                                 disambiguate when the same model_id is\n"
+     "                                 configured under multiple provider\n"
+     "                                 instances. See `list` output for labels.\n"
      "  --provider <label_or_id>       Restrict --model lookup to a specific provider\n"
      "                                 instance. Matches `instance_label` (case-insensitive)\n"
      "                                 or instance UUID. Alternative to the qualified\n"
@@ -242,11 +246,11 @@ static int cmd_run(int argc, char **argv, int stdin_fd, int stdout_fd, int stder
                     BOOL compact, BOOL quiet) {
     NSString *modelIdOrName = noff_find_arg(argc, argv, "--model");
     if (!modelIdOrName) {
-        NSDictionary *err = noff_json_error(TOOL_NAME, @"run",
-                                             NOFF_ERR_INVALID_ARGS,
-                                             @"--model is required. Usage: minis-model-use run --model <id_or_name>");
-        noff_emit_json(stdout_fd, err, compact, quiet);
-        return NOFF_EXIT_INVALID_ARGS;
+        // [T-wire-image-output] --model is optional: without it, the Swift
+        // bridge resolves the run from the configured Image Output model
+        // group, falling back to the Agent Loop pool with a flagged note
+        // when the group cannot serve. An empty name is the sentinel.
+        modelIdOrName = @"";
     }
 
     // Optional provider scoping — disambiguates when multiple instances expose the same model_id.
