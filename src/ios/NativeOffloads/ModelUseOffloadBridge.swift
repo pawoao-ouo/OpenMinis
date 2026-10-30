@@ -1004,6 +1004,18 @@ private let logger = AppLogger(category: "ModelUseOffload")
         /// caller must surface this first in the result — never silently
         /// substitute.
         let fallbackNote: String?
+
+        /// Explicit init: the defaulted `judgeGroupName` member did not
+        /// survive memberwise synthesis under the CI toolchain (CI run
+        /// 41028687471: "extra argument 'judgeGroupName' in call" at the
+        /// three judge construction sites), so spell the initializer out
+        /// instead of relying on synthesis. No behavior change.
+        init(entry: ModelEntry, imageOutputGroupName: String?, judgeGroupName: String? = nil, fallbackNote: String?) {
+            self.entry = entry
+            self.imageOutputGroupName = imageOutputGroupName
+            self.judgeGroupName = judgeGroupName
+            self.fallbackNote = fallbackNote
+        }
     }
 
     /// Which group pointer an unnamed run resolves through. The CLI's
