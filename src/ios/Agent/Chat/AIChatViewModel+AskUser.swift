@@ -115,9 +115,12 @@ extension AIChatViewModel {
     /// （前台 + 有当轮 assistant 落盘形态）；后台、排队重放、超时，一律
     /// 不问，直接回 .fallback。
     ///
-    /// "组里最合适" = 组内按顺序第一个还存在的成员：该组整体不可路由
-    /// （成员被隐藏/停用/没凭证），路由器已无可选；用户亲手点它，就是
-    /// 明确指令，跑的时候直接绑定该成员，不再过路由器筛。
+    /// "组里最合适" = 组内按顺序第一个能过路由器可用性筛的成员（未隐藏、
+    /// 实例启用、有凭证）。该组整体不可路由，正是因为成员不可用；只查
+    /// 存在（entry(for:)）会把跑不起来的成员当推荐递给用户。筛后一个
+    /// 都没有，就不给推荐选项，只留主、副、"这次不跑"。
+    /// 用户亲手点了筛过的成员，就直接绑定该成员：筛已过过，不必再走
+    /// 路由策略重挑（loadBalance 可能换成组里另一个成员，违背用户亲选）。
     func askModelGroupFallback(subAgent: SubAgentDefinition?,
                                choice: SubAgentModelChoice,
                                toolId: String,
@@ -142,7 +145,12 @@ extension AIChatViewModel {
             }
         }
         let failedGroup = failedGroupId.flatMap { store.group(for: $0) }
-        let best = failedGroup?.memberEntryIds.compactMap { store.entry(for: $0) }.first
+        // [T-model-groups-slots] P3：推荐候选必须过路由器同一道可用性筛
+        //（ModelGroupRouter.availableEntryIds），按组内顺序取第一个可用
+        //的；筛后为空则 best 为 nil，不提供推荐选项。
+        let best = failedGroup.flatMap { group in
+            ModelGroupRouter.availableEntryIds(group: group, store: store).first
+        }.flatMap { store.entry(for: $0) }
 
         var options: [String] = []
         var bestOptionIndex: Int?
@@ -193,7 +201,8 @@ extension AIChatViewModel {
         }
         if pickedIndex == options.count - 1 { return .doNotRun }
         if let bestOptionIndex, pickedIndex == bestOptionIndex, let best {
-            // 用户亲手点的成员：直接绑定，绕过路由器筛；origin 记为
+            // 用户亲手点的成员已过路由器可用性筛：直接绑定该成员，不再走
+            // 路由策略重挑；origin 记为
             // userPicked——它既不是定义点名，也不是继承，finish() 的 Q7
             // 句只认 pinned，不会误写。
             return .runWith(HelperModelResolution(

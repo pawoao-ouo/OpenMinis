@@ -121,7 +121,11 @@ enum ModelGroupRouter {
     /// a 403 `OAuth authentication is currently not allowed for this
     /// organization`. The factory would still build a provider for it, but
     /// the request would fail immediately and waste a fallback slot.
-    private static func availableEntryIds(group: ModelGroup, store: ProviderConfigStore) -> [String] {
+    ///
+    /// Internal (not private): the Q3 ask card screens its recommended pick
+    /// through this same predicate, so a recommendation can never point at
+    /// a member the router itself would reject.
+    static func availableEntryIds(group: ModelGroup, store: ProviderConfigStore) -> [String] {
         group.memberEntryIds.filter { entryId in
             guard let entry = store.entry(for: entryId) else {
                 logger.warning("🔀ROUTE filter: entry \(entryId) not found in store")
