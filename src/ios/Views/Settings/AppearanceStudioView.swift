@@ -2412,7 +2412,7 @@ private struct StudioIconOption: Identifiable {
 
 private let studioIconOptions: [StudioIconOption] = [
     StudioIconOption(id: 0, title: "饼干小熊", subtitle: "跟随系统",
-                     iconName: nil, imageName: "AlternateIcons/AppIcon-Light"),
+                     iconName: nil, imageName: "AlternateIcons/AppIcon-Primary"),
     StudioIconOption(id: 1, title: "小蓝莓", subtitle: "蓝色头巾，眨眨眼",
                      iconName: "AppIcon-Light", imageName: "AlternateIcons/AppIcon-Light"),
     StudioIconOption(id: 2, title: "鱼鱼小猫", subtitle: "叼着粉色小鱼",
