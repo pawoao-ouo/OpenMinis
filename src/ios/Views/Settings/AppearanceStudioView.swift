@@ -2411,15 +2411,15 @@ private struct StudioIconOption: Identifiable {
 }
 
 private let studioIconOptions: [StudioIconOption] = [
-    StudioIconOption(id: 0, title: "自动", subtitle: "跟随系统",
+    StudioIconOption(id: 0, title: "饼干小熊", subtitle: "跟随系统",
                      iconName: nil, imageName: "AlternateIcons/AppIcon-Light"),
-    StudioIconOption(id: 1, title: "浅色", subtitle: "始终浅色",
+    StudioIconOption(id: 1, title: "小蓝莓", subtitle: "蓝色头巾，眨眨眼",
                      iconName: "AppIcon-Light", imageName: "AlternateIcons/AppIcon-Light"),
-    StudioIconOption(id: 2, title: "深色", subtitle: "始终深色",
+    StudioIconOption(id: 2, title: "鱼鱼小猫", subtitle: "叼着粉色小鱼",
                      iconName: "AppIcon-Dark", imageName: "AlternateIcons/AppIcon-Dark"),
-    StudioIconOption(id: 3, title: "浅色（旧）", subtitle: "经典浅色图标",
+    StudioIconOption(id: 3, title: "小包子", subtitle: "红蝴蝶结，热乎乎",
                      iconName: "AppIcon-LegacyLight", imageName: "AlternateIcons/AppIcon-LegacyLight"),
-    StudioIconOption(id: 4, title: "深色（旧）", subtitle: "经典深色图标",
+    StudioIconOption(id: 4, title: "小懒猫", subtitle: "躺着，挂着小铃铛",
                      iconName: "AppIcon-LegacyDark", imageName: "AlternateIcons/AppIcon-LegacyDark"),
 ]
 
