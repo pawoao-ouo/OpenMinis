@@ -24,8 +24,9 @@ struct GroupSlotPicker: View {
     /// [T-model-groups-slots] Text shown when no group is selected, in place
     /// of "None" — e.g. the scheduled-helper slot shows "Follow Primary
     /// Group" because nil means "follow the primary group" (Q2), never
-    /// "unset or broken".
-    var noneLabel: LocalizedStringKey? = nil
+    /// "unset or broken". Stored as a localization key and resolved via
+    /// AppLocalized, so the in-app language override applies.
+    var noneLabel: String.LocalizationValue? = nil
     /// [T-model-groups-slots] Q5: the slot names a job with no runtime
     /// consumer yet. Rendered disabled with a "Not yet active" mark; the
     /// stored selection is preserved but cannot be changed, and nothing
@@ -67,13 +68,17 @@ struct GroupSlotPicker: View {
             return s.name
         }
         if let id = selection, let g = store.group(for: id) { return g.name }
-        if let noneLabel { return String(localized: noneLabel) }
+        if let noneLabel { return AppLocalized(noneLabel) }
         return AppLocalized("None", comment: "No group selected")
     }
 
     /// The "no selection" row label: the slot's `noneLabel` when one is set
-    /// (Q2 follow-primary wording), else the plain "None".
-    private var noneText: LocalizedStringKey { noneLabel ?? "None" }
+    /// (Q2 follow-primary wording), else the plain "None". Resolved via
+    /// AppLocalized, like selectedName, so the in-app language override applies.
+    private var noneText: String {
+        if let noneLabel { return AppLocalized(noneLabel) }
+        return AppLocalized("None", comment: "No group selected")
+    }
 
     var body: some View {
         Menu {
