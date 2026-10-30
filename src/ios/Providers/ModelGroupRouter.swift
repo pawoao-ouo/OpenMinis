@@ -151,3 +151,112 @@ enum ModelGroupRouter {
         }
     }
 }
+
+// MARK: - [T-wire-image-output] Image Output group resolver
+
+/// Resolves image-generation runs to the user's configured Image Output group.
+///
+/// Mirrors `VisionGroupResolver.candidates`: per-member resolution with a
+/// modality filter, because `ModelGroupRouter.resolve` has no modality
+/// screening and could hand an image job to a text-only member. Availability
+/// itself reuses the router's own predicate
+/// (`ModelGroupRouter.availableEntryIds`) — the same gate the shipped
+/// default/sub/scheduled-helper slots use — and only the `.imageOutput`
+/// filter is added on top. Deliberately lives in this file rather than a
+/// new one: a new Swift file plus a hand-edited pbxproj entry is the
+/// highest-risk combination in this repo's history, and nothing here needs
+/// a file of its own.
+@MainActor
+enum ImageOutputGroupResolver {
+
+    /// Outcome of resolving the Image Output pointer. The three cases exist
+    /// so the caller can tell "nothing configured" (silent, current
+    /// behaviour) from "configured but unusable" (Q4: fall back flagged,
+    /// never stall, never silently substitute) without re-deriving it from
+    /// the pointer — the same distinction `ModelTierResolver` draws by
+    /// checking the pointer after `configuredGroup` returns nil.
+    enum Resolution {
+        /// No Image Output group is configured (pointer nil or dangling).
+        case unset
+        /// A group is configured but holds no usable image-output member.
+        case unroutable(groupName: String, reason: String)
+        /// A usable image-output member, in the group's own order/strategy.
+        case resolved(entry: ModelEntry, groupName: String)
+    }
+
+    /// Resolve the Image Output pointer for one run. `sessionId` only
+    /// stabilises `.loadBalance` rotation within a session, mirroring
+    /// `ModelGroupRouter.resolve`.
+    static func resolve(sessionId: String) -> Resolution {
+        let store = ProviderConfigStore.shared
+        guard let gid = store.imageOutputGroupId, let group = store.group(for: gid) else {
+            return .unset
+        }
+        let members = candidates(seed: stableSeed(for: sessionId))
+        guard let first = members.first else {
+            return .unroutable(groupName: group.name, reason: unroutableReason(group: group, store: store))
+        }
+        return .resolved(entry: first, groupName: group.name)
+    }
+
+    /// Every usable image-output member of the configured Image Output
+    /// group, in the group's own order. `.loadBalance` groups are rotated
+    /// by `seed` so repeated calls spread across members; `.fallback`
+    /// groups keep author order and the caller walks the list on failure —
+    /// the same contract as `VisionGroupResolver.candidates`.
+    static func candidates(seed: Int = 0) -> [ModelEntry] {
+        let store = ProviderConfigStore.shared
+        guard let gid = store.imageOutputGroupId, let group = store.group(for: gid) else { return [] }
+
+        let available = Set(ModelGroupRouter.availableEntryIds(group: group, store: store))
+        var members = group.memberEntryIds.compactMap { entryId -> ModelEntry? in
+            guard available.contains(entryId),
+                  let entry = store.entry(for: entryId),
+                  entry.model.capabilities.supportedModalities.contains(.imageOutput) else { return nil }
+            return entry
+        }
+
+        if group.strategy == .loadBalance, members.count > 1 {
+            let offset = seed % members.count
+            members = Array(members[offset...] + members[..<offset])
+        }
+        return members
+    }
+
+    /// One sentence saying why a configured group cannot serve an image
+    /// run, so the Q4 fallback note can tell the user what to fix.
+    private static func unroutableReason(group: ModelGroup, store: ProviderConfigStore) -> String {
+        let ids = group.memberEntryIds
+        guard !ids.isEmpty else { return "the group has no members" }
+        let available = Set(ModelGroupRouter.availableEntryIds(group: group, store: store))
+        let noCapability = ids.filter { id in
+            available.contains(id)
+                && !(store.entry(for: id)?.model.capabilities.supportedModalities.contains(.imageOutput) ?? false)
+        }.count
+        let unavailable = ids.filter { !available.contains($0) }.count
+        switch (noCapability, unavailable) {
+        case (0, 0):
+            return "no usable member"
+        case (_, 0):
+            return "none of its \(ids.count) member(s) declare image-output capability"
+        case (0, _):
+            return "all \(ids.count) member(s) are unavailable (hidden, disabled, or not logged in)"
+        default:
+            return "\(noCapability) member(s) declare no image-output capability and "
+                + "\(unavailable) are unavailable (hidden, disabled, or not logged in)"
+        }
+    }
+
+    /// Non-negative FNV-1a seed. `String.hashValue` is randomised per
+    /// process launch, so it cannot pin a session to a member across
+    /// restarts; the mask keeps the value non-negative so the rotation
+    /// offset in `candidates` can never trap on `Int.min`.
+    private static func stableSeed(for sessionId: String) -> Int {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in sessionId.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return Int(hash & 0x7FFF_FFFF_FFFF_FFFF)
+    }
+}
