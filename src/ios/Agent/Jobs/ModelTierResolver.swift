@@ -23,16 +23,21 @@ enum HelperModelOrigin: String {
     case defaultGroup = "default_group"
     /// Auto + `sub_model`: the user's configured light/economical group.
     case subGroup = "sub_group"
+    /// Auto + `scheduled_helper`: the user's scheduled-helper group, or the
+    /// default group when that slot follows the primary group (Q2).
+    case scheduledHelper = "scheduled_helper"
 }
 
 /// [T-sub-agents-v1] What the delegating model asked for when the chosen sub
 /// agent is set to Auto (no pinned group). A definition that pins a group
 /// ignores this entirely — the user's configuration outranks the model.
 ///
-/// The three options are deliberately about INTENT, not about model names: the
+/// The four options are deliberately about INTENT, not about model names: the
 /// delegating model knows how hard the task is, the user knows which of their
 /// models is strong and which is cheap. The wire values are what the tool
-/// schema exposes.
+/// schema exposes. A choice never names a specific model and never escapes
+/// the group the user preselected (Q6); a definition that pins a group
+/// ignores the choice entirely.
 enum SubAgentModelChoice: String {
     /// Continue with the same model this conversation runs on.
     case sameAsParent = "same_as_me"
@@ -40,6 +45,9 @@ enum SubAgentModelChoice: String {
     case defaultModel = "default_model"
     /// The user's light group — typically smaller, faster, cheaper.
     case subModel = "sub_model"
+    /// The user's scheduled-helper group (Q2: unset means it follows the
+    /// default group) — the cheap-work group for delegated chores.
+    case scheduledHelper = "scheduled_helper"
 
     /// Unknown / absent values fall back to the parent's model: the safe
     /// direction, since it is what the conversation is already using.
@@ -118,7 +126,7 @@ enum SubAgentModelResolver {
         }
 
         // Auto: the definition pins nothing, so the delegating model's
-        // `model_choice` decides between the parent's model and the user's two
+        // `model_choice` decides between the parent's model and the user's
         // configured groups. Every branch degrades to the parent's model rather
         // than failing the delegation.
         guard let gid = subAgent?.modelGroupId else {
@@ -131,6 +139,30 @@ enum SubAgentModelResolver {
             case .subModel:
                 return configuredGroup(store.defaultSubGroupId, label: "sub_model",
                                        origin: .subGroup) ?? inherited()
+            case .scheduledHelper:
+                // [T-model-groups-slots] Q2: an unset slot follows the
+                // primary group. A pointer naming a group that cannot be
+                // routed is a preselection failure (Q4): fall back to the
+                // primary group, then the parent's model, and flag it via
+                // modelGroupUnavailable so the result can say the preselected
+                // group did not apply. Never stall, never fail the task.
+                guard let gid = store.scheduledHelperGroupId else {
+                    return configuredGroup(store.defaultPrimaryGroupId, label: "default_model",
+                                           origin: .defaultGroup) ?? inherited()
+                }
+                if let chosen = configuredGroup(gid, label: "scheduled_helper",
+                                                origin: .scheduledHelper) {
+                    return chosen
+                }
+                if let primary = configuredGroup(store.defaultPrimaryGroupId, label: "default_model",
+                                                 origin: .defaultGroup) {
+                    var fallback = primary
+                    fallback.modelGroupUnavailable = true
+                    return fallback
+                }
+                guard var fallback = inherited() else { return nil }
+                fallback.modelGroupUnavailable = true
+                return fallback
             }
         }
 
