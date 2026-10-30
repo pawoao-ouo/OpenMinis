@@ -547,6 +547,19 @@ enum ScheduledJobRunner {
     private static func resolveModel(for job: AgentJob) -> ModelEntry? {
         let store = ProviderConfigStore.shared
         if let override = job.modelEntryId, let e = store.entry(for: override) { return e }
+        // [T-model-groups-slots] Q2: the scheduled-helper slot sits between
+        // the per-job --model override and the primary group. Unset = follow
+        // the primary group (today's behavior). A set but unroutable pointer
+        // falls through to the primary group and logs — the job must still
+        // fire; the preselection-failure note in the result is follow-up work
+        // in the completion-payload builder (Q4), which lives outside this
+        // file's scope.
+        if let gid = store.scheduledHelperGroupId, let group = store.group(for: gid),
+           let id = ModelGroupRouter.resolve(group: group, sessionId: job.id, store: store),
+           let e = store.entry(for: id) { return e }
+        if store.scheduledHelperGroupId != nil {
+            logger.warning("[Sched] scheduled-helper group \\(store.scheduledHelperGroupId!.prefix(8)) has no routable member — falling back to the primary group")
+        }
         if let gid = store.defaultPrimaryGroupId, let group = store.group(for: gid),
            let id = ModelGroupRouter.resolve(group: group, sessionId: job.id, store: store),
            let e = store.entry(for: id) { return e }
