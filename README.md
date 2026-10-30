@@ -1,47 +1,36 @@
-# OpenMinis
+# 嘟嘟
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platforms](https://img.shields.io/badge/Platforms-iOS%20%7C%20Android-lightgrey.svg)](#beta-programme)
+[![Platform: iOS](https://img.shields.io/badge/Platform-iOS-lightgrey.svg)](#building-from-source)
 
-**Your private, on-device AI agent.**
+**你的私人手机 AI 伙伴。**
 
-OpenMinis brings leading models — Claude, GPT, Gemini and more — into a native
-mobile experience, and gives them a real computer to work with: a full Linux
-shell running on your device, browser automation, extensible skills, persistent
-memory, and deep system integration.
+嘟嘟是 OpenMinis 的个人定制版本：把 Claude、GPT、Gemini 这些模型装进口袋，
+给它们一台真正能干活的电脑——手机里跑着完整的 Linux 环境，能上网、能用
+各种技能、有长期记忆，还能直接调用手机的日历、健康、提醒事项这些系统能力。
 
-It is free, and fully open source.
+免费、完全开源。
 
-**We believe that in the age of AI, technical design and code are no longer
-where a product's advantage lies. The best agent emerges from a tight feedback
-loop with the people who use it — their expectations and their reports are
-what converge on the product.**
-
-Official website: **[openminis.app](https://openminis.app)**
-
-<a href="https://apps.apple.com/app/id6759188481">
-  <img alt="Download on the App Store" height="48" src="assets/badge-appstore.svg" />
-</a>
-&nbsp;
-<a href="https://github.com/OpenMinis/OpenMinis/releases">
-  <img alt="Get the APK on GitHub" height="48" src="assets/badge-android.svg" />
-</a>
-
-![Minis on iOS — deep research, chat, agent runtime, integrations, iCloud sync and granular permissions](assets/screenshots.png)
+**在 AI 的时代，技术和代码早已不是产品的优势所在。最好的助手，是和用它
+的人一起磨出来的——你的期待和反馈，才是它成型的方向。**
 
 ---
 
-## What it does
+## 嘟嘟能做什么
 
 | | |
 |---|---|
-| **Bring your own model** | Claude, GPT, Gemini and other providers, via your own API keys or account sign-in. |
-| **A real Linux shell** | A sandboxed Alpine Linux environment runs on-device — the agent can install packages, run scripts, and work with real files. |
-| **Device integration** | Health, Calendar, Reminders, Contacts, HomeKit, Bluetooth, Clipboard, Media, Alarms and more, exposed to the agent as tools. |
-| **Browser automation** | The agent can browse and interact with the web on your behalf. |
-| **Skills & memory** | Extensible skills plus persistent memory across sessions. |
-| **Workspaces** | Organise work into separate contexts, addressable via `minis://workspace/`. |
-| **Native offloads** | Heavy or platform-specific work is handed to native code instead of the sandbox. |
+| **自带模型** | Claude、GPT、Gemini 等，用你自己的 API key 或账号登录。 |
+| **真正的 Linux 环境** | 手机里跑着沙盒 Alpine Linux，装包、跑脚本、处理真实文件都不在话下。 |
+| **系统能力** | 健康、日历、提醒事项、通讯录、HomeKit、蓝牙、剪贴板、媒体、闹钟等，都可以作为工具交给 AI。 |
+| **浏览器操作** | AI 可以替你上网、点页面、办事情。 |
+| **技能与记忆** | 技能按需加载，记忆跨会话保留。 |
+| **工作区** | 不同事情分开装进各自的工作区，用 `minis://workspace/` 定位。 |
+| **原生能力** | 重活或平台相关的活交给原生代码，不走沙盒。 |
+| **模型分组** | 模型按主分组、副分组归类，不同用途（识图、语音、图片输出、定时小帮手）可以各用各的分组，AI 只在你给的分组里选。 |
+| **定时任务与小帮手** | 定时任务有自己的小帮手分组，不用跟当前对话框抢同一个模型。 |
+| **子代理选模型** | 子代理可以按分组自己选模型，脏活累活交给便宜的模型。 |
+| **一起听** | 和手机里的 AI 一起听歌，播放、切歌、进度都在输入栏上面的小胶囊里。 |
 
 ---
 
