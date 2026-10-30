@@ -140,11 +140,34 @@ enum SubAgentModelResolver {
             case .sameAsParent:
                 return inherited()
             case .defaultModel:
-                return configuredGroup(store.defaultPrimaryGroupId, label: "default_model",
-                                       origin: .defaultGroup) ?? inherited()
+                // [T-model-groups-slots] P1: configuredGroup returns nil for
+                // both an unset pointer (silent inherited() is correct) and a
+                // pointer naming a group that cannot be routed (preselection
+                // failure — must flag, mirroring the scheduled_helper branch
+                // below, so the Q3 ask gate and the Q4 top-of-result note
+                // fire). Distinguish by the pointer, not by the nil.
+                if let chosen = configuredGroup(store.defaultPrimaryGroupId, label: "default_model",
+                                                origin: .defaultGroup) {
+                    return chosen
+                }
+                if store.defaultPrimaryGroupId != nil {
+                    guard var fallback = inherited() else { return nil }
+                    fallback.modelGroupUnavailable = true
+                    return fallback
+                }
+                return inherited()
             case .subModel:
-                return configuredGroup(store.defaultSubGroupId, label: "sub_model",
-                                       origin: .subGroup) ?? inherited()
+                // [T-model-groups-slots] P1: same distinction as .defaultModel.
+                if let chosen = configuredGroup(store.defaultSubGroupId, label: "sub_model",
+                                                origin: .subGroup) {
+                    return chosen
+                }
+                if store.defaultSubGroupId != nil {
+                    guard var fallback = inherited() else { return nil }
+                    fallback.modelGroupUnavailable = true
+                    return fallback
+                }
+                return inherited()
             case .scheduledHelper:
                 // [T-model-groups-slots] Q2: an unset slot follows the
                 // primary group. A pointer naming a group that cannot be
