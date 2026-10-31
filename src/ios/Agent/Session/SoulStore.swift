@@ -663,12 +663,19 @@ struct SoulIconView: View {
 
     var body: some View {
         if let image = SoulIconImage.decode(icon) {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: size, height: size)
-                .clipShape(RoundedRectangle(cornerRadius: resolvedRadius,
-                                            style: .continuous))
+            // [Avatar review P2-2] Same theme fill as PersonaAvatarView:
+            // a transparent PNG in the chat header must not show the
+            // wallpaper/card through it (the "overlay" illusion).
+            ZStack {
+                RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
+                    .fill(MinisTheme.mutedSurface)
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            }
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: resolvedRadius,
+                                        style: .continuous))
         } else if let gradient = sparkleGradient {
             // No image set: the SF Symbol sparkle, keeping the chat
             // header's existing gradient treatment.
