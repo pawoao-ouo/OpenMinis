@@ -78,7 +78,11 @@ import UIKit
             }
             // [B28 R3-5 / F-2] 吃不下的字段不再被吞 —— warnings 明说哪些
             // 图没落住，AI 侧能自查重试，不会拿着 ok 当全好。
-            let warnings = AppearanceStudio.shared.applyThemePack(pack)
+            // Partial-only: an AI `apply --file` call carries only the
+            // fields it names, so it must NOT reset anything it left
+            // out. Merge mode is kept for this path alone; a full theme
+            // switch (library apply, clipboard import) uses replace.
+            let warnings = AppearanceStudio.shared.applyThemePack(pack, mode: .merge)
             var out = AppearanceStudio.shared.currentThemePack().asJSONObject()
             out["ok"] = true
             out["applied"] = true

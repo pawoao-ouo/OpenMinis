@@ -568,17 +568,63 @@ extension AppearanceStudio {
         objectWillChange.send()
     }
 
+    /// How a pack apply treats fields the pack does not carry.
+    ///
+    /// - replace: a theme switch. The new pack IS the whole theme, so
+    ///   images and global colours it does not carry are cleared, not
+    ///   inherited from the old pack. Used by theme-library apply and
+    ///   clipboard import — the paths a user means as "switch theme".
+    /// - merge: a partial update. Only the fields carried change; anything
+    ///   omitted stays. Only the AI local-update path
+    ///   (`minis-theme apply --file`) uses merge, and it is labelled
+    ///   partial-only at its call site.
+    enum ThemeApplyMode { case replace, merge }
+
     /// Applies a pack to the live studio.
     ///
-    /// Image payloads are optional: a nil base64 means "this call does not
-    /// carry that image", so the file on disk stays. Callers that mean to
-    /// remove an image call `removeWallpaper` / `removeThinkingCardImage` /
-    /// `removeInputBarImage` instead of relying on an omission.
+    /// Merge mode keeps the old rule: a nil base64 means "this call does
+    /// not carry that image", so the file on disk stays. Replace mode
+    /// inverts it: a nil/empty base64 means "this theme has no such
+    /// image", so the old file is deleted — otherwise switching from a
+    /// rich pack to a sparse pack would leave the old wallpaper, thinking
+    /// card, input-bar, character-art and category images on screen.
     /// [B28 R3-5 / F-2] 图吃不下以前也照样应用成功 —— 应用方（UI/CLI/AI）
     /// 需要知道哪些字段没落住，返回值就是那份实话。
     @discardableResult
-    func applyThemePack(_ pack: AppearanceThemePack, wallpaper: UIImage? = nil) -> [String] {
+    func applyThemePack(_ pack: AppearanceThemePack, wallpaper: UIImage? = nil,
+                        mode: ThemeApplyMode = .merge) -> [String] {
         var warnings: [String] = []
+        let replace = (mode == .replace)
+        // Replace mode, before anything is persisted: clear every slot
+        // the new pack does not carry. The writes below then put back
+        // only what the new pack actually carries. (A payload that is
+        // present but undecodable still keeps the old file plus a
+        // warning — a corrupt pack must not destroy a good image.)
+        if replace {
+            if wallpaper == nil, !(pack.wallpaperJPEGBase64?.isEmpty == false) {
+                removeWallpaper(.global)
+            }
+            if !(pack.thinkingCardJPEGBase64?.isEmpty == false) {
+                removeThinkingCardImage()
+            }
+            if !(pack.inputBarJPEGBase64?.isEmpty == false) {
+                removeInputBarImage()
+            }
+            if !(pack.characterArtBase64?.isEmpty == false) {
+                removeCharacterArt()
+            }
+            // Global colours only: page-scope overrides are a separate
+            // (P0-4) concern and are kept here, so a theme switch does
+            // not silently wipe a page the user tuned on purpose. The
+            // new pack's colours are painted over the cleared globals
+            // below; a colourless pack therefore falls back to the
+            // built-in palette instead of keeping the old one.
+            let globalPrefix = AppearanceScope.global.rawValue + "."
+            let keptPageColours = exportColorOverrides().filter {
+                !$0.key.hasPrefix(globalPrefix)
+            }
+            restoreColorOverrides(keptPageColours)
+        }
         var stored = pack
         stored.wallpaperJPEGBase64 = nil
         stored.thinkingCardJPEGBase64 = nil
@@ -592,18 +638,26 @@ extension AppearanceStudio {
             } else { warnings.append("characterArt") }
         }
         stored.characterArtBase64 = nil
-        // Keep markers for category images the caller did not mention.
-        // applyCategoryImages below reconciles the rest against disk.
-        let mentioned = Set(pack.categoryImages.keys)
-        var markers = currentThemePack().categoryImages
-        for key in mentioned { markers[key] = pack.categoryImages[key] }
-        stored.categoryImages = markers
+        // Merge mode keeps markers for category images the caller did
+        // not mention. Replace mode starts from exactly what the new
+        // pack carries; applyCategoryImages below (fed "" for missing
+        // keys) deletes the rest from disk.
+        if replace {
+            stored.categoryImages = pack.categoryImages
+        } else {
+            let mentioned = Set(pack.categoryImages.keys)
+            var markers = currentThemePack().categoryImages
+            for key in mentioned { markers[key] = pack.categoryImages[key] }
+            stored.categoryImages = markers
+        }
         persistPack(stored)
         if !pack.colorsLight.isEmpty || !pack.colorsDark.isEmpty {
             applyPackColors(light: pack.colorsLight, dark: pack.colorsDark)
         }
         if let opacity = pack.surfaceOpacity { surfaceOpacity = opacity }
+        else if replace { surfaceOpacity = 0.88 }
         if let shade = pack.wallpaperShade { wallpaperShade = shade }
+        else if replace { wallpaperShade = 0.08 }
         if let wallpaper {
             if !setWallpaper(wallpaper, for: .global) { warnings.append("wallpaper") }
         } else if let b64 = pack.wallpaperJPEGBase64 {
@@ -621,7 +675,19 @@ extension AppearanceStudio {
                 if !setInputBarImageEncoded(data) { warnings.append("inputBar") }
             } else { warnings.append("inputBar") }
         }
-        applyCategoryImages(pack.categoryImages)
+        if replace {
+            // Missing key = "this theme has no image for this slot" →
+            // delete it. applyCategoryImages treats "" as delete, so
+            // feed it a complete map instead of the pack's sparse one.
+            // (Merge mode passes the pack map unchanged: missing = leave.)
+            var completeMap = pack.categoryImages
+            for key in AppearanceThemePack.categoryKeys where completeMap[key] == nil {
+                completeMap[key] = ""
+            }
+            applyCategoryImages(completeMap)
+        } else {
+            applyCategoryImages(pack.categoryImages)
+        }
         configureUIKitSurfaces()
         return warnings
     }

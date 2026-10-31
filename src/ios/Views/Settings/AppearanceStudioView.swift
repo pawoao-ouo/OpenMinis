@@ -1626,6 +1626,9 @@ struct AppearanceStudioView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 sectionTitle(AppLocalized("主题库"))
+                Text(AppLocalized("应用一套主题就是整套替换：新主题没有带的图和颜色会被清掉，不会留着旧的。"))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.75))
                 let saved = studio.savedThemes()
                 if saved.isEmpty {
                     Text(AppLocalized("还没有存过的主题。"))
@@ -1737,6 +1740,9 @@ struct AppearanceStudioView: View {
                 Button(AppLocalized("从剪贴板贴上")) { importPackFromClipboard() }
                     .font(.system(size: 13))
                     .foregroundStyle(studio.color(.accent, variant: variant))
+                Text(AppLocalized("贴上的主题也是整套替换：没有带的图和颜色会被清掉。"))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.8))
                 Button(AppLocalized("恢复默认主题包")) { showResetConfirm = true }
                     .font(.system(size: 12))
                     .foregroundStyle(studio.color(.destructive, variant: variant))
@@ -2167,8 +2173,14 @@ struct AppearanceStudioView: View {
             return
         }
         do {
-            let pack = try AppearanceThemePack.decode(obj, merging: studio.currentThemePack())
-            studio.applyThemePack(pack)
+            // Clipboard import is a full theme switch, not a merge onto
+            // the live pack: decode against the defaults (not the current
+            // pack) so fields the pasted pack omits fall back to the
+            // defaults instead of silently keeping the old theme, then
+            // apply in replace mode so uncarried images/colours are
+            // cleared rather than inherited.
+            let pack = try AppearanceThemePack.decode(obj)
+            studio.applyThemePack(pack, mode: .replace)
         } catch {
             fail(error.localizedDescription)
         }

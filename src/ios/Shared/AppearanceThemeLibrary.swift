@@ -107,11 +107,14 @@ extension AppearanceStudio {
     }
 
     /// [B28 R3-5] nil = 没应用成；返回数组 = 应用了但哪些图没落住（F-2）。
+    /// Applying a saved theme is a full theme switch, not a merge:
+    /// images and global colours the saved pack does not carry are
+    /// cleared instead of leaving the previous theme's behind.
     @discardableResult
     func applySavedTheme(id: String) -> [String]? {
         guard savedThemes().contains(where: { $0.id == id }),
               let pack = readLibraryPack(id: id) else { return nil }
-        let warnings = applyThemePack(pack)
+        let warnings = applyThemePack(pack, mode: .replace)
         // [B28 R2-10] 「现在用的是哪套」以前在模型里根本没有。记下这次
         // 应用的是谁，列表才能诚实回答：还是它 / 你后来改过。
         UserDefaults.standard.set(id, forKey: Self.lastAppliedKey)
