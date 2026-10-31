@@ -61,6 +61,12 @@ actor BackupImporter {
         /// were NOT restored. Kept distinct from `credentialsKept`: reporting
         /// these as "kept" claims a credential survived that never arrived.
         var credentialsUndecodable = 0
+        /// [F979] Scheduled tasks from the package that were deliberately
+        /// deleted on this device and held back instead of resurrected.
+        /// Kept out of `skipped` on purpose: "skipped" reads as "already up
+        /// to date", which these are not. Surfaced per-category in the
+        /// restore report UI; ids are logged by the importer.
+        var heldBackDeleted = 0
         var failed: String?
     }
 

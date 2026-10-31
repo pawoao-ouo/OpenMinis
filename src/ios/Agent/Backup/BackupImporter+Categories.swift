@@ -205,10 +205,16 @@ extension BackupImporter {
     /// skips ids the registry already holds, and its closing
     /// `persistScheduledJobs()` writes every live job back. So a task created on
     /// this device since the backup survives, and only ids this device does not
-    /// currently have are taken from the package. (The one wrinkle: a task the
-    /// user deleted here but that the package still carries does come back —
-    /// that is the price of accepting the package as the source of truth for
-    /// unknown ids.)
+    /// currently have are taken from the package.
+    ///
+    /// [F979] Except deliberately deleted tasks: ids in the registry's
+    /// deleted-task tombstone set are held back by
+    /// `adoptRestoredScheduledTasks` and counted in `report.heldBackDeleted`
+    /// instead of `report.skipped` — folding them into "skipped" would
+    /// mislabel them as "already up to date", which is exactly the silent
+    /// reading this fix exists to remove. The held-back ids are logged here
+    /// (prefix-8, the codebase's id convention) and surfaced per-category in
+    /// the restore report UI.
     private func importScheduledTasks(root: URL) async throws -> CategoryReport {
         var report = CategoryReport(category: BackupCategory.scheduledTasks.rawValue)
         let url = root.appendingPathComponent("data/scheduled_tasks.json")
@@ -220,10 +226,14 @@ extension BackupImporter {
             logger.warning("[Restore] scheduled_tasks.json (\(data.count) bytes) did not decode — no tasks restored")
             return report
         }
-        let adopted = await MainActor.run {
+        let adoption = await MainActor.run {
             AgentJobRegistry.shared.adoptRestoredScheduledTasks(jobs)
         }
-        report.imported += adopted
+        report.imported += adoption.adopted
+        report.heldBackDeleted += adoption.heldBackIds.count
+        if !adoption.heldBackIds.isEmpty {
+            logger.warning("[Restore] scheduled tasks: held back \(adoption.heldBackIds.count) deleted task(s), not restored: \(adoption.heldBackIds.map { $0.prefix(8) }.joined(separator: ", "))")
+        }
         return report
     }
 

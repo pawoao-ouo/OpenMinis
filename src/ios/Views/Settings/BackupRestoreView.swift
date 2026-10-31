@@ -577,6 +577,15 @@ struct BackupRestoreView: View {
                             .font(.caption)
                             .foregroundStyle(MinisTheme.warning)
                     }
+                    // [F979] Deliberately deleted tasks held back on restore
+                    // get their own line rather than being folded into
+                    // "skipped": they are not "already up to date", they were
+                    // kept deleted on purpose.
+                    if c.heldBackDeleted > 0 {
+                        Text("\(displayNameRaw(c.category)): \(c.heldBackDeleted) task(s) you deleted were held back and not restored")
+                            .font(.caption)
+                            .foregroundStyle(MinisTheme.secondaryText)
+                    }
                     // [review S7] The package's own index referenced content it
                     // did not contain — the backup is incomplete. Shown in red:
                     // this is the case that used to be silently swallowed and
