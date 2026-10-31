@@ -217,29 +217,25 @@ extension ConfigRegistry {
             writer: { v in
                 guard case .string(let s) = v else { throw ConfigError.typeMismatch(expected: "string") }
                 let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Empty clears back to the default sparkle.
+                // [Avatar review P2-1] Route through the canonical
+                // avatar function, not directly through SOUL.md.
+                // Direct SOUL writes bypassed Persona.avatar orphan
+                // cleanup and cache clearing, and could re-introduce
+                // a soul- reference into Persona.avatar via the
+                // SoulStore.save sync. The canonical function writes
+                // persona-<id>.png, mirrors to SOUL, clears both
+                // caches, posts .soulMdChanged, and deletes orphans,
+                // so the writer must not also write SOUL.md itself
+                // after a canonical success (it would be redundant).
+                // Empty clears back to the default sparkle, via the
+                // canonical removal path (which also deletes the old
+                // avatar file), not by only clearing the SOUL icon.
                 guard !trimmed.isEmpty else {
-                    try updateMetadata { $0.icon = "" }
-                    return
-                }
-                // A finished stored reference, or a legacy inline data URI
-                // handed over directly: the inline form is migrated to a
-                // file here, so SOUL.md never stores base64 again.
-                if SoulIconImage.isImageReference(trimmed) {
-                    let stored: String
-                    if SoulIconImage.isDataURI(trimmed) {
-                        let name = SoulIconImage.storedName(prefix: "persona",
-                                                           id: PersonaStore.currentID())
-                        guard let migrated = SoulIconImage.migrateDataURIToFile(trimmed, named: name) else {
-                            throw ConfigError.invalidValue(
-                                "that image couldn't be read — try a different source.")
-                        }
-                        stored = migrated
-                    } else {
-                        stored = trimmed
+                    switch PersonaStore.shared.setAvatarImage(nil, for: PersonaStore.currentID()) {
+                    case .success: return
+                    case .failure(let error):
+                        throw ConfigError.invalidValue(error.localizedDescription)
                     }
-                    try updateMetadata { $0.icon = stored }
-                    return
                 }
                 // An image source that reached the writer unresolved means the
                 // async resolve step was skipped. Fail loudly rather than
@@ -248,6 +244,31 @@ extension ConfigRegistry {
                     throw ConfigError.invalidValue(
                         "image source was not resolved before the write — this is a bug; "
                         + "please report it")
+                }
+                // A finished stored reference, or a legacy inline data URI
+                // handed over directly: decode it and let the canonical
+                // function store it to persona-<id>.png. A soul- path
+                // handed over here is therefore migrated to the
+                // canonical name, never stored as a soul- reference
+                // into Persona.avatar. A reference that cannot be
+                // decoded is refused instead of stored as a dangling
+                // path. SOUL.md never stores base64 again.
+                if SoulIconImage.isImageReference(trimmed) {
+                    guard let image = SoulIconImage.decode(trimmed) else {
+                        throw ConfigError.invalidValue(
+                            "that image couldn't be read — try a different source.")
+                    }
+                    let wasStaging = trimmed.hasPrefix("avatars/persona-")
+                        && trimmed.hasSuffix("-staging.png")
+                    switch PersonaStore.shared.setAvatarImage(image, for: PersonaStore.currentID()) {
+                    case .success:
+                        if wasStaging {
+                            _ = SoulIconImage.deleteFile(forReference: trimmed)
+                        }
+                        return
+                    case .failure(let error):
+                        throw ConfigError.invalidValue(error.localizedDescription)
+                    }
                 }
                 // [avatar] Emoji are not accepted: the icon is an image or
                 // nothing. Anything that is neither a finished data URI

@@ -653,8 +653,15 @@ private let logger = AppLogger(category: "ConfigOffload")
             if field.path == "soul.icon", case .string(let rawIcon) = newValue,
                SoulIconSource.looksLikeImageSource(rawIcon) {
                 do {
+                    // [Avatar review P2-1] Resolve to a staging file,
+                    // not to the live canonical file: resolving before
+                    // the confirmation sheet must not overwrite the
+                    // live avatar if the user cancels. The writer
+                    // promotes a staging reference through the
+                    // canonical function on confirm, and deletes the
+                    // staging file afterwards.
                     let name = SoulIconImage.storedName(prefix: "persona",
-                                                       id: PersonaStore.currentID())
+                                                       id: PersonaStore.currentID()) + "-staging"
                     let storedPath = try await SoulIconSource.resolveToStoredPath(rawIcon, named: name)
                     newValue = .string(storedPath)
                     displayNew = "<image>"
