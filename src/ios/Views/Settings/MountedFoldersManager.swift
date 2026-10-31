@@ -337,6 +337,10 @@ final class MountedFoldersManager {
         // message if the bookmark step below actually fails.
         let startedHere = pickedURL.startAccessingSecurityScopedResource()
         defer { if startedHere { pickedURL.stopAccessingSecurityScopedResource() } }
+        // DIAG-ONLY (mount pick): log the scope result with the picked path.
+        // No behavior change: the value is still only used to sharpen the
+        // bookmark-failure message below, exactly as before.
+        mountLog.info("DIAG mount-add picked path=\(pickedURL.path) startAccessingSecurityScopedResource=\(startedHere)")
 
         let bookmark: Data
         do {
@@ -346,7 +350,12 @@ final class MountedFoldersManager {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
+            // DIAG-ONLY: bookmark creation success.
+            mountLog.info("DIAG mount-add bookmark created path=\(pickedURL.path) bytes=\(bookmark.count)")
         } catch {
+            // DIAG-ONLY: bookmark creation failure, with exact code/domain.
+            let nsError = error as NSError
+            mountLog.error("DIAG mount-add bookmark FAILED path=\(pickedURL.path) startAccessing=\(startedHere) error=\(error.localizedDescription) code=\(nsError.code) domain=\(nsError.domain)")
             // Bookmark failed. If the scope also refused, that is almost
             // certainly why — say so instead of handing over a raw NSError.
             throw startedHere
@@ -655,9 +664,14 @@ final class MountedFoldersManager {
                 manager.activationStates[entry.id] = .failed(msg)
                 mountLog.warning("activate '\(entry.name)' [\(idPrefix)] \(msg) (elapsed=\(elapsedMs)ms)")
             case .failure(let error):
+                // DIAG-ONLY: launch-path bookmark parsing failure, exact code/domain.
+                let nsError = error as NSError
+                mountLog.error("DIAG mount-resolve bookmark parse FAILED name='\(entry.name)' [\(idPrefix)] bytes=\(entry.bookmark.count) error=\(error.localizedDescription) code=\(nsError.code) domain=\(nsError.domain) (elapsed=\(elapsedMs)ms)")
                 manager.activationStates[entry.id] = .failed(error.localizedDescription)
                 mountLog.warning("activate '\(entry.name)' [\(idPrefix)] resolve failed: \(error.localizedDescription) (elapsed=\(elapsedMs)ms)")
             case .success(let (url, stale)):
+                // DIAG-ONLY: launch-path bookmark parsing success.
+                mountLog.info("DIAG mount-resolve bookmark parsed name='\(entry.name)' [\(idPrefix)] bytes=\(entry.bookmark.count) stale=\(stale) -> \(url.path)")
                 mountLog.info("resolveAndCommit '\(entry.name)' [\(idPrefix)] resolved in \(elapsedMs)ms stale=\(stale) -> \(url.path)")
                 manager.commitResolved(entry: entry, url: url, stale: stale)
             }
@@ -945,14 +959,22 @@ final class MountedFoldersManager {
                 relativeTo: nil,
                 bookmarkDataIsStale: &stale
             )
+            // DIAG-ONLY: bookmark parsing success.
+            mountLog.info("DIAG mount-activate bookmark parsed name='\(entry.name)' bytes=\(entry.bookmark.count) stale=\(stale) resolvedPath=\(url.path)")
         } catch {
+            // DIAG-ONLY: bookmark parsing failure, with exact code/domain.
+            let nsError = error as NSError
+            mountLog.error("DIAG mount-activate bookmark parse FAILED name='\(entry.name)' bytes=\(entry.bookmark.count) error=\(error.localizedDescription) code=\(nsError.code) domain=\(nsError.domain)")
             let state = MountActivationState.failed(error.localizedDescription)
             activationStates[entry.id] = state
             mountLog.warning("activate '\(entry.name)' resolve failed: \(error.localizedDescription)")
             return state
         }
 
-        guard url.startAccessingSecurityScopedResource() else {
+        let activateScope = url.startAccessingSecurityScopedResource()
+        // DIAG-ONLY: scope result for the bookmark-resolved URL.
+        mountLog.info("DIAG mount-activate name='\(entry.name)' resolvedPath=\(url.path) startAccessingSecurityScopedResource=\(activateScope)")
+        guard activateScope else {
             let state = MountActivationState.permissionDenied
             activationStates[entry.id] = state
             mountLog.warning("activate '\(entry.name)' scope denied")
@@ -1068,22 +1090,50 @@ final class MountedFoldersManager {
     /// (iCloud Drive, Dropbox, Working Copy, etc.) see a coordinated write.
     nonisolated static func probeWritable(at url: URL) -> Bool {
         let probe = url.appendingPathComponent(".minis-probe-\(UUID().uuidString)")
+        // DIAG-ONLY: probe start, with the exact path it will try to write.
+        mountLog.info("DIAG mount-probe start dir=\(url.path) probePath=\(probe.path)")
         var coordError: NSError?
         var succeeded = false
+        var writeErrorDescription: String?
+        var writeErrorCode: Int?
+        var writeErrorDomain: String?
+        var removed = false
         NSFileCoordinator().coordinate(
             writingItemAt: probe,
             options: .forReplacing,
             error: &coordError
         ) { target in
+            // DIAG-ONLY: coordinator handed us this target path.
+            mountLog.info("DIAG mount-probe coordinator target=\(target.path)")
             do {
                 try Data().write(to: target, options: .atomic)
                 succeeded = true
-                try? FileManager.default.removeItem(at: target)
+                mountLog.info("DIAG mount-probe write OK target=\(target.path)")
+                do {
+                    try FileManager.default.removeItem(at: target)
+                    removed = true
+                    mountLog.info("DIAG mount-probe cleanup OK target=\(target.path)")
+                } catch {
+                    // Cleanup failure does not change the writability verdict,
+                    // but it is logged so a leftover probe file is traceable.
+                    let nsError = error as NSError
+                    mountLog.warning("DIAG mount-probe cleanup FAILED target=\(target.path) error=\(error.localizedDescription) code=\(nsError.code) domain=\(nsError.domain)")
+                }
             } catch {
                 succeeded = false
+                writeErrorDescription = error.localizedDescription
+                let nsError = error as NSError
+                writeErrorCode = nsError.code
+                writeErrorDomain = nsError.domain
+                mountLog.warning("DIAG mount-probe write FAILED target=\(target.path) error=\(error.localizedDescription) code=\(nsError.code) domain=\(nsError.domain)")
             }
         }
-        if coordError != nil { return false }
+        // DIAG-ONLY: probe verdict, with every failure channel spelled out.
+        if let coordError {
+            mountLog.error("DIAG mount-probe verdict dir=\(url.path) probePath=\(probe.path) result=false coordinatorError=\(coordError.localizedDescription) code=\(coordError.code) domain=\(coordError.domain) writeSucceeded=\(succeeded)")
+            return false
+        }
+        mountLog.info("DIAG mount-probe verdict dir=\(url.path) probePath=\(probe.path) result=\(succeeded) writeError=\(writeErrorDescription ?? "none") writeCode=\(writeErrorCode.map(String.init) ?? "none") writeDomain=\(writeErrorDomain ?? "none") removed=\(removed)")
         return succeeded
     }
 
