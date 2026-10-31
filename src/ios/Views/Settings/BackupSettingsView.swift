@@ -8,6 +8,13 @@ private let logger = AppLogger(category: "Backup")
 /// Pick categories, optionally set a passphrase, export, then hand the package
 /// to the share sheet / "Save to Files". Restore lives in `BackupRestoreView`,
 /// linked from here.
+///
+/// Kelivo-style primary path: NO destination is required. When a backup
+/// finishes and nothing was delivered to a destination, the "Save to Files"
+/// export sheet opens right away — the system writes the file to the place
+/// the user picks, so the app needs no folder grant and no bookmark. Each
+/// external backup is one manual save; there is no silent scheduled copy to
+/// a fixed external folder.
 struct BackupSettingsView: View {
     /// True when hosted inside `BackupAndRestoreView`, which owns the
     /// navigation title. Without this the child would overwrite the
@@ -312,13 +319,12 @@ struct BackupSettingsView: View {
                 // The start-time requirements gate STARTING only. Applying
                 // them while running would disable the button mid-run and
                 // leave no way to stop the backup from this screen.
-                // A destination is now a REQUIREMENT, not a nice-to-have. With
-                // none configured the package would only ever reach the app's
-                // own sandbox, where it dies with the app it exists to
-                // protect — that is not a backup, so the button says so
-                // instead of producing one.
+                // A destination is NOT a requirement any more (Kelivo-style
+                // primary path): with none configured the finished package
+                // opens the "Save to Files" sheet, so the user saves it by
+                // hand instead of the app writing silently to a folder.
                 .disabled(!runController.isRunning
-                          && (selected.isEmpty || !passphraseValid || !hasDestination))
+                          && (selected.isEmpty || !passphraseValid))
                 // List aligns a row's separator to its first Text's leading
                 // edge. These rows centre their content, so the text starts
                 // mid-row and the separator under "Exporting sessions…" only
@@ -326,6 +332,15 @@ struct BackupSettingsView: View {
                 // above Stop Backup looked broken). Pin it to the row's
                 // leading edge so it runs the full card width.
                 .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                // Honest trade-off, stated where the user starts the backup
+                // rather than discovered afterwards: this is a manual save
+                // per backup, not a silent scheduled copy to a fixed folder.
+                Text("Each backup is saved by hand: when it finishes, a Save to Files sheet opens and you pick where it goes. There is no silent scheduled copy to a fixed folder.")
+                    .font(.footnote)
+                    .foregroundStyle(MinisTheme.secondaryText)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
 
                 // A disabled button with no explanation is a dead end — say
                 // which requirement is unmet rather than leaving the user to
@@ -334,17 +349,7 @@ struct BackupSettingsView: View {
                     // Same centred-row separator fix as the buttons above:
                     // without the guide these hint rows inherit a mid-card
                     // separator start.
-                    if !hasDestination {
-                        // First, because it is the requirement a new user is
-                        // most likely to be missing — the categories arrive
-                        // already selected.
-                        Text("Add a storage destination to continue.")
-                            .font(.footnote)
-                            .foregroundStyle(MinisTheme.secondaryText)
-                            .frame(maxWidth: .infinity)
-                            .multilineTextAlignment(.center)
-                            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
-                    } else if selected.isEmpty {
+                    if selected.isEmpty {
                         Text("Choose at least one thing to include.")
                             .font(.footnote)
                             .foregroundStyle(MinisTheme.secondaryText)
@@ -593,17 +598,11 @@ struct BackupSettingsView: View {
     /// package ships without credentials, so there is nothing a passphrase
     /// would protect. The exporter enforces the same rule — this only stops
     /// the user reaching a button that would fail.
-    /// Whether anywhere outside this app's sandbox has been configured to
-    /// receive the backup.
-    ///
-    /// Deliberately "configured", not "enabled": a user who toggles their only
-    /// destination off for one run is making a temporary choice about that
-    /// run, and disabling the whole screen underneath them would be a
-    /// surprise. Having none at all is the state that makes a backup
-    /// pointless, and that is what this gates.
-    private var hasDestination: Bool {
-        !remotes.isEmpty || !BackupDestinations.eligibleFolders.isEmpty
-    }
+    // NOTE: there used to be a `hasDestination` gate here that disabled
+    // Start Backup until a destination was configured. Removed with the
+    // Kelivo-style primary path: a backup with no destination opens the
+    // Save to Files sheet on finish, so "no destination" is no longer the
+    // state that makes a backup pointless — skipping the save sheet is.
 
     private var passphraseValid: Bool {
         // A passphrase is required ONLY when encryption is on. With it off the
@@ -905,7 +904,7 @@ struct BackupSettingsView: View {
                 // lost phone takes the backup with it. Presenting that as a
                 // working fallback invited the user to consider themselves
                 // backed up when nothing had left the device.
-                Text("No destinations yet — add one to back up.")
+                Text("No destinations — optional. A backup works without one: when it finishes, a Save to Files sheet opens so you can save it by hand.")
                     .foregroundStyle(MinisTheme.secondaryText)
             } else if !eligible.isEmpty {
                 // Same badge treatment as the category rows above, so the two
@@ -976,7 +975,7 @@ struct BackupSettingsView: View {
             Text("Backup Destinations")
         } footer: {
             if eligible.isEmpty {
-                Text("Add a folder to also copy each backup there — including a server connected in the Files app (SMB, WebDAV) or a cloud provider.")
+                Text("Optional: a folder here also gets a copy of each backup — including a server connected in the Files app (SMB, WebDAV) or a cloud provider. Without one, each backup is still saved by hand through the Save to Files sheet when it finishes; there is no silent scheduled copy to a fixed folder.")
             } else {
                 Text("Each new backup is also copied to the selected folders — including servers connected in the Files app (SMB, WebDAV) and cloud providers. A folder that is offline is reported and skipped; the local copy is always kept.")
             }
@@ -1174,6 +1173,23 @@ struct BackupSettingsView: View {
                     return .init(path: item.path, size: item.size,
                                  sessionTitle: sid.flatMap { summary.sessionTitles[$0] })
                 })
+
+            // Kelivo-style primary path: if nothing was delivered to a
+            // destination, the finished package exists only on this device
+            // until the user saves it — so open the Save to Files sheet
+            // right away instead of leaving the package sitting in Backups
+            // waiting to be found. The sheet is the system export picker:
+            // iOS writes the file to the place the user picks, so no folder
+            // grant, bookmark, or mount is required, and it works with no
+            // destination ever configured. Dismissing the sheet is not a
+            // loss: the package stays in 嘟嘟 ▸ Backups and the Backup Ready
+            // section below still offers Save to Files… again.
+            // (When every destination succeeded the local copy was already
+            // removed above and shareURL is nil, so there is nothing to
+            // offer here — that run already has an external copy.)
+            if deliveryResults.isEmpty, shareURL != nil {
+                Task { @MainActor in showSaveToFiles = true }
+            }
 
             statusText = ""
             logger.info("[Backup] user export complete bytes=\(summary.totalBytes) delivered=\(deliveryResults.filter(\.succeeded).count)/\(deliveryResults.count)")

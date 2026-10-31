@@ -253,13 +253,19 @@ struct BackupShareSheet: UIViewControllerRepresentable {
 }
 
 /// "Save to Files" — `UIDocumentPickerViewController` in export mode, the same
-/// component the session export already uses.
+/// component the session export already uses, and the same form Kelivo's
+/// backup export uses (`forExporting:asCopy:`).
+///
+/// Export mode is the whole point of the Kelivo-style primary path: the
+/// SYSTEM performs the copy/write to the place the user picks, so the app
+/// holds no security-scoped grant afterwards and needs no folder bookmark —
+/// which is why this works where the open-in-place folder picker does not.
 struct BackupDocumentExportPicker: UIViewControllerRepresentable {
     let url: URL
     var onDismiss: (() -> Void)?
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forExporting: [url])
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
         picker.shouldShowFileExtensions = true
         picker.delegate = context.coordinator
         return picker
