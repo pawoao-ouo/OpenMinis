@@ -984,6 +984,16 @@ extension AppearanceStudio {
         resetColors()
     }
 
+    /// [P0-4] Clear every non-global colour override with the same undo
+    /// pattern as palette reset: snapshot first, then clear. The snapshot
+    /// is palette-style (no wallpapers), so undoing this clear cannot wipe
+    /// live wallpapers, and it touches colours only — global palette,
+    /// wallpapers, library themes, chats, and backups are untouched.
+    func clearNonGlobalColorOverridesWithUndo() {
+        _ = captureThemeUndoSnapshot()
+        clearNonGlobalColorOverrides()
+    }
+
     func resetThemePack() {
         _ = captureThemeUndoSnapshot(includeWallpapers: true)
         // The proper removers persist the live pack (with the image

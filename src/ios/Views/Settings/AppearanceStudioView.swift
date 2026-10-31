@@ -106,6 +106,8 @@ struct AppearanceStudioView: View {
     /// 2 明暗 × 8 页面的手工配色瞬间清空，没确认、没撤销。现在先问，
     /// 清完撤销条就在按钮底下等着。
     @State private var pendingPaletteReset = false
+    /// [P0-4] 待清的全部页级颜色覆盖。为 true 就弹确认框，走本页唯一的 alert。
+    @State private var pendingClearPageOverrides = false
     /// [B28 R5 试点] 样张数据就一行：kind + 文本。AssistantBlock 的其余
     /// 状态全默认，真实组件吃什么假数据，就还你什么真效果。
     /// [B28 R7 醒醒实拍] 聊天里 thinking 早不是「折叠卡片」了：真身是
@@ -229,7 +231,7 @@ struct AppearanceStudioView: View {
     private var isAlertPresented: Binding<Bool> {
         Binding(
             get: { showError || showResetConfirm || showSTWarnings || pendingDeleteTheme != nil
-                || pendingPaletteReset || inputDialog != nil },
+                || pendingPaletteReset || pendingClearPageOverrides || inputDialog != nil },
             set: { presented in
                 guard !presented else { return }
                 showError = false
@@ -237,6 +239,7 @@ struct AppearanceStudioView: View {
                 showSTWarnings = false
                 pendingDeleteTheme = nil
                 pendingPaletteReset = false
+                pendingClearPageOverrides = false
                 inputDialog = nil
             }
         )
@@ -251,6 +254,7 @@ struct AppearanceStudioView: View {
     private var alertTitle: LocalizedStringKey {
         if showResetConfirm { return "Reset appearance?" }
         if pendingPaletteReset { return "Reset the color palette?" }
+        if pendingClearPageOverrides { return "Clear page-specific colors?" }
         if inputDialog == .save { return "Save as new theme" }
         if case .rename? = inputDialog { return "Rename theme" }
         if showSTWarnings { return "Import finished" }
@@ -266,6 +270,9 @@ struct AppearanceStudioView: View {
         }
         if pendingPaletteReset {
             return AppLocalized("Clear every palette tweak. You can undo right after.")
+        }
+        if pendingClearPageOverrides {
+            return AppLocalized("只清除单独调过的页面颜色。全局色盘、壁纸、主题库和聊天都不动。清完可以撤销。")
         }
         if case .rename(let target)? = inputDialog {
             return target.name
@@ -696,6 +703,17 @@ struct AppearanceStudioView: View {
                     pendingPaletteReset = false
                     MinisToast.show(AppLocalized("色盘已恢复默认，点下面可以撤销。"))
                 }
+            } else if pendingClearPageOverrides {
+                Button("Cancel", role: .cancel) { pendingClearPageOverrides = false }
+                Button("Clear", role: .destructive) {
+                    studio.clearNonGlobalColorOverridesWithUndo()
+                    pendingClearPageOverrides = false
+                    if studio.canUndoThemeReset {
+                        MinisToast.show(AppLocalized("已清除单独调色，点下面可以撤销。"))
+                    } else {
+                        MinisToast.show(AppLocalized("已清除单独调色。"))
+                    }
+                }
             } else if let dialog = inputDialog {
                 TextField(AppLocalized("Name it"), text: $inputName)
                     .textInputAutocapitalization(.never)
@@ -1024,6 +1042,54 @@ struct AppearanceStudioView: View {
             if showAdvanced {
                 hairline
                 VStack(alignment: .leading, spacing: 12) {
+                    // [P0-4] 单独调过的页面一览：不用一页页翻 picker 才知道
+                    // 哪一页还压着全局。换主题也清不掉这些（换包只换全局），
+                    // 所以 surviving 的聊天红会在这里现形。点一行就跳到那一页去改。
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(AppLocalized("单独调过的页面"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(studio.color(.primaryText, variant: variant))
+                        let summaries = studio.nonGlobalColorOverrideSummaries()
+                        if summaries.isEmpty {
+                            Text(AppLocalized("没有单独调过的页面，所有页面都跟随全局。"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(studio.color(.secondaryText, variant: variant))
+                        } else {
+                            ForEach(summaries) { summary in
+                                Button {
+                                    paletteScope = summary.scope
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Text(summary.scope.title)
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(studio.color(.primaryText, variant: variant))
+                                        Text(summary.roleTitles.joined(separator: "、"))
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(studio.color(.secondaryText, variant: variant))
+                                            .lineLimit(2)
+                                        Spacer()
+                                        Text(String(format: AppLocalized("浅色 %d 项，深色 %d 项"), summary.lightCount, summary.darkCount))
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(studio.color(.secondaryText, variant: variant))
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .foregroundStyle(studio.color(.secondaryText, variant: variant))
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Button(AppLocalized("清除全部单独调色")) {
+                                pendingClearPageOverrides = true
+                            }
+                            .font(.system(size: 12))
+                            .foregroundStyle(studio.color(.destructive, variant: variant))
+                            .buttonStyle(.plain)
+                            Text(AppLocalized("只清单独调过的页面颜色，不动全局色盘、壁纸、主题库和聊天。"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(studio.color(.secondaryText, variant: variant))
+                        }
+                    }
+
                     Text(AppLocalized("给单独某一页换色。没单独调过的页跟随「全部页面」。"))
                         .font(.system(size: 11))
                         .foregroundStyle(studio.color(.secondaryText, variant: variant))

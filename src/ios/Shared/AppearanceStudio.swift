@@ -560,12 +560,54 @@ final class AppearanceStudio: ObservableObject {
     }
 
     /// [audit-D6] True when any page-scoped (non-global) color override exists.
-    /// No current editor writes these — legacy builds' per-page editors did —
-    /// but the resolver still lets them win over the global palette, and
-    /// nothing in the UI can show or clear one.
+    /// Legacy builds' per-page editors wrote these, and the resolver still
+    /// lets them win over the global palette; the theme page's Advanced
+    /// section now lists them (see `nonGlobalColorOverrideSummaries`).
     var hasNonGlobalColorOverrides: Bool {
         let prefix = AppearanceScope.global.rawValue + "."
         return customColors.keys.contains { !$0.hasPrefix(prefix) }
+    }
+
+    /// One row per page that has colour overrides, for the theme page's
+    /// override list (standing P0-4). Computed live from `customColors`,
+    /// so it stays accurate after a library switch — replace mode keeps
+    /// non-global colours, and a surviving chat-scoped red shows here
+    /// instead of looking like the switch cleared it. Counts are per
+    /// variant; role titles follow role order, legacy role names last.
+    struct PageColorOverrideSummary: Identifiable {
+        let scope: AppearanceScope
+        let lightCount: Int
+        let darkCount: Int
+        let roleTitles: [String]
+        var id: String { scope.rawValue }
+    }
+
+    func nonGlobalColorOverrideSummaries() -> [PageColorOverrideSummary] {
+        AppearanceScope.allCases.filter { $0 != .global && $0.supportsColour }.compactMap { scope in
+            var lightRoles = Set<String>()
+            var darkRoles = Set<String>()
+            for key in customColors.keys {
+                let parts = key.split(separator: ".")
+                guard parts.count == 3, parts[0] == scope.rawValue else { continue }
+                if parts[1] == AppearanceVariant.light.rawValue {
+                    lightRoles.insert(String(parts[2]))
+                } else if parts[1] == AppearanceVariant.dark.rawValue {
+                    darkRoles.insert(String(parts[2]))
+                }
+            }
+            guard !lightRoles.isEmpty || !darkRoles.isEmpty else { return nil }
+            let ordered = AppearanceColorRole.allCases
+                .filter { lightRoles.contains($0.rawValue) || darkRoles.contains($0.rawValue) }
+                .map { $0.title }
+            let legacy = lightRoles.union(darkRoles)
+                .filter { AppearanceColorRole(rawValue: $0) == nil }
+                .sorted()
+            return PageColorOverrideSummary(
+                scope: scope,
+                lightCount: lightRoles.count,
+                darkCount: darkRoles.count,
+                roleTitles: ordered + legacy)
+        }
     }
 
     /// [audit-D6] Drop every non-global color override, keeping the user's
