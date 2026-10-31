@@ -231,6 +231,50 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         raw.keys.contains { themePackSignalKeys.contains($0) }
     }
 
+    /// AI apply allowlist (tool-layer lock, 2026-11-01 standing rule).
+    /// The in-app AI may change ONLY colours, wallpaper/surface images,
+    /// font sizes, and avatar shape. Everything else is layout and is
+    /// locked: the user changes it in the UI, the AI cannot.
+    /// Presence is the test, not the value: a locked key in the JSON is
+    /// rejected even if its value equals the live one, because merge
+    /// decode cannot tell "reaffirming" from "changing", and a full
+    /// exported pack re-fed to apply must not silently smuggle layout
+    /// changes back in. The caller must strip locked keys first.
+    /// `avatarShape` is allowed EXCEPT `rectangle`: circle / square /
+    /// roundedSquare only change the corner fraction at a fixed size,
+    /// while rectangle narrows the avatar (aspect 0.78) and therefore
+    /// resizes layout. `fontFamily` is rejected as ambiguous: it is not
+    /// a font size, and different families reflow text at the same size.
+    static let aiApplyLockedFields: Set<String> = [
+        // Corner radii (layout dimensions).
+        "userBubbleRadius", "assistantBubbleRadius", "thinkingRadius", "inputBarRadius",
+        // Bubble / bar / list shapes (layout, not colour).
+        "userBubbleStyle", "assistantBubbleStyle", "inputBarStyle", "listIconShape",
+        // Spacing / text metrics (layout dimensions).
+        "lineHeight", "letterSpacing",
+        // Opacities and shade (locked surface treatment, not colour).
+        "surfaceOpacity", "wallpaperShade", "thinkingCardImageOpacity", "inputBarImageOpacity",
+        // Display modes and line-count layout.
+        "chatDisplay", "novelMode", "codeBlockCollapseLines",
+        // Ambiguous between font size and layout: rejected, see above.
+        "fontFamily",
+        // Icons / symbols and the standee image: not colours, wallpaper,
+        // font sizes, or avatar shape.
+        "categoryIcons", "categoryImages", "characterArtBase64",
+    ]
+
+    /// Locked keys present in `raw`, sorted. Empty means the AI apply
+    /// carries only allowed fields (colours, wallpaper/surface images,
+    /// thinkingTitleSize / thinkingBodySize, avatarShape other than
+    /// rectangle, plus id / name / schema metadata).
+    static func aiApplyRejectedFields(in raw: [String: Any]) -> [String] {
+        var rejected = aiApplyLockedFields.intersection(raw.keys)
+        if (raw["avatarShape"] as? String) == "rectangle" {
+            rejected.insert("avatarShape")
+        }
+        return rejected.sorted()
+    }
+
     /// - Parameter base: Pack supplying every key `raw` does not carry.
     ///   Pass the pack currently on screen for partial updates (AI `minis-theme
     ///   apply`, clipboard import) so untouched fields — the category image

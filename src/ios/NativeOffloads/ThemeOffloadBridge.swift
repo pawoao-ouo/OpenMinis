@@ -64,6 +64,24 @@ import UIKit
             } else {
                 obj = parsed
             }
+            // [AI theme lock] Tool-layer allowlist: the AI may change ONLY
+            // colours, wallpaper/surface images, font sizes, and avatar
+            // shape (except rectangle, which resizes). A locked field is
+            // rejected with its name and NOTHING is applied — never
+            // silently dropped, never partially applied. This lock is
+            // for the AI apply path only; the user can still change
+            // radii, spacing, and shapes in the UI.
+            let locked = AppearanceThemePack.aiApplyRejectedFields(in: obj)
+            if !locked.isEmpty {
+                result = [
+                    "ok": false,
+                    "error": "locked_field",
+                    "lockedFields": locked,
+                    "message": "AI theme apply is locked to colours, wallpaper/surface images, font sizes, and avatar shape (except rectangle). Locked field(s) rejected, nothing was applied: \(locked.joined(separator: ", ")). Remove those fields and retry.",
+                ]
+                sem.signal()
+                return
+            }
             // Merge onto the live pack: an AI call that only names colors must
             // not reset radii, fonts, images, or anything else it left out.
             let live = AppearanceStudio.shared.currentThemePack()

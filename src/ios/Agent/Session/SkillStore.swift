@@ -413,7 +413,10 @@ description: 设计并贴上 嘟嘟 分身的 AI 主题包。当用户说做主�
 
 ## 你能改什么
 
-色、气泡形状、thinking 卡片、输入栏、正文字体、会话列表、分类图标、壁纸。颜色、气泡、壁纸改完立刻生效；列表图标和选项背景要等下次进入页面才换。
+AI 改主题只许改这四样：颜色、壁纸和卡片图、字号、头像形状。布局锁死在工具层，不是口头约定：
+- 能改：`colorsLight` / `colorsDark` 和各颜色位、`wallpaperJPEGBase64` / `thinkingCardJPEGBase64` / `inputBarJPEGBase64`、`thinkingTitleSize` / `thinkingBodySize`、`avatarShape`（只许 `circle` / `square` / `roundedSquare`，`rectangle` 会改头像宽度，同样被拒）。
+- 不能改：圆角、气泡形状、输入栏形状、列表图标形状、行高、字距、透明度、壁纸遮罩、聊天形态、字体族、分类图标图、立绘图。这些只能用户自己在装扮页里改。
+- 带着锁死字段的 `apply` 会整个被拒，错误里点名是哪个字段，什么都不改，不会悄悄只改一部分。`minis-theme get` 导出的是整包，直接回贴一定被拒，先把锁死字段删掉再贴。颜色、壁纸改完立刻生效。
 
 色是全局变量。强调色（accent）会带着：
 - thinking 标题「深度思考」、图标、字数
@@ -510,26 +513,17 @@ minis-theme color --role primaryText --clear --scope chat --variant light
     "success": "8EB69A",
     "destructive": "E18484"
   },
-  "userBubbleStyle": "rounded",
-  "assistantBubbleStyle": "rounded",
-  "userBubbleRadius": 18,
-  "assistantBubbleRadius": 16,
-  "thinkingRadius": 12,
-  "inputBarStyle": "rounded",
-  "inputBarRadius": 20,
-  "fontFamily": "rounded",
   "thinkingTitleSize": 13,
   "thinkingBodySize": 13,
-  "surfaceOpacity": 0.88,
-  "wallpaperShade": 0.08
+  "avatarShape": "circle"
 }
 ```
 
-形状五档：`rounded` `squircle` `pill` `tail` `sharp`。字体四档：`system` `rounded` `serif` `mono`。
+上面骨架里只留了 AI 能改的字段：颜色、字号、头像形状。形状五档（`rounded` `squircle` `pill` `tail` `sharp`）、圆角、字体族、透明度是用户在装扮页里改的东西，不要写进 AI 的包，写了就整个被拒。字体族（`system` `rounded` `serif` `mono`）同样只能用户在装扮页里改。
 
 thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天强调色走。旧包缺字段会按 schema 5 补齐，不会拒收。
 
-壁纸、thinking 卡、输入栏图、分类图标：JPEG base64 可打进包（`wallpaperJPEGBase64`、`thinkingCardJPEGBase64`、`inputBarJPEGBase64`、`categoryImages`）。落地后剥掉存文件，不进 UserDefaults。导出加 `--wallpaper`。
+壁纸、thinking 卡、输入栏图：JPEG base64 可打进包（`wallpaperJPEGBase64`、`thinkingCardJPEGBase64`、`inputBarJPEGBase64`）。落地后剥掉存文件，不进 UserDefaults。导出加 `--wallpaper`。分类图标和立绘图 AI 不能改，不要写进包。
 
 ## 设计时
 
