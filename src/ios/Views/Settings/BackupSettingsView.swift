@@ -335,7 +335,7 @@ struct BackupSettingsView: View {
                 // Honest trade-off, stated where the user starts the backup
                 // rather than discovered afterwards: this is a manual save
                 // per backup, not a silent scheduled copy to a fixed folder.
-                Text("Each backup is saved by hand: when it finishes, a Save to Files sheet opens and you pick where it goes. There is no silent scheduled copy to a fixed folder.")
+                Text("Without a destination, each backup is saved by hand: when it finishes, a Save to Files sheet opens and you pick where it goes. There is no silent scheduled copy to a fixed folder.")
                     .font(.footnote)
                     .foregroundStyle(MinisTheme.secondaryText)
                     .frame(maxWidth: .infinity)
@@ -1187,7 +1187,7 @@ struct BackupSettingsView: View {
             // (When every destination succeeded the local copy was already
             // removed above and shareURL is nil, so there is nothing to
             // offer here — that run already has an external copy.)
-            if deliveryResults.isEmpty, shareURL != nil {
+            if deliveryResults.allSatisfy({ !$0.succeeded }), shareURL != nil {
                 Task { @MainActor in showSaveToFiles = true }
             }
 
