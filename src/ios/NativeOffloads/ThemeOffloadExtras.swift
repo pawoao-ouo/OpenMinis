@@ -86,16 +86,26 @@ import UIKit
         onMain {
             switch role {
             case "user":
-                clearAvatar(personaID: PersonaStore.userProfilePersonaID)
-                AppearanceStudio.shared.removeUserAvatar()
-                return ["ok": true, "avatar": "user", "removed": true]
+                // [Avatar review P1-2] Do not return ok:true if the
+                // canonical removal failed.
+                switch clearAvatar(personaID: PersonaStore.userProfilePersonaID) {
+                case .success:
+                    AppearanceStudio.shared.removeUserAvatar()
+                    return ["ok": true, "avatar": "user", "removed": true]
+                case .failure(let error):
+                    return fail("save_failed", error.localizedDescription)
+                }
             case "assistant":
                 let pid = PersonaStore.currentID()
                 // Avatar P0-1: canonical removal only. Previously this
                 // also cleared the SOUL icon separately while leaving
                 // both avatar files on disk.
-                clearAvatar(personaID: pid)
-                return ["ok": true, "avatar": "assistant", "removed": true]
+                switch clearAvatar(personaID: pid) {
+                case .success:
+                    return ["ok": true, "avatar": "assistant", "removed": true]
+                case .failure(let error):
+                    return fail("save_failed", error.localizedDescription)
+                }
             default:
                 return fail("bad_role", "role must be user or assistant.")
             }
@@ -122,8 +132,8 @@ import UIKit
     }
 
     @MainActor
-    private static func clearAvatar(personaID: String) {
-        _ = PersonaStore.shared.setAvatarImage(nil, for: personaID)
+    private static func clearAvatar(personaID: String) -> Result<String?, PersonaStore.PersonaAvatarError> {
+        PersonaStore.shared.setAvatarImage(nil, for: personaID)
     }
 
     // MARK: - Replaceable row icons

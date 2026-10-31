@@ -19,6 +19,7 @@ struct UserProfileView: View {
     @State private var draft: String = ""
     @State private var nameDraft: String = ""
     @State private var photoItem: PhotosPickerItem?
+    @State private var avatarError: String?
     @State private var loadedBody: String = ""
     @State private var appeared = false
     @State private var showBodyDrawer = false
@@ -110,11 +111,21 @@ struct UserProfileView: View {
                 // Avatar P0-1: canonical function only (same orphan
                 // cleanup and cache clearing as the AI persona pickers).
                 await MainActor.run {
-                    if case .success = store.setAvatarImage(image, for: profileId) {
+                    // [Avatar review P1-2] Surface failure instead of
+                    // silently keeping the old avatar.
+                    switch store.setAvatarImage(image, for: profileId) {
+                    case .success:
                         Self.publishProfileChange()
+                    case .failure(let error):
+                        avatarError = error.localizedDescription
                     }
                 }
             }
+        }
+        .alert("换头像失败", isPresented: Binding(get: { avatarError != nil }, set: { if !$0 { avatarError = nil } })) {
+            Button("好", role: .cancel) { avatarError = nil }
+        } message: {
+            Text(avatarError ?? "")
         }
     }
 

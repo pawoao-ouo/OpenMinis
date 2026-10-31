@@ -258,6 +258,7 @@ struct PersonaDetailHomeView: View {
     @State private var showRenameAlert = false
     @State private var renameText = ""
     @State private var photoItem: PhotosPickerItem?
+    @State private var avatarError: String?
 
     private var persona: Persona? {
         store.personas.first { $0.id == personaId }
@@ -537,7 +538,12 @@ struct PersonaDetailHomeView: View {
                             // orphan files; failure keeps the old
                             // avatar instead of silently doing nothing.
                             await MainActor.run {
-                                _ = store.setAvatarImage(image, for: p.id)
+                                // [Avatar review P1-2] Surface failure
+                                // instead of discarding it: the old
+                                // avatar stays, and the user is told.
+                                if case .failure(let error) = store.setAvatarImage(image, for: p.id) {
+                                    avatarError = error.localizedDescription
+                                }
                             }
                         }
                     }
@@ -550,6 +556,11 @@ struct PersonaDetailHomeView: View {
                         guard !trimmed.isEmpty else { return }
                         store.renamePersona(p.id, to: trimmed)
                     }
+                }
+                .alert("换头像失败", isPresented: Binding(get: { avatarError != nil }, set: { if !$0 { avatarError = nil } })) {
+                    Button("好", role: .cancel) { avatarError = nil }
+                } message: {
+                    Text(avatarError ?? "")
                 }
             } else {
                 Text("人设不存在或已被删除")
