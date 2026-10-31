@@ -228,7 +228,7 @@ extension ConfigRegistry {
                 if SoulIconImage.isImageReference(trimmed) {
                     let stored: String
                     if SoulIconImage.isDataURI(trimmed) {
-                        let name = SoulIconImage.storedName(prefix: "soul",
+                        let name = SoulIconImage.storedName(prefix: "persona",
                                                            id: PersonaStore.currentID())
                         guard let migrated = SoulIconImage.migrateDataURIToFile(trimmed, named: name) else {
                             throw ConfigError.invalidValue(

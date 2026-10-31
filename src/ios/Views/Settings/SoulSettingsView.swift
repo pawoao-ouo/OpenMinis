@@ -382,7 +382,12 @@ private struct SoulIconEditing: ViewModifier {
         // store() applies no size limit, so a large photo is never refused.
         // The avatar lands in Application Support/avatars/; SOUL.md keeps
         // only the relative path.
-        let name = SoulIconImage.storedName(prefix: "soul", id: PersonaStore.currentID())
+        // Avatar P0-1: this picker only stages a file; the form's save()
+        // writes the SOUL icon, which syncs to Persona.avatar. Staging
+        // to the canonical persona-<id>.png name means the saved
+        // reference is already canonical — no soul-<id>.png file is
+        // written, and the next canonical change deletes no live file.
+        let name = SoulIconImage.storedName(prefix: "persona", id: PersonaStore.currentID())
         switch SoulIconImage.store(image, named: name) {
         case .success(let path):
             await MainActor.run { icon = path }

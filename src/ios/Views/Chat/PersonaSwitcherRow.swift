@@ -18,15 +18,24 @@ struct PersonaAvatarView: View {
     }
 
     var body: some View {
-        Group {
-            if let img = uiImage {
-                Image(uiImage: img)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Image(systemName: "person.circle.fill")
-                    .resizable()
-                    .foregroundStyle(MinisTheme.secondaryText)
+        // Avatar P0-1: a theme fill behind the image, so a transparent
+        // PNG can never read as the old avatar showing through it
+        // (the "overlay, not replace" illusion). The fallback glyph
+        // keeps its previous look — the fill is only for real images.
+        ZStack {
+            if uiImage != nil {
+                Circle().fill(MinisTheme.mutedSurface)
+            }
+            Group {
+                if let img = uiImage {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: "person.circle.fill")
+                        .resizable()
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
             }
         }
         .frame(width: size, height: size)

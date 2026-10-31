@@ -36,7 +36,7 @@ struct PersonaSettingsView: View {
                         Button("换头像") { showPhotoPicker = true }
                             .font(.callout)
                         if avatarURI != nil {
-                            Button("去掉") { avatarURI = nil; saveAvatar() }
+                            Button("去掉") { removeAvatar() }
                                 .font(.callout)
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
@@ -156,10 +156,35 @@ struct PersonaSettingsView: View {
         store.renamePersona(personaID, to: trimmed)
     }
 
+    /// Avatar P0-1: the picker already applies through the canonical
+    /// function, so this is only a safety net for saveAll() when the
+    /// local state and the stored avatar disagree. It never writes a
+    /// file directly: a nil state removes via the canonical function
+    /// (which deletes the old file), and a non-nil state is decoded
+    /// and re-applied through it.
     private func saveAvatar() {
-        guard var p = persona else { return }
-        p.avatar = avatarURI
-        store.updatePersona(p)
+        guard let p = persona else { return }
+        if avatarURI == p.avatar { return }
+        if avatarURI == nil {
+            removeAvatar()
+            return
+        }
+        guard let uri = avatarURI, let image = SoulIconImage.decode(uri) else { return }
+        switch store.setAvatarImage(image, for: personaID) {
+        case .success(let path): avatarURI = path
+        case .failure(let error): iconError = error.localizedDescription
+        }
+    }
+
+    /// Avatar P0-1: removal goes through the canonical function so
+    /// the old file is deleted and both caches are cleared. On
+    /// failure the local state is kept, so the UI does not claim
+    /// the avatar is gone while the file is still there.
+    private func removeAvatar() {
+        switch store.setAvatarImage(nil, for: personaID) {
+        case .success: avatarURI = nil
+        case .failure(let error): iconError = error.localizedDescription
+        }
     }
 
     private func saveSoul() {
@@ -198,16 +223,15 @@ struct PersonaSettingsView: View {
             await MainActor.run { iconError = "这张图读不出来，换一张试试。" }
             return
         }
-        // [avatar-file] Stored as a file reference, never inline base64.
-        let name = SoulIconImage.storedName(prefix: "persona", id: personaID)
-        switch SoulIconImage.store(image, named: name) {
-        case .success(let path):
-            await MainActor.run {
-                avatarURI = path
-                saveAvatar()
+        // Avatar P0-1: apply through the canonical function only, so
+        // the file, both references, both caches, and orphan cleanup
+        // all happen in one place. Failure surfaces as an error
+        // instead of silently keeping the old avatar.
+        await MainActor.run {
+            switch store.setAvatarImage(image, for: personaID) {
+            case .success(let path): avatarURI = path
+            case .failure(let error): iconError = error.localizedDescription
             }
-        case .failure:
-            await MainActor.run { iconError = "这张图读不出来，换一张试试。" }
         }
     }
 }

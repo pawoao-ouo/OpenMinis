@@ -531,16 +531,13 @@ struct PersonaDetailHomeView: View {
                     Task {
                         if let data = try? await item.loadTransferable(type: Data.self),
                            let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 512) {
-                            let name = SoulIconImage.storedName(prefix: "persona", id: p.id)
-                            if case .success(let path) = SoulIconImage.store(image, named: name) {
-                                await MainActor.run {
-                                    var updated = p
-                                    updated.avatar = path
-                                    store.updatePersona(updated)
-                                    if store.currentPersonaID == p.id {
-                                        SoulStore.refreshCache()
-                                    }
-                                }
+                            // Avatar P0-1: canonical function only.
+                            // It clears both caches, posts for
+                            // non-current personas too, and deletes
+                            // orphan files; failure keeps the old
+                            // avatar instead of silently doing nothing.
+                            await MainActor.run {
+                                _ = store.setAvatarImage(image, for: p.id)
                             }
                         }
                     }

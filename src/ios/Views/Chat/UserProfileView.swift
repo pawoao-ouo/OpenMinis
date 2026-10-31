@@ -103,16 +103,14 @@ struct UserProfileView: View {
         }
         .onChange(of: photoItem) { item in
             guard let item else { return }
-            guard let p = persona else { return }
+            guard persona != nil else { return }
             Task {
                 guard let data = try? await item.loadTransferable(type: Data.self),
                       let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 512) else { return }
-                let name = SoulIconImage.storedName(prefix: "persona", id: profileId)
-                if case .success(let path) = SoulIconImage.store(image, named: name) {
-                    await MainActor.run {
-                        var updated = p
-                        updated.avatar = path
-                        store.updatePersona(updated)
+                // Avatar P0-1: canonical function only (same orphan
+                // cleanup and cache clearing as the AI persona pickers).
+                await MainActor.run {
+                    if case .success = store.setAvatarImage(image, for: profileId) {
                         Self.publishProfileChange()
                     }
                 }

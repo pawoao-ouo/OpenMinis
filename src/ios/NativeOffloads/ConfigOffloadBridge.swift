@@ -653,7 +653,7 @@ private let logger = AppLogger(category: "ConfigOffload")
             if field.path == "soul.icon", case .string(let rawIcon) = newValue,
                SoulIconSource.looksLikeImageSource(rawIcon) {
                 do {
-                    let name = SoulIconImage.storedName(prefix: "soul",
+                    let name = SoulIconImage.storedName(prefix: "persona",
                                                        id: PersonaStore.currentID())
                     let storedPath = try await SoulIconSource.resolveToStoredPath(rawIcon, named: name)
                     newValue = .string(storedPath)
