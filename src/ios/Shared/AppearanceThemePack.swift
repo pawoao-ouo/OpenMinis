@@ -858,7 +858,7 @@ extension AppearanceStudio {
     /// Built in a scratch directory and swapped in at the end, so a capture
     /// that fails halfway cannot leave the previous undo snapshot destroyed
     /// and the new one empty.
-    private func captureThemeUndoSnapshot() -> URL? {
+    private func captureThemeUndoSnapshot(includeWallpapers: Bool = false) -> URL? {
         let dir = themeUndoDirectory
         let scratch = dir.deletingLastPathComponent()
             .appendingPathComponent(".undo-staging", isDirectory: true)
@@ -897,6 +897,13 @@ extension AppearanceStudio {
             if FileManager.default.fileExists(atPath: src.path) {
                 try? FileManager.default.copyItem(at: src, to: scratch.appendingPathComponent(name))
             }
+        }
+        // Reset snapshots also capture every scope wallpaper plus the
+        // cleared-fallback list, so undo can put wallpapers back too.
+        // Palette-only snapshots (default) deliberately do not, so an
+        // undo of a palette reset cannot wipe live wallpapers.
+        if includeWallpapers {
+            captureWallpapers(into: scratch)
         }
         // Only replace the live snapshot once the new one is complete.
         guard FileManager.default.fileExists(atPath: scratch.appendingPathComponent("pack.json").path) else {
@@ -962,6 +969,10 @@ extension AppearanceStudio {
                 ThumbnailCache.shared.removeThumbnail(for: dst.path)
             }
         }
+        // No-op for snapshots without wallpaper-cleared.json (older or
+        // palette-only snapshots); reset snapshots restore wallpapers
+        // and the cleared-fallback list exactly.
+        restoreWallpapers(from: dir)
         objectWillChange.send()
         return true
     }
@@ -974,14 +985,24 @@ extension AppearanceStudio {
     }
 
     func resetThemePack() {
-        _ = captureThemeUndoSnapshot()
+        _ = captureThemeUndoSnapshot(includeWallpapers: true)
+        // The proper removers persist the live pack (with the image
+        // fields nilled), so they must run BEFORE the pack key is
+        // removed — after removal they would resurrect the old pack.
+        // They also clear the thumbnail caches, so a deleted red
+        // thinking-card / input-bar image cannot keep rendering.
+        removeThinkingCardImage()
+        removeInputBarImage()
         UserDefaults.standard.removeObject(forKey: Self.packKey)
-        try? FileManager.default.removeItem(at: thinkingCardURL())
-        try? FileManager.default.removeItem(at: inputBarImageURL())
         // [B28 A-1] 立绘也是 pack 里的图，跟 thinking 卡片/输入栏一样回默认。
+        // (No dedicated remover exists; file + thumbnail deletion as before.)
         try? FileManager.default.removeItem(at: characterArtURL())
         ThumbnailCache.shared.removeThumbnail(for: characterArtURL().path)
         wipeCategoryImageFiles()
+        // A real reset clears every scope wallpaper through the proper
+        // path (file + cleared-fallback flag + cache + revision), not
+        // just colours and pack fields.
+        removeAllScopeWallpapers()
         themePackLock.lock()
         cachedThemePack = .default
         themePackLoaded = true

@@ -43,7 +43,7 @@ static NSString *const HELP_TEXT =
      "            (partial update only - fields not named are left unchanged)\n"
      "  export    Dump the current pack as JSON\n"
      "  reset     Restore the default warm-paper pack (needs --force)\n"
-     "  undo      Restore the pack and images removed by the last reset\n"
+     "  undo      Restore the pack, images and scope wallpapers removed by the last reset\n"
      "  avatar    Set or clear the user / assistant avatar (--role --file --remove)\n"
      "  icon      List settings row icons (--list only for AI; set/clear are locked, user-only in the settings UI)\n"
      "  wallpaper Set or clear a page wallpaper (--scope --file --remove)\n"

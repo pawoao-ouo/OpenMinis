@@ -799,6 +799,62 @@ final class AppearanceStudio: ObservableObject {
         wallpaperRevision += 1
     }
 
+    /// Removes every scope's wallpaper through the proper path, so a
+    /// theme reset cannot leave a per-scope image behind: each call
+    /// deletes the file, clears that scope's cleared-fallback flag,
+    /// clears the wallpaper cache, and bumps the revision. Calling
+    /// removeWallpaper(.global) also clears every fallback flag, so
+    /// order over allCases does not matter for the final state.
+    func removeAllScopeWallpapers() {
+        for scope in AppearanceScope.allCases {
+            removeWallpaper(scope)
+        }
+    }
+
+    /// Copies every scope's own wallpaper file plus the cleared-fallback
+    /// list into a reset snapshot directory. The cleared list is written
+    /// even when empty: its presence is the marker that this snapshot
+    /// captured wallpapers, so an older snapshot (or a palette-only
+    /// snapshot) without it is never mistaken for one.
+    func captureWallpapers(into dir: URL) {
+        for scope in AppearanceScope.allCases where hasOwnWallpaper(scope) {
+            let src = wallpaperURL(scope)
+            try? FileManager.default.copyItem(
+                at: src, to: dir.appendingPathComponent("wallpaper-\(scope.rawValue).jpg"))
+        }
+        let cleared = Array(wallpaperClearedFallback.map(\.rawValue))
+        if let data = try? JSONEncoder().encode(cleared) {
+            try? data.write(to: dir.appendingPathComponent("wallpaper-cleared.json"),
+                            options: .atomic)
+        }
+    }
+
+    /// Restores wallpapers from a reset snapshot, exactly: captured
+    /// files are copied back, scopes with no captured file have any
+    /// current file removed, and the cleared-fallback list is restored.
+    /// No-ops entirely when the snapshot has no wallpaper-cleared.json
+    /// (older or palette-only snapshots must not wipe live wallpapers).
+    func restoreWallpapers(from dir: URL) {
+        guard let data = try? Data(contentsOf: dir.appendingPathComponent("wallpaper-cleared.json")),
+              let raw = try? JSONDecoder().decode([String].self, from: data) else {
+            return
+        }
+        wallpaperClearedFallback = Set(raw.compactMap(AppearanceScope.init(rawValue:)))
+        persistWallpaperCleared()
+        for scope in AppearanceScope.allCases {
+            let src = dir.appendingPathComponent("wallpaper-\(scope.rawValue).jpg")
+            let dst = wallpaperURL(scope)
+            if FileManager.default.fileExists(atPath: src.path) {
+                try? FileManager.default.removeItem(at: dst)
+                try? FileManager.default.copyItem(at: src, to: dst)
+            } else {
+                try? FileManager.default.removeItem(at: dst)
+            }
+        }
+        wallpaperCache.removeAll()
+        wallpaperRevision += 1
+    }
+
     /// [T-wallpaper-clear] "清除当前背景" — drop this page's wallpaper AND
     /// cut the global inheritance so the page returns to its initial plain
     /// canvas. Distinct from `removeWallpaper` ("改用继承的背景"), which only
