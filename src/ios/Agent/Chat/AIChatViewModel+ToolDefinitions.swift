@@ -670,9 +670,9 @@ public final class ToolCatalogRouter: @unchecked Sendable {
                 id: "minis-theme",
                 name: "minis-theme",
                 category: .system,
-                synopsis: "Read or change the app's look: colors per role/scope, bubble shapes, wallpapers, fonts, theme library.",
+                synopsis: "Read or change the app's look: colors per role/scope, wallpapers, thinking-card font sizes, avatar, theme library (AI use is partial: layout locked, icons list-only).",
                 quickSyntax: "minis-theme get | apply --file <json> | color --list --scope chat | list | use --id <id>",
-                docRef: "minis-theme --help (get/apply/export/reset/undo/avatar/icon/wallpaper/color/save/list/use/rename/delete)"
+                docRef: "minis-theme --help (get/apply/export/reset/undo/avatar/wallpaper/color/save/list/use/rename/delete; icon --list only)"
             ),
             CatalogItem(
                 id: "open_terminal",

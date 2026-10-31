@@ -106,10 +106,61 @@ extension AppearanceStudio {
         return item
     }
 
+    /// AI-path saved-theme apply: NOT a full theme switch.
+    ///
+    /// The AI may change only colours, wallpaper/surface images, font
+    /// sizes, and avatar shape. A saved pack always carries locked layout
+    /// fields (radii, bubble shapes, lineHeight, …), so feeding it to
+    /// `applySavedTheme` (replace) would re-apply layout through the AI
+    /// path — exactly what the tool-layer lock forbids. This path therefore
+    /// builds a partial pack from the live pack, overwrites ONLY the
+    /// allowed fields from the saved pack, and applies it in merge mode.
+    /// Layout, radii, shapes, spacing, and opacities stay exactly as the
+    /// user left them. It deliberately does NOT set `lastAppliedKey`:
+    /// the result is not the saved theme, and the UI must not claim it is.
+    /// Returns nil when the id is unknown, else warnings plus the locked
+    /// fields that were stripped.
+    func applySavedThemeAI(id: String) -> (warnings: [String], strippedLockedFields: [String])? {
+        guard savedThemes().contains(where: { $0.id == id }),
+              let saved = readLibraryPack(id: id) else { return nil }
+        let stripped = AppearanceThemePack.aiApplyRejectedFields(in: saved.asJSONObject())
+        var partial = currentThemePack()
+        // Colours only (roles the pack carries; applyPackColors paints
+        // exactly the roles present, so sparse packs stay partial).
+        partial.colorsLight = saved.colorsLight
+        partial.colorsDark = saved.colorsDark
+        partial.thinkingFillHex = saved.thinkingFillHex
+        partial.thinkingStrokeHex = saved.thinkingStrokeHex
+        partial.thinkingAccentHex = saved.thinkingAccentHex
+        partial.listRowFillHex = saved.listRowFillHex
+        partial.rowBackgroundHex = saved.rowBackgroundHex
+        partial.categoryColors = saved.categoryColors
+        // Font sizes: thinking-card sizes only (see skill text — they do
+        // not change message font size).
+        partial.thinkingTitleSize = saved.thinkingTitleSize
+        partial.thinkingBodySize = saved.thinkingBodySize
+        // Avatar shape, except rectangle (which resizes the avatar).
+        if saved.avatarShape != AppearanceAvatarShape.rectangle.rawValue {
+            partial.avatarShape = saved.avatarShape
+        }
+        // Images only; a nil image means "leave the current file", which
+        // the bridge result reports as an untouched leftover, not a clear.
+        partial.wallpaperJPEGBase64 = saved.wallpaperJPEGBase64
+        partial.thinkingCardJPEGBase64 = saved.thinkingCardJPEGBase64
+        partial.inputBarJPEGBase64 = saved.inputBarJPEGBase64
+        // Everything else stays live: radii, styles, lineHeight,
+        // letterSpacing, opacities, shade, display modes, fontFamily,
+        // category icons/images, character art.
+        let warnings = applyThemePack(partial, mode: .merge)
+        return (warnings, stripped)
+    }
+
     /// [B28 R3-5] nil = 没应用成；返回数组 = 应用了但哪些图没落住（F-2）。
     /// Applying a saved theme is a full theme switch, not a merge:
     /// images and global colours the saved pack does not carry are
     /// cleared instead of leaving the previous theme's behind.
+    /// This is the USER-initiated path (settings UI library); the AI
+    /// path must use `applySavedThemeAI` above, never this one.
     @discardableResult
     func applySavedTheme(id: String) -> [String]? {
         guard savedThemes().contains(where: { $0.id == id }),

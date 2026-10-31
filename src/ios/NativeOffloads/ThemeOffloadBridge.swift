@@ -11,6 +11,41 @@ import UIKit
 
 @objc public class ThemeOffloadBridge: NSObject {
 
+    /// AI-facing packs contain ONLY editable fields. Anything the AI
+    /// cannot change (radii, shapes, lineHeight, …) is stripped here, so
+    /// `get`/`export` output can be fed straight back to `apply` without
+    /// a guaranteed `locked_field` rejection. The stripped field names
+    /// are reported, never silently hidden: the AI can see what it may
+    /// not touch, and the settings UI remains the only place to change it.
+    private static func aiEditable(_ obj: [String: Any]) -> (cleaned: [String: Any], stripped: [String]) {
+        let stripped = AppearanceThemePack.aiApplyRejectedFields(in: obj)
+        var cleaned = obj
+        for key in stripped { cleaned.removeValue(forKey: key) }
+        return (cleaned, stripped)
+    }
+
+    /// WCAG contrast helpers for the AI apply gate (item 3).
+    private static func rgb(_ hex: String) -> (Double, Double, Double)? {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        let digits = cleaned.count == 8 ? String(cleaned.prefix(6)) : cleaned
+        guard digits.count == 6, let value = Int(digits, radix: 16) else { return nil }
+        return (Double((value >> 16) & 0xFF) / 255,
+                Double((value >> 8) & 0xFF) / 255,
+                Double(value & 0xFF) / 255)
+    }
+
+    private static func luminance(_ hex: String) -> Double? {
+        guard let (r, g, b) = rgb(hex) else { return nil }
+        func lin(_ c: Double) -> Double { c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    }
+
+    private static func contrastRatio(_ a: String, _ b: String) -> Double? {
+        guard let la = luminance(a), let lb = luminance(b) else { return nil }
+        let hi = max(la, lb), lo = min(la, lb)
+        return (hi + 0.05) / (lo + 0.05)
+    }
+
     @objc public static func currentPack() -> NSDictionary {
         let sem = DispatchSemaphore(value: 0)
         var result: [String: Any] = [:]
@@ -21,6 +56,10 @@ import UIKit
             // 想看有没有，读 `hasCharacterArt`。
             out.removeValue(forKey: "characterArtBase64")
             out["hasCharacterArt"] = AppearanceStudio.shared.hasCharacterArt
+            let (cleaned, stripped) = aiEditable(out)
+            out = cleaned
+            out["aiEditableOnly"] = true
+            out["strippedLockedFields"] = stripped
             out["ok"] = true
             result = out
             sem.signal()
@@ -94,6 +133,80 @@ import UIKit
                 sem.signal()
                 return
             }
+            // [AI contrast gate] Refuse BEFORE applying, never after.
+            // Only variants the JSON actually recolours are checked, so
+            // a non-colour apply is never blocked by a pre-existing bad
+            // palette the user set in the UI. Thresholds: body text
+            // (primaryText) 4.5:1, accent (large/UI) 3:1, against canvas
+            // and surface. A full pre-apply visual preview is not feasible
+            // in this CLI tool path (no view is rendered here), so the
+            // contrast gate is the pre-apply check; the skill text says so.
+            func mapKeys(_ v: Any?) -> Set<String> {
+                if let m = v as? [String: String] { return Set(m.keys) }
+                if let m = v as? [String: Any] { return Set(m.keys) }
+                return []
+            }
+            let changedLight = mapKeys(obj["colorsLight"])
+            let changedDark = mapKeys(obj["colorsDark"])
+            var contrastFailures: [String] = []
+            for (variant, changed) in [(AppearanceVariant.light, changedLight),
+                                       (AppearanceVariant.dark, changedDark)] {
+                guard !changed.intersection(["primaryText", "accent", "canvas", "surface"]).isEmpty else { continue }
+                let studio = AppearanceStudio.shared
+                var effective: [String: String] = [:]
+                for role in ["canvas", "surface", "primaryText", "accent"] {
+                    guard let r = AppearanceColorRole(rawValue: role) else { continue }
+                    effective[role] = studio.hex(r, scope: .global, variant: variant)
+                }
+                // Override ONLY with keys the JSON actually named.
+                // pack.colorsLight/Dark after decode already merged the
+                // live pack, so using the whole map here would let stale
+                // pack colours override the studio's live resolved values
+                // (e.g. colours set via `minis-theme color`, which writes
+                // custom overrides, not the pack).
+                let packMap = variant == .light ? pack.colorsLight : pack.colorsDark
+                for k in changed where packMap[k] != nil { effective[k] = packMap[k]! }
+                let checks: [(String, String, Double)] = [
+                    ("primaryText", "canvas", 4.5), ("primaryText", "surface", 4.5),
+                    ("accent", "canvas", 3.0), ("accent", "surface", 3.0),
+                ]
+                for (fg, bg, threshold) in checks {
+                    guard let f = effective[fg], let b = effective[bg],
+                          let ratio = contrastRatio(f, b), ratio < threshold else { continue }
+                    contrastFailures.append(
+                        "\(variant.rawValue) \(fg)/\(bg) \(String(format: "%.2f", ratio)) < \(threshold)")
+                }
+            }
+            if !contrastFailures.isEmpty {
+                result = [
+                    "ok": false,
+                    "error": "contrast_failed",
+                    "contrastFailures": contrastFailures,
+                    "message": "Contrast check failed before applying; nothing was changed: \(contrastFailures.joined(separator: "; ")). Adjust the colours and retry.",
+                ]
+                sem.signal()
+                return
+            }
+            // [AI merge leftovers] Capture BEFORE applying what this
+            // partial apply will leave untouched, so the result can say
+            // so honestly instead of implying a full switch.
+            var untouchedImages: [String] = []
+            if obj["wallpaperJPEGBase64"] == nil,
+               AppearanceStudio.shared.wallpaper(for: .global) != nil { untouchedImages.append("wallpaper") }
+            if obj["thinkingCardJPEGBase64"] == nil,
+               AppearanceStudio.shared.thinkingCardImage() != nil { untouchedImages.append("thinkingCard") }
+            if obj["inputBarJPEGBase64"] == nil,
+               AppearanceStudio.shared.inputBarImage() != nil { untouchedImages.append("inputBar") }
+            var untouchedColourRoles: [String] = []
+            for role in AppearanceColorRole.allCases {
+                for variant in [AppearanceVariant.light, AppearanceVariant.dark] {
+                    guard AppearanceStudio.shared.hasOverride(role, scope: .global, variant: variant) else { continue }
+                    let changed = variant == .light ? changedLight : changedDark
+                    if !changed.contains(role.rawValue) {
+                        untouchedColourRoles.append("\(role.rawValue) (\(variant.rawValue))")
+                    }
+                }
+            }
             // [B28 R3-5 / F-2] 吃不下的字段不再被吞 —— warnings 明说哪些
             // 图没落住，AI 侧能自查重试，不会拿着 ok 当全好。
             // Partial-only: an AI `apply --file` call carries only the
@@ -108,6 +221,19 @@ import UIKit
             out.removeValue(forKey: "wallpaperJPEGBase64")
             out.removeValue(forKey: "characterArtBase64")
             out["hasCharacterArt"] = AppearanceStudio.shared.hasCharacterArt
+            if !untouchedImages.isEmpty { out["untouchedImages"] = untouchedImages }
+            if !untouchedColourRoles.isEmpty { out["untouchedColourRoles"] = untouchedColourRoles }
+            if !untouchedImages.isEmpty || !untouchedColourRoles.isEmpty {
+                out["leftoverNote"] = "Partial apply: the images and custom colours listed in untouchedImages/untouchedColourRoles were left unchanged, not cleared."
+            }
+            // AI-facing result, like get/export, carries only editable
+            // fields so it can be re-fed to apply without a locked_field
+            // rejection. Untouched/leftover keys are not locked pack
+            // fields, so they survive stripping.
+            let (cleanedOut, strippedOut) = aiEditable(out)
+            out = cleanedOut
+            out["aiEditableOnly"] = true
+            out["strippedLockedFields"] = strippedOut
             result = out
             sem.signal()
         }
@@ -132,6 +258,10 @@ import UIKit
                 out.removeValue(forKey: "characterArtBase64")
                 out["hasCharacterArt"] = AppearanceStudio.shared.hasCharacterArt
             }
+            let (cleaned, stripped) = aiEditable(out)
+            out = cleaned
+            out["aiEditableOnly"] = true
+            out["strippedLockedFields"] = stripped
             out["ok"] = true
             result = out
             sem.signal()
@@ -251,13 +381,26 @@ import UIKit
         return result as NSDictionary
     }
 
+    /// AI-path `minis-theme use`. This bridge entry is AI-only: the
+    /// settings UI calls `AppearanceStudio.applySavedTheme` directly and
+    /// is untouched by this change. A saved pack always carries locked
+    /// layout fields, so a full replace here would smuggle layout back
+    /// through the AI path. Instead this applies ONLY colours, images,
+    /// thinking-card font sizes, and non-rectangle avatar shape from the
+    /// saved pack (see `applySavedThemeAI`), leaves layout exactly as
+    /// the user left it, and says so in the result. It does not mark the
+    /// saved theme as in use, because the result is not that theme.
     @objc public static func applySaved(id: String) -> NSDictionary {
         let sem = DispatchSemaphore(value: 0)
         var result: [String: Any] = [:]
         Task { @MainActor in
-            if let warnings = AppearanceStudio.shared.applySavedTheme(id: id) {
-                var out: [String: Any] = ["ok": true, "applied": true, "id": id]
-                if !warnings.isEmpty { out["warnings"] = warnings }
+            if let applied = AppearanceStudio.shared.applySavedThemeAI(id: id) {
+                var out: [String: Any] = [
+                    "ok": true, "applied": true, "partial": true, "id": id,
+                    "strippedLockedFields": applied.strippedLockedFields,
+                    "message": "Partial AI apply: colours, wallpaper/surface images, thinking-card font sizes, and avatar shape from the saved theme were applied. Locked layout fields were stripped and layout is unchanged: \(applied.strippedLockedFields.joined(separator: ", ")). Images and colours the saved pack does not carry were left unchanged. For a full theme switch including layout, use the theme library in the settings UI. This result does not mark the saved theme as in use.",
+                ]
+                if !applied.warnings.isEmpty { out["warnings"] = applied.warnings }
                 result = out
             } else {
                 result = ["ok": false, "error": "not_found", "message": "No saved theme \(id)"]

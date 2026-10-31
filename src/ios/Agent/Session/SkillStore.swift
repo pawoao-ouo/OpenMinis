@@ -404,7 +404,7 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
 ---
 name: minis-theme
 version: 1.1.0
-description: 设计并贴上 嘟嘟 分身的 AI 主题包。当用户说做主题、换皮肤、改气泡、改 thinking 卡片、改壁纸、粉嫩主题、minis-theme、AppearanceStudio、主题包 JSON 时使用。不要问这是不是 PPT 或网页。
+description: 设计并贴上 嘟嘟 分身的 AI 主题包。当用户说做主题、换皮肤、改颜色、改壁纸、改 thinking 卡片字号、粉嫩主题、minis-theme、AppearanceStudio、主题包 JSON 时使用。不要问这是不是 PPT 或网页。气泡形状、圆角、行高、字距这些布局只能用户在装扮页里改，AI 不接。
 ---
 
 # 嘟嘟 主题包
@@ -416,7 +416,14 @@ description: 设计并贴上 嘟嘟 分身的 AI 主题包。当用户说做主�
 AI 改主题只许改这四样：颜色、壁纸和卡片图、字号、头像形状。布局锁死在工具层，不是口头约定：
 - 能改：`colorsLight` / `colorsDark` 和各颜色位、`wallpaperJPEGBase64` / `thinkingCardJPEGBase64` / `inputBarJPEGBase64`、`thinkingTitleSize` / `thinkingBodySize`、`avatarShape`（只许 `circle` / `square` / `roundedSquare`，`rectangle` 会改头像宽度，同样被拒）。
 - 不能改：圆角、气泡形状、输入栏形状、列表图标形状、行高、字距、透明度、壁纸遮罩、聊天形态、字体族、分类图标图、立绘图。这些只能用户自己在装扮页里改。
-- 带着锁死字段的 `apply` 会整个被拒，错误里点名是哪个字段，什么都不改，不会悄悄只改一部分。`minis-theme get` 导出的是整包，直接回贴一定被拒，先把锁死字段删掉再贴。颜色、壁纸改完立刻生效。
+- 字号只管 thinking 卡片：`thinkingTitleSize` / `thinkingBodySize` 只改 thinking 卡片的标题和正文字号，不改聊天消息字号。消息字号由用户在装扮页/行为页自己调，AI 不通过主题包改它。
+- 带着锁死字段的 `apply` 会整个被拒，错误里点名是哪个字段，什么都不改，不会悄悄只改一部分。
+- `minis-theme get` / `export` 给 AI 的包只含可改字段，锁死字段已被剥掉并列在 `strippedLockedFields` 里，所以直接回贴不会因为锁死字段被拒；布局字段本来就不在里面，那些只能用户在装扮页里改。
+- `apply` 前有对比度检查：主文字和强调色对页面底（`canvas`）和卡片（`surface`）的对比度，主文字不到 4.5、强调色不到 3 就整单被拒、什么都不改。工具路径里没有渲染出来的预览页，所以对比度检查就是改前那道关，不是改完再警告。
+- `apply` 是局部改，不是整套换：成功回里会列出这次没动的老图（`untouchedImages`）和没点名的自定义颜色（`untouchedColourRoles`），没带进包的壁纸、thinking 卡、输入栏图和颜色都会原样留着，不是悄悄清掉。
+- `minis-theme use` 走 AI 路径时也是局部改：只贴保存那套的颜色、壁纸、卡片图、字号、头像，锁死的布局字段会被剥掉、布局不动，结果里明说剥了哪些；要整套换主题（含布局）请用户在装扮页主题库里点，那条路不受 AI 锁影响。
+- `minis-theme icon` 只有 `--list` 能用；设/清图标被工具层锁死，错误里点名 `icon`，什么都不改，图标只能用户在设置里改。
+- 颜色、壁纸改完立刻生效。
 
 色是全局变量。强调色（accent）会带着：
 - thinking 标题「深度思考」、图标、字数
@@ -519,7 +526,7 @@ minis-theme color --role primaryText --clear --scope chat --variant light
 }
 ```
 
-上面骨架里只留了 AI 能改的字段：颜色、字号、头像形状。形状五档（`rounded` `squircle` `pill` `tail` `sharp`）、圆角、字体族、透明度是用户在装扮页里改的东西，不要写进 AI 的包，写了就整个被拒。字体族（`system` `rounded` `serif` `mono`）同样只能用户在装扮页里改。
+上面骨架里只留了 AI 能改的字段：颜色、字号、头像形状。形状五档（`rounded` `squircle` `pill` `tail` `sharp`）、圆角、字体族、透明度是用户在装扮页里改的东西，不要写进 AI 的包，写了就整个被拒。字体族（`system` `rounded` `serif` `mono`）同样只能用户在装扮页里改。骨架里的字号只管 thinking 卡片，不改聊天消息字号。
 
 thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天强调色走。旧包缺字段会按 schema 5 补齐，不会拒收。
 

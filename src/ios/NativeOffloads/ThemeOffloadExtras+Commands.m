@@ -101,23 +101,19 @@ int theme_extra_icon(int argc, char **argv, int stdout_fd, BOOL compact, BOOL qu
         return theme_extra_emit([ThemeOffloadExtras listIconSlots], @"icon",
                                 stdout_fd, compact, quiet);
     }
-    NSString *slot = noff_find_arg(argc, argv, "--slot");
-    if (slot.length == 0) {
-        NSDictionary *err = noff_json_error(EXTRA_TOOL_NAME, @"icon", NOFF_ERR_INVALID_ARGS,
-                                            @"--slot <name> is required. Use `minis-theme icon --list`.");
-        noff_emit_json(stdout_fd, err, compact, quiet);
-        return NOFF_EXIT_INVALID_ARGS;
-    }
-    NSDictionary *raw;
-    if (noff_has_flag(argc, argv, "--remove")) {
-        raw = [ThemeOffloadExtras removeIcon:slot];
-    } else {
-        NSString *host = extra_host_path(noff_find_arg(argc, argv, "--file"),
-                                         stdout_fd, @"icon", compact, quiet);
-        if (!host) return NOFF_EXIT_INVALID_ARGS;
-        raw = [ThemeOffloadExtras setIcon:slot hostPath:host];
-    }
-    return theme_extra_emit(raw, @"icon", stdout_fd, compact, quiet);
+    // [AI theme lock] Icons are not in the AI allowlist (colours,
+    // wallpaper, font sizes, avatar). Set/clear are gated here with a
+    // named-field error, same treatment as `apply`'s locked_field, and
+    // nothing is changed. `--list` above stays read-only. Icons are
+    // user-only, changed in the settings UI. There is deliberately no
+    // set/clear path below this gate in the AI command surface.
+    NSDictionary *err = noff_json_error(
+        EXTRA_TOOL_NAME, @"icon", @"locked_field",
+        @"AI theme icon changes are locked. Locked field: icon. "
+         "Icons are user-only: change them in the settings UI. "
+         "Only `minis-theme icon --list` is available to the AI.");
+    noff_emit_json(stdout_fd, err, compact, quiet);
+    return NOFF_EXIT_INVALID_ARGS;
 }
 
 int theme_extra_wallpaper(int argc, char **argv, int stdout_fd, BOOL compact, BOOL quiet) {
