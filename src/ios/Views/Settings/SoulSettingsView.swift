@@ -161,7 +161,19 @@ struct SoulSettingsView: View {
     // the visual width of every other section on the page.
     /// [B28 R18] 头像真源是 Persona.avatar（通讯录那份）。SOUL.md 的 icon
     /// 只是镜像，老数据可能还指着旧文件，所以这里也以通讯录为准。
+    /// [Avatar review P0-2] A staged pick is "avatars/persona-<id>-staging.png".
+    /// It is not the live avatar yet: only save() promotes it through
+    /// the canonical function. The preview must show it (otherwise the
+    /// pick looks dead), while every other surface keeps reading the
+    /// live Persona.avatar until save.
+    private static func isStagingAvatarRef(_ ref: String) -> Bool {
+        ref.hasPrefix("avatars/persona-") && ref.hasSuffix("-staging.png")
+    }
+
     private var displayIcon: String {
+        if Self.isStagingAvatarRef(icon) {
+            return icon
+        }
         let pid = PersonaStore.currentID()
         if let stored = PersonaStore.shared.personas.first(where: { $0.id == pid })?.avatar,
            !stored.isEmpty {
@@ -266,6 +278,11 @@ struct SoulSettingsView: View {
     }
 
     private func reload() {
+        // [Avatar review P0-2] Discard path: a staged pick is dropped
+        // here. The on-disk SOUL file still carries the old icon, so
+        // reloading restores the old avatar content, and the staging
+        // file is deleted so it cannot be picked up later.
+        let stagedRef = icon
         let file = SoulStore.load() ?? SoulFile(metadata: .default, body: "")
         name = file.metadata.name
         rawEmoji = file.metadata.emoji
@@ -275,9 +292,35 @@ struct SoulSettingsView: View {
         bodyText = file.body
         loadedRef.value = file
         saveError = nil
+        if Self.isStagingAvatarRef(stagedRef) {
+            _ = SoulIconImage.deleteFile(forReference: stagedRef)
+        }
     }
 
     private func save() {
+        // [Avatar review P0-2] A staged pick is promoted only here,
+        // through the canonical function — never by writing the
+        // staging path into SOUL.md. On failure the SOUL file is not
+        // saved at all, so the old avatar stays live.
+        if Self.isStagingAvatarRef(icon) {
+            let stagedRef = icon
+            guard let image = SoulIconImage.decode(stagedRef) else {
+                saveError = AppLocalized("That image couldn't be read.")
+                return
+            }
+            switch PersonaStore.shared.setAvatarImage(image, for: PersonaStore.currentID()) {
+            case .success(let path):
+                guard let path else {
+                    saveError = AppLocalized("That image couldn't be read.")
+                    return
+                }
+                icon = path
+                _ = SoulIconImage.deleteFile(forReference: stagedRef)
+            case .failure(let error):
+                saveError = error.localizedDescription
+                return
+            }
+        }
         do {
             let f = currentFile
             try SoulStore.save(f)
@@ -315,6 +358,11 @@ struct SoulSettingsView: View {
     }
 
     private func restoreDefault() {
+        // [Avatar review P0-2] A staged pick is not the live avatar:
+        // dropping it here must not leave a staging file behind.
+        if Self.isStagingAvatarRef(icon) {
+            _ = SoulIconImage.deleteFile(forReference: icon)
+        }
         let parsed = SoulMDParser.parse(SoulStore.defaultContent)
         name = parsed.metadata.name
         rawEmoji = parsed.metadata.emoji
@@ -382,12 +430,15 @@ private struct SoulIconEditing: ViewModifier {
         // store() applies no size limit, so a large photo is never refused.
         // The avatar lands in Application Support/avatars/; SOUL.md keeps
         // only the relative path.
-        // Avatar P0-1: this picker only stages a file; the form's save()
-        // writes the SOUL icon, which syncs to Persona.avatar. Staging
-        // to the canonical persona-<id>.png name means the saved
-        // reference is already canonical — no soul-<id>.png file is
-        // written, and the next canonical change deletes no live file.
-        let name = SoulIconImage.storedName(prefix: "persona", id: PersonaStore.currentID())
+        // [Avatar review P0-2] This picker stages ONLY: it writes to
+        // a separate persona-<id>-staging.png file, never to the live
+        // canonical persona-<id>.png file. Picking therefore cannot
+        // overwrite the live avatar, and reload()/discard restores
+        // the old file content (the on-disk SOUL file still points
+        // at it). Only the form's save() promotes a staged pick,
+        // through PersonaStore.setAvatarImage(), and then deletes
+        // the staging file.
+        let name = SoulIconImage.storedName(prefix: "persona", id: PersonaStore.currentID()) + "-staging"
         switch SoulIconImage.store(image, named: name) {
         case .success(let path):
             await MainActor.run { icon = path }
