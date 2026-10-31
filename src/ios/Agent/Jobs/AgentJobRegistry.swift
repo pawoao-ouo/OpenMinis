@@ -464,6 +464,34 @@ final class AgentJobRegistry: ObservableObject {
     /// definition + counters, written on every mutation.
     static let persistedJobsKey = "agentJobRegistry.persistedJobs.v1"
 
+    /// [F979] Ids of scheduled tasks the user deliberately deleted, kept so a
+    /// backup restore cannot silently resurrect them. A separate key from
+    /// `persistedJobsKey` on purpose: restore writes only the persisted-jobs
+    /// key, so restoring a package can never wipe the tombstones that guard
+    /// against it. Task ids are UUIDs minted at creation, so a deleted id is
+    /// never reused by a new task — a tombstone can never block a legitimate
+    /// new task, and it is never expired (expiry would reintroduce the
+    /// resurrection it exists to prevent). Local-only by design: tombstones
+    /// are not exported into backup packages, so they do not travel to a
+    /// brand-new device (see the limitation note on
+    /// `adoptRestoredScheduledTasks`).
+    static let deletedScheduledTaskIdsKey = "agentJobRegistry.deletedScheduledTaskIds.v1"
+
+    /// The deleted-task tombstone set, read fresh on every use so a delete
+    /// and a restore in the same process cannot race on a stale copy.
+    static func deletedScheduledTaskIds() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: Self.deletedScheduledTaskIdsKey) ?? [])
+    }
+
+    /// Record a deliberate deletion. Only called from `remove(jobId:)`, the
+    /// single funnel for explicit deletes (UI, task list, CLI/agent delete).
+    private func recordDeletedScheduledTask(id: String) {
+        var ids = Self.deletedScheduledTaskIds()
+        guard ids.insert(id).inserted else { return }
+        UserDefaults.standard.set(ids.sorted(), forKey: Self.deletedScheduledTaskIdsKey)
+        logger.info("[Jobs] tombstoned deleted task \(id.prefix(8)) — a backup restore will not resurrect it")
+    }
+
     func enqueueDelegation(_ item: QueuedDelegation) -> Bool {
         guard queuedDelegations.count < Self.maxQueuedDelegations else {
             logger.warning("[Jobs] delegation queue full (\(Self.maxQueuedDelegations)) — refusing \(item.toolUseId.prefix(12))")
@@ -664,10 +692,17 @@ final class AgentJobRegistry: ObservableObject {
     /// Callers that already cancel (the CLI does) see nothing new — cancel is a
     /// no-op on a job that is not running or pending.
     func remove(jobId: String) {
+        // [F979] Tombstone only a task that actually existed: remove() on an
+        // unknown id is a no-op, and tombstoning an id this device never held
+        // could block a legitimate future restore of that id.
+        let existed = jobs[jobId] != nil
         cancel(jobId: jobId, reason: "removed", silent: false)
         jobs[jobId]?.task?.cancel()
         jobs[jobId] = nil
         JobInsuranceNotification.cancel(jobId: jobId)
+        if existed {
+            recordDeletedScheduledTask(id: jobId)
+        }
         // [AUD-04] A deletion must stick — otherwise the task the user just
         // deleted comes back on the next launch, which is worse than losing it.
         persistScheduledJobs()
@@ -1651,13 +1686,25 @@ extension AgentJobRegistry {
         }
         let now = Date()
         let knownIds = Set(snapshot.map(\.id))
-        var restored = 0, missed = 0, dropped = 0
+        var restored = 0, missed = 0, dropped = 0, heldBack = 0
         // `.onCompletion` last: its trigger names another job, and that job has
         // to exist before the waiter is meaningful.
         let ordered = snapshot.sorted {
             ($0.trigger.kind == "onCompletion" ? 1 : 0) < ($1.trigger.kind == "onCompletion" ? 1 : 0)
         }
+        // [F979] Belt-and-braces with adoptRestoredScheduledTasks, which
+        // filters before encoding: a persisted blob written before this fix
+        // (a task resurrected by an old restore and then persisted) must not
+        // re-arm a deliberately deleted task at launch either. A tombstone
+        // blocks adoption, never a live job — jobs already in `jobs` are
+        // skipped by the loop's where clause before this check runs.
+        let tombstones = Self.deletedScheduledTaskIds()
         for p in ordered where jobs[p.id] == nil {
+            guard !tombstones.contains(p.id) else {
+                heldBack += 1
+                logger.warning("[Jobs] restore: holding back deleted task \(p.id.prefix(8)) — it will not be re-armed")
+                continue
+            }
             guard let trigger = p.trigger.rebuild(), let target = p.target.rebuild() else {
                 dropped += 1
                 logger.warning("[Jobs] restore: dropping \(p.id.prefix(8)) — unreadable trigger or target")
@@ -1763,9 +1810,12 @@ extension AgentJobRegistry {
                 break
             }
         }
-        logger.info("[Jobs] restore: \(restored) task(s) back, \(missed) missed fire(s) recorded, \(dropped) dropped")
+        logger.info("[Jobs] restore: \(restored) task(s) back, \(missed) missed fire(s) recorded, \(dropped) dropped, \(heldBack) deleted task(s) held back")
         // Write back: the dropped entries stay dropped, and the re-armed tasks'
         // recomputed `nextFireAt` replaces the stale one immediately.
+        // Held-back ids are dropped here too: persist writes only live jobs,
+        // so a tombstoned id cannot linger in the persisted blob to be
+        // re-armed by a later launch.
         persistScheduledJobs()
     }
 
@@ -1791,12 +1841,35 @@ extension AgentJobRegistry {
     ///   - a `running` state becomes `pending`: the run it described ended with
     ///     that device, and there is no timer behind it here.
     ///
-    /// Returns how many tasks the payload carried; the caller reports a failed
-    /// decode as unreadable before ever getting here.
+    /// Returns how many tasks were adopted and which package ids were held
+    /// back; the caller reports a failed decode as unreadable before ever
+    /// getting here.
+    ///
+    /// [F979] Tombstone filter — the fix for "a task the user deleted here
+    /// but that the package still carries comes back". Before anything is
+    /// encoded or armed, package ids in `deletedScheduledTaskIds()` are
+    /// dropped from the list, so they never touch `persistedJobsKey` and
+    /// `restorePersistedJobs()` below cannot re-arm them. A tombstone blocks
+    /// adoption only: a job already live under that id (impossible for a
+    /// UUID id, but guarded anyway) is left alone by the launch-restore
+    /// skip in `restorePersistedJobs()`.
+    ///
+    /// Honest limitation: tombstones are local-only and are not exported
+    /// into backup packages, so a restore onto a brand-new device — which
+    /// has no tombstone store — cannot know a task was deleted elsewhere
+    /// and will still adopt it. That case is NOT solved by this fix; solving
+    /// it would require exporting tombstones (an export-format change, out
+    /// of scope here) or a per-package deletion record the format does not
+    /// carry.
     @discardableResult
-    func adoptRestoredScheduledTasks(_ jobs: [PersistedJob]) -> Int {
-        guard !jobs.isEmpty else { return 0 }
-        var normalized = jobs
+    func adoptRestoredScheduledTasks(_ jobs: [PersistedJob]) -> (adopted: Int, heldBackIds: [String]) {
+        guard !jobs.isEmpty else { return (0, []) }
+        let tombstones = Self.deletedScheduledTaskIds()
+        let heldBackIds = jobs.map(\.id).filter { tombstones.contains($0) }
+        if !heldBackIds.isEmpty {
+            logger.warning("[Jobs] restore: holding back \(heldBackIds.count) deleted task(s) from a backup package: \(heldBackIds.map { $0.prefix(8) }.joined(separator: ", "))")
+        }
+        var normalized = jobs.filter { !tombstones.contains($0.id) }
         for i in normalized.indices {
             normalized[i].nextFireAt = nil
             if normalized[i].state == AgentJobState.running.rawValue {
@@ -1805,12 +1878,12 @@ extension AgentJobRegistry {
         }
         guard let data = try? JSONEncoder().encode(normalized) else {
             logger.warning("[Jobs] restore: adopted task list did not encode — nothing stored")
-            return 0
+            return (0, heldBackIds)
         }
         UserDefaults.standard.set(data, forKey: Self.persistedJobsKey)
         didRestorePersistedJobs = false
         restorePersistedJobs()
-        logger.info("[Jobs] restore: adopted \(normalized.count) task(s) from a backup package")
-        return normalized.count
+        logger.info("[Jobs] restore: adopted \(normalized.count) task(s) from a backup package, held back \(heldBackIds.count) deleted task(s)")
+        return (normalized.count, heldBackIds)
     }
 }
