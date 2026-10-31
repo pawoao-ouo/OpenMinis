@@ -162,6 +162,24 @@ enum SoulIconImage {
         return .success(ref)
     }
 
+    /// Delete the file behind a stored avatar reference, if it exists.
+    /// Used when an avatar is replaced or removed, so the old PNG cannot
+    /// resurrect later via a backup restore, a stale cache entry, or a
+    /// forgotten second reference. Never deletes a file that is not an
+    /// "avatars/<name>.png" path reference. Returns true if a file was
+    /// removed, false if there was nothing to remove or the removal failed.
+    static func deleteFile(forReference ref: String) -> Bool {
+        guard let url = fileURL(forReference: ref) else { return false }
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        do {
+            try FileManager.default.removeItem(at: url)
+            invalidateCache(for: ref)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// One-time migration: decode a legacy inline data URI and persist it
     /// as a file, returning the new relative-path reference. Returns nil
     /// when the value isn't a decodable data URI or the write fails —
@@ -1037,9 +1055,20 @@ enum SoulStore {
         // once. A failed migration keeps the in-memory value (the avatar
         // still renders via `decode`'s legacy branch) without rewriting
         // the file, so a retry happens on the next load.
+        // Canonical name is persona-<id>: the SOUL icon is only a mirror
+        // of Persona.avatar, so no new soul-<id>.png file is written.
+        // Guard: a stale data URI must never overwrite an existing
+        // persona file — if that file already exists, point the SOUL
+        // icon at it instead of writing the old bytes over it.
         if SoulIconImage.isDataURI(file.metadata.icon) {
-            let name = SoulIconImage.storedName(prefix: "soul", id: personaID)
-            if let path = SoulIconImage.migrateDataURIToFile(file.metadata.icon, named: name) {
+            let name = SoulIconImage.storedName(prefix: "persona", id: personaID)
+            let personaRef = "avatars/\(name).png"
+            if let existing = SoulIconImage.fileURL(forReference: personaRef),
+               FileManager.default.fileExists(atPath: existing.path) {
+                file.metadata.icon = personaRef
+                let text = SoulMDParser.serialize(file)
+                try? text.data(using: .utf8)?.write(to: url, options: .atomic)
+            } else if let path = SoulIconImage.migrateDataURIToFile(file.metadata.icon, named: name) {
                 file.metadata.icon = path
                 let text = SoulMDParser.serialize(file)
                 try? text.data(using: .utf8)?.write(to: url, options: .atomic)
@@ -1098,6 +1127,15 @@ enum SoulStore {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         displayIconCache[personaID] = icon
         return icon.isEmpty ? nil : icon
+    }
+
+    /// Drop the cached SOUL-icon reference for one persona. The canonical
+    /// avatar function calls this on every avatar change, so a reader
+    /// that cached the old reference string can never keep serving it
+    /// after the file was replaced or removed.
+    @MainActor
+    static func invalidateDisplayIconCache(for personaID: String) {
+        displayIconCache.removeValue(forKey: personaID)
     }
 
     /// Re-read SOUL.md into `cachedMetadata` and post a notification so
@@ -1210,7 +1248,9 @@ enum SoulStore {
         var remoteFile = SoulMDParser.parse(markdown)
         var textToWrite = markdown
         if SoulIconImage.isDataURI(remoteFile.metadata.icon) {
-            let name = SoulIconImage.storedName(prefix: "soul", id: PersonaStore.defaultPersonaID)
+            // Canonical name is persona-<id> (see load(for:) above);
+            // the remote copy is LWW-newer, so overwriting is intended here.
+            let name = SoulIconImage.storedName(prefix: "persona", id: PersonaStore.defaultPersonaID)
             if let path = SoulIconImage.migrateDataURIToFile(remoteFile.metadata.icon, named: name) {
                 remoteFile.metadata.icon = path
                 textToWrite = SoulMDParser.serialize(remoteFile)
