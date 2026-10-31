@@ -595,14 +595,50 @@ extension AppearanceStudio {
                         mode: ThemeApplyMode = .merge) -> [String] {
         var warnings: [String] = []
         let replace = (mode == .replace)
-        // Replace mode, before anything is persisted: clear every slot
-        // the new pack does not carry. The writes below then put back
-        // only what the new pack actually carries. (A payload that is
-        // present but undecodable still keeps the old file plus a
-        // warning — a corrupt pack must not destroy a good image.)
+        var stored = pack
+        stored.wallpaperJPEGBase64 = nil
+        stored.thinkingCardJPEGBase64 = nil
+        stored.inputBarJPEGBase64 = nil
+        // [B28 A-1] 立绘也不再进 defaults：落成文件，字段置 nil。
+        stored.characterArtBase64 = nil
+        // Merge mode keeps markers for category images the caller did
+        // not mention. Replace mode starts from exactly what the new
+        // pack carries; applyCategoryImages below (fed "" for missing
+        // keys) deletes the rest from disk.
+        if replace {
+            stored.categoryImages = pack.categoryImages
+        } else {
+            let mentioned = Set(pack.categoryImages.keys)
+            var markers = currentThemePack().categoryImages
+            for key in mentioned { markers[key] = pack.categoryImages[key] }
+            stored.categoryImages = markers
+        }
+        // Replace pre-clear atomicity: persist the new pack BEFORE
+        // deleting anything the old theme left behind, and abort if the
+        // persist did not land — otherwise a failure between clear and
+        // persist would leave deleted files recorded under the old pack.
+        // persistPack sets cachedThemePack on success, so a mismatch
+        // here means it failed; nothing has been deleted or written yet
+        // (all image writes happen below), so returning now is safe.
+        persistPack(stored)
+        if replace, currentThemePack() != stored {
+            warnings.append("pack")
+            return warnings
+        }
+        // Replace mode: clear every slot the new pack does not carry.
+        // The writes below then put back only what the new pack actually
+        // carries. (A payload that is present but undecodable still
+        // keeps the old file plus a warning — a corrupt pack must not
+        // destroy a good image.)
         if replace {
             if wallpaper == nil, !(pack.wallpaperJPEGBase64?.isEmpty == false) {
                 removeWallpaper(.global)
+            }
+            // A pack never carries per-page wallpapers, so in replace
+            // mode every page wallpaper goes too, not just the global
+            // one — otherwise a switched theme keeps old page wallpapers.
+            for scope in AppearanceScope.allCases where scope != .global {
+                removeWallpaper(scope)
             }
             if !(pack.thinkingCardJPEGBase64?.isEmpty == false) {
                 removeThinkingCardImage()
@@ -625,11 +661,9 @@ extension AppearanceStudio {
             }
             restoreColorOverrides(keptPageColours)
         }
-        var stored = pack
-        stored.wallpaperJPEGBase64 = nil
-        stored.thinkingCardJPEGBase64 = nil
-        stored.inputBarJPEGBase64 = nil
-        // [B28 A-1] 立绘也不再进 defaults：落成文件，字段置 nil。
+        // Character-art write moved after the persist+guard above, so a
+        // persist failure cannot leave a half-written character art
+        // behind while the old pack is still recorded.
         if let b64 = pack.characterArtBase64 {
             if let data = Data(base64Encoded: b64) {
                 if !writeEncodedImage(data, to: characterArtURL(), maxEdge: 1600, quality: 0.82) {
@@ -637,20 +671,6 @@ extension AppearanceStudio {
                 }
             } else { warnings.append("characterArt") }
         }
-        stored.characterArtBase64 = nil
-        // Merge mode keeps markers for category images the caller did
-        // not mention. Replace mode starts from exactly what the new
-        // pack carries; applyCategoryImages below (fed "" for missing
-        // keys) deletes the rest from disk.
-        if replace {
-            stored.categoryImages = pack.categoryImages
-        } else {
-            let mentioned = Set(pack.categoryImages.keys)
-            var markers = currentThemePack().categoryImages
-            for key in mentioned { markers[key] = pack.categoryImages[key] }
-            stored.categoryImages = markers
-        }
-        persistPack(stored)
         if !pack.colorsLight.isEmpty || !pack.colorsDark.isEmpty {
             applyPackColors(light: pack.colorsLight, dark: pack.colorsDark)
         }
@@ -658,6 +678,10 @@ extension AppearanceStudio {
         else if replace { surfaceOpacity = 0.88 }
         if let shade = pack.wallpaperShade { wallpaperShade = shade }
         else if replace { wallpaperShade = 0.08 }
+        // A saved pack never carries bubbleOpacity, so in replace mode
+        // it reverts to the built-in 1.0 instead of keeping the old
+        // theme's value — same rule as surfaceOpacity/wallpaperShade.
+        if replace { bubbleOpacity = 1.0 }
         if let wallpaper {
             if !setWallpaper(wallpaper, for: .global) { warnings.append("wallpaper") }
         } else if let b64 = pack.wallpaperJPEGBase64 {
@@ -684,9 +708,9 @@ extension AppearanceStudio {
             for key in AppearanceThemePack.categoryKeys where completeMap[key] == nil {
                 completeMap[key] = ""
             }
-            applyCategoryImages(completeMap)
+            warnings.append(contentsOf: applyCategoryImages(completeMap))
         } else {
-            applyCategoryImages(pack.categoryImages)
+            warnings.append(contentsOf: applyCategoryImages(pack.categoryImages))
         }
         configureUIKitSurfaces()
         return warnings
@@ -1190,7 +1214,11 @@ extension AppearanceStudio {
     /// pack (an AI call carrying colors only, a legacy JSON without the map)
     /// wiped every user-supplied category image. Explicit removal has to say
     /// so: an empty string for that key.
-    private func applyCategoryImages(_ map: [String: String]) {
+    /// Returns the category keys whose payload was undecodable and
+    /// whose old image was therefore kept, matching the other slots'
+    /// warning behaviour in applyThemePack.
+    private func applyCategoryImages(_ map: [String: String]) -> [String] {
+        var warnings: [String] = []
         var pack = currentThemePack()
         for key in AppearanceThemePack.categoryKeys {
             guard let value = map[key] else { continue }
@@ -1210,13 +1238,16 @@ extension AppearanceStudio {
             }
             guard let data = Data(base64Encoded: value), UIImage(data: data) != nil else {
                 // Undecodable payload: keep whatever is already on disk
-                // rather than silently dropping the user's image.
+                // rather than silently dropping the user's image, but
+                // say so — the caller reports this key as a warning.
+                warnings.append(key)
                 continue
             }
             writeEncodedImage(data, to: categoryImageURL(key), maxEdge: 256, quality: 0.86)
             pack.categoryImages[key] = "file"
         }
         persistPack(pack)
+        return warnings
     }
 
     /// Writes a downscaled JPEG and drops the cached thumbnail for that path.

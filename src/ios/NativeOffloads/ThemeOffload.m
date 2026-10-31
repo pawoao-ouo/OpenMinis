@@ -40,6 +40,7 @@ static NSString *const HELP_TEXT =
      "COMMANDS:\n"
      "  get       Show the current theme pack (no wallpaper bytes)\n"
      "  apply     Apply a theme pack from --file or stdin JSON\n"
+     "            (partial update only - fields not named are left unchanged)\n"
      "  export    Dump the current pack as JSON\n"
      "  reset     Restore the default warm-paper pack (needs --force)\n"
      "  undo      Restore the pack and images removed by the last reset\n"

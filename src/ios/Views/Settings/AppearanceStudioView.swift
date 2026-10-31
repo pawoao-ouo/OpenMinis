@@ -2207,6 +2207,7 @@ struct AppearanceStudioView: View {
                 notes.append(contentsOf: imported.warnings)
             }
             notes.append(AppLocalized("CSS 里的装饰图、伪元素、按钮换图原生接不了，这些没有导入。"))
+            notes.append(AppLocalized("旧图片和没提到的设置会保留，不会被清掉。"))
             pendingSTOutcome = .success(notes)
         } catch {
             pendingSTOutcome = .failure(error.localizedDescription)
