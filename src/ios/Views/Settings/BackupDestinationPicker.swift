@@ -70,14 +70,31 @@ struct BackupDestinationPicker: View {
                     onChanged()
                 }
             }
-            .sheet(isPresented: $showFolderPicker) {
+            // Picker is NOT a second .sheet: this view itself is presented
+            // as a sheet from BackupSettingsView, and stacking a system
+            // document picker inside a sheet is where the pick callback
+            // was lost (device log: zero DIAG mount-add, zero onPick).
+            // A full-screen cover gives the picker its own presentation
+            // level instead of a sheet inside a sheet.
+            .fullScreenCover(isPresented: $showFolderPicker) {
                 BackupFolderPicker { url in
-                    do {
-                        _ = try BackupDestinations.addDestination(pickedURL: url)
-                        reload()
-                        onChanged()
-                    } catch {
-                        errorText = error.localizedDescription
+                    // DIAG-ONLY: log at the onPick entry, before any add.
+                    logger.info("DIAG folder-picker onPick entry path=\(url.path)")
+                    // Dismiss first, then add on the next main run loop:
+                    // running add while the picker is still dismissing let
+                    // the follow-up state change be swallowed silently.
+                    showFolderPicker = false
+                    DispatchQueue.main.async {
+                        do {
+                            _ = try BackupDestinations.addDestination(pickedURL: url)
+                            reload()
+                            onChanged()
+                        } catch {
+                            // Surface, don't swallow: reload() clears
+                            // errorText, so it must NOT run on this path.
+                            logger.error("DIAG folder-picker add FAILED path=\(url.path) error=\(error.localizedDescription)")
+                            errorText = error.localizedDescription
+                        }
                     }
                 }
             }

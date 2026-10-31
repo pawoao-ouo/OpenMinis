@@ -317,6 +317,12 @@ final class MountedFoldersManager {
     /// read-only folder (even if the source itself is writable).
     @discardableResult
     func add(pickedURL: URL, customName: String, userAllowWrite: Bool) throws -> MountedFolderEntry {
+        // DIAG-ONLY (folder picker): log at add entry, before any scope /
+        // bookmark / probe work, so a future log distinguishes add-never-
+        // called (no line here) from add-called-but-failed-later (line here
+        // plus the existing DIAG mount-add scope/bookmark lines). No logic
+        // change: bookmark, scope, and probe code below are untouched.
+        mountLog.info("DIAG mount-add entry path=\(pickedURL.path) name=\(customName)")
         let name = customName.trimmingCharacters(in: .whitespaces)
         guard MountedFolderEntry.isValidMountName(name) else { throw AddError.invalidName }
         guard isNameAvailable(name) else { throw AddError.nameTaken }

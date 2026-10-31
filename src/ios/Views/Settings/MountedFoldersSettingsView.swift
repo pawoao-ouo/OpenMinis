@@ -114,15 +114,27 @@ struct MountedFoldersSettingsView: View {
                 // here silently drops the presentation on first try.
                 // Hopping to the next run loop tick lets the picker sheet
                 // finish leaving the hierarchy first.
-                mountUILogger.info("FolderPicker onPick url=\(url.path)")
+                //
+                // Fix for the lost pick (device log: zero onPick, zero
+                // DIAG mount-add): dismiss explicitly FIRST, then assign
+                // pendingMount on the next main run loop, so the AddMount
+                // sheet is presented from the base view, never stacked on
+                // top of the still-dismissing picker sheet.
+                mountUILogger.info("DIAG folder-picker onPick entry url=\(url.path)")
+                showingPicker = false
                 DispatchQueue.main.async {
                     let pm = PendingMount(
                         url: url,
                         name: Self.defaultMountName(for: url),
                         allowWrite: true
                     )
-                    mountUILogger.info("async assign pendingMount id=\(pm.id.uuidString) url=\(url.path)")
+                    mountUILogger.info("DIAG folder-picker async assign pendingMount id=\(pm.id.uuidString) url=\(url.path)")
                     pendingMount = pm
+                    // Verify the second sheet actually has something to
+                    // present: if this line is in the log but no AddMount
+                    // sheet appeared, the failure is in sheet presentation,
+                    // not in the picker callback.
+                    mountUILogger.info("DIAG folder-picker pendingMount set, AddMountSheet should present url=\(url.path)")
                 }
             }
         }
@@ -146,13 +158,18 @@ struct MountedFoldersSettingsView: View {
                 },
                 onConfirm: {
                     let current = pendingMount ?? pending
+                    // Runs on the main thread (button action). A failure
+                    // must reach the alert via errorText, never be
+                    // swallowed silently.
                     do {
                         _ = try model.add(
                             pickedURL: current.url,
                             customName: current.name,
                             userAllowWrite: current.allowWrite
                         )
+                        mountUILogger.info("DIAG folder-picker add OK url=\(current.url.path)")
                     } catch {
+                        mountUILogger.error("DIAG folder-picker add FAILED url=\(current.url.path) error=\(error.localizedDescription)")
                         errorText = error.localizedDescription
                     }
                     pendingMount = nil
@@ -418,8 +435,21 @@ private struct FolderPicker: UIViewControllerRepresentable {
         init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
+            // DIAG-ONLY (folder picker): log at the delegate itself, so a
+            // future log distinguishes delegate-never-fired (no line here)
+            // from onPick-swallowed (line here, no DIAG mount-add after it).
+            mountUILogger.info("DIAG folder-picker delegate didPickDocumentsAt count=\(urls.count) first=\(urls.first?.path ?? "none")")
+            guard let url = urls.first else {
+                mountUILogger.warning("DIAG folder-picker delegate didPickDocumentsAt empty urls, onPick not called")
+                return
+            }
+            mountUILogger.info("DIAG folder-picker onPick entry url=\(url.path)")
             onPick(url)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            // DIAG-ONLY: a cancelled pick must not look like a dead delegate.
+            mountUILogger.info("DIAG folder-picker delegate cancelled")
         }
     }
 }

@@ -110,8 +110,24 @@ struct BackupFolderPicker: UIViewControllerRepresentable {
 
         func documentPicker(_ controller: UIDocumentPickerViewController,
                             didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
+            // DIAG-ONLY (folder picker): log at the delegate itself, so a
+            // future log distinguishes delegate-never-fired (no line here)
+            // from onPick-swallowed (line here, no DIAG mount-add after it).
+            // Previously the first log was inside MountedFoldersManager.add,
+            // which never ran when the picker callback was dropped.
+            let log = AppLogger(category: "Backup")
+            log.info("DIAG folder-picker delegate didPickDocumentsAt count=\(urls.count) first=\(urls.first?.path ?? "none")")
+            guard let url = urls.first else {
+                log.warning("DIAG folder-picker delegate didPickDocumentsAt empty urls, onPick not called")
+                return
+            }
+            log.info("DIAG folder-picker onPick entry path=\(url.path)")
             onPick(url)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            // DIAG-ONLY: a cancelled pick must not look like a dead delegate.
+            AppLogger(category: "Backup").info("DIAG folder-picker delegate cancelled")
         }
     }
 }
