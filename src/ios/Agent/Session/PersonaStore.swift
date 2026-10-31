@@ -772,6 +772,14 @@ final class PersonaStore: ObservableObject {
         if personas.first(where: { $0.id == currentPersonaID })?.isUserProfile == true {
             currentPersonaID = Self.defaultPersonaID
         }
+        // [Avatar review P0-1] Avatar source migration must run on the
+        // normal load path, not only on the first-launch seed branch in
+        // ensureDefaults(). ensureDefaults() for existing users calls
+        // load() and returns, and reloadFromDisk() calls load(), so
+        // calling it here covers both. It is idempotent: after a
+        // successful migration both references already point at the
+        // canonical persona- file and no case below fires.
+        migrateAvatarSource()
     }
 
     private func save(_ list: [Persona]) {
@@ -909,9 +917,16 @@ final class PersonaStore: ObservableObject {
     ///   failed store never deletes the old avatar.
     /// - image == nil: remove the reference, delete the old file(s),
     ///   clear both caches, post and broadcast.
-    /// - Failure: returns .failure and changes NOTHING. Callers must
-    ///   surface the error to the user; never report success while
-    ///   keeping the old avatar.
+    /// - Failure: this call itself returns .failure and makes no
+    ///   reference/file change in this call. Callers must surface
+    ///   the error to the user; never report success while keeping
+    ///   the old avatar. This does NOT roll back a prior load-time
+    ///   legacy data-URI migration: load() may already have
+    ///   converted a legacy data-URI avatar to a persona- file
+    ///   reference and persisted it before this call, and that
+    ///   earlier conversion is intentionally kept (it is the same
+    ///   image, in file form), not undone by a later failure here.
+    ///   [Avatar review P3-1: doc scope fixed, no behaviour change.]
     enum PersonaAvatarError: LocalizedError {
         case noPersona
         case unreadable
@@ -922,6 +937,14 @@ final class PersonaStore: ObservableObject {
             case .unreadable: return "这张图读不出来，换一张试试。"
             }
         }
+    }
+
+    /// [Avatar review P2-3] Orphan deletion guard: a file must not be
+    /// deleted while another persona still references it. SOUL icons
+    /// are mirrors of Persona.avatar (written via updatePersona), so
+    /// checking Persona.avatar covers the mirror too.
+    private func isAvatarReferencedByAnotherPersona(_ ref: String, excluding personaID: String) -> Bool {
+        personas.contains { $0.id != personaID && $0.avatar == ref }
     }
 
     @discardableResult
@@ -943,13 +966,16 @@ final class PersonaStore: ObservableObject {
             SoulIconImage.invalidateCache(for: path)
             NotificationCenter.default.post(name: .soulMdChanged, object: nil)
             broadcastPersonaChange()
-            // Orphan cleanup, only now that the new file exists.
+            // Orphan cleanup, only now that the new file exists, and
+            // only if no other persona still references the file (P2-3).
             if let oldAvatar, oldAvatar != path, oldAvatar != "avatars/user.png",
-               SoulIconImage.isPathReference(oldAvatar) {
+               SoulIconImage.isPathReference(oldAvatar),
+               !isAvatarReferencedByAnotherPersona(oldAvatar, excluding: personaID) {
                 _ = SoulIconImage.deleteFile(forReference: oldAvatar)
             }
             if let oldSoulIcon, oldSoulIcon != path,
-               oldSoulIcon == "avatars/\(soulFileName).png" {
+               oldSoulIcon == "avatars/\(soulFileName).png",
+               !isAvatarReferencedByAnotherPersona(oldSoulIcon, excluding: personaID) {
                 _ = SoulIconImage.deleteFile(forReference: oldSoulIcon)
             }
             return .success(path)
@@ -961,11 +987,13 @@ final class PersonaStore: ObservableObject {
             NotificationCenter.default.post(name: .soulMdChanged, object: nil)
             broadcastPersonaChange()
             if let oldAvatar, oldAvatar != "avatars/user.png",
-               SoulIconImage.isPathReference(oldAvatar) {
+               SoulIconImage.isPathReference(oldAvatar),
+               !isAvatarReferencedByAnotherPersona(oldAvatar, excluding: personaID) {
                 _ = SoulIconImage.deleteFile(forReference: oldAvatar)
             }
             if let oldSoulIcon,
-               oldSoulIcon == "avatars/\(soulFileName).png" {
+               oldSoulIcon == "avatars/\(soulFileName).png",
+               !isAvatarReferencedByAnotherPersona(oldSoulIcon, excluding: personaID) {
                 _ = SoulIconImage.deleteFile(forReference: oldSoulIcon)
             }
             return .success(nil)
@@ -977,12 +1005,14 @@ final class PersonaStore: ObservableObject {
     /// 老数据里两边可能指着不同的文件（情头页留下的 soul-xxx.png），
     /// 启动时对齐一次：通讯录有值就以它为准写进 SOUL；通讯录空就反过来把
     /// SOUL 的图接过来，别让她以前的头像凭空消失。
-    /// [Avatar P0-1] Migration, run once at load: a soul-<id>.png file
-    /// is moved to the canonical persona-<id>.png name — never deleted
-    /// before the copy exists, and a persona file that already exists
-    /// is never overwritten by an older soul file. After migration no
+    /// [Avatar P0-1] Migration, run on every normal load (idempotent):
+    /// a soul-<id>.png file that is the visible avatar is moved to
+    /// the canonical persona-<id>.png name — never deleted before
+    /// the copy exists, and never replaced by an unreferenced
+    /// different persona file (see Cases 1+2). After migration no
     /// reference points at a soul- file, so the orphan soul file is
-    /// removed and cannot resurrect on a later load.
+    /// removed and cannot resurrect on a later load, unless another
+    /// persona still references it.
     func migrateAvatarSource() {
         let fm = FileManager.default
         for p in personas {
@@ -997,34 +1027,47 @@ final class PersonaStore: ObservableObject {
             let soulURL = SoulIconImage.fileURL(forReference: soulRef)
             let personaFileExists = personaURL.map { fm.fileExists(atPath: $0.path) } ?? false
             let soulFileExists = soulURL.map { fm.fileExists(atPath: $0.path) } ?? false
-            // Case 1: Persona.avatar already points at a soul- file
-            // (legacy mirror copied back). Move it to the canonical
-            // name, then align both references to the canonical name.
-            if avatar == soulRef, soulFileExists, let soulURL, let personaURL {
-                if !personaFileExists {
+            // Cases 1+2 [Avatar review P1-1]: the VISIBLE avatar is
+            // the soul file — Case 1: Persona.avatar points at it;
+            // Case 2: Persona.avatar is empty and SOUL points at it.
+            // The old code kept an existing (unreferenced, different)
+            // persona file, switched the reference to it, and deleted
+            // the visible soul file — losing the image the user was
+            // actually seeing. Fixed: the visible soul content must
+            // end up at the canonical name. If a persona file already
+            // exists with identical bytes, it already is that image.
+            // If it exists with different bytes and is referenced by
+            // another persona, migration is skipped entirely for this
+            // persona (no file overwritten, no referenced file
+            // deleted); a later canonical change resolves it. If it
+            // exists with different bytes and is unreferenced, it is
+            // overwritten with the visible soul content. The soul
+            // file is deleted only after the canonical file exists
+            // and only if no other persona references it.
+            if (avatar == soulRef || (avatar.isEmpty && soulIcon == soulRef)),
+               soulFileExists, let soulURL, let personaURL {
+                var canMigrate = true
+                if personaFileExists {
+                    let soulData = try? Data(contentsOf: soulURL)
+                    let personaData = try? Data(contentsOf: personaURL)
+                    if soulData != nil, soulData == personaData {
+                        // Same image already at the canonical name.
+                    } else if isAvatarReferencedByAnotherPersona(personaRef, excluding: p.id) {
+                        canMigrate = false
+                    } else {
+                        try? fm.removeItem(at: personaURL)
+                        try? fm.copyItem(at: soulURL, to: personaURL)
+                    }
+                } else {
                     try? fm.copyItem(at: soulURL, to: personaURL)
                 }
-                if fm.fileExists(atPath: personaURL.path) {
+                if canMigrate, fm.fileExists(atPath: personaURL.path) {
                     var updated = p
                     updated.avatar = personaRef
                     updatePersona(updated)
-                    _ = SoulIconImage.deleteFile(forReference: soulRef)
-                }
-                continue
-            }
-            // Case 2: Persona.avatar is empty, SOUL points at a soul-
-            // file. Prefer an existing persona file; otherwise move
-            // the soul file to the canonical name. Never delete the
-            // soul file before the canonical file exists.
-            if avatar.isEmpty, soulIcon == soulRef, soulFileExists, let soulURL, let personaURL {
-                if !personaFileExists {
-                    try? fm.copyItem(at: soulURL, to: personaURL)
-                }
-                if fm.fileExists(atPath: personaURL.path) {
-                    var updated = p
-                    updated.avatar = personaRef
-                    updatePersona(updated)
-                    _ = SoulIconImage.deleteFile(forReference: soulRef)
+                    if !isAvatarReferencedByAnotherPersona(soulRef, excluding: p.id) {
+                        _ = SoulIconImage.deleteFile(forReference: soulRef)
+                    }
                 }
                 continue
             }
@@ -1035,7 +1078,8 @@ final class PersonaStore: ObservableObject {
                 guard var file = soul else { continue }
                 file.metadata.icon = avatar
                 try? SoulStore.save(file, for: p.id)
-                if soulIcon == soulRef {
+                if soulIcon == soulRef,
+                   !isAvatarReferencedByAnotherPersona(soulRef, excluding: p.id) {
                     _ = SoulIconImage.deleteFile(forReference: soulRef)
                 }
             } else if avatar.isEmpty, !soulIcon.isEmpty, soulIcon != soulRef {
