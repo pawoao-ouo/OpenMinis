@@ -119,11 +119,38 @@ extension AppearanceStudio {
     /// user left them. It deliberately does NOT set `lastAppliedKey`:
     /// the result is not the saved theme, and the UI must not claim it is.
     /// Returns nil when the id is unknown, else warnings plus the locked
-    /// fields that were stripped.
-    func applySavedThemeAI(id: String) -> (warnings: [String], strippedLockedFields: [String])? {
+    /// fields that were stripped, plus the all-scope leftovers (F3).
+    /// [F2] Contrast failures the saved pack would produce, computed
+    /// WITHOUT applying anything. nil = no such saved theme. A saved
+    /// pack's colours are global roles, so the gate is the shared
+    /// global-scope gate, over the roles the pack actually carries.
+    func savedPackContrastFailures(id: String) -> [String]? {
+        guard savedThemes().contains(where: { $0.id == id }),
+              let saved = readLibraryPack(id: id) else { return nil }
+        var failures: [String] = []
+        for variant in AppearanceVariant.allCases {
+            let map = variant == .light ? saved.colorsLight : saved.colorsDark
+            var proposed: [AppearanceColorRole: String] = [:]
+            for (raw, value) in map {
+                if let role = AppearanceColorRole(rawValue: raw) { proposed[role] = value }
+            }
+            failures += contrastFailures(scope: .global, variant: variant, proposed: proposed)
+        }
+        return failures
+    }
+
+    func applySavedThemeAI(id: String) -> (warnings: [String], strippedLockedFields: [String], untouchedImages: [String], untouchedColourRoles: [String])? {
         guard savedThemes().contains(where: { $0.id == id }),
               let saved = readLibraryPack(id: id) else { return nil }
         let stripped = AppearanceThemePack.aiApplyRejectedFields(in: saved.asJSONObject())
+        // [F3] Capture leftovers BEFORE applying, against what the
+        // saved pack actually carries (same shared helper as apply).
+        let leftovers = aiApplyLeftovers(
+            changedLightRoles: Set(saved.colorsLight.keys),
+            changedDarkRoles: Set(saved.colorsDark.keys),
+            carriesWallpaper: saved.wallpaperJPEGBase64 != nil,
+            carriesThinkingCard: saved.thinkingCardJPEGBase64 != nil,
+            carriesInputBar: saved.inputBarJPEGBase64 != nil)
         var partial = currentThemePack()
         // Colours only (roles the pack carries; applyPackColors paints
         // exactly the roles present, so sparse packs stay partial).
@@ -152,7 +179,7 @@ extension AppearanceStudio {
         // letterSpacing, opacities, shade, display modes, fontFamily,
         // category icons/images, character art.
         let warnings = applyThemePack(partial, mode: .merge)
-        return (warnings, stripped)
+        return (warnings, stripped, leftovers.images, leftovers.colours)
     }
 
     /// [B28 R3-5] nil = 没应用成；返回数组 = 应用了但哪些图没落住（F-2）。

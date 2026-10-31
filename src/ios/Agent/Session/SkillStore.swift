@@ -399,11 +399,11 @@ Skills use three loading levels:
 Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, etc. The skill should only contain what an AI agent needs to do the job.
 """
 
-    private static let minisThemeVersion = "1.1.0"
+    private static let minisThemeVersion = "1.2.0"
     private static let minisThemeContent = """
 ---
 name: minis-theme
-version: 1.1.0
+version: 1.2.0
 description: 设计并贴上 嘟嘟 分身的 AI 主题包。当用户说做主题、换皮肤、改颜色、改壁纸、改 thinking 卡片字号、粉嫩主题、minis-theme、AppearanceStudio、主题包 JSON 时使用。不要问这是不是 PPT 或网页。气泡形状、圆角、行高、字距这些布局只能用户在装扮页里改，AI 不接。
 ---
 
@@ -420,8 +420,9 @@ AI 改主题只许改这四样：颜色、壁纸和卡片图、字号、头像�
 - 带着锁死字段的 `apply` 会整个被拒，错误里点名是哪个字段，什么都不改，不会悄悄只改一部分。
 - `minis-theme get` / `export` 给 AI 的包只含可改字段，锁死字段已被剥掉并列在 `strippedLockedFields` 里，所以直接回贴不会因为锁死字段被拒；布局字段本来就不在里面，那些只能用户在装扮页里改。
 - `apply` 前有对比度检查：主文字和强调色对页面底（`canvas`）和卡片（`surface`）的对比度，主文字不到 4.5、强调色不到 3 就整单被拒、什么都不改。工具路径里没有渲染出来的预览页，所以对比度检查就是改前那道关，不是改完再警告。
-- `apply` 是局部改，不是整套换：成功回里会列出这次没动的老图（`untouchedImages`）和没点名的自定义颜色（`untouchedColourRoles`），没带进包的壁纸、thinking 卡、输入栏图和颜色都会原样留着，不是悄悄清掉。
-- `minis-theme use` 走 AI 路径时也是局部改：只贴保存那套的颜色、壁纸、卡片图、字号、头像，锁死的布局字段会被剥掉、布局不动，结果里明说剥了哪些；要整套换主题（含布局）请用户在装扮页主题库里点，那条路不受 AI 锁影响。
+- `minis-theme color` 单改一个颜色也一样先过这道关：按那一页那一档实际生效的底和卡片算，失败回 `contrast_failed`、什么都不改；`--clear` 不过关，清掉就是回到默认，是出坏配色的路。装扮页里用户自己改颜色不受这道关影响。
+- `apply` 是局部改，不是整套换：成功回里会列出这次没动的老图（`untouchedImages`）和没点名的自定义颜色（`untouchedColourRoles`），没带进包的壁纸、thinking 卡、输入栏图和颜色都会原样留着，不是悄悄清掉。这两张表覆盖全部作用域，不只全局：非全局的标出作用域，比如 `chat.primaryText (light)`、`wallpaper:chat`，各页自己的壁纸和颜色覆盖也都在里面。
+- `minis-theme use` 走 AI 路径时也是局部改：只贴保存那套的颜色、壁纸、卡片图、字号、头像，锁死的布局字段会被剥掉、布局不动，结果里明说剥了哪些；要整套换主题（含布局）请用户在装扮页主题库里点，那条路不受 AI 锁影响。`use` 贴之前也先过对比度关，保存的那套颜色不过关就整单被拒、什么都不改，成功回里同样列出各作用域没动的老图和颜色。
 - `minis-theme icon` 只有 `--list` 能用；设/清图标被工具层锁死，错误里点名 `icon`，什么都不改，图标只能用户在设置里改。
 - 颜色、壁纸改完立刻生效。
 

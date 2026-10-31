@@ -211,6 +211,31 @@ import UIKit
             return fail("bad_hex", "hex must be 6 or 8 hex digits, e.g. D4778B.") as NSDictionary
         }
         return onMain {
+            // [F1] Same contrast gate as AI apply, BEFORE setColor, on
+            // this AI command path only: the settings UI calls
+            // AppearanceStudio.setColor directly and is never gated here.
+            // The proposed value is judged against the effective
+            // canvas/surface for THIS scope+variant (scope override,
+            // then global override, then built-in palette), with the
+            // same thresholds (primaryText 4.5, accent 3.0). A failing
+            // change returns contrast_failed and changes nothing.
+            // --clear is not gated: clearing restores the default, which
+            // is the way OUT of a bad override, not into one. Scopes
+            // that cannot carry colours (bottomBar/terminal) are
+            // wallpaper-only; setColor ignores them, and the gate
+            // returns [] for them, so that behaviour is unchanged.
+            let failures = AppearanceStudio.shared.contrastFailures(
+                scope: parsedScope, variant: parsedVariant,
+                proposed: [parsedRole: cleaned])
+            if !failures.isEmpty {
+                return [
+                    "ok": false, "error": "contrast_failed",
+                    "contrastFailures": failures,
+                    "role": parsedRole.rawValue, "hex": cleaned,
+                    "scope": parsedScope.rawValue, "variant": parsedVariant.rawValue,
+                    "message": "Contrast check failed before changing the colour; nothing was changed: \(failures.joined(separator: "; ")). Adjust the colour and retry.",
+                ]
+            }
             AppearanceStudio.shared.setColor(Color(hex: cleaned), role: parsedRole,
                                              scope: parsedScope, variant: parsedVariant)
             return [

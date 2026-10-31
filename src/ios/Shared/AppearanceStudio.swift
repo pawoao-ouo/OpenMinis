@@ -413,6 +413,104 @@ final class AppearanceStudio: ObservableObject {
         return UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
     }
 
+    // MARK: - Shared AI contrast gate (F1/F2)
+
+    /// WCAG contrast helpers, shared by every AI theme path so the gate
+    /// is literally the same check, not three copies that can drift.
+    /// Thresholds: primaryText 4.5:1, accent 3:1, against canvas and
+    /// surface. `proposed` holds only the colours this call would change;
+    /// every other role resolves through `hex`, i.e. the scope's own
+    /// override, then the global override, then the built-in palette —
+    /// so a chat-scoped change is judged against the chat page's
+    /// effective canvas/surface, not the global page's.
+    private static func rgb(_ hex: String) -> (Double, Double, Double)? {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        let digits = cleaned.count == 8 ? String(cleaned.prefix(6)) : cleaned
+        guard digits.count == 6, let value = Int(digits, radix: 16) else { return nil }
+        return (Double((value >> 16) & 0xFF) / 255,
+                Double((value >> 8) & 0xFF) / 255,
+                Double(value & 0xFF) / 255)
+    }
+
+    private static func luminance(_ hex: String) -> Double? {
+        guard let (r, g, b) = rgb(hex) else { return nil }
+        func lin(_ c: Double) -> Double { c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    }
+
+    private static func contrastRatio(_ a: String, _ b: String) -> Double? {
+        guard let la = luminance(a), let lb = luminance(b) else { return nil }
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
+
+    /// Failures for one scope+variant after applying `proposed`, or []
+    /// when the call touches none of primaryText/accent/canvas/surface.
+    /// A call that only changes e.g. secondaryText is never blocked by a
+    /// pre-existing bad palette the user set in the UI. Returns [] for a
+    /// scope that cannot carry colours (bottomBar/terminal); those are
+    /// wallpaper-only and `setColor` ignores them anyway.
+    func contrastFailures(scope: AppearanceScope, variant: AppearanceVariant,
+                          proposed: [AppearanceColorRole: String]) -> [String] {
+        guard scope.supportsColour else { return [] }
+        let keyRoles: [AppearanceColorRole] = [.primaryText, .accent, .canvas, .surface]
+        guard proposed.keys.contains(where: { keyRoles.contains($0) }) else { return [] }
+        var effective: [AppearanceColorRole: String] = [:]
+        for role in keyRoles { effective[role] = hex(role, scope: scope, variant: variant) }
+        for (role, value) in proposed { effective[role] = value }
+        var failures: [String] = []
+        let checks: [(AppearanceColorRole, AppearanceColorRole, Double)] = [
+            (.primaryText, .canvas, 4.5), (.primaryText, .surface, 4.5),
+            (.accent, .canvas, 3.0), (.accent, .surface, 3.0),
+        ]
+        for (fg, bg, threshold) in checks {
+            guard let f = effective[fg], let b = effective[bg],
+                  let ratio = Self.contrastRatio(f, b), ratio < threshold else { continue }
+            failures.append("\(variant.rawValue) \(fg.rawValue)/\(bg.rawValue) \(String(format: "%.2f", ratio)) < \(threshold)")
+        }
+        return failures
+    }
+
+    // MARK: - Shared AI merge leftovers (F3)
+
+    /// What a partial AI apply leaves untouched, labelled by scope.
+    /// Global entries keep the pre-existing bare format
+    /// (`primaryText (light)`); non-global entries are prefixed with
+    /// their scope (`chat.primaryText (light)`, `wallpaper:chat`), because
+    /// a pack apply only ever paints global colours — a chat override is
+    /// untouched even when the same role was named globally. Per-scope
+    /// wallpapers are listed by own file (`hasOwnWallpaper`), never by
+    /// inheritance: a chat page showing the global image does not own a
+    /// wallpaper file, and listing it would invent one.
+    func aiApplyLeftovers(changedLightRoles: Set<String>, changedDarkRoles: Set<String>,
+                          carriesWallpaper: Bool, carriesThinkingCard: Bool,
+                          carriesInputBar: Bool) -> (images: [String], colours: [String]) {
+        var images: [String] = []
+        if !carriesWallpaper, wallpaper(for: .global) != nil { images.append("wallpaper") }
+        if !carriesThinkingCard, thinkingCardImage() != nil { images.append("thinkingCard") }
+        if !carriesInputBar, inputBarImage() != nil { images.append("inputBar") }
+        for scope in AppearanceScope.allCases where scope != .global {
+            if hasOwnWallpaper(scope) { images.append("wallpaper:\(scope.rawValue)") }
+        }
+        var colours: [String] = []
+        for variant in AppearanceVariant.allCases {
+            let changed = variant == .light ? changedLightRoles : changedDarkRoles
+            for role in AppearanceColorRole.allCases {
+                guard hasOverride(role, scope: .global, variant: variant),
+                      !changed.contains(role.rawValue) else { continue }
+                colours.append("\(role.rawValue) (\(variant.rawValue))")
+            }
+        }
+        for scope in AppearanceScope.allCases where scope != .global && scope.supportsColour {
+            for variant in AppearanceVariant.allCases {
+                for role in AppearanceColorRole.allCases {
+                    guard hasOverride(role, scope: scope, variant: variant) else { continue }
+                    colours.append("\(scope.rawValue).\(role.rawValue) (\(variant.rawValue))")
+                }
+            }
+        }
+        return (images, colours)
+    }
+
     func setColor(_ color: Color, role: AppearanceColorRole,
                   scope: AppearanceScope, variant: AppearanceVariant) {
         // 底部栏只挂壁纸，不收颜色。静默忽略，不报错——旧数据或 AI 传进来

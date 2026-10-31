@@ -24,28 +24,6 @@ import UIKit
         return (cleaned, stripped)
     }
 
-    /// WCAG contrast helpers for the AI apply gate (item 3).
-    private static func rgb(_ hex: String) -> (Double, Double, Double)? {
-        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        let digits = cleaned.count == 8 ? String(cleaned.prefix(6)) : cleaned
-        guard digits.count == 6, let value = Int(digits, radix: 16) else { return nil }
-        return (Double((value >> 16) & 0xFF) / 255,
-                Double((value >> 8) & 0xFF) / 255,
-                Double(value & 0xFF) / 255)
-    }
-
-    private static func luminance(_ hex: String) -> Double? {
-        guard let (r, g, b) = rgb(hex) else { return nil }
-        func lin(_ c: Double) -> Double { c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
-        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
-    }
-
-    private static func contrastRatio(_ a: String, _ b: String) -> Double? {
-        guard let la = luminance(a), let lb = luminance(b) else { return nil }
-        let hi = max(la, lb), lo = min(la, lb)
-        return (hi + 0.05) / (lo + 0.05)
-    }
-
     @objc public static func currentPack() -> NSDictionary {
         let sem = DispatchSemaphore(value: 0)
         var result: [String: Any] = [:]
@@ -148,34 +126,24 @@ import UIKit
             }
             let changedLight = mapKeys(obj["colorsLight"])
             let changedDark = mapKeys(obj["colorsDark"])
+            // Shared gate (AppearanceStudio.contrastFailures): same
+            // thresholds and pairs as the colour/use gates. Override ONLY
+            // with keys the JSON actually named: pack.colorsLight/Dark
+            // after decode already merged the live pack, so using the
+            // whole map here would let stale pack colours override the
+            // studio's live resolved values (e.g. colours set via
+            // `minis-theme color`, which writes custom overrides, not
+            // the pack).
             var contrastFailures: [String] = []
             for (variant, changed) in [(AppearanceVariant.light, changedLight),
                                        (AppearanceVariant.dark, changedDark)] {
-                guard !changed.intersection(["primaryText", "accent", "canvas", "surface"]).isEmpty else { continue }
-                let studio = AppearanceStudio.shared
-                var effective: [String: String] = [:]
-                for role in ["canvas", "surface", "primaryText", "accent"] {
-                    guard let r = AppearanceColorRole(rawValue: role) else { continue }
-                    effective[role] = studio.hex(r, scope: .global, variant: variant)
-                }
-                // Override ONLY with keys the JSON actually named.
-                // pack.colorsLight/Dark after decode already merged the
-                // live pack, so using the whole map here would let stale
-                // pack colours override the studio's live resolved values
-                // (e.g. colours set via `minis-theme color`, which writes
-                // custom overrides, not the pack).
                 let packMap = variant == .light ? pack.colorsLight : pack.colorsDark
-                for k in changed where packMap[k] != nil { effective[k] = packMap[k]! }
-                let checks: [(String, String, Double)] = [
-                    ("primaryText", "canvas", 4.5), ("primaryText", "surface", 4.5),
-                    ("accent", "canvas", 3.0), ("accent", "surface", 3.0),
-                ]
-                for (fg, bg, threshold) in checks {
-                    guard let f = effective[fg], let b = effective[bg],
-                          let ratio = contrastRatio(f, b), ratio < threshold else { continue }
-                    contrastFailures.append(
-                        "\(variant.rawValue) \(fg)/\(bg) \(String(format: "%.2f", ratio)) < \(threshold)")
+                var proposed: [AppearanceColorRole: String] = [:]
+                for k in changed where packMap[k] != nil {
+                    if let role = AppearanceColorRole(rawValue: k) { proposed[role] = packMap[k]! }
                 }
+                contrastFailures += AppearanceStudio.shared.contrastFailures(
+                    scope: .global, variant: variant, proposed: proposed)
             }
             if !contrastFailures.isEmpty {
                 result = [
@@ -190,23 +158,20 @@ import UIKit
             // [AI merge leftovers] Capture BEFORE applying what this
             // partial apply will leave untouched, so the result can say
             // so honestly instead of implying a full switch.
-            var untouchedImages: [String] = []
-            if obj["wallpaperJPEGBase64"] == nil,
-               AppearanceStudio.shared.wallpaper(for: .global) != nil { untouchedImages.append("wallpaper") }
-            if obj["thinkingCardJPEGBase64"] == nil,
-               AppearanceStudio.shared.thinkingCardImage() != nil { untouchedImages.append("thinkingCard") }
-            if obj["inputBarJPEGBase64"] == nil,
-               AppearanceStudio.shared.inputBarImage() != nil { untouchedImages.append("inputBar") }
-            var untouchedColourRoles: [String] = []
-            for role in AppearanceColorRole.allCases {
-                for variant in [AppearanceVariant.light, AppearanceVariant.dark] {
-                    guard AppearanceStudio.shared.hasOverride(role, scope: .global, variant: variant) else { continue }
-                    let changed = variant == .light ? changedLight : changedDark
-                    if !changed.contains(role.rawValue) {
-                        untouchedColourRoles.append("\(role.rawValue) (\(variant.rawValue))")
-                    }
-                }
-            }
+            // [F3] Leftovers for ALL scopes, via the shared helper:
+            // global entries keep the bare format; non-global entries
+            // are scope-labelled (`chat.primaryText (light)`,
+            // `wallpaper:chat`). Per-scope wallpapers are untouched by
+            // any pack apply (a pack never carries page wallpapers), so
+            // they are listed whenever an own file exists, even when
+            // the pack carries a global wallpaper.
+            let leftovers = AppearanceStudio.shared.aiApplyLeftovers(
+                changedLightRoles: changedLight, changedDarkRoles: changedDark,
+                carriesWallpaper: obj["wallpaperJPEGBase64"] != nil,
+                carriesThinkingCard: obj["thinkingCardJPEGBase64"] != nil,
+                carriesInputBar: obj["inputBarJPEGBase64"] != nil)
+            let untouchedImages = leftovers.images
+            let untouchedColourRoles = leftovers.colours
             // [B28 R3-5 / F-2] 吃不下的字段不再被吞 —— warnings 明说哪些
             // 图没落住，AI 侧能自查重试，不会拿着 ok 当全好。
             // Partial-only: an AI `apply --file` call carries only the
@@ -394,6 +359,19 @@ import UIKit
         let sem = DispatchSemaphore(value: 0)
         var result: [String: Any] = [:]
         Task { @MainActor in
+            // [F2] Same contrast gate as apply, BEFORE anything is
+            // applied: a saved pack that would fail contrast is refused
+            // with nothing changed. nil = no such saved theme.
+            if let failures = AppearanceStudio.shared.savedPackContrastFailures(id: id),
+               !failures.isEmpty {
+                result = [
+                    "ok": false, "error": "contrast_failed",
+                    "contrastFailures": failures,
+                    "message": "Contrast check failed before applying the saved theme; nothing was changed: \(failures.joined(separator: "; ")). Adjust the colours and retry.",
+                ]
+                sem.signal()
+                return
+            }
             if let applied = AppearanceStudio.shared.applySavedThemeAI(id: id) {
                 var out: [String: Any] = [
                     "ok": true, "applied": true, "partial": true, "id": id,
@@ -401,6 +379,11 @@ import UIKit
                     "message": "Partial AI apply: colours, wallpaper/surface images, thinking-card font sizes, and avatar shape from the saved theme were applied. Locked layout fields were stripped and layout is unchanged: \(applied.strippedLockedFields.joined(separator: ", ")). Images and colours the saved pack does not carry were left unchanged. For a full theme switch including layout, use the theme library in the settings UI. This result does not mark the saved theme as in use.",
                 ]
                 if !applied.warnings.isEmpty { out["warnings"] = applied.warnings }
+                if !applied.untouchedImages.isEmpty { out["untouchedImages"] = applied.untouchedImages }
+                if !applied.untouchedColourRoles.isEmpty { out["untouchedColourRoles"] = applied.untouchedColourRoles }
+                if !applied.untouchedImages.isEmpty || !applied.untouchedColourRoles.isEmpty {
+                    out["leftoverNote"] = "Partial apply: the images and custom colours listed in untouchedImages/untouchedColourRoles were left unchanged, not cleared."
+                }
                 result = out
             } else {
                 result = ["ok": false, "error": "not_found", "message": "No saved theme \(id)"]
