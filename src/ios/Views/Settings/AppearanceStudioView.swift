@@ -706,9 +706,12 @@ struct AppearanceStudioView: View {
             } else if pendingClearPageOverrides {
                 Button("Cancel", role: .cancel) { pendingClearPageOverrides = false }
                 Button("Clear", role: .destructive) {
-                    studio.clearNonGlobalColorOverridesWithUndo()
+                    // [F1] Use the capture result, not canUndo: a stale
+                    // snapshot from an earlier reset must never make
+                    // this clear promise an undo it cannot honour.
+                    let didSnapshot = studio.clearNonGlobalColorOverridesWithUndo()
                     pendingClearPageOverrides = false
-                    if studio.canUndoThemeReset {
+                    if didSnapshot {
                         MinisToast.show(AppLocalized("已清除单独调色，点下面可以撤销。"))
                     } else {
                         MinisToast.show(AppLocalized("已清除单独调色。"))
@@ -1058,6 +1061,15 @@ struct AppearanceStudioView: View {
                             ForEach(summaries) { summary in
                                 Button {
                                     paletteScope = summary.scope
+                                    // [F2] Land on the variant that actually
+                                    // has overrides for this scope: a
+                                    // dark-only chat row tapped in light
+                                    // mode used to open an editor saying
+                                    // "no overrides for this page".
+                                    // Pinned like a manual variant pick,
+                                    // so system sync does not override it.
+                                    variant = summary.lightCount > 0 ? .light : .dark
+                                    variantPinnedByUser = true
                                 } label: {
                                     HStack(spacing: 8) {
                                         Text(summary.scope.title)

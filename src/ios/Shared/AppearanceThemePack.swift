@@ -916,15 +916,34 @@ extension AppearanceStudio {
     }
 
     /// True when a reset snapshot is on disk and can be restored.
+    /// A colours-only snapshot (clear-all page overrides) counts too:
+    /// it carries a `colors-only` marker plus `colors.json`, and undo
+    /// restores exactly those colours, never a pack.
     var canUndoThemeReset: Bool {
         let dir = themeUndoDirectory
-        return FileManager.default.fileExists(atPath: dir.appendingPathComponent("pack.json").path)
+        let hasPack = FileManager.default.fileExists(atPath: dir.appendingPathComponent("pack.json").path)
+        let hasColorsOnly = FileManager.default.fileExists(atPath: dir.appendingPathComponent("colors-only").path)
+            && FileManager.default.fileExists(atPath: dir.appendingPathComponent("colors.json").path)
+        return hasPack || hasColorsOnly
     }
 
     /// Restores the pack and images captured by the last `resetThemePack`.
     @discardableResult
     func undoThemeReset() -> Bool {
         let dir = themeUndoDirectory
+        // [F1] Colours-only snapshot from clear-all page overrides:
+        // restore exactly the colour map it captured, and nothing else.
+        // In particular, never restore a pack, image, opacity, or
+        // wallpaper from an older snapshot — this snapshot replaced it.
+        if FileManager.default.fileExists(atPath: dir.appendingPathComponent("colors-only").path) {
+            guard let colors = try? Data(contentsOf: dir.appendingPathComponent("colors.json")),
+                  let decoded = try? JSONDecoder().decode([String: String].self, from: colors) else {
+                return false
+            }
+            restoreColorOverrides(decoded)
+            objectWillChange.send()
+            return true
+        }
         let packURL = dir.appendingPathComponent("pack.json")
         guard let data = try? Data(contentsOf: packURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -984,14 +1003,53 @@ extension AppearanceStudio {
         resetColors()
     }
 
-    /// [P0-4] Clear every non-global colour override with the same undo
-    /// pattern as palette reset: snapshot first, then clear. The snapshot
-    /// is palette-style (no wallpapers), so undoing this clear cannot wipe
-    /// live wallpapers, and it touches colours only — global palette,
-    /// wallpapers, library themes, chats, and backups are untouched.
-    func clearNonGlobalColorOverridesWithUndo() {
-        _ = captureThemeUndoSnapshot()
+    /// [F1] Colours-only undo snapshot for clear-all page overrides.
+    /// Unlike `captureThemeUndoSnapshot`, this does NOT depend on a
+    /// pack JSON existing: it captures exactly the colour map the clear
+    /// is about to wipe, so undo works even when no pack exists, and
+    /// the snapshot it swaps in can never be a stale pre-reset pack.
+    /// Returns false only on a real capture failure (scratch dir or
+    /// colour write); the caller must then invalidate the snapshot.
+    private func captureColorOnlyUndoSnapshot() -> Bool {
+        let dir = themeUndoDirectory
+        let scratch = dir.deletingLastPathComponent()
+            .appendingPathComponent(".undo-staging", isDirectory: true)
+        try? FileManager.default.removeItem(at: scratch)
+        guard (try? FileManager.default.createDirectory(at: scratch,
+                                                        withIntermediateDirectories: true)) != nil else {
+            return false
+        }
+        let overrides: [String: String] = exportColorOverrides()
+        guard let colors = try? JSONEncoder().encode(overrides),
+              (try? colors.write(to: scratch.appendingPathComponent("colors.json"), options: .atomic)) != nil,
+              (try? "1".write(to: scratch.appendingPathComponent("colors-only"), atomically: true, encoding: .utf8)) != nil else {
+            try? FileManager.default.removeItem(at: scratch)
+            return false
+        }
+        // Only replace the live snapshot once the new one is complete.
+        try? FileManager.default.removeItem(at: dir)
+        try? FileManager.default.moveItem(at: scratch, to: dir)
+        return FileManager.default.fileExists(atPath: dir.appendingPathComponent("colors.json").path)
+    }
+
+    /// [P0-4] Clear every non-global colour override, with undo that
+    /// restores exactly the overrides this clear wiped. The snapshot is
+    /// colours-only (no pack, images, opacity, or wallpapers), so
+    /// undoing this clear cannot wipe live wallpapers or resurrect a
+    /// pack the user never touched in this round, and it touches
+    /// colours only — global palette, wallpapers, library themes,
+    /// chats, and backups are untouched.
+    /// Returns true when an undo snapshot was captured; on false the
+    /// stale snapshot (if any) is invalidated and the caller must show
+    /// the no-undo toast instead of promising undo.
+    @discardableResult
+    func clearNonGlobalColorOverridesWithUndo() -> Bool {
+        guard captureColorOnlyUndoSnapshot() else {
+            try? FileManager.default.removeItem(at: themeUndoDirectory)
+            return false
+        }
         clearNonGlobalColorOverrides()
+        return true
     }
 
     func resetThemePack() {
