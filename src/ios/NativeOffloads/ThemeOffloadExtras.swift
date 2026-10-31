@@ -71,13 +71,10 @@ import UIKit
                 let pid = PersonaStore.currentID()
                 guard let existing = PersonaStore.shared.personas.first(where: { $0.id == pid })
                 else { return fail("no_persona", "No persona \(pid).") }
-                // 两边都写：SOUL.md 的 icon 是给旧读取路径的镜像，
-                // Persona.avatar 是界面/聊天真正读的那一份。
-                do {
-                    try AppearanceStudio.shared.setAssistantAvatar(image)
-                } catch {
-                    return fail("save_failed", error.localizedDescription)
-                }
+                // Avatar P0-1: ONE write only, via the canonical
+                // function. Previously this wrote a soul-<id>.png file
+                // via setAssistantAvatar AND a persona-<id>.png file
+                // via storeAvatar, leaving two files and two references.
                 return storeAvatar(image, personaID: pid, role: "assistant", fallback: existing)
             default:
                 return fail("bad_role", "role must be user or assistant.")
@@ -94,8 +91,10 @@ import UIKit
                 return ["ok": true, "avatar": "user", "removed": true]
             case "assistant":
                 let pid = PersonaStore.currentID()
+                // Avatar P0-1: canonical removal only. Previously this
+                // also cleared the SOUL icon separately while leaving
+                // both avatar files on disk.
                 clearAvatar(personaID: pid)
-                try? AppearanceStudio.shared.removeAssistantAvatar()
                 return ["ok": true, "avatar": "assistant", "removed": true]
             default:
                 return fail("bad_role", "role must be user or assistant.")
@@ -103,26 +102,28 @@ import UIKit
         }
     }
 
-    /// 把图落盘，再把路径写进 Persona.avatar —— 界面、聊天、通讯录读的都是它。
+    /// Avatar P0-1: delegate to the canonical avatar function, which
+    /// writes persona-<id>.png, mirrors to SOUL, clears both caches,
+    /// posts for non-current personas too, and deletes orphan files.
+    /// The `fallback` is kept only for the no-persona error shape;
+    /// the canonical function already returns noPersona in that case.
     @MainActor
     private static func storeAvatar(_ image: UIImage, personaID: String,
                                     role: String, fallback: Persona) -> [String: Any] {
-        let name = SoulIconImage.storedName(prefix: "persona", id: personaID)
-        guard case .success(let path) = SoulIconImage.store(image, named: name) else {
-            return fail("save_failed", "Could not store the image.")
+        switch PersonaStore.shared.setAvatarImage(image, for: personaID) {
+        case .success(let path):
+            guard let path else {
+                return fail("save_failed", "Could not store the image.")
+            }
+            return ["ok": true, "avatar": role, "path": path]
+        case .failure(let error):
+            return fail("save_failed", error.localizedDescription)
         }
-        var target = PersonaStore.shared.personas.first(where: { $0.id == personaID }) ?? fallback
-        target.avatar = path
-        PersonaStore.shared.updatePersona(target)
-        return ["ok": true, "avatar": role, "path": path]
     }
 
     @MainActor
     private static func clearAvatar(personaID: String) {
-        guard var target = PersonaStore.shared.personas.first(where: { $0.id == personaID })
-        else { return }
-        target.avatar = nil
-        PersonaStore.shared.updatePersona(target)
+        _ = PersonaStore.shared.setAvatarImage(nil, for: personaID)
     }
 
     // MARK: - Replaceable row icons

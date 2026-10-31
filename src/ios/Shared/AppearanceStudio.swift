@@ -809,18 +809,24 @@ final class AppearanceStudio: ObservableObject {
         }
     }
 
+    /// Avatar P0-1: delegate to the single canonical avatar function.
+    /// Previously this wrote a second file (soul-<id>.png) alongside
+    /// the persona-<id>.png file, leaving two avatar files and two
+    /// references. Now the only file written is persona-<id>.png.
+    /// Failure is thrown, never silently swallowed, so callers can
+    /// tell the user the change did not happen.
     func setAssistantAvatar(_ image: UIImage) throws {
-        let name = SoulIconImage.storedName(prefix: "soul", id: PersonaStore.currentID())
-        guard case .success(let path) = SoulIconImage.store(image, named: name) else { return }
-        var soul = SoulStore.load() ?? SoulFile(metadata: .default, body: "")
-        soul.metadata.icon = path
-        try SoulStore.save(soul)
+        switch PersonaStore.shared.setAvatarImage(image, for: PersonaStore.currentID()) {
+        case .success: return
+        case .failure(let error): throw error
+        }
     }
 
     func removeAssistantAvatar() throws {
-        var soul = SoulStore.load() ?? SoulFile(metadata: .default, body: "")
-        soul.metadata.icon = ""
-        try SoulStore.save(soul)
+        switch PersonaStore.shared.setAvatarImage(nil, for: PersonaStore.currentID()) {
+        case .success: return
+        case .failure(let error): throw error
+        }
     }
 
     // MARK: Replaceable icons

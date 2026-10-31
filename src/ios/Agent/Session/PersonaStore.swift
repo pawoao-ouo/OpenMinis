@@ -912,9 +912,16 @@ final class PersonaStore: ObservableObject {
     /// - Failure: returns .failure and changes NOTHING. Callers must
     ///   surface the error to the user; never report success while
     ///   keeping the old avatar.
-    enum PersonaAvatarError: Error {
+    enum PersonaAvatarError: LocalizedError {
         case noPersona
         case unreadable
+
+        var errorDescription: String? {
+            switch self {
+            case .noPersona: return "找不到这个人设。"
+            case .unreadable: return "这张图读不出来，换一张试试。"
+            }
+        }
     }
 
     @discardableResult
