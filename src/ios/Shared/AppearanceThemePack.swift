@@ -35,15 +35,21 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var thinkingTitleSize: Double
     var thinkingBodySize: Double
     var fontFamily: String
-    /// Message-part font family override. "" = follow the
-    /// global `fontFamily` (old packs, and packs where the user
-    /// never picked a message-only family, behave exactly as
-    /// before). Set by the shop's font section, per part.
+    /// Legacy message-part font family override. Fonts are
+    /// ONE global choice now: `unifiedFonts` folds a set
+    /// override into `fontFamily` (message wins) and clears
+    /// this, so a stored "" here means "follow the global
+    /// family" exactly as before. Kept as a field so old
+    /// packs still decode; nothing new writes a non-empty
+    /// value here.
     var messageFontFamily: String
-    /// Uploaded-font postScript names, one per part. Nil = no
-    /// uploaded font for that part; the family above is the
-    /// fallback. An uploaded font is a file the user supplied,
-    /// so it is stored by name, never by guessing.
+    /// Uploaded-font postScript names. ONE global uploaded
+    /// font now: `unifiedFonts` keeps both fields in sync
+    /// (message wins when they differ), so either field
+    /// reads as the global choice. Nil = no uploaded font;
+    /// the family above is the fallback. An uploaded font is
+    /// a file the user supplied, so it is stored by name,
+    /// never by guessing.
     var messageCustomFont: String?
     var uiCustomFont: String?
     var wallpaperShade: Double?
@@ -438,6 +444,37 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         raw.keys.contains { themePackSignalKeys.contains($0) }
     }
 
+    /// Fold a per-part font pack into ONE global font, the
+    /// batch's migration rule: when the message part and the
+    /// UI part differ, the message choice wins and becomes the
+    /// global choice; the per-part fields are then normalised
+    /// to agree with it, so every reader — including ones that
+    /// still read the stored `fontFamily` field directly —
+    /// sees the same font. A pack that already agrees comes
+    /// back unchanged. Numbers are untouched: this only moves
+    /// family / uploaded-font fields, never FON numbering.
+    static func unifiedFonts(_ pack: AppearanceThemePack) -> AppearanceThemePack {
+        var p = pack
+        // Family: a message override, when set, is the global family.
+        if !p.messageFontFamily.isEmpty, p.messageFontFamily != p.fontFamily {
+            p.fontFamily = p.messageFontFamily
+        }
+        p.messageFontFamily = ""
+        // Uploaded font: message wins when set; when only the
+        // UI side had one, it becomes the single global font
+        // rather than being dropped.
+        let messageCustom = (p.messageCustomFont ?? "").isEmpty ? nil : p.messageCustomFont
+        let uiCustom = (p.uiCustomFont ?? "").isEmpty ? nil : p.uiCustomFont
+        if let messageCustom {
+            p.messageCustomFont = messageCustom
+            p.uiCustomFont = messageCustom
+        } else if let uiCustom {
+            p.messageCustomFont = uiCustom
+            p.uiCustomFont = uiCustom
+        }
+        return p
+    }
+
     /// AI apply allowlist (tool-layer lock, 2026-11-01 standing rule).
     /// The in-app AI may change ONLY colours, wallpaper/surface images,
     /// font sizes, and avatar shape. Everything else is layout and is
@@ -741,10 +778,19 @@ enum AppearanceFontFamily: String, CaseIterable, Identifiable {
         .system(size: size, weight: weight, design: design)
     }
 
+    /// The global family for UIKit input text: the stored
+    /// message override wins when present (same rule as
+    /// `MinisThemeShape.globalFontFamily`), so the input box
+    /// follows the same single choice as messages and UI.
     static func resolved() -> AppearanceFontFamily {
         guard let data = UserDefaults.standard.data(forKey: AppearanceThemePack.currentKey),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let raw = obj["fontFamily"] as? String else {
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .system
+        }
+        if let override = obj["messageFontFamily"] as? String, !override.isEmpty {
+            return parse(override)
+        }
+        guard let raw = obj["fontFamily"] as? String else {
             return .system
         }
         return parse(raw)
@@ -899,6 +945,24 @@ extension AppearanceStudio {
               var pack = try? AppearanceThemePack.decode(obj) else {
             return .default
         }
+        // Font-unification healing, same one-time pattern as
+        // the bubble-surface fix below: a pack stored when
+        // fonts were per part (message vs UI) folds to ONE
+        // global font on first launch after update (message
+        // wins), and is written back, so every reader sees
+        // the same global choice with no re-tap needed.
+        // Direct UserDefaults set, same as the schema upgrade
+        // below — avoid persistPack (would re-enter themePackLock).
+        let unified = AppearanceThemePack.unifiedFonts(pack)
+        if unified.fontFamily != pack.fontFamily
+            || unified.messageFontFamily != pack.messageFontFamily
+            || unified.messageCustomFont != pack.messageCustomFont
+            || unified.uiCustomFont != pack.uiCustomFont {
+            pack = unified
+            if let healed = try? JSONSerialization.data(withJSONObject: pack.asJSONObject()) {
+                UserDefaults.standard.set(healed, forKey: Self.packKey)
+            }
+        }
         // Bubble-width fix, one-time healing: the three packs whose
         // records used to be .row (porcelain BUB-0001, wave
         // BUB-0004, stitch BUB-0006) wrote .row surfaces into the
@@ -955,6 +1019,11 @@ extension AppearanceStudio {
     }
 
     func persistPack(_ pack: AppearanceThemePack) {
+        // Packs arriving here from an import or a theme apply
+        // never passed the load-time healing above, so fold
+        // per-part fonts to the global choice here too — a
+        // stored pack can never diverge again after any write.
+        let pack = AppearanceThemePack.unifiedFonts(pack)
         guard let data = try? JSONSerialization.data(withJSONObject: pack.asJSONObject()) else { return }
         UserDefaults.standard.set(data, forKey: Self.packKey)
         // [10-20 醒醒] 代码块的换行/折叠阈值要给 UIKit 侧读。那条链路不能碰
@@ -1490,27 +1559,48 @@ extension AppearanceStudio {
         persistPack(pack)
     }
 
+    /// The ONE global family: writing it also clears any
+    /// legacy message override, so the message side can never
+    /// keep disagreeing with the global choice afterwards.
     func setFontFamily(_ family: AppearanceFontFamily) {
         var pack = currentThemePack()
         pack.fontFamily = family.rawValue
+        pack.messageFontFamily = ""
         persistPack(pack)
     }
 
-    /// Message-part family ("" = follow the global family).
+    /// The ONE global uploaded font (nil = none, family
+    /// fallback): written to both legacy per-part fields so
+    /// they stay in sync as the single global choice.
+    func setGlobalCustomFont(_ postScriptName: String?) {
+        var pack = currentThemePack()
+        pack.messageCustomFont = postScriptName
+        pack.uiCustomFont = postScriptName
+        persistPack(pack)
+    }
+
+    /// Legacy message-part family setter. Kept so old call
+    /// sites still compile; `persistPack` folds the value
+    /// into the global family, so it now behaves exactly
+    /// like `setFontFamily`.
     func setMessageFontFamily(_ family: AppearanceFontFamily) {
         var pack = currentThemePack()
         pack.messageFontFamily = family.rawValue
         persistPack(pack)
     }
 
-    /// Message-part uploaded font (nil = none, family fallback).
+    /// Legacy message-part uploaded font setter. Kept for
+    /// compatibility; `persistPack` folds it into the global
+    /// uploaded font, so it now behaves like `setGlobalCustomFont`.
     func setMessageCustomFont(_ postScriptName: String?) {
         var pack = currentThemePack()
         pack.messageCustomFont = postScriptName
         persistPack(pack)
     }
 
-    /// UI-part uploaded font (nil = none, family fallback).
+    /// Legacy UI-part uploaded font setter. Kept for
+    /// compatibility; `persistPack` folds it into the global
+    /// uploaded font, so it now behaves like `setGlobalCustomFont`.
     func setUICustomFont(_ postScriptName: String?) {
         var pack = currentThemePack()
         pack.uiCustomFont = postScriptName
@@ -2046,31 +2136,45 @@ enum MinisThemeShape {
     static var inputBarImageOpacity: Double { pack.inputBarImageOpacity }
     static var fontFamily: AppearanceFontFamily { AppearanceFontFamily.parse(pack.fontFamily) }
 
-    /// Message-part family: the override when set, otherwise
-    /// the global family — so old packs (empty override) render
-    /// exactly as before.
-    static var messageFontFamily: AppearanceFontFamily {
+    /// ONE global family: the legacy message override wins
+    /// when a stored pack still carries one (storage healing
+    /// folds it into `fontFamily` on load / persist, so this
+    /// and `fontFamily` agree for every pack the app wrote).
+    static var globalFontFamily: AppearanceFontFamily {
         pack.messageFontFamily.isEmpty ? fontFamily : AppearanceFontFamily.parse(pack.messageFontFamily)
     }
 
-    /// Message-part font: an uploaded font wins when its
-    /// postScript name resolves on this device; otherwise the
-    /// message-part family. Weight is honoured for family
-    /// fonts; for an uploaded font the file's own weight is
-    /// used (UIFont(name:) carries no weight parameter).
-    static func messageFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        if let name = pack.messageCustomFont, !name.isEmpty,
-           let uiFont = UIFont(name: name, size: size) {
-            return Font(uiFont)
-        }
-        return messageFontFamily.font(size: size, weight: weight)
-    }
+    /// Legacy alias for `globalFontFamily`, kept so old call
+    /// sites still compile.
+    static var messageFontFamily: AppearanceFontFamily { globalFontFamily }
 
-    /// UI-part uploaded font name, if any (nil = family fallback).
-    static var uiCustomFontName: String? {
+    /// ONE global uploaded font: the message side wins when
+    /// set, otherwise the UI side's — so a pack stored before
+    /// unification still renders one font everywhere, and
+    /// storage healing then writes that winner to both fields.
+    static var globalCustomFontName: String? {
+        if let name = pack.messageCustomFont, !name.isEmpty { return name }
         guard let name = pack.uiCustomFont, !name.isEmpty else { return nil }
         return name
     }
+
+    /// Message-part font, now the global font: an uploaded
+    /// font wins when its postScript name resolves on this
+    /// device; otherwise the global family. Weight is honoured
+    /// for family fonts; for an uploaded font the file's own
+    /// weight is used (UIFont(name:) carries no weight
+    /// parameter).
+    static func messageFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        if let name = globalCustomFontName,
+           let uiFont = UIFont(name: name, size: size) {
+            return Font(uiFont)
+        }
+        return globalFontFamily.font(size: size, weight: weight)
+    }
+
+    /// Legacy alias for `globalCustomFontName`, kept so old
+    /// call sites still compile.
+    static var uiCustomFontName: String? { globalCustomFontName }
 
     /// Live pack shape for ONE side, from that side's theme
     /// field the shop's per-side apply() writes (parse falls

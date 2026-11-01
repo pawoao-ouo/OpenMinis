@@ -93,27 +93,39 @@ enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
     }
 }
 
-/// Centralised font-scale preferences for the app.
+/// Centralised font preferences for the app.
 ///
-/// Three independent axes, each storing a scale multiplier:
-/// - **chatInput**: the text-editor where the user types messages
-/// - **messageBase**: assistant / user message body text (markdown base size)
-/// - **appBase**: reserved for general UI text (labels, settings, etc.)
+/// ONE global size drives message body, UI text, and input
+/// text together: `messagePointSize` (10-15pt, default 13pt).
+/// It is the stored message choice, so existing users keep
+/// exactly the size they already picked — the migration rule
+/// "when sizes differ, keep the message size" is this: the
+/// old stepped axes below no longer drive any sizing, so
+/// there is nothing left for the message size to disagree
+/// with. The stepped properties stay stored (the config
+/// registry still binds them) but are legacy: changing one
+/// does not change any rendered size.
 ///
-/// Usage: call `scaled(_:for:)` with the original hardcoded font size and the axis.
-/// The returned value = originalSize × multiplier.
+/// Usage: `scaledMessage` for message-body sites (written
+/// against a 16.5pt base), `scaledApp` / `scaledChatInput`
+/// for UI and input sites (written at their literal sizes,
+/// so they anchor on the 13pt default for identity).
 @MainActor
 final class FontSettings: ObservableObject {
     static let shared = FontSettings()
 
     // MARK: - Published properties
 
+    /// Legacy stepped axis, stored only. Kept so the config
+    /// registry's key paths still compile; it no longer
+    /// drives any size (see the class comment).
     @Published var chatInputScale: FontScaleLevel {
         didSet {
             guard chatInputScale != oldValue else { return }
             UserDefaults.standard.set(chatInputScale.rawValue, forKey: Keys.chatInput)
         }
     }
+    /// Legacy stepped axis, stored only (same rule as above).
     @Published var messageBaseScale: FontScaleLevel {
         didSet {
             guard messageBaseScale != oldValue else { return }
@@ -143,8 +155,22 @@ final class FontSettings: ObservableObject {
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .fontSettingsMessageBaseChanged, object: nil)
             }
+            // The window content-size override follows the
+            // global size now, not the legacy app-base axis.
+            DispatchQueue.main.async { [weak self] in self?.applyAppScaleToAllWindows() }
         }
     }
+
+    /// Alias for the one global size: message, UI, and input
+    /// all read `messagePointSize`. The alias exists so call
+    /// sites can say what they mean; the stored value (and
+    /// the @Published observation) is `messagePointSize`.
+    var globalPointSize: CGFloat {
+        get { messagePointSize }
+        set { messagePointSize = newValue }
+    }
+
+    /// Legacy stepped axis, stored only (same rule as above).
     @Published var appBaseScale: FontScaleLevel {
         didSet {
             guard appBaseScale != oldValue else { return }
@@ -154,19 +180,70 @@ final class FontSettings: ObservableObject {
         }
     }
 
-    /// `true` when any value differs from default.
+    /// `true` when the global size differs from default.
+    /// Legacy axes are deliberately excluded: they no longer
+    /// change anything, so they must not keep a "reset" button
+    /// visible for a difference the user cannot see.
     var isModified: Bool {
-        chatInputScale != .default
-            || messageBaseScale != .default
-            || messagePointSize != 13
-            || appBaseScale != .default
+        messagePointSize != 13
+    }
+
+    // MARK: - Density
+
+    /// One density factor for every settings-page row and
+    /// card, derived from the global size alone: at the 13pt
+    /// default it is exactly 1 (no layout change for existing
+    /// users), at 12pt it is 0.92, at 10pt 0.77, so a small
+    /// font also pulls padding and spacing in — the reported
+    /// bug was text shrinking while rows stayed huge, which
+    /// is what made small sizes still look like an old phone.
+    /// Capped at the top so 15pt rooms the page out only
+    /// slightly instead of blowing it up.
+    var densityFactor: CGFloat {
+        min(1.15, max(0.75, messagePointSize / 13))
+    }
+
+    /// Scale a padding / spacing / row-height base by the
+    /// density factor. Font sizes never go through here;
+    /// they go through `scaledApp` / `scaledMessage`.
+    func density(_ base: CGFloat) -> CGFloat {
+        base * densityFactor
+    }
+
+    /// Semantic-size bucket for the global size, for the
+    /// root `.dynamicTypeSize` pin and sheet scaling. 13pt
+    /// maps to `.large` (the system default bucket), which is
+    /// exactly what the old app-base-default pin produced.
+    var globalDynamicTypeSize: DynamicTypeSize {
+        switch Int(messagePointSize) {
+        case ...10: return .xSmall
+        case 11: return .small
+        case 12: return .medium
+        case 13: return .large
+        case 14: return .xLarge
+        default: return .xxLarge
+        }
+    }
+
+    /// UIKit equivalent of `globalDynamicTypeSize`, for the
+    /// all-windows content-size override.
+    var globalContentSizeCategory: UIContentSizeCategory {
+        switch Int(messagePointSize) {
+        case ...11: return .extraSmall
+        case 12: return .small
+        case 13: return .large
+        case 14: return .extraLarge
+        default: return .extraExtraLarge
+        }
     }
 
     // MARK: - Scaling helpers
 
-    /// Scale a font size by the chat-input multiplier.
+    /// Scale an input-text size by the global size: a site
+    /// written at its literal size renders unchanged at the
+    /// 13pt default and moves with the global size elsewhere.
     func scaledChatInput(_ size: CGFloat) -> CGFloat {
-        size * chatInputScale.multiplier
+        size * messagePointSize / 13
     }
 
     /// Scale a font size for message text: proportional to the
@@ -177,9 +254,11 @@ final class FontSettings: ObservableObject {
         size * messagePointSize / 16.5
     }
 
-    /// Scale a font size by the app-base multiplier.
+    /// Scale a UI-text size by the global size, same anchor
+    /// as `scaledChatInput`: literal sizes are unchanged at
+    /// the 13pt default.
     func scaledApp(_ size: CGFloat) -> CGFloat {
-        size * appBaseScale.multiplier
+        size * messagePointSize / 13
     }
 
     // MARK: - Init
@@ -233,8 +312,8 @@ final class FontSettings: ObservableObject {
     /// started life with the system category and never picked the override up.
     func applyAppScaleToAllWindows() {
         guard #available(iOS 17.0, *) else { return }
-        // Skip if default — no need to override system traits
-        guard appBaseScale != .default else {
+        // Skip at the 13pt default — no need to override system traits
+        guard messagePointSize != 13 else {
             // Remove any previous override
             for scene in UIApplication.shared.connectedScenes {
                 guard let windowScene = scene as? UIWindowScene else { continue }
@@ -246,7 +325,7 @@ final class FontSettings: ObservableObject {
             }
             return
         }
-        let category = appBaseScale.contentSizeCategory
+        let category = globalContentSizeCategory
         for scene in UIApplication.shared.connectedScenes {
             guard let windowScene = scene as? UIWindowScene else { continue }
             for window in windowScene.windows {
@@ -291,8 +370,9 @@ final class FontSettings: ObservableObject {
 /// （走 `scaledMessage`）变大，输入框、面板、抽屉、工具栏纹丝不动。
 ///
 /// 这里把两件事绑在一起：
-/// 1. 尺寸乘 `FontSettings.scaledApp`（设置里的「整体字号」）
-/// 2. 字体族取装扮页的主题字体（`MinisThemeShape.fontFamily`）
+/// 1. 尺寸乘 `FontSettings.scaledApp`（全局字号，消息 / 界面 / 输入同一支）
+/// 2. 字体族取全局字体（`MinisThemeShape.globalFontFamily`），上传字体走
+///    全局上传字体（`globalCustomFontName`，消息侧优先）
 ///
 /// 调用方都持有 `@ObservedObject fontSettings` 与 `@ObservedObject appearanceStudio`，
 /// 两者变化都会重算 body，字体跟着刷新。
@@ -305,20 +385,20 @@ enum ChatFont {
         if let design {
             return .system(size: scaled, weight: weight, design: design)
         }
-        // UI-part uploaded font wins when it resolves on this
-        // device; otherwise the global family, as before.
-        if let name = MinisThemeShape.uiCustomFontName,
+        // Global uploaded font wins when it resolves on this
+        // device; otherwise the global family.
+        if let name = MinisThemeShape.globalCustomFontName,
            let uiFont = UIFont(name: name, size: scaled) {
             return Font(uiFont)
         }
-        return MinisThemeShape.fontFamily.font(size: scaled, weight: weight)
+        return MinisThemeShape.globalFontFamily.font(size: scaled, weight: weight)
     }
 }
 
-/// Applies app-base font scaling via `dynamicTypeSize`.
+/// Applies global-size scaling via `dynamicTypeSize`.
 /// Use on sheet content and any view that doesn't inherit the root environment.
 ///
-/// At `.default` this applies nothing. `.dynamicTypeSize(.large)` is a hard
+/// At the 13pt default this applies nothing. `.dynamicTypeSize(.large)` is a hard
 /// pin, not a no-op — it overrode the reader's own iOS Dynamic Type setting,
 /// so someone running Larger Text system-wide got it silently forced back to
 /// the default inside every screen that used this modifier. Leaving the
@@ -327,10 +407,10 @@ private struct AppFontScaleModifier: ViewModifier {
     @ObservedObject private var fontSettings = FontSettings.shared
 
     func body(content: Content) -> some View {
-        if fontSettings.appBaseScale == .default {
+        if fontSettings.messagePointSize == 13 {
             content
         } else {
-            content.dynamicTypeSize(fontSettings.appBaseScale.dynamicTypeSize)
+            content.dynamicTypeSize(fontSettings.globalDynamicTypeSize)
         }
     }
 }

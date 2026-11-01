@@ -24,9 +24,10 @@ import UIKit
 // register is never added as a record — there is no phantom
 // card for a font that cannot render.
 //
-// Scope, stated plainly: an uploaded font applies through
-// the same two parts as built-in families — message part via
-// MinisThemeShape.messageFont, UI part via ChatFont. Markdown
+// Scope, stated plainly: a font — built-in or uploaded —
+// is ONE global choice: message text via
+// MinisThemeShape.messageFont and UI text via ChatFont both
+// resolve the same global family / uploaded font. Markdown
 // rendering (SelectableMarkdownView) uses UIFont.systemFont
 // directly and does not yet follow any family choice; that
 // pre-existing gap is untouched by this batch.
@@ -137,7 +138,7 @@ final class UploadedFontStore: ObservableObject {
             ? psName : sourceURL.deletingPathExtension().lastPathComponent
         let font = UploadedFont(number: number, title: title, fileName: fileName,
                                 postScriptName: psName,
-                                detail: "用户上传的字体，消息或界面可用，预览与真用同一支字体")
+                                detail: "用户上传的字体，全局可用，预览与真用同一支字体")
         nextSerial += 1
         fonts.append(font)
         save()
@@ -145,10 +146,10 @@ final class UploadedFontStore: ObservableObject {
     }
 
     /// Delete an uploaded font only (built-ins cannot be
-    /// deleted). Parts wearing it fall back to their family:
-    /// the theme pack's custom-font fields are cleared here,
-    /// in the same call, so no part keeps pointing at a
-    /// deleted file.
+    /// deleted). The global choice wearing it falls back to
+    /// its family: the theme pack's custom-font fields are
+    /// cleared here, in the same call, so nothing keeps
+    /// pointing at a deleted file.
     func delete(_ font: UploadedFont) {
         guard fonts.contains(where: { $0.number == font.number }) else { return }
         if let dir = Self.fontsDirectory() {

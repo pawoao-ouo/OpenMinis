@@ -668,7 +668,12 @@ struct AppearanceStudioView: View {
         // [10-19 醒醒] 子页内容原来是纯 VStack，塞进 NavigationLink 后
         // 没有滚动容器会挤成一坨。统一包一层 ScrollView，卡片视觉保留。
         ScrollView {
-            VStack(spacing: 16) {
+            // Density: the sub-page's own spacing and padding
+            // follow the global size, so a small font pulls
+            // the whole settings page denser instead of
+            // leaving huge rows around small text. Tap
+            // targets inside the cards are never densified.
+            VStack(spacing: fontSettings.density(16)) {
                 switch item {
                 case .palette:   palettePage
                 case .bubbles:   bubblesPage
@@ -679,8 +684,8 @@ struct AppearanceStudioView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 32)
+            .padding(.top, fontSettings.density(12))
+            .padding(.bottom, fontSettings.density(32))
         }
         .scrollIndicators(.hidden)
         // [B28 R2-11] 顶栏「存」。调色调到一半想留住现状，不用退回主题库
@@ -2177,15 +2182,16 @@ struct AppearanceStudioView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 sectionTitle(AppLocalized("字号"))
-                FontScaleRow(label: AppLocalized("Chat Input"), level: $fontSettings.chatInputScale)
+                // ONE global size: the old per-part rows (input /
+                // message / app-base) are gone — message, UI,
+                // and input all follow this single 10-15pt size.
                 MessagePointSizeRow(size: $fontSettings.messagePointSize)
-                FontScaleRow(label: AppLocalized("App Base"), level: $fontSettings.appBaseScale)
                 if fontSettings.isModified {
                     Button(AppLocalized("恢复默认字号")) { fontSettings.resetToDefaults() }
                         .font(.system(size: 12))
                         .foregroundStyle(studio.color(.destructive, variant: variant))
                 }
-                Text(AppLocalized("分别缩放聊天输入框、消息正文、以及其余界面文字。改完立刻生效。"))
+                Text(AppLocalized("消息、界面、输入框用同一个字号，改一处三处一起变。改完立刻生效。"))
                     .font(.system(size: 10.5))
                     .lineSpacing(1.5)
                     .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.8))
@@ -2639,6 +2645,7 @@ enum AppearanceStudioPage: String, CaseIterable, Identifiable {
 private struct StudioCard: ViewModifier {
     let variant: AppearanceVariant
     @ObservedObject private var studio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     func body(content: Content) -> some View {
         // [10-19 醒醒] 她说"像安卓"。两个原因：
@@ -2647,7 +2654,7 @@ private struct StudioCard: ViewModifier {
         // 2. 卡片之间 20pt 间距 —— iOS 的分组内是 0 间距、组与组之间才留白。
         //    这里保持卡片独立，但把圆角和阴影收成系统样子。
         content
-            .padding(14)
+            .padding(fontSettings.density(14))
             .background(studio.color(.surface, variant: variant).opacity(studio.surfaceOpacity),
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
@@ -2659,17 +2666,17 @@ private struct StudioCard: ViewModifier {
 
 // MARK: - 字号滑杆
 
-/// Message body size in points, 10-15pt (default 13pt, never
-/// 17pt): a stepped slider plus the current size, replacing
-/// the old message-base multiplier row, which no longer
-/// drives message text.
+/// Global size in points, 10-15pt (default 13pt, never
+/// 17pt): a stepped slider plus the current size. This one
+/// control drives message body, UI text, and input text
+/// together — the old per-part rows are gone.
 private struct MessagePointSizeRow: View {
     @Binding var size: CGFloat
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(AppLocalized("Message Text"))
+                Text(AppLocalized("全局字号"))
                     .font(.system(size: 12.5))
                     .foregroundStyle(MinisTheme.primaryText)
                 Spacer(minLength: 0)
@@ -2682,130 +2689,9 @@ private struct MessagePointSizeRow: View {
     }
 }
 
-private struct FontScaleRow: View {
-    let label: String
-    @Binding var level: FontScaleLevel
-
-    private static let cases = FontScaleLevel.allCases
-
-    private var currentIndex: Int {
-        Self.cases.firstIndex(of: level) ?? Self.cases.firstIndex(of: .default) ?? 0
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(.system(size: 12.5))
-                .foregroundStyle(MinisTheme.primaryText)
-            HStack(spacing: 12) {
-                Button {
-                    let idx = currentIndex - 1
-                    if idx >= 0 { level = Self.cases[idx] }
-                } label: {
-                    Text("A")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(MinisTheme.secondaryText)
-                }
-                .buttonStyle(.plain)
-
-                SteppedSlider(value: currentIndex, steps: Self.cases.count) { newIndex in
-                    if newIndex >= 0, newIndex < Self.cases.count {
-                        level = Self.cases[newIndex]
-                    }
-                }
-
-                Button {
-                    let idx = currentIndex + 1
-                    if idx < Self.cases.count { level = Self.cases[idx] }
-                } label: {
-                    Text("A")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(MinisTheme.secondaryText)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-}
-
 // MARK: - App 图标 / 语言选项
 //
 // 这两组原来在 ContentView.swift 里，是 private 的，跟这里同名不冲突。
-
-/// 分档滑杆。`ContentView.swift` 里那个是 private，这里用不了，重写一份。
-/// 逻辑一样：拖动按档位吸附，刻度点跟着填色。
-private struct SteppedSlider: View {
-    let value: Int
-    let steps: Int
-    let onChanged: (Int) -> Void
-
-    private let trackHeight: CGFloat = 4
-    private let thumbSize: CGFloat = 22
-    private let tickSize: CGFloat = 6
-
-    @State private var dragValue: Int?
-
-    private var displayValue: Int { dragValue ?? value }
-
-    var body: some View {
-        GeometryReader { geo in
-            let totalW = geo.size.width
-            let midY = geo.size.height / 2
-            let maxStep = CGFloat(max(1, steps - 1))
-
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(AppearanceStudio.shared.color(.mutedSurface, scope: .settings))
-                    .frame(height: trackHeight)
-                    .position(x: totalW / 2, y: midY)
-
-                let fillW = totalW * CGFloat(displayValue) / maxStep
-                Capsule()
-                    .fill(MinisTheme.accent)
-                    .frame(width: fillW, height: trackHeight)
-                    .position(x: fillW / 2, y: midY)
-
-                ForEach(0..<steps, id: \.self) { i in
-                    let x = totalW * CGFloat(i) / maxStep
-                    Circle()
-                        .fill(i <= displayValue
-                              ? MinisTheme.accent
-                              : AppearanceStudio.shared.color(.mutedSurface, scope: .settings))
-                        .frame(width: tickSize, height: tickSize)
-                        .position(x: x, y: midY)
-                }
-
-                let thumbX = totalW * CGFloat(displayValue) / maxStep
-                Circle()
-                    .fill(.white)
-                    .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
-                    .frame(width: thumbSize, height: thumbSize)
-                    .position(x: thumbX, y: midY)
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { drag in
-                        let step = stepFromX(drag.location.x, width: totalW)
-                        if step != dragValue { dragValue = step }
-                    }
-                    .onEnded { drag in
-                        let step = stepFromX(drag.location.x, width: totalW)
-                        dragValue = nil
-                        onChanged(step)
-                    }
-            )
-        }
-        .frame(height: thumbSize + 8)
-    }
-
-    private func stepFromX(_ x: CGFloat, width: CGFloat) -> Int {
-        guard width > 0, steps > 1 else { return 0 }
-        let fraction = x / width
-        let clamped = min(max(fraction, 0), 1)
-        return Int((clamped * CGFloat(steps - 1)).rounded())
-    }
-}
 
 private struct StudioIconOption: Identifiable {
     let id: Int
