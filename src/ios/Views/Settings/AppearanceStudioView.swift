@@ -35,6 +35,7 @@ import UIKit
 struct AppearanceStudioView: View {
     @ObservedObject private var studio = AppearanceStudio.shared
     @ObservedObject private var fontSettings = FontSettings.shared
+    @ObservedObject private var bubblePackStore = BubbleStylePackStore.shared
 
     @State private var variant: AppearanceVariant = .light
     /// [B28 E-2] `variant` 原来写死 `.light`，全文件没有一处从
@@ -1274,9 +1275,203 @@ struct AppearanceStudioView: View {
         .padding(.vertical, 6)
     }
 
+    // MARK: - 气泡款式包（step 1：目录 + 样张格 + 点一下换上）
+    //
+    // 每张卡用同一句样张文字，只变款式本身，所以卡和卡之间
+    // 比的是款式，不是文案。点一下立刻应用：显示形态、两边
+    // 气泡形状与圆角、输入栏形状与圆角马上变；颜色、透明度、
+    // 两边字色、壁纸、头像形状一律不动（见
+    // BubbleStylePackStore.apply）。头像位置/大小/边框、时间与
+    // 名字位置、边框宽度、消息间距、整行还是文字气泡，现在只
+    // 在样张里体现，聊天里的接线是下一步，不在这里假装已接上。
+
+    private var bubblePackGrid: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle(AppLocalized("气泡款式"))
+            Text(AppLocalized("点一下就换上。颜色和壁纸还在主题里，款式只改形状结构。"))
+                .font(.system(size: 10.5))
+                .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.8))
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
+                                GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                ForEach(bubblePackStore.packs) { pack in
+                    Button { bubblePackStore.apply(pack) } label: {
+                        bubblePackCard(pack)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .modifier(StudioCard(variant: variant))
+    }
+
+    private func bubblePackCard(_ pack: BubbleStylePack) -> some View {
+        let applied = bubblePackStore.appliedNumber == pack.number
+        return VStack(alignment: .leading, spacing: 8) {
+            bubblePackSample(pack)
+            HStack(spacing: 6) {
+                Text(pack.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(studio.color(.primaryText, variant: variant))
+                Spacer(minLength: 0)
+                Text(pack.number)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.8))
+            }
+            HStack(spacing: 6) {
+                Text(pack.category)
+                    .font(.system(size: 10))
+                    .foregroundStyle(studio.color(.secondaryText, variant: variant))
+                Spacer(minLength: 0)
+                if applied {
+                    Text(AppLocalized("正在用"))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(studio.color(.accent, variant: variant))
+                }
+            }
+        }
+        .padding(10)
+        .background(studio.color(.raised, variant: variant).opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(applied ? studio.color(.accent, variant: variant)
+                        : studio.color(.border, variant: variant).opacity(0.4),
+                        lineWidth: applied ? 1.5 : 0.5)
+        )
+    }
+
+    /// One pack's live sample: assistant row then user row, same
+    /// sample text on every card, honouring the pack's surface,
+    /// tail, corners, avatar placement/size, padding, spacing,
+    /// meta and name placement, and input-bar form.
+    private func bubblePackSample(_ pack: BubbleStylePack) -> some View {
+        let style = pack.style
+        let sample = AppLocalized("也真的想你")
+        return VStack(spacing: style.messageSpacing) {
+            bubblePackRow(pack: pack, isUser: false, text: sample)
+            bubblePackRow(pack: pack, isUser: true, text: sample)
+            bubblePackInputBar(pack: pack)
+        }
+    }
+
+    private func bubblePackRow(pack: BubbleStylePack, isUser: Bool, text: String) -> some View {
+        let style = pack.style
+        let showBubble = style.display == .bubbles
+        let bubbleColour = studio.color(isUser ? .userBubble : .assistantBubble, variant: variant)
+        let textColour = studio.color(isUser ? .bubbleText : .assistantBubbleText, variant: variant)
+        let meta = isUser ? style.userMeta : style.assistantMeta
+        let namePlacement = isUser ? style.userName : style.assistantName
+        let name = isUser ? (studio.userDisplayName.isEmpty ? AppLocalized("我") : studio.userDisplayName) : aiName
+        let surface = isUser ? style.userSurface : style.assistantSurface
+        let padding = isUser ? style.userPadding : style.assistantPadding
+        let borderWidth = isUser ? style.userBorderWidth : style.assistantBorderWidth
+        let avatarSize = style.avatarSize
+        let avatar = Circle()
+            .fill(studio.color(.accent, variant: variant).opacity(0.2))
+            .frame(width: avatarSize, height: avatarSize)
+            .overlay(Image(systemName: "person.fill")
+                .font(.system(size: avatarSize * 0.45))
+                .foregroundStyle(studio.color(.secondaryText, variant: variant)))
+            .overlay(Circle().stroke(studio.color(.border, variant: variant),
+                                     lineWidth: style.avatarBorderWidth))
+        // Background must be applied AFTER the stretch frame, or a
+        // row bubble would only align instead of stretching: the
+        // colour fills whatever frame it is given, so the frame has
+        // to come first for row surface.
+        let bubbleContent = Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(showBubble ? textColour
+                             : studio.color(.primaryText, variant: variant))
+            .padding(.horizontal, padding).padding(.vertical, 8)
+        let bubbleText: AnyView = {
+            let shaped: AnyView
+            if surface == .row {
+                shaped = AnyView(
+                    bubbleContent
+                        .frame(maxWidth: .infinity,
+                               alignment: isUser ? .trailing : .leading)
+                )
+            } else {
+                shaped = AnyView(bubbleContent)
+            }
+            return AnyView(
+                shaped
+                    .background(showBubble ? bubbleColour : Color.clear)
+                    .clipShape(BubblePackSampleShape(pack: pack, isUser: isUser))
+                    .overlay(
+                        BubblePackSampleShape(pack: pack, isUser: isUser)
+                            .stroke(studio.color(.border, variant: variant),
+                                    lineWidth: showBubble ? borderWidth : 0)
+                    )
+            )
+        }()
+        let metaText = Text("10:24")
+            .font(.system(size: 8))
+            .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.8))
+        let nameText = Text(name)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(studio.color(.secondaryText, variant: variant))
+        if style.display == .document {
+            return VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
+                if meta == .above { metaText }
+                HStack {
+                    if isUser { Spacer(minLength: 0) }
+                    Text(text)
+                        .font(.system(size: 12))
+                        .foregroundStyle(studio.color(.primaryText, variant: variant))
+                        .padding(.horizontal, padding).padding(.vertical, 4)
+                    if !isUser { Spacer(minLength: 0) }
+                }
+                if meta == .below { metaText }
+            }
+        }
+        // Row surface: bubbleText already stretched in its own
+        // frame above; text surface hugs the text. The outer HStack
+        // only aligns the result to its side.
+        let stretchedBubble: AnyView = bubbleText
+        return VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
+            if meta == .above { metaText }
+            if namePlacement == .above { nameText }
+            HStack(alignment: style.avatarPlacement == .overlapping ? .top : .center, spacing: 6) {
+                if !isUser {
+                    avatar.offset(y: style.avatarPlacement == .overlapping ? -4 : 0)
+                }
+                if namePlacement == .inline, !isUser { nameText }
+                HStack {
+                    if isUser { Spacer(minLength: 0) }
+                    stretchedBubble
+                    if !isUser { Spacer(minLength: 0) }
+                }
+                if namePlacement == .inline, isUser { nameText }
+                if isUser {
+                    avatar.offset(y: style.avatarPlacement == .overlapping ? -4 : 0)
+                }
+            }
+            if meta == .below { metaText }
+        }
+    }
+
+    private func bubblePackInputBar(pack: BubbleStylePack) -> some View {
+        let style = pack.style
+        let radius: CGFloat = style.inputBarForm == .pill ? 15 : CGFloat(style.inputBarRadius)
+        return HStack(spacing: 6) {
+            Image(systemName: "plus")
+                .font(.system(size: 10))
+                .foregroundStyle(studio.color(.secondaryText, variant: variant))
+            Spacer(minLength: 0)
+            Image(systemName: "mic")
+                .font(.system(size: 10))
+                .foregroundStyle(studio.color(.secondaryText, variant: variant))
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(studio.color(.field, variant: variant))
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+    }
+
     private var bubblesPage: some View {
         VStack(spacing: 16) {
             bubblesSampleCard
+            bubblePackGrid
             bubbleColorCard
 
             VStack(alignment: .leading, spacing: 12) {
@@ -2578,3 +2773,35 @@ private let studioLanguages: [StudioLanguageOption] = [
 // 全部用真组件：PersonAvatarView 真头像、AppearanceBackdrop 真壁纸、
 // MinisBubbleShape 真气泡、真输入框圆角、真状态色。
 
+
+// MARK: - 气泡款式包样张形状
+//
+// Sample-only shape: tail and even/pill/sharp delegate to the real
+// MinisBubbleShape; asymmetric corners use UnevenRoundedRectangle
+// (one outer corner near-sharp, the rest at the pack radius), which
+// the live chat shape does not support yet — that is the documented
+// gap, not a silent difference: samples show the preset, live chat
+// maps it to rounded until the chat shape gains per-corner radii.
+private struct BubblePackSampleShape: Shape {
+    var pack: BubbleStylePack
+    var isUser: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let style = pack.style
+        let radius = CGFloat(isUser ? style.userRadius : style.assistantRadius)
+        if style.tailOn {
+            return MinisBubbleShape(style: .tail, radius: radius,
+                                    tailOnTrailing: isUser).path(in: rect)
+        }
+        if style.cornerPreset == .asymmetric {
+            let radii = RectangleCornerRadii(
+                topLeading: radius,
+                topTrailing: radius,
+                bottomLeading: isUser ? radius : 4,
+                bottomTrailing: isUser ? 4 : radius)
+            return UnevenRoundedRectangle(cornerRadii: radii).path(in: rect)
+        }
+        return MinisBubbleShape(style: style.liveStyle(), radius: radius,
+                                tailOnTrailing: isUser).path(in: rect)
+    }
+}
