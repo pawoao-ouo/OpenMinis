@@ -103,6 +103,10 @@ extension AppearanceColorRole {
         case .userBubble:        return .elementActive      // 5（气泡是个"选中"质感的块）
         case .assistantBubble:   return .subtleBackground   // 2
         case .secondaryText:     return .lowContrastText    // 11
+        // Tertiary has no dedicated step: it rides the secondary
+        // step one shade off (see scaleOffset), so it stays the
+        // faintest text without inventing a thirteenth step.
+        case .tertiaryText:      return .lowContrastText    // 11, shaded off
         case .primaryText:       return .highContrastText   // 12
         case .bubbleText:        return .highContrastText   // 12, same as primaryText until set
         case .assistantBubbleText: return .highContrastText // 12, same as primaryText until set
@@ -116,6 +120,7 @@ extension AppearanceColorRole {
     var scaleOffset: Int {
         switch self {
         case .raised:        return 1     // 比卡片再亮
+        case .tertiaryText:  return 1     // 三级比次级再淡一档
         case .field:         return 0
         case .assistantBubble: return 0
         default:             return 0
@@ -186,25 +191,25 @@ enum AppearanceScale {
         return steps
     }
 
-    /// 种子无效时的兜底（就是现在内置那套暖纸）。
+    /// 种子无效时的兜底（2026-11-02：跟内置默认同一套单色，不再是暖纸）。
     static func defaultScale(dark: Bool) -> [AppearanceScaleStep: String] {
         if dark {
             return [
-                .appBackground: "1A1716", .subtleBackground: "242020",
-                .elementBackground: "2F2A28", .elementHover: "362F2C",
-                .elementActive: "3D3532", .subtleBorder: "403836",
-                .elementBorder: "4C4340", .elementBorderHover: "5A504C",
-                .solid: "C99BA6", .solidHover: "D4AAB3",
-                .lowContrastText: "B5A8A1", .highContrastText: "F2EDE9",
+                .appBackground: "000000", .subtleBackground: "1C1C1E",
+                .elementBackground: "2C2C2E", .elementHover: "3A3A3C",
+                .elementActive: "3A3A3C", .subtleBorder: "38383A",
+                .elementBorder: "48484A", .elementBorderHover: "636366",
+                .solid: "FFFFFF", .solidHover: "FFFFFF",
+                .lowContrastText: "AEAEB2", .highContrastText: "FFFFFF",
             ]
         }
         return [
-            .appBackground: "F7F4F1", .subtleBackground: "FDFCFA",
-            .elementBackground: "F1EBE6", .elementHover: "EDE2DC",
-            .elementActive: "E8DBD4", .subtleBorder: "E3DAD4",
-            .elementBorder: "CFC2BA", .elementBorderHover: "B9A9A0",
-            .solid: "B98591", .solidHover: "C4939E",
-            .lowContrastText: "8A7B74", .highContrastText: "3A322E",
+            .appBackground: "F5F5F7", .subtleBackground: "FFFFFF",
+            .elementBackground: "F7F7F9", .elementHover: "EBEBEF",
+            .elementActive: "E5E5EA", .subtleBorder: "E8E8E8",
+            .elementBorder: "D1D1D6", .elementBorderHover: "AEAEB2",
+            .solid: "111113", .solidHover: "111113",
+            .lowContrastText: "636366", .highContrastText: "111113",
         ]
     }
 
@@ -221,10 +226,11 @@ enum AppearanceScale {
                 out[role] = AppearanceContrast.shade(base, by: dark ? -0.02 : 0.014)
             }
         }
-        // 状态色不跟主色，但也给深色版
-        out[.success] = dark ? "93B09A" : "7C9A83"
-        out[.warning] = dark ? "CDB183" : "C0A176"
-        out[.destructive] = dark ? "CB9292" : "B87C7C"
+        // 状态色不跟主色，但也给深色版（2026-11-02：去黄化的功能色，
+        // 不再是旧暖纸的芥末/ dusty 玫瑰）。
+        out[.success] = dark ? "7FBF8F" : "5A8F6A"
+        out[.warning] = dark ? "D9A441" : "B7791F"
+        out[.destructive] = dark ? "FF453A" : "D9383A"
         return out
     }
 }

@@ -72,6 +72,11 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
     // field、把死角色 toolCard 删掉。见下方 legacy 映射。
     case canvas, surface, raised, mutedSurface
     case primaryText, secondaryText
+    /// Third-level text: placeholder, the faintest captions, timestamps
+    /// (v2 font page `--c-ink-tertiary: #8E8E93`). Label-level only — it
+    /// is NOT body text and is never claimed to pass the 4.5:1 body
+    /// contrast audit, which still covers primary/secondary/bubble text.
+    case tertiaryText
     case accent, userBubble, assistantBubble, border
     /// [fixer-F1] Base bc659d7 added only a comment here and never
     /// declared the case, so .bubbleText did not exist and the commit
@@ -102,6 +107,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .mutedSurface: return AppLocalized("浅底")
         case .primaryText: return AppLocalized("主文字")
         case .secondaryText: return AppLocalized("次文字")
+        case .tertiaryText: return AppLocalized("三级文字")
         case .accent: return AppLocalized("强调色")
         case .userBubble: return AppLocalized("我的气泡")
         case .assistantBubble: return AppLocalized("AI 气泡")
@@ -127,6 +133,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .mutedSurface: return AppLocalized("浅底小组件：图片占位、次要底块")
         case .primaryText: return AppLocalized("主文字：标题、正文")
         case .secondaryText: return AppLocalized("次文字：说明、时间戳")
+        case .tertiaryText: return AppLocalized("三级文字：占位、最淡说明，只做标签不做正文")
         case .accent: return AppLocalized("强调色：按钮、选中、开关")
         case .userBubble: return AppLocalized("你的聊天气泡")
         case .assistantBubble: return AppLocalized("AI 聊天气泡")
@@ -189,7 +196,7 @@ enum AppearanceColorRoleGroup: String, CaseIterable, Identifiable {
 
     var roles: [AppearanceColorRole] {
         switch self {
-        case .text: return [.primaryText, .secondaryText]
+        case .text: return [.primaryText, .secondaryText, .tertiaryText]
         case .backgrounds: return [.canvas, .surface, .raised, .mutedSurface]
         case .controls: return [.iconTile, .chip, .field, .border]
         case .accentGroup: return [.accent]
@@ -314,12 +321,84 @@ final class AppearanceStudio: ObservableObject {
         loadWallpaperCleared()
         cachedThemePack = loadStoredPackUnlocked()
         themePackLoaded = true
+        // 2026-11-02: move stored old-default yellows to the new
+        // monochrome defaults (global scope, exact matches only —
+        // see migratedFromWarmDefaults). Runs once per launch but
+        // is a no-op after the first pass, and only writes back
+        // when something actually moved.
+        let migrated = Self.migratedFromWarmDefaults(customColors)
+        if migrated != customColors {
+            customColors = migrated
+            if let data = try? JSONEncoder().encode(customColors) {
+                UserDefaults.standard.set(data, forKey: Keys.colors)
+            }
+        }
         Self.colorSnapshot = customColors
         configureUIKitSurfaces()
     }
 
     fileprivate static let lightDefaults = AppearancePaletteBook.light
     fileprivate static let darkDefaults = AppearancePaletteBook.dark
+
+    /// One-time move from the old warm defaults to the new
+    /// monochrome ones, global scope only. A stored value moves
+    /// ONLY if it exactly equals an old default (case-insensitive):
+    /// that value was never a choice of hers, it was the default
+    /// (including via the old "暖纸" preset, which wrote the same
+    /// values). Anything she picked herself — any value that
+    /// differs from the old defaults — is left alone, as are all
+    /// page-scoped overrides and every saved library pack, which
+    /// this function never sees. Pure function so the rule can
+    /// be checked without running the app.
+    static func migratedFromWarmDefaults(_ map: [String: String]) -> [String: String] {
+        let oldLight: [AppearanceColorRole: String] = [
+            .canvas: "F7F4F1", .surface: "FDFCFA", .raised: "FFFFFF",
+            .mutedSurface: "F1EBE6", .primaryText: "3A322E", .secondaryText: "8A7B74",
+            .accent: "B98591", .userBubble: "EFE0DE", .assistantBubble: "FDFCFA",
+            .border: "E3DAD4",
+            .field: "FCFAF7", .iconTile: "F2EAE4", .chip: "EDE2DC",
+            .success: "7C9A83", .warning: "C0A176", .destructive: "B87C7C"
+        ]
+        let oldDark: [AppearanceColorRole: String] = [
+            .canvas: "1A1716", .surface: "242020", .raised: "2C2725",
+            .mutedSurface: "2F2A28", .primaryText: "F2EDE9", .secondaryText: "B5A8A1",
+            .accent: "C99BA6", .userBubble: "4A3A3B", .assistantBubble: "242020",
+            .border: "403836",
+            .field: "262221", .iconTile: "2F2A28", .chip: "362F2C",
+            .success: "93B09A", .warning: "CDB183", .destructive: "CB9292"
+        ]
+        var out = map
+        for variant in AppearanceVariant.allCases {
+            let oldBook = variant == .light ? oldLight : oldDark
+            let newBook = variant == .light ? AppearancePaletteBook.light : AppearancePaletteBook.dark
+            for (role, oldValue) in oldBook {
+                let key = "global.\(variant.rawValue).\(role.rawValue)"
+                if let stored = out[key], stored.uppercased() == oldValue,
+                   let newValue = newBook[role] {
+                    out[key] = newValue
+                }
+            }
+            // Legacy keys the resolver still honours: a stored old
+            // `input`/`searchField` is the old field colour, a stored
+            // old `toolCard` is the old surface colour.
+            if let stored = out["global.\(variant.rawValue).input"],
+               stored.uppercased() == oldBook[.field],
+               let newValue = newBook[.field] {
+                out["global.\(variant.rawValue).input"] = newValue
+            }
+            if let stored = out["global.\(variant.rawValue).searchField"],
+               stored.uppercased() == oldBook[.field],
+               let newValue = newBook[.field] {
+                out["global.\(variant.rawValue).searchField"] = newValue
+            }
+            if let stored = out["global.\(variant.rawValue).toolCard"],
+               stored.uppercased() == oldBook[.surface],
+               let newValue = newBook[.surface] {
+                out["global.\(variant.rawValue).toolCard"] = newValue
+            }
+        }
+        return out
+    }
 
     private func key(_ role: AppearanceColorRole, scope: AppearanceScope,
                      variant: AppearanceVariant) -> String {
@@ -701,6 +780,18 @@ final class AppearanceStudio: ObservableObject {
         configureUIKitSurfaces()
     }
 
+    /// Clear ONLY the global colour overrides, back to the built-in
+    /// palette. Unlike `resetColors()` (which also wipes every
+    /// page-scoped override and the opacity/shade dials), this is
+    /// what the shop colour panel's "恢复默认配色" means: her
+    /// per-page tweaks stay, the global palette goes neutral.
+    func resetGlobalColors() {
+        let prefix = AppearanceScope.global.rawValue + "."
+        customColors = customColors.filter { !$0.key.hasPrefix(prefix) }
+        persistColors()
+        configureUIKitSurfaces()
+    }
+
     private func persistColors() {
         if let data = try? JSONEncoder().encode(customColors) {
             UserDefaults.standard.set(data, forKey: Keys.colors)
@@ -990,7 +1081,7 @@ final class AppearanceStudio: ObservableObject {
             // in dark mode used to be flattened onto the light canvas color,
             // leaving a pale fringe around dark content.
             let book = dark ? darkDefaults : lightDefaults
-            UIColor(hex: book[.canvas] ?? (dark ? "141210" : "FFF8F4")).setFill()
+            UIColor(hex: book[.canvas] ?? (dark ? "000000" : "F5F5F7")).setFill()
             UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
             image.draw(in: CGRect(origin: .zero, size: size))
         }
@@ -1211,26 +1302,52 @@ struct AppearancePalette {
 }
 
 private enum AppearancePaletteBook {
-    // [10-18 醒醒] 「现在的配色有点 low」。内置这套原来主色 D4778B 饱和度
-    // 到 0.44，配纯白卡片就发甜。按莫兰迪收一档：饱和度压到 0.20-0.32，
-    // 底色从纯白改成带一丝暖的米白，文字用深灰而不是近黑。
+    // 2026-11-02 theme-colour batch (user: the warm palette was
+    // "黄不拉几", unbearable). The built-in default is now the same
+    // monochrome language as the approved Gemini font page (v2
+    // `:root`): neutral grey-white canvas, white surfaces, ink
+    // #111113, secondary #636366, tertiary #8E8E93, black as the
+    // only accent. No yellow / cream / beige tint anywhere in the
+    // default, light or dark. The old warm book is kept verbatim
+    // in `migratedFromWarmDefaults` below so stored values that
+    // exactly equal an old default can be moved to the new one.
+    //
+    // Light tokens map v2 one-to-one where v2 has the slot:
+    // canvas F5F5F7, panel/stage white, chat-bg F7F7F9 (muted),
+    // pill EBEBEF (chip), badge F2F2F5 (iconTile), tag ECECEF,
+    // border-regular ~E8E8E8. Bubbles deliberately do NOT copy
+    // v2's black me-bubble: this app's bubble text defaults to
+    // primaryText, so a black bubble with unset bubble text
+    // would be black-on-black; the user bubble is system grey 5
+    // (E5E5EA, black text) and the accent stays the only black.
+    //
+    // Dark is NOT v2 inverted: v2 has no dark set. It follows
+    // HIG's two-tier dark surfaces (base #000000, elevated
+    // #1C1C1E / #2C2C2E) with the accent flipped to white, because
+    // a black accent on a black surface is invisible. Status
+    // colours keep their hue (green / amber / red) at lower
+    // saturation: they are small badges and prompts, and hue is
+    // how they mean anything; every surface, text, and accent
+    // token stays black / white / neutral grey.
     static let light: [AppearanceColorRole: String] = [
-        .canvas: "F7F4F1", .surface: "FDFCFA", .raised: "FFFFFF",
-        .mutedSurface: "F1EBE6", .primaryText: "3A322E", .secondaryText: "8A7B74",
-        .accent: "B98591", .userBubble: "EFE0DE", .assistantBubble: "FDFCFA",
-        .border: "E3DAD4",
-        .field: "FCFAF7", .iconTile: "F2EAE4", .chip: "EDE2DC",
-        .success: "7C9A83",
-        .warning: "C0A176", .destructive: "B87C7C"
+        .canvas: "F5F5F7", .surface: "FFFFFF", .raised: "FFFFFF",
+        .mutedSurface: "F7F7F9", .primaryText: "111113", .secondaryText: "636366",
+        .tertiaryText: "8E8E93",
+        .accent: "111113", .userBubble: "E5E5EA", .assistantBubble: "FFFFFF",
+        .border: "E8E8E8",
+        .field: "FFFFFF", .iconTile: "F2F2F5", .chip: "EBEBEF",
+        .success: "5A8F6A",
+        .warning: "B7791F", .destructive: "D9383A"
     ]
     static let dark: [AppearanceColorRole: String] = [
-        .canvas: "1A1716", .surface: "242020", .raised: "2C2725",
-        .mutedSurface: "2F2A28", .primaryText: "F2EDE9", .secondaryText: "B5A8A1",
-        .accent: "C99BA6", .userBubble: "4A3A3B", .assistantBubble: "242020",
-        .border: "403836",
-        .field: "262221", .iconTile: "2F2A28", .chip: "362F2C",
-        .success: "93B09A",
-        .warning: "CDB183", .destructive: "CB9292"
+        .canvas: "000000", .surface: "1C1C1E", .raised: "2C2C2E",
+        .mutedSurface: "2C2C2E", .primaryText: "FFFFFF", .secondaryText: "AEAEB2",
+        .tertiaryText: "8E8E93",
+        .accent: "FFFFFF", .userBubble: "3A3A3C", .assistantBubble: "1C1C1E",
+        .border: "38383A",
+        .field: "1C1C1E", .iconTile: "2C2C2E", .chip: "3A3A3C",
+        .success: "7FBF8F",
+        .warning: "D9A441", .destructive: "FF453A"
     ]
 }
 
@@ -1239,7 +1356,7 @@ enum AppearancePreset: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .warmPaper: return AppLocalized("暖纸")
+        case .warmPaper: return AppLocalized("纯净")
         case .cleanAir: return AppLocalized("清气")
         case .nightCocoa: return AppLocalized("夜可可")
         }
