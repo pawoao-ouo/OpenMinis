@@ -118,14 +118,16 @@ final class UploadedFontStore: ObservableObject {
             return nil
         }
         // PostScript name from the file itself, not the file name.
-        // CGFont has no URL initializer in the SDK; build it from
-        // a data provider for the file (documented CoreGraphics API).
-        guard let provider = CGDataProvider(url: dest as CFURL),
-              let cgFont = CGFontCreateWithDataProvider(provider) else {
+        // CoreText path (CGFontCreateWithDataProvider is deprecated
+        // and CGFont.postScriptName does not bridge to String here):
+        // descriptor from the file URL, then a CTFont, then its
+        // PostScript name via the Copy rule.
+        guard let descriptor = CTFontManagerCreateFontDescriptorFromURL(dest as CFURL) else {
             try? FileManager.default.removeItem(at: dest)
             return nil
         }
-        let psName = cgFont.postScriptName as String
+        let ctFont = CTFontCreateWithFontDescriptor(descriptor, 0, nil)
+        let psName = CTFontCopyPostScriptName(ctFont).takeRetainedValue() as String
         guard !psName.isEmpty else {
             try? FileManager.default.removeItem(at: dest)
             return nil
