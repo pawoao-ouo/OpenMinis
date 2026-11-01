@@ -186,20 +186,30 @@ final class FontSettings: ObservableObject {
 
     private init() {
         let ud = UserDefaults.standard
-        chatInputScale = FontScaleLevel(rawValue: ud.integer(forKey: Keys.chatInput)) ?? .default
-        messageBaseScale = FontScaleLevel(rawValue: ud.integer(forKey: Keys.messageBase)) ?? .default
+        // Capture everything into locals first: reading any stored
+        // property (e.g. messageBaseScale) before all stored
+        // properties are assigned is a compile error ('self' used
+        // before stored properties initialized), so the
+        // messagePointSize decision must use the local, not self.
+        let chatInput = FontScaleLevel(rawValue: ud.integer(forKey: Keys.chatInput)) ?? .default
+        let messageBase = FontScaleLevel(rawValue: ud.integer(forKey: Keys.messageBase)) ?? .default
+        let appBase = FontScaleLevel(rawValue: ud.integer(forKey: Keys.appBase)) ?? .default
         // First launch with no stored point size: a user who
         // explicitly moved the old message slider keeps that
         // choice, capped into 10-15pt; everyone else gets 13pt
         // (never the old 17pt-era default).
+        let point: CGFloat
         if ud.object(forKey: Keys.messagePoint) != nil {
-            messagePointSize = min(15, max(10, CGFloat(ud.double(forKey: Keys.messagePoint))))
-        } else if messageBaseScale != .default {
-            messagePointSize = min(15, max(10, 16.5 * messageBaseScale.multiplier))
+            point = min(15, max(10, CGFloat(ud.double(forKey: Keys.messagePoint))))
+        } else if messageBase != .default {
+            point = min(15, max(10, 16.5 * messageBase.multiplier))
         } else {
-            messagePointSize = 13
+            point = 13
         }
-        appBaseScale = FontScaleLevel(rawValue: ud.integer(forKey: Keys.appBase)) ?? .default
+        chatInputScale = chatInput
+        messageBaseScale = messageBase
+        messagePointSize = point
+        appBaseScale = appBase
         // Defer to after first window is available
         DispatchQueue.main.async { [weak self] in self?.applyAppScaleToAllWindows() }
         // Windows created later (new scene, external display, restoration)
