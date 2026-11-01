@@ -640,6 +640,11 @@ struct DressingShopView: View {
                     Text(AppLocalized("组成：") + AppLocalized("圆环"))
                         .font(.system(size: 14))
                         .foregroundStyle(studio.color(.secondaryText))
+                    if !pendant.detail.isEmpty {
+                        Text(pendant.detail)
+                            .font(.system(size: 14))
+                            .foregroundStyle(studio.color(.secondaryText))
+                    }
                     HStack(spacing: 12) {
                         Button(AppLocalized("保存成搭配")) {
                             outfitStore.save(pendant: pendant)
