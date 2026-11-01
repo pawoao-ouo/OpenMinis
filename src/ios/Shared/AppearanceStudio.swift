@@ -1526,7 +1526,8 @@ struct PersonAvatarView: View {
         .frame(width: size, height: size)
         .overlay(
             RoundedRectangle(cornerRadius: size * avatarShape.cornerFraction, style: .continuous)
-                .stroke(studio.color(.border, scope: .chat), lineWidth: 0.7)
+                .stroke(studio.color(.border, scope: .chat),
+                        lineWidth: MinisThemeShape.avatarBorderWidth)
         )
         .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
             soulIcon = SoulStore.cachedMetadata.icon

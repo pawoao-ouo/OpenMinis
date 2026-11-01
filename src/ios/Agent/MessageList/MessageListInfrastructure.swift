@@ -1088,7 +1088,11 @@ final class MessageListViewController: UIViewController {
         view.backgroundColor = .clear
 
         messageListLayout = MessageListLayout()
-        messageListLayout.itemSpacing = 8
+        // [bubble-packs] First mount reads the pack spacing too
+        // (via the nonisolated UserDefaults reader — viewDidLoad is
+        // not MainActor-isolated, so it cannot read MinisThemeShape);
+        // updateUIViewController keeps it in sync after pack taps.
+        messageListLayout.itemSpacing = AppearanceThemePack.storedMessageSpacing()
         let cv = NoAnimationCollectionView(frame: view.bounds, collectionViewLayout: messageListLayout)
         cv.owningViewController = self
         collectionView = cv

@@ -198,20 +198,51 @@ struct AssistantBlockView: View {
         // [10-18 醒醒 第五轮] 平铺 / 文稿形态不要气泡底色。
         let display = AppearanceChatDisplay.parse(
             AppearanceStudio.shared.currentThemePack().chatDisplay)
-        if display == .flat || display == .document {
-            textBlockView(markdown: content)
-                .padding(.vertical, 4)
-        } else {
-            textBlockView(markdown: content)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
-                )
-                .overlay(
-                    MinisThemeShape.assistantBubble.fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
-                )
-                .clipShape(MinisThemeShape.assistantBubble)
+        VStack(alignment: .leading, spacing: 2) {
+            if display == .flat || display == .document {
+                textBlockView(markdown: content)
+                    .padding(.vertical, 4)
+            } else {
+                // [bubble-packs] Row surface stretches the bubble to
+                // the full column width; text surface hugs the text.
+                // Padding and border come from the pack, colours do not.
+                let bubbled = textBlockView(markdown: content)
+                    .padding(.horizontal, MinisThemeShape.assistantPadding)
+                    .padding(.vertical, 8)
+                if MinisThemeShape.assistantSurface == .row {
+                    bubbled
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
+                        )
+                        .overlay(
+                            MinisThemeShape.assistantBubble.fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
+                        )
+                        .clipShape(MinisThemeShape.assistantBubble)
+                        .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
+                                                     width: MinisThemeShape.assistantBorderWidth))
+                } else {
+                    bubbled
+                        .background(
+                            MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
+                        )
+                        .overlay(
+                            MinisThemeShape.assistantBubble.fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
+                        )
+                        .clipShape(MinisThemeShape.assistantBubble)
+                        .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
+                                                     width: MinisThemeShape.assistantBorderWidth))
+                }
+            }
+            // [bubble-packs] Meta below lives under the LAST text
+            // block only — earlier blocks are part of the flow, and a
+            // tool-only turn has no text block to hang it on.
+            if Self.isLastTextBlock(of: message, block: block),
+               MinisThemeShape.assistantMeta == .below {
+                Text(message.createdAt, format: .dateTime.hour().minute())
+                    .font(.system(size: 10))
+                    .foregroundStyle(ChatColors.secondaryText.opacity(0.8))
+            }
         }
     }
 
@@ -221,25 +252,46 @@ struct AssistantBlockView: View {
                                  actionContent: String) -> some View {
         let display = AppearanceChatDisplay.parse(
             AppearanceStudio.shared.currentThemePack().chatDisplay)
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                switch segment {
-                case .prose(let text):
-                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        // [B28 R14] 正文各段自己带气泡底，不再让整条消息套一层。
-                        // 这样代码卡片才能从气泡里"脱"出来，是独立的卡。
-                        textBlockView(markdown: text)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
-                            )
-                            .overlay(
-                                MinisThemeShape.assistantBubble.fill(
-                                    ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
-                            )
-                            .clipShape(MinisThemeShape.assistantBubble)
-                    }
+        VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                    switch segment {
+                    case .prose(let text):
+                        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            // [B28 R14] 正文各段自己带气泡底，不再让整条消息套一层。
+                            // 这样代码卡片才能从气泡里"脱"出来，是独立的卡。
+                            // [bubble-packs] Row surface, pack padding
+                            // and border, same as singleTextBubble.
+                            let bubbled = textBlockView(markdown: text)
+                                .padding(.horizontal, MinisThemeShape.assistantPadding)
+                                .padding(.vertical, 8)
+                            if MinisThemeShape.assistantSurface == .row {
+                                bubbled
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
+                                    )
+                                    .overlay(
+                                        MinisThemeShape.assistantBubble.fill(
+                                            ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
+                                    )
+                                    .clipShape(MinisThemeShape.assistantBubble)
+                                    .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
+                                                                 width: MinisThemeShape.assistantBorderWidth))
+                            } else {
+                                bubbled
+                                    .background(
+                                        MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
+                                    )
+                                    .overlay(
+                                        MinisThemeShape.assistantBubble.fill(
+                                            ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
+                                    )
+                                    .clipShape(MinisThemeShape.assistantBubble)
+                                    .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
+                                                                 width: MinisThemeShape.assistantBorderWidth))
+                            }
+                        }
                 case .code(let language, let code, let codeIndex):
                     // 代码是独立卡片：自己的圆角、边框、阴影，不吃气泡底。
                     ChatCodeBlockView(
@@ -260,6 +312,14 @@ struct AssistantBlockView: View {
             if Self.isLastTextBlock(of: message, block: block),
                canShowActionBar {
                 actionBar(forBlockContent: actionContent)
+            }
+            }
+            // [bubble-packs] Meta below, same rule as singleTextBubble.
+            if Self.isLastTextBlock(of: message, block: block),
+               MinisThemeShape.assistantMeta == .below {
+                Text(message.createdAt, format: .dateTime.hour().minute())
+                    .font(.system(size: 10))
+                    .foregroundStyle(ChatColors.secondaryText.opacity(0.8))
             }
         }
         .padding(.vertical, display == .flat || display == .document ? 4 : 0)

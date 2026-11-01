@@ -518,11 +518,30 @@ struct UserMessageText: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, AppearanceChatDisplay.parse(
+            AppearanceStudio.shared.currentThemePack().chatDisplay) == .bubbles
+            ? MinisThemeShape.userPadding : 14)
         .padding(.vertical, 10)
         .modifier(UserBubbleSurface(isQueued: isQueued))
         .modifier(QueuedStatusDot(isQueued: isQueued, isDelivering: isDelivering))
     }
+}
+
+/// One meta (time) line, as the pack samples show it: HH:mm,
+/// secondary text, same for user and assistant rows.
+@MainActor
+private func bubbleMetaText(_ date: Date) -> Text {
+    Text(BubbleMetaTimeFormatter.shared.string(from: date))
+        .font(.system(size: 10))
+        .foregroundStyle(ChatColors.secondaryText.opacity(0.8))
+}
+
+private enum BubbleMetaTimeFormatter {
+    static let shared: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f
+    }()
 }
 
 // MARK: - 用户气泡皮肤
@@ -544,15 +563,22 @@ struct UserBubbleSurface: ViewModifier {
         // - `.bubbles` 保持原样
         let display = AppearanceChatDisplay.parse(
             AppearanceStudio.shared.currentThemePack().chatDisplay)
+        // [bubble-packs] Row surface: the bubble stretches to the
+        // full row width (trailing-aligned) instead of hugging the
+        // text. Only in .bubbles mode; flat/document keep hugging.
+        let surfaced: AnyView = (display == .bubbles && MinisThemeShape.userSurface == .row)
+            ? AnyView(content.frame(maxWidth: .infinity, alignment: .trailing))
+            : AnyView(content)
 
         if isQueued {
             // [10-20 醒醒] 排队消息不再画虚线——她要看的是「真气泡」，
             // 状态交给气泡旁边那颗小圆点（灰=待注入/蓝=送达中/消失=已进上下文）。
             // 底色仍压到 0.72，跟已发送的实心气泡留一线可辨。
-            content
+            surfaced
                 .background(shape.fill(ChatColors.userBubble.opacity(0.72)))
+                .modifier(BubbleBorderChrome(shape: shape, width: MinisThemeShape.userBorderWidth))
         } else if display == .flat || display == .document {
-            content
+            surfaced
         } else if #available(iOS 26.0, *) {
             // [T-bubble-opacity-slider][v3 09-10] The slider STILL didn't read
             // on this bubble: `Glass.tint` alpha modulates the material's
@@ -568,10 +594,13 @@ struct UserBubbleSurface: ViewModifier {
             // identically: slider = how see-through the coloured surface is.
             // #3 醒醒: 跟 AI 气泡一样，纯实心主题色——去掉 Liquid Glass（玻璃调高亮度刺眼）。
             // 透明度滑杆仍生效（ChatColors.userBubble 自带 alpha）。
-            content
+            surfaced
                 .background(shape.fill(ChatColors.userBubble))
+                .modifier(BubbleBorderChrome(shape: shape, width: MinisThemeShape.userBorderWidth))
         } else {
-            content.background(shape.fill(ChatColors.userBubble))
+            surfaced
+                .background(shape.fill(ChatColors.userBubble))
+                .modifier(BubbleBorderChrome(shape: shape, width: MinisThemeShape.userBorderWidth))
         }
     }
 }
@@ -853,7 +882,8 @@ struct ChatMessageRow: View {
     private var userRow: some View {
         HStack(alignment: .top, spacing: 10) {
             // Keep the bubble width identical to the original 60pt leading
-            // spacer: 12pt breathing room + 10pt gap + 38pt avatar.
+            // spacer: 12pt breathing room + 10pt gap + avatar (38pt by
+            // default, pack avatarSize when a pack is applied).
             Spacer(minLength: 12)
 
             VStack(alignment: .trailing, spacing: 6) {
@@ -865,6 +895,18 @@ struct ChatMessageRow: View {
                     QueuedAttachmentPreview(attachments: message.inputAttachments)
                 }
 
+                // [bubble-packs] Meta (time) and name rows, in the same
+                // order the pack samples show them: meta above, then
+                // name above, then the bubble, then meta below.
+                if MinisThemeShape.userMeta == .above {
+                    bubbleMetaText(message.createdAt)
+                }
+                if MinisThemeShape.userName == .above {
+                    Text(appearanceStudio.userDisplayName.isEmpty ? AppLocalized("我") : appearanceStudio.userDisplayName)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(ChatColors.secondaryText)
+                }
+
                 if !userDisplayText.isEmpty {
                     let (cleanUserText, stickerMatch) = StickerParser.parseFirst(in: userDisplayText)
                     if let stickerMatch, let sticker = StickerStore.shared.sticker(for: stickerMatch.id) {
@@ -874,7 +916,9 @@ struct ChatMessageRow: View {
                                     Text(cleanUserText)
                                         .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
                                         .foregroundStyle(message.isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
-                                        .padding(.horizontal, 14)
+                                        .padding(.horizontal, AppearanceChatDisplay.parse(
+                                            AppearanceStudio.shared.currentThemePack().chatDisplay) == .bubbles
+                                            ? MinisThemeShape.userPadding : 14)
                                         .padding(.vertical, 10)
                                         .modifier(UserBubbleSurface(isQueued: message.isQueued))
                                         .modifier(QueuedStatusDot(isQueued: message.isQueued,
@@ -901,7 +945,9 @@ struct ChatMessageRow: View {
                                     Text(cleanUserText)
                                         .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
                                         .foregroundStyle(message.isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
-                                        .padding(.horizontal, 14)
+                                        .padding(.horizontal, AppearanceChatDisplay.parse(
+                                            AppearanceStudio.shared.currentThemePack().chatDisplay) == .bubbles
+                                            ? MinisThemeShape.userPadding : 14)
                                         .padding(.vertical, 10)
                                         .modifier(UserBubbleSurface(isQueued: message.isQueued))
                                         .modifier(QueuedStatusDot(isQueued: message.isQueued,
@@ -942,6 +988,12 @@ struct ChatMessageRow: View {
                             }
                         }
                     }
+                }
+                // [bubble-packs] Meta below the bubble, when the pack
+                // asks for it. Hidden by default, so existing chats
+                // gain no new line until a pack is applied.
+                if MinisThemeShape.userMeta == .below {
+                    bubbleMetaText(message.createdAt)
                 }
                 // [batch2 / W1A-13] Visible hint when the local write failed —
                 // an orphan answer above a vanished question is worse than
@@ -1027,8 +1079,23 @@ struct ChatMessageRow: View {
                 MessageContextMenuPreview(text: message.content)
             }
 
-            PersonAvatarView(kind: .user, size: 38)
+            // [bubble-packs] Name in the row (between bubble and
+            // avatar, vertically centred by the spacers), and the
+            // avatar itself: pack size, and the overlapping placement
+            // lifts it 4pt above the bubble top (padding 2 + offset -6),
+            // exactly as the sample renders it.
+            if MinisThemeShape.userName == .inline {
+                VStack {
+                    Spacer(minLength: 0)
+                    Text(appearanceStudio.userDisplayName.isEmpty ? AppLocalized("我") : appearanceStudio.userDisplayName)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(ChatColors.secondaryText)
+                    Spacer(minLength: 0)
+                }
+            }
+            PersonAvatarView(kind: .user, size: MinisThemeShape.avatarSize)
                 .padding(.top, 2)
+                .offset(y: MinisThemeShape.avatarPlacement == .overlapping ? -6 : 0)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
@@ -1057,17 +1124,27 @@ struct ChatMessageRow: View {
 
     private var assistantRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Assistant label
+            // Assistant label. [bubble-packs] Name hidden hides the
+            // name text (avatar stays); name above/inline both show
+            // it here — the header is a separate row above the
+            // bubbles, so the two placements cannot be distinguished
+            // in live chat (see the sample note). Meta above shows
+            // the time under the header, before the blocks.
             HStack(spacing: 8) {
                 // [问题12] 头像和名字都跟会话绑定的人设走，与人设列表同源。
-                PersonAvatarView(kind: .assistant, size: 38,
+                PersonAvatarView(kind: .assistant, size: MinisThemeShape.avatarSize,
                                  personaID: SoulStore.displayPersonaId(sessionPersonaId))
-                AssistantSoulName(personaId: sessionPersonaId)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(ChatColors.primaryText)
+                if MinisThemeShape.assistantName != .hidden {
+                    AssistantSoulName(personaId: sessionPersonaId)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(ChatColors.primaryText)
+                }
                 // [醒醒 10-18] 名字旁边的小猫咪去掉了（同 V3 header）。
             }
             .padding(.top, 2)
+            if MinisThemeShape.assistantMeta == .above {
+                bubbleMetaText(message.createdAt)
+            }
 
             ForEach(TurnSummarySegments.segments(for: message.blocks)) { segment in
                 switch segment {

@@ -76,6 +76,20 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ vc: MessageListViewController, context: Context) {
+        // [bubble-packs] Message spacing = the pack's messageSpacing,
+        // applied to the list layout's inter-cell gap. Guarded by
+        // >0.5pt so the frequent updateUIViewController calls do not
+        // invalidate the layout on every re-render. Note this gap
+        // applies between ALL cells (including header→block inside a
+        // turn, except the footer hug) — that is the only inter-cell
+        // knob the list has; the sample's per-message spacing is
+        // approximated by it, not identical inside a turn.
+        let wantedSpacing = MinisThemeShape.messageSpacing
+        if let layout = vc.messageListLayout,
+           abs(layout.itemSpacing - wantedSpacing) > 0.5 {
+            layout.itemSpacing = wantedSpacing
+            layout.invalidateLayout()
+        }
         let coord = context.coordinator
         // [T-ios-scrollbtn-vm-split] The coordinator captured `vm` once in
         // makeUIViewController → attach. SwiftUI reuses this representable's
@@ -252,15 +266,30 @@ private struct BridgedAssistantHeaderV3: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            PersonAvatarView(kind: .assistant, size: 38,
-                             personaID: resolvedPersonaID)
-            Text(displayedName)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(ChatColors.primaryText)
-            // [醒醒 10-18] 名字旁边的小猫咪去掉了。她原话：「把对话框里，
-            // ai名字旁边的小猫咪去掉」。思考/工具运行状态本来就由
-            // TypingIndicator 和工具卡自己表达，这里那只猫是重复的装饰。
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                PersonAvatarView(kind: .assistant, size: MinisThemeShape.avatarSize,
+                                 personaID: resolvedPersonaID)
+                // [bubble-packs] Name hidden hides the name here too;
+                // above/inline both show it (see ChatMessageRow note).
+                if MinisThemeShape.assistantName != .hidden {
+                    Text(displayedName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(ChatColors.primaryText)
+                }
+                // [醒醒 10-18] 名字旁边的小猫咪去掉了。她原话：「把对话框里，
+                // ai名字旁边的小猫咪去掉」。思考/工具运行状态本来就由
+                // TypingIndicator 和工具卡自己表达，这里那只猫是重复的装饰。
+            }
+            // [bubble-packs] Meta above: the time under the header,
+            // before the blocks. Meta below lives under the last
+            // text block (AssistantBlockView), not in the footer,
+            // because the footer cell only exists for some turns.
+            if MinisThemeShape.assistantMeta == .above {
+                Text(message.createdAt, format: .dateTime.hour().minute())
+                    .font(.system(size: 10))
+                    .foregroundStyle(ChatColors.secondaryText.opacity(0.8))
+            }
         }
         // [T-ios-assistant-header-open-soul] Hit area and tap, applied to the
         // icon+name HStack only — NOT to the full-width row below it.

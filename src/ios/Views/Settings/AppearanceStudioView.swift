@@ -1279,11 +1279,15 @@ struct AppearanceStudioView: View {
     //
     // 每张卡用同一句样张文字，只变款式本身，所以卡和卡之间
     // 比的是款式，不是文案。点一下立刻应用：显示形态、两边
-    // 气泡形状与圆角、输入栏形状与圆角马上变；颜色、透明度、
+    // 气泡形状与圆角（含不对称角）、整行/文字面、边框宽度、
+    // 内边距、头像尺寸/边框、用户头像位置、时间与名字位置、
+    // 消息间距、输入栏形状与圆角马上变；颜色、透明度、
     // 两边字色、壁纸、头像形状一律不动（见
-    // BubbleStylePackStore.apply）。头像位置/大小/边框、时间与
-    // 名字位置、边框宽度、消息间距、整行还是文字气泡，现在只
-    // 在样张里体现，聊天里的接线是下一步，不在这里假装已接上。
+    // BubbleStylePackStore.apply）。两个样张诚实例外：AI 头像
+    // 位置在样张里恒为行内（AI header 是独立 cell，压不到气
+    // 泡上），AI 名字在上/在行内在样张里都画成在上（名字进
+    // 不了气泡行）；AI 时间在下挂在最后一段正文下，无正文
+    // 的纯工具回合不显示时间行。
 
     private var bubblePackGrid: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1360,7 +1364,15 @@ struct AppearanceStudioView: View {
         let bubbleColour = studio.color(isUser ? .userBubble : .assistantBubble, variant: variant)
         let textColour = studio.color(isUser ? .bubbleText : .assistantBubbleText, variant: variant)
         let meta = isUser ? style.userMeta : style.assistantMeta
-        let namePlacement = isUser ? style.userName : style.assistantName
+        // [bubble-packs] Samples must not promise what live chat
+        // cannot do: assistant avatar placement is always inline in
+        // the sample (the AI header is a separate list cell and
+        // cannot overlap a bubble), and assistant name above/inline
+        // both render as "name above" (the header name cannot move
+        // into a bubble row). User rows keep both distinctions.
+        let namePlacement: BubbleNamePlacement = isUser ? style.userName
+            : (style.assistantName == .hidden ? .hidden : .above)
+        let avatarPlacement: BubbleAvatarPlacement = isUser ? style.avatarPlacement : .inline
         let name = isUser ? (studio.userDisplayName.isEmpty ? AppLocalized("我") : studio.userDisplayName) : aiName
         let surface = isUser ? style.userSurface : style.assistantSurface
         let padding = isUser ? style.userPadding : style.assistantPadding
@@ -1432,9 +1444,9 @@ struct AppearanceStudioView: View {
         return VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
             if meta == .above { metaText }
             if namePlacement == .above { nameText }
-            HStack(alignment: style.avatarPlacement == .overlapping ? .top : .center, spacing: 6) {
+            HStack(alignment: avatarPlacement == .overlapping ? .top : .center, spacing: 6) {
                 if !isUser {
-                    avatar.offset(y: style.avatarPlacement == .overlapping ? -4 : 0)
+                    avatar.offset(y: avatarPlacement == .overlapping ? -4 : 0)
                 }
                 if namePlacement == .inline, !isUser { nameText }
                 HStack {
@@ -1444,7 +1456,7 @@ struct AppearanceStudioView: View {
                 }
                 if namePlacement == .inline, isUser { nameText }
                 if isUser {
-                    avatar.offset(y: style.avatarPlacement == .overlapping ? -4 : 0)
+                    avatar.offset(y: avatarPlacement == .overlapping ? -4 : 0)
                 }
             }
             if meta == .below { metaText }
@@ -2778,10 +2790,9 @@ private let studioLanguages: [StudioLanguageOption] = [
 //
 // Sample-only shape: tail and even/pill/sharp delegate to the real
 // MinisBubbleShape; asymmetric corners use UnevenRoundedRectangle
-// (one outer corner near-sharp, the rest at the pack radius), which
-// the live chat shape does not support yet — that is the documented
-// gap, not a silent difference: samples show the preset, live chat
-// maps it to rounded until the chat shape gains per-corner radii.
+// (one outer corner near-sharp, the rest at the pack radius), and
+// live chat now draws the same radii via MinisThemeShape.cornerRadii,
+// so sample and live agree on the asymmetric preset.
 private struct BubblePackSampleShape: Shape {
     var pack: BubbleStylePack
     var isUser: Bool

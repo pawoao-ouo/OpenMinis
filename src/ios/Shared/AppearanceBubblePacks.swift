@@ -10,16 +10,39 @@ import SwiftUI
 // field: the pack sets border width/presence only, and the border
 // colour keeps coming from the theme's `.border` role.
 //
-// Fields that have no live chat render path yet (avatar placement /
-// size / border, meta and name placement, border width, message
-// spacing, row-vs-text surface) are still stored in the record and
-// honoured by the bubble-page grid samples. Their chat wiring is a
-// later step; apply() only writes the mapped subset below to the
-// live theme pack, and this file says so instead of pretending
-// otherwise. What apply() DOES change live, immediately:
-// display mode, both bubble styles, both bubble radii, input-bar
-// style and radius. It never touches colours, opacity, text slots,
-// wallpapers, avatar shape, or the theme library.
+// Live chat wiring (fixer, step 1 review): apply() writes the FULL
+// structural record to the live theme pack — display, both bubble
+// styles, both radii, both surfaces, both border widths, both
+// paddings, avatar size/border, message spacing, meta and name
+// placement, corner preset, input-bar style and radius — and the
+// chat rows read those fields (see MinisThemeShape). It never
+// touches colours, opacity, text slots, wallpapers, avatar shape,
+// or the theme library. Two honest exceptions, both visible in the
+// samples too: assistant avatar placement stays inline (the AI
+// header is a separate list cell and cannot overlap a bubble cell),
+// and assistant name above/inline both render as the header name
+// (the name cannot move into a bubble row in the split-cell list).
+// Assistant meta below renders under the last text block; a
+// tool-only turn has no text block, so it shows no meta line.
+
+/// Bubble border chrome, shared by user and assistant bubbles.
+/// Width 0 = no-op, so the default (no border) rendering is
+/// identical to before: no clip, no stroke added.
+struct BubbleBorderChrome: ViewModifier {
+    let shape: MinisBubbleShape
+    let width: CGFloat
+
+    func body(content: Content) -> some View {
+        if width > 0 {
+            content
+                .clipShape(shape)
+                .overlay(shape.stroke(AppearanceStudio.shared.color(.border, scope: .chat),
+                                      lineWidth: width))
+        } else {
+            content
+        }
+    }
+}
 
 /// Row-bubble = the bubble spans the message row; text-bubble = the
 /// bubble hugs the text only.
@@ -235,9 +258,10 @@ struct BubbleStyleRecord: Equatable, Codable {
     }
 
     /// Bubble style the live theme pack understands, for one role.
-    /// Asymmetric corners have no per-corner live shape yet, so they
-    /// map to rounded live (the record keeps the preset for samples
-    /// and for the later chat wiring step).
+    /// Asymmetric corners map to rounded live; the asymmetry itself
+    /// now travels in the theme pack's bubbleCornerPreset and is
+    /// drawn by MinisBubbleShape's per-corner radii (see
+    /// MinisThemeShape.cornerRadii), so sample and live agree.
     func liveStyle() -> AppearanceBubbleStyle {
         if tailOn { return .tail }
         switch cornerPreset {
@@ -404,12 +428,16 @@ final class BubbleStylePackStore: ObservableObject {
         packs.first { $0.number == number }
     }
 
-    /// Tap-apply. Writes ONLY the mapped structural subset to the
-    /// live theme pack (display, both bubble styles, both radii,
-    /// input-bar style/radius). Colours, opacity, both text slots,
-    /// wallpapers, avatar shape, and the theme library are untouched.
-    /// The full record stays in `appliedNumber`'s pack for the grid
-    /// samples and for the later chat-wiring step.
+    /// Tap-apply. Writes the FULL structural record to the live
+    /// theme pack (display, both bubble styles, both radii, both
+    /// surfaces, both border widths, both paddings, avatar
+    /// size/border/placement, message spacing, meta and name
+    /// placement, corner preset, input-bar style/radius). Colours,
+    /// opacity, both text slots, wallpapers, avatar shape, and the
+    /// theme library are untouched. setBubbleStyle() resets the
+    /// corner preset to even (a hand-picked style is not asymmetric),
+    /// so the preset is written after those calls, in this final
+    /// persist — order matters.
     func apply(_ pack: BubbleStylePack) {
         let studio = AppearanceStudio.shared
         studio.setChatDisplay(pack.style.display)
@@ -417,10 +445,26 @@ final class BubbleStylePackStore: ObservableObject {
         studio.setBubbleStyle(style, user: true)
         studio.setBubbleStyle(style, user: false)
         var theme = studio.currentThemePack()
-        theme.userBubbleRadius = pack.style.userRadius
-        theme.assistantBubbleRadius = pack.style.assistantRadius
-        theme.inputBarRadius = pack.style.inputBarRadius
-        theme.inputBarStyle = pack.style.liveInputBarStyle().rawValue
+        let s = pack.style
+        theme.userBubbleRadius = s.userRadius
+        theme.assistantBubbleRadius = s.assistantRadius
+        theme.userBubbleSurface = s.userSurface.rawValue
+        theme.assistantBubbleSurface = s.assistantSurface.rawValue
+        theme.userBubbleBorderWidth = s.userBorderWidth
+        theme.assistantBubbleBorderWidth = s.assistantBorderWidth
+        theme.userBubblePadding = s.userPadding
+        theme.assistantBubblePadding = s.assistantPadding
+        theme.avatarSize = s.avatarSize
+        theme.avatarBorderWidth = s.avatarBorderWidth
+        theme.avatarPlacement = s.avatarPlacement.rawValue
+        theme.userMetaPosition = s.userMeta.rawValue
+        theme.assistantMetaPosition = s.assistantMeta.rawValue
+        theme.userNamePlacement = s.userName.rawValue
+        theme.assistantNamePlacement = s.assistantName.rawValue
+        theme.messageSpacing = s.messageSpacing
+        theme.bubbleCornerPreset = s.cornerPreset.rawValue
+        theme.inputBarRadius = s.inputBarRadius
+        theme.inputBarStyle = s.liveInputBarStyle().rawValue
         studio.persistPack(theme)
         if let index = packs.firstIndex(where: { $0.number == pack.number }) {
             packs[index].useCount += 1

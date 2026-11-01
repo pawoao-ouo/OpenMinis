@@ -58,6 +58,40 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var characterArtBase64: String?
     /// 代码块超过多少行自动折叠。默认 12。
     var codeBlockCollapseLines: Int
+    // [bubble-packs] 气泡款式包的结构字段（颜色、透明度、壁纸、
+    // 字色一律不在这里，仍走主题颜色系统）。默认值 = 款式包之前
+    // 的聊天现状：文字气泡、无边框、用户横向内边距 14 / AI 12、
+    // 头像 38pt / 0.7pt 边框、行内头像、用户无名字 / AI 名字在上、
+    // 无时间行、列表间距 8、均匀圆角。款式包 apply() 全量写这些
+    // 字段；主题包 apply / reset 回到这里的默认值。
+    /// 气泡面：整行 / 文字。用户、AI 各自。
+    var userBubbleSurface: String
+    var assistantBubbleSurface: String
+    /// 气泡边框宽度（颜色仍走主题 .border）。用户、AI 各自。
+    var userBubbleBorderWidth: Double
+    var assistantBubbleBorderWidth: Double
+    /// 气泡横向内边距。用户、AI 各自。
+    var userBubblePadding: Double
+    var assistantBubblePadding: Double
+    /// 头像尺寸、头像边框宽度、头像位置（行内 / 压在气泡上）。
+    /// 头像位置只在用户行生效：AI 头像在独立的 header cell 里，
+    /// 压不到气泡上，见样张注释。
+    var avatarSize: Double
+    var avatarBorderWidth: Double
+    var avatarPlacement: String
+    /// 时间行位置：不显示 / 在上 / 在下。用户、AI 各自。
+    var userMetaPosition: String
+    var assistantMetaPosition: String
+    /// 名字行位置：不显示 / 在上 / 在行内。用户、AI 各自。
+    /// AI 名字在上与在行内在 live 里都显示为 header 名字（header
+    /// 是独立 cell，名字进不了气泡行），见样张注释。
+    var userNamePlacement: String
+    var assistantNamePlacement: String
+    /// 消息间距（列表 cell 间距）。
+    var messageSpacing: Double
+    /// 圆角预设：均匀 / 不对称 / 胶囊 / 方一点。live 形状只在
+    /// 圆角/连续圆角且非小尾巴时用它画不对称角。
+    var bubbleCornerPreset: String
 
     static let currentKey = "appearanceStudio.themePack.v1"
     static let schemaVersion = 5
@@ -85,6 +119,18 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             return 1.0
         }
         return parseLineHeight(raw)
+    }
+
+    /// 同上，读消息间距（列表 cell 间距）。UIViewController 的
+    /// viewDidLoad 不在 MainActor 上，不能读 MinisThemeShape，
+    /// 所以这里直接读 UserDefaults，与 storedLineHeight 同 pattern。
+    nonisolated static func storedMessageSpacing() -> Double {
+        guard let data = UserDefaults.standard.data(forKey: currentKey),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = obj["messageSpacing"] as? Double else {
+            return 8
+        }
+        return min(24, max(4, raw))
     }
 
     /// 同上，读字距。
@@ -143,7 +189,22 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         rowBackgroundHex: nil,
         novelMode: AppearanceNovelMode.off.rawValue,
         characterArtBase64: nil,
-        codeBlockCollapseLines: 12
+        codeBlockCollapseLines: 12,
+        userBubbleSurface: BubbleSurface.text.rawValue,
+        assistantBubbleSurface: BubbleSurface.text.rawValue,
+        userBubbleBorderWidth: 0,
+        assistantBubbleBorderWidth: 0,
+        userBubblePadding: 14,
+        assistantBubblePadding: 12,
+        avatarSize: 38,
+        avatarBorderWidth: 0.7,
+        avatarPlacement: BubbleAvatarPlacement.inline.rawValue,
+        userMetaPosition: BubbleMetaPosition.hidden.rawValue,
+        assistantMetaPosition: BubbleMetaPosition.hidden.rawValue,
+        userNamePlacement: BubbleNamePlacement.hidden.rawValue,
+        assistantNamePlacement: BubbleNamePlacement.above.rawValue,
+        messageSpacing: 8,
+        bubbleCornerPreset: BubbleCornerPreset.even.rawValue
     )
 
     var userStyle: AppearanceBubbleStyle { AppearanceBubbleStyle.parse(userBubbleStyle) }
@@ -195,6 +256,21 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             "lineHeight": lineHeight,
             "letterSpacing": letterSpacing,
             "codeBlockCollapseLines": codeBlockCollapseLines,
+            "userBubbleSurface": BubbleSurface.parse(userBubbleSurface).rawValue,
+            "assistantBubbleSurface": BubbleSurface.parse(assistantBubbleSurface).rawValue,
+            "userBubbleBorderWidth": userBubbleBorderWidth,
+            "assistantBubbleBorderWidth": assistantBubbleBorderWidth,
+            "userBubblePadding": userBubblePadding,
+            "assistantBubblePadding": assistantBubblePadding,
+            "avatarSize": avatarSize,
+            "avatarBorderWidth": avatarBorderWidth,
+            "avatarPlacement": BubbleAvatarPlacement.parse(avatarPlacement).rawValue,
+            "userMetaPosition": BubbleMetaPosition.parse(userMetaPosition).rawValue,
+            "assistantMetaPosition": BubbleMetaPosition.parse(assistantMetaPosition).rawValue,
+            "userNamePlacement": BubbleNamePlacement.parse(userNamePlacement).rawValue,
+            "assistantNamePlacement": BubbleNamePlacement.parse(assistantNamePlacement).rawValue,
+            "messageSpacing": messageSpacing,
+            "bubbleCornerPreset": BubbleCornerPreset.parse(bubbleCornerPreset).rawValue,
         ]
         if let rowBackgroundHex { obj["rowBackgroundHex"] = rowBackgroundHex }
         obj["novelMode"] = AppearanceNovelMode.parse(novelMode).rawValue
@@ -223,6 +299,13 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "colorsLight", "colorsDark", "wallpaperJPEGBase64",
         "avatarShape", "chatDisplay", "lineHeight", "letterSpacing", "rowBackgroundHex",
         "novelMode", "characterArtBase64",
+        "userBubbleSurface", "assistantBubbleSurface",
+        "userBubbleBorderWidth", "assistantBubbleBorderWidth",
+        "userBubblePadding", "assistantBubblePadding",
+        "avatarSize", "avatarBorderWidth", "avatarPlacement",
+        "userMetaPosition", "assistantMetaPosition",
+        "userNamePlacement", "assistantNamePlacement",
+        "messageSpacing", "bubbleCornerPreset",
     ]
 
     /// True when `raw` carries at least one known theme-pack field.
@@ -252,6 +335,15 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "userBubbleStyle", "assistantBubbleStyle", "inputBarStyle", "listIconShape",
         // Spacing / text metrics (layout dimensions).
         "lineHeight", "letterSpacing",
+        // Bubble-pack structure (layout, not colour): the AI may not
+        // set any of these; only the user, via a pack tap in the UI.
+        "userBubbleSurface", "assistantBubbleSurface",
+        "userBubbleBorderWidth", "assistantBubbleBorderWidth",
+        "userBubblePadding", "assistantBubblePadding",
+        "avatarSize", "avatarBorderWidth", "avatarPlacement",
+        "userMetaPosition", "assistantMetaPosition",
+        "userNamePlacement", "assistantNamePlacement",
+        "messageSpacing", "bubbleCornerPreset",
         // Opacities and shade (locked surface treatment, not colour).
         "surfaceOpacity", "wallpaperShade", "thinkingCardImageOpacity", "inputBarImageOpacity",
         // Display modes and line-count layout.
@@ -343,7 +435,22 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             rowBackgroundHex: (raw["rowBackgroundHex"] as? String).map(normalizeHex),
             novelMode: AppearanceNovelMode.parse(str("novelMode", fallback: base.novelMode)).rawValue,
             characterArtBase64: raw["characterArtBase64"] as? String,
-            codeBlockCollapseLines: min(40, max(4, Int(num("codeBlockCollapseLines", fallback: Double(base.codeBlockCollapseLines)))))
+            codeBlockCollapseLines: min(40, max(4, Int(num("codeBlockCollapseLines", fallback: Double(base.codeBlockCollapseLines))))),
+            userBubbleSurface: BubbleSurface.parse(str("userBubbleSurface", fallback: base.userBubbleSurface)).rawValue,
+            assistantBubbleSurface: BubbleSurface.parse(str("assistantBubbleSurface", fallback: base.assistantBubbleSurface)).rawValue,
+            userBubbleBorderWidth: min(2, max(0, num("userBubbleBorderWidth", fallback: base.userBubbleBorderWidth))),
+            assistantBubbleBorderWidth: min(2, max(0, num("assistantBubbleBorderWidth", fallback: base.assistantBubbleBorderWidth))),
+            userBubblePadding: min(20, max(8, num("userBubblePadding", fallback: base.userBubblePadding))),
+            assistantBubblePadding: min(20, max(8, num("assistantBubblePadding", fallback: base.assistantBubblePadding))),
+            avatarSize: min(64, max(28, num("avatarSize", fallback: base.avatarSize))),
+            avatarBorderWidth: min(3, max(0, num("avatarBorderWidth", fallback: base.avatarBorderWidth))),
+            avatarPlacement: BubbleAvatarPlacement.parse(str("avatarPlacement", fallback: base.avatarPlacement)).rawValue,
+            userMetaPosition: BubbleMetaPosition.parse(str("userMetaPosition", fallback: base.userMetaPosition)).rawValue,
+            assistantMetaPosition: BubbleMetaPosition.parse(str("assistantMetaPosition", fallback: base.assistantMetaPosition)).rawValue,
+            userNamePlacement: BubbleNamePlacement.parse(str("userNamePlacement", fallback: base.userNamePlacement)).rawValue,
+            assistantNamePlacement: BubbleNamePlacement.parse(str("assistantNamePlacement", fallback: base.assistantNamePlacement)).rawValue,
+            messageSpacing: min(24, max(4, num("messageSpacing", fallback: base.messageSpacing))),
+            bubbleCornerPreset: BubbleCornerPreset.parse(str("bubbleCornerPreset", fallback: base.bubbleCornerPreset)).rawValue
         )
         if pack.id.isEmpty { pack.id = base.id }
         if pack.name.isEmpty { pack.name = pack.id }
@@ -499,13 +606,23 @@ struct MinisBubbleShape: Shape {
     var style: AppearanceBubbleStyle
     var radius: CGFloat
     var tailOnTrailing: Bool
+    /// Per-corner radii, used only for .rounded/.squircle (non-tail).
+    /// nil = uniform radius. The asymmetric pack preset supplies this:
+    /// the outer corner near-sharp (4pt), the rest at `radius`.
+    var cornerRadii: RectangleCornerRadii?
 
     func path(in rect: CGRect) -> Path {
         let r = min(max(radius, 4), min(rect.width, rect.height) / 2)
         switch style {
         case .rounded:
+            if let corners = cornerRadii {
+                return Path(UnevenRoundedRectangle(cornerRadii: corners, style: .circular).path(in: rect).cgPath)
+            }
             return rounded(rect, r, continuous: false)
         case .squircle:
+            if let corners = cornerRadii {
+                return Path(UnevenRoundedRectangle(cornerRadii: corners, style: .continuous).path(in: rect).cgPath)
+            }
             return rounded(rect, r, continuous: true)
         case .pill:
             return rounded(rect, min(rect.height, rect.width) / 2, continuous: true)
@@ -1103,6 +1220,11 @@ extension AppearanceStudio {
         var pack = currentThemePack()
         if user { pack.userBubbleStyle = style.rawValue }
         else { pack.assistantBubbleStyle = style.rawValue }
+        // A hand-picked style is a plain shape, not an asymmetric
+        // preset: clear it here. BubbleStylePackStore.apply() writes
+        // the pack's preset after calling this, so pack taps keep
+        // theirs — order matters, see apply().
+        pack.bubbleCornerPreset = BubbleCornerPreset.even.rawValue
         persistPack(pack)
     }
 
@@ -1620,16 +1742,52 @@ enum MinisThemeShape {
     }
     static var userStyle: AppearanceBubbleStyle { pack.userStyle }
     static var assistantStyle: AppearanceBubbleStyle { pack.assistantStyle }
+    // [bubble-packs] Live accessors for the pack structure fields.
+    // All read the current theme pack, so a pack tap (which persists
+    // the pack and bumps themePackRevision) re-renders live chat.
+    static var userSurface: BubbleSurface { BubbleSurface.parse(pack.userBubbleSurface) }
+    static var assistantSurface: BubbleSurface { BubbleSurface.parse(pack.assistantBubbleSurface) }
+    static var userBorderWidth: CGFloat { CGFloat(min(2, max(0, pack.userBubbleBorderWidth))) }
+    static var assistantBorderWidth: CGFloat { CGFloat(min(2, max(0, pack.assistantBubbleBorderWidth))) }
+    static var userPadding: CGFloat { CGFloat(min(20, max(8, pack.userBubblePadding))) }
+    static var assistantPadding: CGFloat { CGFloat(min(20, max(8, pack.assistantBubblePadding))) }
+    static var avatarSize: CGFloat { CGFloat(min(64, max(28, pack.avatarSize))) }
+    static var avatarBorderWidth: CGFloat { CGFloat(min(3, max(0, pack.avatarBorderWidth))) }
+    static var avatarPlacement: BubbleAvatarPlacement { BubbleAvatarPlacement.parse(pack.avatarPlacement) }
+    static var userMeta: BubbleMetaPosition { BubbleMetaPosition.parse(pack.userMetaPosition) }
+    static var assistantMeta: BubbleMetaPosition { BubbleMetaPosition.parse(pack.assistantMetaPosition) }
+    static var userName: BubbleNamePlacement { BubbleNamePlacement.parse(pack.userNamePlacement) }
+    static var assistantName: BubbleNamePlacement { BubbleNamePlacement.parse(pack.assistantNamePlacement) }
+    static var messageSpacing: CGFloat { CGFloat(min(24, max(4, pack.messageSpacing))) }
+    /// Asymmetric corner radii for one role, or nil when the preset
+    /// is not asymmetric / the style is not a plain rounded shape
+    /// (pill, sharp and tail draw their own corners, exactly as the
+    /// sample shape does).
+    static func cornerRadii(user: Bool) -> RectangleCornerRadii? {
+        guard BubbleCornerPreset.parse(pack.bubbleCornerPreset) == .asymmetric else { return nil }
+        let style = user ? pack.userStyle : pack.assistantStyle
+        guard style == .rounded || style == .squircle else { return nil }
+        let radius = CGFloat(user ? pack.userBubbleRadius : pack.assistantBubbleRadius)
+        let r = min(max(radius, 4), 32)
+        // Outer corner = the side the bubble sits on: user = trailing
+        // bottom, assistant = leading bottom. Matches BubblePackSampleShape.
+        if user {
+            return RectangleCornerRadii(topLeading: r, topTrailing: r, bottomLeading: r, bottomTrailing: 4)
+        }
+        return RectangleCornerRadii(topLeading: r, topTrailing: r, bottomLeading: 4, bottomTrailing: r)
+    }
     static var thinkingCardOpacity: Double { pack.thinkingCardImageOpacity }
     static var inputBarStyle: AppearanceBubbleStyle { AppearanceBubbleStyle.parse(pack.inputBarStyle) }
     static var inputBarImageOpacity: Double { pack.inputBarImageOpacity }
     static var fontFamily: AppearanceFontFamily { AppearanceFontFamily.parse(pack.fontFamily) }
 
     static var userBubble: MinisBubbleShape {
-        MinisBubbleShape(style: userStyle, radius: userBubbleRadius, tailOnTrailing: true)
+        MinisBubbleShape(style: userStyle, radius: userBubbleRadius, tailOnTrailing: true,
+                         cornerRadii: cornerRadii(user: true))
     }
     static var assistantBubble: MinisBubbleShape {
-        MinisBubbleShape(style: assistantStyle, radius: assistantBubbleRadius, tailOnTrailing: false)
+        MinisBubbleShape(style: assistantStyle, radius: assistantBubbleRadius, tailOnTrailing: false,
+                         cornerRadii: cornerRadii(user: false))
     }
     static var thinkingCard: MinisBubbleShape {
         MinisBubbleShape(style: .squircle, radius: thinkingRadius, tailOnTrailing: false)
