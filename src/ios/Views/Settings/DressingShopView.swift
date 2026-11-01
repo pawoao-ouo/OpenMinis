@@ -36,10 +36,17 @@ import SwiftUI
 // and can only be removed by deleting by number.
 
 private enum DressingCategory: String, CaseIterable, Identifiable {
-    case recommend, outfit, theme, bubble, pendant, font, namecard
+    // `other` sits before 推荐 by user order: it is the home for
+    // the non-dressing controls (language, app icon, launch,
+    // input, chat behaviour) that the appearance merge stranded.
+    // It is deliberately NOT a dressing category — it holds no
+    // theme/bubble/pendant/font/name-card records — it is just
+    // the reachable entry those controls were promised.
+    case other, recommend, outfit, theme, bubble, pendant, font, namecard
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .other: return AppLocalized("其他设置")
         case .recommend: return AppLocalized("推荐")
         case .outfit: return AppLocalized("搭配灵感")
         case .theme: return AppLocalized("主题")
@@ -110,6 +117,7 @@ struct DressingShopView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         switch category {
+                        case .other: OtherSettingsContentView()
                         case .recommend: recommendView
                         case .outfit: outfitView
                         case .theme: themeView
@@ -670,3 +678,256 @@ struct DressingShopView: View {
         }
     }
 }
+
+// MARK: - 其他设置（装扮店第一个入口，推荐前面）
+//
+// Home for exactly the eight non-dressing controls the appearance
+// merge stranded: language, app icon, launch screen, return key,
+// auto-focus after reply, expand thinking while streaming,
+// auto-grouping, keep screen awake. Nothing else lives here: no
+// font sizes (they belong to 字体), no light/dark mode, no row
+// background, no bubble/theme controls — those already have
+// their own shop homes or batches, and duplicating them here
+// would recreate the duplicate-page fault this merge removed.
+//
+// Style and language are the shop's own, not the old studio
+// page's: porcelain surface cards on the canvas background,
+// 20pt bold section titles, secondary-text explanations, and
+// Chinese labels throughout — the old studio labels mixed in
+// other-language wording, and that mix is not carried over.
+// Language names themselves stay as names.
+// All bindings read and write the same UserDefaults keys the
+// old studio page used, so switching here and switching there
+// (where it is still reachable) can never disagree.
+
+private struct OtherSettingsContentView: View {
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    @AppStorage("appLanguage") private var appLanguage: String = ""
+    @AppStorage("appIconMode") private var appIconMode: Int = 0
+    @AppStorage("launchScreen") private var launchScreen: Int = 0
+    @AppStorage("returnKeyBehavior") private var returnKeyBehavior: Int = 0
+    @AppStorage("chat.autoFocusAfterReply") private var autoFocusAfterReply: Bool = true
+    @AppStorage("chat.autoExpandThinking") private var autoExpandThinking: Bool = true
+    @AppStorage("keepScreenAwakeDuringTasks") private var keepScreenAwakeDuringTasks: Bool = false
+    @State private var iconFailed = false
+
+    private var autoGroupingBinding: Binding<Bool> {
+        Binding(
+            get: { UserDefaults.standard.bool(forKey: "autoGroupingEnabled") },
+            set: { UserDefaults.standard.set($0, forKey: "autoGroupingEnabled") }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionTitle(AppLocalized("语言"))
+            sectionCard {
+                ForEach(shopLanguages) { lang in
+                    Button {
+                        // Same reopen dance as the old studio page:
+                        // the root view rebuilds on language change,
+                        // so the pending reopen flag brings the user
+                        // back to the appearance entry (now the shop).
+                        UserDefaults.standard.set("appearance", forKey: "pendingSettingsReopen")
+                        ViewModelCache.shared.suspendAllForTreeRemount()
+                        appLanguage = lang.id
+                        Bundle.setLanguage(lang.id.isEmpty ? nil : lang.id)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "globe")
+                                .font(.system(size: 14))
+                                .foregroundStyle(studio.color(.secondaryText))
+                                .frame(width: 26)
+                            Text(lang.name)
+                                .font(.system(size: 15))
+                                .foregroundStyle(studio.color(.primaryText))
+                            Spacer(minLength: 0)
+                            if appLanguage == lang.id {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(studio.color(.primaryText))
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            sectionTitle(AppLocalized("App 图标"))
+            sectionCard {
+                if UIApplication.shared.supportsAlternateIcons {
+                    ForEach(shopIconOptions) { option in
+                        Button {
+                            guard appIconMode != option.id else { return }
+                            let previous = appIconMode
+                            appIconMode = option.id
+                            iconFailed = false
+                            UIApplication.shared.setAlternateIconName(option.iconName) { error in
+                                DispatchQueue.main.async {
+                                    guard error != nil else { return }
+                                    // Same revert-on-failure rule as the
+                                    // old studio page: a refused icon
+                                    // must not stay ticked.
+                                    appIconMode = previous
+                                    iconFailed = true
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 14) {
+                                if let img = UIImage(named: option.imageName) {
+                                    Image(uiImage: img)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 52, height: 52)
+                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(option.title)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(studio.color(.primaryText))
+                                    Text(option.subtitle)
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(studio.color(.secondaryText))
+                                }
+                                Spacer(minLength: 0)
+                                if appIconMode == option.id {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(studio.color(.primaryText))
+                                        .font(.system(size: 16))
+                                }
+                            }
+                            .padding(.vertical, 3)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if iconFailed {
+                        Text(AppLocalized("换图标失败，请重试。"))
+                            .font(.system(size: 13))
+                            .foregroundStyle(studio.color(.secondaryText))
+                            .padding(.top, 6)
+                    }
+                } else {
+                    Text(AppLocalized("这台设备不支持换图标。"))
+                        .font(.system(size: 15))
+                        .foregroundStyle(studio.color(.secondaryText))
+                }
+            }
+
+            sectionTitle(AppLocalized("启动时显示"))
+            sectionCard {
+                Picker("", selection: $launchScreen) {
+                    Text(AppLocalized("自动")).tag(0)
+                    Text(AppLocalized("上次会话")).tag(1)
+                    Text(AppLocalized("新会话")).tag(2)
+                    Text(AppLocalized("首页")).tag(3)
+                }
+                .pickerStyle(.menu)
+                .tint(studio.color(.primaryText))
+                Text(AppLocalized("打开 App 时显示什么。「自动」会在上次会话超过 15 分钟时开新会话。"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+
+            sectionTitle(AppLocalized("输入"))
+            sectionCard {
+                Picker(AppLocalized("回车键"), selection: $returnKeyBehavior) {
+                    Text(AppLocalized("换行")).tag(0)
+                    Text(AppLocalized("发送")).tag(1)
+                }
+                .pickerStyle(.segmented)
+                Text(AppLocalized("回车是换行还是发送。硬件键盘的 Shift+回车 永远是换行。"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(studio.color(.secondaryText))
+                Divider().padding(.vertical, 4)
+                Toggle(AppLocalized("回复后自动聚焦"), isOn: $autoFocusAfterReply)
+                    .tint(studio.color(.primaryText))
+                Text(AppLocalized("模型回复完自动弹出键盘，方便接着问。不想被键盘打断就关掉。"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+
+            sectionTitle(AppLocalized("聊天行为"))
+            sectionCard {
+                Toggle(AppLocalized("流式展开思考"), isOn: $autoExpandThinking)
+                    .tint(studio.color(.primaryText))
+                Text(AppLocalized("开着时，模型推理中的思考块自动展开，完成后收起。关掉就保持折叠，点一下才看。"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(studio.color(.secondaryText))
+                Divider().padding(.vertical, 4)
+                Toggle(AppLocalized("自动分组"), isOn: autoGroupingBinding)
+                    .tint(studio.color(.primaryText))
+                Text(AppLocalized("首次生成会话标题时，顺便归进匹配的分组。每个会话只做一次，只用你已经建好的分组。"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(studio.color(.secondaryText))
+                Divider().padding(.vertical, 4)
+                Toggle(AppLocalized("任务时屏幕常亮"), isOn: $keepScreenAwakeDuringTasks)
+                    .tint(studio.color(.primaryText))
+                Text(AppLocalized("有会话在跑任务时不熄屏。会更费电。"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+        }
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 20, weight: .bold))
+            .foregroundStyle(studio.color(.primaryText))
+            .padding(.horizontal, 16)
+            .padding(.top, 22)
+            .padding(.bottom, 12)
+    }
+
+    private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content()
+        }
+        .padding(16)
+        .background(studio.color(.surface))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 16)
+    }
+}
+
+private struct ShopLanguageOption: Identifiable {
+    let id: String
+    let name: String
+}
+
+private let shopLanguages: [ShopLanguageOption] = [
+    ShopLanguageOption(id: "", name: "跟随系统"),
+    ShopLanguageOption(id: "en", name: "English"),
+    ShopLanguageOption(id: "zh-Hans", name: "简体中文"),
+    ShopLanguageOption(id: "zh-Hant", name: "繁體中文"),
+    ShopLanguageOption(id: "ja", name: "日本語"),
+    ShopLanguageOption(id: "ko", name: "한국어"),
+    ShopLanguageOption(id: "es", name: "Español"),
+    ShopLanguageOption(id: "fr", name: "Français"),
+    ShopLanguageOption(id: "de", name: "Deutsch"),
+    ShopLanguageOption(id: "ru", name: "Русский"),
+]
+
+private struct ShopIconOption: Identifiable {
+    let id: Int
+    let title: String
+    let subtitle: String
+    let iconName: String?
+    let imageName: String
+}
+
+private let shopIconOptions: [ShopIconOption] = [
+    ShopIconOption(id: 0, title: "饼干小熊", subtitle: "跟随系统",
+                   iconName: nil, imageName: "AlternateIcons/AppIcon-Primary"),
+    ShopIconOption(id: 1, title: "小蓝莓", subtitle: "蓝色头巾，眨眨眼",
+                   iconName: "AppIcon-Light", imageName: "AlternateIcons/AppIcon-Light"),
+    ShopIconOption(id: 2, title: "鱼鱼小猫", subtitle: "叼着粉色小鱼",
+                   iconName: "AppIcon-Dark", imageName: "AlternateIcons/AppIcon-Dark"),
+    ShopIconOption(id: 3, title: "小包子", subtitle: "红蝴蝶结，热乎乎",
+                   iconName: "AppIcon-LegacyLight", imageName: "AlternateIcons/AppIcon-LegacyLight"),
+    ShopIconOption(id: 4, title: "小懒猫", subtitle: "躺着，挂着小铃铛",
+                   iconName: "AppIcon-LegacyDark", imageName: "AlternateIcons/AppIcon-LegacyDark"),
+]

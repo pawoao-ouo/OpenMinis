@@ -6820,12 +6820,13 @@ private struct AppearanceSettingsView: View {
     // was a duplicate and is gone; font sizes -> 字体), and the
     // shop shows those categories as honest next-batch panels until
     // their visual cards exist — never as fake cards or text rows.
-    // Residue that is NOT dressing and cannot honestly live in the
-    // shop (language, input behaviour, launch session, keep-awake,
-    // app icon) has no shop category: its controls stay in
-    // AppearanceStudioView.swift as code, unreachable from this
-    // entry until a non-shop settings home is built for them. That
-    // gap is recorded, not hidden by misfiling them into the shop.
+    // Residue that is NOT dressing and cannot honestly live in a
+    // shop category (language, input behaviour, launch session,
+    // keep-awake, app icon) now has its own entry: the shop's
+    // first tab, 其他设置, placed before 推荐 by user order. It
+    // holds exactly those controls, in the shop's own style and
+    // language — never misfiled into a dressing category, and
+    // never a second bubble/theme apply path.
     var body: some View {
         DressingShopView()
     }
