@@ -577,7 +577,7 @@ struct UserBubbleSurface: ViewModifier {
             surfaced
                 .background(userPackBackground(dim: 0.72))
                 .modifier(BubbleBorderChrome(shape: shape, width: MinisThemeShape.userBorderWidth))
-                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
+                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations(user: true)))
         } else if display == .flat || display == .document {
             surfaced
         } else if #available(iOS 26.0, *) {
@@ -598,12 +598,12 @@ struct UserBubbleSurface: ViewModifier {
             surfaced
                 .background(userPackBackground())
                 .modifier(BubbleBorderChrome(shape: shape, width: MinisThemeShape.userBorderWidth))
-                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
+                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations(user: true)))
         } else {
             surfaced
                 .background(userPackBackground())
                 .modifier(BubbleBorderChrome(shape: shape, width: MinisThemeShape.userBorderWidth))
-                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
+                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations(user: true)))
         }
     }
 
@@ -617,9 +617,9 @@ struct UserBubbleSurface: ViewModifier {
     private func userPackBackground(dim: Double = 1) -> some View {
         BubblePackSurfaceBackground(
             shape: shape, colour: ChatColors.userBubble,
-            imageFile: MinisThemeShape.packBackgroundImageFile,
-            pattern: MinisThemeShape.packPattern,
-            patternOpacity: MinisThemeShape.packPatternOpacity,
+            imageFile: MinisThemeShape.packBackgroundImageFile(user: true),
+            pattern: MinisThemeShape.packPattern(user: true),
+            patternOpacity: MinisThemeShape.packPatternOpacity(user: true),
             textColour: ChatColors.bubbleText, dim: dim)
     }
 }

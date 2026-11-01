@@ -773,16 +773,27 @@ struct BubbleStylePack: Identifiable, Equatable, Codable {
 
 private struct BubblePackCatalogData: Codable {
     var packs: [BubbleStylePack]
+    /// Legacy single applied number (pre-per-side catalogues).
+    /// Read for migration only; this version never writes it.
     var appliedNumber: String?
+    /// Applied pack number, per side. A side with no number has
+    /// no pack applied (live chat shows the theme's own shape
+    /// for that side until one is picked).
+    var appliedUserNumber: String?
+    var appliedAssistantNumber: String?
     var nextSerial: Int
 
     private enum CodingKeys: String, CodingKey {
-        case packs, appliedNumber, nextSerial
+        case packs, appliedNumber, appliedUserNumber, appliedAssistantNumber, nextSerial
     }
 
-    init(packs: [BubbleStylePack], appliedNumber: String?, nextSerial: Int) {
+    init(packs: [BubbleStylePack], appliedNumber: String? = nil,
+         appliedUserNumber: String? = nil, appliedAssistantNumber: String? = nil,
+         nextSerial: Int) {
         self.packs = packs
         self.appliedNumber = appliedNumber
+        self.appliedUserNumber = appliedUserNumber
+        self.appliedAssistantNumber = appliedAssistantNumber
         self.nextSerial = nextSerial
     }
 
@@ -790,6 +801,8 @@ private struct BubblePackCatalogData: Codable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         packs = try c.decodeIfPresent([BubbleStylePack].self, forKey: .packs) ?? []
         appliedNumber = try c.decodeIfPresent(String.self, forKey: .appliedNumber)
+        appliedUserNumber = try c.decodeIfPresent(String.self, forKey: .appliedUserNumber)
+        appliedAssistantNumber = try c.decodeIfPresent(String.self, forKey: .appliedAssistantNumber)
         nextSerial = max(1, try c.decodeIfPresent(Int.self, forKey: .nextSerial) ?? 1)
     }
 }
@@ -803,7 +816,30 @@ final class BubbleStylePackStore: ObservableObject {
     static let shared = BubbleStylePackStore()
 
     @Published private(set) var packs: [BubbleStylePack] = []
-    @Published private(set) var appliedNumber: String?
+    /// Applied pack number, per side — the two sides may wear
+    /// different packs, and changing one side never moves the
+    /// other. Records store only pack numbers, never a persona
+    /// or user name (see DressingSide).
+    @Published private(set) var appliedUserNumber: String?
+    @Published private(set) var appliedAssistantNumber: String?
+
+    func appliedNumber(for side: DressingSide) -> String? {
+        side.isUser ? appliedUserNumber : appliedAssistantNumber
+    }
+
+    /// Pack worn by one side, or nil.
+    func appliedPack(for side: DressingSide) -> BubbleStylePack? {
+        guard let number = appliedNumber(for: side) else { return nil }
+        return pack(number: number)
+    }
+
+    /// Numbers applied on either side (the studio grid, which
+    /// has no side picker, marks a pack "in use" if any side
+    /// wears it).
+    var appliedNumbers: [String] {
+        [appliedUserNumber, appliedAssistantNumber].compactMap { $0 }
+    }
+
     private var nextSerial = 7
 
     /// Three packs, kept by the user on device (2026-11-01):
@@ -882,8 +918,26 @@ final class BubbleStylePackStore: ObservableObject {
                 pack.useCount = useCounts[builtIn.number] ?? 0
                 return pack
             }
-            appliedNumber = catalog.appliedNumber.flatMap { number in
-                guard let builtIn = Self.builtIns.first(where: { $0.number == number }),
+            // Per-side resolution of the applied numbers. Each
+            // side's number is kept ONLY if the stored pack's
+            // style still equals its built-in style — otherwise
+            // the live theme does not actually show that pack,
+            // and keeping the claim would make the shop lie about
+            // what is in use. A cleared claim is restored honestly
+            // the next time the user taps a pack for that side,
+            // when apply() writes that side's fields to the live
+            // theme. Tag/title-only changes do not clear the claim:
+            // the live shape is unchanged by metadata.
+            // Migration: a pre-per-side catalogue has only the
+            // legacy appliedNumber, which becomes BOTH sides'
+            // number (first launch looks exactly as before). A
+            // catalogue written by this version has no legacy
+            // number, so a nil per-side number stays nil — it is
+            // never refilled from a stale legacy value, because
+            // this version never writes one.
+            func resolve(_ sideNumber: String?) -> String? {
+                guard let number = sideNumber ?? catalog.appliedNumber,
+                      let builtIn = Self.builtIns.first(where: { $0.number == number }),
                       let stored = catalog.packs.first(where: { $0.number == number }) else { return nil }
                 // Width-fix tolerance: the bubble-width fix changed
                 // only the surface fields (.row -> .text) on the
@@ -898,18 +952,27 @@ final class BubbleStylePackStore: ObservableObject {
                 guard adjusted.style == builtIn.style else { return nil }
                 return number
             }
+            appliedUserNumber = resolve(catalog.appliedUserNumber)
+            appliedAssistantNumber = resolve(catalog.appliedAssistantNumber)
             nextSerial = max(7, catalog.nextSerial)
-            // Subtraction fallback: if the stored applied pack
-            // is one of the removed numbers, it is no longer in
-            // builtIns, so appliedNumber above is nil while live
-            // chat would still show the removed shape. Apply the
-            // kept porcelain pack once, so live chat, shop, and
-            // the now-wearing strip agree again. Outfit rows are
-            // a separate store and are never touched here.
-            if catalog.appliedNumber != nil,
-               !Self.builtIns.contains(where: { $0.number == catalog.appliedNumber }),
-               let fallback = Self.builtIns.first(where: { $0.number == "BUB-0001" }) {
-                apply(fallback)
+            // Subtraction fallback, per side: if a side's stored
+            // applied pack is one of the removed numbers, it is no
+            // longer in builtIns, so that side's number above is
+            // nil while live chat would still show the removed
+            // shape for that side. Apply the kept porcelain pack
+            // to THAT side only, so live chat, shop, and the
+            // now-wearing strip agree again; the other side's
+            // pack is untouched. Outfit rows are a separate store
+            // and are never touched here.
+            for side in DressingSide.allCases {
+                let candidate = (side.isUser ? catalog.appliedUserNumber : catalog.appliedAssistantNumber)
+                    ?? catalog.appliedNumber
+                if candidate != nil,
+                   !Self.builtIns.contains(where: { $0.number == candidate }),
+                   appliedNumber(for: side) == nil,
+                   let fallback = Self.builtIns.first(where: { $0.number == "BUB-0001" }) {
+                    apply(fallback, for: side)
+                }
             }
             return
         }
@@ -918,13 +981,15 @@ final class BubbleStylePackStore: ObservableObject {
         // write never silently destroys a catalogue the user could
         // still recover by hand.
         packs = Self.builtIns
-        appliedNumber = nil
+        appliedUserNumber = nil
+        appliedAssistantNumber = nil
         nextSerial = 7
     }
 
     private func save() {
         let catalog = BubblePackCatalogData(
-            packs: packs, appliedNumber: appliedNumber, nextSerial: nextSerial)
+            packs: packs, appliedUserNumber: appliedUserNumber,
+            appliedAssistantNumber: appliedAssistantNumber, nextSerial: nextSerial)
         guard let data = try? JSONEncoder().encode(catalog) else { return }
         try? data.write(to: catalogURL, options: .atomic)
     }
@@ -933,59 +998,137 @@ final class BubbleStylePackStore: ObservableObject {
         packs.first { $0.number == number }
     }
 
-    /// Tap-apply. Writes the FULL structural record to the live
-    /// theme pack (display, both bubble styles, both radii, both
-    /// surfaces, both border widths, both paddings, avatar
-    /// size/border/placement, message spacing, meta and name
-    /// placement, corner preset, input-bar style/radius). Colours,
-    /// opacity, both text slots, wallpapers, avatar shape, and the
-    /// theme library are untouched. setBubbleStyle() resets the
-    /// corner preset to even (a hand-picked style is not asymmetric),
-    /// so the preset is written after those calls, in this final
-    /// persist — order matters.
+    /// Tap-apply to ONE side. Writes only that side's fields
+    /// to the live theme pack: that side's bubble style, radius,
+    /// surface, border width, padding, meta and name placement,
+    /// pack text colour, and that side's pack shape / image /
+    /// pattern / decorations (the per-side theme fields, which
+    /// live chat reads per side). The other side's fields are
+    /// not touched, so its bubbles keep their own pack. Colours,
+    /// opacity, wallpapers, avatar shape, and the theme library
+    /// are untouched on either path.
+    ///
+    /// Deliberately NOT written on a one-side apply: the shared
+    /// layout fields (display, corner preset, avatar size /
+    /// border / placement, message spacing, input-bar style /
+    /// radius). The pack record carries only one value for each,
+    /// shared by both sides, so writing it for one side would
+    /// move the other side's layout too — exactly the "changing
+    /// one thing forces everything the same" fault this split
+    /// removes. Those fields still change on the both-sides
+    /// apply below, where the user means the whole conversation.
+    /// The style is written straight into the theme struct, not
+    /// via setBubbleStyle(), because that setter clears the
+    /// shared corner preset — a one-side apply must not clear
+    /// (or rewrite) shared layout at all.
+    func apply(_ pack: BubbleStylePack, for side: DressingSide) {
+        apply(pack, forSides: [side])
+    }
+
+    /// Tap-apply to BOTH sides (the old single-apply behaviour,
+    /// kept for the studio grid, which has no side picker, and
+    /// for any caller that means "the whole conversation, same
+    /// pack"). In addition to both sides' fields, it writes the
+    /// shared layout fields from the pack (display, avatar
+    /// size/border/placement, message spacing, corner preset,
+    /// input-bar style/radius, and the legacy shared shape /
+    /// foundation fields) exactly as the old apply did. It still
+    /// writes TWO per-side records, not one global record, so a
+    /// later one-side change leaves the other side alone.
     func apply(_ pack: BubbleStylePack) {
+        apply(pack, forSides: DressingSide.allCases)
+    }
+
+    private func apply(_ pack: BubbleStylePack, forSides sides: [DressingSide]) {
         let studio = AppearanceStudio.shared
-        studio.setChatDisplay(pack.style.display)
-        let style = pack.style.liveStyle()
-        studio.setBubbleStyle(style, user: true)
-        studio.setBubbleStyle(style, user: false)
         var theme = studio.currentThemePack()
         let s = pack.style
-        theme.userBubbleRadius = s.userRadius
-        theme.assistantBubbleRadius = s.assistantRadius
-        theme.userBubbleSurface = s.userSurface.rawValue
-        theme.assistantBubbleSurface = s.assistantSurface.rawValue
-        theme.userBubbleBorderWidth = s.userBorderWidth
-        theme.assistantBubbleBorderWidth = s.assistantBorderWidth
-        theme.userBubblePadding = s.userPadding
-        theme.assistantBubblePadding = s.assistantPadding
-        theme.avatarSize = s.avatarSize
-        theme.avatarBorderWidth = s.avatarBorderWidth
-        theme.avatarPlacement = s.avatarPlacement.rawValue
-        theme.userMetaPosition = s.userMeta.rawValue
-        theme.assistantMetaPosition = s.assistantMeta.rawValue
-        theme.userNamePlacement = s.userName.rawValue
-        theme.assistantNamePlacement = s.assistantName.rawValue
-        theme.messageSpacing = s.messageSpacing
-        theme.bubbleCornerPreset = s.cornerPreset.rawValue
-        theme.bubblePackShape = s.packShape.rawValue
-        // Foundation fields: the live theme is the single source
-        // live chat reads, so a future image/pattern pack must
-        // travel through apply() like every other pack field — a
-        // pack that only the shop knew about would be a sample lie.
-        theme.bubbleBackgroundImageFile = s.backgroundImageFile
-        theme.bubblePattern = s.pattern.rawValue
-        theme.bubblePatternOpacity = s.patternOpacity
-        theme.bubbleDecorationsJSON = BubbleStyleRecord.encodeDecorations(s.decorations)
-        theme.userBubblePackTextHex = s.userTextHex
-        theme.assistantBubblePackTextHex = s.assistantTextHex
-        theme.inputBarRadius = s.inputBarRadius
-        theme.inputBarStyle = s.liveInputBarStyle().rawValue
+        let style = s.liveStyle()
+        for side in sides {
+            if side.isUser {
+                theme.userBubbleStyle = style.rawValue
+                theme.userBubbleRadius = s.userRadius
+                theme.userBubbleSurface = s.userSurface.rawValue
+                theme.userBubbleBorderWidth = s.userBorderWidth
+                theme.userBubblePadding = s.userPadding
+                theme.userMetaPosition = s.userMeta.rawValue
+                theme.userNamePlacement = s.userName.rawValue
+                theme.userBubblePackTextHex = s.userTextHex
+                theme.userBubblePackShape = s.packShape.rawValue
+                theme.userBubbleBackgroundImageFile = s.backgroundImageFile
+                theme.userBubblePattern = s.pattern.rawValue
+                theme.userBubblePatternOpacity = s.patternOpacity
+                theme.userBubbleDecorationsJSON = BubbleStyleRecord.encodeDecorations(s.decorations)
+                appliedUserNumber = pack.number
+            } else {
+                theme.assistantBubbleStyle = style.rawValue
+                theme.assistantBubbleRadius = s.assistantRadius
+                theme.assistantBubbleSurface = s.assistantSurface.rawValue
+                theme.assistantBubbleBorderWidth = s.assistantBorderWidth
+                theme.assistantBubblePadding = s.assistantPadding
+                theme.assistantMetaPosition = s.assistantMeta.rawValue
+                theme.assistantNamePlacement = s.assistantName.rawValue
+                theme.assistantBubblePackTextHex = s.assistantTextHex
+                theme.assistantBubblePackShape = s.packShape.rawValue
+                theme.assistantBubbleBackgroundImageFile = s.backgroundImageFile
+                theme.assistantBubblePattern = s.pattern.rawValue
+                theme.assistantBubblePatternOpacity = s.patternOpacity
+                theme.assistantBubbleDecorationsJSON = BubbleStyleRecord.encodeDecorations(s.decorations)
+                appliedAssistantNumber = pack.number
+            }
+        }
+        if sides.count == DressingSide.allCases.count {
+            studio.setChatDisplay(s.display)
+            // setChatDisplay persists its own pack; re-read so
+            // the side fields above (written on the pre-display
+            // snapshot) are not lost by that intermediate write.
+            theme = studio.currentThemePack()
+            theme.userBubbleStyle = style.rawValue
+            theme.assistantBubbleStyle = style.rawValue
+            theme.userBubbleRadius = s.userRadius
+            theme.assistantBubbleRadius = s.assistantRadius
+            theme.userBubbleSurface = s.userSurface.rawValue
+            theme.assistantBubbleSurface = s.assistantSurface.rawValue
+            theme.userBubbleBorderWidth = s.userBorderWidth
+            theme.assistantBubbleBorderWidth = s.assistantBorderWidth
+            theme.userBubblePadding = s.userPadding
+            theme.assistantBubblePadding = s.assistantPadding
+            theme.userBubblePackShape = s.packShape.rawValue
+            theme.assistantBubblePackShape = s.packShape.rawValue
+            theme.userBubbleBackgroundImageFile = s.backgroundImageFile
+            theme.assistantBubbleBackgroundImageFile = s.backgroundImageFile
+            theme.userBubblePattern = s.pattern.rawValue
+            theme.assistantBubblePattern = s.pattern.rawValue
+            theme.userBubblePatternOpacity = s.patternOpacity
+            theme.assistantBubblePatternOpacity = s.patternOpacity
+            theme.userBubbleDecorationsJSON = BubbleStyleRecord.encodeDecorations(s.decorations)
+            theme.assistantBubbleDecorationsJSON = BubbleStyleRecord.encodeDecorations(s.decorations)
+            theme.userBubblePackTextHex = s.userTextHex
+            theme.assistantBubblePackTextHex = s.assistantTextHex
+            theme.avatarSize = s.avatarSize
+            theme.avatarBorderWidth = s.avatarBorderWidth
+            theme.avatarPlacement = s.avatarPlacement.rawValue
+            theme.userMetaPosition = s.userMeta.rawValue
+            theme.assistantMetaPosition = s.assistantMeta.rawValue
+            theme.userNamePlacement = s.userName.rawValue
+            theme.assistantNamePlacement = s.assistantName.rawValue
+            theme.messageSpacing = s.messageSpacing
+            theme.bubbleCornerPreset = s.cornerPreset.rawValue
+            theme.bubblePackShape = s.packShape.rawValue
+            // Legacy shared foundation fields, kept in step so
+            // any reader still on the shared fields sees the
+            // same pack the per-side fields describe.
+            theme.bubbleBackgroundImageFile = s.backgroundImageFile
+            theme.bubblePattern = s.pattern.rawValue
+            theme.bubblePatternOpacity = s.patternOpacity
+            theme.bubbleDecorationsJSON = BubbleStyleRecord.encodeDecorations(s.decorations)
+            theme.inputBarRadius = s.inputBarRadius
+            theme.inputBarStyle = s.liveInputBarStyle().rawValue
+        }
         studio.persistPack(theme)
         if let index = packs.firstIndex(where: { $0.number == pack.number }) {
             packs[index].useCount += 1
         }
-        appliedNumber = pack.number
         save()
     }
 }

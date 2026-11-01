@@ -204,9 +204,9 @@ struct AssistantBlockView: View {
     private func assistantPackBackground() -> some View {
         BubblePackSurfaceBackground(
             shape: MinisThemeShape.assistantBubble, colour: ChatColors.assistantBubble,
-            imageFile: MinisThemeShape.packBackgroundImageFile,
-            pattern: MinisThemeShape.packPattern,
-            patternOpacity: MinisThemeShape.packPatternOpacity,
+            imageFile: MinisThemeShape.packBackgroundImageFile(user: false),
+            pattern: MinisThemeShape.packPattern(user: false),
+            patternOpacity: MinisThemeShape.packPatternOpacity(user: false),
             textColour: ChatColors.assistantBubbleText)
     }
 
@@ -236,7 +236,7 @@ struct AssistantBlockView: View {
                         .clipShape(MinisThemeShape.assistantBubble)
                         .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
                                                      width: MinisThemeShape.assistantBorderWidth))
-                        .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
+                        .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations(user: false)))
                 } else {
                     bubbled
                         .background(assistantPackBackground())
@@ -246,7 +246,7 @@ struct AssistantBlockView: View {
                         .clipShape(MinisThemeShape.assistantBubble)
                         .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
                                                      width: MinisThemeShape.assistantBorderWidth))
-                        .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
+                        .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations(user: false)))
                 }
             }
             // [bubble-packs] Meta below removed: no per-bubble
@@ -285,7 +285,7 @@ struct AssistantBlockView: View {
                                     .clipShape(MinisThemeShape.assistantBubble)
                                     .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
                                                                  width: MinisThemeShape.assistantBorderWidth))
-                                    .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
+                                    .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations(user: false)))
                             } else {
                                 bubbled
                                     .background(assistantPackBackground())
@@ -296,7 +296,7 @@ struct AssistantBlockView: View {
                                     .clipShape(MinisThemeShape.assistantBubble)
                                     .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
                                                                  width: MinisThemeShape.assistantBorderWidth))
-                                    .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
+                                    .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations(user: false)))
                             }
                         }
                 case .code(let language, let code, let codeIndex):
@@ -990,9 +990,9 @@ private struct AssistantBubbleChrome: ViewModifier {
                 .background(
                     BubblePackSurfaceBackground(
                         shape: MinisThemeShape.assistantBubble, colour: ChatColors.assistantBubble,
-                        imageFile: MinisThemeShape.packBackgroundImageFile,
-                        pattern: MinisThemeShape.packPattern,
-                        patternOpacity: MinisThemeShape.packPatternOpacity,
+                        imageFile: MinisThemeShape.packBackgroundImageFile(user: false),
+                        pattern: MinisThemeShape.packPattern(user: false),
+                        patternOpacity: MinisThemeShape.packPatternOpacity(user: false),
                         textColour: ChatColors.assistantBubbleText)
                 )
                 .overlay(
@@ -1000,7 +1000,7 @@ private struct AssistantBubbleChrome: ViewModifier {
                         ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
                 )
                 .clipShape(MinisThemeShape.assistantBubble)
-                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
+                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations(user: false)))
         }
     }
 }

@@ -29,11 +29,13 @@ import SwiftUI
 // the later batches have not defined yet.
 //
 // Connections (no gaps): applying a pack goes through
-// BubbleStylePackStore.apply, which writes the full structural
-// record (including the pack shape) to the live theme pack, so
-// real chat bubbles change — not just the samples. The in-use
-// mark, the now-wearing strip, and the detail sheet all read the
-// same store. Saving as an outfit goes through
+// BubbleStylePackStore.apply(_:for:), which writes that side's
+// structural record (including that side's pack shape) to the
+// live theme pack, so real chat bubbles change — not just the
+// samples — for that side only. The in-use mark, the
+// now-wearing strip, and the detail sheet all read the same
+// per-side store, keyed by the side the picker selects.
+// Saving as an outfit goes through
 // DressingOutfitStore, whose rows survive theme change and reset
 // and can only be removed by deleting by number.
 
@@ -96,23 +98,98 @@ struct DressingShopView: View {
     @ObservedObject private var bubblePackStore = BubbleStylePackStore.shared
     @ObservedObject private var pendantStore = AvatarPendantStore.shared
     @ObservedObject private var outfitStore = DressingOutfitStore.shared
+    // Observed so a persona switch (or a user-profile rename via
+    // the studio's published display name) redraws every side
+    // label in this shop at once — side names are never stored.
+    @ObservedObject private var personaStore = PersonaStore.shared
 
     @State private var category: DressingCategory = .recommend
     @State private var tag: DressingTag = .all
+    // Which side the shop is currently editing. One shared
+    // selection for the whole shop: picking a card or opening a
+    // detail always edits this side, and only this side. The
+    // detail captures it on open, so switching the picker while
+    // a detail is open cannot retarget that detail mid-apply.
+    @State private var editingSide: DressingSide = .assistant
     @State private var detailPack: BubbleStylePack?
+    @State private var detailPackSide: DressingSide = .assistant
     @State private var detailPendant: AvatarPendant?
+    @State private var detailPendantSide: DressingSide = .assistant
     @State private var sheetUp = false
     @State private var pendantSheetUp = false
+    // Bumped on SOUL.md / persona-change notifications so a
+    // same-persona rename (which neither PersonaStore nor the
+    // studio publishes) still refreshes side labels. Read by
+    // sidePicker; the value itself is never shown.
+    @State private var sideLabelTick = 0
 
     private var visiblePacks: [BubbleStylePack] {
         guard let wanted = tag.packTag else { return bubblePackStore.packs }
         return bubblePackStore.packs.filter { $0.tag == wanted }
     }
 
-    private var appliedPack: BubbleStylePack? {
-        guard let number = bubblePackStore.appliedNumber else { return nil }
-        return bubblePackStore.pack(number: number)
+    private func appliedPack(for side: DressingSide) -> BubbleStylePack? {
+        bubblePackStore.appliedPack(for: side)
     }
+
+    /// Side names, resolved live (see DressingSide): the AI
+    /// side follows the current persona, the user side follows
+    /// the current user profile. If both resolve to the same
+    /// string, the picker disambiguates with a generic role word
+    /// — never with a hardcoded person's name.
+    private var assistantSideName: String { DressingSide.assistant.displayName }
+    private var userSideName: String { DressingSide.user.displayName }
+
+    private func sidePickerLabel(for side: DressingSide) -> String {
+        let name = side.displayName
+        guard assistantSideName == userSideName else { return name }
+        return side.isUser ? "\(name) · \(AppLocalized("用户"))" : "\(name) · AI"
+    }
+
+    /// The pack a card / detail row draws for one side: the
+    /// previewed pack for the side being edited, the side's own
+    /// applied pack for the other side (or the previewed pack
+    /// when that side has never picked one, so the row is never
+    /// empty). A card therefore never claims that applying a
+    /// pack to one side changes the other side's row.
+    private func rowPack(_ preview: BubbleStylePack, isUser: Bool) -> BubbleStylePack {
+        let rowSide: DressingSide = isUser ? .user : .assistant
+        if rowSide == editingSide { return preview }
+        return appliedPack(for: rowSide) ?? preview
+    }
+
+    // MARK: - Side picker (per-side editing)
+
+    /// One picker for the whole shop: bubbles and pendants are
+    /// both edited per side, and the picker always shows which
+    /// side the next tap will change. Labels are the sides'
+    /// live names (current persona / current user profile),
+    /// never stored names. Reading sideLabelTick here is what
+    /// makes a SOUL.md rename refresh this picker.
+    private var sidePicker: some View {
+        // Read both refresh sources here so this picker
+        // re-resolves its (dynamic) side names on a persona
+        // switch (published currentPersonaID) and on a
+        // same-persona SOUL.md rename (sideLabelTick bump).
+        let _ = sideLabelTick
+        let _ = personaStore.currentPersonaID
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(AppLocalized("改哪一边"))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(studio.color(.primaryText))
+            Picker("", selection: $editingSide) {
+                Text(sidePickerLabel(for: .assistant)).tag(DressingSide.assistant)
+                Text(sidePickerLabel(for: .user)).tag(DressingSide.user)
+            }
+            .pickerStyle(.segmented)
+            Text(AppLocalized("先选一边，再点卡片换上；改一边不会动另一边。"))
+                .font(.system(size: 13))
+                .foregroundStyle(studio.color(.secondaryText))
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+    }
+
 
     var body: some View {
         ZStack {
@@ -149,6 +226,15 @@ struct DressingShopView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .animation(.easeOut(duration: 0.32), value: detailPack != nil)
+        // Same-persona rename arrives via SOUL.md, not via a
+        // published store value: bump the side-label tick so the
+        // picker and strip re-resolve their (dynamic) names.
+        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
+            sideLabelTick += 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .personaDidChange)) { _ in
+            sideLabelTick += 1
+        }
     }
 
     // MARK: - Top bar (52pt, draft measurement)
@@ -298,6 +384,7 @@ struct DressingShopView: View {
     private var recommendView: some View {
         VStack(alignment: .leading, spacing: 0) {
             nowWearingStrip
+            sidePicker
             bubbleTagRail
             sectionHeader(AppLocalized("聊天气泡"), jumpTo: .bubble)
             cardRow {
@@ -316,20 +403,32 @@ struct DressingShopView: View {
     }
 
     private var nowWearingStrip: some View {
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(AppLocalized("现在穿着"))
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(studio.color(.primaryText))
-            if let pack = appliedPack {
-                Text("\(pack.title) · \(pack.number)")
-                    .font(.system(size: 14))
-                    .foregroundStyle(studio.color(.secondaryText))
-            } else {
-                Text(AppLocalized("还没选款式，点一款先看看"))
-                    .font(.system(size: 14))
-                    .foregroundStyle(studio.color(.secondaryText))
+            ForEach(DressingSide.allCases, id: \.self) { side in
+                HStack(spacing: 10) {
+                    Text(sidePickerLabel(for: side))
+                        .font(.system(size: 14))
+                        .foregroundStyle(studio.color(.primaryText))
+                    if let pack = appliedPack(for: side) {
+                        Text("\(pack.title) · \(pack.number)")
+                            .font(.system(size: 14))
+                            .foregroundStyle(studio.color(.secondaryText))
+                    } else {
+                        Text(AppLocalized("还没选款式"))
+                            .font(.system(size: 14))
+                            .foregroundStyle(studio.color(.secondaryText))
+                    }
+                    if let pendant = pendantStore.applied(for: side) {
+                        Text("\(pendant.title) · \(pendant.number)")
+                            .font(.system(size: 14))
+                            .foregroundStyle(studio.color(.secondaryText))
+                    }
+                    Spacer(minLength: 0)
+                }
             }
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -365,6 +464,7 @@ struct DressingShopView: View {
 
     private var bubbleView: some View {
         VStack(alignment: .leading, spacing: 0) {
+            sidePicker
             sectionHeader(AppLocalized("聊天气泡"), jumpTo: .bubble)
             cardRow {
                 ForEach(visiblePacks) { pack in bubbleCard(pack) }
@@ -380,7 +480,11 @@ struct DressingShopView: View {
     }
 
     private func bubbleCard(_ pack: BubbleStylePack, fixedWidth: Bool = true) -> some View {
-        let applied = bubblePackStore.appliedNumber == pack.number
+        // "In use" is per editing side: a pack worn only by the
+        // other side does not get a tick while this side is
+        // being edited, or the shop would claim a tap changed
+        // nothing / changed everything.
+        let applied = bubblePackStore.appliedNumber(for: editingSide) == pack.number
         return Button { openDetail(pack) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .topTrailing) {
@@ -423,8 +527,12 @@ struct DressingShopView: View {
     /// compared on the pack, never on copy or avatar.
     private func bubbleCardArt(_ pack: BubbleStylePack) -> some View {
         VStack(spacing: 8) {
-            bubbleSampleRow(pack: pack, isUser: false)
-            bubbleSampleRow(pack: pack, isUser: true)
+            // The editing side's row previews this pack; the
+            // other side's row shows what that side actually
+            // wears (see rowPack), so the card never promises
+            // that one tap changes both sides.
+            bubbleSampleRow(pack: rowPack(pack, isUser: false), isUser: false)
+            bubbleSampleRow(pack: rowPack(pack, isUser: true), isUser: true)
         }
         .padding(10)
     }
@@ -500,6 +608,7 @@ struct DressingShopView: View {
 
     private var pendantView: some View {
         VStack(alignment: .leading, spacing: 0) {
+            sidePicker
             sectionHeader(AppLocalized("头像挂件"), jumpTo: .pendant)
             cardRow {
                 ForEach(pendantStore.pendants) { pendant in pendantCard(pendant) }
@@ -514,7 +623,8 @@ struct DressingShopView: View {
     }
 
     private func pendantCard(_ pendant: AvatarPendant, fixedWidth: Bool = true) -> some View {
-        let applied = pendantStore.appliedNumber == pendant.number
+        // Per editing side, same rule as bubble cards.
+        let applied = pendantStore.appliedNumber(for: editingSide) == pendant.number
         return Button { openPendantDetail(pendant) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .topTrailing) {
@@ -566,6 +676,9 @@ struct DressingShopView: View {
 
     private func openPendantDetail(_ pendant: AvatarPendant) {
         pendantSheetUp = false
+        // Capture the side being edited: the detail applies to
+        // this side even if the picker moves underneath it.
+        detailPendantSide = editingSide
         detailPendant = pendant
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
             if detailPendant?.number == pendant.number { pendantSheetUp = true }
@@ -600,24 +713,37 @@ struct DressingShopView: View {
             .background(studio.color(.surface))
 
             VStack(alignment: .leading, spacing: 14) {
-                // Large-avatar preview: the ring on a big
-                // avatar, exactly as live chat draws it, plus one
-                // sample chat row wearing the same ring.
+                // Side label, resolved live: this detail edits
+                // one side only, and the preview below shows
+                // THAT side's avatar — the current persona's
+                // avatar for the AI side, the user-profile avatar
+                // for the user side — never a generic disc and
+                // never the other side's picture.
+                Text(AppLocalized("正在改：") + sidePickerLabel(for: detailPendantSide))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(studio.color(.primaryText))
+                // Large-avatar preview: the previewed ring on
+                // this side's big avatar, plus one sample chat
+                // row wearing the same ring. showPendant is off
+                // so the side's currently applied ring does not
+                // stack under the previewed ring.
                 ZStack {
-                    avatarDisc(size: 120)
+                    PersonAvatarView(kind: detailPendantSide.isUser ? .user : .assistant,
+                                     size: 120, showPendant: false)
                         .overlay(AvatarRingView(size: 120, color: pendant.color, imageFile: pendant.imageFile))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 12)
                 .padding(.bottom, 12)
                 HStack(alignment: .center, spacing: 8) {
-                    avatarDisc(size: 36)
+                    PersonAvatarView(kind: detailPendantSide.isUser ? .user : .assistant,
+                                     size: 36, showPendant: false)
                         .overlay(AvatarRingView(size: 36, color: pendant.color, imageFile: pendant.imageFile))
                     Text(AppLocalized("今天也想你"))
                         .font(.system(size: 16))
-                        .foregroundStyle(studio.color(.assistantBubbleText))
+                        .foregroundStyle(studio.color(detailPendantSide.isUser ? .bubbleText : .assistantBubbleText))
                         .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(studio.color(.assistantBubble))
+                        .background(studio.color(detailPendantSide.isUser ? .userBubble : .assistantBubble))
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     Spacer(minLength: 0)
                 }
@@ -634,7 +760,7 @@ struct DressingShopView: View {
                             .foregroundStyle(studio.color(.primaryText))
                         Spacer(minLength: 0)
                     }
-                    Text(AppLocalized("在大头像上看这款圆环，再确认换上；只换挂件，不动其他搭配。"))
+                    Text(AppLocalized("在大头像上看这款圆环，再确认换上；只换这一边的挂件，另一边不动，其他搭配也不动。"))
                         .font(.system(size: 15))
                         .foregroundStyle(studio.color(.secondaryText))
                     Text(AppLocalized("组成：") + AppLocalized("圆环"))
@@ -660,7 +786,7 @@ struct DressingShopView: View {
                         )
                         .buttonStyle(.plain)
                         Button(AppLocalized("换上这款")) {
-                            pendantStore.apply(pendant)
+                            pendantStore.apply(pendant, for: detailPendantSide)
                             closePendantDetail()
                         }
                         .font(.system(size: 16))
@@ -750,6 +876,8 @@ struct DressingShopView: View {
 
     private func openDetail(_ pack: BubbleStylePack) {
         sheetUp = false
+        // Capture the side being edited, same rule as pendants.
+        detailPackSide = editingSide
         detailPack = pack
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
             if detailPack?.number == pack.number { sheetUp = true }
@@ -788,7 +916,16 @@ struct DressingShopView: View {
             // Preview area: tapping it toggles the sheet, exactly
             // as the draft does. The sheet itself is outside this
             // gesture, so its buttons never toggle it by accident.
+            // Per-side preview: only the side being edited shows
+            // this pack; the other side's row shows what that side
+            // actually wears (detailRowPack), and each row's avatar
+            // is that side's live avatar (current persona for the
+            // AI side, user profile for the user side), wearing
+            // that side's applied pendant.
             VStack(alignment: .leading, spacing: 14) {
+                Text(AppLocalized("正在改：") + sidePickerLabel(for: detailPackSide))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(studio.color(.primaryText))
                 detailMessage(pack: pack, isUser: false,
                               text: AppLocalized("今天也想你。早上出门的时候还在想，晚上回来第一句还是想跟你说这个。"))
                 detailMessage(pack: pack, isUser: true,
@@ -819,7 +956,7 @@ struct DressingShopView: View {
                             .foregroundStyle(studio.color(.primaryText))
                         Spacer(minLength: 0)
                     }
-                    Text(AppLocalized("在模拟聊天里看这款的长句和短句，确认后再换上；只换气泡，不动其他搭配。"))
+                    Text(AppLocalized("在模拟聊天里看这款的长句和短句，确认后再换上；只换这一边的气泡，另一边不动，其他搭配也不动。"))
                         .font(.system(size: 15))
                         .foregroundStyle(studio.color(.secondaryText))
                     Text(AppLocalized("组成：") + pack.composition.joined(separator: " · "))
@@ -840,7 +977,7 @@ struct DressingShopView: View {
                         )
                         .buttonStyle(.plain)
                         Button(AppLocalized("换上这款")) {
-                            bubblePackStore.apply(pack)
+                            bubblePackStore.apply(pack, for: detailPackSide)
                             closeDetail()
                         }
                         .font(.system(size: 16))
@@ -868,17 +1005,31 @@ struct DressingShopView: View {
         .animation(.easeOut(duration: 0.3), value: sheetUp)
     }
 
+    /// Detail row pack: the previewed pack for the side being
+    /// edited, the other side's own applied pack otherwise (or
+    /// the previewed pack when that side has never picked one).
+    private func detailRowPack(_ preview: BubbleStylePack, isUser: Bool) -> BubbleStylePack {
+        let rowSide: DressingSide = isUser ? .user : .assistant
+        if rowSide == detailPackSide { return preview }
+        return appliedPack(for: rowSide) ?? preview
+    }
+
     private func detailMessage(pack: BubbleStylePack, isUser: Bool, text: String) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            if !isUser { avatarDisc(size: 36) }
+        let rowPack = detailRowPack(pack, isUser: isUser)
+        return HStack(alignment: .center, spacing: 8) {
+            if !isUser {
+                PersonAvatarView(kind: .assistant, size: 36)
+            }
             if isUser { Spacer(minLength: 0) }
-            bubbleShapeView(pack: pack, isUser: isUser, text: text,
+            bubbleShapeView(pack: rowPack, isUser: isUser, text: text,
                             fontSize: 16, padding: 14,
                             bubbleColour: studio.color(isUser ? .userBubble : .assistantBubble),
-                            textColour: pack.style.textColor(isUser: isUser)
+                            textColour: rowPack.style.textColor(isUser: isUser)
                                 ?? studio.color(isUser ? .bubbleText : .assistantBubbleText),
-                            borderWidth: isUser ? pack.style.userBorderWidth : pack.style.assistantBorderWidth)
-            if isUser { avatarDisc(size: 36) }
+                            borderWidth: isUser ? rowPack.style.userBorderWidth : rowPack.style.assistantBorderWidth)
+            if isUser {
+                PersonAvatarView(kind: .user, size: 36)
+            }
             if !isUser { Spacer(minLength: 0) }
         }
     }

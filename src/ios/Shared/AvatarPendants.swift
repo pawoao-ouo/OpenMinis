@@ -24,10 +24,61 @@ import UIKit
 // AI-created pendants from PEN-0005 up), the same numbering
 // rule as bubbles (BUB) and outfits (COM).
 //
-// The applied pendant lives in UserDefaults under one key,
-// separate from the theme pack and from outfit rows, so a
+// The applied pendant lives in UserDefaults, one record PER
+// SIDE (user side vs assistant side — see DressingSide), never
+// one global record: the two sides may wear different rings,
+// and changing one side never moves the other. The records
+// store only pendant numbers, never a persona or user name, so
+// a persona change or a user-profile rename cannot leave a
+// stale name behind — labels and avatars resolve dynamically
+// at render time (DressingSide.displayName, PersonAvatarView).
+// Separate from the theme pack and from outfit rows, so a
 // theme change or reset never clears it, and outfit rows are
 // never touched by applying a pendant.
+//
+// Migration: an install that only has the old single key gets
+// that pendant on BOTH sides (first launch looks exactly as
+// before); the split is then persisted to the per-side keys,
+// and afterwards each side is written separately.
+
+/// Which side of the conversation a dressing choice belongs
+/// to. Shared by pendants and bubbles: both stores key their
+/// applied records by side, the shop edits one side at a time,
+/// and live chat renders each side from its own record.
+/// A side is a ROLE, not a person: it carries no name and no
+/// avatar of its own. The name shown for a side is resolved
+/// fresh at render time — AI side from the current persona
+/// (ChatAddressing.assistant, which follows the session /
+/// current persona's SOUL.md name), user side from the current
+/// user profile (ChatAddressing.user, which follows the
+/// profile's addressing name, then the studio display name,
+/// then a neutral word). Rename a persona or the user profile
+/// and every side label in the shop follows, with no stored
+/// name to go stale. Avatars work the same way: PersonAvatarView
+/// resolves the image from the current / session persona for
+/// the AI side and from the user-profile persona for the user
+/// side, so a side's pendant simply wraps whichever avatar is
+/// current — it is never pinned to one persona's picture.
+@MainActor
+enum DressingSide: String, CaseIterable {
+    case assistant
+    case user
+
+    var isUser: Bool { self == .user }
+
+    /// Display name for this side, resolved NOW from the live
+    /// persona / profile — never a stored or hardcoded name.
+    /// Empty can only happen if both dynamic sources are blank;
+    /// the fallbacks are generic role words, not a person's name.
+    var displayName: String {
+        if isUser {
+            let name = ChatAddressing.user()
+            return name.isEmpty ? AppLocalized("你") : name
+        }
+        let name = ChatAddressing.assistant()
+        return name.isEmpty ? AppLocalized("AI") : name
+    }
+}
 
 struct AvatarPendant: Identifiable, Equatable, Codable {
     var number: String
@@ -79,10 +130,21 @@ struct AvatarPendant: Identifiable, Equatable, Codable {
 @MainActor
 final class AvatarPendantStore: ObservableObject {
     static let shared = AvatarPendantStore()
+    /// Legacy single key (pre-per-side installs only). Read once
+    /// for migration, never written by this version.
     private static let appliedKey = "dressing.avatarPendantNumber"
+    private static let appliedUserKey = "dressing.avatarPendantNumber.user"
+    private static let appliedAssistantKey = "dressing.avatarPendantNumber.assistant"
     private static let customsKey = "dressing.avatarPendantCustoms"
 
-    @Published private(set) var appliedNumber: String?
+    /// Applied pendant number, per side. Nil = no pendant on
+    /// that side (live avatars simply show no ring).
+    @Published private(set) var appliedUserNumber: String?
+    @Published private(set) var appliedAssistantNumber: String?
+
+    func appliedNumber(for side: DressingSide) -> String? {
+        side.isUser ? appliedUserNumber : appliedAssistantNumber
+    }
     /// Pendants created later by the in-app AI (never by this
     /// batch). They live in UserDefaults as JSON, separate from
     /// the theme pack, so a theme change or reset never clears
@@ -105,8 +167,11 @@ final class AvatarPendantStore: ObservableObject {
     /// built-in does, with no second path.
     var pendants: [AvatarPendant] { Self.builtIns + customPendants }
 
-    var applied: AvatarPendant? {
-        guard let number = appliedNumber else { return nil }
+    /// The pendant worn by one side, or nil. Live chat and the
+    /// shop both read through here, keyed by side — never through
+    /// a single global applied pendant.
+    func applied(for side: DressingSide) -> AvatarPendant? {
+        guard let number = appliedNumber(for: side) else { return nil }
         return pendants.first { $0.number == number }
     }
 
@@ -128,10 +193,39 @@ final class AvatarPendantStore: ObservableObject {
             }.max() ?? 4
             nextSerial = max(5, maxSerial + 1)
         }
-        let stored = UserDefaults.standard.string(forKey: Self.appliedKey) ?? ""
-        // Unknown or empty values fall back to no pendant — never
-        // a crash, never a guessed pendant.
-        appliedNumber = pendants.contains { $0.number == stored } ? stored : nil
+        // Per-side records first; a pre-per-side install has only
+        // the legacy key, which migrates to BOTH sides so first
+        // launch after upgrade looks exactly as before. Unknown
+        // or empty values fall back to no pendant on that side —
+        // never a crash, never a guessed pendant.
+        let legacy = UserDefaults.standard.string(forKey: Self.appliedKey) ?? ""
+        let legacyValid = pendants.contains { $0.number == legacy } ? legacy : nil
+        func valid(_ raw: String?) -> String? {
+            guard let raw, !raw.isEmpty,
+                  pendants.contains(where: { $0.number == raw }) else { return nil }
+            return raw
+        }
+        let storedUser = UserDefaults.standard.string(forKey: Self.appliedUserKey)
+        let storedAssistant = UserDefaults.standard.string(forKey: Self.appliedAssistantKey)
+        let hasPerSide = storedUser != nil || storedAssistant != nil
+        appliedUserNumber = hasPerSide ? valid(storedUser) : legacyValid
+        appliedAssistantNumber = hasPerSide ? valid(storedAssistant) : legacyValid
+        // Persist the migrated split so later launches read the
+        // per-side keys (the legacy key is left alone, unread).
+        if !hasPerSide, legacyValid != nil { saveApplied() }
+    }
+
+    private func saveApplied() {
+        if let number = appliedUserNumber {
+            UserDefaults.standard.set(number, forKey: Self.appliedUserKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.appliedUserKey)
+        }
+        if let number = appliedAssistantNumber {
+            UserDefaults.standard.set(number, forKey: Self.appliedAssistantKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.appliedAssistantKey)
+        }
     }
 
     private func saveCustoms() {
@@ -168,14 +262,32 @@ final class AvatarPendantStore: ObservableObject {
     func deleteCustom(number: String) {
         guard !Self.builtIns.contains(where: { $0.number == number }) else { return }
         customPendants.removeAll { $0.number == number }
-        if appliedNumber == number { appliedNumber = nil }
+        // Only the side(s) wearing it clear; the other side's
+        // ring is untouched by a deletion on this side.
+        if appliedUserNumber == number { appliedUserNumber = nil }
+        if appliedAssistantNumber == number { appliedAssistantNumber = nil }
+        saveApplied()
         saveCustoms()
     }
 
+    /// Apply to ONE side only. The other side keeps its own ring.
+    func apply(_ pendant: AvatarPendant, for side: DressingSide) {
+        guard pendants.contains(where: { $0.number == pendant.number }) else { return }
+        if side.isUser { appliedUserNumber = pendant.number }
+        else { appliedAssistantNumber = pendant.number }
+        saveApplied()
+    }
+
+    /// Apply to BOTH sides (the old single-apply behaviour, kept
+    /// for callers that mean "both sides, same ring" — e.g. a
+    /// full-set apply. It writes two per-side records, not one
+    /// global record, so changing one side afterwards still
+    /// leaves the other alone).
     func apply(_ pendant: AvatarPendant) {
         guard pendants.contains(where: { $0.number == pendant.number }) else { return }
-        appliedNumber = pendant.number
-        UserDefaults.standard.set(pendant.number, forKey: Self.appliedKey)
+        appliedUserNumber = pendant.number
+        appliedAssistantNumber = pendant.number
+        saveApplied()
     }
 }
 
@@ -252,22 +364,28 @@ struct AvatarRingView: View {
 
 
 extension View {
-    /// Overlays the currently applied ring on an avatar of the
-    /// given size, or nothing when no pendant is applied. The
+    /// Overlays THAT SIDE's applied ring on an avatar of the
+    /// given size, or nothing when that side wears no pendant.
+    /// The side is mandatory: a caller that does not say which
+    /// side this avatar belongs to cannot get a ring, so no
+    /// avatar can silently borrow the other side's ring. Pass
+    /// nil only to deliberately suppress the ring (a preview
+    /// that overlays a not-yet-applied pendant itself). The
     /// ring overlay is centred and 12pt wider than the avatar;
     /// callers must not clip the avatar's container tighter
     /// than the ring.
-    func avatarPendantRing(size: CGFloat) -> some View {
-        modifier(AvatarPendantRingModifier(size: size))
+    func avatarPendantRing(size: CGFloat, side: DressingSide?) -> some View {
+        modifier(AvatarPendantRingModifier(size: size, side: side))
     }
 }
 
 private struct AvatarPendantRingModifier: ViewModifier {
     let size: CGFloat
+    let side: DressingSide?
     @ObservedObject private var store = AvatarPendantStore.shared
 
     func body(content: Content) -> some View {
-        if let pendant = store.applied {
+        if let side, let pendant = store.applied(for: side) {
             content.overlay(AvatarRingView(size: size, color: pendant.color, imageFile: pendant.imageFile))
         } else {
             content

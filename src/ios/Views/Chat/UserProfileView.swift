@@ -129,7 +129,7 @@ struct UserProfileView: View {
                     ZStack(alignment: .bottomTrailing) {
                         PersonaAvatarView(iconRef: persona?.avatar, size: 72)
                             .clipShape(Circle())
-                            .avatarPendantRing(size: 72)
+                            .avatarPendantRing(size: 72, side: .user)
                             .overlay(Circle().stroke(accent.opacity(0.35), lineWidth: 1.5))
                         Image(systemName: "camera.fill")
                             .font(.system(size: 10, weight: .bold))

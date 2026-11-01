@@ -110,6 +110,34 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var bubbleDecorationsJSON: String?
     var userBubblePackTextHex: String?
     var assistantBubblePackTextHex: String?
+    // [per-side bubbles] The same shape / foundation fields,
+    // split by side. Live chat reads THESE (MinisThemeShape's
+    // per-side accessors), so the user side can wear one pack
+    // shape while the AI side wears another. The shared fields
+    // above stay as the legacy fallback: decode() fills a
+    // missing per-side field from its shared twin, so a theme
+    // pack saved before this split still renders exactly as it
+    // did, and a both-sides pack apply keeps the shared fields
+    // in step with the per-side ones. A one-side apply writes
+    // only that side's fields here and never touches the shared
+    // ones — writing the shared shape for one side would move
+    // the other side's bubbles too.
+    // Image / decorations nil here means "this side has none"
+    // (a pack with no image), NOT "fall back to shared": the
+    // fallback only happens at decode time, when the per-side
+    // key is absent from the stored JSON altogether. That is
+    // why asJSONObject() writes these two as explicit nulls
+    // instead of omitting them.
+    var userBubblePackShape: String
+    var assistantBubblePackShape: String
+    var userBubbleBackgroundImageFile: String?
+    var assistantBubbleBackgroundImageFile: String?
+    var userBubblePattern: String
+    var assistantBubblePattern: String
+    var userBubblePatternOpacity: Double
+    var assistantBubblePatternOpacity: Double
+    var userBubbleDecorationsJSON: String?
+    var assistantBubbleDecorationsJSON: String?
 
     static let currentKey = "appearanceStudio.themePack.v1"
     static let schemaVersion = 5
@@ -242,7 +270,17 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         bubblePatternOpacity: 0.15,
         bubbleDecorationsJSON: nil,
         userBubblePackTextHex: nil,
-        assistantBubblePackTextHex: nil
+        assistantBubblePackTextHex: nil,
+        userBubblePackShape: BubblePackKind.porcelain.rawValue,
+        assistantBubblePackShape: BubblePackKind.porcelain.rawValue,
+        userBubbleBackgroundImageFile: nil,
+        assistantBubbleBackgroundImageFile: nil,
+        userBubblePattern: BubblePattern.none.rawValue,
+        assistantBubblePattern: BubblePattern.none.rawValue,
+        userBubblePatternOpacity: 0.15,
+        assistantBubblePatternOpacity: 0.15,
+        userBubbleDecorationsJSON: nil,
+        assistantBubbleDecorationsJSON: nil
     )
 
     var userStyle: AppearanceBubbleStyle { AppearanceBubbleStyle.parse(userBubbleStyle) }
@@ -315,6 +353,22 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         ]
         if let bubbleBackgroundImageFile { obj["bubbleBackgroundImageFile"] = bubbleBackgroundImageFile }
         if let bubbleDecorationsJSON { obj["bubbleDecorationsJSON"] = bubbleDecorationsJSON }
+        // Per-side fields are always written. Shape / pattern /
+        // opacity are non-optional, so they are always present;
+        // image / decorations use an explicit null for "none",
+        // so decode() can tell "this side has no image" apart
+        // from "this key predates the per-side split" (absent =
+        // fall back to the shared field).
+        obj["userBubblePackShape"] = BubblePackKind.parse(userBubblePackShape).rawValue
+        obj["assistantBubblePackShape"] = BubblePackKind.parse(assistantBubblePackShape).rawValue
+        obj["userBubbleBackgroundImageFile"] = userBubbleBackgroundImageFile ?? NSNull()
+        obj["assistantBubbleBackgroundImageFile"] = assistantBubbleBackgroundImageFile ?? NSNull()
+        obj["userBubblePattern"] = BubblePattern.parse(userBubblePattern).rawValue
+        obj["assistantBubblePattern"] = BubblePattern.parse(assistantBubblePattern).rawValue
+        obj["userBubblePatternOpacity"] = min(0.6, max(0, userBubblePatternOpacity))
+        obj["assistantBubblePatternOpacity"] = min(0.6, max(0, assistantBubblePatternOpacity))
+        obj["userBubbleDecorationsJSON"] = userBubbleDecorationsJSON ?? NSNull()
+        obj["assistantBubbleDecorationsJSON"] = assistantBubbleDecorationsJSON ?? NSNull()
         if let userBubblePackTextHex { obj["userBubblePackTextHex"] = userBubblePackTextHex }
         if let assistantBubblePackTextHex { obj["assistantBubblePackTextHex"] = assistantBubblePackTextHex }
         if let rowBackgroundHex { obj["rowBackgroundHex"] = rowBackgroundHex }
@@ -353,6 +407,11 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "messageSpacing", "bubbleCornerPreset", "bubblePackShape",
         "bubbleBackgroundImageFile", "bubblePattern", "bubblePatternOpacity",
         "bubbleDecorationsJSON", "userBubblePackTextHex", "assistantBubblePackTextHex",
+        "userBubblePackShape", "assistantBubblePackShape",
+        "userBubbleBackgroundImageFile", "assistantBubbleBackgroundImageFile",
+        "userBubblePattern", "assistantBubblePattern",
+        "userBubblePatternOpacity", "assistantBubblePatternOpacity",
+        "userBubbleDecorationsJSON", "assistantBubbleDecorationsJSON",
     ]
 
     /// True when `raw` carries at least one known theme-pack field.
@@ -396,6 +455,14 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "messageSpacing", "bubbleCornerPreset", "bubblePackShape",
         "bubbleBackgroundImageFile", "bubblePattern", "bubblePatternOpacity",
         "bubbleDecorationsJSON", "userBubblePackTextHex", "assistantBubblePackTextHex",
+        // Per-side shape / foundation fields are layout, locked
+        // exactly like their shared twins: the AI may not set
+        // them, only the user via a pack tap in the UI.
+        "userBubblePackShape", "assistantBubblePackShape",
+        "userBubbleBackgroundImageFile", "assistantBubbleBackgroundImageFile",
+        "userBubblePattern", "assistantBubblePattern",
+        "userBubblePatternOpacity", "assistantBubblePatternOpacity",
+        "userBubbleDecorationsJSON", "assistantBubbleDecorationsJSON",
         // Opacities and shade (locked surface treatment, not colour).
         "surfaceOpacity", "wallpaperShade", "thinkingCardImageOpacity", "inputBarImageOpacity",
         // Display modes and line-count layout.
@@ -449,6 +516,36 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
                 if let s = val as? String { out[key] = s }
             }
             return out
+        }
+        // Per-side field resolution: a present per-side key wins
+        // (including an explicit null for image / decorations,
+        // which decodes to nil = "this side has none"); an
+        // absent per-side key falls back to the shared field,
+        // so pre-split packs migrate with their shape intact;
+        // a pack with neither falls back to base. Note str()
+        // treats a present-but-blank string as absent, which is
+        // the right behaviour for shape / pattern names.
+        func sideStr(_ sideKey: String, _ sharedKey: String, fallback: String) -> String {
+            raw[sideKey] != nil ? str(sideKey, fallback: fallback)
+                : str(sharedKey, fallback: fallback)
+        }
+        func sideNum(_ sideKey: String, _ sharedKey: String, fallback: Double) -> Double {
+            raw[sideKey] != nil ? num(sideKey, fallback: fallback)
+                : num(sharedKey, fallback: fallback)
+        }
+        func sideImage(_ sideKey: String, _ sharedKey: String, fallback: String?) -> String? {
+            if raw[sideKey] != nil {
+                return (raw[sideKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            }
+            if raw[sharedKey] != nil {
+                return (raw[sharedKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            }
+            return fallback
+        }
+        func sideDecorations(_ sideKey: String, _ sharedKey: String, fallback: String?) -> String? {
+            if raw[sideKey] != nil { return raw[sideKey] as? String }
+            if raw[sharedKey] != nil { return raw[sharedKey] as? String }
+            return fallback
         }
         var pack = AppearanceThemePack(
             id: str("id", fallback: base.id),
@@ -520,7 +617,17 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
                 : BubbleStyleRecord.normalizedPackHex(raw["userBubblePackTextHex"] as? String),
             assistantBubblePackTextHex: raw["assistantBubblePackTextHex"] == nil
                 ? base.assistantBubblePackTextHex
-                : BubbleStyleRecord.normalizedPackHex(raw["assistantBubblePackTextHex"] as? String)
+                : BubbleStyleRecord.normalizedPackHex(raw["assistantBubblePackTextHex"] as? String),
+            userBubblePackShape: BubblePackKind.parse(sideStr("userBubblePackShape", "bubblePackShape", fallback: base.userBubblePackShape)).rawValue,
+            assistantBubblePackShape: BubblePackKind.parse(sideStr("assistantBubblePackShape", "bubblePackShape", fallback: base.assistantBubblePackShape)).rawValue,
+            userBubbleBackgroundImageFile: sideImage("userBubbleBackgroundImageFile", "bubbleBackgroundImageFile", fallback: base.userBubbleBackgroundImageFile),
+            assistantBubbleBackgroundImageFile: sideImage("assistantBubbleBackgroundImageFile", "bubbleBackgroundImageFile", fallback: base.assistantBubbleBackgroundImageFile),
+            userBubblePattern: BubblePattern.parse(sideStr("userBubblePattern", "bubblePattern", fallback: base.userBubblePattern)).rawValue,
+            assistantBubblePattern: BubblePattern.parse(sideStr("assistantBubblePattern", "bubblePattern", fallback: base.assistantBubblePattern)).rawValue,
+            userBubblePatternOpacity: min(0.6, max(0, sideNum("userBubblePatternOpacity", "bubblePatternOpacity", fallback: base.userBubblePatternOpacity))),
+            assistantBubblePatternOpacity: min(0.6, max(0, sideNum("assistantBubblePatternOpacity", "bubblePatternOpacity", fallback: base.assistantBubblePatternOpacity))),
+            userBubbleDecorationsJSON: sideDecorations("userBubbleDecorationsJSON", "bubbleDecorationsJSON", fallback: base.userBubbleDecorationsJSON),
+            assistantBubbleDecorationsJSON: sideDecorations("assistantBubbleDecorationsJSON", "bubbleDecorationsJSON", fallback: base.assistantBubbleDecorationsJSON)
         )
         if pack.id.isEmpty { pack.id = base.id }
         if pack.name.isEmpty { pack.name = pack.id }
@@ -1334,9 +1441,12 @@ extension AppearanceStudio {
         if user { pack.userBubbleStyle = style.rawValue }
         else { pack.assistantBubbleStyle = style.rawValue }
         // A hand-picked style is a plain shape, not an asymmetric
-        // preset: clear it here. BubbleStylePackStore.apply() writes
-        // the pack's preset after calling this, so pack taps keep
-        // theirs — order matters, see apply().
+        // preset: clear it here. BubbleStylePackStore.apply() no
+        // longer goes through this setter (it writes the style
+        // straight into the theme struct, so a one-side apply
+        // cannot clear shared layout); the both-sides apply
+        // writes the pack's preset in its final persist, see
+        // apply() in AppearanceBubblePacks.swift.
         pack.bubbleCornerPreset = BubbleCornerPreset.even.rawValue
         persistPack(pack)
     }
@@ -1894,19 +2004,32 @@ enum MinisThemeShape {
     static var inputBarImageOpacity: Double { pack.inputBarImageOpacity }
     static var fontFamily: AppearanceFontFamily { AppearanceFontFamily.parse(pack.fontFamily) }
 
-    /// Live pack shape, from the theme pack field the shop's
-    /// apply() writes (parse falls back to porcelain, so an old
-    /// theme pack without the field draws the plain pill exactly
-    /// as before; porcelain itself falls through to the existing
-    /// style/corner logic in MinisBubbleShape.path).
-    static var packKind: BubblePackKind { BubblePackKind.parse(pack.bubblePackShape) }
-    /// Foundation accessors: nil / none / [] / nil on today's packs,
-    /// so every live surface below renders exactly as before until
-    /// a pack actually sets a field.
-    static var packBackgroundImageFile: String? { pack.bubbleBackgroundImageFile }
-    static var packPattern: BubblePattern { BubblePattern.parse(pack.bubblePattern) }
-    static var packPatternOpacity: Double { min(0.6, max(0, pack.bubblePatternOpacity)) }
-    static var packDecorations: [BubbleDecoration] { BubbleStyleRecord.decodeDecorations(pack.bubbleDecorationsJSON) }
+    /// Live pack shape for ONE side, from that side's theme
+    /// field the shop's per-side apply() writes (parse falls
+    /// back to porcelain, so an old theme pack without the field
+    /// draws the plain pill exactly as before; porcelain itself
+    /// falls through to the existing style/corner logic in
+    /// MinisBubbleShape.path). There is deliberately no single
+    /// packKind anymore: a caller that draws a side's bubble
+    /// must say which side, or the two sides could never differ.
+    static func packKind(user: Bool) -> BubblePackKind {
+        BubblePackKind.parse(user ? pack.userBubblePackShape : pack.assistantBubblePackShape)
+    }
+    /// Foundation accessors, per side: nil / none / [] / nil on
+    /// today's packs, so every live surface below renders exactly
+    /// as before until a pack actually sets a field for that side.
+    static func packBackgroundImageFile(user: Bool) -> String? {
+        user ? pack.userBubbleBackgroundImageFile : pack.assistantBubbleBackgroundImageFile
+    }
+    static func packPattern(user: Bool) -> BubblePattern {
+        BubblePattern.parse(user ? pack.userBubblePattern : pack.assistantBubblePattern)
+    }
+    static func packPatternOpacity(user: Bool) -> Double {
+        min(0.6, max(0, user ? pack.userBubblePatternOpacity : pack.assistantBubblePatternOpacity))
+    }
+    static func packDecorations(user: Bool) -> [BubbleDecoration] {
+        BubbleStyleRecord.decodeDecorations(user ? pack.userBubbleDecorationsJSON : pack.assistantBubbleDecorationsJSON)
+    }
     static func packTextColor(user: Bool) -> Color? {
         let hex = user ? pack.userBubblePackTextHex : pack.assistantBubblePackTextHex
         guard let hex else { return nil }
@@ -1914,11 +2037,11 @@ enum MinisThemeShape {
     }
     static var userBubble: MinisBubbleShape {
         MinisBubbleShape(style: userStyle, radius: userBubbleRadius, tailOnTrailing: true,
-                         cornerRadii: cornerRadii(user: true), packKind: packKind)
+                         cornerRadii: cornerRadii(user: true), packKind: packKind(user: true))
     }
     static var assistantBubble: MinisBubbleShape {
         MinisBubbleShape(style: assistantStyle, radius: assistantBubbleRadius, tailOnTrailing: false,
-                         cornerRadii: cornerRadii(user: false), packKind: packKind)
+                         cornerRadii: cornerRadii(user: false), packKind: packKind(user: false))
     }
     static var thinkingCard: MinisBubbleShape {
         MinisBubbleShape(style: .squircle, radius: thinkingRadius, tailOnTrailing: false)

@@ -1333,7 +1333,10 @@ struct AppearanceStudioView: View {
     }
 
     private func bubblePackCard(_ pack: BubbleStylePack) -> some View {
-        let applied = bubblePackStore.appliedNumber == pack.number
+        // Studio grid has no side picker: its tap still applies
+        // to both sides (BubbleStylePackStore.apply), and its
+        // "in use" mark lights when EITHER side wears this pack.
+        let applied = bubblePackStore.appliedNumbers.contains(pack.number)
         return VStack(alignment: .leading, spacing: 8) {
             bubblePackSample(pack)
             HStack(spacing: 6) {

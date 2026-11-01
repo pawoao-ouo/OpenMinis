@@ -1463,6 +1463,13 @@ struct PersonAvatarView: View {
     /// 的缓存——会话绑的是别人时，对话框就显示错的人，看着就是"两套"。
     /// 传进来之后按会话绑定的人设取，跟列表同源。
     var personaID: String?
+    /// Show this side's applied pendant ring. Default true: live
+    /// chat, lists, and headers all wear their side's ring. A
+    /// preview that overlays a not-yet-applied pendant itself
+    /// (the shop's pendant detail) passes false, so the preview
+    /// ring is the only ring on that avatar — never a double ring
+    /// of applied + preview.
+    var showPendant: Bool = true
     @ObservedObject private var studio = AppearanceStudio.shared
     // 人设一改（换头像）就让所有头像视图重画，不等重进页面。
     @ObservedObject private var personaStore = PersonaStore.shared
@@ -1524,10 +1531,17 @@ struct PersonAvatarView: View {
             }
         }
         .frame(width: size, height: size)
-        // [avatar-pendant] The applied ring, if any, floats
-        // 12pt wider than the avatar — same view the shop preview
-        // draws, so live chat can never show a different ring.
-        .avatarPendantRing(size: size)
+        // [avatar-pendant] THAT SIDE's applied ring, if any,
+        // floats 12pt wider than the avatar — same view the shop
+        // preview draws, so live chat can never show a different
+        // ring. kind == .user is the user side, anything else is
+        // the AI side: a user avatar can never borrow the AI
+        // side's ring, and vice versa. The avatar image itself
+        // still resolves dynamically above (session / current
+        // persona for the AI side, user-profile persona for the
+        // user side), so a persona change re-points the ring to
+        // the new avatar with no stored name involved.
+        .avatarPendantRing(size: size, side: showPendant ? (kind == .user ? .user : .assistant) : nil)
         .overlay(
             RoundedRectangle(cornerRadius: size * avatarShape.cornerFraction, style: .continuous)
                 .stroke(studio.color(.border, scope: .chat),
