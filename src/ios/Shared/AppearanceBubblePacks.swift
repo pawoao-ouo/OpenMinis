@@ -27,7 +27,12 @@ import SwiftUI
 
 /// Bubble border chrome, shared by user and assistant bubbles.
 /// Width 0 = no-op, so the default (no border) rendering is
-/// identical to before: no clip, no stroke added.
+/// identical to before: no clip, no stroke added. When the shape
+/// carries a pack kind, the chrome draws that kind's border:
+/// letter = double frame (outer + inset stroke), stitch = dashed
+/// stroke. The stitch ribbon tab itself is a sample/detail
+/// decoration only — live chat rows have no tab anchor, so live
+/// stitch is the dashed border, which is still instantly distinct.
 struct BubbleBorderChrome: ViewModifier {
     let shape: MinisBubbleShape
     let width: CGFloat
@@ -36,10 +41,111 @@ struct BubbleBorderChrome: ViewModifier {
         if width > 0 {
             content
                 .clipShape(shape)
-                .overlay(shape.stroke(AppearanceStudio.shared.color(.border, scope: .chat),
-                                      lineWidth: width))
+                .overlay(borderOverlay)
         } else {
             content
+        }
+    }
+
+    @ViewBuilder
+    private var borderOverlay: some View {
+        let colour = AppearanceStudio.shared.color(.border, scope: .chat)
+        if shape.packKind == .letter {
+            shape.stroke(colour, lineWidth: width)
+            shape.stroke(colour, lineWidth: max(0.5, width * 0.75))
+                .padding(4)
+        } else if shape.packKind == .stitch {
+            shape.stroke(colour, style: StrokeStyle(lineWidth: width, dash: [4, 3]))
+        } else {
+            shape.stroke(colour, lineWidth: width)
+        }
+    }
+}
+
+/// The pack's whole visual shape — the thing that makes one pack
+/// instantly distinguishable from another at a glance. This is
+/// NOT a radius/tail tweak: each kind draws a different outline.
+/// Colours still come from the theme, never from the pack.
+enum BubblePackKind: String, CaseIterable, Codable {
+    case porcelain, cloud, letter, wave, cut, stitch
+    var title: String {
+        switch self {
+        case .porcelain: return AppLocalized("瓷白圆润")
+        case .cloud: return AppLocalized("云朵")
+        case .letter: return AppLocalized("信纸")
+        case .wave: return AppLocalized("波浪")
+        case .cut: return AppLocalized("方章")
+        case .stitch: return AppLocalized("丝带针脚")
+        }
+    }
+    static func parse(_ raw: String?) -> BubblePackKind {
+        guard let raw, let value = BubblePackKind(rawValue: raw) else { return .porcelain }
+        return value
+    }
+}
+
+/// Outline for one pack kind, shared by shop samples, detail
+/// previews, and live chat (via MinisBubbleShape.packKind), so
+/// sample and live can never drift apart into two truths.
+struct BubblePackOutlineShape: Shape {
+    var kind: BubblePackKind
+    var radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        switch kind {
+        case .porcelain:
+            return Path(RoundedRectangle(cornerRadius: min(rect.height, rect.width) / 2,
+                                         style: .continuous).path(in: rect).cgPath)
+        case .cloud:
+            var path = Path(RoundedRectangle(cornerRadius: 18, style: .continuous).path(in: rect).cgPath)
+            let bump = min(12, rect.height / 3)
+            for fraction in [0.22, 0.5, 0.78] as [CGFloat] {
+                let cx = rect.minX + rect.width * fraction
+                path.addEllipse(in: CGRect(x: cx - bump, y: rect.minY - bump * 0.45,
+                                           width: bump * 2, height: bump * 2))
+                path.addEllipse(in: CGRect(x: cx - bump, y: rect.maxY - bump * 1.55,
+                                           width: bump * 2, height: bump * 2))
+            }
+            return path
+        case .letter:
+            return Path(RoundedRectangle(cornerRadius: 4, style: .circular).path(in: rect).cgPath)
+        case .wave:
+            var path = Path()
+            let r = min(8, radius)
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY + r))
+            path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.minY),
+                              control: CGPoint(x: rect.minX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+            path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + r),
+                              control: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - 10))
+            let waves = 3
+            let step = rect.width / CGFloat(waves)
+            for i in 0..<waves {
+                let x0 = rect.maxX - step * CGFloat(i)
+                let x1 = x0 - step / 2
+                let x2 = x0 - step
+                path.addCurve(to: CGPoint(x: x1, y: rect.maxY - 2),
+                              control1: CGPoint(x: x0 - step * 0.25, y: rect.maxY - 12),
+                              control2: CGPoint(x: x1 - step * 0.25, y: rect.maxY + 6))
+                path.addCurve(to: CGPoint(x: x2, y: rect.maxY - 10),
+                              control1: CGPoint(x: x1 + step * 0.25, y: rect.maxY - 10),
+                              control2: CGPoint(x: x2 + step * 0.25, y: rect.maxY - 2))
+            }
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - 10))
+            path.closeSubpath()
+            return path
+        case .cut:
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.22, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.22))
+            path.closeSubpath()
+            return path
+        case .stitch:
+            return Path(RoundedRectangle(cornerRadius: 12, style: .continuous).path(in: rect).cgPath)
         }
     }
 }
@@ -149,6 +255,7 @@ struct BubbleStyleRecord: Equatable, Codable {
     var userSurface: BubbleSurface
     var assistantSurface: BubbleSurface
     var tailOn: Bool
+    var packShape: BubblePackKind
     var cornerPreset: BubbleCornerPreset
     var userRadius: Double
     var assistantRadius: Double
@@ -170,7 +277,7 @@ struct BubbleStyleRecord: Equatable, Codable {
     static let `default` = BubbleStyleRecord(
         display: .bubbles,
         userSurface: .row, assistantSurface: .row,
-        tailOn: false, cornerPreset: .even,
+        tailOn: false, packShape: .porcelain, cornerPreset: .even,
         userRadius: 18, assistantRadius: 16,
         avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 0,
         userBorderWidth: 0, assistantBorderWidth: 0,
@@ -183,7 +290,8 @@ struct BubbleStyleRecord: Equatable, Codable {
 
     init(display: AppearanceChatDisplay = .bubbles,
          userSurface: BubbleSurface = .row, assistantSurface: BubbleSurface = .row,
-         tailOn: Bool = false, cornerPreset: BubbleCornerPreset = .even,
+         tailOn: Bool = false, packShape: BubblePackKind = .porcelain,
+         cornerPreset: BubbleCornerPreset = .even,
          userRadius: Double = 18, assistantRadius: Double = 16,
          avatarPlacement: BubbleAvatarPlacement = .inline,
          avatarSize: Double = 40, avatarBorderWidth: Double = 0,
@@ -197,6 +305,7 @@ struct BubbleStyleRecord: Equatable, Codable {
         self.userSurface = userSurface
         self.assistantSurface = assistantSurface
         self.tailOn = tailOn
+        self.packShape = packShape
         self.cornerPreset = cornerPreset
         self.userRadius = BubbleStyleRecord.clampRadius(userRadius)
         self.assistantRadius = BubbleStyleRecord.clampRadius(assistantRadius)
@@ -219,7 +328,7 @@ struct BubbleStyleRecord: Equatable, Codable {
     static func clampRadius(_ value: Double) -> Double { min(32, max(4, value)) }
 
     private enum CodingKeys: String, CodingKey {
-        case display, userSurface, assistantSurface, tailOn, cornerPreset
+        case display, userSurface, assistantSurface, tailOn, packShape, cornerPreset
         case userRadius, assistantRadius, avatarPlacement, avatarSize, avatarBorderWidth
         case userBorderWidth, assistantBorderWidth, userPadding, assistantPadding
         case messageSpacing, userMeta, assistantMeta, userName, assistantName
@@ -238,6 +347,7 @@ struct BubbleStyleRecord: Equatable, Codable {
         userSurface = BubbleSurface.parse(try c.decodeIfPresent(String.self, forKey: .userSurface))
         assistantSurface = BubbleSurface.parse(try c.decodeIfPresent(String.self, forKey: .assistantSurface))
         tailOn = try c.decodeIfPresent(Bool.self, forKey: .tailOn) ?? d.tailOn
+        packShape = BubblePackKind.parse(try c.decodeIfPresent(String.self, forKey: .packShape))
         cornerPreset = BubbleCornerPreset.parse(try c.decodeIfPresent(String.self, forKey: .cornerPreset))
         userRadius = BubbleStyleRecord.clampRadius(try c.decodeIfPresent(Double.self, forKey: .userRadius) ?? d.userRadius)
         assistantRadius = BubbleStyleRecord.clampRadius(try c.decodeIfPresent(Double.self, forKey: .assistantRadius) ?? d.assistantRadius)
@@ -264,10 +374,10 @@ struct BubbleStyleRecord: Equatable, Codable {
     /// MinisThemeShape.cornerRadii), so sample and live agree.
     func liveStyle() -> AppearanceBubbleStyle {
         if tailOn { return .tail }
-        switch cornerPreset {
-        case .pill: return .pill
-        case .sharp: return .sharp
-        case .even, .asymmetric: return .rounded
+        switch packShape {
+        case .porcelain: return .pill
+        case .letter: return .sharp
+        case .cloud, .wave, .cut, .stitch: return .rounded
         }
     }
 
@@ -287,20 +397,33 @@ struct BubbleStylePack: Identifiable, Equatable, Codable {
     var number: String
     var title: String
     var category: String
+    /// Shop tag rail value: 柔和 / 清新 / 简约 / 淡雅. Persisted
+    /// on the pack so the shop, the detail sheet, and any AI
+    /// lookup read the same record — no second source of truth.
+    var tag: String
     var useCount: Int
     var style: BubbleStyleRecord
 
     var id: String { number }
 
-    private enum CodingKeys: String, CodingKey {
-        case number, title, category, useCount, style
+    /// What this pack is made of, derived from this same record
+    /// (shape + display + surfaces), so the detail sheet can
+    /// never describe a different pack than the shop applied.
+    var composition: [String] {
+        [style.packShape.title, style.display.title,
+         style.userSurface.title, style.assistantSurface.title]
     }
 
-    init(number: String, title: String, category: String, useCount: Int = 0,
-         style: BubbleStyleRecord) {
+    private enum CodingKeys: String, CodingKey {
+        case number, title, category, tag, useCount, style
+    }
+
+    init(number: String, title: String, category: String, tag: String = "",
+         useCount: Int = 0, style: BubbleStyleRecord) {
         self.number = number
         self.title = title
         self.category = category
+        self.tag = tag
         self.useCount = max(0, useCount)
         self.style = style
     }
@@ -310,6 +433,7 @@ struct BubbleStylePack: Identifiable, Equatable, Codable {
         number = try c.decodeIfPresent(String.self, forKey: .number) ?? ""
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         category = try c.decodeIfPresent(String.self, forKey: .category) ?? ""
+        tag = try c.decodeIfPresent(String.self, forKey: .tag) ?? ""
         useCount = max(0, try c.decodeIfPresent(Int.self, forKey: .useCount) ?? 0)
         style = try c.decodeIfPresent(BubbleStyleRecord.self, forKey: .style) ?? .default
     }
@@ -348,44 +472,78 @@ final class BubbleStylePackStore: ObservableObject {
 
     @Published private(set) var packs: [BubbleStylePack] = []
     @Published private(set) var appliedNumber: String?
-    private var nextSerial = 5
+    private var nextSerial = 7
 
+    /// Six packs, each a whole visual shape — not radius/tail
+    /// micro-tweaks. The old four (default / tail / frame / document)
+    /// were rejected on device for looking almost identical; these
+    /// six differ in outline at a glance. Titles and numbers match
+    /// the dressing-shop draft, so shop, detail, and live chat all
+    /// name the same pack.
     static let builtIns: [BubbleStylePack] = [
         BubbleStylePack(
-            number: "BUB-0001", title: "今天的默认", category: "默认",
+            number: "BUB-0001", title: "瓷白圆润", category: "气泡", tag: "柔和",
             style: .default),
         BubbleStylePack(
-            number: "BUB-0002", title: "小尾巴", category: "气泡",
-            style: BubbleStyleRecord(
-                tailOn: true, cornerPreset: .asymmetric,
-                userRadius: 18, assistantRadius: 16,
-                inputBarForm: .pill, inputBarRadius: 20)),
-        BubbleStylePack(
-            number: "BUB-0003", title: "相框卡片", category: "卡片",
+            number: "BUB-0002", title: "云朵", category: "气泡", tag: "柔和",
             style: BubbleStyleRecord(
                 userSurface: .text, assistantSurface: .text,
-                tailOn: false, cornerPreset: .even,
-                userRadius: 12, assistantRadius: 12,
-                avatarPlacement: .overlapping, avatarSize: 44, avatarBorderWidth: 1,
+                tailOn: false, packShape: .cloud, cornerPreset: .even,
+                userRadius: 20, assistantRadius: 20,
+                avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 0,
+                userBorderWidth: 0, assistantBorderWidth: 0,
+                userPadding: 16, assistantPadding: 16,
+                messageSpacing: 12,
+                userName: .hidden, assistantName: .above,
+                inputBarForm: .rounded, inputBarRadius: 20)),
+        BubbleStylePack(
+            number: "BUB-0003", title: "信纸", category: "气泡", tag: "简约",
+            style: BubbleStyleRecord(
+                userSurface: .text, assistantSurface: .text,
+                tailOn: false, packShape: .letter, cornerPreset: .even,
+                userRadius: 8, assistantRadius: 8,
+                avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 1,
                 userBorderWidth: 1, assistantBorderWidth: 1,
                 userPadding: 16, assistantPadding: 16,
                 messageSpacing: 14,
                 userName: .above, assistantName: .above,
                 inputBarForm: .rounded, inputBarRadius: 16)),
         BubbleStylePack(
-            number: "BUB-0004", title: "安静文稿", category: "文稿",
+            number: "BUB-0004", title: "波浪", category: "气泡", tag: "清新",
             style: BubbleStyleRecord(
-                display: .document,
-                userSurface: .text, assistantSurface: .text,
-                tailOn: false, cornerPreset: .even,
-                userRadius: 8, assistantRadius: 8,
-                avatarPlacement: .inline, avatarSize: 36, avatarBorderWidth: 0,
+                userSurface: .row, assistantSurface: .row,
+                tailOn: false, packShape: .wave, cornerPreset: .even,
+                userRadius: 14, assistantRadius: 14,
+                avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 0,
                 userBorderWidth: 0, assistantBorderWidth: 0,
-                userPadding: 10, assistantPadding: 10,
-                messageSpacing: 16,
-                userMeta: .below, assistantMeta: .below,
-                userName: .hidden, assistantName: .hidden,
-                inputBarForm: .flat, inputBarRadius: 8)),
+                userPadding: 14, assistantPadding: 14,
+                messageSpacing: 10,
+                userName: .hidden, assistantName: .above,
+                inputBarForm: .rounded, inputBarRadius: 20)),
+        BubbleStylePack(
+            number: "BUB-0005", title: "方章", category: "气泡", tag: "简约",
+            style: BubbleStyleRecord(
+                userSurface: .text, assistantSurface: .text,
+                tailOn: false, packShape: .cut, cornerPreset: .sharp,
+                userRadius: 12, assistantRadius: 12,
+                avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 0,
+                userBorderWidth: 0, assistantBorderWidth: 0,
+                userPadding: 14, assistantPadding: 14,
+                messageSpacing: 12,
+                userName: .hidden, assistantName: .above,
+                inputBarForm: .rounded, inputBarRadius: 16)),
+        BubbleStylePack(
+            number: "BUB-0006", title: "丝带针脚", category: "气泡", tag: "淡雅",
+            style: BubbleStyleRecord(
+                userSurface: .row, assistantSurface: .row,
+                tailOn: false, packShape: .stitch, cornerPreset: .even,
+                userRadius: 14, assistantRadius: 14,
+                avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 1,
+                userBorderWidth: 1, assistantBorderWidth: 1,
+                userPadding: 16, assistantPadding: 16,
+                messageSpacing: 12,
+                userName: .hidden, assistantName: .above,
+                inputBarForm: .rounded, inputBarRadius: 20)),
     ]
 
     private var catalogURL: URL {
@@ -403,9 +561,26 @@ final class BubbleStylePackStore: ObservableObject {
            let catalog = try? JSONDecoder().decode(BubblePackCatalogData.self, from: data),
            !catalog.packs.isEmpty,
            !catalog.packs.contains(where: { $0.number.isEmpty }) {
-            packs = catalog.packs
-            appliedNumber = catalog.appliedNumber
-            nextSerial = max(5, catalog.nextSerial)
+            // Migration to the six-shape catalogue: no user-created
+            // packs exist (there is no create API), so a stored
+            // catalogue can only hold old built-ins. Keep each
+            // pack's useCount and the applied number, but take the
+            // shape/tag/title from the current built-ins, so an old
+            // BUB-0002 "tail" can never survive as a stale record
+            // while the shop shows a cloud.
+            var useCounts: [String: Int] = [:]
+            for stored in catalog.packs {
+                useCounts[stored.number] = stored.useCount
+            }
+            packs = Self.builtIns.map { builtIn in
+                var pack = builtIn
+                pack.useCount = useCounts[builtIn.number] ?? 0
+                return pack
+            }
+            appliedNumber = catalog.appliedNumber.flatMap { number in
+                packs.contains(where: { $0.number == number }) ? number : nil
+            }
+            nextSerial = max(7, catalog.nextSerial)
             return
         }
         // First run, or an unreadable catalogue: built-ins in memory.
@@ -414,7 +589,7 @@ final class BubbleStylePackStore: ObservableObject {
         // still recover by hand.
         packs = Self.builtIns
         appliedNumber = nil
-        nextSerial = 5
+        nextSerial = 7
     }
 
     private func save() {
@@ -463,6 +638,7 @@ final class BubbleStylePackStore: ObservableObject {
         theme.assistantNamePlacement = s.assistantName.rawValue
         theme.messageSpacing = s.messageSpacing
         theme.bubbleCornerPreset = s.cornerPreset.rawValue
+        theme.bubblePackShape = s.packShape.rawValue
         theme.inputBarRadius = s.inputBarRadius
         theme.inputBarStyle = s.liveInputBarStyle().rawValue
         studio.persistPack(theme)

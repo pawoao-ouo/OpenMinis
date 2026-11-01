@@ -333,6 +333,7 @@
 		E5G000003 /* EnhancedBackgroundSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5G000013 /* EnhancedBackgroundSettingsView.swift */; };
 		XMSTYLE001 /* AppearanceStudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE101 /* AppearanceStudio.swift */; };
 		XMSTYLE002 /* AppearanceStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE102 /* AppearanceStudioView.swift */; };
+		DSHP00001 /* DressingShopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DSHP00101 /* DressingShopView.swift */; };
 		XMSTYLE003 /* AppearanceThemePack.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE103 /* AppearanceThemePack.swift */; };
 		XMSTYLE007 /* AppearanceThemeLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE107 /* AppearanceThemeLibrary.swift */; };
 		XMSTYLE020 /* AppearanceThemeShuffle.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE120 /* AppearanceThemeShuffle.swift */; };
@@ -495,6 +496,7 @@
 		XMSTYLE026 /* NovelModeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE126 /* NovelModeViews.swift */; };
 		XMSTYLE027 /* ChatTimeDividerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE127 /* ChatTimeDividerView.swift */; };
 		XMSTYLE028 /* AppearanceBubblePacks.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE128 /* AppearanceBubblePacks.swift */; };
+		DOUT00001 /* DressingOutfits.swift in Sources */ = {isa = PBXBuildFile; fileRef = DOUT00101 /* DressingOutfits.swift */; };
 		E5SOUL002 /* SoulSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SOUL102 /* SoulSettingsView.swift */; };
 		E5SVP0021 /* ShadowVoiceProviderDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SVP0031 /* ShadowVoiceProviderDetailView.swift */; };
 		E5T000001 /* SessionEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5T000011 /* SessionEntity.swift */; };
@@ -1286,6 +1288,7 @@
 		E5Q000014 /* FontSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontSettings.swift; sourceTree = "<group>"; };
 		XMSTYLE101 /* AppearanceStudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceStudio.swift; sourceTree = "<group>"; };
 		XMSTYLE102 /* AppearanceStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceStudioView.swift; sourceTree = "<group>"; };
+		DSHP00101 /* DressingShopView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DressingShopView.swift; sourceTree = "<group>"; };
 		XMSTYLE103 /* AppearanceThemePack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceThemePack.swift; sourceTree = "<group>"; };
 		XMSTYLE107 /* AppearanceThemeLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceThemeLibrary.swift; sourceTree = "<group>"; };
 		XMSTYLE120 /* AppearanceThemeShuffle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceThemeShuffle.swift; sourceTree = "<group>"; };
@@ -1318,6 +1321,7 @@
 		XMSTYLE126 /* NovelModeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "NovelModeViews.swift"; path = "Views/Chat/NovelModeViews.swift"; sourceTree = SOURCE_ROOT; };
 		XMSTYLE127 /* ChatTimeDividerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ChatTimeDividerView.swift"; path = "Views/Chat/ChatTimeDividerView.swift"; sourceTree = SOURCE_ROOT; };
 		XMSTYLE128 /* AppearanceBubblePacks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceBubblePacks.swift; sourceTree = "<group>"; };
+		DOUT00101 /* DressingOutfits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DressingOutfits.swift; sourceTree = "<group>"; };
 		E5SOUL102 /* SoulSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulSettingsView.swift; sourceTree = "<group>"; };
 		E5SVP0031 /* ShadowVoiceProviderDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShadowVoiceProviderDetailView.swift; sourceTree = "<group>"; };
 		E5T000011 /* SessionEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntity.swift; sourceTree = "<group>"; };
@@ -2172,6 +2176,7 @@
 				XMSTYLE121 /* AppearanceColorScale.swift */,
 				XMSTYLE122 /* SillyTavernTheme.swift */,
 				XMSTYLE128 /* AppearanceBubblePacks.swift */,
+				DOUT00101 /* DressingOutfits.swift */,
 				E5J000022 /* FileHandleSafeWrite.h */,
 				E5J000021 /* FileHandleSafeWrite.m */,
 				E5J000052 /* ObjCExceptionCatcher.h */,
@@ -2685,6 +2690,7 @@
 				F1T00049 /* TTSGroupsView.swift */,
 				F1T00029 /* SystemVoiceEditorView.swift */,
 				XMSTYLE102 /* AppearanceStudioView.swift */,
+				DSHP00101 /* DressingShopView.swift */,
 				E5P000012 /* EnvironmentVariablesView.swift */,
 				E5J000012 /* LogManagementView.swift */,
 				E5J000013 /* ConfigAuditView.swift */,
@@ -3525,6 +3531,7 @@
 				E5G000003 /* EnhancedBackgroundSettingsView.swift in Sources */,
 				XMSTYLE001 /* AppearanceStudio.swift in Sources */,
 				XMSTYLE002 /* AppearanceStudioView.swift in Sources */,
+				DSHP00001 /* DressingShopView.swift in Sources */,
 				XMSTYLE003 /* AppearanceThemePack.swift in Sources */,
 				XMSTYLE007 /* AppearanceThemeLibrary.swift in Sources */,
 				XMSTYLE020 /* AppearanceThemeShuffle.swift in Sources */,
@@ -3532,6 +3539,7 @@
 				XMSTYLE022 /* SillyTavernTheme.swift in Sources */,
 				XMSTYLE023 /* SillyTavernRegex.swift in Sources */,
 				XMSTYLE028 /* AppearanceBubblePacks.swift in Sources */,
+				DOUT00001 /* DressingOutfits.swift in Sources */,
 				XMSTYLE004 /* ThemeOffload.m in Sources */,
 				XMSTYLE005 /* ThemeOffloadBridge.swift in Sources */,
 				XMSTYLE008 /* ThemeOffloadExtras.swift in Sources */,

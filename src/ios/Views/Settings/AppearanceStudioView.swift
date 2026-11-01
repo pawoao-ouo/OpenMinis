@@ -172,6 +172,30 @@ struct AppearanceStudioView: View {
         // `ScrollView` + 自绘卡片堆，那是安卓的做法。
         List {
             Section {
+                // [dressing-shop] The shop is its own full page, not
+                // a section inside pageContent's ScrollView: its
+                // sticky top bar + tab rail and its scroll position
+                // need a page-level ScrollView, and nesting one inside
+                // pageContent's ScrollView breaks both. The old
+                // bubbles page stays reachable below (it still holds
+                // the bubble colour/shape controls the shop does not
+                // yet cover); the theme batch retires it when the
+                // shop covers those controls, never before.
+                NavigationLink {
+                    DressingShopView()
+                } label: {
+                    Label {
+                        VStack(alignment: .leading) {
+                            Text(AppLocalized("装扮店"))
+                            Text(AppLocalized("主题、气泡、挂件的可视化小店"))
+                                .font(.caption)
+                                .foregroundStyle(MinisTheme.secondaryText)
+                        }
+                    } icon: {
+                        Image(systemName: "bag.fill")
+                            .foregroundStyle(studio.color(.accent, variant: variant))
+                    }
+                }
                 ForEach([AppearanceStudioPage.palette, .bubbles, .backdrop, .icons]) { item in
                     NavigationLink {
                         pageContent(item)
@@ -1406,14 +1430,28 @@ struct AppearanceStudioView: View {
             } else {
                 shaped = AnyView(bubbleContent)
             }
+            let sampleShape = BubblePackSampleShape(pack: pack, isUser: isUser)
+            let borderColour = studio.color(.border, variant: variant)
+            let borderWidthShown = showBubble ? borderWidth : 0
             return AnyView(
                 shaped
                     .background(showBubble ? bubbleColour : Color.clear)
-                    .clipShape(BubblePackSampleShape(pack: pack, isUser: isUser))
+                    .clipShape(sampleShape)
                     .overlay(
-                        BubblePackSampleShape(pack: pack, isUser: isUser)
-                            .stroke(studio.color(.border, variant: variant),
-                                    lineWidth: showBubble ? borderWidth : 0)
+                        sampleShape.stroke(borderColour, lineWidth: borderWidthShown)
+                    )
+                    .overlay(
+                        // Letter double frame / stitch dashed border,
+                        // matching live BubbleBorderChrome.
+                        Group {
+                            if pack.style.packShape == .letter && borderWidthShown > 0 {
+                                sampleShape.stroke(borderColour, lineWidth: max(0.5, borderWidthShown * 0.75))
+                                    .padding(4)
+                            } else if pack.style.packShape == .stitch && borderWidthShown > 0 {
+                                sampleShape.stroke(borderColour,
+                                                   style: StrokeStyle(lineWidth: borderWidthShown, dash: [4, 3]))
+                            }
+                        }
                     )
             )
         }()
@@ -2806,6 +2844,11 @@ private struct BubblePackSampleShape: Shape {
         if style.tailOn {
             return MinisBubbleShape(style: .tail, radius: radius,
                                     tailOnTrailing: isUser).path(in: rect)
+        }
+        if style.packShape != .porcelain {
+            return MinisBubbleShape(style: style.liveStyle(), radius: radius,
+                                    tailOnTrailing: isUser,
+                                    packKind: style.packShape).path(in: rect)
         }
         if style.cornerPreset == .asymmetric {
             // RectangleCornerRadii order is topLeading, bottomLeading,

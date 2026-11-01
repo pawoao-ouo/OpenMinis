@@ -92,6 +92,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     /// 圆角预设：均匀 / 不对称 / 胶囊 / 方一点。live 形状只在
     /// 圆角/连续圆角且非小尾巴时用它画不对称角。
     var bubbleCornerPreset: String
+    /// 气泡款式包的整体形状：瓷白圆润 / 云朵 / 信纸 / 波浪 /
+    /// 方章 / 丝带针脚。由款式包 apply() 写，AI 工具层锁死
+    /// （见 aiApplyLockedFields），用户只能在装扮店里点款式改。
+    var bubblePackShape: String
 
     static let currentKey = "appearanceStudio.themePack.v1"
     static let schemaVersion = 5
@@ -204,7 +208,8 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         userNamePlacement: BubbleNamePlacement.hidden.rawValue,
         assistantNamePlacement: BubbleNamePlacement.above.rawValue,
         messageSpacing: 8,
-        bubbleCornerPreset: BubbleCornerPreset.even.rawValue
+        bubbleCornerPreset: BubbleCornerPreset.even.rawValue,
+        bubblePackShape: BubblePackKind.porcelain.rawValue
     )
 
     var userStyle: AppearanceBubbleStyle { AppearanceBubbleStyle.parse(userBubbleStyle) }
@@ -271,6 +276,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             "assistantNamePlacement": BubbleNamePlacement.parse(assistantNamePlacement).rawValue,
             "messageSpacing": messageSpacing,
             "bubbleCornerPreset": BubbleCornerPreset.parse(bubbleCornerPreset).rawValue,
+            "bubblePackShape": BubblePackKind.parse(bubblePackShape).rawValue,
         ]
         if let rowBackgroundHex { obj["rowBackgroundHex"] = rowBackgroundHex }
         obj["novelMode"] = AppearanceNovelMode.parse(novelMode).rawValue
@@ -305,7 +311,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "avatarSize", "avatarBorderWidth", "avatarPlacement",
         "userMetaPosition", "assistantMetaPosition",
         "userNamePlacement", "assistantNamePlacement",
-        "messageSpacing", "bubbleCornerPreset",
+        "messageSpacing", "bubbleCornerPreset", "bubblePackShape",
     ]
 
     /// True when `raw` carries at least one known theme-pack field.
@@ -343,7 +349,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "avatarSize", "avatarBorderWidth", "avatarPlacement",
         "userMetaPosition", "assistantMetaPosition",
         "userNamePlacement", "assistantNamePlacement",
-        "messageSpacing", "bubbleCornerPreset",
+        "messageSpacing", "bubbleCornerPreset", "bubblePackShape",
         // Opacities and shade (locked surface treatment, not colour).
         "surfaceOpacity", "wallpaperShade", "thinkingCardImageOpacity", "inputBarImageOpacity",
         // Display modes and line-count layout.
@@ -450,7 +456,8 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             userNamePlacement: BubbleNamePlacement.parse(str("userNamePlacement", fallback: base.userNamePlacement)).rawValue,
             assistantNamePlacement: BubbleNamePlacement.parse(str("assistantNamePlacement", fallback: base.assistantNamePlacement)).rawValue,
             messageSpacing: min(24, max(4, num("messageSpacing", fallback: base.messageSpacing))),
-            bubbleCornerPreset: BubbleCornerPreset.parse(str("bubbleCornerPreset", fallback: base.bubbleCornerPreset)).rawValue
+            bubbleCornerPreset: BubbleCornerPreset.parse(str("bubbleCornerPreset", fallback: base.bubbleCornerPreset)).rawValue,
+            bubblePackShape: BubblePackKind.parse(str("bubblePackShape", fallback: base.bubblePackShape)).rawValue
         )
         if pack.id.isEmpty { pack.id = base.id }
         if pack.name.isEmpty { pack.name = pack.id }
@@ -610,8 +617,22 @@ struct MinisBubbleShape: Shape {
     /// nil = uniform radius. The asymmetric pack preset supplies this:
     /// the outer corner near-sharp (4pt), the rest at `radius`.
     var cornerRadii: RectangleCornerRadii?
+    /// Dressing-shop pack shape. When set to a non-porcelain
+    /// kind, it owns the outline (cloud / wave / cut / letter /
+    /// stitch) and the base style only supplies the radius — so
+    /// shop samples, detail previews, and live chat all draw the
+    /// same outline. Porcelain falls through (see path()).
+    var packKind: BubblePackKind?
 
     func path(in rect: CGRect) -> Path {
+        // Porcelain falls through to the existing style/corner
+        // logic on purpose: a hand-picked asymmetric preset (old
+        // bubbles page) must still draw its asymmetric corners,
+        // and porcelain's live style is already pill. Only the
+        // non-porcelain kinds own the outline.
+        if let kind = packKind, kind != .porcelain {
+            return BubblePackOutlineShape(kind: kind, radius: radius).path(in: rect)
+        }
         let r = min(max(radius, 4), min(rect.width, rect.height) / 2)
         switch style {
         case .rounded:
@@ -1781,13 +1802,19 @@ enum MinisThemeShape {
     static var inputBarImageOpacity: Double { pack.inputBarImageOpacity }
     static var fontFamily: AppearanceFontFamily { AppearanceFontFamily.parse(pack.fontFamily) }
 
+    /// Live pack shape, from the theme pack field the shop's
+    /// apply() writes (parse falls back to porcelain, so an old
+    /// theme pack without the field draws the plain pill exactly
+    /// as before; porcelain itself falls through to the existing
+    /// style/corner logic in MinisBubbleShape.path).
+    static var packKind: BubblePackKind { BubblePackKind.parse(pack.bubblePackShape) }
     static var userBubble: MinisBubbleShape {
         MinisBubbleShape(style: userStyle, radius: userBubbleRadius, tailOnTrailing: true,
-                         cornerRadii: cornerRadii(user: true))
+                         cornerRadii: cornerRadii(user: true), packKind: packKind)
     }
     static var assistantBubble: MinisBubbleShape {
         MinisBubbleShape(style: assistantStyle, radius: assistantBubbleRadius, tailOnTrailing: false,
-                         cornerRadii: cornerRadii(user: false))
+                         cornerRadii: cornerRadii(user: false), packKind: packKind)
     }
     static var thinkingCard: MinisBubbleShape {
         MinisBubbleShape(style: .squircle, radius: thinkingRadius, tailOnTrailing: false)
