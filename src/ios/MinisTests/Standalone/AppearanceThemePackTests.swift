@@ -90,7 +90,10 @@ check("input bar image", pack.contains("func setInputBarImage"))
 check("composer uses pack shape", input.contains("MinisThemeShape.inputBar"))
 check("studio font picker", studioView.contains("正文字体"))
 check("studio input bar image", studioView.contains("给输入栏贴图"))
-check("bubbles use theme font", chat.contains("MinisThemeShape.fontFamily"))
+// [04b-2] Message sites moved from `MinisThemeShape.fontFamily` to the
+// per-part `MinisThemeShape.messageFont(size:)`, which honours the
+// message-part family and uploaded fonts — same behaviour, new accessor.
+check("bubbles use theme font", chat.contains("MinisThemeShape.messageFont"))
 check("input bar radius", pack.contains("inputBarRadius"))
 check("thinking title size", pack.contains("thinkingTitleSize"))
 check("category images", pack.contains("categoryImages"))
