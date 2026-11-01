@@ -1424,7 +1424,10 @@ struct AppearanceStudioView: View {
             .font(.system(size: 9, weight: .medium))
             .foregroundStyle(studio.color(.secondaryText, variant: variant))
         if style.display == .document {
-            return VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
+            // Two VStack branches have different underlying types, so
+            // both are type-erased: a plain `-> some View` function
+            // cannot return two different VStack types.
+            return AnyView(VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
                 if meta == .above { metaText }
                 HStack {
                     if isUser { Spacer(minLength: 0) }
@@ -1435,13 +1438,13 @@ struct AppearanceStudioView: View {
                     if !isUser { Spacer(minLength: 0) }
                 }
                 if meta == .below { metaText }
-            }
+            })
         }
         // Row surface: bubbleText already stretched in its own
         // frame above; text surface hugs the text. The outer HStack
         // only aligns the result to its side.
         let stretchedBubble: AnyView = bubbleText
-        return VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
+        return AnyView(VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
             if meta == .above { metaText }
             if namePlacement == .above { nameText }
             HStack(alignment: avatarPlacement == .overlapping ? .top : .center, spacing: 6) {
@@ -1460,7 +1463,7 @@ struct AppearanceStudioView: View {
                 }
             }
             if meta == .below { metaText }
-        }
+        })
     }
 
     private func bubblePackInputBar(pack: BubbleStylePack) -> some View {
@@ -2805,10 +2808,12 @@ private struct BubblePackSampleShape: Shape {
                                     tailOnTrailing: isUser).path(in: rect)
         }
         if style.cornerPreset == .asymmetric {
+            // RectangleCornerRadii order is topLeading, bottomLeading,
+            // topTrailing, bottomTrailing — values per corner unchanged.
             let radii = RectangleCornerRadii(
                 topLeading: radius,
-                topTrailing: radius,
                 bottomLeading: isUser ? radius : 4,
+                topTrailing: radius,
                 bottomTrailing: isUser ? 4 : radius)
             return UnevenRoundedRectangle(cornerRadii: radii).path(in: rect)
         }
