@@ -589,8 +589,6 @@ struct PersonaBasicSettingsView: View {
     @State private var useAvatarVal: Bool = false
     @State private var useNameVal: Bool = false
 
-    @State private var backgroundPhotoItem: PhotosPickerItem?
-
     private var persona: Persona? {
         store.personas.first { $0.id == personaId }
     }
@@ -779,33 +777,14 @@ struct PersonaBasicSettingsView: View {
                     }
 
                     // MARK: 外观与个性化
+                    // [P0-3] The per-persona "专属聊天背景" picker and its
+                    // remove button are deleted: the value they stored
+                    // (`Persona.background`) was never read by any chat
+                    // rendering, so setting it silently did nothing. Chat
+                    // wallpaper comes from the AppearanceStudio `.chat`
+                    // scope, and the `.persona` contacts-page scope
+                    // wallpaper is a separate, live setting — untouched.
                     Section {
-                        PhotosPicker(selection: $backgroundPhotoItem, matching: .images) {
-                            HStack {
-                                Text("专属聊天背景")
-                                    .font(.body)
-                                    .foregroundStyle(ChatColors.primaryText)
-                                Spacer()
-                                Text(p.background != nil ? "已设置专属壁纸" : "未设置")
-                                    .font(.subheadline)
-                                    .foregroundStyle(MinisTheme.secondaryText)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
-                            }
-                        }
-
-                        if p.background != nil {
-                            Button(role: .destructive) {
-                                var updated = p
-                                updated.background = nil
-                                store.updatePersona(updated)
-                            } label: {
-                                Text("移除专属背景")
-                                    .font(.subheadline)
-                            }
-                        }
-
                         Toggle("聊天中展示助手头像", isOn: $useAvatarVal)
                             .onChange(of: useAvatarVal) { val in
                                 var updated = p
@@ -846,22 +825,6 @@ struct PersonaBasicSettingsView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .onAppear {
                     loadFromPersona(p)
-                }
-                .onChange(of: backgroundPhotoItem) { item in
-                    guard let item = item else { return }
-                    Task {
-                        if let data = try? await item.loadTransferable(type: Data.self),
-                           let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 2200) {
-                            let name = SoulIconImage.storedName(prefix: "bg-\(p.id)", id: p.id)
-                            if case .success(let path) = SoulIconImage.store(image, named: name) {
-                                await MainActor.run {
-                                    var updated = p
-                                    updated.background = path
-                                    store.updatePersona(updated)
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }

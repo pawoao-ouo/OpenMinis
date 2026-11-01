@@ -44,10 +44,6 @@ struct Persona: Codable, Identifiable, Hashable {
     var useAssistantName: Bool
     var streamOutput: Bool
 
-    // Kelivo 对齐 - 聊天背景
-    var background: String?
-    var useGradientBackground: Bool
-
     // Kelivo 对齐 - 提示词与模板
     var allowConversationSystemPrompt: Bool
     var allowConversationPromptInjection: Bool
@@ -65,7 +61,6 @@ struct Persona: Codable, Identifiable, Hashable {
              isUserProfile
         case temperature, topP, limitContextMessages, contextMessageSize, thinkingBudget, maxTokens
         case defaultWorkspace, useAssistantAvatar, useAssistantName, streamOutput
-        case background, useGradientBackground
         case allowConversationSystemPrompt, allowConversationPromptInjection
         case appendCurrentTimeToUserMessage, messageTemplate
         case presetMessages, regexRules, customHeaders, customBody
@@ -77,7 +72,7 @@ struct Persona: Codable, Identifiable, Hashable {
          temperature: Double? = nil, topP: Double? = nil, limitContextMessages: Bool = false,
          contextMessageSize: Int = 20, thinkingBudget: Int? = nil, maxTokens: Int? = nil,
          defaultWorkspace: String? = nil, useAssistantAvatar: Bool = false, useAssistantName: Bool = false,
-         streamOutput: Bool = true, background: String? = nil, useGradientBackground: Bool = false,
+         streamOutput: Bool = true,
          allowConversationSystemPrompt: Bool = false, allowConversationPromptInjection: Bool = false,
          appendCurrentTimeToUserMessage: Bool = false, messageTemplate: String = "{{ message }}",
          presetMessages: [PresetMessage] = [], regexRules: [PersonaRegexRule] = [],
@@ -102,8 +97,6 @@ struct Persona: Codable, Identifiable, Hashable {
         self.useAssistantAvatar = useAssistantAvatar
         self.useAssistantName = useAssistantName
         self.streamOutput = streamOutput
-        self.background = background
-        self.useGradientBackground = useGradientBackground
         self.allowConversationSystemPrompt = allowConversationSystemPrompt
         self.allowConversationPromptInjection = allowConversationPromptInjection
         self.appendCurrentTimeToUserMessage = appendCurrentTimeToUserMessage
@@ -137,9 +130,6 @@ struct Persona: Codable, Identifiable, Hashable {
         useAssistantAvatar = try container.decodeIfPresent(Bool.self, forKey: .useAssistantAvatar) ?? false
         useAssistantName = try container.decodeIfPresent(Bool.self, forKey: .useAssistantName) ?? false
         streamOutput = try container.decodeIfPresent(Bool.self, forKey: .streamOutput) ?? true
-
-        background = try container.decodeIfPresent(String.self, forKey: .background)
-        useGradientBackground = try container.decodeIfPresent(Bool.self, forKey: .useGradientBackground) ?? false
 
         allowConversationSystemPrompt = try container.decodeIfPresent(Bool.self, forKey: .allowConversationSystemPrompt) ?? false
         allowConversationPromptInjection = try container.decodeIfPresent(Bool.self, forKey: .allowConversationPromptInjection) ?? false
@@ -743,6 +733,29 @@ final class PersonaStore: ObservableObject {
             return
         }
         personas = list.sorted { $0.sortOrder < $1.sortOrder }
+        // [P0-3] Dead per-persona chat background, removed: the old
+        // `Persona.background` / `useGradientBackground` values were stored
+        // and settable from persona settings, but no chat rendering ever
+        // read them — chat only ever paints the AppearanceStudio `.chat`
+        // scope wallpaper. The fields no longer exist, so old JSON keys are
+        // ignored on decode; purge them from disk on this load, and delete
+        // the fixed-name background file the old picker wrote
+        // (avatars/bg-<id>-<id>.png), so a stale value can never resurface.
+        // Scope wallpapers (including the `.persona` contacts-page scope,
+        // which renders via `.appearancePage(.persona)`) are untouched.
+        let rawJSON = String(data: data, encoding: .utf8) ?? ""
+        let hadDeadKey = rawJSON.contains("\"background\"") || rawJSON.contains("\"useGradientBackground\"")
+        var cleanedDeadFile = false
+        for p in personas {
+            let name = SoulIconImage.storedName(prefix: "bg-\(p.id)", id: p.id)
+            let url = SoulIconImage.avatarsDirectory().appendingPathComponent("\(name).png")
+            if FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.removeItem(at: url)
+                SoulIconImage.invalidateCache(for: "avatars/\(name).png")
+                cleanedDeadFile = true
+            }
+        }
+        if hadDeadKey || cleanedDeadFile { save(personas) }
         // [avatar-file] One-time migration: legacy inline-base64 persona
         // avatars become file references. Persisted so this runs once.
         var migrated = false
@@ -849,6 +862,14 @@ final class PersonaStore: ObservableObject {
         guard personas.count > 1 else { return }
         let removed = personas.remove(at: idx)
         persist()
+        // [P0-3] Also drop the dead per-persona background file, if the
+        // removed persona ever set one, so it cannot linger as an orphan.
+        let bgName = SoulIconImage.storedName(prefix: "bg-\(removed.id)", id: removed.id)
+        let bgURL = SoulIconImage.avatarsDirectory().appendingPathComponent("\(bgName).png")
+        if FileManager.default.fileExists(atPath: bgURL.path) {
+            try? FileManager.default.removeItem(at: bgURL)
+            SoulIconImage.invalidateCache(for: "avatars/\(bgName).png")
+        }
         try? FileManager.default.removeItem(at: Self.memoryDir(for: removed.id))
         if currentPersonaID == id {
             currentPersonaID = Self.defaultPersonaID
