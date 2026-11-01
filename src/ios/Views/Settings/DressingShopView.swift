@@ -20,7 +20,7 @@ import SwiftUI
 // No emoji, no prices, no SVIP, no gift, no QQ artwork or names.
 //
 // Scope of this batch: the bubble path, end to end, plus the
-// avatar-pendant path (four pale glowing rings + white lace ring, same
+// avatar-pendant path (four pale glowing rings, same
 // card / detail / apply / save pattern as bubbles). Theme cards
 // are visual placeholders for the theme batch (plain, not buttons,
 // labelled as coming later — never a dead button), and the font /
@@ -558,7 +558,7 @@ struct DressingShopView: View {
     private func pendantCardArt(_ pendant: AvatarPendant) -> some View {
         ZStack {
             avatarDisc(size: 72)
-                .overlay(AvatarRingView(size: 72, color: pendant.color, style: pendant.style, imageFile: pendant.imageFile))
+                .overlay(AvatarRingView(size: 72, color: pendant.color, imageFile: pendant.imageFile))
         }
         .padding(.top, 8)
         .padding(.bottom, 8)
@@ -605,14 +605,14 @@ struct DressingShopView: View {
                 // sample chat row wearing the same ring.
                 ZStack {
                     avatarDisc(size: 120)
-                        .overlay(AvatarRingView(size: 120, color: pendant.color, style: pendant.style, imageFile: pendant.imageFile))
+                        .overlay(AvatarRingView(size: 120, color: pendant.color, imageFile: pendant.imageFile))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 12)
                 .padding(.bottom, 12)
                 HStack(alignment: .center, spacing: 8) {
                     avatarDisc(size: 36)
-                        .overlay(AvatarRingView(size: 36, color: pendant.color, style: pendant.style, imageFile: pendant.imageFile))
+                        .overlay(AvatarRingView(size: 36, color: pendant.color, imageFile: pendant.imageFile))
                     Text(AppLocalized("今天也想你"))
                         .font(.system(size: 16))
                         .foregroundStyle(studio.color(.assistantBubbleText))
@@ -637,7 +637,7 @@ struct DressingShopView: View {
                     Text(AppLocalized("在大头像上看这款圆环，再确认换上；只换挂件，不动其他搭配。"))
                         .font(.system(size: 15))
                         .foregroundStyle(studio.color(.secondaryText))
-                    Text(AppLocalized("组成：") + (pendant.style == .lace ? AppLocalized("蕾丝圆环") : AppLocalized("圆环")))
+                    Text(AppLocalized("组成：") + AppLocalized("圆环"))
                         .font(.system(size: 14))
                         .foregroundStyle(studio.color(.secondaryText))
                     HStack(spacing: 12) {
