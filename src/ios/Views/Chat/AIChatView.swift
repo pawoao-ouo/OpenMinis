@@ -93,11 +93,17 @@ enum ChatColors {
     static var primaryText: Color { studio.color(.primaryText, scope: .chat) }
     /// [bubble-grouping] My-bubble text only. Unset, it follows
     /// primaryText; set on the bubble page, it no longer moves global text.
-    static var bubbleText: Color { studio.color(.bubbleText, scope: .chat) }
+    /// [bubble-foundation] A pack's own text colour wins when the
+    /// applied pack carries one (its background may be an image, on
+    /// which the theme slot could be unreadable); otherwise the
+    /// theme slot, as before. Shop and detail resolve the same way
+    /// from the pack record, so text colour cannot disagree
+    /// between sample and live.
+    static var bubbleText: Color { MinisThemeShape.packTextColor(user: true) ?? studio.color(.bubbleText, scope: .chat) }
     /// [fixer-F1] AI-bubble text only, mirror of bubbleText. Unset, it
     /// follows primaryText; set on the bubble page, it drives the AI
     /// message body (markdown label colour) and nothing else.
-    static var assistantBubbleText: Color { studio.color(.assistantBubbleText, scope: .chat) }
+    static var assistantBubbleText: Color { MinisThemeShape.packTextColor(user: false) ?? studio.color(.assistantBubbleText, scope: .chat) }
     static var secondaryText: Color { studio.color(.secondaryText, scope: .chat) }
     static var tertiaryText: Color { studio.color(.secondaryText, scope: .chat).opacity(0.72) }
     static var userBubble: Color {

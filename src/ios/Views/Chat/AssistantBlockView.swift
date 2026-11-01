@@ -194,6 +194,22 @@ struct AssistantBlockView: View {
     }
 
     @ViewBuilder
+    /// [bubble-foundation] The one shared surface for live
+    /// assistant bubbles, mirroring UserBubbleSurface's user
+    /// helper and the shop's bubbleShapeView: solid theme colour,
+    /// then the applied pack's image background and pattern,
+    /// clipped to the assistant bubble shape. On today's packs
+    /// every foundation field is unset, so this is exactly the
+    /// old solid fill.
+    private func assistantPackBackground() -> some View {
+        BubblePackSurfaceBackground(
+            shape: MinisThemeShape.assistantBubble, colour: ChatColors.assistantBubble,
+            imageFile: MinisThemeShape.packBackgroundImageFile,
+            pattern: MinisThemeShape.packPattern,
+            patternOpacity: MinisThemeShape.packPatternOpacity,
+            textColour: ChatColors.assistantBubbleText)
+    }
+
     private func singleTextBubble(_ content: String) -> some View {
         // [10-18 醒醒 第五轮] 平铺 / 文稿形态不要气泡底色。
         let display = AppearanceChatDisplay.parse(
@@ -212,26 +228,24 @@ struct AssistantBlockView: View {
                 if MinisThemeShape.assistantSurface == .row {
                     bubbled
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
-                        )
+                        .background(assistantPackBackground())
                         .overlay(
                             MinisThemeShape.assistantBubble.fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
                         )
                         .clipShape(MinisThemeShape.assistantBubble)
                         .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
                                                      width: MinisThemeShape.assistantBorderWidth))
+                        .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
                 } else {
                     bubbled
-                        .background(
-                            MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
-                        )
+                        .background(assistantPackBackground())
                         .overlay(
                             MinisThemeShape.assistantBubble.fill(ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
                         )
                         .clipShape(MinisThemeShape.assistantBubble)
                         .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
                                                      width: MinisThemeShape.assistantBorderWidth))
+                        .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
                 }
             }
             // [bubble-packs] Meta below lives under the LAST text
@@ -268,9 +282,7 @@ struct AssistantBlockView: View {
                             if MinisThemeShape.assistantSurface == .row {
                                 bubbled
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(
-                                        MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
-                                    )
+                                    .background(assistantPackBackground())
                                     .overlay(
                                         MinisThemeShape.assistantBubble.fill(
                                             ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
@@ -278,11 +290,10 @@ struct AssistantBlockView: View {
                                     .clipShape(MinisThemeShape.assistantBubble)
                                     .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
                                                                  width: MinisThemeShape.assistantBorderWidth))
+                                    .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
                             } else {
                                 bubbled
-                                    .background(
-                                        MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
-                                    )
+                                    .background(assistantPackBackground())
                                     .overlay(
                                         MinisThemeShape.assistantBubble.fill(
                                             ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
@@ -290,6 +301,7 @@ struct AssistantBlockView: View {
                                     .clipShape(MinisThemeShape.assistantBubble)
                                     .modifier(BubbleBorderChrome(shape: MinisThemeShape.assistantBubble,
                                                                  width: MinisThemeShape.assistantBorderWidth))
+                                    .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
                             }
                         }
                 case .code(let language, let code, let codeIndex):
@@ -981,14 +993,24 @@ private struct AssistantBubbleChrome: ViewModifier {
             content
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                // [bubble-foundation] Same shared surface as the
+                // live text bubbles (currently unused — no call site
+                // — but kept consistent so a future caller cannot
+                // silently get the old solid-only fill).
                 .background(
-                    MinisThemeShape.assistantBubble.fill(ChatColors.assistantBubble)
+                    BubblePackSurfaceBackground(
+                        shape: MinisThemeShape.assistantBubble, colour: ChatColors.assistantBubble,
+                        imageFile: MinisThemeShape.packBackgroundImageFile,
+                        pattern: MinisThemeShape.packPattern,
+                        patternOpacity: MinisThemeShape.packPatternOpacity,
+                        textColour: ChatColors.assistantBubbleText)
                 )
                 .overlay(
                     MinisThemeShape.assistantBubble.fill(
                         ChatColors.accent.opacity(isHighlighted ? 0.10 : 0))
                 )
                 .clipShape(MinisThemeShape.assistantBubble)
+                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
         }
     }
 }

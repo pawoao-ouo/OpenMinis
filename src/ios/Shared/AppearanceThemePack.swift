@@ -96,6 +96,20 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     /// 方章 / 丝带针脚。由款式包 apply() 写，AI 工具层锁死
     /// （见 aiApplyLockedFields），用户只能在装扮店里点款式改。
     var bubblePackShape: String
+    // [bubble-foundation] Future complex packs, carried by the
+    // live theme so live chat reads the same record the shop
+    // applied. All unset on today's six packs (nil / none / [] /
+    // nil), so live chat renders exactly as before until a pack
+    // actually sets one. Image file = bare file name in
+    // BubblePackImageStore.directory; pattern = BubblePattern raw
+    // value; decorations = BubbleDecoration JSON string; text hexes
+    // = per-role bubble text colour, nil = theme bubble text slot.
+    var bubbleBackgroundImageFile: String?
+    var bubblePattern: String
+    var bubblePatternOpacity: Double
+    var bubbleDecorationsJSON: String?
+    var userBubblePackTextHex: String?
+    var assistantBubblePackTextHex: String?
 
     static let currentKey = "appearanceStudio.themePack.v1"
     static let schemaVersion = 5
@@ -145,6 +159,19 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             return 0
         }
         return parseLetterSpacing(raw)
+    }
+
+    /// Nonisolated snapshot of the applied pack's assistant text
+    /// hex, for non-MainActor callers (SelectableMarkdownTheme).
+    /// Same UserDefaults JSON pattern as storedLineHeight: absent
+    /// or invalid means "no pack text colour", i.e. the theme slot.
+    nonisolated static func storedAssistantBubblePackTextHex() -> String? {
+        guard let data = UserDefaults.standard.data(forKey: currentKey),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = obj["assistantBubblePackTextHex"] as? String else {
+            return nil
+        }
+        return BubbleStyleRecord.normalizedPackHex(raw)
     }
 
     /// 字距的安全取值，单位 pt。
@@ -209,7 +236,13 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         assistantNamePlacement: BubbleNamePlacement.above.rawValue,
         messageSpacing: 8,
         bubbleCornerPreset: BubbleCornerPreset.even.rawValue,
-        bubblePackShape: BubblePackKind.porcelain.rawValue
+        bubblePackShape: BubblePackKind.porcelain.rawValue,
+        bubbleBackgroundImageFile: nil,
+        bubblePattern: BubblePattern.none.rawValue,
+        bubblePatternOpacity: 0.15,
+        bubbleDecorationsJSON: nil,
+        userBubblePackTextHex: nil,
+        assistantBubblePackTextHex: nil
     )
 
     var userStyle: AppearanceBubbleStyle { AppearanceBubbleStyle.parse(userBubbleStyle) }
@@ -277,7 +310,13 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             "messageSpacing": messageSpacing,
             "bubbleCornerPreset": BubbleCornerPreset.parse(bubbleCornerPreset).rawValue,
             "bubblePackShape": BubblePackKind.parse(bubblePackShape).rawValue,
+            "bubblePattern": BubblePattern.parse(bubblePattern).rawValue,
+            "bubblePatternOpacity": min(0.6, max(0, bubblePatternOpacity)),
         ]
+        if let bubbleBackgroundImageFile { obj["bubbleBackgroundImageFile"] = bubbleBackgroundImageFile }
+        if let bubbleDecorationsJSON { obj["bubbleDecorationsJSON"] = bubbleDecorationsJSON }
+        if let userBubblePackTextHex { obj["userBubblePackTextHex"] = userBubblePackTextHex }
+        if let assistantBubblePackTextHex { obj["assistantBubblePackTextHex"] = assistantBubblePackTextHex }
         if let rowBackgroundHex { obj["rowBackgroundHex"] = rowBackgroundHex }
         obj["novelMode"] = AppearanceNovelMode.parse(novelMode).rawValue
         if let characterArtBase64 { obj["characterArtBase64"] = characterArtBase64 }
@@ -312,6 +351,8 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "userMetaPosition", "assistantMetaPosition",
         "userNamePlacement", "assistantNamePlacement",
         "messageSpacing", "bubbleCornerPreset", "bubblePackShape",
+        "bubbleBackgroundImageFile", "bubblePattern", "bubblePatternOpacity",
+        "bubbleDecorationsJSON", "userBubblePackTextHex", "assistantBubblePackTextHex",
     ]
 
     /// True when `raw` carries at least one known theme-pack field.
@@ -343,6 +384,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "lineHeight", "letterSpacing",
         // Bubble-pack structure (layout, not colour): the AI may not
         // set any of these; only the user, via a pack tap in the UI.
+        // The pack text hexes are pack-owned colours, locked with
+        // the pack for the same reason — they must only arrive
+        // together with the pack that carries them.
         "userBubbleSurface", "assistantBubbleSurface",
         "userBubbleBorderWidth", "assistantBubbleBorderWidth",
         "userBubblePadding", "assistantBubblePadding",
@@ -350,6 +394,8 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "userMetaPosition", "assistantMetaPosition",
         "userNamePlacement", "assistantNamePlacement",
         "messageSpacing", "bubbleCornerPreset", "bubblePackShape",
+        "bubbleBackgroundImageFile", "bubblePattern", "bubblePatternOpacity",
+        "bubbleDecorationsJSON", "userBubblePackTextHex", "assistantBubblePackTextHex",
         // Opacities and shade (locked surface treatment, not colour).
         "surfaceOpacity", "wallpaperShade", "thinkingCardImageOpacity", "inputBarImageOpacity",
         // Display modes and line-count layout.
@@ -457,7 +503,24 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             assistantNamePlacement: BubbleNamePlacement.parse(str("assistantNamePlacement", fallback: base.assistantNamePlacement)).rawValue,
             messageSpacing: min(24, max(4, num("messageSpacing", fallback: base.messageSpacing))),
             bubbleCornerPreset: BubbleCornerPreset.parse(str("bubbleCornerPreset", fallback: base.bubbleCornerPreset)).rawValue,
-            bubblePackShape: BubblePackKind.parse(str("bubblePackShape", fallback: base.bubblePackShape)).rawValue
+            bubblePackShape: BubblePackKind.parse(str("bubblePackShape", fallback: base.bubblePackShape)).rawValue,
+            // Foundation fields, partial-merge safe: an absent key
+            // keeps the base value (an AI colour apply must never
+            // silently clear the applied pack's background); a
+            // present key, even an empty one, replaces it.
+            bubbleBackgroundImageFile: raw["bubbleBackgroundImageFile"] == nil
+                ? base.bubbleBackgroundImageFile
+                : (raw["bubbleBackgroundImageFile"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            bubblePattern: BubblePattern.parse(str("bubblePattern", fallback: base.bubblePattern)).rawValue,
+            bubblePatternOpacity: min(0.6, max(0, num("bubblePatternOpacity", fallback: base.bubblePatternOpacity))),
+            bubbleDecorationsJSON: raw["bubbleDecorationsJSON"] == nil
+                ? base.bubbleDecorationsJSON : (raw["bubbleDecorationsJSON"] as? String),
+            userBubblePackTextHex: raw["userBubblePackTextHex"] == nil
+                ? base.userBubblePackTextHex
+                : BubbleStyleRecord.normalizedPackHex(raw["userBubblePackTextHex"] as? String),
+            assistantBubblePackTextHex: raw["assistantBubblePackTextHex"] == nil
+                ? base.assistantBubblePackTextHex
+                : BubbleStyleRecord.normalizedPackHex(raw["assistantBubblePackTextHex"] as? String)
         )
         if pack.id.isEmpty { pack.id = base.id }
         if pack.name.isEmpty { pack.name = pack.id }
@@ -1832,6 +1895,18 @@ enum MinisThemeShape {
     /// as before; porcelain itself falls through to the existing
     /// style/corner logic in MinisBubbleShape.path).
     static var packKind: BubblePackKind { BubblePackKind.parse(pack.bubblePackShape) }
+    /// Foundation accessors: nil / none / [] / nil on today's packs,
+    /// so every live surface below renders exactly as before until
+    /// a pack actually sets a field.
+    static var packBackgroundImageFile: String? { pack.bubbleBackgroundImageFile }
+    static var packPattern: BubblePattern { BubblePattern.parse(pack.bubblePattern) }
+    static var packPatternOpacity: Double { min(0.6, max(0, pack.bubblePatternOpacity)) }
+    static var packDecorations: [BubbleDecoration] { BubbleStyleRecord.decodeDecorations(pack.bubbleDecorationsJSON) }
+    static func packTextColor(user: Bool) -> Color? {
+        let hex = user ? pack.userBubblePackTextHex : pack.assistantBubblePackTextHex
+        guard let hex else { return nil }
+        return Color(hex: hex)
+    }
     static var userBubble: MinisBubbleShape {
         MinisBubbleShape(style: userStyle, radius: userBubbleRadius, tailOnTrailing: true,
                          cornerRadii: cornerRadii(user: true), packKind: packKind)

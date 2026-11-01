@@ -575,8 +575,9 @@ struct UserBubbleSurface: ViewModifier {
             // 状态交给气泡旁边那颗小圆点（灰=待注入/蓝=送达中/消失=已进上下文）。
             // 底色仍压到 0.72，跟已发送的实心气泡留一线可辨。
             surfaced
-                .background(shape.fill(ChatColors.userBubble.opacity(0.72)))
+                .background(userPackBackground(dim: 0.72))
                 .modifier(BubbleBorderChrome(shape: shape, width: MinisThemeShape.userBorderWidth))
+                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
         } else if display == .flat || display == .document {
             surfaced
         } else if #available(iOS 26.0, *) {
@@ -595,13 +596,31 @@ struct UserBubbleSurface: ViewModifier {
             // #3 醒醒: 跟 AI 气泡一样，纯实心主题色——去掉 Liquid Glass（玻璃调高亮度刺眼）。
             // 透明度滑杆仍生效（ChatColors.userBubble 自带 alpha）。
             surfaced
-                .background(shape.fill(ChatColors.userBubble))
+                .background(userPackBackground())
                 .modifier(BubbleBorderChrome(shape: shape, width: MinisThemeShape.userBorderWidth))
+                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
         } else {
             surfaced
-                .background(shape.fill(ChatColors.userBubble))
+                .background(userPackBackground())
                 .modifier(BubbleBorderChrome(shape: shape, width: MinisThemeShape.userBorderWidth))
+                .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
         }
+    }
+
+    /// [bubble-foundation] The one shared surface for live user
+    /// bubbles: solid theme colour, then the applied pack's image
+    /// background and pattern, all clipped to the same shape the
+    /// shop and detail previews draw. On today's packs every
+    /// foundation field is unset, so this is exactly the old solid
+    /// fill — the shape.fill call it replaces, plus the image /
+    /// pattern layers that are absent until a pack sets them.
+    private func userPackBackground(dim: Double = 1) -> some View {
+        BubblePackSurfaceBackground(
+            shape: shape, colour: ChatColors.userBubble,
+            imageFile: MinisThemeShape.packBackgroundImageFile,
+            pattern: MinisThemeShape.packPattern,
+            patternOpacity: MinisThemeShape.packPatternOpacity,
+            textColour: ChatColors.bubbleText, dim: dim)
     }
 }
 

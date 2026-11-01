@@ -207,10 +207,21 @@ struct DressingShopView: View {
 
     // MARK: - Tag rail (in-flow, 36pt pills)
 
-    private var tagRail: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+    // Classification fix: the shared rail's 清新 / 淡雅 tags match
+    // theme / pendant records in the draft, not bubble packs, so
+    // on the bubble category they filtered to an empty grid with
+    // no empty state. The bubble rail only offers 全部 plus the
+    // tags at least one bubble pack actually carries (简约 / 柔和),
+    // in the shared rail's order — a tag that shows nothing is
+    // never offered. Other categories get their own rails when
+    // their records exist; they do not borrow the bubble rail.
+    private var bubbleTagRail: some View {
+        let offered = DressingTag.allCases.filter { item in
+            item.packTag == nil || bubblePackStore.packs.contains { $0.tag == item.packTag }
+        }
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
-                ForEach(DressingTag.allCases) { item in
+                ForEach(offered) { item in
                     Button { tag = item } label: {
                         Text(item.title)
                             .font(.system(size: 15))
@@ -263,14 +274,14 @@ struct DressingShopView: View {
 
     // MARK: - Recommend
 
+    // Recommend is a curated VIEW, not a category: it shows the
+    // same bubble records the 聊天气泡 category owns, through the
+    // same cards and the same detail sheet — one record, one apply
+    // path, never a second copy of an item.
     private var recommendView: some View {
         VStack(alignment: .leading, spacing: 0) {
             nowWearingStrip
-            sectionHeader(AppLocalized("主题"), jumpTo: .theme)
-            cardRow {
-                ForEach(themePlaceholders) { theme in themePlaceholderCard(theme) }
-            }
-            tagRail
+            bubbleTagRail
             sectionHeader(AppLocalized("聊天气泡"), jumpTo: .bubble)
             cardRow {
                 ForEach(visiblePacks) { pack in bubbleCard(pack) }
@@ -303,82 +314,30 @@ struct DressingShopView: View {
         .padding(.vertical, 14)
     }
 
-    // MARK: - Theme placeholders (next batch, not buttons)
+    // MARK: - Theme (next batch, honest panel, no fake cards)
+    //
+    // The old THM-0001..0003 placeholder cards are deleted: they
+    // claimed numbers with no record behind them, which is exactly
+    // the fake-card classification fault. Until the theme batch
+    // defines real theme-set records, this category is an honest
+    // next-batch panel like pendant / font / name card — not a
+    // card, not a text row.
     //
     // Required connection for the theme batch, recorded here so
     // it cannot be reduced later: a theme set is NOT just bubbles.
     // A full-set preview must show wallpaper + bubbles + avatar +
     // input bar + pendant together, and applying a set must swap
     // all of those pieces together — never two bubble samples.
-    // This batch's bubble record does not block that wiring: a
-    // theme set will reference a bubble by number and apply it
+    // A theme set will reference a bubble by number and apply it
     // through BubbleStylePackStore.apply, alongside the set's
     // wallpaper, pendant, font, and input-bar pieces, each from
     // its own record. The bubble record owns no wallpaper,
     // pendant, or avatar field, so the set can compose them.
-
-    private struct ThemePlaceholder: Identifiable {
-        var id: String { number }
-        let number: String
-        let title: String
-    }
-
-    private var themePlaceholders: [ThemePlaceholder] {
-        [
-            ThemePlaceholder(number: "THM-0001", title: "瓷白晨光"),
-            ThemePlaceholder(number: "THM-0002", title: "圆点纸纹"),
-            ThemePlaceholder(number: "THM-0003", title: "横线信纸"),
-        ]
-    }
-
-    private func themePlaceholderCard(_ theme: ThemePlaceholder) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(AppLocalized("今天也想你"))
-                    .font(.system(size: 11))
-                    .padding(.horizontal, 8).padding(.vertical, 6)
-                    .background(studio.color(.surface))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                HStack {
-                    Spacer(minLength: 0)
-                    Text(AppLocalized("今天也想你"))
-                        .font(.system(size: 11))
-                        .padding(.horizontal, 8).padding(.vertical, 6)
-                        .background(studio.color(.userBubble))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                }
-                Spacer(minLength: 0)
-                Capsule()
-                    .fill(studio.color(.mutedSurface))
-                    .frame(height: 18)
-            }
-            .padding(10)
-            .frame(width: 125, height: 182)
-            .background(studio.color(.surface))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            Text(theme.title)
-                .font(.system(size: 16))
-                .foregroundStyle(studio.color(.primaryText))
-                .padding(.top, 10)
-            Text(theme.number)
-                .font(.system(size: 13))
-                .foregroundStyle(studio.color(.secondaryText))
-                .padding(.top, 3)
-            Text(AppLocalized("稍后推出"))
-                .font(.system(size: 13))
-                .foregroundStyle(studio.color(.secondaryText))
-                .padding(.top, 3)
-        }
-        .frame(width: 125)
-    }
+    // Retired appearance rows map here: palette colours, wallpaper
+    // (backdrop), and the theme library (save / import / export).
 
     private var themeView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionHeader(AppLocalized("主题"), jumpTo: .theme)
-            cardRow {
-                ForEach(themePlaceholders) { theme in themePlaceholderCard(theme) }
-            }
-        }
+        nextBatchPanel(AppLocalized("主题"))
     }
 
     // MARK: - Bubble views
@@ -389,7 +348,7 @@ struct DressingShopView: View {
             cardRow {
                 ForEach(visiblePacks) { pack in bubbleCard(pack) }
             }
-            tagRail
+            bubbleTagRail
             sectionHeader(AppLocalized("全部气泡"), jumpTo: .bubble)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
                       spacing: 12) {
@@ -463,7 +422,13 @@ struct DressingShopView: View {
     private func bubbleSampleRow(pack: BubbleStylePack, isUser: Bool) -> some View {
         let style = pack.style
         let bubbleColour = studio.color(isUser ? .userBubble : .assistantBubble)
-        let textColour = studio.color(isUser ? .bubbleText : .assistantBubbleText)
+        // Pack text colour wins when the pack carries one (a future
+        // image-background pack's text must stay readable on its own
+        // background); otherwise the theme's bubble text slot, as
+        // before. Live chat resolves the same way (ChatColors), so
+        // sample and live can never disagree on text colour.
+        let textColour = style.textColor(isUser: isUser)
+            ?? studio.color(isUser ? .bubbleText : .assistantBubbleText)
         let borderWidth = isUser ? style.userBorderWidth : style.assistantBorderWidth
         return HStack(alignment: .center, spacing: 6) {
             if !isUser { avatarDisc(size: 28) }
@@ -491,13 +456,23 @@ struct DressingShopView: View {
         let radius = CGFloat(isUser ? style.userRadius : style.assistantRadius)
         let shape = MinisBubbleShape(style: style.liveStyle(), radius: radius,
                                      tailOnTrailing: isUser, packKind: style.packShape)
+        // The one shared surface: solid colour, image background,
+        // pattern, and decorations all come from this same record
+        // here, in the detail preview (which calls this view), and
+        // in live chat (which reads the same fields from the theme
+        // pack apply() wrote). No surface draws a second version.
         return AnyView(Text(text)
             .font(.system(size: fontSize))
             .foregroundStyle(textColour)
             .padding(.horizontal, padding).padding(.vertical, 8)
-            .background(bubbleColour)
+            .background(BubblePackSurfaceBackground(
+                shape: shape, colour: bubbleColour,
+                imageFile: style.backgroundImageFile,
+                pattern: style.pattern, patternOpacity: style.patternOpacity,
+                textColour: textColour))
             .clipShape(shape)
-            .modifier(BubbleBorderChrome(shape: shape, width: borderWidth)))
+            .modifier(BubbleBorderChrome(shape: shape, width: borderWidth))
+            .overlay(BubblePackDecorationsView(decorations: style.decorations)))
     }
 
     // MARK: - Outfit view
@@ -687,7 +662,8 @@ struct DressingShopView: View {
             bubbleShapeView(pack: pack, isUser: isUser, text: text,
                             fontSize: 16, padding: 14,
                             bubbleColour: studio.color(isUser ? .userBubble : .assistantBubble),
-                            textColour: studio.color(isUser ? .bubbleText : .assistantBubbleText),
+                            textColour: pack.style.textColor(isUser: isUser)
+                                ?? studio.color(isUser ? .bubbleText : .assistantBubbleText),
                             borderWidth: isUser ? pack.style.userBorderWidth : pack.style.assistantBorderWidth)
             if isUser { avatarDisc(size: 36) }
             if !isUser { Spacer(minLength: 0) }

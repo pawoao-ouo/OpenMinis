@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 // MARK: - Bubble style packs, step 1 (record + catalogue + grid + tap-apply)
 //
@@ -150,6 +151,211 @@ struct BubblePackOutlineShape: Shape {
     }
 }
 
+/// MARK: - Bubble foundation for future complex image packs
+///
+/// The six built-in packs are shape-only, but the record must already
+/// be able to carry what a complex pack needs, so a later complex
+/// pack is data, not a rewrite: an image background, a procedural
+/// pattern, decorative image elements, and a per-role text colour
+/// that stays readable on that pack's own background. Nothing here
+/// designs a complex pack — there is no built-in that sets any of
+/// these fields, and no upload UI yet (that is the pendant/upload
+/// batch's job). The fields are only the storage + the one shared
+/// renderer every surface uses, so a future pack can never be
+/// promised by the shop and missing in live chat.
+///
+/// Image storage: pack image files live under
+/// ApplicationSupport/AppearanceStudio/bubble_pack_images/, next to
+/// the pack catalogue, named by file name only. A file name that
+/// contains a path separator or ".." is treated as absent — a pack
+/// record must never reach outside its own directory. A missing
+/// image is never a blank box: the solid theme colour underneath
+/// always shows, and a missing decoration is simply skipped.
+
+enum BubblePattern: String, CaseIterable, Codable {
+    case none, dots, stripes
+    var title: String {
+        switch self {
+        case .none: return AppLocalized("无图案")
+        case .dots: return AppLocalized("圆点")
+        case .stripes: return AppLocalized("斜纹")
+        }
+    }
+    static func parse(_ raw: String?) -> BubblePattern {
+        guard let raw, let value = BubblePattern(rawValue: raw) else { return .none }
+        return value
+    }
+}
+
+enum BubbleDecorationAnchor: String, CaseIterable, Codable {
+    case topLeading, topTrailing, bottomLeading, bottomTrailing
+    var alignment: Alignment {
+        switch self {
+        case .topLeading: return .topLeading
+        case .topTrailing: return .topTrailing
+        case .bottomLeading: return .bottomLeading
+        case .bottomTrailing: return .bottomTrailing
+        }
+    }
+    static func parse(_ raw: String?) -> BubbleDecorationAnchor {
+        guard let raw, let value = BubbleDecorationAnchor(rawValue: raw) else { return .topTrailing }
+        return value
+    }
+}
+
+/// One decorative image element on a pack: a file in the pack
+/// image directory, anchored to a bubble corner, with a size and an
+/// offset that may let it peek outside the bubble outline. Tolerant
+/// decode: a bad file name, anchor, or size degrades to a skipped
+/// decoration, never to a broken pack.
+struct BubbleDecoration: Equatable, Codable {
+    var imageFile: String
+    var anchor: BubbleDecorationAnchor
+    var size: Double
+    var offsetX: Double
+    var offsetY: Double
+
+    init(imageFile: String = "", anchor: BubbleDecorationAnchor = .topTrailing,
+         size: Double = 28, offsetX: Double = 0, offsetY: Double = 0) {
+        self.imageFile = imageFile
+        self.anchor = anchor
+        self.size = min(64, max(12, size))
+        self.offsetX = min(40, max(-40, offsetX))
+        self.offsetY = min(40, max(-40, offsetY))
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case imageFile, anchor, size, offsetX, offsetY
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        imageFile = try c.decodeIfPresent(String.self, forKey: .imageFile) ?? ""
+        anchor = BubbleDecorationAnchor.parse(try c.decodeIfPresent(String.self, forKey: .anchor))
+        size = min(64, max(12, try c.decodeIfPresent(Double.self, forKey: .size) ?? 28))
+        offsetX = min(40, max(-40, try c.decodeIfPresent(Double.self, forKey: .offsetX) ?? 0))
+        offsetY = min(40, max(-40, try c.decodeIfPresent(Double.self, forKey: .offsetY) ?? 0))
+    }
+}
+
+enum BubblePackImageStore {
+    static var directory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first!
+        let dir = base.appendingPathComponent("AppearanceStudio", isDirectory: true)
+            .appendingPathComponent("bubble_pack_images", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// A file name is safe only as a bare name: no separators, no
+    /// "..", non-empty. Anything else is absent, not an error.
+    static func url(fileName: String?) -> URL? {
+        guard let fileName, !fileName.isEmpty,
+              !fileName.contains("/"), !fileName.contains("\\"),
+              !fileName.contains("..") else { return nil }
+        return directory.appendingPathComponent(fileName)
+    }
+
+    static func image(fileName: String?) -> UIImage? {
+        guard let url = url(fileName: fileName) else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+}
+
+/// The one bubble surface every surface uses: solid colour first
+/// (never blank), then the pack's image background scaled to fill
+/// and clipped to the bubble shape, then its pattern at low
+/// opacity in the pack's text colour. Shop cards, detail previews,
+/// and live chat all call this with their own shape/colour and
+/// the same record fields, so they cannot drift apart.
+struct BubblePackSurfaceBackground: View {
+    let shape: MinisBubbleShape
+    let colour: Color
+    let imageFile: String?
+    let pattern: BubblePattern
+    let patternOpacity: Double
+    let textColour: Color
+    var dim: Double = 1
+
+    var body: some View {
+        ZStack {
+            colour
+            if let uiImage = BubblePackImageStore.image(fileName: imageFile) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+            }
+            if pattern != .none {
+                BubblePatternView(pattern: pattern, colour: textColour,
+                                  opacity: patternOpacity)
+            }
+        }
+        .clipShape(shape)
+        .opacity(dim)
+    }
+}
+
+/// Decorations drawn OVER the bubble (after clip + border chrome),
+/// so a corner element may peek outside the outline. Missing image
+/// files are skipped, never drawn as empty frames.
+struct BubblePackDecorationsView: View {
+    let decorations: [BubbleDecoration]
+
+    var body: some View {
+        ZStack {
+            ForEach(Array(decorations.enumerated()), id: \.offset) { _, decoration in
+                if let uiImage = BubblePackImageStore.image(fileName: decoration.imageFile) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: CGFloat(decoration.size), height: CGFloat(decoration.size))
+                        .offset(x: CGFloat(decoration.offsetX), y: CGFloat(decoration.offsetY))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: decoration.anchor.alignment)
+                }
+            }
+        }
+    }
+}
+
+private struct BubblePatternView: View {
+    let pattern: BubblePattern
+    let colour: Color
+    let opacity: Double
+
+    var body: some View {
+        Canvas { context, size in
+            switch pattern {
+            case .none:
+                break
+            case .dots:
+                let step: CGFloat = 18
+                var y: CGFloat = 9
+                while y < size.height {
+                    var x: CGFloat = 9
+                    while x < size.width {
+                        let rect = CGRect(x: x - 1.5, y: y - 1.5, width: 3, height: 3)
+                        context.fill(Path(ellipseIn: rect), with: .color(colour.opacity(opacity)))
+                        x += step
+                    }
+                    y += step
+                }
+            case .stripes:
+                let step: CGFloat = 16
+                var offset: CGFloat = -size.height
+                while offset < size.width {
+                    var path = Path()
+                    path.move(to: CGPoint(x: offset, y: 0))
+                    path.addLine(to: CGPoint(x: offset + size.height, y: size.height))
+                    context.stroke(path, with: .color(colour.opacity(opacity)), lineWidth: 1.5)
+                    offset += step
+                }
+            }
+        }
+    }
+}
+
 /// Row-bubble = the bubble spans the message row; text-bubble = the
 /// bubble hugs the text only.
 enum BubbleSurface: String, CaseIterable, Codable {
@@ -273,6 +479,17 @@ struct BubbleStyleRecord: Equatable, Codable {
     var assistantName: BubbleNamePlacement
     var inputBarForm: BubbleInputBarForm
     var inputBarRadius: Double
+    // Foundation for future complex packs (all unset on the six
+    // built-ins, so they render exactly as before): an image
+    // background file, a procedural pattern, decorative image
+    // elements, and a per-role text colour that follows the pack's
+    // own background instead of the theme's bubble text slot.
+    var backgroundImageFile: String?
+    var pattern: BubblePattern
+    var patternOpacity: Double
+    var decorations: [BubbleDecoration]
+    var userTextHex: String?
+    var assistantTextHex: String?
 
     // Width fix (user device report): every pack hugs its text.
     // The old default was .row, which stretches a bubble to the
@@ -305,7 +522,10 @@ struct BubbleStyleRecord: Equatable, Codable {
          messageSpacing: Double = 10,
          userMeta: BubbleMetaPosition = .below, assistantMeta: BubbleMetaPosition = .below,
          userName: BubbleNamePlacement = .hidden, assistantName: BubbleNamePlacement = .above,
-         inputBarForm: BubbleInputBarForm = .rounded, inputBarRadius: Double = 20) {
+         inputBarForm: BubbleInputBarForm = .rounded, inputBarRadius: Double = 20,
+         backgroundImageFile: String? = nil, pattern: BubblePattern = .none,
+         patternOpacity: Double = 0.15, decorations: [BubbleDecoration] = [],
+         userTextHex: String? = nil, assistantTextHex: String? = nil) {
         self.display = display
         self.userSurface = userSurface
         self.assistantSurface = assistantSurface
@@ -328,9 +548,52 @@ struct BubbleStyleRecord: Equatable, Codable {
         self.assistantName = assistantName
         self.inputBarForm = inputBarForm
         self.inputBarRadius = BubbleStyleRecord.clampRadius(inputBarRadius)
+        self.backgroundImageFile = (backgroundImageFile?.isEmpty == true) ? nil : backgroundImageFile
+        self.pattern = pattern
+        self.patternOpacity = min(0.6, max(0, patternOpacity))
+        self.decorations = decorations
+        self.userTextHex = BubbleStyleRecord.normalizedPackHex(userTextHex)
+        self.assistantTextHex = BubbleStyleRecord.normalizedPackHex(assistantTextHex)
+    }
+
+    /// Pack text hex: a bare 6/8-digit hex, or nil when unset or
+    /// invalid — an invalid value falls back to the theme slot,
+    /// never to black. (The theme pack's own normalizer lives in
+    /// AppearanceThemePack.swift and is fileprivate there, so this
+    /// record normalizes with the same rule, not a second rule.)
+    static func normalizedPackHex(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: CharacterSet.alphanumerics.inverted).uppercased()
+        guard (trimmed.count == 6 || trimmed.count == 8),
+              trimmed.allSatisfy({ $0.isHexDigit }) else { return nil }
+        return trimmed
+    }
+
+    /// Pack text colour for one role, or nil when the pack carries
+    /// none — the caller falls back to the theme's bubble text slot.
+    func textColor(isUser: Bool) -> Color? {
+        let hex = isUser ? userTextHex : assistantTextHex
+        guard let hex else { return nil }
+        return Color(hex: hex)
     }
 
     static func clampRadius(_ value: Double) -> Double { min(32, max(4, value)) }
+
+    /// Decorations as a JSON string for the theme pack (which is a
+    /// flat JSON dictionary, not a Codable struct). Empty means
+    /// "no decorations" on decode, same as nil.
+    static func encodeDecorations(_ decorations: [BubbleDecoration]) -> String? {
+        guard !decorations.isEmpty,
+              let data = try? JSONEncoder().encode(decorations),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        return json
+    }
+
+    static func decodeDecorations(_ json: String?) -> [BubbleDecoration] {
+        guard let json, let data = json.data(using: .utf8),
+              let value = try? JSONDecoder().decode([BubbleDecoration].self, from: data) else { return [] }
+        return value
+    }
 
     private enum CodingKeys: String, CodingKey {
         case display, userSurface, assistantSurface, tailOn, packShape, cornerPreset
@@ -338,6 +601,8 @@ struct BubbleStyleRecord: Equatable, Codable {
         case userBorderWidth, assistantBorderWidth, userPadding, assistantPadding
         case messageSpacing, userMeta, assistantMeta, userName, assistantName
         case inputBarForm, inputBarRadius
+        case backgroundImageFile, pattern, patternOpacity, decorations
+        case userTextHex, assistantTextHex
     }
 
     init(from decoder: Decoder) throws {
@@ -370,6 +635,18 @@ struct BubbleStyleRecord: Equatable, Codable {
         assistantName = BubbleNamePlacement.parse(try c.decodeIfPresent(String.self, forKey: .assistantName))
         inputBarForm = BubbleInputBarForm.parse(try c.decodeIfPresent(String.self, forKey: .inputBarForm))
         inputBarRadius = BubbleStyleRecord.clampRadius(try c.decodeIfPresent(Double.self, forKey: .inputBarRadius) ?? d.inputBarRadius)
+        let rawImageFile = try c.decodeIfPresent(String.self, forKey: .backgroundImageFile)
+        backgroundImageFile = (rawImageFile?.isEmpty == true) ? nil : rawImageFile
+        pattern = BubblePattern.parse(try c.decodeIfPresent(String.self, forKey: .pattern))
+        patternOpacity = min(0.6, max(0, try c.decodeIfPresent(Double.self, forKey: .patternOpacity) ?? d.patternOpacity))
+        if let decoded = try? c.decodeIfPresent([BubbleDecoration].self, forKey: .decorations),
+           let value = decoded {
+            decorations = value
+        } else {
+            decorations = []
+        }
+        userTextHex = BubbleStyleRecord.normalizedPackHex(try c.decodeIfPresent(String.self, forKey: .userTextHex))
+        assistantTextHex = BubbleStyleRecord.normalizedPackHex(try c.decodeIfPresent(String.self, forKey: .assistantTextHex))
     }
 
     /// Bubble style the live theme pack understands, for one role.
@@ -418,8 +695,12 @@ struct BubbleStylePack: Identifiable, Equatable, Codable {
     /// (shape + display + surfaces), so the detail sheet can
     /// never describe a different pack than the shop applied.
     var composition: [String] {
-        [style.packShape.title, style.display.title,
-         style.userSurface.title, style.assistantSurface.title]
+        var parts = [style.packShape.title, style.display.title,
+                     style.userSurface.title, style.assistantSurface.title]
+        if style.backgroundImageFile != nil { parts.append(AppLocalized("图片底")) }
+        if style.pattern != .none { parts.append(style.pattern.title) }
+        if !style.decorations.isEmpty { parts.append(AppLocalized("装饰件")) }
+        return parts
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -668,6 +949,16 @@ final class BubbleStylePackStore: ObservableObject {
         theme.messageSpacing = s.messageSpacing
         theme.bubbleCornerPreset = s.cornerPreset.rawValue
         theme.bubblePackShape = s.packShape.rawValue
+        // Foundation fields: the live theme is the single source
+        // live chat reads, so a future image/pattern pack must
+        // travel through apply() like every other pack field — a
+        // pack that only the shop knew about would be a sample lie.
+        theme.bubbleBackgroundImageFile = s.backgroundImageFile
+        theme.bubblePattern = s.pattern.rawValue
+        theme.bubblePatternOpacity = s.patternOpacity
+        theme.bubbleDecorationsJSON = BubbleStyleRecord.encodeDecorations(s.decorations)
+        theme.userBubblePackTextHex = s.userTextHex
+        theme.assistantBubblePackTextHex = s.assistantTextHex
         theme.inputBarRadius = s.inputBarRadius
         theme.inputBarStyle = s.liveInputBarStyle().rawValue
         studio.persistPack(theme)

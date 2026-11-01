@@ -323,7 +323,20 @@ struct SelectableMarkdownTheme {
     // [fixer-F1] AI body text now follows its own bubble-page slot:
     // unset, assistantBubbleText falls back to primaryText (same
     // rendering as before); set, it colours only the AI message body.
-    var labelColor: UIColor { AppearanceStudio.uiColorSnapshot(.assistantBubbleText, scope: .chat) }
+    // [bubble-foundation] Same pack-text-colour rule as
+    // ChatColors.assistantBubbleText: the applied pack's text hex
+    // wins, otherwise the theme slot. Without this, markdown body
+    // text inside an AI bubble would ignore a future image pack's
+    // text colour while plain text honoured it.
+    var labelColor: UIColor {
+        // Nonisolated snapshot read (same pattern as
+        // AppearanceThemePack.storedLineHeight): this theme struct is
+        // not MainActor, so it cannot call currentThemePack().
+        if let hex = AppearanceThemePack.storedAssistantBubblePackTextHex() {
+            return UIColor(hex: hex)
+        }
+        return AppearanceStudio.uiColorSnapshot(.assistantBubbleText, scope: .chat)
+    }
     var secondaryLabelColor: UIColor { AppearanceStudio.uiColorSnapshot(.secondaryText, scope: .chat) }
     var accentColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning) }
     var linkColor: UIColor { AppearanceStudio.uiColorSnapshot(.accent) }

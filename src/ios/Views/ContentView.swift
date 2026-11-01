@@ -6810,8 +6810,24 @@ private struct SpinningRing: View {
 // - 「Theme 跟随系统/浅色/深色」—— 跟装扮页那份重复，只留装扮页的
 // - 「工具预览窗口」`toolPreviewEnabled` —— 全仓零消费的死开关
 private struct AppearanceSettingsView: View {
+    // [dressing-shop-merge] Tapping 外观 opens the dressing shop
+    // directly — there is no intermediate appearance list anymore.
+    // The six rows that used to live on that list (配色 / 气泡与
+    // 文字 / 背景 / 图标 / 主题库 / 行为) are retired as navigation:
+    // their dressing contents map to exactly one shop category each
+    // (palette colours + wallpaper + theme library -> 主题; bubble
+    // shape -> 聊天气泡, already in the shop, so the old bubble row
+    // was a duplicate and is gone; font sizes -> 字体), and the
+    // shop shows those categories as honest next-batch panels until
+    // their visual cards exist — never as fake cards or text rows.
+    // Residue that is NOT dressing and cannot honestly live in the
+    // shop (language, input behaviour, launch session, keep-awake,
+    // app icon) has no shop category: its controls stay in
+    // AppearanceStudioView.swift as code, unreachable from this
+    // entry until a non-shop settings home is built for them. That
+    // gap is recorded, not hidden by misfiling them into the shop.
     var body: some View {
-        AppearanceStudioView()
+        DressingShopView()
     }
 }
 
