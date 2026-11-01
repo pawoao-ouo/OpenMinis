@@ -700,8 +700,32 @@ extension AppearanceStudio {
     func loadStoredPackUnlocked() -> AppearanceThemePack {
         guard let data = UserDefaults.standard.data(forKey: Self.packKey),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let pack = try? AppearanceThemePack.decode(obj) else {
+              var pack = try? AppearanceThemePack.decode(obj) else {
             return .default
+        }
+        // Bubble-width fix, one-time healing: the three packs whose
+        // records used to be .row (porcelain BUB-0001, wave
+        // BUB-0004, stitch BUB-0006) wrote .row surfaces into the
+        // live theme, so already-applied users kept full-width
+        // bubbles even after the catalogue was fixed — changing
+        // built-ins alone only helps the next tap-apply. Rewrite
+        // those surfaces to .text here, so live chat hugs its text
+        // on the first launch after update, with no re-tap needed.
+        // No UI picker ever writes .row (only pack apply does), and
+        // no pack writes .row anymore, so this cannot clobber a
+        // deliberate user choice. Direct UserDefaults set, same as
+        // the schema upgrade below — avoid persistPack (would
+        // re-enter themePackLock).
+        if (pack.bubblePackShape == BubblePackKind.porcelain.rawValue
+            || pack.bubblePackShape == BubblePackKind.wave.rawValue
+            || pack.bubblePackShape == BubblePackKind.stitch.rawValue)
+            && (pack.userBubbleSurface == BubbleSurface.row.rawValue
+                || pack.assistantBubbleSurface == BubbleSurface.row.rawValue) {
+            pack.userBubbleSurface = BubbleSurface.text.rawValue
+            pack.assistantBubbleSurface = BubbleSurface.text.rawValue
+            if let healed = try? JSONSerialization.data(withJSONObject: pack.asJSONObject()) {
+                UserDefaults.standard.set(healed, forKey: Self.packKey)
+            }
         }
         // Persist upgraded schema 5 when stored JSON had missing/old schema.
         // Direct UserDefaults set — avoid persistPack (would re-enter themePackLock).

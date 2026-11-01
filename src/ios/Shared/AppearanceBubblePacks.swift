@@ -274,9 +274,14 @@ struct BubbleStyleRecord: Equatable, Codable {
     var inputBarForm: BubbleInputBarForm
     var inputBarRadius: Double
 
+    // Width fix (user device report): every pack hugs its text.
+    // The old default was .row, which stretches a bubble to the
+    // full row width even for short text ("宝宝" / "贴贴") — the
+    // opposite of the original behaviour, where bubble width
+    // follows text length. No pack uses .row anymore.
     static let `default` = BubbleStyleRecord(
         display: .bubbles,
-        userSurface: .row, assistantSurface: .row,
+        userSurface: .text, assistantSurface: .text,
         tailOn: false, packShape: .porcelain, cornerPreset: .even,
         userRadius: 18, assistantRadius: 16,
         avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 0,
@@ -289,7 +294,7 @@ struct BubbleStyleRecord: Equatable, Codable {
     )
 
     init(display: AppearanceChatDisplay = .bubbles,
-         userSurface: BubbleSurface = .row, assistantSurface: BubbleSurface = .row,
+         userSurface: BubbleSurface = .text, assistantSurface: BubbleSurface = .text,
          tailOn: Bool = false, packShape: BubblePackKind = .porcelain,
          cornerPreset: BubbleCornerPreset = .even,
          userRadius: Double = 18, assistantRadius: Double = 16,
@@ -514,7 +519,7 @@ final class BubbleStylePackStore: ObservableObject {
         BubbleStylePack(
             number: "BUB-0004", title: "波浪", category: "气泡", tag: "柔和",
             style: BubbleStyleRecord(
-                userSurface: .row, assistantSurface: .row,
+                userSurface: .text, assistantSurface: .text,
                 tailOn: false, packShape: .wave, cornerPreset: .even,
                 userRadius: 14, assistantRadius: 14,
                 avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 0,
@@ -538,7 +543,7 @@ final class BubbleStylePackStore: ObservableObject {
         BubbleStylePack(
             number: "BUB-0006", title: "丝带针脚", category: "气泡", tag: "简约",
             style: BubbleStyleRecord(
-                userSurface: .row, assistantSurface: .row,
+                userSurface: .text, assistantSurface: .text,
                 tailOn: false, packShape: .stitch, cornerPreset: .even,
                 userRadius: 14, assistantRadius: 14,
                 avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 1,
@@ -590,8 +595,18 @@ final class BubbleStylePackStore: ObservableObject {
             }
             appliedNumber = catalog.appliedNumber.flatMap { number in
                 guard let builtIn = Self.builtIns.first(where: { $0.number == number }),
-                      let stored = catalog.packs.first(where: { $0.number == number }),
-                      stored.style == builtIn.style else { return nil }
+                      let stored = catalog.packs.first(where: { $0.number == number }) else { return nil }
+                // Width-fix tolerance: the bubble-width fix changed
+                // only the surface fields (.row -> .text) on the
+                // formerly-row packs. A stored pack that differs
+                // from its built-in ONLY in surface is still the
+                // same pack in use, so its claim survives; any
+                // other difference (shape, radius, padding, …)
+                // still clears the claim, as before.
+                var adjusted = stored
+                adjusted.style.userSurface = builtIn.style.userSurface
+                adjusted.style.assistantSurface = builtIn.style.assistantSurface
+                guard adjusted.style == builtIn.style else { return nil }
                 return number
             }
             nextSerial = max(7, catalog.nextSerial)
