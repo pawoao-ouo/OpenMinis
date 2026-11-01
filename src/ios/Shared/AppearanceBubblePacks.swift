@@ -229,32 +229,32 @@ struct BubbleStyleRecord: Equatable, Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = BubbleStyleRecord.default
-        if let raw = c.decodeIfPresent(String.self, forKey: .display),
+        if let raw = try c.decodeIfPresent(String.self, forKey: .display),
            let parsed = AppearanceChatDisplay(rawValue: raw) {
             display = parsed
         } else {
             display = d.display
         }
-        userSurface = BubbleSurface.parse(c.decodeIfPresent(String.self, forKey: .userSurface))
-        assistantSurface = BubbleSurface.parse(c.decodeIfPresent(String.self, forKey: .assistantSurface))
-        tailOn = c.decodeIfPresent(Bool.self, forKey: .tailOn) ?? d.tailOn
-        cornerPreset = BubbleCornerPreset.parse(c.decodeIfPresent(String.self, forKey: .cornerPreset))
-        userRadius = BubbleStyleRecord.clampRadius(c.decodeIfPresent(Double.self, forKey: .userRadius) ?? d.userRadius)
-        assistantRadius = BubbleStyleRecord.clampRadius(c.decodeIfPresent(Double.self, forKey: .assistantRadius) ?? d.assistantRadius)
-        avatarPlacement = BubbleAvatarPlacement.parse(c.decodeIfPresent(String.self, forKey: .avatarPlacement))
-        avatarSize = min(64, max(28, c.decodeIfPresent(Double.self, forKey: .avatarSize) ?? d.avatarSize))
-        avatarBorderWidth = min(3, max(0, c.decodeIfPresent(Double.self, forKey: .avatarBorderWidth) ?? d.avatarBorderWidth))
-        userBorderWidth = min(2, max(0, c.decodeIfPresent(Double.self, forKey: .userBorderWidth) ?? d.userBorderWidth))
-        assistantBorderWidth = min(2, max(0, c.decodeIfPresent(Double.self, forKey: .assistantBorderWidth) ?? d.assistantBorderWidth))
-        userPadding = min(20, max(8, c.decodeIfPresent(Double.self, forKey: .userPadding) ?? d.userPadding))
-        assistantPadding = min(20, max(8, c.decodeIfPresent(Double.self, forKey: .assistantPadding) ?? d.assistantPadding))
-        messageSpacing = min(24, max(4, c.decodeIfPresent(Double.self, forKey: .messageSpacing) ?? d.messageSpacing))
-        userMeta = BubbleMetaPosition.parse(c.decodeIfPresent(String.self, forKey: .userMeta))
-        assistantMeta = BubbleMetaPosition.parse(c.decodeIfPresent(String.self, forKey: .assistantMeta))
-        userName = BubbleNamePlacement.parse(c.decodeIfPresent(String.self, forKey: .userName))
-        assistantName = BubbleNamePlacement.parse(c.decodeIfPresent(String.self, forKey: .assistantName))
-        inputBarForm = BubbleInputBarForm.parse(c.decodeIfPresent(String.self, forKey: .inputBarForm))
-        inputBarRadius = BubbleStyleRecord.clampRadius(c.decodeIfPresent(Double.self, forKey: .inputBarRadius) ?? d.inputBarRadius)
+        userSurface = BubbleSurface.parse(try c.decodeIfPresent(String.self, forKey: .userSurface))
+        assistantSurface = BubbleSurface.parse(try c.decodeIfPresent(String.self, forKey: .assistantSurface))
+        tailOn = try c.decodeIfPresent(Bool.self, forKey: .tailOn) ?? d.tailOn
+        cornerPreset = BubbleCornerPreset.parse(try c.decodeIfPresent(String.self, forKey: .cornerPreset))
+        userRadius = BubbleStyleRecord.clampRadius(try c.decodeIfPresent(Double.self, forKey: .userRadius) ?? d.userRadius)
+        assistantRadius = BubbleStyleRecord.clampRadius(try c.decodeIfPresent(Double.self, forKey: .assistantRadius) ?? d.assistantRadius)
+        avatarPlacement = BubbleAvatarPlacement.parse(try c.decodeIfPresent(String.self, forKey: .avatarPlacement))
+        avatarSize = min(64, max(28, try c.decodeIfPresent(Double.self, forKey: .avatarSize) ?? d.avatarSize))
+        avatarBorderWidth = min(3, max(0, try c.decodeIfPresent(Double.self, forKey: .avatarBorderWidth) ?? d.avatarBorderWidth))
+        userBorderWidth = min(2, max(0, try c.decodeIfPresent(Double.self, forKey: .userBorderWidth) ?? d.userBorderWidth))
+        assistantBorderWidth = min(2, max(0, try c.decodeIfPresent(Double.self, forKey: .assistantBorderWidth) ?? d.assistantBorderWidth))
+        userPadding = min(20, max(8, try c.decodeIfPresent(Double.self, forKey: .userPadding) ?? d.userPadding))
+        assistantPadding = min(20, max(8, try c.decodeIfPresent(Double.self, forKey: .assistantPadding) ?? d.assistantPadding))
+        messageSpacing = min(24, max(4, try c.decodeIfPresent(Double.self, forKey: .messageSpacing) ?? d.messageSpacing))
+        userMeta = BubbleMetaPosition.parse(try c.decodeIfPresent(String.self, forKey: .userMeta))
+        assistantMeta = BubbleMetaPosition.parse(try c.decodeIfPresent(String.self, forKey: .assistantMeta))
+        userName = BubbleNamePlacement.parse(try c.decodeIfPresent(String.self, forKey: .userName))
+        assistantName = BubbleNamePlacement.parse(try c.decodeIfPresent(String.self, forKey: .assistantName))
+        inputBarForm = BubbleInputBarForm.parse(try c.decodeIfPresent(String.self, forKey: .inputBarForm))
+        inputBarRadius = BubbleStyleRecord.clampRadius(try c.decodeIfPresent(Double.self, forKey: .inputBarRadius) ?? d.inputBarRadius)
     }
 
     /// Bubble style the live theme pack understands, for one role.
@@ -307,11 +307,11 @@ struct BubbleStylePack: Identifiable, Equatable, Codable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        number = c.decodeIfPresent(String.self, forKey: .number) ?? ""
-        title = c.decodeIfPresent(String.self, forKey: .title) ?? ""
-        category = c.decodeIfPresent(String.self, forKey: .category) ?? ""
-        useCount = max(0, c.decodeIfPresent(Int.self, forKey: .useCount) ?? 0)
-        style = c.decodeIfPresent(BubbleStyleRecord.self, forKey: .style) ?? .default
+        number = try c.decodeIfPresent(String.self, forKey: .number) ?? ""
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        category = try c.decodeIfPresent(String.self, forKey: .category) ?? ""
+        useCount = max(0, try c.decodeIfPresent(Int.self, forKey: .useCount) ?? 0)
+        style = try c.decodeIfPresent(BubbleStyleRecord.self, forKey: .style) ?? .default
     }
 }
 
@@ -332,9 +332,9 @@ private struct BubblePackCatalogData: Codable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        packs = c.decodeIfPresent([BubbleStylePack].self, forKey: .packs) ?? []
-        appliedNumber = c.decodeIfPresent(String.self, forKey: .appliedNumber)
-        nextSerial = max(1, c.decodeIfPresent(Int.self, forKey: .nextSerial) ?? 1)
+        packs = try c.decodeIfPresent([BubbleStylePack].self, forKey: .packs) ?? []
+        appliedNumber = try c.decodeIfPresent(String.self, forKey: .appliedNumber)
+        nextSerial = max(1, try c.decodeIfPresent(Int.self, forKey: .nextSerial) ?? 1)
     }
 }
 
