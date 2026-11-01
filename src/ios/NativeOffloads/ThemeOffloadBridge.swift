@@ -259,6 +259,7 @@ import UIKit
                 "all page colour overrides",
                 "all scope wallpapers",
                 "uploaded theme images (thinking-card, input-bar, character art, category images)",
+                "opacity/shade defaults (surface opacity 0.88, bubble opacity 1.0, wallpaper shade 0.08)",
             ]
             let message: String
             if snapshotCaptured {

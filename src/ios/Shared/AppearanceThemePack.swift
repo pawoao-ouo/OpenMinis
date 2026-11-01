@@ -1061,6 +1061,17 @@ extension AppearanceStudio {
     @discardableResult
     func resetThemePack() -> Bool {
         let snapshotCaptured = captureThemeUndoSnapshot(includeWallpapers: true) != nil
+        // [F1] A failed capture (no pack JSON on disk) must not leave an
+        // older snapshot in place: the bridge reports undoAvailable:false
+        // for this reset, the settings undo button reads
+        // canUndoThemeReset, and `minis-theme undo` reads the same
+        // directory — if the old snapshot survived, all three would
+        // disagree with the bridge and undo would restore a theme this
+        // reset never captured. Invalidate before proceeding, so no path
+        // can restore an older theme after a reset that reported no undo.
+        if !snapshotCaptured {
+            try? FileManager.default.removeItem(at: themeUndoDirectory)
+        }
         // The proper removers persist the live pack (with the image
         // fields nilled), so they must run BEFORE the pack key is
         // removed — after removal they would resurrect the old pack.
