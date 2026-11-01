@@ -399,12 +399,12 @@ Skills use three loading levels:
 Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, etc. The skill should only contain what an AI agent needs to do the job.
 """
 
-    private static let minisThemeVersion = "1.2.0"
+    private static let minisThemeVersion = "1.3.0"
     private static let minisThemeContent = """
 ---
 name: minis-theme
-version: 1.2.0
-description: 设计并贴上 嘟嘟 分身的 AI 主题包。当用户说做主题、换皮肤、改颜色、改壁纸、改 thinking 卡片字号、粉嫩主题、minis-theme、AppearanceStudio、主题包 JSON 时使用。不要问这是不是 PPT 或网页。气泡形状、圆角、行高、字距这些布局只能用户在装扮页里改，AI 不接。
+version: 1.3.0
+description: 设计并贴上 嘟嘟 分身的 AI 主题包。当用户说做主题、换皮肤、改颜色、改壁纸、改 thinking 卡片字号、粉嫩主题、minis-theme、AppearanceStudio、主题包 JSON 时使用；用户说主题坏了、看不清、颜色乱了、字看不见、翻车了、恢复默认、救回来时也用这份——那是聊天里救主题的路，不用她再翻去装扮页。不要问这是不是 PPT 或网页。气泡形状、圆角、行高、字距这些布局只能用户在装扮页里改，AI 不接。
 ---
 
 # 嘟嘟 主题包
@@ -457,13 +457,21 @@ AI 改主题只许改这四样：颜色、壁纸和卡片图、字号、头像�
 老角色名 `input` / `searchField` / `toolCard` 已合并进 `field` / `surface`。
 旧包里写这三个还能读，但新包请用新名字。
 
+## 主题坏了，从聊天里救回来
+
+用户在聊天里说看不清、颜色乱了、主题翻车了，不用她翻去装扮页找按钮——聊天本身就是入口，直接在这里救：
+1. 用户在聊天里说一句「主题看不清，帮我恢复默认」，就是确认；不要再让她去设置页点，也不要让她自己拼命令。
+2. 跑 `minis-theme reset --force`。`--force` 就是这句确认，缺了它命令会被拒——以前的写法只写 `reset` 不带 `--force`，照着跑必定失败。
+3. 结果里会明说清掉了什么：主题包颜色、全部页级颜色覆盖、全部作用域壁纸、上传的主题图（thinking 卡、输入栏、立绘、分类图），回到默认暖纸包；聊天、备份、主题库里的保存主题都不动。
+4. 结果里 `undoAvailable` 为真，才能说能撤销：`minis-theme undo` 把这次清掉的主题带回来；为假时必须明说这次没有撤销快照、撤不回，不要许诺撤销。
+
 ## 怎么贴
 
 1. 写一份 JSON 主题包。
 2. `minis-theme apply --file /var/minis/workspace/theme.json`
 3. `minis-theme save --name 短名` 收进主题库。
 4. 不确定当前皮：`minis-theme get`。
-5. 还原：`minis-theme reset`。
+5. 还原：`minis-theme reset --force`。
 
 ## 只想改一个颜色
 

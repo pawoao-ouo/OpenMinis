@@ -241,17 +241,39 @@ import UIKit
         return result as NSDictionary
     }
 
+    /// [Safe-mode recovery] The chat reset path. The result must state
+    /// plainly what was reset, because the user reads it in chat after a
+    /// broken theme — a bare `reset: true` lets the AI invent the scope.
+    /// `undoAvailable` means THIS reset captured a snapshot, not merely
+    /// that some older snapshot file exists on disk: a reset with no
+    /// pack JSON captures nothing, and promising undo for it would
+    /// restore that older snapshot instead of this reset.
     @objc public static func resetPack() -> NSDictionary {
         let sem = DispatchSemaphore(value: 0)
         var result: [String: Any] = [:]
         Task { @MainActor in
-            AppearanceStudio.shared.resetThemePack()
+            let snapshotCaptured = AppearanceStudio.shared.resetThemePack()
+            let name = AppearanceThemePack.default.name
+            let resetScope = [
+                "theme pack colours",
+                "all page colour overrides",
+                "all scope wallpapers",
+                "uploaded theme images (thinking-card, input-bar, character art, category images)",
+            ]
+            let message: String
+            if snapshotCaptured {
+                message = "Theme reset to the default \"\(name)\" pack: \(resetScope.joined(separator: "; ")). Chats, backups, and saved library themes were not touched. Undo is available: `minis-theme undo` restores the theme removed by this reset."
+            } else {
+                message = "Theme reset to the default \"\(name)\" pack: \(resetScope.joined(separator: "; ")). Chats, backups, and saved library themes were not touched. No undo snapshot was captured for this reset, so `minis-theme undo` cannot restore the theme this reset removed."
+            }
             result = [
                 "ok": true,
                 "reset": true,
                 "id": AppearanceThemePack.default.id,
-                "name": AppearanceThemePack.default.name,
-                "undoAvailable": AppearanceStudio.shared.canUndoThemeReset,
+                "name": name,
+                "resetScope": resetScope,
+                "undoAvailable": snapshotCaptured,
+                "message": message,
             ]
             sem.signal()
         }

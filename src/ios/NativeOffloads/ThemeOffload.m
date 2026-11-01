@@ -82,7 +82,7 @@ static NSString *const HELP_TEXT =
      "  minis-theme color --list --scope chat\n"
      "  minis-theme list\n"
      "  minis-theme use --id <uuid>\n"
-     "  minis-theme reset\n"
+     "  minis-theme reset --force\n"
      "\n"
      "THEME PACK:\n"
      "  colorsLight.accent drives thinking title, tool capsules, slash thinking.\n"

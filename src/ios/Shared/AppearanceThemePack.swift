@@ -1052,8 +1052,15 @@ extension AppearanceStudio {
         return true
     }
 
-    func resetThemePack() {
-        _ = captureThemeUndoSnapshot(includeWallpapers: true)
+    /// Resets to the default pack. Returns true when this reset captured
+    /// its own undo snapshot; false when no pack JSON existed to snapshot
+    /// (the reset still runs, but `minis-theme undo` cannot restore the
+    /// theme this reset removed — callers must say so, not promise undo).
+    /// The return is discardable for the settings-UI caller, which shows
+    /// its own undo button from `canUndoThemeReset`.
+    @discardableResult
+    func resetThemePack() -> Bool {
+        let snapshotCaptured = captureThemeUndoSnapshot(includeWallpapers: true) != nil
         // The proper removers persist the live pack (with the image
         // fields nilled), so they must run BEFORE the pack key is
         // removed — after removal they would resurrect the old pack.
@@ -1078,6 +1085,7 @@ extension AppearanceStudio {
         themePackRevision += 1
         resetColors()
         objectWillChange.send()
+        return snapshotCaptured
     }
 
     func setBubbleStyle(_ style: AppearanceBubbleStyle, user: Bool) {
