@@ -490,7 +490,7 @@ struct AppearanceStudioView: View {
                 Spacer(minLength: 0)
                 Text(AppLocalized("也真的想你"))
                     .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
-                    .foregroundStyle(ChatColors.primaryText)
+                    .foregroundStyle(ChatColors.bubbleText)
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .modifier(UserBubbleSurface(isQueued: false))
             }
@@ -519,7 +519,7 @@ struct AppearanceStudioView: View {
                 Spacer(minLength: 0)
                 Text(AppLocalized("也真的想你"))
                     .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
-                    .foregroundStyle(ChatColors.primaryText)
+                    .foregroundStyle(ChatColors.bubbleText)
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .modifier(UserBubbleSurface(isQueued: false))
             }
@@ -773,7 +773,8 @@ struct AppearanceStudioView: View {
             shuffleCard
             presetsCard
             contrastCard
-            bubbleColorCard
+            // [bubble-grouping] 气泡颜色/透明度/字色只在气泡页，不再
+            // 在配色页挂第二份——改气泡只有一处。
             ForEach(AppearanceColorRoleGroup.allCases) { group in
                 paletteGroupCard(group)
             }
@@ -1209,8 +1210,10 @@ struct AppearanceStudioView: View {
 
     // MARK: - 气泡
 
-    /// [B28 R7 醒醒分类] 「气泡颜色」原来是气泡页的第一张卡——那是调色，
-    /// 归配色页。抽成一张卡，挂哪儿由页面决定，别让控件和语义走散。
+    /// [bubble-grouping] 气泡的所有颜色控制只长在这里：底色、字色、
+    /// 透明度，和形状同页。配色页不再挂这张卡（见 palettePage），
+    /// 免得改气泡要两边翻。字色是独立槽位 bubbleText：没设过时
+    /// 跟主文字走，设过之后只动气泡里的字，不动全局文字。
     private var bubbleColorCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle(AppLocalized("气泡颜色"))
@@ -1230,6 +1233,33 @@ struct AppearanceStudioView: View {
                 }
                 .padding(.vertical, 6)
             }
+            HStack(spacing: 13) {
+                ColorPicker("", selection: studio.colorBinding(.bubbleText, scope: .global, variant: variant),
+                            supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 32, height: 32)
+                Text(AppLocalized("气泡文字"))
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundStyle(studio.color(.primaryText, variant: variant))
+                Spacer()
+                Text("#\(studio.hex(.bubbleText, scope: .global, variant: variant))")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.55))
+                if studio.hasOverride(.bubbleText, scope: .global, variant: variant) {
+                    Button {
+                        studio.clearOverride(.bubbleText, scope: .global, variant: variant)
+                    } label: {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(studio.color(.secondaryText, variant: variant))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 6)
+            Text(AppLocalized("没单独调过气泡文字时，它跟主文字走。"))
+                .font(.system(size: 10.5))
+                .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.8))
             sliderRow(AppLocalized("气泡透明度"), value: $studio.bubbleOpacity, range: 0.15...1)
         }
         .modifier(StudioCard(variant: variant))
@@ -1238,6 +1268,7 @@ struct AppearanceStudioView: View {
     private var bubblesPage: some View {
         VStack(spacing: 16) {
             bubblesSampleCard
+            bubbleColorCard
 
             VStack(alignment: .leading, spacing: 12) {
                 sectionTitle(AppLocalized("形状"))

@@ -73,6 +73,10 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
     case canvas, surface, raised, mutedSurface
     case primaryText, secondaryText
     case accent, userBubble, assistantBubble, border
+    /// [bubble-grouping] My-bubble text, separate from global text.
+    /// Unset, it follows primaryText (see hex()/snapshotHex() below),
+    /// so existing themes behave exactly as before until the user
+    /// sets it on the bubble page.
     /// 输入类底：输入框、搜索栏、任何单行输入面
     case field
     /// 小方块图标底：消息操作栏、输入栏图标、工具条按钮
@@ -93,6 +97,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .accent: return AppLocalized("强调色")
         case .userBubble: return AppLocalized("我的气泡")
         case .assistantBubble: return AppLocalized("AI 气泡")
+        case .bubbleText: return AppLocalized("气泡文字")
         case .border: return AppLocalized("边线")
         case .field: return AppLocalized("输入框")
         case .iconTile: return AppLocalized("图标底")
@@ -116,6 +121,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .accent: return AppLocalized("强调色：按钮、选中、开关")
         case .userBubble: return AppLocalized("你的聊天气泡")
         case .assistantBubble: return AppLocalized("AI 聊天气泡")
+        case .bubbleText: return AppLocalized("我的气泡里的字，默认跟主文字走")
         case .border: return AppLocalized("分隔线、卡片描边")
         case .field: return AppLocalized("输入框、搜索栏")
         case .iconTile: return AppLocalized("小方块图标底：消息操作栏、输入栏图标")
@@ -333,6 +339,11 @@ final class AppearanceStudio: ObservableObject {
             if let legacy = legacyKey(for: role, scope: .global, variant: variant),
                let value = customColors[legacy] { return value }
         }
+        // [bubble-grouping] bubbleText has no built-in palette entry on
+        // purpose: unset, it follows primaryText for the same scope and
+        // variant, so old themes and old saved values render exactly as
+        // before. Recursion terminates: primaryText is not bubbleText.
+        if role == .bubbleText { return hex(.primaryText, scope: scope, variant: variant) }
         return (variant == .light ? Self.lightDefaults : Self.darkDefaults)[role] ?? "808080"
     }
 
@@ -721,6 +732,12 @@ final class AppearanceStudio: ObservableObject {
             default: return nil
             }
         }()
+        // [bubble-grouping] Same primaryText fallback as hex(), so the
+        // snapshot path (UIKit dynamic colours, non-main threads) agrees
+        // with the main-thread path. Recursion terminates at primaryText.
+        if role == .bubbleText {
+            return snap[scoped] ?? snap[global] ?? snapshotHex(.primaryText, scope: scope, variant: variant)
+        }
         return snap[scoped] ?? snap[global] ?? legacyValue
             ?? (variant == .light ? AppearancePaletteBook.light : AppearancePaletteBook.dark)[role]
             ?? "808080"

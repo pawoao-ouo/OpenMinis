@@ -91,6 +91,9 @@ enum ChatColors {
     }
     static var inputBorder: Color { studio.color(.border, scope: .chat) }
     static var primaryText: Color { studio.color(.primaryText, scope: .chat) }
+    /// [bubble-grouping] My-bubble text only. Unset, it follows
+    /// primaryText; set on the bubble page, it no longer moves global text.
+    static var bubbleText: Color { studio.color(.bubbleText, scope: .chat) }
     static var secondaryText: Color { studio.color(.secondaryText, scope: .chat) }
     static var tertiaryText: Color { studio.color(.secondaryText, scope: .chat).opacity(0.72) }
     static var userBubble: Color {

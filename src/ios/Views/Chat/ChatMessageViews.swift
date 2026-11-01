@@ -478,7 +478,7 @@ struct UserMessageText: View {
                 // 裁剪高度和列表预计算共用 collapsedLineLimit，视图/格子同一条尺。
                 Text(text)
                     .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
-                    .foregroundStyle(isQueued ? ChatColors.secondaryText : ChatColors.primaryText)
+                    .foregroundStyle(isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
                     // 先按全文高度排版，再由下面的 frame 裁到 8 行；
                     // 不 fixedSize 的话 Text 会自己压到 8 行，展开时没有内容可露。
                     .fixedSize(horizontal: false, vertical: true)
@@ -873,7 +873,7 @@ struct ChatMessageRow: View {
                                 HStack(spacing: 6) {
                                     Text(cleanUserText)
                                         .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
-                                        .foregroundStyle(message.isQueued ? ChatColors.secondaryText : ChatColors.primaryText)
+                                        .foregroundStyle(message.isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 10)
                                         .modifier(UserBubbleSurface(isQueued: message.isQueued))
@@ -900,7 +900,7 @@ struct ChatMessageRow: View {
                                 HStack(spacing: 6) {
                                     Text(cleanUserText)
                                         .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
-                                        .foregroundStyle(message.isQueued ? ChatColors.secondaryText : ChatColors.primaryText)
+                                        .foregroundStyle(message.isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 10)
                                         .modifier(UserBubbleSurface(isQueued: message.isQueued))
