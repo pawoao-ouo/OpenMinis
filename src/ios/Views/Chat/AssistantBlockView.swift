@@ -210,6 +210,7 @@ struct AssistantBlockView: View {
             textColour: ChatColors.assistantBubbleText)
     }
 
+    @ViewBuilder
     private func singleTextBubble(_ content: String) -> some View {
         // [10-18 醒醒 第五轮] 平铺 / 文稿形态不要气泡底色。
         let display = AppearanceChatDisplay.parse(
