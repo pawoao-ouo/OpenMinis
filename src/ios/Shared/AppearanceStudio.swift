@@ -1524,6 +1524,10 @@ struct PersonAvatarView: View {
             }
         }
         .frame(width: size, height: size)
+        // [avatar-pendant] The applied ring, if any, floats
+        // 12pt wider than the avatar — same view the shop preview
+        // draws, so live chat can never show a different ring.
+        .avatarPendantRing(size: size)
         .overlay(
             RoundedRectangle(cornerRadius: size * avatarShape.cornerFraction, style: .continuous)
                 .stroke(studio.color(.border, scope: .chat),

@@ -19,12 +19,14 @@ import SwiftUI
 // roles); this view hard-codes no hex, no palette of its own.
 // No emoji, no prices, no SVIP, no gift, no QQ artwork or names.
 //
-// Scope of this batch: the bubble path, end to end. Theme cards
+// Scope of this batch: the bubble path, end to end, plus the
+// avatar-pendant path (four pale glowing rings + white lace ring, same
+// card / detail / apply / save pattern as bubbles). Theme cards
 // are visual placeholders for the theme batch (plain, not buttons,
-// labelled as coming later — never a dead button), and the pendant /
-// font / name-card tabs are honest "next batch" panels, not fake
-// cards. Nothing here invents theme, pendant, font, or name-card
-// records that the later batches have not defined yet.
+// labelled as coming later — never a dead button), and the font /
+// name-card tabs are honest "next batch" panels, not fake cards.
+// Nothing here invents theme, font, or name-card records that
+// the later batches have not defined yet.
 //
 // Connections (no gaps): applying a pack goes through
 // BubbleStylePackStore.apply, which writes the full structural
@@ -72,11 +74,11 @@ private enum DressingTag: String, CaseIterable, Identifiable {
     }
     /// The pack tag value this rail tag matches. Nil = no filtering.
     /// Bubble packs use the draft's tags (柔和 / 简约), so every
-    /// pack is reachable via a rail tag: 柔和 shows BUB-0001..0004,
-    /// 简约 shows BUB-0005..0006, 全部 shows all six. 清新 / 淡雅
-    /// are kept from the draft's shared rail (they match theme /
-    /// pendant records there, not bubble packs in this batch) and
-    /// are not invented per-batch taxonomy.
+    /// kept pack is reachable via a rail tag: 柔和 shows
+    /// BUB-0001/0003, 简约 shows BUB-0006, 全部 shows all three
+    /// kept packs. 清新 / 淡雅 are kept from the draft's shared
+    /// rail (they match theme records there, not bubble packs)
+    /// and are not invented per-batch taxonomy.
     var packTag: String? {
         switch self {
         case .all: return nil
@@ -92,12 +94,15 @@ struct DressingShopView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var studio = AppearanceStudio.shared
     @ObservedObject private var bubblePackStore = BubbleStylePackStore.shared
+    @ObservedObject private var pendantStore = AvatarPendantStore.shared
     @ObservedObject private var outfitStore = DressingOutfitStore.shared
 
     @State private var category: DressingCategory = .recommend
     @State private var tag: DressingTag = .all
     @State private var detailPack: BubbleStylePack?
+    @State private var detailPendant: AvatarPendant?
     @State private var sheetUp = false
+    @State private var pendantSheetUp = false
 
     private var visiblePacks: [BubbleStylePack] {
         guard let wanted = tag.packTag else { return bubblePackStore.packs }
@@ -122,7 +127,7 @@ struct DressingShopView: View {
                         case .outfit: outfitView
                         case .theme: themeView
                         case .bubble: bubbleView
-                        case .pendant: nextBatchPanel(AppLocalized("头像挂件"))
+                        case .pendant: pendantView
                         case .font: nextBatchPanel(AppLocalized("字体"))
                         case .namecard: nextBatchPanel(AppLocalized("名片"))
                         }
@@ -135,6 +140,10 @@ struct DressingShopView: View {
 
             if let pack = detailPack {
                 bubbleDetailView(pack)
+                    .transition(.move(edge: .trailing))
+            }
+            if let pendant = detailPendant {
+                pendantDetailView(pendant)
                     .transition(.move(edge: .trailing))
             }
         }
@@ -293,6 +302,10 @@ struct DressingShopView: View {
             sectionHeader(AppLocalized("聊天气泡"), jumpTo: .bubble)
             cardRow {
                 ForEach(visiblePacks) { pack in bubbleCard(pack) }
+            }
+            sectionHeader(AppLocalized("头像挂件"), jumpTo: .pendant)
+            cardRow {
+                ForEach(pendantStore.pendants) { pendant in pendantCard(pendant) }
             }
             Text(AppLocalized("点卡片进入详情预览，确认后再换上；标签条按心情筛选当前页的卡片。"))
                 .font(.system(size: 13))
@@ -481,6 +494,193 @@ struct DressingShopView: View {
             .clipShape(shape)
             .modifier(BubbleBorderChrome(shape: shape, width: borderWidth))
             .overlay(BubblePackDecorationsView(decorations: style.decorations)))
+    }
+
+    // MARK: - Pendant views (enclosing rings, same pattern as bubbles)
+
+    private var pendantView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(AppLocalized("头像挂件"), jumpTo: .pendant)
+            cardRow {
+                ForEach(pendantStore.pendants) { pendant in pendantCard(pendant) }
+            }
+            sectionHeader(AppLocalized("全部挂件"), jumpTo: .pendant)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
+                      spacing: 12) {
+                ForEach(pendantStore.pendants) { pendant in pendantCard(pendant, fixedWidth: false) }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private func pendantCard(_ pendant: AvatarPendant, fixedWidth: Bool = true) -> some View {
+        let applied = pendantStore.appliedNumber == pendant.number
+        return Button { openPendantDetail(pendant) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack(alignment: .topTrailing) {
+                    pendantCardArt(pendant)
+                        .frame(height: 122)
+                        .frame(width: fixedWidth ? 125 : nil)
+                        .background(studio.color(.surface))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    if applied {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(studio.color(.primaryText))
+                            .background(studio.color(.surface))
+                            .clipShape(Circle())
+                            .padding(8)
+                    }
+                }
+                Text(pendant.title)
+                    .font(.system(size: 16))
+                    .foregroundStyle(studio.color(.primaryText))
+                    .padding(.top, 10)
+                Text(pendant.number)
+                    .font(.system(size: 13))
+                    .foregroundStyle(studio.color(.secondaryText))
+                    .padding(.top, 3)
+                if applied {
+                    Text(AppLocalized("正在用"))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(studio.color(.primaryText))
+                        .padding(.top, 3)
+                }
+            }
+            .frame(width: fixedWidth ? 125 : nil, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// One card's art: a large avatar with this pendant's ring
+    /// on it — the same shared ring view live chat draws, so
+    /// the card can never promise a different ring.
+    private func pendantCardArt(_ pendant: AvatarPendant) -> some View {
+        ZStack {
+            avatarDisc(size: 72)
+                .overlay(AvatarRingView(size: 72, color: pendant.color, style: pendant.style, imageFile: pendant.imageFile))
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+    }
+
+    private func openPendantDetail(_ pendant: AvatarPendant) {
+        pendantSheetUp = false
+        detailPendant = pendant
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+            if detailPendant?.number == pendant.number { pendantSheetUp = true }
+        }
+    }
+
+    private func closePendantDetail() {
+        pendantSheetUp = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            detailPendant = nil
+        }
+    }
+
+    private func pendantDetailView(_ pendant: AvatarPendant) -> some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Text(AppLocalized("头像挂件"))
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(studio.color(.primaryText))
+                HStack {
+                    Button { closePendantDetail() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(studio.color(.primaryText))
+                    }
+                    .buttonStyle(.plain)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+            }
+            .frame(height: 52)
+            .background(studio.color(.surface))
+
+            VStack(alignment: .leading, spacing: 14) {
+                // Large-avatar preview: the ring on a big
+                // avatar, exactly as live chat draws it, plus one
+                // sample chat row wearing the same ring.
+                ZStack {
+                    avatarDisc(size: 120)
+                        .overlay(AvatarRingView(size: 120, color: pendant.color, style: pendant.style, imageFile: pendant.imageFile))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+                HStack(alignment: .center, spacing: 8) {
+                    avatarDisc(size: 36)
+                        .overlay(AvatarRingView(size: 36, color: pendant.color, style: pendant.style, imageFile: pendant.imageFile))
+                    Text(AppLocalized("今天也想你"))
+                        .font(.system(size: 16))
+                        .foregroundStyle(studio.color(.assistantBubbleText))
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(studio.color(.assistantBubble))
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    Spacer(minLength: 0)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .onTapGesture { pendantSheetUp.toggle() }
+
+            if pendantSheetUp {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("\(pendant.title) · \(pendant.number)")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(studio.color(.primaryText))
+                        Spacer(minLength: 0)
+                    }
+                    Text(AppLocalized("在大头像上看这款圆环，再确认换上；只换挂件，不动其他搭配。"))
+                        .font(.system(size: 15))
+                        .foregroundStyle(studio.color(.secondaryText))
+                    Text(AppLocalized("组成：") + (pendant.style == .lace ? AppLocalized("蕾丝圆环") : AppLocalized("圆环")))
+                        .font(.system(size: 14))
+                        .foregroundStyle(studio.color(.secondaryText))
+                    HStack(spacing: 12) {
+                        Button(AppLocalized("保存成搭配")) {
+                            outfitStore.save(pendant: pendant)
+                            closePendantDetail()
+                        }
+                        .font(.system(size: 16))
+                        .foregroundStyle(studio.color(.primaryText))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(studio.color(.primaryText), lineWidth: 1.5)
+                        )
+                        .buttonStyle(.plain)
+                        Button(AppLocalized("换上这款")) {
+                            pendantStore.apply(pendant)
+                            closePendantDetail()
+                        }
+                        .font(.system(size: 16))
+                        .foregroundStyle(studio.color(.surface))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(studio.color(.primaryText))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 6)
+                }
+                .padding(20)
+                .background(
+                    studio.color(.surface),
+                    in: UnevenRoundedRectangle(
+                        cornerRadii: RectangleCornerRadii(
+                            topLeading: 22, bottomLeading: 0,
+                            bottomTrailing: 0, topTrailing: 22))
+                )
+                .transition(.move(edge: .bottom))
+            }
+        }
+        .background(studio.color(.canvas))
+        .animation(.easeOut(duration: 0.3), value: pendantSheetUp)
     }
 
     // MARK: - Outfit view

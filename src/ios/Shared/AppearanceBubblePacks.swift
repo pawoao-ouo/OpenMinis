@@ -723,8 +723,8 @@ struct BubbleStylePack: Identifiable, Equatable, Codable {
     var title: String
     var category: String
     /// Shop tag rail value for bubble packs: 柔和 / 简约, matching
-    /// the dressing-shop draft (BUB-0001..0004 柔和, BUB-0005..0006
-    /// 简约). Persisted on the pack so the shop, the detail sheet,
+    /// the dressing-shop draft (kept packs: BUB-0001/0003 柔和,
+    /// BUB-0006 简约). Persisted on the pack so the shop, the detail sheet,
     /// and any AI lookup read the same record — no second source
     /// of truth. The shared rail also carries 清新 / 淡雅, which
     /// match theme / pendant records in the draft, not bubbles.
@@ -806,28 +806,17 @@ final class BubbleStylePackStore: ObservableObject {
     @Published private(set) var appliedNumber: String?
     private var nextSerial = 7
 
-    /// Six packs, each a whole visual shape — not radius/tail
-    /// micro-tweaks. The old four (default / tail / frame / document)
-    /// were rejected on device for looking almost identical; these
-    /// six differ in outline at a glance. Titles and numbers match
-    /// the dressing-shop draft, so shop, detail, and live chat all
-    /// name the same pack.
+    /// Three packs, kept by the user on device (2026-11-01):
+    /// porcelain, letter, stitch. Cloud, wave, and cut were
+    /// removed from the catalogue in the same batch — their
+    /// numbers (BUB-0002/0004/0005) are never reused, so a
+    /// stored record naming one can only be a stale record.
+    /// Titles and numbers match the dressing-shop draft, so
+    /// shop, detail, and live chat all name the same pack.
     static let builtIns: [BubbleStylePack] = [
         BubbleStylePack(
             number: "BUB-0001", title: "瓷白圆润", category: "气泡", tag: "柔和",
             style: .default),
-        BubbleStylePack(
-            number: "BUB-0002", title: "云朵", category: "气泡", tag: "柔和",
-            style: BubbleStyleRecord(
-                userSurface: .text, assistantSurface: .text,
-                tailOn: false, packShape: .cloud, cornerPreset: .even,
-                userRadius: 20, assistantRadius: 20,
-                avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 0,
-                userBorderWidth: 0, assistantBorderWidth: 0,
-                userPadding: 16, assistantPadding: 16,
-                messageSpacing: 12,
-                userName: .hidden, assistantName: .above,
-                inputBarForm: .rounded, inputBarRadius: 20)),
         BubbleStylePack(
             number: "BUB-0003", title: "信纸", category: "气泡", tag: "柔和",
             style: BubbleStyleRecord(
@@ -839,30 +828,6 @@ final class BubbleStylePackStore: ObservableObject {
                 userPadding: 16, assistantPadding: 16,
                 messageSpacing: 14,
                 userName: .above, assistantName: .above,
-                inputBarForm: .rounded, inputBarRadius: 16)),
-        BubbleStylePack(
-            number: "BUB-0004", title: "波浪", category: "气泡", tag: "柔和",
-            style: BubbleStyleRecord(
-                userSurface: .text, assistantSurface: .text,
-                tailOn: false, packShape: .wave, cornerPreset: .even,
-                userRadius: 14, assistantRadius: 14,
-                avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 0,
-                userBorderWidth: 0, assistantBorderWidth: 0,
-                userPadding: 14, assistantPadding: 14,
-                messageSpacing: 10,
-                userName: .hidden, assistantName: .above,
-                inputBarForm: .rounded, inputBarRadius: 20)),
-        BubbleStylePack(
-            number: "BUB-0005", title: "方章", category: "气泡", tag: "简约",
-            style: BubbleStyleRecord(
-                userSurface: .text, assistantSurface: .text,
-                tailOn: false, packShape: .cut, cornerPreset: .sharp,
-                userRadius: 12, assistantRadius: 12,
-                avatarPlacement: .inline, avatarSize: 40, avatarBorderWidth: 0,
-                userBorderWidth: 0, assistantBorderWidth: 0,
-                userPadding: 14, assistantPadding: 14,
-                messageSpacing: 12,
-                userName: .hidden, assistantName: .above,
                 inputBarForm: .rounded, inputBarRadius: 16)),
         BubbleStylePack(
             number: "BUB-0006", title: "丝带针脚", category: "气泡", tag: "简约",
@@ -893,13 +858,13 @@ final class BubbleStylePackStore: ObservableObject {
            let catalog = try? JSONDecoder().decode(BubblePackCatalogData.self, from: data),
            !catalog.packs.isEmpty,
            !catalog.packs.contains(where: { $0.number.isEmpty }) {
-            // Migration to the six-shape catalogue: no user-created
+            // Migration to the three-pack catalogue: no user-created
             // packs exist (there is no create API), so a stored
             // catalogue can only hold old built-ins. Keep each
             // pack's useCount, but take the shape/tag/title from
-            // the current built-ins, so an old BUB-0002 "tail" can
-            // never survive as a stale record while the shop shows
-            // a cloud. The applied number is kept ONLY if the
+            // the current built-ins, so a stored record for a
+            // removed pack can never survive as a stale record.
+            // The applied number is kept ONLY if the
             // stored applied pack's style still equals its built-in
             // style — otherwise the live theme does not actually
             // show that pack, and keeping the claim would make the
@@ -934,6 +899,18 @@ final class BubbleStylePackStore: ObservableObject {
                 return number
             }
             nextSerial = max(7, catalog.nextSerial)
+            // Subtraction fallback: if the stored applied pack
+            // is one of the removed numbers, it is no longer in
+            // builtIns, so appliedNumber above is nil while live
+            // chat would still show the removed shape. Apply the
+            // kept porcelain pack once, so live chat, shop, and
+            // the now-wearing strip agree again. Outfit rows are
+            // a separate store and are never touched here.
+            if catalog.appliedNumber != nil,
+               !Self.builtIns.contains(where: { $0.number == catalog.appliedNumber }),
+               let fallback = Self.builtIns.first(where: { $0.number == "BUB-0001" }) {
+                apply(fallback)
+            }
             return
         }
         // First run, or an unreadable catalogue: built-ins in memory.

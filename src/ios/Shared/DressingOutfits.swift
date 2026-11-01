@@ -15,20 +15,23 @@ struct DressingOutfit: Identifiable, Equatable, Codable {
     var number: String
     var title: String
     var bubbleNumber: String?
+    var pendantNumber: String?
     var themeNumber: String?
     var summary: String
 
     var id: String { number }
 
     private enum CodingKeys: String, CodingKey {
-        case number, title, bubbleNumber, themeNumber, summary
+        case number, title, bubbleNumber, pendantNumber, themeNumber, summary
     }
 
     init(number: String, title: String, bubbleNumber: String? = nil,
+         pendantNumber: String? = nil,
          themeNumber: String? = nil, summary: String) {
         self.number = number
         self.title = title
         self.bubbleNumber = bubbleNumber
+        self.pendantNumber = pendantNumber
         self.themeNumber = themeNumber
         self.summary = summary
     }
@@ -38,6 +41,7 @@ struct DressingOutfit: Identifiable, Equatable, Codable {
         number = try c.decodeIfPresent(String.self, forKey: .number) ?? ""
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         bubbleNumber = try c.decodeIfPresent(String.self, forKey: .bubbleNumber)
+        pendantNumber = try c.decodeIfPresent(String.self, forKey: .pendantNumber)
         themeNumber = try c.decodeIfPresent(String.self, forKey: .themeNumber)
         summary = try c.decodeIfPresent(String.self, forKey: .summary) ?? ""
     }
@@ -96,6 +100,20 @@ final class DressingOutfitStore: ObservableObject {
         let stored = DressingOutfitStoreData(outfits: outfits, nextSerial: nextSerial)
         guard let data = try? JSONEncoder().encode(stored) else { return }
         try? data.write(to: storeURL, options: .atomic)
+    }
+
+    /// Save a pendant as one outfit row, same rule as bubbles:
+    /// the row names the piece by number, never by name guess.
+    @discardableResult
+    func save(pendant: AvatarPendant) -> DressingOutfit {
+        let number = String(format: "COM-%04d", nextSerial)
+        nextSerial += 1
+        let outfit = DressingOutfit(
+            number: number, title: pendant.title, pendantNumber: pendant.number,
+            summary: "\(pendant.title) · \(pendant.number)")
+        outfits.append(outfit)
+        save()
+        return outfit
     }
 
     /// Save the currently applied pieces as one outfit row.
