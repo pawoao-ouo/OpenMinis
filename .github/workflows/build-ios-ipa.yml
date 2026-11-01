@@ -111,16 +111,21 @@ jobs:
           # Zipping from inside Payload produced a root-level OpenMinis.app,
           # which sideloaders reject.
           cd build
-          /usr/bin/zip -qry OpenMinis-clone-unsigned.ipa Payload
+          # The IPA filename itself must carry the build number: the artifact
+          # container name is already numbered, but a constant inner filename
+          # silently overwrites the previous build when extracted to the same
+          # folder, so two builds can no longer be told apart on disk.
+          ipa="OpenMinis-clone-unsigned-${GITHUB_RUN_NUMBER}.ipa"
+          /usr/bin/zip -qry "$ipa" Payload
           cd ..
-          /usr/bin/file build/OpenMinis-clone-unsigned.ipa
-          /usr/bin/du -h build/OpenMinis-clone-unsigned.ipa
+          /usr/bin/file "build/$ipa"
+          /usr/bin/du -h "build/$ipa"
 
       - name: Upload OpenMinis clone IPA
         uses: actions/upload-artifact@v4
         with:
           name: OpenMinis-clone-iOS-unsigned-${{ github.run_number }}
-          path: build/OpenMinis-clone-unsigned.ipa
+          path: build/OpenMinis-clone-unsigned-${{ github.run_number }}.ipa
           if-no-files-found: error
           retention-days: 14
 
