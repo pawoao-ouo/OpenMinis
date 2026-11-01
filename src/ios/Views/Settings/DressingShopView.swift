@@ -175,7 +175,7 @@ struct DressingShopView: View {
         let _ = personaStore.currentPersonaID
         return VStack(alignment: .leading, spacing: 8) {
             Text(AppLocalized("改哪一边"))
-                .font(.system(size: 15, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(studio.color(.primaryText))
             Picker("", selection: $editingSide) {
                 Text(sidePickerLabel(for: .assistant)).tag(DressingSide.assistant)
@@ -183,7 +183,7 @@ struct DressingShopView: View {
             }
             .pickerStyle(.segmented)
             Text(AppLocalized("先选一边，再点卡片换上；改一边不会动另一边。"))
-                .font(.system(size: 13))
+                .font(.footnote)
                 .foregroundStyle(studio.color(.secondaryText))
         }
         .padding(.horizontal, 16)
@@ -249,6 +249,8 @@ struct DressingShopView: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(studio.color(.primaryText))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 Spacer(minLength: 0)
@@ -503,16 +505,16 @@ struct DressingShopView: View {
                     }
                 }
                 Text(pack.title)
-                    .font(.system(size: 16))
+                    .font(.callout)
                     .foregroundStyle(studio.color(.primaryText))
                     .padding(.top, 10)
                 Text(pack.number)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundStyle(studio.color(.secondaryText))
                     .padding(.top, 3)
                 if applied {
                     Text(AppLocalized("正在用"))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(studio.color(.primaryText))
                         .padding(.top, 3)
                 }
@@ -537,15 +539,16 @@ struct DressingShopView: View {
         .padding(10)
     }
 
-    private func avatarDisc(size: CGFloat) -> some View {
-        Circle()
-            .fill(studio.color(.accent).opacity(0.2))
-            .frame(width: size, height: size)
-            .overlay(
-                Image(systemName: "person.fill")
-                    .font(.system(size: size * 0.45))
-                    .foregroundStyle(studio.color(.secondaryText))
-            )
+    // Shop samples use the REAL avatar for that side — the
+    // current persona's avatar for the AI side, the user-profile
+    // avatar for the user side — never a grey placeholder disc.
+    // A placeholder person icon made the cards look like an
+    // unfinished shell and hid whether the ring/bubble really
+    // fits the avatar. PersonAvatarView resolves the image
+    // dynamically, so a persona or profile change follows here
+    // too; its own applied ring is shown, exactly as live chat.
+    private func sampleAvatar(isUser: Bool, size: CGFloat) -> some View {
+        PersonAvatarView(kind: isUser ? .user : .assistant, size: size)
     }
 
     private func bubbleSampleRow(pack: BubbleStylePack, isUser: Bool) -> some View {
@@ -560,14 +563,14 @@ struct DressingShopView: View {
             ?? studio.color(isUser ? .bubbleText : .assistantBubbleText)
         let borderWidth = isUser ? style.userBorderWidth : style.assistantBorderWidth
         return HStack(alignment: .center, spacing: 6) {
-            if !isUser { avatarDisc(size: 28) }
+            if !isUser { sampleAvatar(isUser: false, size: 28) }
             if isUser { Spacer(minLength: 0) }
             bubbleShapeView(pack: pack, isUser: isUser,
                             text: AppLocalized("今天也想你"),
                             fontSize: 12, padding: 8,
                             bubbleColour: bubbleColour, textColour: textColour,
                             borderWidth: borderWidth)
-            if isUser { avatarDisc(size: 28) }
+            if isUser { sampleAvatar(isUser: true, size: 28) }
             if !isUser { Spacer(minLength: 0) }
         }
     }
@@ -643,16 +646,16 @@ struct DressingShopView: View {
                     }
                 }
                 Text(pendant.title)
-                    .font(.system(size: 16))
+                    .font(.callout)
                     .foregroundStyle(studio.color(.primaryText))
                     .padding(.top, 10)
                 Text(pendant.number)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundStyle(studio.color(.secondaryText))
                     .padding(.top, 3)
                 if applied {
                     Text(AppLocalized("正在用"))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(studio.color(.primaryText))
                         .padding(.top, 3)
                 }
@@ -662,12 +665,15 @@ struct DressingShopView: View {
         .buttonStyle(.plain)
     }
 
-    /// One card's art: a large avatar with this pendant's ring
-    /// on it — the same shared ring view live chat draws, so
-    /// the card can never promise a different ring.
+    /// One card's art: the edited side's REAL avatar with this
+    /// pendant's ring on it — the same shared ring view live
+    /// chat draws, so the card can never promise a different
+    /// ring. showPendant is off so the side's currently applied
+    /// ring does not stack under the previewed ring.
     private func pendantCardArt(_ pendant: AvatarPendant) -> some View {
         ZStack {
-            avatarDisc(size: 72)
+            PersonAvatarView(kind: editingSide.isUser ? .user : .assistant,
+                             size: 72, showPendant: false)
                 .overlay(AvatarRingView(size: 72, color: pendant.color, imageFile: pendant.imageFile))
         }
         .padding(.top, 8)
@@ -696,13 +702,15 @@ struct DressingShopView: View {
         VStack(spacing: 0) {
             ZStack {
                 Text(AppLocalized("头像挂件"))
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(studio.color(.primaryText))
                 HStack {
                     Button { closePendantDetail() } label: {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.headline)
                             .foregroundStyle(studio.color(.primaryText))
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     Spacer(minLength: 0)
@@ -720,7 +728,7 @@ struct DressingShopView: View {
                 // for the user side — never a generic disc and
                 // never the other side's picture.
                 Text(AppLocalized("正在改：") + sidePickerLabel(for: detailPendantSide))
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(studio.color(.primaryText))
                 // Large-avatar preview: the previewed ring on
                 // this side's big avatar, plus one sample chat
@@ -740,7 +748,7 @@ struct DressingShopView: View {
                                      size: 36, showPendant: false)
                         .overlay(AvatarRingView(size: 36, color: pendant.color, imageFile: pendant.imageFile))
                     Text(AppLocalized("今天也想你"))
-                        .font(.system(size: 16))
+                        .font(.callout)
                         .foregroundStyle(studio.color(detailPendantSide.isUser ? .bubbleText : .assistantBubbleText))
                         .padding(.horizontal, 14).padding(.vertical, 8)
                         .background(studio.color(detailPendantSide.isUser ? .userBubble : .assistantBubble))
@@ -761,7 +769,7 @@ struct DressingShopView: View {
                         Spacer(minLength: 0)
                     }
                     Text(AppLocalized("在大头像上看这款圆环，再确认换上；只换这一边的挂件，另一边不动，其他搭配也不动。"))
-                        .font(.system(size: 15))
+                        .font(.subheadline)
                         .foregroundStyle(studio.color(.secondaryText))
                     Text(AppLocalized("组成：") + AppLocalized("圆环"))
                         .font(.system(size: 14))
@@ -776,7 +784,7 @@ struct DressingShopView: View {
                             outfitStore.save(pendant: pendant)
                             closePendantDetail()
                         }
-                        .font(.system(size: 16))
+                        .font(.callout)
                         .foregroundStyle(studio.color(.primaryText))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
@@ -789,7 +797,7 @@ struct DressingShopView: View {
                             pendantStore.apply(pendant, for: detailPendantSide)
                             closePendantDetail()
                         }
-                        .font(.system(size: 16))
+                        .font(.callout)
                         .foregroundStyle(studio.color(.surface))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
@@ -821,7 +829,7 @@ struct DressingShopView: View {
             sectionHeader(AppLocalized("我的搭配"), jumpTo: .outfit)
             if outfitStore.outfits.isEmpty {
                 Text(AppLocalized("还没有保存的搭配。在气泡详情里点“保存成搭配”，就会出现在这里。"))
-                    .font(.system(size: 15))
+                    .font(.subheadline)
                     .foregroundStyle(studio.color(.secondaryText))
                     .padding(.horizontal, 16)
             } else {
@@ -829,10 +837,10 @@ struct DressingShopView: View {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(outfit.title)
-                                .font(.system(size: 16))
+                                .font(.callout)
                                 .foregroundStyle(studio.color(.primaryText))
                             Text("\(outfit.number) · \(outfit.summary)")
-                                .font(.system(size: 13))
+                                .font(.footnote)
                                 .foregroundStyle(studio.color(.secondaryText))
                         }
                         Spacer(minLength: 0)
@@ -851,7 +859,7 @@ struct DressingShopView: View {
                 }
             }
             Text(AppLocalized("换主题、重置都不会清掉这里；只有按编号删，才会删掉那一行。"))
-                .font(.system(size: 13))
+                .font(.footnote)
                 .foregroundStyle(studio.color(.secondaryText))
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
@@ -863,10 +871,10 @@ struct DressingShopView: View {
     private func nextBatchPanel(_ title: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 20, weight: .bold))
+                .font(.title3.weight(.bold))
                 .foregroundStyle(studio.color(.primaryText))
             Text(AppLocalized("下一批做：详情预览、换上、保存成搭配，都会按气泡这批同一套路接上。"))
-                .font(.system(size: 15))
+                .font(.subheadline)
                 .foregroundStyle(studio.color(.secondaryText))
         }
         .padding(16)
@@ -897,13 +905,15 @@ struct DressingShopView: View {
         VStack(spacing: 0) {
             ZStack {
                 Text(AppLocalized("聊天气泡"))
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(studio.color(.primaryText))
                 HStack {
                     Button { closeDetail() } label: {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.headline)
                             .foregroundStyle(studio.color(.primaryText))
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     Spacer(minLength: 0)
@@ -924,7 +934,7 @@ struct DressingShopView: View {
             // that side's applied pendant.
             VStack(alignment: .leading, spacing: 14) {
                 Text(AppLocalized("正在改：") + sidePickerLabel(for: detailPackSide))
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(studio.color(.primaryText))
                 detailMessage(pack: pack, isUser: false,
                               text: AppLocalized("今天也想你。早上出门的时候还在想，晚上回来第一句还是想跟你说这个。"))
@@ -957,7 +967,7 @@ struct DressingShopView: View {
                         Spacer(minLength: 0)
                     }
                     Text(AppLocalized("在模拟聊天里看这款的长句和短句，确认后再换上；只换这一边的气泡，另一边不动，其他搭配也不动。"))
-                        .font(.system(size: 15))
+                        .font(.subheadline)
                         .foregroundStyle(studio.color(.secondaryText))
                     Text(AppLocalized("组成：") + pack.composition.joined(separator: " · "))
                         .font(.system(size: 14))
@@ -967,7 +977,7 @@ struct DressingShopView: View {
                             outfitStore.save(bubblePack: pack)
                             closeDetail()
                         }
-                        .font(.system(size: 16))
+                        .font(.callout)
                         .foregroundStyle(studio.color(.primaryText))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
@@ -980,7 +990,7 @@ struct DressingShopView: View {
                             bubblePackStore.apply(pack, for: detailPackSide)
                             closeDetail()
                         }
-                        .font(.system(size: 16))
+                        .font(.callout)
                         .foregroundStyle(studio.color(.surface))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)

@@ -1532,9 +1532,10 @@ struct PersonAvatarView: View {
         }
         .frame(width: size, height: size)
         // [avatar-pendant] THAT SIDE's applied ring, if any,
-        // floats 12pt wider than the avatar — same view the shop
+        // hugs the avatar edge exactly (same view the shop
         // preview draws, so live chat can never show a different
-        // ring. kind == .user is the user side, anything else is
+        // ring; the glow spills outside the edge, the ring
+        // itself has no gap). kind == .user is the user side, anything else is
         // the AI side: a user avatar can never borrow the AI
         // side's ring, and vice versa. The avatar image itself
         // still resolves dynamically above (session / current

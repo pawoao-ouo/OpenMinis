@@ -295,19 +295,31 @@ final class AvatarPendantStore: ObservableObject {
 //
 // The ring is drawn the same way in the shop card, the detail
 // preview, live chat, and the profile — one view, no second
-// version that could promise a different ring. Softness comes
-// from a wide blurred outer glow plus a thin bright ring, with
-// the ring floating just outside the avatar edge (diameter =
-// avatar + 12pt) instead of sitting on it like a border. A
-// white pendant still reads because its glow and bright ring
-// sit on a shadow, not on a bare white background. Only the
-// glow breathes (slow pulse, see header); the ring stroke
-// itself is static.
+// version that could promise a different ring. The ring HUGS
+// the avatar: its frame is exactly the avatar size, and the
+// main stroke sits directly on the avatar edge, with NO gap
+// between avatar and ring (an earlier build used avatar +
+// 12pt, which floated visibly around the avatar on device).
+// Softness comes from a wide blurred outer glow plus a thin
+// bright ring, with the glow spilling OUTSIDE the ring edge
+// (blur + shadow, rendered outside the frame, not a second
+// hard circle) — that is what makes it read as glowing
+// rather than a plain circular line. A white pendant still
+// reads because its glow and bright ring sit on a shadow,
+// not on a bare white background. Only the glow breathes
+// (slow pulse, see header); the ring stroke itself is static.
 
 struct AvatarRingView: View {
     let size: CGFloat
     let color: Color
     var imageFile: String? = nil
+    // HIG accessibility: the breathing glow honours Reduce
+    // Motion (no animation, glow held at full strength) and
+    // Reduce Transparency (no blurred translucent halo — a
+    // solid, higher-opacity ring instead, so the pendant stays
+    // legible without transparency effects).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var breathing = false
 
     /// Uploaded transparent frame, if any. Path separators are
@@ -339,22 +351,57 @@ struct AvatarRingView: View {
 
     private var glowBody: some View {
         ZStack {
-            // Outer glow: wide, blurred, low opacity — the airy
-            // part, and the only layer that breathes.
-            Circle()
-                .stroke(color.opacity(0.22), lineWidth: 7)
-                .blur(radius: 5)
-                .opacity(breathing ? 1.0 : 0.7)
-            // Main ring: soft, static, not hard.
-            Circle()
-                .stroke(color.opacity(0.70), lineWidth: 2)
-            // Inner bright thread, so the ring reads even in white.
-            Circle()
-                .stroke(Color.white.opacity(0.60), lineWidth: 0.75)
+            if reduceTransparency {
+                // No blur, no translucent halo: a solid ring
+                // with a second solid outer thread, so the
+                // pendant stays legible when transparency
+                // effects are reduced. No shadow blur either.
+                Circle()
+                    .stroke(color.opacity(0.90), lineWidth: 4)
+                Circle()
+                    .stroke(color.opacity(0.95), lineWidth: 2)
+            } else {
+                // Outer glow: wide, blurred, clearly visible —
+                // the airy part, and the only layer that
+                // breathes. It is drawn on the SAME edge as the
+                // ring but blurred wide, so the halo spills
+                // outside the ring instead of forming a second
+                // hard circle or a gap. The previous glow (0.22
+                // opacity, blur 5, shadow 0.35) read on device
+                // as a plain thin line with no glow at all, so
+                // both opacity and blur are raised here.
+                Circle()
+                    .stroke(color.opacity(0.55), lineWidth: 6)
+                    .blur(radius: 6)
+                    .opacity(breathing ? 1.0 : 0.7)
+                // Second, wider halo layer, so the glow is
+                // visible even at small chat-avatar sizes
+                // (36-40pt) and on dark wallpapers, where a
+                // single faint blur vanished.
+                Circle()
+                    .stroke(color.opacity(0.30), lineWidth: 10)
+                    .blur(radius: 9)
+                    .opacity(breathing ? 0.9 : 0.6)
+                // Main ring: soft, static, not hard. Sits
+                // directly on the avatar edge — frame is exactly
+                // `size`, so this stroke hugs the circle with
+                // no gap.
+                Circle()
+                    .stroke(color.opacity(0.90), lineWidth: 2)
+                // Inner bright thread, so the ring reads even
+                // in white. This is a highlight on the ring
+                // itself, not text or a background, so it is
+                // not a hardcoded text/background colour.
+                Circle()
+                    .stroke(Color.white.opacity(0.60), lineWidth: 0.75)
+            }
         }
-        .frame(width: size + 12, height: size + 12)
-        .shadow(color: color.opacity(0.35), radius: 7)
+        .frame(width: size, height: size)
+        .shadow(color: reduceTransparency ? .clear : color.opacity(0.60), radius: reduceTransparency ? 0 : 10)
         .onAppear {
+            // Reduce Motion: hold the glow at full strength
+            // with no repeating animation.
+            guard !reduceMotion else { breathing = true; return }
             withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) {
                 breathing = true
             }
@@ -371,9 +418,10 @@ extension View {
     /// avatar can silently borrow the other side's ring. Pass
     /// nil only to deliberately suppress the ring (a preview
     /// that overlays a not-yet-applied pendant itself). The
-    /// ring overlay is centred and 12pt wider than the avatar;
-    /// callers must not clip the avatar's container tighter
-    /// than the ring.
+    /// ring overlay is centred and exactly the avatar size
+    /// (the glow spills outside it, but the ring itself hugs
+    /// the edge with no gap); callers must not clip the
+    /// avatar's container tighter than the ring's glow.
     func avatarPendantRing(size: CGFloat, side: DressingSide?) -> some View {
         modifier(AvatarPendantRingModifier(size: size, side: side))
     }
