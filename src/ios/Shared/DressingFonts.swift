@@ -118,9 +118,15 @@ final class UploadedFontStore: ObservableObject {
             return nil
         }
         // PostScript name from the file itself, not the file name.
-        guard let cgFont = CGFont(dest as CFURL),
-              let psName = cgFont.postScriptName as String?,
-              !psName.isEmpty else {
+        // CGFont has no URL initializer in the SDK; build it from
+        // a data provider for the file (documented CoreGraphics API).
+        guard let provider = CGDataProvider(url: dest as CFURL),
+              let cgFont = CGFontCreateWithDataProvider(provider) else {
+            try? FileManager.default.removeItem(at: dest)
+            return nil
+        }
+        let psName = cgFont.postScriptName as String
+        guard !psName.isEmpty else {
             try? FileManager.default.removeItem(at: dest)
             return nil
         }
