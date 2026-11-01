@@ -494,6 +494,7 @@
 		XMSTYLE025 /* GlobalRegexRulesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE125 /* GlobalRegexRulesView.swift */; };
 		XMSTYLE026 /* NovelModeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE126 /* NovelModeViews.swift */; };
 		XMSTYLE027 /* ChatTimeDividerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE127 /* ChatTimeDividerView.swift */; };
+		XMSTYLE028 /* AppearanceBubblePacks.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE128 /* AppearanceBubblePacks.swift */; };
 		E5SOUL002 /* SoulSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SOUL102 /* SoulSettingsView.swift */; };
 		E5SVP0021 /* ShadowVoiceProviderDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SVP0031 /* ShadowVoiceProviderDetailView.swift */; };
 		E5T000001 /* SessionEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5T000011 /* SessionEntity.swift */; };
@@ -1316,6 +1317,7 @@
 		XMSTYLE125 /* GlobalRegexRulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "GlobalRegexRulesView.swift"; path = "Views/Chat/GlobalRegexRulesView.swift"; sourceTree = SOURCE_ROOT; };
 		XMSTYLE126 /* NovelModeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "NovelModeViews.swift"; path = "Views/Chat/NovelModeViews.swift"; sourceTree = SOURCE_ROOT; };
 		XMSTYLE127 /* ChatTimeDividerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ChatTimeDividerView.swift"; path = "Views/Chat/ChatTimeDividerView.swift"; sourceTree = SOURCE_ROOT; };
+		XMSTYLE128 /* AppearanceBubblePacks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceBubblePacks.swift; sourceTree = "<group>"; };
 		E5SOUL102 /* SoulSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulSettingsView.swift; sourceTree = "<group>"; };
 		E5SVP0031 /* ShadowVoiceProviderDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShadowVoiceProviderDetailView.swift; sourceTree = "<group>"; };
 		E5T000011 /* SessionEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntity.swift; sourceTree = "<group>"; };
@@ -2169,6 +2171,7 @@
 				XMSTYLE120 /* AppearanceThemeShuffle.swift */,
 				XMSTYLE121 /* AppearanceColorScale.swift */,
 				XMSTYLE122 /* SillyTavernTheme.swift */,
+				XMSTYLE128 /* AppearanceBubblePacks.swift */,
 				E5J000022 /* FileHandleSafeWrite.h */,
 				E5J000021 /* FileHandleSafeWrite.m */,
 				E5J000052 /* ObjCExceptionCatcher.h */,
@@ -3528,6 +3531,7 @@
 				XMSTYLE021 /* AppearanceColorScale.swift in Sources */,
 				XMSTYLE022 /* SillyTavernTheme.swift in Sources */,
 				XMSTYLE023 /* SillyTavernRegex.swift in Sources */,
+				XMSTYLE028 /* AppearanceBubblePacks.swift in Sources */,
 				XMSTYLE004 /* ThemeOffload.m in Sources */,
 				XMSTYLE005 /* ThemeOffloadBridge.swift in Sources */,
 				XMSTYLE008 /* ThemeOffloadExtras.swift in Sources */,
