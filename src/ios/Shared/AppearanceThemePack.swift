@@ -1569,6 +1569,14 @@ extension AppearanceStudio {
     fileprivate func exportColors(variant: AppearanceVariant) -> [String: String] {
         var out: [String: String] = [:]
         for role in AppearanceColorRole.allCases {
+            // [fixer-F2] Bubble text slots follow primaryText when unset.
+            // Exporting their resolved hex would freeze them into explicit
+            // overrides on import, killing the follow behaviour. Skip an
+            // unset slot; a set slot still exports like any other role.
+            if (role == .bubbleText || role == .assistantBubbleText),
+               !hasOverride(role, scope: .global, variant: variant) {
+                continue
+            }
             out[role.rawValue] = hex(role, scope: .global, variant: variant)
         }
         return out

@@ -105,6 +105,7 @@ extension AppearanceColorRole {
         case .secondaryText:     return .lowContrastText    // 11
         case .primaryText:       return .highContrastText   // 12
         case .bubbleText:        return .highContrastText   // 12, same as primaryText until set
+        case .assistantBubbleText: return .highContrastText // 12, same as primaryText until set
         // 状态色不参与主色推导，它们有自己的色相（绿/黄/红）。
         case .success, .warning, .destructive:
             return .solid
@@ -329,6 +330,7 @@ enum AppearanceContrast {
             (.primaryText, .userBubble, .body),
             (.primaryText, .assistantBubble, .body),
             (.bubbleText, .userBubble, .body),
+            (.assistantBubbleText, .assistantBubble, .body),
             (.primaryText, .field, .body),
             (.secondaryText, .canvas, .body),
             (.secondaryText, .surface, .body),

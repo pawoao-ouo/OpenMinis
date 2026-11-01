@@ -1212,8 +1212,9 @@ struct AppearanceStudioView: View {
 
     /// [bubble-grouping] 气泡的所有颜色控制只长在这里：底色、字色、
     /// 透明度，和形状同页。配色页不再挂这张卡（见 palettePage），
-    /// 免得改气泡要两边翻。字色是独立槽位 bubbleText：没设过时
-    /// 跟主文字走，设过之后只动气泡里的字，不动全局文字。
+    /// 免得改气泡要两边翻。字色是两个独立槽位 bubbleText（我的）
+    /// 和 assistantBubbleText（AI 的）：没设过时跟主文字走，设过
+    /// 之后只动各自气泡里的字，不动全局文字。
     private var bubbleColorCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle(AppLocalized("气泡颜色"))
@@ -1233,36 +1234,44 @@ struct AppearanceStudioView: View {
                 }
                 .padding(.vertical, 6)
             }
-            HStack(spacing: 13) {
-                ColorPicker("", selection: studio.colorBinding(.bubbleText, scope: .global, variant: variant),
-                            supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(width: 32, height: 32)
-                Text(AppLocalized("气泡文字"))
-                    .font(.system(size: 13.5, weight: .medium))
-                    .foregroundStyle(studio.color(.primaryText, variant: variant))
-                Spacer()
-                Text("#\(studio.hex(.bubbleText, scope: .global, variant: variant))")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.55))
-                if studio.hasOverride(.bubbleText, scope: .global, variant: variant) {
-                    Button {
-                        studio.clearOverride(.bubbleText, scope: .global, variant: variant)
-                    } label: {
-                        Image(systemName: "arrow.uturn.backward")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(studio.color(.secondaryText, variant: variant))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 6)
-            Text(AppLocalized("没单独调过气泡文字时，它跟主文字走。"))
+            bubbleTextRow(.bubbleText)
+            bubbleTextRow(.assistantBubbleText)
+            Text(AppLocalized("没单独调过气泡文字时，它跟主文字走；我的和 AI 的各调各的。"))
                 .font(.system(size: 10.5))
                 .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.8))
             sliderRow(AppLocalized("气泡透明度"), value: $studio.bubbleOpacity, range: 0.15...1)
         }
         .modifier(StudioCard(variant: variant))
+    }
+
+    /// [fixer-F1] One row per bubble-text slot, labelled plainly as
+    /// mine vs AI's, so neither reads as the generic "bubble text".
+    /// Unset, each follows global text (see hex() fallback).
+    private func bubbleTextRow(_ role: AppearanceColorRole) -> some View {
+        HStack(spacing: 13) {
+            ColorPicker("", selection: studio.colorBinding(role, scope: .global, variant: variant),
+                        supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 32, height: 32)
+            Text(role.title)
+                .font(.system(size: 13.5, weight: .medium))
+                .foregroundStyle(studio.color(.primaryText, variant: variant))
+            Spacer()
+            Text("#\(studio.hex(role, scope: .global, variant: variant))")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(studio.color(.secondaryText, variant: variant).opacity(0.55))
+            if studio.hasOverride(role, scope: .global, variant: variant) {
+                Button {
+                    studio.clearOverride(role, scope: .global, variant: variant)
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(studio.color(.secondaryText, variant: variant))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
     }
 
     private var bubblesPage: some View {

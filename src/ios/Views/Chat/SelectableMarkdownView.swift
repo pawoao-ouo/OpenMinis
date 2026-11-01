@@ -320,7 +320,10 @@ struct SelectableMarkdownTheme {
     // [T-ai-text-color-role] Was hardcoded `.label` / `.secondaryLabel` —
     // AI text colour now follows the studio's chat-scope text roles, so it
     // edits from the palette ("主文字"/"次文字") and AI theme packs.
-    var labelColor: UIColor { AppearanceStudio.uiColorSnapshot(.primaryText, scope: .chat) }
+    // [fixer-F1] AI body text now follows its own bubble-page slot:
+    // unset, assistantBubbleText falls back to primaryText (same
+    // rendering as before); set, it colours only the AI message body.
+    var labelColor: UIColor { AppearanceStudio.uiColorSnapshot(.assistantBubbleText, scope: .chat) }
     var secondaryLabelColor: UIColor { AppearanceStudio.uiColorSnapshot(.secondaryText, scope: .chat) }
     var accentColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning) }
     var linkColor: UIColor { AppearanceStudio.uiColorSnapshot(.accent) }
