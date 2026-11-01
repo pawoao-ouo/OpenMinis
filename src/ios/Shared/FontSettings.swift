@@ -6,8 +6,16 @@ extension Notification.Name {
     static let fontSettingsMessageBaseChanged = Notification.Name("fontSettingsMessageBaseChanged")
 }
 
-/// Font scale level — six discrete steps from small to extra large.
+/// Font scale level — nine discrete steps, now reaching well
+/// below the old minimum: the old smallest step (0.76, ~13pt
+/// body) was still too big for the user, so two smaller steps
+/// were added (0.65 and 0.56). The two new steps floor their
+/// DynamicTypeSize / content-size mappings at the smallest
+/// system values — there is no smaller system bucket — while
+/// the multiplier itself keeps shrinking the scaled sizes.
 enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
+    case xxxxSmall = -5
+    case xxxSmall = -4
     case xxSmall = -3
     case xSmall = -2
     case small = -1
@@ -19,10 +27,12 @@ enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
     var id: Int { rawValue }
 
     /// Explicit declaration so CaseIterable follows display order, not raw-value order.
-    static var allCases: [FontScaleLevel] { [.xxSmall, .xSmall, .small, .default, .medium, .large, .extraLarge] }
+    static var allCases: [FontScaleLevel] { [.xxxxSmall, .xxxSmall, .xxSmall, .xSmall, .small, .default, .medium, .large, .extraLarge] }
 
     var multiplier: CGFloat {
         switch self {
+        case .xxxxSmall:  return 0.56   // ~10pt body
+        case .xxxSmall:   return 0.65   // ~11pt body
         case .xxSmall:    return 0.76   // ~13pt body
         case .xSmall:     return 0.88   // ~15pt body
         case .small:      return 0.94   // ~16pt body
@@ -35,6 +45,8 @@ enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
 
     var label: String {
         switch self {
+        case .xxxxSmall:  return "XXXXS"
+        case .xxxSmall:   return "XXXS"
         case .xxSmall:    return "XXS"
         case .xSmall:     return "XS"
         case .small:      return "Small"
@@ -49,6 +61,8 @@ enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
     /// scale automatically when this level is applied via `.dynamicTypeSize()`.
     var dynamicTypeSize: DynamicTypeSize {
         switch self {
+        case .xxxxSmall:  return .xSmall
+        case .xxxSmall:   return .xSmall
         case .xxSmall:    return .xSmall
         case .xSmall:     return .small
         case .small:      return .medium
@@ -62,6 +76,8 @@ enum FontScaleLevel: Int, CaseIterable, Identifiable, Comparable {
     /// UIKit equivalent for applying to all UIWindows (including sheets).
     var contentSizeCategory: UIContentSizeCategory {
         switch self {
+        case .xxxxSmall:  return .extraSmall
+        case .xxxSmall:   return .extraSmall
         case .xxSmall:    return .extraSmall
         case .xSmall:     return .small
         case .small:      return .medium
@@ -107,6 +123,28 @@ final class FontSettings: ObservableObject {
             }
         }
     }
+
+    /// Message body point size, the user's chosen main range:
+    /// 10pt minimum, 15pt maximum, 13pt default — never 17pt.
+    /// The old message-base multiplier no longer drives message
+    /// text (it is kept stored for compatibility); message sizes
+    /// come from this point size, scaled proportionally from
+    /// the 16.5pt base the message sites were written against,
+    /// so a 13pt setting renders body text at exactly 13pt.
+    @Published var messagePointSize: CGFloat {
+        didSet {
+            let clamped = min(15, max(10, messagePointSize))
+            if clamped != messagePointSize {
+                messagePointSize = clamped
+                return
+            }
+            guard messagePointSize != oldValue else { return }
+            UserDefaults.standard.set(messagePointSize, forKey: Keys.messagePoint)
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .fontSettingsMessageBaseChanged, object: nil)
+            }
+        }
+    }
     @Published var appBaseScale: FontScaleLevel {
         didSet {
             guard appBaseScale != oldValue else { return }
@@ -120,6 +158,7 @@ final class FontSettings: ObservableObject {
     var isModified: Bool {
         chatInputScale != .default
             || messageBaseScale != .default
+            || messagePointSize != 13
             || appBaseScale != .default
     }
 
@@ -130,9 +169,12 @@ final class FontSettings: ObservableObject {
         size * chatInputScale.multiplier
     }
 
-    /// Scale a font size by the message-base multiplier.
+    /// Scale a font size for message text: proportional to the
+    /// user's message point size (10-15pt, default 13pt), so a
+    /// site written at the old 16.5pt base renders at exactly
+    /// the chosen point size, and smaller sites scale with it.
     func scaledMessage(_ size: CGFloat) -> CGFloat {
-        size * messageBaseScale.multiplier
+        size * messagePointSize / 16.5
     }
 
     /// Scale a font size by the app-base multiplier.
@@ -146,6 +188,17 @@ final class FontSettings: ObservableObject {
         let ud = UserDefaults.standard
         chatInputScale = FontScaleLevel(rawValue: ud.integer(forKey: Keys.chatInput)) ?? .default
         messageBaseScale = FontScaleLevel(rawValue: ud.integer(forKey: Keys.messageBase)) ?? .default
+        // First launch with no stored point size: a user who
+        // explicitly moved the old message slider keeps that
+        // choice, capped into 10-15pt; everyone else gets 13pt
+        // (never the old 17pt-era default).
+        if ud.object(forKey: Keys.messagePoint) != nil {
+            messagePointSize = min(15, max(10, CGFloat(ud.double(forKey: Keys.messagePoint))))
+        } else if messageBaseScale != .default {
+            messagePointSize = min(15, max(10, 16.5 * messageBaseScale.multiplier))
+        } else {
+            messagePointSize = 13
+        }
         appBaseScale = FontScaleLevel(rawValue: ud.integer(forKey: Keys.appBase)) ?? .default
         // Defer to after first window is available
         DispatchQueue.main.async { [weak self] in self?.applyAppScaleToAllWindows() }
@@ -197,6 +250,7 @@ final class FontSettings: ObservableObject {
     func resetToDefaults() {
         chatInputScale = .default
         messageBaseScale = .default
+        messagePointSize = 13
         appBaseScale = .default
     }
 
@@ -210,6 +264,7 @@ final class FontSettings: ObservableObject {
     private enum Keys {
         static let chatInput = "fontSettings.chatInputScale"
         static let messageBase = "fontSettings.messageBaseScale"
+        static let messagePoint = "fontSettings.messagePointSize"
         static let appBase = "fontSettings.appBaseScale"
     }
 }
@@ -239,6 +294,12 @@ enum ChatFont {
         let scaled = FontSettings.shared.scaledApp(size)
         if let design {
             return .system(size: scaled, weight: weight, design: design)
+        }
+        // UI-part uploaded font wins when it resolves on this
+        // device; otherwise the global family, as before.
+        if let name = MinisThemeShape.uiCustomFontName,
+           let uiFont = UIFont(name: name, size: scaled) {
+            return Font(uiFont)
         }
         return MinisThemeShape.fontFamily.font(size: scaled, weight: weight)
     }

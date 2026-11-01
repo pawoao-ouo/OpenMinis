@@ -79,7 +79,7 @@ struct MessageContextMenuPreview: View {
             // width comes from the ScrollView's width (the outer .frame below),
             // which starts at the cap and shrinks to the measured content.
             Text(shown)
-                .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
+                .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16.5)))
                 .foregroundStyle(ChatColors.primaryText)
                 .multilineTextAlignment(.leading)
                 .padding(16)
@@ -477,7 +477,7 @@ struct UserMessageText: View {
                 // 不再把字符串换成预览——换字符串那一下就是「一跳」的一半。
                 // 裁剪高度和列表预计算共用 collapsedLineLimit，视图/格子同一条尺。
                 Text(text)
-                    .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
+                    .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16.5)))
                     .foregroundStyle(isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
                     // 先按全文高度排版，再由下面的 frame 裁到 8 行；
                     // 不 fixedSize 的话 Text 会自己压到 8 行，展开时没有内容可露。
@@ -933,7 +933,7 @@ struct ChatMessageRow: View {
                             if !cleanUserText.isEmpty {
                                 HStack(spacing: 6) {
                                     Text(cleanUserText)
-                                        .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
+                                        .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16.5)))
                                         .foregroundStyle(message.isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
                                         .padding(.horizontal, AppearanceChatDisplay.parse(
                                             AppearanceStudio.shared.currentThemePack().chatDisplay) == .bubbles
@@ -962,7 +962,7 @@ struct ChatMessageRow: View {
                             if !cleanUserText.isEmpty {
                                 HStack(spacing: 6) {
                                     Text(cleanUserText)
-                                        .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16.5)))
+                                        .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16.5)))
                                         .foregroundStyle(message.isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
                                         .padding(.horizontal, AppearanceChatDisplay.parse(
                                             AppearanceStudio.shared.currentThemePack().chatDisplay) == .bubbles

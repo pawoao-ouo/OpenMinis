@@ -2178,7 +2178,7 @@ struct AppearanceStudioView: View {
             VStack(alignment: .leading, spacing: 12) {
                 sectionTitle(AppLocalized("字号"))
                 FontScaleRow(label: AppLocalized("Chat Input"), level: $fontSettings.chatInputScale)
-                FontScaleRow(label: AppLocalized("Message Text"), level: $fontSettings.messageBaseScale)
+                MessagePointSizeRow(size: $fontSettings.messagePointSize)
                 FontScaleRow(label: AppLocalized("App Base"), level: $fontSettings.appBaseScale)
                 if fontSettings.isModified {
                     Button(AppLocalized("恢复默认字号")) { fontSettings.resetToDefaults() }
@@ -2659,6 +2659,29 @@ private struct StudioCard: ViewModifier {
 
 // MARK: - 字号滑杆
 
+/// Message body size in points, 10-15pt (default 13pt, never
+/// 17pt): a stepped slider plus the current size, replacing
+/// the old message-base multiplier row, which no longer
+/// drives message text.
+private struct MessagePointSizeRow: View {
+    @Binding var size: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(AppLocalized("Message Text"))
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(MinisTheme.primaryText)
+                Spacer(minLength: 0)
+                Text("\(Int(size))pt")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(MinisTheme.secondaryText)
+            }
+            Slider(value: $size, in: 10...15, step: 1)
+        }
+    }
+}
+
 private struct FontScaleRow: View {
     let label: String
     @Binding var level: FontScaleLevel
@@ -2666,7 +2689,7 @@ private struct FontScaleRow: View {
     private static let cases = FontScaleLevel.allCases
 
     private var currentIndex: Int {
-        Self.cases.firstIndex(of: level) ?? 3
+        Self.cases.firstIndex(of: level) ?? Self.cases.firstIndex(of: .default) ?? 0
     }
 
     var body: some View {

@@ -140,7 +140,7 @@ struct NovelDialogueBox: View {
                         }
 
                         Text(currentText)
-                            .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(16)))
+                            .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16)))
                             .foregroundStyle(ChatColors.primaryText)
                             .lineSpacing(4)
                             .lineLimit(8)

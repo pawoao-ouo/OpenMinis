@@ -92,12 +92,33 @@ private enum DressingTag: String, CaseIterable, Identifiable {
     }
 }
 
+/// Which part a font card applies to. Fonts are per part,
+/// not one global pick: the message part (chat message body)
+/// and the UI part (everything that reads the global family)
+/// can wear different families or uploaded fonts, and changing
+/// one part never moves the other.
+private enum DressingFontPart: String, CaseIterable, Identifiable {
+    case message, ui
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .message: return AppLocalized("消息")
+        case .ui: return AppLocalized("界面")
+        }
+    }
+}
+
 struct DressingShopView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var studio = AppearanceStudio.shared
     @ObservedObject private var bubblePackStore = BubbleStylePackStore.shared
     @ObservedObject private var pendantStore = AvatarPendantStore.shared
     @ObservedObject private var outfitStore = DressingOutfitStore.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
+    @ObservedObject private var uploadedFontStore = UploadedFontStore.shared
+    @State private var fontPart: DressingFontPart = .message
+    @State private var showFontPicker = false
+    @State private var fontImportFailed = false
     // Observed so a persona switch (or a user-profile rename via
     // the studio's published display name) redraws every side
     // label in this shop at once — side names are never stored.
@@ -205,7 +226,7 @@ struct DressingShopView: View {
                         case .theme: themeView
                         case .bubble: bubbleView
                         case .pendant: pendantView
-                        case .font: nextBatchPanel(AppLocalized("字体"))
+                        case .font: fontView
                         case .namecard: nextBatchPanel(AppLocalized("名片"))
                         }
                     }
@@ -863,6 +884,323 @@ struct DressingShopView: View {
                 .foregroundStyle(studio.color(.secondaryText))
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
+        }
+    }
+
+    // MARK: - Fonts (cards with previews, per part, 10-15pt)
+
+    /// Font section: family cards with live previews, per part
+    /// (message / UI), plus size controls. Message size is the
+    /// user's 10-15pt range (default 13pt, never 17pt): the six
+    /// preview cards ARE the control — tap a card to set that
+    /// size, and the card's sample text renders at exactly that
+    /// size, so the card never promises a size live chat does
+    /// not use. Input and UI sizes keep their stepped axes.
+    /// Uploaded fonts are preview cards too, rendered in the
+    /// uploaded file's own font, never as a bare file name.
+    private var fontView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(AppLocalized("字体"), jumpTo: .font)
+            // Part picker, same pattern as the side picker:
+            // pick a part first, then a card applies to it only.
+            VStack(alignment: .leading, spacing: 8) {
+                Text(AppLocalized("改哪一部分"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(studio.color(.primaryText))
+                Picker("", selection: $fontPart) {
+                    ForEach(DressingFontPart.allCases) { part in
+                        Text(part.title).tag(part)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(AppLocalized("先选一部分，再点卡片换上；改一部分不会动另一部分。"))
+                    .font(.footnote)
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+
+            // Message size cards: 10-15pt, one card per size.
+            Text(AppLocalized("消息字号"))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(studio.color(.primaryText))
+                .padding(.horizontal, 16)
+                .padding(.top, 22)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
+                      spacing: 12) {
+                ForEach([10, 11, 12, 13, 14, 15], id: \.self) { pt in
+                    fontSizeCard(pt: pt)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+
+            // Per-part stepped sizes for input and UI.
+            VStack(alignment: .leading, spacing: 12) {
+                fontScaleRow(label: AppLocalized("输入字号"),
+                             level: $fontSettings.chatInputScale)
+                fontScaleRow(label: AppLocalized("界面字号"),
+                             level: $fontSettings.appBaseScale)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 22)
+
+            // Family cards: built-ins first, then uploads.
+            sectionHeader(AppLocalized("全部字体"), jumpTo: .font)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
+                      spacing: 12) {
+                ForEach(UploadedFontStore.builtIns, id: \.number) { item in
+                    fontFamilyCard(number: item.number, title: item.family.title,
+                                   font: item.family.font(size: 20))
+                }
+                ForEach(uploadedFontStore.fonts) { font in
+                    uploadedFontCard(font)
+                }
+            }
+            .padding(.horizontal, 16)
+
+            // Upload: a real picker for .ttf/.otf files. A file
+            // that cannot be registered adds no card (see
+            // UploadedFontStore.importFont), and a failed import
+            // shows a plain message instead of a phantom card.
+            Button { showFontPicker = true } label: {
+                Text(AppLocalized("上传字体文件"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(studio.color(.primaryText))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(studio.color(.surface))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.top, 22)
+            Text(AppLocalized("支持 .ttf / .otf 文件；上传的字体会变成一张预览卡，点卡片换上。"))
+                .font(.footnote)
+                .foregroundStyle(studio.color(.secondaryText))
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 32)
+        }
+        .sheet(isPresented: $showFontPicker) {
+            FontFilePicker(
+                onPick: { url in
+                    showFontPicker = false
+                    if uploadedFontStore.importFont(from: url) == nil {
+                        fontImportFailed = true
+                    }
+                },
+                onCancel: { showFontPicker = false }
+            )
+        }
+        .alert(AppLocalized("这个字体文件用不了"), isPresented: $fontImportFailed) {
+            Button(AppLocalized("知道了"), role: .cancel) {}
+        } message: {
+            Text(AppLocalized("文件没有加进来，可能是格式不对或字体损坏。"))
+        }
+    }
+
+    private func fontSizeCard(pt: Int) -> some View {
+        let applied = Int(fontSettings.messagePointSize) == pt
+        return Button { fontSettings.messagePointSize = CGFloat(pt) } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topTrailing) {
+                    Text(AppLocalized("今天也想你"))
+                        .font(MinisThemeShape.messageFont(size: CGFloat(pt)))
+                        .foregroundStyle(studio.color(.primaryText))
+                        .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                        .padding(10)
+                        .background(studio.color(.surface))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    if applied {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(studio.color(.primaryText))
+                            .background(studio.color(.surface))
+                            .clipShape(Circle())
+                            .padding(8)
+                    }
+                }
+                Text("\(pt)pt")
+                    .font(.callout)
+                    .foregroundStyle(studio.color(.primaryText))
+                if applied {
+                    Text(AppLocalized("正在用"))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(studio.color(.primaryText))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func fontScaleRow(label: String, level: Binding<FontScaleLevel>) -> some View {
+        let cases = FontScaleLevel.allCases
+        let index = cases.firstIndex(of: level.wrappedValue) ?? cases.firstIndex(of: .default) ?? 0
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(studio.color(.primaryText))
+                Spacer(minLength: 0)
+                Text(level.wrappedValue.label)
+                    .font(.footnote)
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+            HStack(spacing: 12) {
+                Button {
+                    if index > 0 { level.wrappedValue = cases[index - 1] }
+                } label: {
+                    Text("A")
+                        .font(.footnote)
+                        .foregroundStyle(studio.color(.secondaryText))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Slider(value: Binding(
+                    get: { Double(index) },
+                    set: { newValue in
+                        let idx = min(cases.count - 1, max(0, Int(newValue.rounded())))
+                        level.wrappedValue = cases[idx]
+                    }
+                ), in: 0...Double(cases.count - 1), step: 1)
+                Button {
+                    if index < cases.count - 1 { level.wrappedValue = cases[index + 1] }
+                } label: {
+                    Text("A")
+                        .font(.title3)
+                        .foregroundStyle(studio.color(.secondaryText))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func fontFamilyCard(number: String, title: String, font: Font) -> some View {
+        let applied = isFontApplied(number: number, familyTitle: title)
+        return Button { applyFont(number: number, familyTitle: title) } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topTrailing) {
+                    Text(AppLocalized("今天也想你"))
+                        .font(font)
+                        .foregroundStyle(studio.color(.primaryText))
+                        .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                        .padding(10)
+                        .background(studio.color(.surface))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    if applied {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(studio.color(.primaryText))
+                            .background(studio.color(.surface))
+                            .clipShape(Circle())
+                            .padding(8)
+                    }
+                }
+                Text(title)
+                    .font(.callout)
+                    .foregroundStyle(studio.color(.primaryText))
+                Text(number)
+                    .font(.footnote)
+                    .foregroundStyle(studio.color(.secondaryText))
+                if applied {
+                    Text(AppLocalized("正在用"))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(studio.color(.primaryText))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func uploadedFontCard(_ font: UploadedFont) -> some View {
+        let applied = isUploadedFontApplied(font)
+        return VStack(alignment: .leading, spacing: 6) {
+            Button { applyUploadedFont(font) } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    ZStack(alignment: .topTrailing) {
+                        Text(AppLocalized("今天也想你"))
+                            .font(uploadedFontStore.previewFont(for: font, size: 20))
+                            .foregroundStyle(studio.color(.primaryText))
+                            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                            .padding(10)
+                            .background(studio.color(.surface))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        if applied {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(studio.color(.primaryText))
+                                .background(studio.color(.surface))
+                                .clipShape(Circle())
+                                .padding(8)
+                        }
+                    }
+                    Text(font.title)
+                        .font(.callout)
+                        .foregroundStyle(studio.color(.primaryText))
+                    Text(font.number)
+                        .font(.footnote)
+                        .foregroundStyle(studio.color(.secondaryText))
+                    if applied {
+                        Text(AppLocalized("正在用"))
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(studio.color(.primaryText))
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            Button { uploadedFontStore.delete(font) } label: {
+                Text(AppLocalized("删除"))
+                    .font(.footnote)
+                    .foregroundStyle(studio.color(.destructive))
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Whether a built-in family card is the current pick for
+    /// the part being edited, matched by number (never by
+    /// title). Uploaded fonts are checked separately, by
+    /// postScript name.
+    private func isFontApplied(number: String, familyTitle: String) -> Bool {
+        guard let item = UploadedFontStore.builtIns.first(where: { $0.number == number }) else { return false }
+        let pack = studio.currentThemePack()
+        if fontPart == .message {
+            if pack.messageCustomFont != nil { return false }
+            let current = pack.messageFontFamily.isEmpty
+                ? AppearanceFontFamily.parse(pack.fontFamily)
+                : AppearanceFontFamily.parse(pack.messageFontFamily)
+            return current == item.family
+        }
+        if pack.uiCustomFont != nil { return false }
+        return AppearanceFontFamily.parse(pack.fontFamily) == item.family
+    }
+
+    private func isUploadedFontApplied(_ font: UploadedFont) -> Bool {
+        let pack = studio.currentThemePack()
+        if fontPart == .message { return pack.messageCustomFont == font.postScriptName }
+        return pack.uiCustomFont == font.postScriptName
+    }
+
+    private func applyFont(number: String, familyTitle: String) {
+        guard let item = UploadedFontStore.builtIns.first(where: { $0.number == number }) else { return }
+        if fontPart == .message {
+            studio.setMessageFontFamily(item.family)
+            studio.setMessageCustomFont(nil)
+        } else {
+            studio.setFontFamily(item.family)
+            studio.setUICustomFont(nil)
+        }
+    }
+
+    private func applyUploadedFont(_ font: UploadedFont) {
+        if fontPart == .message {
+            studio.setMessageCustomFont(font.postScriptName)
+        } else {
+            studio.setUICustomFont(font.postScriptName)
         }
     }
 

@@ -35,6 +35,17 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var thinkingTitleSize: Double
     var thinkingBodySize: Double
     var fontFamily: String
+    /// Message-part font family override. "" = follow the
+    /// global `fontFamily` (old packs, and packs where the user
+    /// never picked a message-only family, behave exactly as
+    /// before). Set by the shop's font section, per part.
+    var messageFontFamily: String
+    /// Uploaded-font postScript names, one per part. Nil = no
+    /// uploaded font for that part; the family above is the
+    /// fallback. An uploaded font is a file the user supplied,
+    /// so it is stored by name, never by guessing.
+    var messageCustomFont: String?
+    var uiCustomFont: String?
     var wallpaperShade: Double?
     var surfaceOpacity: Double?
     var colorsLight: [String: String]
@@ -236,6 +247,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         thinkingTitleSize: 13,
         thinkingBodySize: 13,
         fontFamily: AppearanceFontFamily.system.rawValue,
+        messageFontFamily: "",
+        messageCustomFont: nil,
+        uiCustomFont: nil,
         wallpaperShade: 0.08,
         surfaceOpacity: 0.88,
         colorsLight: [:],
@@ -325,6 +339,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             "thinkingTitleSize": thinkingTitleSize,
             "thinkingBodySize": thinkingBodySize,
             "fontFamily": AppearanceFontFamily.parse(fontFamily).rawValue,
+            "messageFontFamily": messageFontFamily,
+            "messageCustomFont": messageCustomFont,
+            "uiCustomFont": uiCustomFont,
             "colorsLight": colorsLight,
             "colorsDark": colorsDark,
             "avatarShape": AppearanceAvatarShape.parse(avatarShape).rawValue,
@@ -394,6 +411,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "categoryIcons", "categoryColors", "categoryImages",
         "inputBarRadius", "inputBarStyle", "inputBarJPEGBase64", "inputBarImageOpacity",
         "thinkingTitleSize", "thinkingBodySize", "fontFamily",
+        "messageFontFamily", "messageCustomFont", "uiCustomFont",
         "wallpaperShade", "surfaceOpacity",
         "colorsLight", "colorsDark", "wallpaperJPEGBase64",
         "avatarShape", "chatDisplay", "lineHeight", "letterSpacing", "rowBackgroundHex",
@@ -468,7 +486,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         // Display modes and line-count layout.
         "chatDisplay", "novelMode", "codeBlockCollapseLines",
         // Ambiguous between font size and layout: rejected, see above.
-        "fontFamily",
+        "fontFamily", "messageFontFamily", "messageCustomFont", "uiCustomFont",
         // Icons / symbols and the standee image: not colours, wallpaper,
         // font sizes, or avatar shape.
         "categoryIcons", "categoryImages", "characterArtBase64",
@@ -572,6 +590,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             thinkingTitleSize: min(22, max(10, num("thinkingTitleSize", fallback: base.thinkingTitleSize))),
             thinkingBodySize: min(22, max(10, num("thinkingBodySize", fallback: base.thinkingBodySize))),
             fontFamily: AppearanceFontFamily.parse(str("fontFamily", fallback: base.fontFamily)).rawValue,
+            messageFontFamily: str("messageFontFamily", fallback: base.messageFontFamily),
+            messageCustomFont: (raw["messageCustomFont"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? base.messageCustomFont,
+            uiCustomFont: (raw["uiCustomFont"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? base.uiCustomFont,
             wallpaperShade: raw["wallpaperShade"] == nil ? nil : min(0.65, max(0, num("wallpaperShade", fallback: 0.08))),
             surfaceOpacity: raw["surfaceOpacity"] == nil ? nil : min(1, max(0.35, num("surfaceOpacity", fallback: 0.88))),
             colorsLight: normalizeHexMap(map("colorsLight", fallback: base.colorsLight)),
@@ -1475,6 +1496,27 @@ extension AppearanceStudio {
         persistPack(pack)
     }
 
+    /// Message-part family ("" = follow the global family).
+    func setMessageFontFamily(_ family: AppearanceFontFamily) {
+        var pack = currentThemePack()
+        pack.messageFontFamily = family.rawValue
+        persistPack(pack)
+    }
+
+    /// Message-part uploaded font (nil = none, family fallback).
+    func setMessageCustomFont(_ postScriptName: String?) {
+        var pack = currentThemePack()
+        pack.messageCustomFont = postScriptName
+        persistPack(pack)
+    }
+
+    /// UI-part uploaded font (nil = none, family fallback).
+    func setUICustomFont(_ postScriptName: String?) {
+        var pack = currentThemePack()
+        pack.uiCustomFont = postScriptName
+        persistPack(pack)
+    }
+
     // MARK: - 第五轮新增的维度
 
     func setAvatarShape(_ shape: AppearanceAvatarShape) {
@@ -2003,6 +2045,32 @@ enum MinisThemeShape {
     static var inputBarStyle: AppearanceBubbleStyle { AppearanceBubbleStyle.parse(pack.inputBarStyle) }
     static var inputBarImageOpacity: Double { pack.inputBarImageOpacity }
     static var fontFamily: AppearanceFontFamily { AppearanceFontFamily.parse(pack.fontFamily) }
+
+    /// Message-part family: the override when set, otherwise
+    /// the global family — so old packs (empty override) render
+    /// exactly as before.
+    static var messageFontFamily: AppearanceFontFamily {
+        pack.messageFontFamily.isEmpty ? fontFamily : AppearanceFontFamily.parse(pack.messageFontFamily)
+    }
+
+    /// Message-part font: an uploaded font wins when its
+    /// postScript name resolves on this device; otherwise the
+    /// message-part family. Weight is honoured for family
+    /// fonts; for an uploaded font the file's own weight is
+    /// used (UIFont(name:) carries no weight parameter).
+    static func messageFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        if let name = pack.messageCustomFont, !name.isEmpty,
+           let uiFont = UIFont(name: name, size: size) {
+            return Font(uiFont)
+        }
+        return messageFontFamily.font(size: size, weight: weight)
+    }
+
+    /// UI-part uploaded font name, if any (nil = family fallback).
+    static var uiCustomFontName: String? {
+        guard let name = pack.uiCustomFont, !name.isEmpty else { return nil }
+        return name
+    }
 
     /// Live pack shape for ONE side, from that side's theme
     /// field the shop's per-side apply() writes (parse falls
