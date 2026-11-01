@@ -120,14 +120,15 @@ final class UploadedFontStore: ObservableObject {
         // PostScript name from the file itself, not the file name.
         // CoreText path (CGFontCreateWithDataProvider is deprecated
         // and CGFont.postScriptName does not bridge to String here):
-        // descriptor from the file URL, then a CTFont, then its
-        // PostScript name via the Copy rule.
-        guard let descriptor = CTFontManagerCreateFontDescriptorFromURL(dest as CFURL) else {
+        // descriptor from the file data, then a CTFont, then its
+        // PostScript name. CTFontCopyPostScriptName returns CFString
+        // directly in Swift (no Unmanaged), so cast it to String.
+        guard let descriptor = CTFontManagerCreateFontDescriptorFromData(data as CFData) else {
             try? FileManager.default.removeItem(at: dest)
             return nil
         }
         let ctFont = CTFontCreateWithFontDescriptor(descriptor, 0, nil)
-        let psName = CTFontCopyPostScriptName(ctFont).takeRetainedValue() as String
+        let psName = CTFontCopyPostScriptName(ctFont) as String
         guard !psName.isEmpty else {
             try? FileManager.default.removeItem(at: dest)
             return nil
