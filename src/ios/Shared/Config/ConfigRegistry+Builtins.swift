@@ -1298,6 +1298,8 @@ extension ConfigRegistry {
     /// Decoupled from `label` (which is user-visible and may localise).
     private static func fontScaleToken(_ level: FontScaleLevel) -> String {
         switch level {
+        case .xxxxSmall:  return "xxxxSmall"
+        case .xxxSmall:   return "xxxSmall"
         case .xxSmall:    return "xxSmall"
         case .xSmall:     return "xSmall"
         case .small:      return "small"
@@ -1310,6 +1312,8 @@ extension ConfigRegistry {
 
     private static func fontScaleFromToken(_ token: String) -> FontScaleLevel? {
         switch token {
+        case "xxxxSmall":  return .xxxxSmall
+        case "xxxSmall":   return .xxxSmall
         case "xxSmall":    return .xxSmall
         case "xSmall":     return .xSmall
         case "small":      return .small
