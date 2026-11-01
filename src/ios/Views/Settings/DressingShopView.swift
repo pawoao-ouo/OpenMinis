@@ -52,24 +52,28 @@ private enum DressingCategory: String, CaseIterable, Identifiable {
 }
 
 private enum DressingTag: String, CaseIterable, Identifiable {
-    case all, soft, fresh, refined
+    case all, simple, soft, fresh, refined
     var id: String { rawValue }
     var title: String {
         switch self {
         case .all: return AppLocalized("全部")
+        case .simple: return AppLocalized("简约")
         case .soft: return AppLocalized("柔和")
         case .fresh: return AppLocalized("清新")
         case .refined: return AppLocalized("淡雅")
         }
     }
     /// The pack tag value this rail tag matches. Nil = no filtering.
-    /// Note: packs tagged 简约 only surface under 全部 in this
-    /// batch, because the specified rail has no 简约 tag — that is
-    /// the spec's consequence, not a filter bug, and the bubble
-    /// category grid under 全部 shows all six.
+    /// Bubble packs use the draft's tags (柔和 / 简约), so every
+    /// pack is reachable via a rail tag: 柔和 shows BUB-0001..0004,
+    /// 简约 shows BUB-0005..0006, 全部 shows all six. 清新 / 淡雅
+    /// are kept from the draft's shared rail (they match theme /
+    /// pendant records there, not bubble packs in this batch) and
+    /// are not invented per-batch taxonomy.
     var packTag: String? {
         switch self {
         case .all: return nil
+        case .simple: return "简约"
         case .soft: return "柔和"
         case .fresh: return "清新"
         case .refined: return "淡雅"
@@ -476,9 +480,9 @@ struct DressingShopView: View {
 
     /// One bubble drawn with the pack's own outline and chrome, so
     /// shop, detail, and live chat all draw the same shape. The
-    /// stitch ribbon tab is drawn here (and in detail) as a small
-    /// tab peeking above the bubble; live chat rows carry the
-    /// dashed border instead, because a chat row has no tab anchor.
+    /// stitch pack is the dashed border in all three places — the
+    /// draft shows it as a dashed border only, with no ribbon tab
+    /// — so no sample promises anything live chat does not draw.
     private func bubbleShapeView(pack: BubbleStylePack, isUser: Bool, text: String,
                                  fontSize: CGFloat, padding: CGFloat,
                                  bubbleColour: Color, textColour: Color,
@@ -487,23 +491,13 @@ struct DressingShopView: View {
         let radius = CGFloat(isUser ? style.userRadius : style.assistantRadius)
         let shape = MinisBubbleShape(style: style.liveStyle(), radius: radius,
                                      tailOnTrailing: isUser, packKind: style.packShape)
-        let bubble = Text(text)
+        return AnyView(Text(text)
             .font(.system(size: fontSize))
             .foregroundStyle(textColour)
             .padding(.horizontal, padding).padding(.vertical, 8)
             .background(bubbleColour)
             .clipShape(shape)
-            .modifier(BubbleBorderChrome(shape: shape, width: borderWidth))
-        if style.packShape == .stitch {
-            return AnyView(ZStack(alignment: .top) {
-                Capsule()
-                    .fill(bubbleColour)
-                    .frame(width: 28, height: 12)
-                    .offset(y: -4)
-                bubble
-            })
-        }
-        return AnyView(bubble)
+            .modifier(BubbleBorderChrome(shape: shape, width: borderWidth)))
     }
 
     // MARK: - Outfit view

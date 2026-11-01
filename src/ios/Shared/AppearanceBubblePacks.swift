@@ -30,9 +30,9 @@ import SwiftUI
 /// identical to before: no clip, no stroke added. When the shape
 /// carries a pack kind, the chrome draws that kind's border:
 /// letter = double frame (outer + inset stroke), stitch = dashed
-/// stroke. The stitch ribbon tab itself is a sample/detail
-/// decoration only — live chat rows have no tab anchor, so live
-/// stitch is the dashed border, which is still instantly distinct.
+/// stroke. Stitch is the dashed border in shop samples, detail
+/// previews, and live chat alike — there is no ribbon tab in any
+/// of the three, so a sample never promises what live chat omits.
 struct BubbleBorderChrome: ViewModifier {
     let shape: MinisBubbleShape
     let width: CGFloat
@@ -397,9 +397,12 @@ struct BubbleStylePack: Identifiable, Equatable, Codable {
     var number: String
     var title: String
     var category: String
-    /// Shop tag rail value: 柔和 / 清新 / 简约 / 淡雅. Persisted
-    /// on the pack so the shop, the detail sheet, and any AI
-    /// lookup read the same record — no second source of truth.
+    /// Shop tag rail value for bubble packs: 柔和 / 简约, matching
+    /// the dressing-shop draft (BUB-0001..0004 柔和, BUB-0005..0006
+    /// 简约). Persisted on the pack so the shop, the detail sheet,
+    /// and any AI lookup read the same record — no second source
+    /// of truth. The shared rail also carries 清新 / 淡雅, which
+    /// match theme / pendant records in the draft, not bubbles.
     var tag: String
     var useCount: Int
     var style: BubbleStyleRecord
@@ -497,7 +500,7 @@ final class BubbleStylePackStore: ObservableObject {
                 userName: .hidden, assistantName: .above,
                 inputBarForm: .rounded, inputBarRadius: 20)),
         BubbleStylePack(
-            number: "BUB-0003", title: "信纸", category: "气泡", tag: "简约",
+            number: "BUB-0003", title: "信纸", category: "气泡", tag: "柔和",
             style: BubbleStyleRecord(
                 userSurface: .text, assistantSurface: .text,
                 tailOn: false, packShape: .letter, cornerPreset: .even,
@@ -509,7 +512,7 @@ final class BubbleStylePackStore: ObservableObject {
                 userName: .above, assistantName: .above,
                 inputBarForm: .rounded, inputBarRadius: 16)),
         BubbleStylePack(
-            number: "BUB-0004", title: "波浪", category: "气泡", tag: "清新",
+            number: "BUB-0004", title: "波浪", category: "气泡", tag: "柔和",
             style: BubbleStyleRecord(
                 userSurface: .row, assistantSurface: .row,
                 tailOn: false, packShape: .wave, cornerPreset: .even,
@@ -533,7 +536,7 @@ final class BubbleStylePackStore: ObservableObject {
                 userName: .hidden, assistantName: .above,
                 inputBarForm: .rounded, inputBarRadius: 16)),
         BubbleStylePack(
-            number: "BUB-0006", title: "丝带针脚", category: "气泡", tag: "淡雅",
+            number: "BUB-0006", title: "丝带针脚", category: "气泡", tag: "简约",
             style: BubbleStyleRecord(
                 userSurface: .row, assistantSurface: .row,
                 tailOn: false, packShape: .stitch, cornerPreset: .even,
@@ -564,10 +567,18 @@ final class BubbleStylePackStore: ObservableObject {
             // Migration to the six-shape catalogue: no user-created
             // packs exist (there is no create API), so a stored
             // catalogue can only hold old built-ins. Keep each
-            // pack's useCount and the applied number, but take the
-            // shape/tag/title from the current built-ins, so an old
-            // BUB-0002 "tail" can never survive as a stale record
-            // while the shop shows a cloud.
+            // pack's useCount, but take the shape/tag/title from
+            // the current built-ins, so an old BUB-0002 "tail" can
+            // never survive as a stale record while the shop shows
+            // a cloud. The applied number is kept ONLY if the
+            // stored applied pack's style still equals its built-in
+            // style — otherwise the live theme does not actually
+            // show that pack, and keeping the claim would make the
+            // shop lie about what is in use. A cleared claim is
+            // restored honestly the next time the user taps a pack,
+            // when apply() writes the full shape to the live theme.
+            // Tag/title-only changes do not clear the claim: the
+            // live shape is unchanged by metadata.
             var useCounts: [String: Int] = [:]
             for stored in catalog.packs {
                 useCounts[stored.number] = stored.useCount
@@ -578,7 +589,10 @@ final class BubbleStylePackStore: ObservableObject {
                 return pack
             }
             appliedNumber = catalog.appliedNumber.flatMap { number in
-                packs.contains(where: { $0.number == number }) ? number : nil
+                guard let builtIn = Self.builtIns.first(where: { $0.number == number }),
+                      let stored = catalog.packs.first(where: { $0.number == number }),
+                      stored.style == builtIn.style else { return nil }
+                return number
             }
             nextSerial = max(7, catalog.nextSerial)
             return
