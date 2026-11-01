@@ -541,31 +541,48 @@ struct DressingShopView: View {
         return Button { openDetail(pack) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .topTrailing) {
+                    // Bubble batch aesthetic: monochrome + one
+                    // accent, hairline border from the theme
+                    // token, soft shadows copied from the font
+                    // card (same two layers, same values).
+                    // No fixed height: the art is exactly as
+                    // tall as its two sample rows + padding, so
+                    // no empty space is left inside the card.
+                    // The sample rows themselves are untouched:
+                    // same shape, padding, and text colour as
+                    // real chat, so the card never looks better
+                    // than the chat it previews.
                     bubbleCardArt(pack)
-                        .frame(height: 122)
                         .frame(width: fixedWidth ? 125 : nil)
                         .background(studio.color(.surface))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(applied ? studio.color(.accent) : studio.color(.border),
+                                    lineWidth: applied ? 1.5 : 1))
+                        .shadow(color: .black.opacity(applied ? 0.12 : 0.03),
+                                radius: applied ? 16 : 3, x: 0, y: applied ? 4 : 1)
+                        .shadow(color: .black.opacity(applied ? 0 : 0.02),
+                                radius: 2, x: 0, y: 1)
                     if applied {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 22))
-                            .foregroundStyle(studio.color(.primaryText))
+                            .foregroundStyle(studio.color(.accent))
                             .background(studio.color(.surface))
                             .clipShape(Circle())
                             .padding(8)
                     }
                 }
                 Text(pack.title)
-                    .font(.callout)
+                    .font(.system(size: fsTitle, weight: .semibold, design: .serif))
                     .foregroundStyle(studio.color(.primaryText))
                     .padding(.top, 10)
                 Text(pack.number)
-                    .font(.footnote)
+                    .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
                     .foregroundStyle(studio.color(.secondaryText))
                     .padding(.top, 3)
                 if applied {
                     Text(AppLocalized("正在用"))
-                        .font(.footnote.weight(.semibold))
+                        .font(.system(size: fsCaption, weight: .semibold))
                         .foregroundStyle(studio.color(.primaryText))
                         .padding(.top, 3)
                 }
@@ -1901,7 +1918,7 @@ struct DressingShopView: View {
         VStack(spacing: 0) {
             ZStack {
                 Text(AppLocalized("聊天气泡"))
-                    .font(.title3.weight(.bold))
+                    .font(.system(size: fsTitle, weight: .bold, design: .serif))
                     .foregroundStyle(studio.color(.primaryText))
                 HStack {
                     Button { closeDetail() } label: {
@@ -1918,6 +1935,11 @@ struct DressingShopView: View {
             }
             .frame(height: 52)
             .background(studio.color(.surface))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(studio.color(.border))
+                    .frame(height: 0.5)
+            }
 
             // Preview area: tapping it toggles the sheet, exactly
             // as the draft does. The sheet itself is outside this
@@ -1930,7 +1952,7 @@ struct DressingShopView: View {
             // that side's applied pendant.
             VStack(alignment: .leading, spacing: 14) {
                 Text(AppLocalized("正在改：") + sidePickerLabel(for: detailPackSide))
-                    .font(.subheadline.weight(.semibold))
+                    .font(.system(size: fsSub, weight: .semibold))
                     .foregroundStyle(studio.color(.primaryText))
                 detailMessage(pack: pack, isUser: false,
                               text: AppLocalized("今天也想你。早上出门的时候还在想，晚上回来第一句还是想跟你说这个。"))
@@ -1956,17 +1978,23 @@ struct DressingShopView: View {
 
             if sheetUp {
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("\(pack.title) · \(pack.number)")
-                            .font(.system(size: 22, weight: .bold))
+                    HStack(spacing: 6) {
+                        Text(pack.title)
+                            .font(.system(size: fsTitle, weight: .bold, design: .serif))
                             .foregroundStyle(studio.color(.primaryText))
+                        Text("·")
+                            .font(.system(size: fsTitle, weight: .bold))
+                            .foregroundStyle(studio.color(.secondaryText))
+                        Text(pack.number)
+                            .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(studio.color(.secondaryText))
                         Spacer(minLength: 0)
                     }
                     Text(AppLocalized("在模拟聊天里看这款的长句和短句，确认后再换上；只换这一边的气泡，另一边不动，其他搭配也不动。"))
-                        .font(.subheadline)
+                        .font(.system(size: fsSub))
                         .foregroundStyle(studio.color(.secondaryText))
                     Text(AppLocalized("组成：") + pack.composition.joined(separator: " · "))
-                        .font(.system(size: 14))
+                        .font(.system(size: fsCaption))
                         .foregroundStyle(studio.color(.secondaryText))
                     HStack(spacing: 12) {
                         Button(AppLocalized("保存成搭配")) {
@@ -1974,12 +2002,12 @@ struct DressingShopView: View {
                             closeDetail()
                         }
                         .font(.callout)
-                        .foregroundStyle(studio.color(.primaryText))
+                        .foregroundStyle(studio.color(.accent))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(studio.color(.primaryText), lineWidth: 1.5)
+                                .stroke(studio.color(.accent), lineWidth: 1)
                         )
                         .buttonStyle(.plain)
                         Button(AppLocalized("换上这款")) {
@@ -1990,7 +2018,7 @@ struct DressingShopView: View {
                         .foregroundStyle(studio.color(.surface))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        .background(studio.color(.primaryText))
+                        .background(studio.color(.accent))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .buttonStyle(.plain)
                     }
