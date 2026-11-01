@@ -1772,9 +1772,9 @@ enum MinisThemeShape {
         // Outer corner = the side the bubble sits on: user = trailing
         // bottom, assistant = leading bottom. Matches BubblePackSampleShape.
         if user {
-            return RectangleCornerRadii(topLeading: r, bottomLeading: r, topTrailing: r, bottomTrailing: 4)
+            return RectangleCornerRadii(topLeading: r, bottomLeading: r, bottomTrailing: 4, topTrailing: r)
         }
-        return RectangleCornerRadii(topLeading: r, bottomLeading: 4, topTrailing: r, bottomTrailing: r)
+        return RectangleCornerRadii(topLeading: r, bottomLeading: 4, bottomTrailing: r, topTrailing: r)
     }
     static var thinkingCardOpacity: Double { pack.thinkingCardImageOpacity }
     static var inputBarStyle: AppearanceBubbleStyle { AppearanceBubbleStyle.parse(pack.inputBarStyle) }

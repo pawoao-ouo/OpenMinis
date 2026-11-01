@@ -2809,12 +2809,13 @@ private struct BubblePackSampleShape: Shape {
         }
         if style.cornerPreset == .asymmetric {
             // RectangleCornerRadii order is topLeading, bottomLeading,
-            // topTrailing, bottomTrailing — values per corner unchanged.
+            // bottomTrailing, topTrailing (verified from CI log + docs:
+            // bottomTrailing must precede topTrailing) — values unchanged.
             let radii = RectangleCornerRadii(
                 topLeading: radius,
                 bottomLeading: isUser ? radius : 4,
-                topTrailing: radius,
-                bottomTrailing: isUser ? 4 : radius)
+                bottomTrailing: isUser ? 4 : radius,
+                topTrailing: radius)
             return UnevenRoundedRectangle(cornerRadii: radii).path(in: rect)
         }
         return MinisBubbleShape(style: style.liveStyle(), radius: radius,
