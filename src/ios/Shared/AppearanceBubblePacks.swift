@@ -103,24 +103,48 @@ struct BubblePackOutlineShape: Shape {
                                          style: .continuous).path(in: rect).cgPath)
         case .cloud:
             // Same cloud at any length: the middle stretches
-            // straight, the bumps do not. Bump centres are anchored
-            // a fixed distance from the ends (plus the centre one),
-            // never spaced by a fraction of the width — fraction
-            // spacing is what stretched the short cloud's bumps
-            // apart into a caterpillar on a long bubble. Count is
-            // unchanged: three bumps on the top edge, three on the
-            // bottom, at every length.
+            // straight, the bumps do not multiply. Bump centres are
+            // anchored a fixed distance from the ends (plus the
+            // centre one), never spaced by a fraction of the width
+            // — fraction spacing is what stretched the short
+            // cloud's bumps apart into a caterpillar on a long
+            // bubble. Count is unchanged: three bumps on the top
+            // edge, three on the bottom, at every length.
+            //
+            // But a fixed 12pt bump does NOT survive stretching:
+            // on a ~380pt long bubble it is a tiny nub on a long
+            // flat slab and the shape reads as a plain rounded
+            // rectangle. So the bump grows with width past the
+            // short-bubble threshold, and only there: at or below
+            // 220pt wide the geometry is exactly the old one
+            // (bump 12, protrusion 0.45), so the short cloud is
+            // pixel-identical to before. Past 220pt the bump
+            // radius grows (12 + excess/12, capped at 30), the
+            // bump widens (up to 1.5x) and protrudes further
+            // (up to 0.80 of its radius), so the three lobes stay
+            // legible humps on a long bubble instead of nubs.
+            // Long example (380pt wide): bump 25.3, half-width
+            // 38, protrusion 20.2 — three wide lobes top and
+            // bottom, flat middle between them, no fourth bump.
             var path = Path(RoundedRectangle(cornerRadius: 18, style: .continuous).path(in: rect).cgPath)
-            let bump = min(12, rect.height / 3)
+            let shortWidth: CGFloat = 220
+            let excess = max(0, rect.width - shortWidth)
+            let bump = min(12 + excess / 12, 30)
+            let baseBump = min(12, rect.height / 3)
+            let effectiveBump = rect.width <= shortWidth ? baseBump : bump
+            let halfWidth = effectiveBump * (1 + min(0.5, excess / 320))
+            let protrude = effectiveBump * (0.45 + min(0.35, excess / 460))
             let midX = rect.midX
-            var centres = [rect.minX + bump * 2, midX, rect.maxX - bump * 2]
-            centres[0] = min(centres[0], midX - bump)
-            centres[2] = max(centres[2], midX + bump)
+            var centres = [rect.minX + max(effectiveBump * 2, halfWidth + 6), midX,
+                           rect.maxX - max(effectiveBump * 2, halfWidth + 6)]
+            centres[0] = min(centres[0], midX - halfWidth)
+            centres[2] = max(centres[2], midX + halfWidth)
             for cx in centres {
-                path.addEllipse(in: CGRect(x: cx - bump, y: rect.minY - bump * 0.45,
-                                           width: bump * 2, height: bump * 2))
-                path.addEllipse(in: CGRect(x: cx - bump, y: rect.maxY - bump * 1.55,
-                                           width: bump * 2, height: bump * 2))
+                path.addEllipse(in: CGRect(x: cx - halfWidth, y: rect.minY - protrude,
+                                           width: halfWidth * 2, height: effectiveBump * 2))
+                path.addEllipse(in: CGRect(x: cx - halfWidth,
+                                           y: rect.maxY - effectiveBump * 2 + protrude,
+                                           width: halfWidth * 2, height: effectiveBump * 2))
             }
             return path
         case .letter:
