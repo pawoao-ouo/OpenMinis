@@ -95,13 +95,28 @@ struct BubblePackOutlineShape: Shape {
     func path(in rect: CGRect) -> Path {
         switch kind {
         case .porcelain:
-            return Path(RoundedRectangle(cornerRadius: min(rect.height, rect.width) / 2,
+            // Fixed radius from the pack's radius field, not
+            // min(height, width) / 2: a long message must stay a
+            // rounded rectangle and only grow downward, never
+            // balloon into an ellipse that clips its own text.
+            return Path(RoundedRectangle(cornerRadius: min(max(radius, 4), 32),
                                          style: .continuous).path(in: rect).cgPath)
         case .cloud:
+            // Same cloud at any length: the middle stretches
+            // straight, the bumps do not. Bump centres are anchored
+            // a fixed distance from the ends (plus the centre one),
+            // never spaced by a fraction of the width — fraction
+            // spacing is what stretched the short cloud's bumps
+            // apart into a caterpillar on a long bubble. Count is
+            // unchanged: three bumps on the top edge, three on the
+            // bottom, at every length.
             var path = Path(RoundedRectangle(cornerRadius: 18, style: .continuous).path(in: rect).cgPath)
             let bump = min(12, rect.height / 3)
-            for fraction in [0.22, 0.5, 0.78] as [CGFloat] {
-                let cx = rect.minX + rect.width * fraction
+            let midX = rect.midX
+            var centres = [rect.minX + bump * 2, midX, rect.maxX - bump * 2]
+            centres[0] = min(centres[0], midX - bump)
+            centres[2] = max(centres[2], midX + bump)
+            for cx in centres {
                 path.addEllipse(in: CGRect(x: cx - bump, y: rect.minY - bump * 0.45,
                                            width: bump * 2, height: bump * 2))
                 path.addEllipse(in: CGRect(x: cx - bump, y: rect.maxY - bump * 1.55,
@@ -119,21 +134,26 @@ struct BubblePackOutlineShape: Shape {
             path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
             path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + r),
                               control: CGPoint(x: rect.maxX, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - 10))
+            // Wave bottom, deep enough to read as a wave at any
+            // height: joints sit 18pt above the bottom, troughs
+            // touch the bottom. Exactly 3 waves at every width —
+            // a long bubble stretches the waves horizontally, it
+            // never gains a fourth one.
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - 18))
             let waves = 3
             let step = rect.width / CGFloat(waves)
             for i in 0..<waves {
                 let x0 = rect.maxX - step * CGFloat(i)
                 let x1 = x0 - step / 2
                 let x2 = x0 - step
-                path.addCurve(to: CGPoint(x: x1, y: rect.maxY - 2),
-                              control1: CGPoint(x: x0 - step * 0.25, y: rect.maxY - 12),
-                              control2: CGPoint(x: x1 - step * 0.25, y: rect.maxY + 6))
-                path.addCurve(to: CGPoint(x: x2, y: rect.maxY - 10),
-                              control1: CGPoint(x: x1 + step * 0.25, y: rect.maxY - 10),
-                              control2: CGPoint(x: x2 + step * 0.25, y: rect.maxY - 2))
+                path.addCurve(to: CGPoint(x: x1, y: rect.maxY),
+                              control1: CGPoint(x: x0 - step * 0.25, y: rect.maxY - 18),
+                              control2: CGPoint(x: x1 - step * 0.25, y: rect.maxY))
+                path.addCurve(to: CGPoint(x: x2, y: rect.maxY - 18),
+                              control1: CGPoint(x: x1 + step * 0.25, y: rect.maxY),
+                              control2: CGPoint(x: x2 + step * 0.25, y: rect.maxY - 18))
             }
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - 10))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - 18))
             path.closeSubpath()
             return path
         case .cut:

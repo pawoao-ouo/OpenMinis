@@ -1008,12 +1008,9 @@ struct ChatMessageRow: View {
                         }
                     }
                 }
-                // [bubble-packs] Meta below the bubble, when the pack
-                // asks for it. Hidden by default, so existing chats
-                // gain no new line until a pack is applied.
-                if MinisThemeShape.userMeta == .below {
-                    bubbleMetaText(message.createdAt)
-                }
+                // [bubble-packs] Meta below removed: the per-bubble
+                // time line under a bubble is gone; only the centred
+                // time divider capsule remains.
                 // [batch2 / W1A-13] Visible hint when the local write failed —
                 // an orphan answer above a vanished question is worse than
                 // knowing immediately.

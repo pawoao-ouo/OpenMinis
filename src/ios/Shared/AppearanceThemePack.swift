@@ -709,7 +709,12 @@ struct MinisBubbleShape: Shape {
             }
             return rounded(rect, r, continuous: true)
         case .pill:
-            return rounded(rect, min(rect.height, rect.width) / 2, continuous: true)
+            // Fixed radius, not a capsule that grows with the text:
+            // `r` above is already capped by the theme's radius
+            // field (4...32), so a long multi-line message stays a
+            // rounded rectangle and only grows downward, instead of
+            // ballooning into an ellipse that clips its own text.
+            return rounded(rect, r, continuous: true)
         case .sharp:
             return rounded(rect, min(6, r * 0.35), continuous: false)
         case .tail:

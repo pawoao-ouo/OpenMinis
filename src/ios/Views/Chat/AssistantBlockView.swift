@@ -249,15 +249,9 @@ struct AssistantBlockView: View {
                         .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations))
                 }
             }
-            // [bubble-packs] Meta below lives under the LAST text
-            // block only — earlier blocks are part of the flow, and a
-            // tool-only turn has no text block to hang it on.
-            if Self.isLastTextBlock(of: message, block: block),
-               MinisThemeShape.assistantMeta == .below {
-                Text(message.createdAt, format: .dateTime.hour().minute())
-                    .font(.system(size: 10))
-                    .foregroundStyle(ChatColors.secondaryText.opacity(0.8))
-            }
+            // [bubble-packs] Meta below removed: no per-bubble
+            // time line under a bubble; only the centred time
+            // divider capsule remains.
         }
     }
 
@@ -327,13 +321,8 @@ struct AssistantBlockView: View {
                 actionBar(forBlockContent: actionContent)
             }
             }
-            // [bubble-packs] Meta below, same rule as singleTextBubble.
-            if Self.isLastTextBlock(of: message, block: block),
-               MinisThemeShape.assistantMeta == .below {
-                Text(message.createdAt, format: .dateTime.hour().minute())
-                    .font(.system(size: 10))
-                    .foregroundStyle(ChatColors.secondaryText.opacity(0.8))
-            }
+            // [bubble-packs] Meta below removed, same as
+            // singleTextBubble: no per-bubble time line.
         }
         .padding(.vertical, display == .flat || display == .document ? 4 : 0)
         .id(appearanceStudio.themePackRevision)
