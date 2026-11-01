@@ -102,6 +102,7 @@ struct DressingShopView: View {
     @ObservedObject private var uploadedFontStore = UploadedFontStore.shared
     @State private var showFontPicker = false
     @State private var fontImportFailed = false
+    @State private var fontPendingDelete: UploadedFont?
     // Observed so a persona switch (or a user-profile rename via
     // the studio's published display name) redraws every side
     // label in this shop at once — side names are never stored.
@@ -870,86 +871,79 @@ struct DressingShopView: View {
         }
     }
 
-    // MARK: - Fonts (cards with previews, one global font, 10-15pt)
+    // MARK: - Font section, Gemini workshop skin (locked layout)
 
-    /// Font section: ONE size control and ONE family control,
-    /// both global. The size is the user's 10-15pt range
-    /// (default 13pt, never 17pt) driving message body, UI
-    /// text, and input text together: the six preview cards
-    /// ARE the control — tap a card to set that size, and the
-    /// card's sample text renders at exactly that size, so
-    /// the card never promises a size live chat does not use.
-    /// The family cards are the same single choice for
-    /// message and UI: built-ins FON-0001..0004 first, then
-    /// uploads FON-0005+. Uploaded fonts are preview cards
-    /// too, rendered in the uploaded file's own font, never
-    /// as a bare file name.
-    ///
-    /// Density: the section's own paddings and spacings go
-    /// through `fontSettings.density`, so at a small global
-    /// size the cards themselves pull together instead of
-    /// staying huge around small text. Tap targets (44pt
-    /// min heights) are never densified.
+    /// Layout constants for the font section ONLY, in one
+    /// place, private to this file — never in the theme pack,
+    /// so AI theme tools (colour / wallpaper / font size
+    /// only) cannot move them. This is the layout lock her
+    /// 2026-11-01 AI-theme ban requires: radii, padding
+    /// bases, and gaps are fixed numbers here. Padding and
+    /// gap bases still pass through `density()` so a small
+    /// global size pulls the section together (the 194 fix);
+    /// radii never densify. Colours are all theme globals
+    /// (`studio.color`), never literals — the SwiftUI
+    /// equivalent of the Gemini file's `:root` variables.
+    /// Shadows are the one exception: they are black
+    /// translucency, not palette colours, exactly as in the
+    /// Gemini file's fixed rgba shadows.
+    private enum FontSkin {
+        static let radiusLarge: CGFloat = 22
+        static let radiusMedium: CGFloat = 16
+        static let radiusPill: CGFloat = 999
+        static let cardPadding: CGFloat = 16
+        static let innerPadding: CGFloat = 12
+        static let sectionGap: CGFloat = 24
+        static let listGap: CGFloat = 12
+        static let gridGap: CGFloat = 10
+        static let horizontal: CGFloat = 16
+    }
+
+    /// The one global point size, read once per render:
+    /// message, UI, and input all derive from it. Size-card
+    /// samples render at exactly their own pt; font-card
+    /// specimens and the live preview render at this value.
+    private var globalPointSize: CGFloat { fontSettings.messagePointSize }
+
+    /// Current global font, as (number, title), resolved
+    /// live: an uploaded font wins by postScript name, else
+    /// the built-in family. Never a stored name.
+    private var currentFontLabel: (number: String, title: String) {
+        if let name = MinisThemeShape.globalCustomFontName,
+           let up = uploadedFontStore.fonts.first(where: { $0.postScriptName == name }) {
+            return (up.number, up.title)
+        }
+        let family = MinisThemeShape.globalFontFamily
+        let number = UploadedFontStore.builtIns.first(where: { $0.family == family })?.number ?? "FON-0001"
+        return (number, family.title)
+    }
+
+    /// Section head in the Gemini language: a 15pt bold
+    /// sans title and an 11pt secondary description, no
+    /// English suffix, no chevron — the font section is the
+    /// page, it does not jump to itself.
+    private func fontSectionHead(title: String, desc: String) -> some View {
+        VStack(alignment: .leading, spacing: fontSettings.density(3)) {
+            Text(title)
+                .font(ChatFont.font(15, weight: .bold))
+                .foregroundStyle(studio.color(.primaryText))
+            Text(desc)
+                .font(ChatFont.font(11))
+                .foregroundStyle(studio.color(.secondaryText))
+        }
+        .padding(.horizontal, FontSkin.horizontal)
+    }
+
     private var fontView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader(AppLocalized("字体"), jumpTo: .font)
-
-            // Global size cards: 10-15pt, one card per size.
-            // One control for message, UI, and input together.
-            Text(AppLocalized("全局字号"))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(studio.color(.primaryText))
-                .padding(.horizontal, 16)
-                .padding(.top, fontSettings.density(22))
-            Text(AppLocalized("消息、界面、输入框用同一个字号，改一处三处一起变。"))
-                .font(.footnote)
-                .foregroundStyle(studio.color(.secondaryText))
-                .padding(.horizontal, 16)
-                .padding(.top, fontSettings.density(6))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: fontSettings.density(12)), count: 3),
-                      spacing: fontSettings.density(12)) {
-                ForEach([10, 11, 12, 13, 14, 15], id: \.self) { pt in
-                    fontSizeCard(pt: pt)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, fontSettings.density(12))
-
-            // Family cards: built-ins first, then uploads.
-            // One control for message and UI together.
-            sectionHeader(AppLocalized("全部字体"), jumpTo: .font)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: fontSettings.density(12)), count: 3),
-                      spacing: fontSettings.density(12)) {
-                ForEach(UploadedFontStore.builtIns, id: \.number) { item in
-                    fontFamilyCard(number: item.number, title: item.family.title,
-                                   font: item.family.font(size: 20))
-                }
-                ForEach(uploadedFontStore.fonts) { font in
-                    uploadedFontCard(font)
-                }
-            }
-            .padding(.horizontal, 16)
-
-            // Upload: a real picker for .ttf/.otf files. A file
-            // that cannot be registered adds no card (see
-            // UploadedFontStore.importFont), and a failed import
-            // shows a plain message instead of a phantom card.
-            Button { showFontPicker = true } label: {
-                Text(AppLocalized("上传字体文件"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(studio.color(.primaryText))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(studio.color(.surface))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.top, fontSettings.density(22))
-            Text(AppLocalized("支持 .ttf / .otf 文件；上传的字体会变成一张预览卡，点卡片换上。"))
-                .font(.footnote)
-                .foregroundStyle(studio.color(.secondaryText))
-                .padding(.horizontal, 16)
-                .padding(.top, fontSettings.density(8))
+            fontLivePreview
+                .padding(.top, fontSettings.density(18))
+            fontSizeSection
+                .padding(.top, fontSettings.density(FontSkin.sectionGap))
+            fontListSection
+                .padding(.top, fontSettings.density(FontSkin.sectionGap))
+            fontUploadSection
+                .padding(.top, fontSettings.density(FontSkin.sectionGap))
                 .padding(.bottom, fontSettings.density(32))
         }
         .sheet(isPresented: $showFontPicker) {
@@ -968,122 +962,362 @@ struct DressingShopView: View {
         } message: {
             Text(AppLocalized("文件没有加进来，可能是格式不对或字体损坏。"))
         }
+        .alert(AppLocalized("删除这个字体？"), isPresented: Binding(
+            get: { fontPendingDelete != nil },
+            set: { if !$0 { fontPendingDelete = nil } }
+        )) {
+            Button(AppLocalized("删除"), role: .destructive) {
+                if let font = fontPendingDelete {
+                    // In-use font falls back to FON-0001
+                    // (system) first, then the file and its
+                    // record go, so nothing keeps pointing
+                    // at a deleted font.
+                    if isUploadedFontApplied(font) { studio.setFontFamily(.system) }
+                    uploadedFontStore.delete(font)
+                }
+                fontPendingDelete = nil
+            }
+            Button(AppLocalized("保留"), role: .cancel) { fontPendingDelete = nil }
+        } message: {
+            Text(AppLocalized("删掉后文件和卡片都不在了，正在用的话会回到系统字体。"))
+        }
     }
 
-    private func fontSizeCard(pt: Int) -> some View {
-        let applied = Int(fontSettings.messagePointSize) == pt
-        return Button { fontSettings.messagePointSize = CGFloat(pt) } label: {
-            VStack(alignment: .leading, spacing: fontSettings.density(6)) {
-                ZStack(alignment: .topTrailing) {
-                    Text(AppLocalized("今天也想你"))
-                        .font(MinisThemeShape.messageFont(size: CGFloat(pt)))
-                        .foregroundStyle(studio.color(.primaryText))
-                        .frame(maxWidth: .infinity, minHeight: fontSettings.density(64), alignment: .leading)
-                        .padding(fontSettings.density(10))
-                        .background(studio.color(.surface))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    if applied {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(studio.color(.primaryText))
-                            .background(studio.color(.surface))
-                            .clipShape(Circle())
-                            .padding(fontSettings.density(8))
+    // MARK: Live preview — the proof the global claim is real
+
+    /// Gemini's preview module, our content: two real chat
+    /// rows (current persona avatar + user avatar, live
+    /// side names, never hardcoded names) and an input-bar
+    /// mock, all rendered at the current global size and
+    /// family. Tapping a size or family card below redraws
+    /// this preview at once, because every text here reads
+    /// the same global value live chat reads. The preview
+    /// is display-only, not a control: no dead send button.
+    private var fontLivePreview: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            fontSectionHead(
+                title: AppLocalized("实时联动预览"),
+                desc: AppLocalized("改字号或换字体，界面、消息、输入框一起变。")
+            )
+            VStack(alignment: .leading, spacing: fontSettings.density(14)) {
+                // Meta line: mono numbers, like Gemini's
+                // live-meta — current size and font, live.
+                HStack {
+                    Text("\(Int(globalPointSize))pt · \(currentFontLabel.title)")
+                        .font(ChatFont.font(11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(studio.color(.secondaryText))
+                    Spacer(minLength: 0)
+                    Text(currentFontLabel.number)
+                        .font(ChatFont.font(11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(studio.color(.secondaryText))
+                }
+                // Chat box: muted surface, like Gemini's
+                // preview-chat-box.
+                VStack(alignment: .leading, spacing: fontSettings.density(12)) {
+                    HStack(alignment: .top, spacing: 8) {
+                        PersonAvatarView(kind: .assistant, size: 28, showPendant: false)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(AppLocalized("今天也想你"))
+                                .font(MinisThemeShape.messageFont(size: globalPointSize))
+                                .foregroundStyle(studio.color(.primaryText))
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 9)
+                                .background(studio.color(.surface))
+                                .clipShape(UnevenRoundedRectangle(
+                                    topLeadingRadius: 4, bottomLeadingRadius: 17,
+                                    bottomTrailingRadius: 17, topTrailingRadius: 17))
+                                .overlay(UnevenRoundedRectangle(
+                                    topLeadingRadius: 4, bottomLeadingRadius: 17,
+                                    bottomTrailingRadius: 17, topTrailingRadius: 17)
+                                    .stroke(studio.color(.border), lineWidth: 1))
+                            Text(assistantSideName)
+                                .font(ChatFont.font(10))
+                                .foregroundStyle(studio.color(.secondaryText))
+                                .padding(.horizontal, 4)
+                        }
+                    }
+                    HStack(alignment: .top, spacing: 8) {
+                        Spacer(minLength: 0)
+                        VStack(alignment: .trailing, spacing: 3) {
+                            Text(AppLocalized("我也想你"))
+                                .font(MinisThemeShape.messageFont(size: globalPointSize))
+                                .foregroundStyle(studio.color(.surface))
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 9)
+                                .background(studio.color(.primaryText))
+                                .clipShape(UnevenRoundedRectangle(
+                                    topLeadingRadius: 17, bottomLeadingRadius: 17,
+                                    bottomTrailingRadius: 17, topTrailingRadius: 4))
+                            Text(userSideName)
+                                .font(ChatFont.font(10))
+                                .foregroundStyle(studio.color(.secondaryText))
+                                .padding(.horizontal, 4)
+                        }
+                        PersonAvatarView(kind: .user, size: 28, showPendant: false)
                     }
                 }
-                Text("\(pt)pt")
-                    .font(.callout)
-                    .foregroundStyle(studio.color(.primaryText))
-                if applied {
-                    Text(AppLocalized("正在用"))
-                        .font(.footnote.weight(.semibold))
+                .padding(fontSettings.density(14))
+                .background(studio.color(.mutedSurface))
+                .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusMedium, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusMedium, style: .continuous)
+                    .stroke(studio.color(.border), lineWidth: 1))
+                // Input-bar mock: pill, field text at the
+                // global size, send capsule as display only.
+                HStack(spacing: 8) {
+                    Text(AppLocalized("今天也想你"))
+                        .font(ChatFont.font(13))
                         .foregroundStyle(studio.color(.primaryText))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(AppLocalized("发送"))
+                        .font(ChatFont.font(12, weight: .semibold))
+                        .foregroundStyle(studio.color(.surface))
+                        .padding(.horizontal, 14)
+                        .frame(height: 34)
+                        .background(studio.color(.primaryText))
+                        .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
+                }
+                .padding(.leading, 14)
+                .padding(.trailing, 6)
+                .padding(.vertical, 4)
+                .frame(minHeight: 44)
+                .background(studio.color(.surface))
+                .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous)
+                    .stroke(studio.color(.border), lineWidth: 1))
+            }
+            .padding(fontSettings.density(FontSkin.cardPadding))
+            .background(studio.color(.surface))
+            .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusLarge, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusLarge, style: .continuous)
+                .stroke(studio.color(.border), lineWidth: 1))
+            .shadow(color: .black.opacity(0.04), radius: 9, x: 0, y: 4)
+            .padding(.horizontal, FontSkin.horizontal)
+            .padding(.top, fontSettings.density(12))
+        }
+    }
+
+    // MARK: Global size — 3-column grid, honest samples
+
+    private var fontSizeSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            fontSectionHead(
+                title: AppLocalized("全局字号"),
+                desc: AppLocalized("卡里的字就是它标的那个字号，点一下全 App 一起变。")
+            )
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: fontSettings.density(FontSkin.gridGap)), count: 3),
+                      spacing: fontSettings.density(FontSkin.gridGap)) {
+                ForEach([10, 11, 12, 13, 14, 15], id: \.self) { pt in
+                    fontSizeCard(pt: pt)
                 }
             }
+            .padding(.horizontal, FontSkin.horizontal)
+            .padding(.top, fontSettings.density(12))
+        }
+    }
+
+    /// Gemini size card: radius 16, 1pt hairline border,
+    /// active card 1.5pt primary border + stronger shadow,
+    /// mono number on top, sample at EXACTLY its own pt
+    /// in the current global family, "正在用" pill only on
+    /// the active card. Content sets the height — no fixed
+    /// 64pt empty sample box.
+    private func fontSizeCard(pt: Int) -> some View {
+        let applied = Int(globalPointSize) == pt
+        return Button { fontSettings.messagePointSize = CGFloat(pt) } label: {
+            VStack(alignment: .leading, spacing: fontSettings.density(2)) {
+                HStack {
+                    Text("\(pt) pt")
+                        .font(ChatFont.font(13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(studio.color(.primaryText))
+                    Spacer(minLength: 0)
+                    if applied {
+                        Text(AppLocalized("正在用"))
+                            .font(ChatFont.font(9, weight: .semibold))
+                            .foregroundStyle(studio.color(.surface))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(studio.color(.primaryText))
+                            .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
+                    }
+                }
+                Text(AppLocalized("今天也想你"))
+                    .font(MinisThemeShape.messageFont(size: CGFloat(pt)))
+                    .foregroundStyle(applied ? studio.color(.primaryText) : studio.color(.secondaryText))
+                    .lineLimit(1)
+            }
+            .padding(fontSettings.density(FontSkin.innerPadding))
+            .frame(minHeight: 80, alignment: .leading)
+            .background(studio.color(.surface))
+            .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusMedium, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusMedium, style: .continuous)
+                .stroke(studio.color(.primaryText), lineWidth: applied ? 1.5 : 1)
+                .opacity(applied ? 1 : 0.4))
+            .shadow(color: .black.opacity(applied ? 0.12 : 0.03), radius: applied ? 10 : 3, x: 0, y: applied ? 6 : 1)
         }
         .buttonStyle(.plain)
     }
 
+    // MARK: All fonts — vertical list, specimen at live size
+
+    private var fontListSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            fontSectionHead(
+                title: AppLocalized("全部字体"),
+                desc: AppLocalized("样张按现在选的全局字号渲染，点卡片换上。")
+            )
+            VStack(spacing: fontSettings.density(FontSkin.listGap)) {
+                ForEach(UploadedFontStore.builtIns, id: \.number) { item in
+                    fontFamilyCard(number: item.number, title: item.family.title,
+                                   font: item.family.font(size: globalPointSize))
+                }
+                ForEach(uploadedFontStore.fonts) { font in
+                    uploadedFontCard(font)
+                }
+            }
+            .padding(.horizontal, FontSkin.horizontal)
+            .padding(.top, fontSettings.density(12))
+        }
+    }
+
+    /// Gemini font card: radius 22, top row mono FON tag +
+    /// 15pt semibold title + "正在用" pill, specimen area on
+    /// muted surface rendering in THIS card's family at the
+    /// CURRENT global pt — never a fixed 20pt, so the card
+    /// cannot promise a look live chat does not use.
     private func fontFamilyCard(number: String, title: String, font: Font) -> some View {
         let applied = isFontApplied(number: number, familyTitle: title)
         return Button { applyFont(number: number, familyTitle: title) } label: {
-            VStack(alignment: .leading, spacing: fontSettings.density(6)) {
-                ZStack(alignment: .topTrailing) {
-                    Text(AppLocalized("今天也想你"))
-                        .font(font)
+            VStack(alignment: .leading, spacing: fontSettings.density(10)) {
+                HStack {
+                    Text(number)
+                        .font(ChatFont.font(11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(applied ? studio.color(.surface) : studio.color(.secondaryText))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(applied ? studio.color(.primaryText) : studio.color(.mutedSurface))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    Text(title)
+                        .font(ChatFont.font(15, weight: .semibold))
                         .foregroundStyle(studio.color(.primaryText))
-                        .frame(maxWidth: .infinity, minHeight: fontSettings.density(64), alignment: .leading)
-                        .padding(fontSettings.density(10))
-                        .background(studio.color(.surface))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    Spacer(minLength: 0)
                     if applied {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title3)
+                        Text(AppLocalized("正在用"))
+                            .font(ChatFont.font(11, weight: .semibold))
                             .foregroundStyle(studio.color(.primaryText))
-                            .background(studio.color(.surface))
-                            .clipShape(Circle())
-                            .padding(fontSettings.density(8))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(studio.color(.mutedSurface))
+                            .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
                     }
                 }
-                Text(title)
-                    .font(.callout)
+                Text(AppLocalized("今天也想你"))
+                    .font(font)
                     .foregroundStyle(studio.color(.primaryText))
-                Text(number)
-                    .font(.footnote)
-                    .foregroundStyle(studio.color(.secondaryText))
-                if applied {
-                    Text(AppLocalized("正在用"))
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(studio.color(.primaryText))
-                }
+                    .lineLimit(1)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(studio.color(.mutedSurface))
+                    .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusMedium, style: .continuous))
             }
+            .padding(fontSettings.density(FontSkin.cardPadding))
+            .background(studio.color(.surface))
+            .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusLarge, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusLarge, style: .continuous)
+                .stroke(studio.color(.primaryText), lineWidth: applied ? 1.5 : 1)
+                .opacity(applied ? 1 : 0.4))
+            .shadow(color: .black.opacity(applied ? 0.12 : 0.03), radius: applied ? 10 : 3, x: 0, y: applied ? 6 : 1)
         }
         .buttonStyle(.plain)
     }
 
     private func uploadedFontCard(_ font: UploadedFont) -> some View {
         let applied = isUploadedFontApplied(font)
-        return VStack(alignment: .leading, spacing: fontSettings.density(6)) {
+        return VStack(alignment: .leading, spacing: fontSettings.density(10)) {
             Button { applyUploadedFont(font) } label: {
-                VStack(alignment: .leading, spacing: fontSettings.density(6)) {
-                    ZStack(alignment: .topTrailing) {
-                        Text(AppLocalized("今天也想你"))
-                            .font(uploadedFontStore.previewFont(for: font, size: 20))
+                VStack(alignment: .leading, spacing: fontSettings.density(10)) {
+                    HStack {
+                        Text(font.number)
+                            .font(ChatFont.font(11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(applied ? studio.color(.surface) : studio.color(.secondaryText))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(applied ? studio.color(.primaryText) : studio.color(.mutedSurface))
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        Text(font.title)
+                            .font(ChatFont.font(15, weight: .semibold))
                             .foregroundStyle(studio.color(.primaryText))
-                            .frame(maxWidth: .infinity, minHeight: fontSettings.density(64), alignment: .leading)
-                            .padding(fontSettings.density(10))
-                            .background(studio.color(.surface))
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        Spacer(minLength: 0)
                         if applied {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.title3)
+                            Text(AppLocalized("正在用"))
+                                .font(ChatFont.font(11, weight: .semibold))
                                 .foregroundStyle(studio.color(.primaryText))
-                                .background(studio.color(.surface))
-                                .clipShape(Circle())
-                                .padding(fontSettings.density(8))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(studio.color(.mutedSurface))
+                                .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
                         }
                     }
-                    Text(font.title)
-                        .font(.callout)
+                    Text(AppLocalized("今天也想你"))
+                        .font(uploadedFontStore.previewFont(for: font, size: globalPointSize))
                         .foregroundStyle(studio.color(.primaryText))
-                    Text(font.number)
-                        .font(.footnote)
-                        .foregroundStyle(studio.color(.secondaryText))
-                    if applied {
-                        Text(AppLocalized("正在用"))
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(studio.color(.primaryText))
-                    }
+                        .lineLimit(1)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(studio.color(.mutedSurface))
+                        .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusMedium, style: .continuous))
                 }
             }
             .buttonStyle(.plain)
-            Button { uploadedFontStore.delete(font) } label: {
+            Button { fontPendingDelete = font } label: {
                 Text(AppLocalized("删除"))
-                    .font(.footnote)
+                    .font(ChatFont.font(12))
                     .foregroundStyle(studio.color(.destructive))
                     .frame(minHeight: 44)
             }
             .buttonStyle(.plain)
+        }
+        .padding(fontSettings.density(FontSkin.cardPadding))
+        .background(studio.color(.surface))
+        .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusLarge, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusLarge, style: .continuous)
+            .stroke(studio.color(.primaryText), lineWidth: applied ? 1.5 : 1)
+            .opacity(applied ? 1 : 0.4))
+        .shadow(color: .black.opacity(applied ? 0.12 : 0.03), radius: applied ? 10 : 3, x: 0, y: applied ? 6 : 1)
+    }
+
+    // MARK: Upload — dashed pill, .ttf/.otf only
+
+    private var fontUploadSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { showFontPicker = true } label: {
+                HStack(spacing: 8) {
+                    Text(AppLocalized("上传字体"))
+                        .font(ChatFont.font(13, weight: .semibold))
+                        .foregroundStyle(studio.color(.primaryText))
+                    Text(".ttf / .otf")
+                        .font(ChatFont.font(11, design: .monospaced))
+                        .foregroundStyle(studio.color(.secondaryText))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(studio.color(.mutedSurface))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(studio.color(.surface))
+                .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous)
+                    .stroke(studio.color(.border), style: StrokeStyle(lineWidth: 1, dash: [6, 4])))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, FontSkin.horizontal)
+            Text(AppLocalized("支持 .ttf / .otf 文件；上传的字体会变成一张预览卡，点卡片换上。"))
+                .font(ChatFont.font(11))
+                .foregroundStyle(studio.color(.secondaryText))
+                .padding(.horizontal, FontSkin.horizontal)
+                .padding(.top, fontSettings.density(8))
         }
     }
 
