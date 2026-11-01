@@ -639,9 +639,8 @@ struct BubbleStyleRecord: Equatable, Codable {
         backgroundImageFile = (rawImageFile?.isEmpty == true) ? nil : rawImageFile
         pattern = BubblePattern.parse(try c.decodeIfPresent(String.self, forKey: .pattern))
         patternOpacity = min(0.6, max(0, try c.decodeIfPresent(Double.self, forKey: .patternOpacity) ?? d.patternOpacity))
-        if let decoded = try? c.decodeIfPresent([BubbleDecoration].self, forKey: .decorations),
-           let value = decoded {
-            decorations = value
+        if let decoded = try? c.decodeIfPresent([BubbleDecoration].self, forKey: .decorations) {
+            decorations = decoded
         } else {
             decorations = []
         }
