@@ -924,7 +924,7 @@ struct DressingShopView: View {
             sectionHeader(AppLocalized("我的搭配"), jumpTo: .outfit)
             if outfitStore.outfits.isEmpty {
                 Text(AppLocalized("还没有保存的搭配。在气泡详情里点“保存成搭配”，就会出现在这里。"))
-                    .font(.subheadline)
+                    .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
                     .padding(.horizontal, 16)
             } else {
@@ -932,29 +932,43 @@ struct DressingShopView: View {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(outfit.title)
-                                .font(.callout)
+                                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
                                 .foregroundStyle(studio.color(.primaryText))
-                            Text("\(outfit.number) · \(outfit.summary)")
-                                .font(.footnote)
-                                .foregroundStyle(studio.color(.secondaryText))
+                            HStack(alignment: .top, spacing: 4) {
+                                Text(outfit.number)
+                                    .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(studio.color(.secondaryText))
+                                Text("·")
+                                    .font(.system(size: fsCaption))
+                                    .foregroundStyle(studio.color(.secondaryText))
+                                Text(outfit.summary)
+                                    .font(.system(size: fsCaption))
+                                    .foregroundStyle(studio.color(.secondaryText))
+                            }
                         }
                         Spacer(minLength: 0)
                         Button(AppLocalized("按编号删除")) {
                             outfitStore.delete(number: outfit.number)
                         }
-                        .font(.system(size: 14))
+                        .font(.system(size: fsCaption))
                         .foregroundStyle(studio.color(.secondaryText))
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                         .buttonStyle(.plain)
                     }
                     .padding(14)
                     .background(studio.color(.surface))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(studio.color(.border), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
+                    .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
                 }
             }
             Text(AppLocalized("换主题、重置都不会清掉这里；只有按编号删，才会删掉那一行。"))
-                .font(.footnote)
+                .font(.system(size: fsCaption))
                 .foregroundStyle(studio.color(.secondaryText))
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
