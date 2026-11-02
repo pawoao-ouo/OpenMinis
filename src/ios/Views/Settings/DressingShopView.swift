@@ -413,7 +413,7 @@ struct DressingShopView: View {
         }
     }
 
-    // MARK: - Tag rail (in-flow, 36pt pills)
+    // MARK: - Tag rail (in-flow, 44pt pills)
 
     // Classification fix: the shared rail's 清新 / 淡雅 tags match
     // theme / pendant records in the draft, not bubble packs, so
