@@ -437,13 +437,13 @@ struct DressingShopView: View {
                                 ? studio.color(.surface)
                                 : studio.color(.secondaryText))
                             .padding(.horizontal, 16)
-                            .frame(height: 36)
+                            .frame(minHeight: 44)
                             .background(tag == item
                                 ? studio.color(.primaryText)
                                 : studio.color(.mutedSurface))
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FontPressStyle(scale: 0.98))
                 }
             }
             .padding(.horizontal, 16)
@@ -1626,7 +1626,7 @@ struct DressingShopView: View {
             }
             .frame(width: fixedWidth ? 125 : nil, alignment: .leading)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FontPressStyle(scale: 0.98))
     }
 
     /// One card's art: the same avatar disc and the same sample
@@ -1783,7 +1783,7 @@ struct DressingShopView: View {
             }
             .frame(width: fixedWidth ? 125 : nil, alignment: .leading)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FontPressStyle(scale: 0.98))
     }
 
     /// One card's art: the edited side's REAL avatar with this
@@ -1828,18 +1828,19 @@ struct DressingShopView: View {
                 Text(AppLocalized("头像挂件"))
                     .font(.system(size: fsTitle, weight: .bold, design: .serif))
                     .foregroundStyle(studio.color(.primaryText))
-                HStack {
+                HStack(spacing: 0) {
                     Button { closePendantDetail() } label: {
                         Image(systemName: "chevron.left")
                             .font(.headline)
                             .foregroundStyle(studio.color(.primaryText))
-                            .frame(minWidth: 44, minHeight: 44)
+                            .padding(.leading, 16)
+                            .frame(minWidth: 60, minHeight: 44, alignment: .leading)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FontPressStyle(scale: 0.92))
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 16)
+                .padding(.trailing, 16)
             }
             .frame(height: 52)
             .background(studio.color(.surface))
@@ -1927,7 +1928,7 @@ struct DressingShopView: View {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .stroke(studio.color(.accent), lineWidth: 1)
                         )
-                        .buttonStyle(.plain)
+                        .buttonStyle(FontPressStyle(scale: 0.97))
                         Button(AppLocalized("换上这款")) {
                             pendantStore.apply(pendant, for: detailPendantSide)
                             closePendantDetail()
@@ -1938,7 +1939,7 @@ struct DressingShopView: View {
                         .frame(height: 50)
                         .background(studio.color(.accent))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .buttonStyle(.plain)
+                        .buttonStyle(FontPressStyle(scale: 0.97))
                     }
                     .padding(.top, 6)
                 }
@@ -1994,7 +1995,7 @@ struct DressingShopView: View {
                         .foregroundStyle(studio.color(.secondaryText))
                         .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
-                        .buttonStyle(.plain)
+                        .buttonStyle(FontPressStyle(scale: 0.92))
                     }
                     .padding(14)
                     .background(studio.color(.surface))
@@ -3503,18 +3504,19 @@ struct DressingShopView: View {
                 Text(AppLocalized("聊天气泡"))
                     .font(.system(size: fsTitle, weight: .bold, design: .serif))
                     .foregroundStyle(studio.color(.primaryText))
-                HStack {
+                HStack(spacing: 0) {
                     Button { closeDetail() } label: {
                         Image(systemName: "chevron.left")
                             .font(.headline)
                             .foregroundStyle(studio.color(.primaryText))
-                            .frame(minWidth: 44, minHeight: 44)
+                            .padding(.leading, 16)
+                            .frame(minWidth: 60, minHeight: 44, alignment: .leading)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FontPressStyle(scale: 0.92))
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 16)
+                .padding(.trailing, 16)
             }
             .frame(height: 52)
             .background(studio.color(.surface))
@@ -3592,7 +3594,7 @@ struct DressingShopView: View {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .stroke(studio.color(.accent), lineWidth: 1)
                         )
-                        .buttonStyle(.plain)
+                        .buttonStyle(FontPressStyle(scale: 0.97))
                         Button(AppLocalized("换上这款")) {
                             bubblePackStore.apply(pack, for: detailPackSide)
                             closeDetail()
@@ -3603,7 +3605,7 @@ struct DressingShopView: View {
                         .frame(height: 50)
                         .background(studio.color(.accent))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .buttonStyle(.plain)
+                        .buttonStyle(FontPressStyle(scale: 0.97))
                     }
                     .padding(.top, 6)
                 }
@@ -3735,7 +3737,7 @@ private struct OtherSettingsContentView: View {
                         .padding(.vertical, fontSettings.density(4))
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FontPressStyle(scale: 0.98))
                 }
             }
 
@@ -3785,7 +3787,7 @@ private struct OtherSettingsContentView: View {
                             .padding(.vertical, fontSettings.density(3))
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(FontPressStyle(scale: 0.98))
                     }
                     if iconFailed {
                         Text(AppLocalized("换图标失败，请重试。"))
