@@ -57,6 +57,25 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var colorsLight: [String: String]
     var colorsDark: [String: String]
     var wallpaperJPEGBase64: String?
+    // [page-state] Page-scope colour overrides carried by the pack,
+    // keyed by scope raw value, then role raw value. Nil = this pack
+    // says nothing about page colours (old packs, partial merges):
+    // replace clears them, merge leaves them alone. A non-nil map
+    // is an explicit statement: replace results in exactly the
+    // scopes it lists. Only actually-set overrides are ever put
+    // here — never a resolved inherited value, so "this page
+    // follows global" survives a save/apply round trip.
+    var pageColorsLight: [String: [String: String]]?
+    var pageColorsDark: [String: [String: String]]?
+    // [page-state] Page-scope wallpapers, keyed by scope raw value.
+    // A base64 JPEG means "this page has this image"; an empty
+    // string means "this page was explicitly cleared to no
+    // background" (cut global inheritance), which is a different
+    // state from merely having no file. Same nil rule as the
+    // colours. Transport only, like the global wallpaper field:
+    // applyThemePack nils this on the stored pack before
+    // persisting, so image bytes never live in UserDefaults.
+    var pageWallpapers: [String: String]?
     // [10-18 醒醒 第五轮] 五个新的可调维度，补的是"结构"自由度，
     // 之前只有颜色和圆角。
     /// 头像形状：圆 / 方 / 圆角方 / 竖矩形
@@ -261,6 +280,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         colorsLight: [:],
         colorsDark: [:],
         wallpaperJPEGBase64: nil,
+        pageColorsLight: nil,
+        pageColorsDark: nil,
+        pageWallpapers: nil,
         avatarShape: AppearanceAvatarShape.circle.rawValue,
         chatDisplay: AppearanceChatDisplay.bubbles.rawValue,
         lineHeight: 1.0,
@@ -401,6 +423,13 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         if let wallpaperShade { obj["wallpaperShade"] = wallpaperShade }
         if let surfaceOpacity { obj["surfaceOpacity"] = surfaceOpacity }
         if let wallpaperJPEGBase64 { obj["wallpaperJPEGBase64"] = wallpaperJPEGBase64 }
+        // [page-state] Written only when non-nil, so an old pack
+        // (keys absent) stays distinguishable from a new pack
+        // that explicitly carries empty page state. Wallpaper
+        // entries include "" for explicitly-cleared pages.
+        if let pageColorsLight { obj["pageColorsLight"] = pageColorsLight }
+        if let pageColorsDark { obj["pageColorsDark"] = pageColorsDark }
+        if let pageWallpapers { obj["pageWallpapers"] = pageWallpapers }
         if let thinkingCardJPEGBase64 { obj["thinkingCardJPEGBase64"] = thinkingCardJPEGBase64 }
         if let inputBarJPEGBase64 { obj["inputBarJPEGBase64"] = inputBarJPEGBase64 }
         return obj
@@ -420,6 +449,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "messageFontFamily", "messageCustomFont", "uiCustomFont",
         "wallpaperShade", "surfaceOpacity",
         "colorsLight", "colorsDark", "wallpaperJPEGBase64",
+        "pageColorsLight", "pageColorsDark", "pageWallpapers",
         "avatarShape", "chatDisplay", "lineHeight", "letterSpacing", "rowBackgroundHex",
         "novelMode", "characterArtBase64",
         "userBubbleSurface", "assistantBubbleSurface",
@@ -527,6 +557,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         // Icons / symbols and the standee image: not colours, wallpaper,
         // font sizes, or avatar shape.
         "categoryIcons", "categoryImages", "characterArtBase64",
+        // Page-scope state: the AI may change global colours and
+        // the global wallpaper, but never a page's colours or
+        // wallpaper — those are the user's per-page tuning.
+        "pageColorsLight", "pageColorsDark", "pageWallpapers",
     ]
 
     /// Locked keys present in `raw`, sorted. Empty means the AI apply
@@ -602,6 +636,48 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             if raw[sharedKey] != nil { return raw[sharedKey] as? String }
             return fallback
         }
+        // [page-state] Presence-sensitive decoding, deliberately
+        // NOT filled from base: an absent key means "this pack
+        // says nothing about page state" (old packs, partial
+        // merges), while a present key — even one whose scopes
+        // all come out empty — is an explicit statement. Filling
+        // from base would smuggle the live pack's page state
+        // into a partial apply and revert page edits made since
+        // that pack was applied. Unknown scopes and
+        // wallpaper-only scopes (bottomBar, terminal) are
+        // dropped from colour maps; the global scope is dropped
+        // from both maps (it has its own fields).
+        func pageColorMap(_ k: String) -> [String: [String: String]]? {
+            guard let outer = raw[k] as? [String: Any] else { return nil }
+            var out: [String: [String: String]] = [:]
+            for (scopeRaw, inner) in outer {
+                guard let scope = AppearanceScope(rawValue: scopeRaw),
+                      scope != .global, scope.supportsColour else { continue }
+                let innerMap: [String: String]
+                if let typed = inner as? [String: String] { innerMap = typed }
+                else if let anyMap = inner as? [String: Any] {
+                    var m: [String: String] = [:]
+                    for (rk, rv) in anyMap { if let s = rv as? String { m[rk] = s } }
+                    innerMap = m
+                } else { continue }
+                let normalized = normalizeHexMap(innerMap)
+                if !normalized.isEmpty { out[scopeRaw] = normalized }
+            }
+            return out
+        }
+        func pageWallpaperMap() -> [String: String]? {
+            guard let outer = raw["pageWallpapers"] as? [String: Any] else { return nil }
+            var out: [String: String] = [:]
+            for (scopeRaw, v) in outer {
+                guard AppearanceScope(rawValue: scopeRaw) != nil,
+                      scopeRaw != AppearanceScope.global.rawValue,
+                      let s = v as? String else { continue }
+                // "" is the explicitly-cleared sentinel, kept;
+                // a non-empty string is a base64 JPEG.
+                out[scopeRaw] = s
+            }
+            return out
+        }
         var pack = AppearanceThemePack(
             id: str("id", fallback: base.id),
             name: str("name", fallback: base.name),
@@ -635,6 +711,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             colorsLight: normalizeHexMap(map("colorsLight", fallback: base.colorsLight)),
             colorsDark: normalizeHexMap(map("colorsDark", fallback: base.colorsDark)),
             wallpaperJPEGBase64: raw["wallpaperJPEGBase64"] as? String,
+            pageColorsLight: pageColorMap("pageColorsLight"),
+            pageColorsDark: pageColorMap("pageColorsDark"),
+            pageWallpapers: pageWallpaperMap(),
             avatarShape: AppearanceAvatarShape.parse(str("avatarShape", fallback: base.avatarShape)).rawValue,
             chatDisplay: AppearanceChatDisplay.parse(str("chatDisplay", fallback: base.chatDisplay)).rawValue,
             lineHeight: min(2.2, max(0.9, num("lineHeight", fallback: base.lineHeight))),
@@ -1042,8 +1121,9 @@ extension AppearanceStudio {
     /// How a pack apply treats fields the pack does not carry.
     ///
     /// - replace: a theme switch. The new pack IS the whole theme, so
-    ///   images and global colours it does not carry are cleared, not
-    ///   inherited from the old pack. Used by theme-library apply and
+    ///   images, global colours, and page-scope colours and
+    ///   wallpapers it does not carry are cleared, not inherited
+    ///   from the old pack. Used by theme-library apply and
     ///   clipboard import — the paths a user means as "switch theme".
     /// - merge: a partial update. Only the fields carried change; anything
     ///   omitted stays. Only the AI local-update path
@@ -1070,6 +1150,11 @@ extension AppearanceStudio {
         stored.wallpaperJPEGBase64 = nil
         stored.thinkingCardJPEGBase64 = nil
         stored.inputBarJPEGBase64 = nil
+        // [page-state] Page wallpapers are transport only, like
+        // the global one: files on disk, never base64 in defaults.
+        // Page colours stay on the stored pack, like the global
+        // colour maps — they are hex, not image bytes.
+        stored.pageWallpapers = nil
         // [B28 A-1] 立绘也不再进 defaults：落成文件，字段置 nil。
         stored.characterArtBase64 = nil
         // Merge mode keeps markers for category images the caller did
@@ -1120,17 +1205,19 @@ extension AppearanceStudio {
             if !(pack.characterArtBase64?.isEmpty == false) {
                 removeCharacterArt()
             }
-            // Global colours only: page-scope overrides are a separate
-            // (P0-4) concern and are kept here, so a theme switch does
-            // not silently wipe a page the user tuned on purpose. The
-            // new pack's colours are painted over the cleared globals
-            // below; a colourless pack therefore falls back to the
-            // built-in palette instead of keeping the old one.
-            let globalPrefix = AppearanceScope.global.rawValue + "."
-            let keptPageColours = exportColorOverrides().filter {
-                !$0.key.hasPrefix(globalPrefix)
-            }
-            restoreColorOverrides(keptPageColours)
+            // [page-state] Replace means the new pack IS the whole
+            // theme, page state included. The old code kept page
+            // colours here (P0-4) because packs never carried them;
+            // that keep is obsolete now that packs carry page
+            // colours, and keeping them would make replace behave
+            // like merge for pages. Wipe the whole colour map
+            // instead: the global paint below restores the pack's
+            // globals (or built-ins for a colourless pack), and
+            // the page paint below restores the pack's page
+            // colours. An old pack (page fields nil) therefore
+            // clears page colours too, exactly as it already
+            // cleared page wallpapers above — never silently kept.
+            restoreColorOverrides([:])
         }
         // Character-art write moved after the persist+guard above, so a
         // persist failure cannot leave a half-written character art
@@ -1170,6 +1257,39 @@ extension AppearanceStudio {
                 if !setInputBarImageEncoded(data) { warnings.append("inputBar") }
             } else { warnings.append("inputBar") }
         }
+        // [page-state] Page colours and wallpapers carried by the
+        // pack. The same code serves both modes, because the
+        // maps only ever list carried scopes: in replace mode
+        // the wipes above already cleared everything, so writing
+        // the carried scopes leaves exactly the pack's page
+        // state; in merge mode unlisted scopes are untouched.
+        // A nil map (old pack, partial merge) writes nothing.
+        if let pageColors = pack.pageColorsLight {
+            applyPageColors(pageColors, variant: .light)
+        }
+        if let pageColors = pack.pageColorsDark {
+            applyPageColors(pageColors, variant: .dark)
+        }
+        if let wallpapers = pack.pageWallpapers {
+            for (scopeRaw, b64) in wallpapers {
+                guard let scope = AppearanceScope(rawValue: scopeRaw),
+                      scope != .global else { continue }
+                if b64.isEmpty {
+                    // Explicitly cleared: cut global inheritance,
+                    // not just the file (removeWallpaper would
+                    // drop the cleared flag and re-inherit).
+                    clearWallpaper(scope)
+                    continue
+                }
+                guard let data = Data(base64Encoded: b64) else {
+                    warnings.append("wallpaper:\(scopeRaw)")
+                    continue
+                }
+                if !setWallpaperEncoded(data, for: scope) {
+                    warnings.append("wallpaper:\(scopeRaw)")
+                }
+            }
+        }
         if replace {
             // Missing key = "this theme has no image for this slot" →
             // delete it. applyCategoryImages treats "" as delete, so
@@ -1191,6 +1311,11 @@ extension AppearanceStudio {
         var pack = loadStoredPack()
         pack.colorsLight = exportColors(variant: .light)
         pack.colorsDark = exportColors(variant: .dark)
+        // [page-state] Page colours always export (they are hex,
+        // not images); page wallpapers only when images are asked
+        // for, exactly like the global wallpaper below.
+        pack.pageColorsLight = exportPageColors(variant: .light)
+        pack.pageColorsDark = exportPageColors(variant: .dark)
         pack.surfaceOpacity = surfaceOpacity
         pack.wallpaperShade = wallpaperShade
         // [B28 B-3] 三个字段以前被硬写成 accent 的副本 —— 导出一次，用户
@@ -1237,6 +1362,25 @@ extension AppearanceStudio {
             pack.characterArtBase64 = data.base64EncodedString()
         } else {
             pack.characterArtBase64 = nil
+        }
+        // [page-state] Page wallpapers, file bytes only: a page
+        // with no own file exports nothing for that scope, so it
+        // keeps inheriting global on re-apply instead of getting
+        // a copy of the global image frozen in as its own. A page
+        // explicitly cleared to no background exports "" (see the
+        // field comment), so cleared and inherited stay distinct.
+        if includeWallpaper {
+            var pageWallpapers: [String: String] = [:]
+            for scope in AppearanceScope.allCases where scope != .global {
+                if wallpaperClearsGlobal(scope) {
+                    pageWallpapers[scope.rawValue] = ""
+                } else if let data = originalImageData(fileName: "wallpaper-\(scope.rawValue).jpg") {
+                    pageWallpapers[scope.rawValue] = data.base64EncodedString()
+                }
+            }
+            pack.pageWallpapers = pageWallpapers
+        } else {
+            pack.pageWallpapers = nil
         }
         if includeWallpaper {
             var images: [String: String] = [:]
@@ -2043,6 +2187,21 @@ extension AppearanceStudio {
         paint(dark, variant: .dark)
     }
 
+    /// [page-state] Paints one variant of a pack's page colours.
+    /// Only scopes listed in the map change; setColor silently
+    /// ignores wallpaper-only scopes, so a stray bottomBar or
+    /// terminal entry can never write an unreadable key.
+    fileprivate func applyPageColors(_ map: [String: [String: String]], variant: AppearanceVariant) {
+        for (scopeRaw, roles) in map {
+            guard let scope = AppearanceScope(rawValue: scopeRaw),
+                  scope != .global else { continue }
+            for (raw, hex) in roles {
+                guard let role = AppearanceColorRole(rawValue: raw) else { continue }
+                setColor(Color(hex: hex), role: role, scope: scope, variant: variant)
+            }
+        }
+    }
+
     fileprivate func exportColors(variant: AppearanceVariant) -> [String: String] {
         var out: [String: String] = [:]
         for role in AppearanceColorRole.allCases {
@@ -2055,6 +2214,44 @@ extension AppearanceStudio {
                 continue
             }
             out[role.rawValue] = hex(role, scope: .global, variant: variant)
+        }
+        return out
+    }
+
+    /// [page-state] Page-scope colour overrides actually set, keyed
+    /// by scope raw value then role raw value. Only keys present
+    /// in the raw override map are exported — resolving through
+    /// hex() would freeze every unset role to its current
+    /// inherited value and turn "this page follows global" into
+    /// a pinned value on re-apply. Legacy page keys migrate to
+    /// the new role name (input/searchField -> field, toolCard ->
+    /// surface), with the new key winning when both exist.
+    /// Wallpaper-only scopes carry no colours and are skipped;
+    /// a scope with no overrides is omitted from the map.
+    fileprivate func exportPageColors(variant: AppearanceVariant) -> [String: [String: String]] {
+        let raw = exportColorOverrides()
+        var out: [String: [String: String]] = [:]
+        for scope in AppearanceScope.allCases where scope != .global && scope.supportsColour {
+            let prefix = "\(scope.rawValue).\(variant.rawValue)."
+            var roles: [String: String] = [:]
+            for (key, value) in raw where key.hasPrefix(prefix) {
+                let roleRaw = String(key.dropFirst(prefix.count))
+                if AppearanceColorRole(rawValue: roleRaw) != nil {
+                    roles[roleRaw] = normalizeHex(value)
+                }
+            }
+            // Legacy keys, only when the new role is not set.
+            if roles[AppearanceColorRole.field.rawValue] == nil {
+                if let v = raw[prefix + "input"] ?? raw[prefix + "searchField"] {
+                    roles[AppearanceColorRole.field.rawValue] = normalizeHex(v)
+                }
+            }
+            if roles[AppearanceColorRole.surface.rawValue] == nil {
+                if let v = raw[prefix + "toolCard"] {
+                    roles[AppearanceColorRole.surface.rawValue] = normalizeHex(v)
+                }
+            }
+            if !roles.isEmpty { out[scope.rawValue] = roles }
         }
         return out
     }

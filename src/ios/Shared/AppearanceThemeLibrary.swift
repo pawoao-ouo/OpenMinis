@@ -195,6 +195,16 @@ extension AppearanceStudio {
         partial.wallpaperJPEGBase64 = saved.wallpaperJPEGBase64
         partial.thinkingCardJPEGBase64 = saved.thinkingCardJPEGBase64
         partial.inputBarJPEGBase64 = saved.inputBarJPEGBase64
+        // [page-state] Page state is never an AI apply: the partial
+        // starts from the live pack, whose page fields are the last
+        // applied pack's record — not live page state — so carrying
+        // them into a merge would revert page edits made since that
+        // apply. Nil them outright; the saved pack's page keys, when
+        // present, are already reported in `stripped` above via the
+        // locked-fields list.
+        partial.pageColorsLight = nil
+        partial.pageColorsDark = nil
+        partial.pageWallpapers = nil
         // Everything else stays live: radii, styles, lineHeight,
         // letterSpacing, opacities, shade, display modes, fontFamily,
         // category icons/images, character art.
@@ -295,6 +305,23 @@ extension AppearanceStudio {
             }
             let imgs = (j["categoryImages"] as? [String: String]) ?? [:]
             j["categoryImages"] = imgs.keys.sorted()   // 只比哪些槽位有图
+            // [page-state] Page colours compare by value (hex maps);
+            // an absent map and an empty map are the same state, so
+            // an old pack without page keys still matches a live
+            // export that carries empty page maps. Page wallpapers
+            // compare by scope keys only, like category images:
+            // re-exported bytes differ (downscale), which is a
+            // system behaviour, not a user change — while a scope
+            // gaining or losing an image (or a cleared "" entry)
+            // is a real change and must drop the in-use tick.
+            for colourKey in ["pageColorsLight", "pageColorsDark"] {
+                if j[colourKey] == nil { j[colourKey] = [:] as [String: Any] }
+            }
+            let pageWallKeys: [String]
+            if let m = j["pageWallpapers"] as? [String: String] { pageWallKeys = Array(m.keys) }
+            else if let m = j["pageWallpapers"] as? [String: Any] { pageWallKeys = Array(m.keys) }
+            else { pageWallKeys = [] }
+            j["pageWallpapers"] = pageWallKeys.sorted()
             return j
         }
         return (key(a) as NSDictionary).isEqual(key(b) as NSDictionary)
