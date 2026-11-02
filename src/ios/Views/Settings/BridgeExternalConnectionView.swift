@@ -21,6 +21,7 @@ import SwiftUI
 /// 口令与完整中继地址不进日志；口令在界面上默认只以 •••• 出现，
 /// 与本 App 其他凭据输入框（如 API Key）同一套交互：眼睛按钮才明文。
 struct BridgeExternalConnectionView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     @ObservedObject private var relay = BridgeRelayClient.shared
 
     @AppStorage(BridgeRelayPreferences.hostKey) private var host: String = ""
@@ -146,7 +147,7 @@ struct BridgeExternalConnectionView: View {
                 .disabled(externalConnectionURLString == nil)
                 if justCopiedExternalURL {
                     Text(AppLocalized("已复制，去外部 AI 的 MCP 设置里粘贴即可"))
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
                 // 口令换新：一键生成强口令并换上（见 rotateToken）。
@@ -245,7 +246,7 @@ struct BridgeExternalConnectionView: View {
         .overlay(alignment: .bottom) {
             if let fb = saveFeedback {
                 Text(fb)
-                    .font(.footnote)
+                    .font(.system(size: fontSettings.scaledApp(13)))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background(.ultraThinMaterial, in: Capsule())
@@ -281,7 +282,7 @@ struct BridgeExternalConnectionView: View {
                         SecureField("", text: $tokenInput)
                     }
                 }
-                .font(.system(.body, design: .monospaced))
+                .font(.system(size: fontSettings.scaledApp(17), design: .monospaced))
                 .multilineTextAlignment(.trailing)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()

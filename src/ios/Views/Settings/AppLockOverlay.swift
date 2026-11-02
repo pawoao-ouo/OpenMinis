@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AppLockOverlay: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     @ObservedObject private var store = SessionLockStore.shared
     @State private var isAuthenticating = false
 
@@ -16,17 +17,17 @@ struct AppLockOverlay: View {
                         .foregroundStyle(MinisTheme.secondaryText)
 
                     Text("嘟嘟 is Locked")
-                        .font(.title2.bold())
+                        .font(.system(size: fontSettings.scaledApp(22), weight: .bold))
 
                     Text("Tap to unlock with \(BiometricAuth.biometryDisplayName)")
-                        .font(.subheadline)
+                        .font(.system(size: fontSettings.scaledApp(15)))
                         .foregroundStyle(MinisTheme.secondaryText)
 
                     Button {
                         authenticate()
                     } label: {
                         Label("Unlock", systemImage: BiometricAuth.biometryIconName)
-                            .font(.headline)
+                            .font(.system(size: fontSettings.scaledApp(17), weight: .semibold))
                             .padding(.horizontal, 28)
                             .padding(.vertical, 12)
                             .background(.blue, in: RoundedRectangle(cornerRadius: 12))

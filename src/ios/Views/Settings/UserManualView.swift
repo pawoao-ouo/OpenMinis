@@ -8,6 +8,7 @@ import SwiftUI
 // Header note / Toast / footnote 里教过的东西,统一收来这里。
 
 struct UserManualView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var content: String = ""
     @State private var loadError: String?
 
@@ -19,7 +20,7 @@ struct UserManualView: View {
                         .foregroundStyle(MinisTheme.destructive)
                     Text(err)
                         .foregroundStyle(MinisTheme.secondaryText)
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                 }
                 .padding(.top, 80)
             } else if content.isEmpty {

@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct MemoryManagementView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var memoryFiles: [MemoryFileItem] = []
     @State private var forceSyncToast: String?
     @AppStorage("cloudSync.v2.enabled") private var iCloudSyncEnabled: Bool = false
@@ -33,20 +34,20 @@ struct MemoryManagementView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
                             Text(file.name)
-                                .font(.body)
+                                .font(.system(size: fontSettings.scaledApp(17)))
                             if !file.fileSize.isEmpty {
                                 Text(file.fileSize)
-                                    .font(.caption2)
+                                    .font(.system(size: fontSettings.scaledApp(11)))
                                     .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                             }
                             Spacer()
                             Text(file.modifiedDate)
-                                .font(.caption2)
+                                .font(.system(size: fontSettings.scaledApp(11)))
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
                         if !file.preview.isEmpty {
                             Text(file.preview)
-                                .font(.caption)
+                                .font(.system(size: fontSettings.scaledApp(12)))
                                 .foregroundStyle(MinisTheme.secondaryText)
                                 .lineLimit(1)
                         }
@@ -78,7 +79,7 @@ struct MemoryManagementView: View {
         .overlay(alignment: .top) {
             if let msg = forceSyncToast {
                 Text(msg)
-                    .font(.subheadline.weight(.medium))
+                    .font(.system(size: fontSettings.scaledApp(15), weight: .medium))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -198,6 +199,7 @@ private struct MemoryFileItem: Identifiable {
 // MARK: - Memory File Edit View
 
 private struct MemoryFileEditView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let fileName: String
     let isGlobal: Bool
     @State private var content: String = ""
@@ -218,7 +220,7 @@ private struct MemoryFileEditView: View {
         VStack(spacing: 0) {
             if isGlobal {
                 Text("Persistent instructions and preferences visible to the agent in every session. You can edit it here, or just ask the agent to help organize and update this memory.")
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(MinisTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
@@ -228,14 +230,14 @@ private struct MemoryFileEditView: View {
             if let saveError {
                 Text(saveError)
                     .foregroundStyle(MinisTheme.destructive)
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 4)
             }
 
             TextEditor(text: $content)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: fontSettings.scaledApp(12), design: .monospaced))
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onChange(of: content) { _ in

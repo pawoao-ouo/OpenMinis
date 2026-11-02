@@ -13,6 +13,7 @@
 import SwiftUI
 
 struct FaceIDProtectionSettingsView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     @ObservedObject private var store = SessionLockStore.shared
     @AppStorage(SessionLockDefaultsKey.enabled) private var enabled: Bool = false
     @AppStorage(SessionLockDefaultsKey.idleSeconds) private var idleSeconds: Int = 300
@@ -27,7 +28,7 @@ struct FaceIDProtectionSettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Lock App")
                         Text("Require \(BiometricAuth.biometryDisplayName) to open 嘟嘟.")
-                            .font(.system(size: 12))
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
@@ -74,7 +75,7 @@ struct FaceIDProtectionSettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Lock Sessions")
                         Text("Long-press a session in the list to lock it.")
-                            .font(.system(size: 12))
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }

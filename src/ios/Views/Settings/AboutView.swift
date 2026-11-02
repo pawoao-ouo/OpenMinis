@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct AboutView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     private let appVersion: String = {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
@@ -44,17 +45,17 @@ struct AboutView: View {
                             )
                     }
                     Text("嘟嘟")
-                        .font(.title2.bold())
+                        .font(.system(size: fontSettings.scaledApp(22), weight: .bold))
                     Text("Version \(appVersion)")
-                        .font(.subheadline)
+                        .font(.system(size: fontSettings.scaledApp(15)))
                         .foregroundStyle(MinisTheme.secondaryText)
                     Text("Built \(buildDate)")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                         // Selectable so it can be copied into a bug report.
                         .textSelection(.enabled)
                     Text("嘟嘟 is Your Fully Local, Fully Private On-Device Agent.")
-                        .font(.subheadline)
+                        .font(.system(size: fontSettings.scaledApp(15)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
                 .frame(maxWidth: .infinity)

@@ -4,6 +4,7 @@ import PhotosUI
 /// Settings page for SOUL.md — Minis's persistent personality file.
 /// Lives between Skills and Memory in the Agent Runtime section.
 struct SoulSettingsView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var name: String = SoulMetadata.default.name
     /// Raw emoji value loaded from SOUL.md. Not user-editable; preserved
     /// verbatim on save so we don't rewrite a value the user (or another
@@ -97,7 +98,7 @@ struct SoulSettingsView: View {
                             if showForceSyncDone {
                                 Text(AppLocalized("Queued"))
                                     .foregroundStyle(MinisTheme.success)
-                                    .font(.caption)
+                                    .font(.system(size: fontSettings.scaledApp(12)))
                             }
                         }
                     }
@@ -107,7 +108,7 @@ struct SoulSettingsView: View {
             if let saveError {
                 Section {
                     Text(saveError)
-                        .font(.footnote)
+                        .font(.system(size: fontSettings.scaledApp(13)))
                         .foregroundStyle(MinisTheme.destructive)
                 }
             }
@@ -143,7 +144,7 @@ struct SoulSettingsView: View {
         .overlay(alignment: .bottom) {
             if didJustSave {
                 Text(AppLocalized("Saved"))
-                    .font(.footnote.weight(.medium))
+                    .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(MinisTheme.success.opacity(0.85), in: Capsule())
                     .foregroundStyle(.white)
@@ -187,13 +188,13 @@ struct SoulSettingsView: View {
                 .accessibilityLabel(AppLocalized("Icon"))
             VStack(alignment: .leading, spacing: 2) {
                 Text(name.isEmpty ? "嘟嘟" : name)
-                    .font(.title3.weight(.semibold))
+                    .font(.system(size: fontSettings.scaledApp(20), weight: .semibold))
                 Text(AppLocalized("头像在通讯录里换"))
-                    .font(.caption2)
+                    .font(.system(size: fontSettings.scaledApp(11)))
                     .foregroundStyle(MinisTheme.secondaryText)
                 if !style.trimmingCharacters(in: .whitespaces).isEmpty {
                     Text(style)
-                        .font(.footnote)
+                        .font(.system(size: fontSettings.scaledApp(13)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
             }
@@ -206,7 +207,7 @@ struct SoulSettingsView: View {
         ZStack(alignment: .topLeading) {
             TextEditor(text: $bodyText)
                 .frame(minHeight: 220)
-                .font(.system(.body, design: .monospaced))
+                .font(.system(size: fontSettings.scaledApp(17), design: .monospaced))
                 .scrollContentBackground(.hidden)
             // SwiftUI's TextEditor has no native placeholder. We render
             // a greyed hint on top when the body is empty + not being
@@ -214,7 +215,7 @@ struct SoulSettingsView: View {
             // to the editor below.
             if bodyText.isEmpty {
                 Text(AppLocalized("Describe the personality and voice you want for your agent"))
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: fontSettings.scaledApp(17), design: .monospaced))
                     .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                     .padding(.top, 8)
                     .padding(.leading, 5)
@@ -233,7 +234,7 @@ struct SoulSettingsView: View {
             Text(soulBodyCountText(bodyText))
                 .foregroundStyle(MinisTheme.secondaryText)
         }
-        .font(.footnote)
+        .font(.system(size: fontSettings.scaledApp(13)))
     }
 
     /// Counter shown when the body is within budget.

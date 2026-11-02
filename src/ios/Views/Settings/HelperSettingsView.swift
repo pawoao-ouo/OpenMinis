@@ -9,6 +9,7 @@ import SwiftUI
 // longer mentions agents at all — not even a read-only row — so there is
 // exactly one place to look and no cross-reference to keep in sync.
 struct HelperSettingsView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     /// Legacy key of the switch this page used to own. No longer read by the
     /// tool gate; kept only so an old value never resurrects a toggle, and so
     /// `AgentToolSwitch.migrateLegacyIfNeeded()` can still consult it.
@@ -35,7 +36,7 @@ struct HelperSettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(AppLocalized("Sub Agents"))
                         Text(SubAgentDefinition.toolName)
-                            .font(.caption.monospaced())
+                            .font(.system(size: fontSettings.scaledApp(12), design: .monospaced))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
@@ -69,7 +70,7 @@ struct HelperSettingsView: View {
                 HStack {
                     Text(AppLocalized("Sub Agents"))
                     Spacer()
-                    if roster.count > 1 { EditButton().font(.caption) }
+                    if roster.count > 1 { EditButton().font(.system(size: fontSettings.scaledApp(12))) }
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
@@ -79,7 +80,7 @@ struct HelperSettingsView: View {
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
-                .font(.caption)
+                .font(.system(size: fontSettings.scaledApp(12)))
             }
             // Greyed out but still editable when the switch is off: off means
             // "not offered to the model", not "cannot be configured" — same
@@ -102,7 +103,7 @@ struct HelperSettingsView: View {
                     Text(def.displayName)
                     if def.isBuiltIn {
                         Text(AppLocalized("Built-in"))
-                            .font(.caption2)
+                            .font(.system(size: fontSettings.scaledApp(11)))
                             .padding(.horizontal, 5).padding(.vertical, 1)
                             .background(Color.secondary.opacity(0.15), in: Capsule())
                             .foregroundStyle(MinisTheme.secondaryText)
@@ -110,12 +111,12 @@ struct HelperSettingsView: View {
                 }
                 if !def.displayDescription.isEmpty {
                     Text(def.displayDescription)
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                         .lineLimit(1)
                 }
                 Text(modelLabel(def))
-                    .font(.caption2)
+                    .font(.system(size: fontSettings.scaledApp(11)))
                     .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
             }
             Spacer()
@@ -155,6 +156,7 @@ struct SubAgentEditorTarget: Identifiable {
 
 /// Add / edit one sub agent. [T-sub-agents-v1]
 struct SubAgentEditorView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let existing: SubAgentDefinition?
 
     @Environment(\.dismiss) private var dismiss
@@ -350,7 +352,7 @@ struct SubAgentEditorView: View {
         HStack {
             Spacer()
             Text("\(count)/\(limit)")
-                .font(.caption2)
+                .font(.system(size: fontSettings.scaledApp(11)))
                 .foregroundStyle(count > limit ? .red : .secondary)
         }
     }

@@ -107,6 +107,7 @@ struct OffloadPermissionSettingsView: View {
 }
 
 private struct CommandPermissionRow: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let command: OffloadCommandInfo
     @ObservedObject private var manager = OffloadPermissionManager.shared
 
@@ -128,7 +129,7 @@ private struct CommandPermissionRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(command.displayLabel)
                 Text(command.description)
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(MinisTheme.secondaryText)
             }
             Spacer()

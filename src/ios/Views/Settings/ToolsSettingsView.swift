@@ -116,6 +116,7 @@ enum AgentToolSwitch: String, CaseIterable {
 }
 
 struct ToolsSettingsView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     @AppStorage(AgentToolSwitch.browser.key) private var browserEnabled: Bool = AgentToolSwitch.browser.defaultValue
     @AppStorage(AgentToolSwitch.agents.key) private var agentsEnabled: Bool = AgentToolSwitch.agents.defaultValue
 
@@ -150,7 +151,7 @@ struct ToolsSettingsView: View {
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                    Text(tool).font(.caption.monospaced()).foregroundStyle(MinisTheme.secondaryText)
+                    Text(tool).font(.system(size: fontSettings.scaledApp(12), design: .monospaced)).foregroundStyle(MinisTheme.secondaryText)
                 }
             }
         }
