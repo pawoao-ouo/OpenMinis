@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 // MARK: - 装扮店（dressing shop, bubble batch)
@@ -155,6 +156,10 @@ struct DressingShopView: View {
     @State private var themeSaveMessage: String?
     @State private var themeApplyMessage: String?
     @State private var themeConfirmDelete = false
+    @State private var wallpaperPickerPresented = false
+    @State private var pickedWallpaperItem: PhotosPickerItem?
+    @State private var pickedWallpaperIsDark = false
+    @State private var wallpaperMessage: String?
     @Environment(\.colorScheme) private var themePreviewScheme
     // Bumped on SOUL.md / persona-change notifications so a
     // same-persona rename (which neither PersonaStore nor the
@@ -302,6 +307,12 @@ struct DressingShopView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .personaDidChange)) { _ in
             sideLabelTick += 1
+        }
+        .photosPicker(isPresented: $wallpaperPickerPresented,
+                      selection: $pickedWallpaperItem, matching: .images)
+        .onChange(of: pickedWallpaperItem) { item in
+            guard let item else { return }
+            Task { await applyPickedWallpaper(item) }
         }
     }
 
@@ -582,6 +593,118 @@ struct DressingShopView: View {
                 .foregroundStyle(studio.color(.secondaryText))
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
+            globalWallpaperSection
+                .padding(.top, 16)
+        }
+    }
+
+    // MARK: - Global wallpaper (theme category, wallpaper batch)
+    //
+    // The old studio backdrop page is unreachable (settings open the shop
+    // directly), so the global wallpaper control lives here, in the theme
+    // category, where the shop merge already maps palette colours +
+    // wallpaper + theme library. Global scope ONLY: it reuses the existing
+    // setWallpaper / removeWallpaper / wallpaperShade machinery, the
+    // existing PhotosPicker flow (downsampled to 2200, dark variant
+    // captured at tap, same as the old backdrop page), and the same
+    // preview rendering real chat uses (image scaled to fill plus the
+    // canvas shade overlay). It does not touch page-scope wallpapers:
+    // those are carried by theme packs and theme sets, not controlled
+    // here, and the section says so in its own footnote.
+    private var globalWallpaperSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(AppLocalized("全局壁纸"))
+                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                .foregroundStyle(studio.color(.primaryText))
+            ZStack(alignment: .bottomTrailing) {
+                if let image = studio.wallpaper(for: .global) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .clipped()
+                    studio.color(.canvas).opacity(studio.wallpaperShade)
+                } else {
+                    studio.color(.canvas)
+                }
+                Text(studio.hasOwnWallpaper(.global)
+                     ? AppLocalized("壁纸预览") : AppLocalized("没有壁纸，纯色背景"))
+                    .font(.system(size: fsCaption, weight: .medium))
+                    .foregroundStyle(studio.color(.primaryText))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(studio.color(.raised).opacity(0.85), in: Capsule())
+                    .padding(10)
+            }
+            .id(studio.wallpaperRevision)
+            .frame(height: 150)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(studio.color(.border), lineWidth: 1))
+            Button(studio.hasOwnWallpaper(.global) ? AppLocalized("换这张") : AppLocalized("选一张")) {
+                pickedWallpaperIsDark = studio.activeVariant == .dark
+                wallpaperPickerPresented = true
+            }
+            .font(.system(size: fsSub, weight: .semibold))
+            .foregroundStyle(studio.color(.surface))
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 44)
+            .background(studio.color(.accent))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .buttonStyle(.plain)
+            if studio.hasOwnWallpaper(.global) {
+                Button(AppLocalized("清除全局壁纸")) {
+                    studio.removeWallpaper(.global)
+                    wallpaperMessage = AppLocalized("全局壁纸已清除")
+                }
+                .font(.system(size: fsSub, weight: .semibold))
+                .foregroundStyle(studio.color(.destructive))
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 44)
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 12) {
+                Text(AppLocalized("壁纸压色"))
+                    .font(.system(size: fsSub))
+                    .foregroundStyle(studio.color(.primaryText))
+                Slider(value: $studio.wallpaperShade, in: 0...0.65)
+                    .frame(minHeight: 44)
+                    .accessibilityLabel(AppLocalized("壁纸压色"))
+                Text(String(format: "%.2f", studio.wallpaperShade))
+                    .font(.system(size: fsCaption, design: .monospaced))
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+            Text(AppLocalized("只管全局壁纸；各页自己的壁纸不在这里改，跟着主题整套和主题包走。"))
+                .font(.system(size: fsCaption))
+                .foregroundStyle(studio.color(.secondaryText))
+            if let message = wallpaperMessage {
+                Text(message)
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(studio.color(.surface))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(studio.color(.border), lineWidth: 1))
+        .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
+        .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
+        .padding(.horizontal, 16)
+    }
+
+    @MainActor
+    private func applyPickedWallpaper(_ item: PhotosPickerItem) async {
+        defer { pickedWallpaperItem = nil }
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 2200) else {
+            wallpaperMessage = AppLocalized("选中的图读不出来。")
+            return
+        }
+        if studio.setWallpaper(image, for: .global, dark: pickedWallpaperIsDark) {
+            wallpaperMessage = AppLocalized("全局壁纸已换上")
+        } else {
+            wallpaperMessage = AppLocalized("选中的图读不出来。")
         }
     }
 
