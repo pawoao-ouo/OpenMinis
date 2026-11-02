@@ -444,11 +444,6 @@ struct DressingShopView: View {
                     .font(.system(size: globalPointSize * 17 / 13))
                     .foregroundStyle(studio.color(.secondaryText))
             }
-            // The chevron glyph alone is far below the 44pt tap minimum;
-            // the frame expands only its hit area, trailing-aligned so
-            // the glyph keeps its exact visual position at the right edge.
-            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-            .contentShape(Rectangle())
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
