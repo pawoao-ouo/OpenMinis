@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - 装扮店（dressing shop, bubble batch)
 //
@@ -160,6 +161,8 @@ struct DressingShopView: View {
     @State private var pickedWallpaperItem: PhotosPickerItem?
     @State private var pickedWallpaperIsDark = false
     @State private var wallpaperMessage: String?
+    @State private var showSTImporter = false
+    @State private var stImportReport: [String]?
     // Shake preview (2026-11-02 shake-preview batch): the rolled palette
     // being previewed, if any. Live colours are never touched while a
     // preview exists — Keep applies it, Discard only drops this state.
@@ -608,6 +611,84 @@ struct DressingShopView: View {
                 .padding(.top, 10)
             globalWallpaperSection
                 .padding(.top, 16)
+            stImportSection
+                .padding(.top, 16)
+        }
+    }
+
+    // MARK: - ST theme import (theme category, ST-import batch)
+    //
+    // The old studio page's ST importer is unreachable (settings open
+    // the shop directly), so the import lives here, in the theme
+    // category. It reuses the shared copy-mode DocumentCopyPicker
+    // (plain tmp file URL, no security-scope dance — .fileImporter
+    // silently refuses its grant on resigned builds) and reports
+    // inline, like the shop's other messages, so no alert has to be
+    // raised while the picker sheet is still on screen.
+    private var stImportSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(AppLocalized("导入 ST 主题包"))
+                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                .foregroundStyle(studio.color(.primaryText))
+            Text(AppLocalized("选一个 ST 的主题 JSON。颜色、头像形状、消息形态、行高、字距会一起换掉；字号只在包里写了 font_scale 时才按它换算。CSS 里的装饰图接不了。"))
+                .font(.system(size: fsSub))
+                .foregroundStyle(studio.color(.secondaryText))
+            Button(AppLocalized("选一个 ST 主题包")) { showSTImporter = true }
+                .font(.system(size: fsSub, weight: .semibold))
+                .foregroundStyle(studio.color(.surface))
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 44)
+                .background(studio.color(.accent))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .buttonStyle(.plain)
+            if let report = stImportReport {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(report.indices, id: \.self) { i in
+                        Text(report[i])
+                            .font(.system(size: fsCaption))
+                            .foregroundStyle(studio.color(.secondaryText))
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(studio.color(.surface))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(studio.color(.border), lineWidth: 1))
+        .padding(.horizontal, 16)
+        .sheet(isPresented: $showSTImporter) {
+            DocumentCopyPicker(contentTypes: [.json, .plainText, .data, .item],
+                               allowsMultipleSelection: false) { urls in
+                guard let url = urls.first else { return }
+                importSTTheme(url)
+            } onDone: {
+                showSTImporter = false
+            }
+        }
+    }
+
+    private func importSTTheme(_ url: URL) {
+        guard let data = try? Data(contentsOf: url) else {
+            stImportReport = [AppLocalized("这个文件读不出来。")]
+            return
+        }
+        do {
+            let imported = try SillyTavernTheme.parse(data)
+            studio.applySillyTavern(imported)
+            var notes: [String] = [String(format: AppLocalized("已应用「%@」。"), imported.name)]
+            if imported.fontScale != nil {
+                notes.append(AppLocalized("字号已按包里的 font_scale 换算。"))
+            }
+            notes.append(contentsOf: imported.warnings)
+            notes.append(AppLocalized("CSS 里的装饰图、伪元素、按钮换图原生接不了，这些没有导入。"))
+            if imported.blurStrength > 0 || imported.shadowWidth > 0 {
+                notes.append(AppLocalized("包里的毛玻璃浓度与阴影没有对应的调节项，这次没有导入；颜色、字号和其他项已按包换上。"))
+            }
+            notes.append(AppLocalized("旧图片和没提到的设置会保留，不会被清掉。"))
+            stImportReport = notes
+        } catch {
+            stImportReport = [error.localizedDescription]
         }
     }
 

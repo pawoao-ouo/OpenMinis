@@ -43,7 +43,8 @@ enum SillyTavernTheme {
         var name: String
         var light: [AppearanceColorRole: String]
         var dark: [AppearanceColorRole: String]
-        var fontScale: Double
+        /// nil = 包里没写 font_scale，换上时不动现有字号，绝不把缺省当成“要 13”。
+        var fontScale: Double?
         var avatarShape: AppearanceAvatarShape
         var chatDisplay: AppearanceChatDisplay
         var blurStrength: Double
@@ -234,7 +235,7 @@ enum SillyTavernTheme {
         }
 
         // ---- 开关 ----
-        let fontScale = clamp((obj["font_scale"] as? Double) ?? 1.0, 0.7, 1.35)
+        let fontScale = (obj["font_scale"] as? Double).map { clamp($0, 0.7, 1.35) }
         let blurStrength = clamp((obj["blur_strength"] as? Double) ?? 0, 0, 30)
         let shadowWidth = clamp((obj["shadow_width"] as? Double) ?? 0, 0, 5)
 

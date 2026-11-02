@@ -1875,6 +1875,11 @@ extension AppearanceStudio {
     /// 一次把 ST 主题包解析出来的东西全应用上。
     /// 颜色走 `applyThemePack`，几何走这里。
     func applySillyTavern(_ imported: SillyTavernTheme.Imported) {
+        // ST 字号只在包里明确写了 font_scale 时才动：默认 13 × 缩放，
+        // 四舍五入后夹在 10–15；包里没写就一字不动，绝不把缺省当成“要 13”。
+        if let scale = imported.fontScale {
+            FontSettings.shared.messagePointSize = CGFloat(min(15, max(10, (13 * scale).rounded())))
+        }
         var pack = currentThemePack()
         pack.name = imported.name
         pack.avatarShape = imported.avatarShape.rawValue
