@@ -143,6 +143,19 @@ struct DressingShopView: View {
     @State private var detailPendantSide: DressingSide = .assistant
     @State private var sheetUp = false
     @State private var pendantSheetUp = false
+    // Theme-set detail (2026-11-02 theme-set batch): the saved
+    // record being previewed, its bottom sheet, the save-current
+    // name field and its message, the last apply result shown in
+    // the detail, and the delete confirmation. The preview colour
+    // scheme is theme-preview only: it picks which of the saved
+    // pack's two colour maps the preview draws from.
+    @State private var detailTheme: AppearanceSavedTheme?
+    @State private var themeSheetUp = false
+    @State private var themeSaveName = ""
+    @State private var themeSaveMessage: String?
+    @State private var themeApplyMessage: String?
+    @State private var themeConfirmDelete = false
+    @Environment(\.colorScheme) private var themePreviewScheme
     // Bumped on SOUL.md / persona-change notifications so a
     // same-persona rename (which neither PersonaStore nor the
     // studio publishes) still refreshes side labels. Read by
@@ -272,6 +285,10 @@ struct DressingShopView: View {
             }
             if let pendant = detailPendant {
                 pendantDetailView(pendant)
+                    .transition(.move(edge: .trailing))
+            }
+            if let item = detailTheme {
+                themeDetailView(item)
                     .transition(.move(edge: .trailing))
             }
         }
@@ -487,30 +504,518 @@ struct DressingShopView: View {
         .padding(.vertical, 14)
     }
 
-    // MARK: - Theme (next batch, honest panel, no fake cards)
+    // MARK: - Theme sets (2026-11-02 theme-set batch)
     //
-    // The old THM-0001..0003 placeholder cards are deleted: they
-    // claimed numbers with no record behind them, which is exactly
-    // the fake-card classification fault. Until the theme batch
-    // defines real theme-set records, this category is an honest
-    // next-batch panel like pendant / font / name card — not a
-    // card, not a text row.
+    // A theme set is one library pack plus the per-side bubble
+    // and pendant numbers recorded when it was saved
+    // (AppearanceSavedTheme). No fake cards: the list only shows
+    // records the library actually holds, and an empty library
+    // shows only a truthful empty line plus the save-current
+    // entry. The old THM-0001..0003 placeholder cards stay
+    // deleted — they claimed numbers with no record behind them.
     //
-    // Required connection for the theme batch, recorded here so
-    // it cannot be reduced later: a theme set is NOT just bubbles.
-    // A full-set preview must show wallpaper + bubbles + avatar +
-    // input bar + pendant together, and applying a set must swap
-    // all of those pieces together — never two bubble samples.
-    // A theme set will reference a bubble by number and apply it
-    // through BubbleStylePackStore.apply, alongside the set's
-    // wallpaper, pendant, font, and input-bar pieces, each from
-    // its own record. The bubble record owns no wallpaper,
-    // pendant, or avatar field, so the set can compose them.
-    // Retired appearance rows map here: palette colours, wallpaper
-    // (backdrop), and the theme library (save / import / export).
+    // Preview and apply are a pair. The preview draws the saved
+    // pack's own colours and wallpaper, the recorded bubble
+    // packs through the same bubbleShapeView real chat draws,
+    // the real avatars with the recorded rings, and an input
+    // bar in the pack's style — never a prettier drawing than
+    // real chat. One honest limit: avatar SHAPE cannot be
+    // previewed here, because PersonAvatarView reads its shape
+    // from the live pack and this batch must not touch that
+    // shared view; the shape is listed in the detail and lands
+    // on apply. A side with no recorded bubble draws no bubble
+    // in the preview (nothing is guessed for it), and a recorded
+    // number that is no longer in the catalogue is named in the
+    // detail and reported as failed on apply, never faked.
+    //
+    // Apply order is fixed: the pack goes through the true
+    // replace first, then the recorded per-side numbers. A
+    // failed piece keeps the detail open with the failure named;
+    // only a clean apply closes it. Save requires a name (an
+    // empty name is refused in the UI, never silently relabelled)
+    // and at the 40-set limit the UI says "delete one first"
+    // and refuses — it never quietly drops an old set. Delete
+    // goes through the library's delete-by-id path only.
 
     private var themeView: some View {
-        nextBatchPanel(AppLocalized("主题"))
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(AppLocalized("主题"), jumpTo: .theme)
+            VStack(alignment: .leading, spacing: 8) {
+                TextField(AppLocalized("给现在这套起个名"), text: $themeSaveName)
+                    .font(.system(size: fsSub))
+                    .foregroundStyle(studio.color(.primaryText))
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
+                    .background(studio.color(.field))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                HStack(spacing: 12) {
+                    Button(AppLocalized("把现在这套存下来")) { saveCurrentThemeSet() }
+                        .font(.system(size: fsSub, weight: .semibold))
+                        .foregroundStyle(studio.color(.surface))
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                        .background(studio.color(.accent))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .buttonStyle(.plain)
+                    Text("\(studio.savedThemes().count) / \(AppearanceSavedTheme.limit)")
+                        .font(.system(size: fsCaption, design: .monospaced))
+                        .foregroundStyle(studio.color(.secondaryText))
+                }
+                if let message = themeSaveMessage {
+                    Text(message)
+                        .font(.system(size: fsCaption))
+                        .foregroundStyle(studio.color(.secondaryText))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+            if studio.savedThemes().isEmpty {
+                Text(AppLocalized("还没有存下来的整套。上面起个名，把现在这套存下来，它就会出现在这里。"))
+                    .font(.system(size: fsSub))
+                    .foregroundStyle(studio.color(.secondaryText))
+                    .padding(.horizontal, 16)
+            } else {
+                ForEach(studio.savedThemes()) { item in themeCard(item) }
+            }
+            Text(AppLocalized("换主题、重置都不会清掉这里；删只能按套删。"))
+                .font(.system(size: fsCaption))
+                .foregroundStyle(studio.color(.secondaryText))
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+        }
+    }
+
+    private func saveCurrentThemeSet() {
+        let name = themeSaveName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            themeSaveMessage = AppLocalized("先给这套起个名")
+            return
+        }
+        guard studio.savedThemes().count < AppearanceSavedTheme.limit else {
+            themeSaveMessage = AppLocalized("库满了，删一套再存")
+            return
+        }
+        if studio.saveCurrentTheme(name: name) != nil {
+            themeSaveName = ""
+            themeSaveMessage = AppLocalized("已存下来")
+        } else {
+            themeSaveMessage = AppLocalized("库满了，删一套再存")
+        }
+    }
+
+    /// A set counts as in use only when the pack still matches
+    /// AND every recorded number is still what that side wears.
+    /// A number drifted afterwards (or a pack field changed) drops
+    /// the tick honestly instead of claiming the set is on.
+    private func themeSetInUse(_ item: AppearanceSavedTheme) -> Bool {
+        guard studio.savedThemeMatch(id: item.id) == .inUse else { return false }
+        if let number = item.userBubbleNumber,
+           bubblePackStore.appliedNumber(for: .user) != number { return false }
+        if let number = item.assistantBubbleNumber,
+           bubblePackStore.appliedNumber(for: .assistant) != number { return false }
+        if let number = item.userPendantNumber,
+           pendantStore.appliedNumber(for: .user) != number { return false }
+        if let number = item.assistantPendantNumber,
+           pendantStore.appliedNumber(for: .assistant) != number { return false }
+        return true
+    }
+
+    private func themeSetRecordedCount(_ item: AppearanceSavedTheme) -> Int {
+        [item.userBubbleNumber, item.assistantBubbleNumber,
+         item.userPendantNumber, item.assistantPendantNumber].compactMap { $0 }.count
+    }
+
+    private func themeCard(_ item: AppearanceSavedTheme) -> some View {
+        let inUse = themeSetInUse(item)
+        let recorded = themeSetRecordedCount(item)
+        return Button { openThemeDetail(item) } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(item.name)
+                        .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                        .foregroundStyle(studio.color(.primaryText))
+                    Spacer(minLength: 0)
+                    if inUse {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(studio.color(.accent))
+                    }
+                }
+                Text(item.savedAt.formatted(date: .abbreviated, time: .omitted))
+                    .font(.system(size: fsCaption, design: .monospaced))
+                    .foregroundStyle(studio.color(.secondaryText))
+                Text(recorded > 0
+                    ? AppLocalized("已记 \(recorded) 项气泡挂件")
+                    : AppLocalized("旧存法，没记气泡挂件"))
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
+                if inUse {
+                    Text(AppLocalized("正在用这套"))
+                        .font(.system(size: fsCaption, weight: .semibold))
+                        .foregroundStyle(studio.color(.accent))
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(studio.color(.surface))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(inUse ? studio.color(.accent) : studio.color(.border),
+                        lineWidth: inUse ? 1.5 : 1))
+            .shadow(color: .black.opacity(inUse ? 0.12 : 0.03),
+                    radius: inUse ? 16 : 3, x: 0, y: inUse ? 4 : 1)
+            .shadow(color: .black.opacity(inUse ? 0 : 0.02),
+                    radius: 2, x: 0, y: 1)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+    }
+
+    private func openThemeDetail(_ item: AppearanceSavedTheme) {
+        themeSheetUp = false
+        themeApplyMessage = nil
+        detailTheme = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+            if detailTheme?.id == item.id { themeSheetUp = true }
+        }
+    }
+
+    private func closeThemeDetail() {
+        themeSheetUp = false
+        themeApplyMessage = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            detailTheme = nil
+        }
+    }
+
+    /// The saved pack's own colour for a role, in the preview's
+    /// light/dark map. A missing or malformed pack value falls
+    /// back to the live theme colour rather than rendering a
+    /// grey that neither the pack nor the live theme carries.
+    private func themePreviewColor(_ pack: AppearanceThemePack, _ role: AppearanceColorRole) -> Color {
+        let map = themePreviewScheme == .dark ? pack.colorsDark : pack.colorsLight
+        if let raw = map[role.rawValue] {
+            let cleaned = raw.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+            let hexDigits = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+            if (cleaned.count == 6 || cleaned.count == 8)
+                && cleaned.unicodeScalars.allSatisfy({ hexDigits.contains($0) }) {
+                return Color(hex: raw)
+            }
+        }
+        return studio.color(role)
+    }
+
+    private func themePreviewImage(_ base64: String?) -> UIImage? {
+        guard let base64, !base64.isEmpty,
+              let data = Data(base64Encoded: base64),
+              let image = UIImage(data: data) else { return nil }
+        return image
+    }
+
+    /// One preview row: the recorded bubble pack drawn through
+    /// the same bubbleShapeView as real chat, with the saved
+    /// pack's colours, and the real avatar wearing the recorded
+    /// ring (showPendant off, so the live ring never stacks
+    /// under the previewed one). A side with no recorded bubble
+    /// draws no bubble at all — nothing is guessed for it; a
+    /// recorded bubble that is no longer in the catalogue is
+    /// likewise omitted, and the warning below the preview
+    /// names it instead of faking it.
+    private func themePreviewRow(pack: AppearanceThemePack, item: AppearanceSavedTheme, isUser: Bool) -> some View {
+        let number = isUser ? item.userBubbleNumber : item.assistantBubbleNumber
+        let rowPack = number.flatMap { bubblePackStore.pack(number: $0) }
+        let ringNumber = isUser ? item.userPendantNumber : item.assistantPendantNumber
+        let ring = ringNumber.flatMap { n in pendantStore.pendants.first { $0.number == n } }
+        return HStack(alignment: .center, spacing: 8) {
+            if !isUser {
+                themePreviewAvatar(isUser: false, ring: ring)
+            }
+            if isUser { Spacer(minLength: 0) }
+            if let rowPack {
+                bubbleShapeView(pack: rowPack, isUser: isUser,
+                                text: AppLocalized("今天也想你"),
+                                fontSize: 16, padding: 14,
+                                bubbleColour: themePreviewColor(pack, isUser ? .userBubble : .assistantBubble),
+                                textColour: rowPack.style.textColor(isUser: isUser)
+                                    ?? themePreviewColor(pack, isUser ? .bubbleText : .assistantBubbleText),
+                                borderWidth: isUser ? rowPack.style.userBorderWidth : rowPack.style.assistantBorderWidth)
+            }
+            if isUser {
+                themePreviewAvatar(isUser: true, ring: ring)
+            }
+            if !isUser { Spacer(minLength: 0) }
+        }
+    }
+
+    private func themePreviewAvatar(isUser: Bool, ring: AvatarPendant?) -> some View {
+        ZStack {
+            PersonAvatarView(kind: isUser ? .user : .assistant, size: 36, showPendant: false)
+            if let ring {
+                AvatarRingView(size: 36, color: ring.color, imageFile: ring.imageFile)
+            }
+        }
+    }
+
+    private func themePreviewHasMissingPiece(_ item: AppearanceSavedTheme) -> Bool {
+        for number in [item.userBubbleNumber, item.assistantBubbleNumber] {
+            if let number, bubblePackStore.pack(number: number) == nil { return true }
+        }
+        for number in [item.userPendantNumber, item.assistantPendantNumber] {
+            if let number, pendantStore.pendants.first(where: { $0.number == number }) == nil { return true }
+        }
+        return false
+    }
+
+    private func themePreview(pack: AppearanceThemePack, item: AppearanceSavedTheme) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            themePreviewRow(pack: pack, item: item, isUser: false)
+            themePreviewRow(pack: pack, item: item, isUser: true)
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .foregroundStyle(themePreviewColor(pack, .secondaryText))
+                Spacer(minLength: 0)
+                Image(systemName: "mic")
+                    .foregroundStyle(themePreviewColor(pack, .secondaryText))
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 52)
+            .background {
+                if let image = themePreviewImage(pack.inputBarJPEGBase64) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    themePreviewColor(pack, .field)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: pack.inputBarRadius > 0 ? pack.inputBarRadius : 26,
+                                        style: .continuous))
+            if themePreviewHasMissingPiece(item) {
+                Text(AppLocalized("这套里有记的编号不在店里，预览里没画那一项，换上时也会如实报出来。"))
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(themePreviewColor(pack, .secondaryText))
+            }
+        }
+        .padding(16)
+        .background {
+            if let image = themePreviewImage(pack.wallpaperJPEGBase64) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                themePreviewColor(pack, .canvas)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func themeBubbleLine(_ item: AppearanceSavedTheme, isUser: Bool) -> String {
+        let number = isUser ? item.userBubbleNumber : item.assistantBubbleNumber
+        guard let number else { return AppLocalized("跟包走") }
+        if let pack = bubblePackStore.pack(number: number) { return "\(pack.title) · \(pack.number)" }
+        return AppLocalized("不在店里：") + number
+    }
+
+    private func themePendantLine(_ item: AppearanceSavedTheme, isUser: Bool) -> String {
+        let number = isUser ? item.userPendantNumber : item.assistantPendantNumber
+        guard let number else { return AppLocalized("不动") }
+        if let pendant = pendantStore.pendants.first(where: { $0.number == number }) {
+            return "\(pendant.title) · \(pendant.number)"
+        }
+        return AppLocalized("不在店里：") + number
+    }
+
+    private func themeFailedPieceLine(_ piece: String) -> String {
+        switch piece {
+        case "userBubble":
+            return sidePickerLabel(for: .user) + AppLocalized("的气泡不在店里，跳过了")
+        case "assistantBubble":
+            return sidePickerLabel(for: .assistant) + AppLocalized("的气泡不在店里，跳过了")
+        case "userPendant":
+            return sidePickerLabel(for: .user) + AppLocalized("的挂件不在店里，跳过了")
+        case "assistantPendant":
+            return sidePickerLabel(for: .assistant) + AppLocalized("的挂件不在店里，跳过了")
+        default:
+            return piece
+        }
+    }
+
+    private func applyThemeSet(_ item: AppearanceSavedTheme) {
+        guard let result = studio.applySavedThemeSet(id: item.id) else {
+            themeApplyMessage = AppLocalized("这套没换上：包文件读不出来。")
+            return
+        }
+        if result.packWarnings.isEmpty && result.failedPieces.isEmpty {
+            closeThemeDetail()
+        } else {
+            var parts: [String] = []
+            if !result.packWarnings.isEmpty {
+                parts.append(AppLocalized("主题包有几项没落住：") + result.packWarnings.joined(separator: "、"))
+            }
+            for piece in result.failedPieces {
+                parts.append(themeFailedPieceLine(piece))
+            }
+            themeApplyMessage = AppLocalized("整套没全换上：") + parts.joined(separator: "；")
+        }
+    }
+
+    private func deleteThemeSet(_ item: AppearanceSavedTheme) {
+        if studio.deleteSavedTheme(id: item.id) {
+            closeThemeDetail()
+        } else {
+            themeApplyMessage = AppLocalized("这套没删掉，再试一次。")
+        }
+    }
+
+    private func themeDetailView(_ item: AppearanceSavedTheme) -> some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Text(AppLocalized("主题"))
+                    .font(.system(size: fsTitle, weight: .bold, design: .serif))
+                    .foregroundStyle(studio.color(.primaryText))
+                HStack {
+                    Button { closeThemeDetail() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.headline)
+                            .foregroundStyle(studio.color(.primaryText))
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+            }
+            .frame(height: 52)
+            .background(studio.color(.surface))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(studio.color(.border))
+                    .frame(height: 0.5)
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text(AppLocalized("正在看：") + item.name)
+                    .font(.system(size: fsSub, weight: .semibold))
+                    .foregroundStyle(studio.color(.primaryText))
+                if let pack = studio.libraryPack(id: item.id) {
+                    themePreview(pack: pack, item: item)
+                } else {
+                    Text(AppLocalized("这套的包文件读不出来，换上会失败，先删掉它再存一套新的。"))
+                        .font(.system(size: fsSub))
+                        .foregroundStyle(studio.color(.secondaryText))
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .onTapGesture { themeSheetUp.toggle() }
+
+            if themeSheetUp {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        Text(item.name)
+                            .font(.system(size: fsTitle, weight: .bold, design: .serif))
+                            .foregroundStyle(studio.color(.primaryText))
+                        Text("·")
+                            .font(.system(size: fsTitle, weight: .bold))
+                            .foregroundStyle(studio.color(.secondaryText))
+                        Text(item.savedAt.formatted(date: .abbreviated, time: .omitted))
+                            .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(studio.color(.secondaryText))
+                        Spacer(minLength: 0)
+                    }
+                    if themeSetInUse(item) {
+                        Text(AppLocalized("正在用这套"))
+                            .font(.system(size: fsSub, weight: .semibold))
+                            .foregroundStyle(studio.color(.accent))
+                    } else if studio.savedThemeMatch(id: item.id) == .inUse {
+                        Text(AppLocalized("主题包是这套，气泡或挂件后来换过"))
+                            .font(.system(size: fsSub))
+                            .foregroundStyle(studio.color(.secondaryText))
+                    } else if studio.savedThemeMatch(id: item.id) == .modifiedSince {
+                        Text(AppLocalized("这套换上过，但之后改过东西"))
+                            .font(.system(size: fsSub))
+                            .foregroundStyle(studio.color(.secondaryText))
+                    }
+                    if themeSetRecordedCount(item) == 0 {
+                        Text(AppLocalized("旧存法，没记气泡挂件，换上只换主题包"))
+                            .font(.system(size: fsSub))
+                            .foregroundStyle(studio.color(.secondaryText))
+                    }
+                    Text(sidePickerLabel(for: .assistant) + AppLocalized("气泡：") + themeBubbleLine(item, isUser: false))
+                        .font(.system(size: fsCaption))
+                        .foregroundStyle(studio.color(.secondaryText))
+                    Text(sidePickerLabel(for: .user) + AppLocalized("气泡：") + themeBubbleLine(item, isUser: true))
+                        .font(.system(size: fsCaption))
+                        .foregroundStyle(studio.color(.secondaryText))
+                    Text(sidePickerLabel(for: .assistant) + AppLocalized("挂件：") + themePendantLine(item, isUser: false))
+                        .font(.system(size: fsCaption))
+                        .foregroundStyle(studio.color(.secondaryText))
+                    Text(sidePickerLabel(for: .user) + AppLocalized("挂件：") + themePendantLine(item, isUser: true))
+                        .font(.system(size: fsCaption))
+                        .foregroundStyle(studio.color(.secondaryText))
+                    if let pack = studio.libraryPack(id: item.id) {
+                        Text(AppLocalized("头像形状：") + AppearanceAvatarShape.parse(pack.avatarShape).title
+                            + AppLocalized("（随包换上）"))
+                            .font(.system(size: fsCaption))
+                            .foregroundStyle(studio.color(.secondaryText))
+                        Text(AppLocalized("字体：跟主题包走"))
+                            .font(.system(size: fsCaption))
+                            .foregroundStyle(studio.color(.secondaryText))
+                    }
+                    if let message = themeApplyMessage {
+                        Text(message)
+                            .font(.system(size: fsSub))
+                            .foregroundStyle(studio.color(.secondaryText))
+                    }
+                    HStack(spacing: 12) {
+                        Button(AppLocalized("删除这套")) {
+                            themeConfirmDelete = true
+                        }
+                        .font(.callout)
+                        .foregroundStyle(studio.color(.destructive))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(studio.color(.destructive), lineWidth: 1)
+                        )
+                        .buttonStyle(.plain)
+                        Button(AppLocalized("换上整套")) {
+                            applyThemeSet(item)
+                        }
+                        .font(.callout)
+                        .foregroundStyle(studio.color(.surface))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(studio.color(.accent))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 6)
+                }
+                .padding(20)
+                .background(
+                    studio.color(.surface),
+                    in: UnevenRoundedRectangle(
+                        cornerRadii: RectangleCornerRadii(
+                            topLeading: 22, bottomLeading: 0,
+                            bottomTrailing: 0, topTrailing: 22))
+                )
+                .transition(.move(edge: .bottom))
+            }
+        }
+        .background(studio.color(.canvas))
+        .animation(.easeOut(duration: 0.3), value: themeSheetUp)
+        .alert(AppLocalized("删除这套？"), isPresented: $themeConfirmDelete) {
+            Button(AppLocalized("删除"), role: .destructive) {
+                deleteThemeSet(item)
+            }
+            Button(AppLocalized("取消"), role: .cancel) {}
+        } message: {
+            Text(AppLocalized("删掉后这套就从列表里消失。"))
+        }
     }
 
     // MARK: - Bubble views

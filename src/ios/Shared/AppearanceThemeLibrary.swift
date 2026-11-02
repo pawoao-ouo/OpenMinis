@@ -11,6 +11,16 @@ struct AppearanceSavedTheme: Equatable, Codable, Identifiable {
     var savedAt: Date
     var userStyle: String
     var assistantStyle: String
+    /// Theme-set record (2026-11-02): the bubble-pack and pendant
+    /// numbers each side was wearing when this set was saved.
+    /// All four are optional with a nil default, so an old record
+    /// (saved before this batch) decodes with all four nil — an
+    /// old set simply has no numbers, never invented ones — and
+    /// existing constructions without these arguments still compile.
+    var userBubbleNumber: String? = nil
+    var assistantBubbleNumber: String? = nil
+    var userPendantNumber: String? = nil
+    var assistantPendantNumber: String? = nil
 
     static let libraryKey = "appearanceStudio.themeLibrary.v1"
     static let limit = 40
@@ -92,12 +102,22 @@ extension AppearanceStudio {
         let trimmed = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let label = trimmed.isEmpty ? "Untitled" : trimmed
         pack.name = label
+        // Theme-set record: snapshot the numbers both sides are
+        // actually wearing right now. A side wearing nothing
+        // records nil for that piece — applying the set later
+        // never guesses one for it (a nil bubble side follows
+        // the saved pack's own style fields; a nil pendant side
+        // is untouched).
         let item = AppearanceSavedTheme(
             id: UUID().uuidString.lowercased(),
             name: label,
             savedAt: Date(),
             userStyle: pack.userStyle.rawValue,
-            assistantStyle: pack.assistantStyle.rawValue
+            assistantStyle: pack.assistantStyle.rawValue,
+            userBubbleNumber: BubbleStylePackStore.shared.appliedNumber(for: .user),
+            assistantBubbleNumber: BubbleStylePackStore.shared.appliedNumber(for: .assistant),
+            userPendantNumber: AvatarPendantStore.shared.appliedNumber(for: .user),
+            assistantPendantNumber: AvatarPendantStore.shared.appliedNumber(for: .assistant)
         )
         writeLibraryPack(pack, id: item.id)
         var list = savedThemes()
@@ -197,6 +217,52 @@ extension AppearanceStudio {
         // 应用的是谁，列表才能诚实回答：还是它 / 你后来改过。
         UserDefaults.standard.set(id, forKey: Self.lastAppliedKey)
         return warnings
+    }
+
+    /// Read-only accessor for the shop's theme-set preview, which
+    /// must draw the saved pack's own colours and wallpaper, not
+    /// the live theme's. It reads the same file applySavedTheme
+    /// reads and changes nothing.
+    func libraryPack(id: String) -> AppearanceThemePack? {
+        readLibraryPack(id: id)
+    }
+
+    /// Shop full-set apply (2026-11-02 theme-set batch): the pack
+    /// goes through the true-replace user path FIRST, then the
+    /// recorded per-side bubble and pendant numbers, in that
+    /// order. Nil = unknown id or unreadable pack (nothing
+    /// applied). A recorded number whose pack/pendant is no
+    /// longer in the catalogue is a failed piece, never a
+    /// fallback to another pack: the caller must report it and
+    /// must not claim the set applied cleanly. A nil recorded
+    /// number is skipped, not failed — precisely: a nil bubble
+    /// side gets no extra per-side pack apply, so its bubbles
+    /// follow the saved pack's own style fields from the
+    /// replace; a nil pendant side is truly untouched, because
+    /// the pack replace never writes the pendant store.
+    func applySavedThemeSet(id: String) -> (packWarnings: [String], failedPieces: [String])? {
+        guard let item = savedThemes().first(where: { $0.id == id }) else { return nil }
+        guard let packWarnings = applySavedTheme(id: id) else { return nil }
+        var failed: [String] = []
+        for (side, number) in [(DressingSide.user, item.userBubbleNumber),
+                               (DressingSide.assistant, item.assistantBubbleNumber)] {
+            guard let number else { continue }
+            if let pack = BubbleStylePackStore.shared.pack(number: number) {
+                BubbleStylePackStore.shared.apply(pack, for: side)
+            } else {
+                failed.append(side.isUser ? "userBubble" : "assistantBubble")
+            }
+        }
+        for (side, number) in [(DressingSide.user, item.userPendantNumber),
+                               (DressingSide.assistant, item.assistantPendantNumber)] {
+            guard let number else { continue }
+            if let pendant = AvatarPendantStore.shared.pendants.first(where: { $0.number == number }) {
+                AvatarPendantStore.shared.apply(pendant, for: side)
+            } else {
+                failed.append(side.isUser ? "userPendant" : "assistantPendant")
+            }
+        }
+        return (packWarnings, failed)
     }
 
     private static let lastAppliedKey = "appearanceStudio.lastAppliedLibraryID"
