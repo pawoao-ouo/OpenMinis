@@ -347,7 +347,12 @@ struct SelectableMarkdownTheme {
     var codeBlockBackground: UIColor {
         AppearanceStudio.uiColorSnapshot(.surface, scope: .chat)
     }
-    var codeBlockTextColor: UIColor { AppearanceStudio.uiColorSnapshot(.success) }
+    // [contrast-20261102] Code-block plain text used to follow the success
+    // role, whose light value (#5A8F6A on white = 3.77) fails the 4.5:1
+    // body-text bar. Plain code text is body text, so it follows
+    // primaryText (18.86 on white). The success role itself is untouched
+    // (other surfaces use it); only this default text colour moves.
+    var codeBlockTextColor: UIColor { AppearanceStudio.uiColorSnapshot(.primaryText) }
     var inlineCodeBackground: UIColor { minisInlineCodeBackgroundColor }
     var inlineCodeColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning) }
     var blockquoteBarColor: UIColor { AppearanceStudio.uiColorSnapshot(.warning).withAlphaComponent(0.5) }

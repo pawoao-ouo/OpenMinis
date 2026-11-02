@@ -1924,6 +1924,17 @@ extension AppearanceStudio {
                     setColor(Color(hex: fg), role: role, scope: .global, variant: variant)
                 }
             }
+            // [contrast-20261102] Accent used to be written verbatim, so
+            // an ST pack could import an accent nobody can read. Enforce
+            // it the same way, but at the accent bar (3.0, level .ui) —
+            // never 4.5, which would push the accent further than its
+            // own rule allows. Hue is preserved, only lightness moves.
+            var accent = hex(.accent, scope: .global, variant: variant)
+            accent = AppearanceContrast.enforce(accent, on: bg, level: .ui)
+            accent = AppearanceContrast.enforce(accent, on: surface, level: .ui)
+            if accent != hex(.accent, scope: .global, variant: variant) {
+                setColor(Color(hex: accent), role: .accent, scope: .global, variant: variant)
+            }
         }
     }
 

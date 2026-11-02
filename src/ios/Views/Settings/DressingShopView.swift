@@ -157,6 +157,9 @@ struct DressingShopView: View {
     @State private var themeSaveMessage: String?
     @State private var themeApplyMessage: String?
     @State private var themeConfirmDelete = false
+    @State private var themeConfirmApply = false
+    @State private var themePendingApplyItem: AppearanceSavedTheme?
+    @State private var themePendingApplyWarning: String?
     @State private var wallpaperPickerPresented = false
     @State private var pickedWallpaperItem: PhotosPickerItem?
     @State private var pickedWallpaperIsDark = false
@@ -1061,7 +1064,67 @@ struct DressingShopView: View {
         }
     }
 
+    /// Pre-apply contrast check for a shop theme set, read-only.
+    /// The set's pack colours are the post-apply globals: replace
+    /// wipes globals first, then repaints from the pack, so a role
+    /// the pack does not carry falls back to the built-in default
+    /// (AppearancePaletteBook light/dark), not to the live value.
+    /// Only primaryText (4.5) and accent (3.0) against canvas and
+    /// surface are checked. Nil = passes, apply directly as before.
+    /// A failing pack is NOT refused — the confirm step names what
+    /// is unreadable and the user decides.
+    private func themeContrastWarning(forSet item: AppearanceSavedTheme) -> String? {
+        guard let pack = studio.libraryPack(id: item.id) else { return nil }
+        // Built-in fallbacks for roles a pack does not carry, from
+        // AppearancePaletteBook (AppearanceStudio.swift): if that
+        // palette ever changes, these four pairs must change with it.
+        let builtIn: [AppearanceVariant: [AppearanceColorRole: String]] = [
+            .light: [.canvas: "F5F5F7", .surface: "FFFFFF",
+                     .primaryText: "111113", .accent: "111113"],
+            .dark: [.canvas: "000000", .surface: "1C1C1E",
+                    .primaryText: "FFFFFF", .accent: "FFFFFF"],
+        ]
+        var failing: [String] = []
+        for variant in [AppearanceVariant.light, .dark] {
+            let map = variant == .light ? pack.colorsLight : pack.colorsDark
+            func effective(_ role: AppearanceColorRole) -> String {
+                map[role.rawValue] ?? builtIn[variant]?[role] ?? "808080"
+            }
+            let canvas = effective(.canvas), surface = effective(.surface)
+            let checks: [(AppearanceColorRole, AppearanceContrast.Level, String)] = [
+                (.primaryText, .body, AppLocalized("正文")),
+                (.accent, .ui, AppLocalized("重点色")),
+            ]
+            for (role, level, name) in checks {
+                let fg = effective(role)
+                for (bgName, bg) in [(AppLocalized("底色"), canvas),
+                                     (AppLocalized("卡片底"), surface)] {
+                    let r = AppearanceContrast.ratio(fg, on: bg)
+                    if r < AppearanceContrast.threshold(level) {
+                        failing.append(String(format: AppLocalized("%@%@在%@上约 %.1f（要 %.1f）"),
+                                              variant == .light ? AppLocalized("浅色") : AppLocalized("深色"),
+                                              name, bgName, r,
+                                              AppearanceContrast.threshold(level)))
+                    }
+                }
+            }
+        }
+        guard !failing.isEmpty else { return nil }
+        return AppLocalized("这套有颜色看不清：") + failing.joined(separator: "、")
+            + AppLocalized("，个别地方可能看不清。")
+    }
+
     private func applyThemeSet(_ item: AppearanceSavedTheme) {
+        if let warning = themeContrastWarning(forSet: item) {
+            themePendingApplyItem = item
+            themePendingApplyWarning = warning
+            themeConfirmApply = true
+            return
+        }
+        applyThemeSetConfirmed(item)
+    }
+
+    private func applyThemeSetConfirmed(_ item: AppearanceSavedTheme) {
         guard let result = studio.applySavedThemeSet(id: item.id) else {
             themeApplyMessage = AppLocalized("这套没换上：包文件读不出来。")
             return
@@ -1235,6 +1298,21 @@ struct DressingShopView: View {
             Button(AppLocalized("取消"), role: .cancel) {}
         } message: {
             Text(AppLocalized("删掉后这套就从列表里消失。"))
+        }
+        .alert(AppLocalized("这套有颜色看不清"), isPresented: $themeConfirmApply) {
+            Button(AppLocalized("仍要换上")) {
+                if let pending = themePendingApplyItem {
+                    applyThemeSetConfirmed(pending)
+                }
+                themePendingApplyItem = nil
+                themePendingApplyWarning = nil
+            }
+            Button(AppLocalized("不换了"), role: .cancel) {
+                themePendingApplyItem = nil
+                themePendingApplyWarning = nil
+            }
+        } message: {
+            Text(themePendingApplyWarning ?? "")
         }
     }
 
@@ -2808,10 +2886,40 @@ struct DressingShopView: View {
         ]
     }
 
+    /// Contrast warning for a colour-panel row, live values only.
+    /// Only primaryText (4.5) and accent (3.0) are checked, against
+    /// canvas and surface of the variant being edited. Nil when the
+    /// value passes, so passing rows show nothing. This never blocks:
+    /// the user's own colour choice is respected, it just never lands
+    /// silently unreadable.
+    private func colorContrastWarning(for role: AppearanceColorRole) -> String? {
+        let level: AppearanceContrast.Level
+        switch role {
+        case .primaryText: level = .body
+        case .accent: level = .ui
+        default: return nil
+        }
+        let fg = studio.hex(role, scope: .global, variant: editingVariant)
+        var failing: [String] = []
+        for (bgName, bgRole) in [(AppLocalized("底色"), AppearanceColorRole.canvas),
+                                 (AppLocalized("卡片底"), AppearanceColorRole.surface)] {
+            let bg = studio.hex(bgRole, scope: .global, variant: editingVariant)
+            let r = AppearanceContrast.ratio(fg, on: bg)
+            if r < AppearanceContrast.threshold(level) {
+                failing.append(String(format: AppLocalized("%@约 %.1f"), bgName, r))
+            }
+        }
+        guard !failing.isEmpty else { return nil }
+        return String(format: AppLocalized("%@对比不够：%@（要 %.1f），个别地方可能看不清"),
+                      role.title, failing.joined(separator: "、"),
+                      AppearanceContrast.threshold(level))
+    }
+
     /// One variable row: the old studio page's row mode
     /// (ColorPicker + title + hint + #hex + revert-when-overridden),
     /// bound to the GLOBAL scope and the set being edited.
     private func colorVarRow(_ role: AppearanceColorRole) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 13) {
             ColorPicker("", selection: studio.colorBinding(role, scope: .global, variant: editingVariant),
                         supportsOpacity: false)
@@ -2845,6 +2953,13 @@ struct DressingShopView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        if let warning = colorContrastWarning(for: role) {
+            Text(warning)
+                .font(.system(size: fsSub))
+                .foregroundStyle(studio.color(.destructive))
+                .padding(.horizontal, 16)
+        }
+        }
     }
 
     private func openDetail(_ pack: BubbleStylePack) {

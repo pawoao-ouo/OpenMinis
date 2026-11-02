@@ -350,6 +350,16 @@ enum HelperAccent {
             ? UIColor(red: 0.64, green: 0.52, blue: 1.00, alpha: 1)   // #A385FF
             : UIColor(red: 0.45, green: 0.30, blue: 0.93, alpha: 1)   // #734DED
     })
+    /// Badge text ONLY. The main colour on its own 15% tint fails the
+    /// 4.5:1 bar in light mode (3.78 on the blended capsule background),
+    /// so badge text uses this one darker step of the same hue
+    /// (#5628E9, 5.27 on the same blend). Dark mode keeps the main colour
+    /// (already passing). HelperAccent.color is untouched everywhere else.
+    static let badgeText = Color(UIColor { tc in
+        tc.userInterfaceStyle == .dark
+            ? UIColor(red: 0.64, green: 0.52, blue: 1.00, alpha: 1)   // #A385FF
+            : UIColor(red: 86/255, green: 40/255, blue: 233/255, alpha: 1)   // #5628E9
+    })
     /// Glyph with its own circular background — for places that draw the
     /// icon bare (detail header, tool sheet nav bar). [T-agent-icon]
     static let icon = "person.2.circle.fill"
@@ -471,7 +481,7 @@ struct HelperBlockView: View {
                     // glitch — HelperRunner sets the name at `markRunning`.
                     Text(badgeLabel(info))
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(HelperAccent.color)
+                        .foregroundStyle(HelperAccent.badgeText)
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(HelperAccent.color.opacity(0.15))
                         .clipShape(Capsule())
