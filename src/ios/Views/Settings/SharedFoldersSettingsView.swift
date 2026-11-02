@@ -12,6 +12,7 @@ import SwiftUI
 import FileProvider
 
 struct SharedFoldersSettingsView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     @StateObject private var model = SharedFoldersViewModel()
 
     var body: some View {
@@ -19,9 +20,9 @@ struct SharedFoldersSettingsView: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Shared folders", systemImage: "info.circle.fill")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.system(size: fontSettings.scaledApp(15), weight: .semibold))
                     Text("These directories appear in iOS Files under On My iPhone → 嘟嘟. Tap a row to see details, browse, or toggle visibility.")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -72,6 +73,7 @@ struct SharedFoldersSettingsView: View {
 // MARK: - Row
 
 private struct SharedFolderRow: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let entry: SharedFolderEntry
     let isVisible: Bool
 
@@ -90,11 +92,11 @@ private struct SharedFolderRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(entry.displayName)
-                        .font(.body)
+                        .font(.system(size: fontSettings.scaledApp(17)))
                     accessBadge
                     if !isVisible {
                         Text("Hidden")
-                            .font(.caption2.weight(.semibold))
+                            .font(.system(size: fontSettings.scaledApp(11), weight: .semibold))
                             .foregroundStyle(MinisTheme.secondaryText)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
@@ -104,7 +106,7 @@ private struct SharedFolderRow: View {
                     }
                 }
                 Text(entry.linuxPath)
-                    .font(.caption.monospaced())
+                    .font(.system(size: fontSettings.scaledApp(12)).monospaced())
                     .foregroundStyle(MinisTheme.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -118,7 +120,7 @@ private struct SharedFolderRow: View {
     private var accessBadge: some View {
         if entry.isWritableFromFiles {
             Text("R/W")
-                .font(.caption2.weight(.semibold))
+                .font(.system(size: fontSettings.scaledApp(11), weight: .semibold))
                 .foregroundStyle(MinisTheme.success)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
@@ -127,7 +129,7 @@ private struct SharedFolderRow: View {
                 )
         } else {
             Text("Read-only")
-                .font(.caption2.weight(.semibold))
+                .font(.system(size: fontSettings.scaledApp(11), weight: .semibold))
                 .foregroundStyle(MinisTheme.warning)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)

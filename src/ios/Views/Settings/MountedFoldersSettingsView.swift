@@ -26,6 +26,7 @@ private struct PendingMount: Identifiable {
 }
 
 struct MountedFoldersSettingsView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     @StateObject private var model = MountedFoldersViewModel()
     @State private var showingPicker = false
     @State private var pendingMount: PendingMount?
@@ -44,9 +45,9 @@ struct MountedFoldersSettingsView: View {
                             .font(.system(size: 40))
                             .foregroundStyle(MinisTheme.secondaryText)
                         Text("No mounted folders")
-                            .font(.headline)
+                            .font(.system(size: fontSettings.scaledApp(17), weight: .semibold))
                         Text("Tap + to pick a folder from Files (e.g. an Obsidian vault in iCloud Drive).")
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                             .multilineTextAlignment(.center)
                     }
@@ -81,7 +82,7 @@ struct MountedFoldersSettingsView: View {
                         Text("Mounted Folders")
                         Spacer()
                         Text("\(model.entries.count) / \(MountedFoldersManager.maxMountCount)")
-                            .font(.caption.monospacedDigit())
+                            .font(.system(size: fontSettings.scaledApp(12)).monospacedDigit())
                             .foregroundStyle(model.isAtCapacity ? .orange : .secondary)
                     }
                 } footer: {
@@ -254,12 +255,13 @@ struct MountedFoldersSettingsView: View {
 // MARK: - Banner
 
 private struct InfoBanner: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Mount external folders", systemImage: "info.circle.fill")
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: fontSettings.scaledApp(15), weight: .semibold))
             Text("Picked folders are bind-mounted at /var/minis/mounts/<name>. You can browse them in Browse Files and read/write them directly from the iSH shell, just like /var/minis/shared. Up to 10 folders can be mounted at a time.")
-                .font(.caption)
+                .font(.system(size: fontSettings.scaledApp(12)))
                 .foregroundStyle(MinisTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -269,6 +271,7 @@ private struct InfoBanner: View {
 // MARK: - Row
 
 private struct MountedFolderRow: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let entry: MountedFolderEntry
     let state: MountActivationState
     let sourceURL: URL?
@@ -279,17 +282,17 @@ private struct MountedFolderRow: View {
                 Image(systemName: "folder.fill")
                     .foregroundStyle(MinisTheme.accent)
                 Text(entry.name)
-                    .font(.body.weight(.medium))
+                    .font(.system(size: fontSettings.scaledApp(17), weight: .medium))
                 accessBadge
                 Spacer()
             }
             Text("/var/minis/mounts/\(entry.name)")
-                .font(.caption.monospaced())
+                .font(.system(size: fontSettings.scaledApp(12)).monospaced())
                 .foregroundStyle(MinisTheme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Text(verbatim: "← \(sourceURL?.path ?? entry.sourceDisplayName)")
-                .font(.caption2)
+                .font(.system(size: fontSettings.scaledApp(11)))
                 .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -314,7 +317,7 @@ private struct MountedFolderRow: View {
 
     private func badgePill(text: String, color: Color) -> some View {
         Text(text)
-            .font(.caption2.weight(.semibold))
+            .font(.system(size: fontSettings.scaledApp(11), weight: .semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
@@ -327,6 +330,7 @@ private struct MountedFolderRow: View {
 // MARK: - Add mount sheet
 
 private struct AddMountSheet: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let sourceURL: URL?
     @Binding var name: String
     @Binding var allowWrite: Bool
@@ -340,10 +344,10 @@ private struct AddMountSheet: View {
                     Section {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Source path")
-                                .font(.caption.weight(.semibold))
+                                .font(.system(size: fontSettings.scaledApp(12), weight: .semibold))
                                 .foregroundStyle(MinisTheme.secondaryText)
                             Text(url.path)
-                                .font(.caption2.monospaced())
+                                .font(.system(size: fontSettings.scaledApp(11)).monospaced())
                                 .foregroundStyle(.primary)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -351,7 +355,7 @@ private struct AddMountSheet: View {
                         .padding(.vertical, 2)
                     } footer: {
                         Text("The path above is how iOS exposes the folder you picked. Use it to confirm which app this data belongs to.")
-                            .font(.caption2)
+                            .font(.system(size: fontSettings.scaledApp(11)))
                     }
                 }
 
@@ -360,7 +364,7 @@ private struct AddMountSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Text("This will be the folder name under /var/minis/mounts/")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
 
@@ -371,7 +375,7 @@ private struct AddMountSheet: View {
                             Text(allowWrite
                                 ? AppLocalized("AI, shell, and Files browser can modify files in this mount.")
                                 : AppLocalized("This mount will be exposed as read-only. Useful for reference vaults you don't want the AI to touch."))
-                                .font(.caption)
+                                .font(.system(size: fontSettings.scaledApp(12)))
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
                     }
@@ -379,7 +383,7 @@ private struct AddMountSheet: View {
                     Text("Permissions")
                 } footer: {
                     Text("You can change the write permission later from the mount details page.")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                 }
             }
             .navigationTitle("New Mount")

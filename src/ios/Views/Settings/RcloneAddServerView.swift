@@ -13,6 +13,7 @@ private let logger = AppLogger(category: "Rclone")
 /// user drills in the same way they would in a file manager, and the folder
 /// they are standing in becomes the destination.
 struct RcloneAddServerView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     var onAdded: () -> Void
 
@@ -80,7 +81,7 @@ struct RcloneAddServerView: View {
                 if let errorText {
                     Section {
                         Text(errorText)
-                            .font(.footnote)
+                            .font(.system(size: fontSettings.scaledApp(13)))
                             .foregroundStyle(MinisTheme.destructive)
                     }
                 }
@@ -180,7 +181,7 @@ struct RcloneAddServerView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(b.title).foregroundStyle(.primary)
                             Text(b.subtitle)
-                                .font(.caption)
+                                .font(.system(size: fontSettings.scaledApp(12)))
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
                         Spacer()
@@ -222,11 +223,11 @@ struct RcloneAddServerView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
                             Text(f.label)
-                                .font(.footnote.weight(.medium))
+                                .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                                 .foregroundStyle(MinisTheme.secondaryText)
                             if f.isOptional {
                                 Text("Optional")
-                                    .font(.caption2)
+                                    .font(.system(size: fontSettings.scaledApp(11)))
                                     .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                             }
                         }
@@ -243,7 +244,7 @@ struct RcloneAddServerView: View {
                         }
                         if !f.hint.isEmpty {
                             Text(f.hint)
-                                .font(.caption)
+                                .font(.system(size: fontSettings.scaledApp(12)))
                                 .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                         }
                     }
@@ -290,7 +291,7 @@ struct RcloneAddServerView: View {
 
             if !requiredFieldsFilled && !isConnecting {
                 Text("Fill in the required fields to continue.")
-                    .font(.footnote)
+                    .font(.system(size: fontSettings.scaledApp(13)))
                     .foregroundStyle(MinisTheme.secondaryText)
             }
 
@@ -304,13 +305,13 @@ struct RcloneAddServerView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Trust this certificate")
                         Text("The server's certificate isn't signed by a known authority — usual for a NAS using its own certificate.")
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
                 if allowInsecureTLS {
                     Text("The connection stays encrypted, but its identity isn't verified. Only do this on a network and server you trust.")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.warning)
                 }
             }
@@ -370,7 +371,7 @@ struct RcloneAddServerView: View {
                 } label: {
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(displayPath)
-                            .font(.footnote.weight(.medium))
+                            .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                             .padding(.horizontal, 10)
