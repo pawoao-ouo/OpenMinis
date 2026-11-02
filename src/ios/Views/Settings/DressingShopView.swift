@@ -952,7 +952,7 @@ struct DressingShopView: View {
                         }
                         .font(.system(size: fsCaption))
                         .foregroundStyle(studio.color(.secondaryText))
-                        .frame(minHeight: 44)
+                        .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
                         .buttonStyle(.plain)
                     }
