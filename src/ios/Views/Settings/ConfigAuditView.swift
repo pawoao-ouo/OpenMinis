@@ -5,6 +5,7 @@ import SwiftUI
 /// applied entry to revert it via the same ConfirmationGate.
 struct ConfigAuditView: View {
     @ObservedObject private var log = ConfigAuditLog.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var entries: [ConfigAuditEntry] = []
     @State private var usage: (count: Int, capacity: Int) = (0, 1000)
     @State private var revertingId: String?
@@ -21,7 +22,7 @@ struct ConfigAuditView: View {
             Section {
                 HStack {
                     Text("\(usage.count) / \(usage.capacity) used")
-                        .font(.footnote)
+                        .font(.system(size: fontSettings.scaledApp(13)))
                         .foregroundStyle(MinisTheme.secondaryText)
                     Spacer()
                     if !entries.isEmpty {
@@ -29,7 +30,7 @@ struct ConfigAuditView: View {
                             ConfigAuditLog.shared.clearAll()
                             reload()
                         }
-                        .font(.footnote)
+                        .font(.system(size: fontSettings.scaledApp(13)))
                     }
                 }
             }
@@ -79,15 +80,15 @@ struct ConfigAuditView: View {
             HStack(spacing: 6) {
                 statusBadge(entry.status)
                 Text(entry.actor.rawValue)
-                    .font(.caption2)
+                    .font(.system(size: fontSettings.scaledApp(11)))
                     .foregroundStyle(MinisTheme.secondaryText)
                 Spacer()
                 Text(coarseRelativeTime(entry.at))
-                    .font(.caption2)
+                    .font(.system(size: fontSettings.scaledApp(11)))
                     .foregroundStyle(MinisTheme.secondaryText)
             }
             Text(entry.key)
-                .font(.system(.subheadline, design: .monospaced))
+                .font(.system(size: fontSettings.scaledApp(15), design: .monospaced))
             HStack(alignment: .top, spacing: 6) {
                 Text(displayJSON(entry.oldValueJSON))
                     .lineLimit(1)
@@ -99,12 +100,12 @@ struct ConfigAuditView: View {
                     .lineLimit(1)
                     .foregroundStyle(entry.status == .applied ? .primary : .secondary)
             }
-            .font(.system(.caption, design: .monospaced))
+            .font(.system(size: fontSettings.scaledApp(12), design: .monospaced))
 
             if let caption = entry.caption, !caption.isEmpty {
                 Label {
                     Text(caption)
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                         .lineLimit(3)
                 } icon: {
@@ -122,7 +123,7 @@ struct ConfigAuditView: View {
                         Image(systemName: "arrow.uturn.backward")
                         Text("Revert")
                     }
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -130,7 +131,7 @@ struct ConfigAuditView: View {
                 .padding(.top, 2)
             } else if entry.status == .reverted {
                 Label("Reverted", systemImage: "arrow.uturn.backward.circle.fill")
-                    .font(.caption2)
+                    .font(.system(size: fontSettings.scaledApp(11)))
                     .foregroundStyle(AppearanceStudio.shared.color(.accent))
                     .padding(.top, 2)
             }
@@ -141,7 +142,7 @@ struct ConfigAuditView: View {
     @ViewBuilder
     private func statusBadge(_ status: ConfigAuditStatus) -> some View {
         Text(status.rawValue.uppercased())
-            .font(.system(.caption2, design: .monospaced))
+            .font(.system(size: fontSettings.scaledApp(11), design: .monospaced))
             .foregroundStyle(.white)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)

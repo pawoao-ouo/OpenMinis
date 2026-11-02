@@ -5,6 +5,7 @@ struct EnvironmentVariablesView: View {
     @StateObject private var store = EnvVarStore.shared
     @StateObject private var privacy = EnvVarPrivacyStore.shared
     @ObservedObject private var deepLink = DeepLinkCoordinator.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var searchText = ""
     @State private var showingAddSheet = false
     @State private var editingEntry: EnvVarEntry?
@@ -44,9 +45,9 @@ struct EnvironmentVariablesView: View {
                             .font(.largeTitle)
                             .foregroundStyle(MinisTheme.secondaryText)
                         Text("No Environment Variables")
-                            .font(.headline)
+                            .font(.system(size: fontSettings.scaledApp(17), weight: .semibold))
                         Text("Add variables like API keys or tokens that will be available in the shell environment.")
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                             .multilineTextAlignment(.center)
                     }
@@ -146,14 +147,14 @@ struct EnvironmentVariablesView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.key)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: fontSettings.scaledApp(17), design: .monospaced))
                     .fontWeight(.medium)
                 Text(isRevealed ? currentValue : String(repeating: "\u{2022}", count: min(currentValue.count, 20)))
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: fontSettings.scaledApp(12), design: .monospaced))
                     .foregroundStyle(MinisTheme.secondaryText)
                 if !entry.note.isEmpty {
                     Text(entry.note)
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -206,6 +207,7 @@ struct EnvironmentVariablesView: View {
 // MARK: - Form Sheet
 
 private struct EnvVarFormSheet: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     enum Mode { case add, edit }
 
     let mode: Mode
@@ -236,7 +238,7 @@ private struct EnvVarFormSheet: View {
                         get: { key },
                         set: { key = $0.uppercased() }
                     ))
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: fontSettings.scaledApp(17), design: .monospaced))
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .focused($focusedField, equals: .key)
@@ -253,7 +255,7 @@ private struct EnvVarFormSheet: View {
 
                 Section("Value") {
                     TextField("Value", text: $value)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(size: fontSettings.scaledApp(17), design: .monospaced))
                         .autocorrectionDisabled()
                         .focused($focusedField, equals: .value)
                         .submitLabel(.next)

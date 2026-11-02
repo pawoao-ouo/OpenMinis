@@ -10,6 +10,7 @@ import SwiftUI
 struct EvolutionSettingsView: View {
 
     @StateObject private var settings = EvolutionSettings.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @AppStorage("evolution.extractionEnabled") private var extractionEnabled: Bool = true
     @State private var passResultNote: String?
 
@@ -59,7 +60,7 @@ struct EvolutionSettingsView: View {
                 }
                 if let note = passResultNote {
                     Text(note)
-                        .font(.footnote)
+                        .font(.system(size: fontSettings.scaledApp(13)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
             } footer: {

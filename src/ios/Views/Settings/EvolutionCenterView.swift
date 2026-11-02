@@ -3,6 +3,7 @@ import SwiftUI
 /// [S6-1][evolution] 进化中心：数据总览 + 最近轨迹 + 子页入口。
 /// 数据与库直接一致（打开即读、下拉即刷）。
 struct EvolutionCenterView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     /// [playhub-rebuild] 嵌进「播放」页时，不再自设导航标题（避免和父页抢标题）。
     var embedded: Bool = false
@@ -61,7 +62,7 @@ struct EvolutionCenterView: View {
                     if injections.isEmpty {
                         Text("还没有注入记账。开「影子」用一会儿，这里会记下每次「本来会参考」的条目。")
                             .foregroundStyle(MinisTheme.secondaryText)
-                            .font(.footnote)
+                            .font(.system(size: fontSettings.scaledApp(13)))
                     } else {
                         ForEach(injections, id: \.id) { inj in
                             injectionRow(inj)
@@ -88,7 +89,7 @@ struct EvolutionCenterView: View {
                     }
                     if let note = maintenanceNote {
                         Text(note)
-                            .font(.footnote)
+                            .font(.system(size: fontSettings.scaledApp(13)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 } header: {
@@ -101,7 +102,7 @@ struct EvolutionCenterView: View {
                     if runs.isEmpty {
                         Text("还没有轨迹。用一会儿，任务收尾后这里就有账了。")
                             .foregroundStyle(MinisTheme.secondaryText)
-                            .font(.footnote)
+                            .font(.system(size: fontSettings.scaledApp(13)))
                     } else {
                         ForEach(runs, id: \.id) { run in
                             runRow(run)
@@ -144,7 +145,7 @@ struct EvolutionCenterView: View {
             Image(systemName: "sparkles")
                 .foregroundStyle(MinisTheme.accent)
             Text(message)
-                .font(.footnote)
+                .font(.system(size: fontSettings.scaledApp(13)))
                 .foregroundStyle(MinisTheme.primaryText)
                 .lineLimit(2)
             Spacer(minLength: 0)
@@ -176,10 +177,10 @@ struct EvolutionCenterView: View {
     private func statCard(_ title: String, _ value: Int) -> some View {
         VStack(spacing: 4) {
             Text("\(value)")
-                .font(.title3.bold())
+                .font(.system(size: fontSettings.scaledApp(20), weight: .bold))
                 .monospacedDigit()
             Text(title)
-                .font(.caption2)
+                .font(.system(size: fontSettings.scaledApp(11)))
                 .foregroundStyle(MinisTheme.secondaryText)
         }
         .frame(maxWidth: .infinity)
@@ -193,9 +194,9 @@ struct EvolutionCenterView: View {
                 .foregroundStyle(statusColor(run.status))
             VStack(alignment: .leading, spacing: 2) {
                 Text(run.startedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.callout)
+                    .font(.system(size: fontSettings.scaledApp(16)))
                 Text(detailLine(run))
-                    .font(.caption2)
+                    .font(.system(size: fontSettings.scaledApp(11)))
                     .foregroundStyle(MinisTheme.secondaryText)
             }
         }
@@ -210,7 +211,7 @@ struct EvolutionCenterView: View {
                 .foregroundStyle(isShadow ? Color.secondary : Color.green)
             VStack(alignment: .leading, spacing: 2) {
                 Text(inj.injectedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.callout)
+                    .font(.system(size: fontSettings.scaledApp(16)))
                 // [T-dynamic-color] 原来整串塞在一个 Text 里，含 `.map` 闭包，
                 // 没法静态化成 key，切英文后这一行还是中文。拆成「固定部分走
                 // 查表 + 可选后缀单独拼」。
@@ -218,7 +219,7 @@ struct EvolutionCenterView: View {
                     "\(AppLocalized("经验")) \(inj.lessonId.prefix(8)) · \(inj.tokenCost) token"
                     + (inj.sessionId.map { " · " + AppLocalized("会话") + " \($0.prefix(6))" } ?? "")
                 )
-                    .font(.caption2)
+                    .font(.system(size: fontSettings.scaledApp(11)))
                     .foregroundStyle(MinisTheme.secondaryText)
             }
         }

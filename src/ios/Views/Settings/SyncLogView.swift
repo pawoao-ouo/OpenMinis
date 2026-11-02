@@ -4,39 +4,40 @@ import SwiftUI
 @available(iOS 17.0, *)
 struct SyncLogView: View {
     @ObservedObject private var store = SyncLogStore.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var shareItem: ShareFileItem?
 
     var body: some View {
         List {
             Section {
                 Text("Sync events are recorded as iCloud sync sends and receives data. Up to 1,000 entries are kept.")
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(MinisTheme.secondaryText)
             }
             if store.entries.isEmpty {
                 Text("No sync events yet.")
                     .foregroundStyle(MinisTheme.secondaryText)
-                    .font(.callout)
+                    .font(.system(size: fontSettings.scaledApp(16)))
             } else {
                 ForEach(store.entries) { entry in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
                             directionBadge(entry.direction)
                             Text(entry.recordType)
-                                .font(.system(.subheadline, weight: .semibold))
+                                .font(.system(size: fontSettings.scaledApp(15), weight: .semibold))
                             Spacer()
                             Text(entry.timestamp, format: .dateTime.hour().minute().second())
-                                .font(.caption2)
+                                .font(.system(size: fontSettings.scaledApp(11)))
                                 .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                         }
                         if !entry.summary.isEmpty {
                             Text(entry.summary)
-                                .font(.caption)
+                                .font(.system(size: fontSettings.scaledApp(12)))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
                         }
                         Text(formatRecordName(entry.recordName))
-                            .font(.caption2)
+                            .font(.system(size: fontSettings.scaledApp(11)))
                             .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                             .lineLimit(1)
                         if let deviceName = entry.deviceName {
@@ -45,17 +46,17 @@ struct SyncLogView: View {
                                     .font(.system(size: 9))
                                 Text(deviceName)
                             }
-                            .font(.caption2)
+                            .font(.system(size: fontSettings.scaledApp(11)))
                             .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                         }
                         if entry.direction == .error {
                             Text(entry.detail)
-                                .font(.caption2)
+                                .font(.system(size: fontSettings.scaledApp(11)))
                                 .foregroundStyle(MinisTheme.destructive)
                                 .lineLimit(2)
                         } else if entry.direction == .conflict {
                             Text(entry.detail)
-                                .font(.caption2)
+                                .font(.system(size: fontSettings.scaledApp(11)))
                                 .foregroundStyle(MinisTheme.warning)
                                 .lineLimit(2)
                         }

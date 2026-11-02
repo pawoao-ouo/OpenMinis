@@ -4,6 +4,7 @@ import SwiftUI
 /// 裁决只改状态指针 + version+1（§6 只增不改），从不物理删除；
 /// 裁决后立刻让注入器缓存失效，下一轮影子/注入按新状态走。
 struct EvolutionLessonsView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     @State private var candidate: [EvolutionLesson] = []
     @State private var verified: [EvolutionLesson] = []
@@ -35,7 +36,7 @@ struct EvolutionLessonsView: View {
             Section(title) {
                 if items.isEmpty, let hint = emptyHint {
                     Text(hint)
-                        .font(.footnote)
+                        .font(.system(size: fontSettings.scaledApp(13)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
                 ForEach(items, id: \.id) { lesson in
@@ -49,17 +50,17 @@ struct EvolutionLessonsView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(lesson.taskSignature ?? lesson.id)
-                    .font(.callout.bold())
+                    .font(.system(size: fontSettings.scaledApp(16), weight: .bold))
                 Spacer()
                 Text("v\(lesson.version)")
-                    .font(.caption2)
+                    .font(.system(size: fontSettings.scaledApp(11)))
                     .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
             }
             Text(lesson.recommendation.isEmpty ? lesson.conditions : lesson.recommendation)
-                .font(.footnote)
+                .font(.system(size: fontSettings.scaledApp(13)))
             if lesson.failureCount > 0 || lesson.successCount > 0 {
                 Text("见证：成功 \(lesson.successCount) · 失败 \(lesson.failureCount)")
-                    .font(.caption2)
+                    .font(.system(size: fontSettings.scaledApp(11)))
                     .foregroundStyle(MinisTheme.secondaryText)
             }
             HStack(spacing: 10) {
@@ -77,7 +78,7 @@ struct EvolutionLessonsView: View {
                         .buttonStyle(.borderless)
                 }
             }
-            .font(.caption)
+            .font(.system(size: fontSettings.scaledApp(12)))
         }
         .padding(.vertical, 2)
     }
