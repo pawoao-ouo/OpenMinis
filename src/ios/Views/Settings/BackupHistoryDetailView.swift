@@ -2,6 +2,7 @@ import SwiftUI
 
 /// One backup run: what it produced, where it went, and what it logged.
 struct BackupHistoryDetailView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let record: BackupHistory.Record
 
     @ObservedObject private var runController = BackupRunController.shared
@@ -202,7 +203,7 @@ struct BackupHistoryDetailView: View {
                 }
             }
             if let e = record.errorMessage {
-                Text(e).font(.footnote).foregroundStyle(MinisTheme.destructive)
+                Text(e).font(.system(size: fontSettings.scaledApp(13))).foregroundStyle(MinisTheme.destructive)
             }
         } header: {
             Text("Summary")
@@ -350,13 +351,13 @@ struct BackupHistoryDetailView: View {
                 // a months-old record can find the package by hand.
                 if let where_ = destinationSubtitle(d) {
                     Text(where_)
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
                 if let detail = d.detail {
-                    Text(detail).font(.caption).foregroundStyle(MinisTheme.warning)
+                    Text(detail).font(.system(size: fontSettings.scaledApp(12))).foregroundStyle(MinisTheme.warning)
                 }
             }
         }
@@ -379,10 +380,10 @@ struct BackupHistoryDetailView: View {
                 ForEach(record.log.reversed()) { e in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(e.at.formatted(date: .omitted, time: .standard))
-                            .font(.caption.monospacedDigit())
+                            .font(.system(size: fontSettings.scaledApp(12)).monospacedDigit())
                             .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                         Text(e.message)
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(e.isProblem ? .red : .secondary)
                     }
                 }
@@ -479,6 +480,7 @@ private struct BackupRunningIndicator: View {
 
 /// One row in the history list, shared by the list and its styling helpers.
 struct BackupHistoryRow: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let record: BackupHistory.Record
 
     var body: some View {
@@ -496,7 +498,7 @@ struct BackupHistoryRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(record.startedAt.formatted(date: .abbreviated, time: .shortened))
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(record.status == .failed ? .red : .secondary)
                     .lineLimit(1)
             }

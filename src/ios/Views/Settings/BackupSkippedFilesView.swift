@@ -10,6 +10,7 @@ import SwiftUI
 /// Grouped by conversation because that is how the files are organised in the
 /// user's head; a flat list of 500 filenames is not browsable.
 struct BackupSkippedFilesView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let record: BackupHistory.Record
 
     private struct Group: Identifiable {
@@ -64,13 +65,13 @@ struct BackupSkippedFilesView: View {
                     ForEach(group.entries) { e in
                         HStack {
                             Text(e.fileName)
-                                .font(.callout)
+                                .font(.system(size: fontSettings.scaledApp(16)))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Spacer(minLength: 12)
                             Text(ByteCountFormatter.string(fromByteCount: e.size,
                                                            countStyle: .file))
-                                .font(.caption.monospacedDigit())
+                                .font(.system(size: fontSettings.scaledApp(12)).monospacedDigit())
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
                     }

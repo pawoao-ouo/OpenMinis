@@ -49,6 +49,7 @@ func restorePackageKind(fileName: String, isSnapshot: Bool) -> RestorePackageKin
 /// task flagged the risk that "restore" reads as "overwrite", and Merge is the
 /// opposite: nothing local is deleted, and a newer local copy wins.
 struct BackupRestoreView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     /// Optional package to open immediately — set when the flow is entered by
     /// opening a `.minisbak` file from Files rather than from this screen.
     var initialPackageURL: URL?
@@ -118,7 +119,7 @@ struct BackupRestoreView: View {
             if let errorText {
                 Section {
                     Text(errorText)
-                        .font(.footnote)
+                        .font(.system(size: fontSettings.scaledApp(13)))
                         .foregroundStyle(MinisTheme.destructive)
                 }
             }
@@ -229,7 +230,7 @@ struct BackupRestoreView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(MinisTheme.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -302,7 +303,7 @@ struct BackupRestoreView: View {
                     // reassurance that work is happening, not information the
                     // user has to read.
                     Text(inspectStage)
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                         .lineLimit(1)
                         // The stage text changes underneath a fixed layout, so
@@ -337,11 +338,11 @@ struct BackupRestoreView: View {
                     BackupActionIcon(systemName: "doc.zipper", tint: .green)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(packageURL?.lastPathComponent ?? AppLocalized("Backup"))
-                            .font(.callout.weight(.medium))
+                            .font(.system(size: fontSettings.scaledApp(16), weight: .medium))
                             .lineLimit(2)
                             .truncationMode(.middle)
                         Text(packageHeadline(m))
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
@@ -490,7 +491,7 @@ struct BackupRestoreView: View {
                             Text(displayName(category))
                             if let stat = m.categories[category.rawValue] {
                                 Text(detailText(category, stat))
-                                    .font(.caption)
+                                    .font(.system(size: fontSettings.scaledApp(12)))
                                     .foregroundStyle(MinisTheme.secondaryText)
                             }
                         }
@@ -560,12 +561,12 @@ struct BackupRestoreView: View {
             ForEach(r.categories, id: \.category) { c in
                 if let failed = c.failed {
                     Text("\(displayNameRaw(c.category)): \(failed)")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.destructive)
                 } else {
                     if c.sizeSkippedInPackage > 0 {
                         Text("\(displayNameRaw(c.category)): \(c.sizeSkippedInPackage) file(s) weren't in the backup (size limit)")
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                     // [review S9] Different remedy from the size cap, so it gets
@@ -574,7 +575,7 @@ struct BackupRestoreView: View {
                     // made the backup.
                     if c.notDownloadedInPackage > 0 {
                         Text("\(displayNameRaw(c.category)): \(c.notDownloadedInPackage) file(s) weren't in the backup (not downloaded from iCloud on the source device)")
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.warning)
                     }
                     // [review S7] The package's own index referenced content it
@@ -583,14 +584,14 @@ struct BackupRestoreView: View {
                     // reported as a clean success.
                     if c.missingBlobs > 0 {
                         Text("\(displayNameRaw(c.category)): \(c.missingBlobs) file(s) were listed in the backup but missing from it — the backup is incomplete")
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.destructive)
                     }
                 }
             }
             if !r.rolledBack.isEmpty {
                 Text("Rolled back: \(r.rolledBack.joined(separator: ", "))")
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(MinisTheme.warning)
             }
         } header: {
@@ -862,6 +863,7 @@ struct BackupRestoreView: View {
 /// subtitle, which is the wrong shape once destinations are the top-level
 /// thing the user picks from.
 struct FolderPackageListView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let folder: MountedFolderEntry
     var onPicked: (URL) -> Void
 
@@ -896,9 +898,9 @@ struct FolderPackageListView: View {
                         .font(.system(size: 40))
                         .foregroundStyle(MinisTheme.secondaryText)
                     Text("No .minisbak files in this folder.")
-                        .font(.headline)
+                        .font(.system(size: fontSettings.scaledApp(17), weight: .semibold))
                     Text("If it's on a server, open it once in the Files app to reconnect, then pull down to refresh.")
-                        .font(.footnote)
+                        .font(.system(size: fontSettings.scaledApp(13)))
                         .foregroundStyle(MinisTheme.secondaryText)
                         .multilineTextAlignment(.center)
                 }
@@ -923,7 +925,7 @@ struct FolderPackageListView: View {
                         // 批七 P2-6：种类标注打头——自动快照/手动备份（含凭据·加密）
                         // /手动备份（不含凭据），恢复前先看清。
                         Text("\(restorePackageKind(fileName: pkg.url.lastPathComponent, isSnapshot: snapshotURLs.contains(pkg.url)).label) · \(ByteCountFormatter.string(fromByteCount: pkg.size, countStyle: .file)) · \(pkg.modified.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
@@ -974,6 +976,7 @@ struct FolderPackageListView: View {
 /// connected either. So the sheet both lists saved servers AND offers adding
 /// one, mirroring the backup-destination picker.
 struct ServerRestorePickerSheet: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     /// Called with a LOCAL temporary copy of the chosen package.
     var onPicked: (URL) -> Void
 
@@ -993,7 +996,7 @@ struct ServerRestorePickerSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(r.name)
                                     Text("\(r.backend.uppercased()) · /\(r.path)")
-                                        .font(.caption)
+                                        .font(.system(size: fontSettings.scaledApp(12)))
                                         .foregroundStyle(MinisTheme.secondaryText)
                                 }
                             }
@@ -1056,6 +1059,7 @@ final class CancelFlag: ObservableObject {
 /// one cheap `operations/list` per tap — so a package anywhere on the server
 /// is reachable and no directory is scanned unless it is opened.
 struct ServerPackageListView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let remote: RcloneRemoteStore.Remote
     var onPicked: (URL) -> Void
     /// Directory being listed, relative to the remote root. Empty is the root.
@@ -1234,7 +1238,7 @@ struct ServerPackageListView: View {
     private func crumb(title: String, target: String, isLast: Bool) -> some View {
         if isLast {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: fontSettings.scaledApp(15), weight: .semibold))
                 .lineLimit(1)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
@@ -1243,7 +1247,7 @@ struct ServerPackageListView: View {
                 jump(to: target)
             } label: {
                 Text(title)
-                    .font(.subheadline)
+                    .font(.system(size: fontSettings.scaledApp(15)))
                     .lineLimit(1)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
@@ -1317,7 +1321,7 @@ struct ServerPackageListView: View {
                                 .truncationMode(.middle)
                                 .foregroundStyle(MinisTheme.primaryText)
                             Text(subtitle(e.asPackage))
-                                .font(.caption)
+                                .font(.system(size: fontSettings.scaledApp(12)))
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
                     }
@@ -1327,7 +1331,7 @@ struct ServerPackageListView: View {
 
             if let errorText {
                 Text(errorText)
-                    .font(.footnote)
+                    .font(.system(size: fontSettings.scaledApp(13)))
                     .foregroundStyle(MinisTheme.destructive)
             }
         }
@@ -1336,9 +1340,9 @@ struct ServerPackageListView: View {
     private var downloadSheet: some View {
         VStack(spacing: 20) {
             Text("Downloading Backup")
-                .font(.headline)
+                .font(.system(size: fontSettings.scaledApp(17), weight: .semibold))
             Text(downloadingName)
-                .font(.footnote)
+                .font(.system(size: fontSettings.scaledApp(13)))
                 .foregroundStyle(MinisTheme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1348,7 +1352,7 @@ struct ServerPackageListView: View {
             ProgressView(value: downloadFraction)
                 .progressViewStyle(.linear)
             Text(progressText)
-                .font(.callout.monospacedDigit())
+                .font(.system(size: fontSettings.scaledApp(16)).monospacedDigit())
                 .foregroundStyle(MinisTheme.secondaryText)
             // [T-restore-download-speed] Rate and time left, on their own
             // line so the byte counts above stay easy to read. Empty until
@@ -1356,7 +1360,7 @@ struct ServerPackageListView: View {
             // zero, which would read as a stalled transfer.
             if !speedText.isEmpty {
                 Text(speedText)
-                    .font(.caption.monospacedDigit())
+                    .font(.system(size: fontSettings.scaledApp(12)).monospacedDigit())
                     .foregroundStyle(MinisTheme.secondaryText)
             }
 

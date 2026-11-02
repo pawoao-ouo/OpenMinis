@@ -13,6 +13,7 @@ private let logger = AppLogger(category: "Backup")
 /// a second place for it to leak from, to no benefit. Getting it wrong is
 /// handled by removing the server and adding it again.
 struct BackupDestinationDetailView: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     enum Target {
         case remote(RcloneRemoteStore.Remote)
@@ -119,7 +120,7 @@ struct BackupDestinationDetailView: View {
                     HStack(spacing: 10) {
                         ProgressView()
                         Text(AppLocalized("正在删除…"))
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                     }
                     .padding(.horizontal, 18)
                     .padding(.vertical, 14)
@@ -318,7 +319,7 @@ struct BackupDestinationDetailView: View {
 
         if let errorText {
             Section {
-                Text(errorText).font(.footnote).foregroundStyle(MinisTheme.destructive)
+                Text(errorText).font(.system(size: fontSettings.scaledApp(13))).foregroundStyle(MinisTheme.destructive)
             }
         }
 
@@ -352,7 +353,7 @@ struct BackupDestinationDetailView: View {
                         // Text only — the leading badge already says which
                         // action this is, and the colour carries the outcome.
                         Text(testResult)
-                            .font(.footnote)
+                            .font(.system(size: fontSettings.scaledApp(13)))
                             .foregroundStyle(MinisTheme.success)
                     }
                 }
@@ -366,7 +367,7 @@ struct BackupDestinationDetailView: View {
             // what the user needs to read, so it gets the width.
             if !testOK, let testResult {
                 Label(testResult, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
+                    .font(.system(size: fontSettings.scaledApp(13)))
                     .foregroundStyle(MinisTheme.warning)
             }
 
@@ -401,7 +402,7 @@ struct BackupDestinationDetailView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Text(detail(for: p))
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                     // [T-backup-remote-delete] Swipe to delete the file ON THE
@@ -487,7 +488,7 @@ struct BackupDestinationDetailView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Text("\(ByteCountFormatter.string(fromByteCount: p.size, countStyle: .file)) · \(p.modified.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                     // [T-backup-folder-delete] Swipe to delete the file in the
@@ -584,6 +585,7 @@ struct BackupDestinationDetailView: View {
 /// a standalone sheet rather than a reuse of that view — that one is bound to
 /// the multi-step "connectedRemote" state and cannot be entered part-way.
 struct RcloneFolderBrowser: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let remote: RcloneRemoteStore.Remote
     /// Show files alongside folders.
     ///
@@ -621,7 +623,7 @@ struct RcloneFolderBrowser: View {
                 // visible above a long folder list.
                 if let errorText {
                     Section {
-                        Text(errorText).font(.footnote).foregroundStyle(MinisTheme.destructive)
+                        Text(errorText).font(.system(size: fontSettings.scaledApp(13))).foregroundStyle(MinisTheme.destructive)
                     }
                 }
                 Section {
@@ -662,7 +664,7 @@ struct RcloneFolderBrowser: View {
                     HStack(spacing: 8) {
                         ScrollView(.horizontal, showsIndicators: false) {
                             Text(currentDir.isEmpty ? "/" : "/\(currentDir)")
-                                .font(.footnote.weight(.medium))
+                                .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
                                 .padding(.horizontal, 10)
@@ -784,6 +786,7 @@ struct RcloneFolderBrowser: View {
 /// changing only a hostname expects. Clearing it explicitly (via the toggle)
 /// is how a server becomes anonymous.
 struct RcloneConnectionEditor: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     let remote: RcloneRemoteStore.Remote
     var onSaved: (RcloneRemoteStore.Remote?) -> Void
 
@@ -808,11 +811,11 @@ struct RcloneConnectionEditor: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 6) {
                                     Text(f.label)
-                                        .font(.footnote.weight(.medium))
+                                        .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                                         .foregroundStyle(MinisTheme.secondaryText)
                                     if f.isOptional {
                                         Text("Optional")
-                                            .font(.caption2)
+                                            .font(.system(size: fontSettings.scaledApp(11)))
                                             .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                                     }
                                 }
@@ -823,7 +826,7 @@ struct RcloneConnectionEditor: View {
                                     .keyboardType(keyboardType(f.keyboard))
                                 if !f.hint.isEmpty {
                                     Text(f.hint)
-                                        .font(.caption)
+                                        .font(.system(size: fontSettings.scaledApp(12)))
                                         .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                                 }
                             }
@@ -851,7 +854,7 @@ struct RcloneConnectionEditor: View {
 
                 if let errorText {
                     Section {
-                        Text(errorText).font(.footnote).foregroundStyle(MinisTheme.destructive)
+                        Text(errorText).font(.system(size: fontSettings.scaledApp(13))).foregroundStyle(MinisTheme.destructive)
                     }
                 }
             }

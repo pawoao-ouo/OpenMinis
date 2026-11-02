@@ -17,6 +17,7 @@ private let logger = AppLogger(category: "Backup")
 /// Saved servers come first deliberately: someone who typed in a NAS address
 /// once should not have to re-enter it to point a second backup at it.
 struct BackupDestinationPicker: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     /// Called after anything is added or selected, so the caller can refresh.
     var onChanged: () -> Void
@@ -40,7 +41,7 @@ struct BackupDestinationPicker: View {
                 if let errorText {
                     Section {
                         Text(errorText)
-                            .font(.footnote)
+                            .font(.system(size: fontSettings.scaledApp(13)))
                             .foregroundStyle(MinisTheme.destructive)
                         // [T-backup-mount-error-retry] The message alone left
                         // the user with nowhere to go — the add button is
@@ -52,7 +53,7 @@ struct BackupDestinationPicker: View {
                             showFolderPicker = true
                         } label: {
                             Label("Pick the folder again", systemImage: "arrow.clockwise")
-                                .font(.footnote)
+                                .font(.system(size: fontSettings.scaledApp(13)))
                         }
                     }
                 }
@@ -110,7 +111,7 @@ struct BackupDestinationPicker: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(r.name)
                                 Text("\(r.backend.uppercased()) · /\(r.path)")
-                                    .font(.caption)
+                                    .font(.system(size: fontSettings.scaledApp(12)))
                                     .foregroundStyle(MinisTheme.secondaryText)
                             }
                         }
@@ -147,7 +148,7 @@ struct BackupDestinationPicker: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(f.name)
                                 Text(f.sourceDisplayName)
-                                    .font(.caption)
+                                    .font(.system(size: fontSettings.scaledApp(12)))
                                     .foregroundStyle(MinisTheme.secondaryText)
                             }
                         }
@@ -185,7 +186,7 @@ struct BackupDestinationPicker: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Add Server…").foregroundStyle(.primary)
                         Text("SMB, WebDAV, SFTP, S3, FTP")
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
@@ -201,7 +202,7 @@ struct BackupDestinationPicker: View {
                         // Names both cases, because "folder" alone reads as
                         // on-device only and hides the more useful half.
                         Text("On this iPhone, iCloud Drive, or a server connected in Files")
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
