@@ -114,16 +114,42 @@ enum AppearanceThemeShuffle {
         let sat = picked.saturation.lowerBound
             + Double(rng.next() % 10_000) / 10_000 * satSpan
 
-        // 2. 主色落在第 9 步（Radix 里最纯的那一步）
+        let (light, dark) = deriveMaps(hue: hue, sat: sat)
+        return (light, dark, name(hue: hue, sat: sat, mood: picked))
+    }
+
+    /// 纯随机摇一套（2026-11-02 摇色预览批）：色相全圈 0–360 连续摇，
+    /// 饱和度只在莫兰迪区间 0.15–0.40 内摇，不按任何风格区间摇，也
+    /// 不给风格按钮。推导与对比度兜底与 shuffle() 走同一条
+    /// deriveMaps，不另起配色数学。只出预览用，不直接写进现场配色。
+    static func shufflePureRandom(seed: UInt64? = nil) -> (light: [AppearanceColorRole: String],
+                                                           dark: [AppearanceColorRole: String],
+                                                           name: String) {
+        var rng = SplitMix64(seed: seed ?? UInt64.random(in: 0...UInt64.max))
+        let hue = Double(rng.next() % 3600) / 10.0
+        let sat = 0.15 + Double(rng.next() % 10_000) / 10_000 * 0.25
+        let (light, dark) = deriveMaps(hue: hue, sat: sat)
+        // name() 只看色相与浓度，mood 参数未被使用；纯随机没有风格可传。
+        return (light, dark, name(hue: hue, sat: sat, mood: .night))
+    }
+
+    /// 从一个主色推导浅深两套色，并过一遍对比度兜底。
+    /// 由 shuffle() 与 shufflePureRandom() 共用：主色定第 9 步
+    /// （Radix 里最纯的那一步），其余 11 步按 Radix 规则推；
+    /// 正文 4.5:1、UI 3:1，摇出来的东西一定看得清。
+    /// 纯函数，不消耗随机数，所以 shuffle() 的随机序列与抽取前一致。
+    private static func deriveMaps(hue: Double, sat: Double) -> (light: [AppearanceColorRole: String],
+                                                                dark: [AppearanceColorRole: String]) {
+        // 主色落在第 9 步（Radix 里最纯的那一步）
         let seedHex = HSL(h: hue, s: sat, l: 0.615).hex
 
-        // 3. 推导两条色阶
+        // 推导两条色阶
         var light = AppearanceScale.roles(
             from: AppearanceScale.derive(seed: seedHex, dark: false), dark: false)
         var dark = AppearanceScale.roles(
             from: AppearanceScale.derive(seed: seedHex, dark: true), dark: true)
 
-        // 4. 对比度兜底：文字压底色不达标就推到达标
+        // 对比度兜底：文字压底色不达标就推到达标
         for (role, level) in [(AppearanceColorRole.primaryText, AppearanceContrast.Level.body),
                               (.secondaryText, .body)] {
             if let fg = light[role], let bg = light[.canvas] {
@@ -149,7 +175,7 @@ enum AppearanceThemeShuffle {
             }
         }
 
-        return (light, dark, name(hue: hue, sat: sat, mood: picked))
+        return (light, dark)
     }
 
     /// 摇出来的名字。只在"存这套"时当默认值。

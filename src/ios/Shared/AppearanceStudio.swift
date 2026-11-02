@@ -771,6 +771,22 @@ final class AppearanceStudio: ObservableObject {
         return rolled.name
     }
 
+    /// 把预览过的两套色写进全局配色并持久化（2026-11-02 摇色预览批：
+    /// 摇色预览的"留下来"走这里）。只写全局键，不碰页级覆盖——
+    /// 她单独调过的某一页不该被一次"摇骰子"冲掉；写色循环与
+    /// shuffleTheme 同一条，语义一致。
+    func applyRolledPalette(light: [AppearanceColorRole: String],
+                            dark: [AppearanceColorRole: String]) {
+        for variant in AppearanceVariant.allCases {
+            let values = variant == .light ? light : dark
+            for (role, hex) in values {
+                customColors[key(role, scope: .global, variant: variant)] = hex
+            }
+        }
+        persistColors()
+        configureUIKitSurfaces()
+    }
+
     func resetColors() {
         customColors.removeAll()
         surfaceOpacity = 0.88

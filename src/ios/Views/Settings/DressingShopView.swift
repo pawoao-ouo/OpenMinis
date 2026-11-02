@@ -160,6 +160,15 @@ struct DressingShopView: View {
     @State private var pickedWallpaperItem: PhotosPickerItem?
     @State private var pickedWallpaperIsDark = false
     @State private var wallpaperMessage: String?
+    // Shake preview (2026-11-02 shake-preview batch): the rolled palette
+    // being previewed, if any. Live colours are never touched while a
+    // preview exists — Keep applies it, Discard only drops this state.
+    private struct ShakePreviewRoll {
+        var light: [AppearanceColorRole: String]
+        var dark: [AppearanceColorRole: String]
+        var name: String
+    }
+    @State private var shakePreview: ShakePreviewRoll?
     @Environment(\.colorScheme) private var themePreviewScheme
     // Bumped on SOUL.md / persona-change notifications so a
     // same-persona rename (which neither PersonaStore nor the
@@ -2397,6 +2406,190 @@ struct DressingShopView: View {
     /// the system, or forced), the editing picker picks which set
     /// these rows edit, so the dark set can be tuned while the
     /// phone is in light mode and vice versa.
+    // MARK: - Shake preview (2026-11-02 shake-preview batch)
+    //
+    // Rolling shows only a preview and never touches live colours.
+    // The main button always rolls: its label is "摇一摇" before the
+    // first roll and "再摇一次" once a preview exists. The three
+    // buttons under a preview are Keep, Save-as-set, Discard:
+    // Keep applies the preview to the global colours and persists
+    // it, then closes the preview; Save-as-set keeps first, then
+    // jumps to the theme category with a message telling the user
+    // to name and save it there — it never silently saves and
+    // never invents a name; Discard only drops the preview state.
+
+    private func rollShakePreview() {
+        let rolled = AppearanceThemeShuffle.shufflePureRandom()
+        shakePreview = ShakePreviewRoll(light: rolled.light, dark: rolled.dark, name: rolled.name)
+    }
+
+    private func keepShakePreview() {
+        guard let roll = shakePreview else { return }
+        studio.applyRolledPalette(light: roll.light, dark: roll.dark)
+        shakePreview = nil
+        showFontToast(AppLocalized("已留下来"))
+    }
+
+    private func saveShakePreviewAsSet() {
+        keepShakePreview()
+        category = .theme
+        themeSaveMessage = AppLocalized("已留下来，上面起个名，把这套存下来")
+    }
+
+    private func discardShakePreview() {
+        shakePreview = nil
+    }
+
+    /// A colour from the shake preview's own light/dark map. A missing
+    /// or malformed preview value falls back to the preview's own
+    /// primary text for text roles (never to the rolled accent as
+    /// body text), and to the live theme colour for everything else —
+    /// never to a grey neither the preview nor the live theme carries.
+    private func shakePreviewColor(_ role: AppearanceColorRole, variant: AppearanceVariant) -> Color {
+        guard let roll = shakePreview else { return studio.color(role) }
+        let map = variant == .dark ? roll.dark : roll.light
+        if let raw = map[role] {
+            let cleaned = raw.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+            let hexDigits = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+            if (cleaned.count == 6 || cleaned.count == 8)
+                && cleaned.unicodeScalars.allSatisfy({ hexDigits.contains($0) }) {
+                return Color(hex: raw)
+            }
+        }
+        if role == .bubbleText || role == .assistantBubbleText {
+            return shakePreviewColor(.primaryText, variant: variant)
+        }
+        return studio.color(role)
+    }
+
+    /// One preview sample in one variant: a swatch strip plus two
+    /// sample bubbles. The bubble text uses the preview's own
+    /// near-neutral text roles — never the rolled accent as body
+    /// text — and the rest of the shop page keeps the live theme,
+    /// so the preview never dyes the whole page.
+    private func shakePreviewSample(variant: AppearanceVariant) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(variant == .dark ? AppLocalized("深色") : AppLocalized("浅色"))
+                .font(.system(size: fsCaption, design: .monospaced))
+                .foregroundStyle(shakePreviewColor(.secondaryText, variant: variant))
+            HStack(spacing: 6) {
+                ForEach([AppearanceColorRole.canvas, .surface, .accent, .userBubble, .assistantBubble], id: \.self) { role in
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(shakePreviewColor(role, variant: variant))
+                        .frame(height: 24)
+                }
+            }
+            HStack {
+                Text(AppLocalized("今天也想你"))
+                    .font(.system(size: fsSub))
+                    .foregroundStyle(shakePreviewColor(.assistantBubbleText, variant: variant))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(shakePreviewColor(.assistantBubble, variant: variant), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                Spacer(minLength: 0)
+            }
+            HStack {
+                Spacer(minLength: 0)
+                Text(AppLocalized("今天也想你"))
+                    .font(.system(size: fsSub))
+                    .foregroundStyle(shakePreviewColor(.bubbleText, variant: variant))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(shakePreviewColor(.userBubble, variant: variant), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+        }
+        .padding(12)
+        .background(shakePreviewColor(.canvas, variant: variant))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(shakePreviewColor(.border, variant: variant), lineWidth: 1))
+    }
+
+    private var shakeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(AppLocalized("摇一摇"))
+                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                .foregroundStyle(studio.color(.primaryText))
+            Text(AppLocalized("摇出一套新配色，先预览再决定；预览时现场配色不动。"))
+                .font(.system(size: fsSub))
+                .foregroundStyle(studio.color(.secondaryText))
+            Button {
+                fontTapHaptic()
+                rollShakePreview()
+            } label: {
+                Text(shakePreview == nil ? AppLocalized("摇一摇") : AppLocalized("再摇一次"))
+                    .font(.system(size: fsSub, weight: .semibold))
+                    .foregroundStyle(studio.color(.surface))
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 44)
+                    .background(studio.color(.accent))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            if let roll = shakePreview {
+                Text(roll.name)
+                    .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                    .foregroundStyle(studio.color(.primaryText))
+                shakePreviewSample(variant: .light)
+                shakePreviewSample(variant: .dark)
+                Button {
+                    fontTapHaptic()
+                    keepShakePreview()
+                } label: {
+                    Text(AppLocalized("留下来"))
+                        .font(.system(size: fsSub, weight: .semibold))
+                        .foregroundStyle(studio.color(.surface))
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                        .background(studio.color(.accent))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                HStack(spacing: 12) {
+                    Button {
+                        fontTapHaptic()
+                        saveShakePreviewAsSet()
+                    } label: {
+                        Text(AppLocalized("存一套"))
+                            .font(.system(size: fsSub, weight: .semibold))
+                            .foregroundStyle(studio.color(.primaryText))
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 44)
+                            .background(studio.color(.surface))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(studio.color(.border), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        fontTapHaptic()
+                        discardShakePreview()
+                    } label: {
+                        Text(AppLocalized("放弃"))
+                            .font(.system(size: fsSub, weight: .semibold))
+                            .foregroundStyle(studio.color(.destructive))
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Text(AppLocalized("预览只画这一小块，店页其他地方仍是现场主题；放弃就什么都不变。"))
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(studio.color(.surface))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(studio.color(.border), lineWidth: 1))
+        .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
+        .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+    }
+
     private var colorVarsView: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
@@ -2446,6 +2639,8 @@ struct DressingShopView: View {
                 .stroke(studio.color(.border), lineWidth: 1))
             .padding(.horizontal, 16)
             .padding(.top, 12)
+
+            shakeSection
 
             ForEach(colorVarGroups) { group in
                 VStack(alignment: .leading, spacing: 0) {
