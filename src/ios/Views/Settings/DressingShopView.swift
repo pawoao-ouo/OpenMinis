@@ -158,6 +158,15 @@ struct DressingShopView: View {
     @State private var themeApplyMessage: String?
     @State private var themeConfirmDelete = false
     @State private var themeConfirmApply = false
+    /// Close tokens: a pending delayed nil is valid only for the
+    /// close that scheduled it. Opening a new detail bumps the
+    /// token, so a stale close can never nil a just-opened page
+    /// (the close-then-reopen race in the theme-place research).
+    @State private var themeCloseToken = 0
+    @State private var bubbleCloseToken = 0
+    @State private var pendantCloseToken = 0
+    /// Which theme-sheet row is expanded for inspection, if any.
+    @State private var themeInspectedRow: String?
     @State private var themePendingApplyItem: AppearanceSavedTheme?
     @State private var themePendingApplyWarning: String?
     @State private var wallpaperPickerPresented = false
@@ -234,7 +243,7 @@ struct DressingShopView: View {
         let _ = personaStore.currentPersonaID
         return VStack(alignment: .leading, spacing: 8) {
             Text(AppLocalized("改哪一边"))
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: globalPointSize * 15 / 13, weight: .semibold))
                 .foregroundStyle(studio.color(.primaryText))
             Picker("", selection: $editingSide) {
                 Text(sidePickerLabel(for: .assistant)).tag(DressingSide.assistant)
@@ -242,7 +251,7 @@ struct DressingShopView: View {
             }
             .pickerStyle(.segmented)
             Text(AppLocalized("先选一边，再点卡片换上；改一边不会动另一边。"))
-                .font(.footnote)
+                .font(.system(size: globalPointSize))
                 .foregroundStyle(studio.color(.secondaryText))
         }
         .padding(.horizontal, 16)
@@ -272,7 +281,7 @@ struct DressingShopView: View {
                 }
                 .scrollIndicators(.hidden)
             }
-            .background(studio.color(.canvas))
+            .background(AppearanceBackdrop(scope: .global))
 
             // v2 toast pill: black pill, white text, check icon,
             // 10/18 padding, 0 8 24 rgba(0,0,0,0.18) shadow, spring
@@ -314,6 +323,11 @@ struct DressingShopView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .animation(.easeOut(duration: 0.32), value: detailPack != nil)
+        // Detail overlays animate out instead of vanishing: the
+        // parent used to watch only detailPack, so a theme or
+        // pendant close jumped after its sheet delay.
+        .animation(.easeOut(duration: 0.32), value: detailTheme != nil)
+        .animation(.easeOut(duration: 0.32), value: detailPendant != nil)
         // Same-persona rename arrives via SOUL.md, not via a
         // published store value: bump the side-label tick so the
         // picker and strip re-resolve their (dynamic) names.
@@ -336,29 +350,21 @@ struct DressingShopView: View {
     private var topBar: some View {
         ZStack {
             Text(AppLocalized("装扮"))
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: globalPointSize * 20 / 13, weight: .bold))
                 .foregroundStyle(studio.color(.primaryText))
-            HStack {
+            HStack(spacing: 0) {
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(studio.color(.primaryText))
-                        .frame(minWidth: 44, minHeight: 44)
+                        .padding(.leading, 16)
+                        .frame(minWidth: 60, minHeight: 44, alignment: .leading)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(FontPressStyle(scale: 0.92))
                 Spacer(minLength: 0)
-                // Header icons are display-only in this batch:
-                // the draft's search/profile glyphs, not buttons,
-                // so there is no dead control pretending to search.
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 17))
-                    .foregroundStyle(studio.color(.primaryText))
-                Image(systemName: "person.crop.circle")
-                    .font(.system(size: 17))
-                    .foregroundStyle(studio.color(.primaryText))
             }
-            .padding(.horizontal, 16)
+            .padding(.trailing, 16)
         }
         .frame(height: 52)
         .background(studio.color(.surface))
@@ -369,33 +375,36 @@ struct DressingShopView: View {
         }
     }
 
-    // MARK: - Category tab rail (44pt, underline active)
+    // MARK: - Category tab rail (capsule pills, 44pt)
 
     private var tabRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 26) {
+            HStack(spacing: 10) {
                 ForEach(DressingCategory.allCases) { item in
                     Button { category = item } label: {
-                        VStack(spacing: 2) {
-                            Text(item.title)
-                                .font(.system(size: 17,
-                                              weight: category == item ? .bold : .regular))
-                                .foregroundStyle(category == item
-                                    ? studio.color(.primaryText)
-                                    : studio.color(.secondaryText))
-                            Rectangle()
-                                .fill(studio.color(.primaryText))
-                                .frame(width: 26, height: 3)
-                                .cornerRadius(1.5)
-                                .opacity(category == item ? 1 : 0)
-                        }
+                        Text(item.title)
+                            .font(.system(size: globalPointSize * 17 / 13,
+                                          weight: category == item ? .bold : .regular))
+                            .foregroundStyle(category == item
+                                ? studio.color(.surface)
+                                : studio.color(.secondaryText))
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 44)
+                            .background(category == item
+                                ? studio.color(.primaryText)
+                                : studio.color(.mutedSurface))
+                            .clipShape(Capsule())
+                            .overlay(Capsule()
+                                .stroke(category == item
+                                    ? Color.clear
+                                    : studio.color(.border), lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FontPressStyle(scale: 0.98))
                 }
             }
             .padding(.horizontal, 16)
+            .padding(.vertical, 6)
         }
-        .frame(height: 44)
         .background(studio.color(.surface))
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -458,8 +467,20 @@ struct DressingShopView: View {
                     // At the default global size 13 this is exactly 17pt.
                     .font(.system(size: globalPointSize * 17 / 13))
                     .foregroundStyle(studio.color(.secondaryText))
+                    .contentShape(Rectangle())
+                    // 44pt hit area without growing the row: the clear
+                    // overlay extends the tappable region into the
+                    // row's existing padding instead of adding height.
+                    // Device check still owed: confirm a tap 15pt
+                    // above/below the glyph actually jumps.
+                    .overlay {
+                        Color.clear
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel(title)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(FontPressStyle(scale: 0.92))
         }
         .padding(.horizontal, 16)
         .padding(.top, fontSettings.density(22))
@@ -585,8 +606,8 @@ struct DressingShopView: View {
                         .frame(maxWidth: .infinity)
                         .frame(minHeight: 44)
                         .background(studio.color(.accent))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .buttonStyle(.plain)
+                        .clipShape(Capsule())
+                        .buttonStyle(FontPressStyle(scale: 0.97))
                     Text("\(studio.savedThemes().count) / \(AppearanceSavedTheme.limit)")
                         .font(.system(size: fsCaption, design: .monospaced))
                         .foregroundStyle(studio.color(.secondaryText))
@@ -642,8 +663,8 @@ struct DressingShopView: View {
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 44)
                 .background(studio.color(.accent))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .buttonStyle(.plain)
+                .clipShape(Capsule())
+                .buttonStyle(FontPressStyle(scale: 0.97))
             if let report = stImportReport {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(report.indices, id: \.self) { i in
@@ -746,8 +767,8 @@ struct DressingShopView: View {
             .frame(maxWidth: .infinity)
             .frame(minHeight: 44)
             .background(studio.color(.accent))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .buttonStyle(.plain)
+            .clipShape(Capsule())
+            .buttonStyle(FontPressStyle(scale: 0.97))
             if studio.hasOwnWallpaper(.global) {
                 Button(AppLocalized("清除全局壁纸")) {
                     studio.removeWallpaper(.global)
@@ -757,7 +778,9 @@ struct DressingShopView: View {
                 .foregroundStyle(studio.color(.destructive))
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 44)
-                .buttonStyle(.plain)
+                .overlay(Capsule()
+                    .stroke(studio.color(.destructive), lineWidth: 1))
+                .buttonStyle(FontPressStyle(scale: 0.97))
             }
             HStack(spacing: 12) {
                 Text(AppLocalized("壁纸压色"))
@@ -869,17 +892,23 @@ struct DressingShopView: View {
                     : AppLocalized("旧存法，没记气泡挂件"))
                     .font(.system(size: fsCaption))
                     .foregroundStyle(studio.color(.secondaryText))
+                if let pack = studio.libraryPack(id: item.id) {
+                    themeCardStrip(pack: pack)
+                }
                 if inUse {
                     Text(AppLocalized("正在用这套"))
                         .font(.system(size: fsCaption, weight: .semibold))
-                        .foregroundStyle(studio.color(.accent))
+                        .foregroundStyle(studio.color(.surface))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(studio.color(.accent), in: Capsule())
                 }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(studio.color(.surface))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(inUse ? studio.color(.accent) : studio.color(.border),
                         lineWidth: inUse ? 1.5 : 1))
             .shadow(color: .black.opacity(inUse ? 0.12 : 0.03),
@@ -887,14 +916,46 @@ struct DressingShopView: View {
             .shadow(color: .black.opacity(inUse ? 0 : 0.02),
                     radius: 2, x: 0, y: 1)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FontPressStyle(scale: 0.98))
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
     }
 
+    /// Theme-card colour strip + wallpaper thumbnail (Minis card
+    /// standard: a set is recognisable by its colours, not its name
+    /// alone). Colours come from the pack's own maps in the live
+    /// scheme, with the same fallback the detail preview uses; a
+    /// pack with no wallpaper simply shows no thumbnail.
+    private func themeCardStrip(pack: AppearanceThemePack) -> some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 4) {
+                ForEach([AppearanceColorRole.canvas, .surface, .accent, .userBubble, .assistantBubble], id: \.self) { role in
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(themePreviewColor(pack, role))
+                        .frame(width: 20, height: 20)
+                        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .stroke(studio.color(.border).opacity(0.5), lineWidth: 0.5))
+                }
+            }
+            Spacer(minLength: 0)
+            if let image = themePreviewImage(pack.wallpaperJPEGBase64) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 44, height: 28)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(studio.color(.border).opacity(0.5), lineWidth: 0.5))
+            }
+        }
+        .padding(.top, 6)
+    }
+
     private func openThemeDetail(_ item: AppearanceSavedTheme) {
+        themeCloseToken += 1
         themeSheetUp = false
         themeApplyMessage = nil
+        themeInspectedRow = nil
         detailTheme = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
             if detailTheme?.id == item.id { themeSheetUp = true }
@@ -904,8 +965,10 @@ struct DressingShopView: View {
     private func closeThemeDetail() {
         themeSheetUp = false
         themeApplyMessage = nil
+        themeCloseToken += 1
+        let token = themeCloseToken
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            detailTheme = nil
+            if token == themeCloseToken { detailTheme = nil }
         }
     }
 
@@ -1014,6 +1077,21 @@ struct DressingShopView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: pack.inputBarRadius > 0 ? pack.inputBarRadius : 26,
                                         style: .continuous))
+            VStack(alignment: .leading, spacing: 6) {
+                Text(AppLocalized("这套的颜色"))
+                    .font(.system(size: fsCaption, weight: .semibold))
+                    .foregroundStyle(themePreviewColor(pack, .secondaryText))
+                HStack(spacing: 6) {
+                    ForEach([AppearanceColorRole.canvas, .surface, .raised, .accent, .userBubble, .assistantBubble, .primaryText], id: \.self) { role in
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(themePreviewColor(pack, role))
+                            .frame(width: 28, height: 28)
+                            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(themePreviewColor(pack, .border).opacity(0.5), lineWidth: 0.5))
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
             if themePreviewHasMissingPiece(item) {
                 Text(AppLocalized("这套里有记的编号不在店里，预览里没画那一项，换上时也会如实报出来。"))
                     .font(.system(size: fsCaption))
@@ -1130,6 +1208,7 @@ struct DressingShopView: View {
             return
         }
         if result.packWarnings.isEmpty && result.failedPieces.isEmpty {
+            showFontToast(AppLocalized("已换上这套"))
             closeThemeDetail()
         } else {
             var parts: [String] = []
@@ -1145,6 +1224,7 @@ struct DressingShopView: View {
 
     private func deleteThemeSet(_ item: AppearanceSavedTheme) {
         if studio.deleteSavedTheme(id: item.id) {
+            showFontToast(AppLocalized("已删除这套"))
             closeThemeDetail()
         } else {
             themeApplyMessage = AppLocalized("这套没删掉，再试一次。")
@@ -1157,18 +1237,19 @@ struct DressingShopView: View {
                 Text(AppLocalized("主题"))
                     .font(.system(size: fsTitle, weight: .bold, design: .serif))
                     .foregroundStyle(studio.color(.primaryText))
-                HStack {
+                HStack(spacing: 0) {
                     Button { closeThemeDetail() } label: {
                         Image(systemName: "chevron.left")
                             .font(.headline)
                             .foregroundStyle(studio.color(.primaryText))
-                            .frame(minWidth: 44, minHeight: 44)
+                            .padding(.leading, 16)
+                            .frame(minWidth: 60, minHeight: 44, alignment: .leading)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FontPressStyle(scale: 0.92))
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 16)
+                .padding(.trailing, 16)
             }
             .frame(height: 52)
             .background(studio.color(.surface))
@@ -1190,12 +1271,51 @@ struct DressingShopView: View {
                         .foregroundStyle(studio.color(.secondaryText))
                 }
                 Spacer(minLength: 0)
+                if !themeSheetUp {
+                    Button {
+                        themeSheetUp = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(AppLocalized("查看这套详情"))
+                                .font(.system(size: fsSub, weight: .semibold))
+                            Image(systemName: "chevron.up")
+                                .font(.system(size: fsCaption, weight: .semibold))
+                        }
+                        .foregroundStyle(studio.color(.secondaryText))
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 44)
+                        .background(studio.color(.mutedSurface), in: Capsule())
+                    }
+                    .buttonStyle(FontPressStyle(scale: 0.97))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
             }
             .padding(16)
-            .onTapGesture { themeSheetUp.toggle() }
 
             if themeSheetUp {
                 VStack(alignment: .leading, spacing: 10) {
+                    ZStack {
+                        Capsule()
+                            .fill(studio.color(.secondaryText).opacity(0.35))
+                            .frame(width: 36, height: 5)
+                        HStack {
+                            Spacer(minLength: 0)
+                            Button {
+                                themeSheetUp = false
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(AppLocalized("收起"))
+                                        .font(.system(size: fsSub, weight: .semibold))
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: fsCaption, weight: .semibold))
+                                }
+                                .foregroundStyle(studio.color(.secondaryText))
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(FontPressStyle(scale: 0.92))
+                        }
+                    }
                     HStack(spacing: 6) {
                         Text(item.name)
                             .font(.system(size: fsTitle, weight: .bold, design: .serif))
@@ -1226,26 +1346,74 @@ struct DressingShopView: View {
                             .font(.system(size: fsSub))
                             .foregroundStyle(studio.color(.secondaryText))
                     }
-                    Text(sidePickerLabel(for: .assistant) + AppLocalized("气泡：") + themeBubbleLine(item, isUser: false))
-                        .font(.system(size: fsCaption))
-                        .foregroundStyle(studio.color(.secondaryText))
-                    Text(sidePickerLabel(for: .user) + AppLocalized("气泡：") + themeBubbleLine(item, isUser: true))
-                        .font(.system(size: fsCaption))
-                        .foregroundStyle(studio.color(.secondaryText))
-                    Text(sidePickerLabel(for: .assistant) + AppLocalized("挂件：") + themePendantLine(item, isUser: false))
-                        .font(.system(size: fsCaption))
-                        .foregroundStyle(studio.color(.secondaryText))
-                    Text(sidePickerLabel(for: .user) + AppLocalized("挂件：") + themePendantLine(item, isUser: true))
-                        .font(.system(size: fsCaption))
-                        .foregroundStyle(studio.color(.secondaryText))
+                    themeSheetDivider()
+                    themeSheetInspectRow(icon: "bubble.left",
+                                         title: sidePickerLabel(for: .assistant) + AppLocalized("气泡"),
+                                         value: themeBubbleLine(item, isUser: false),
+                                         key: "assistantBubble") {
+                        if let pack = studio.libraryPack(id: item.id) {
+                            themePreviewRow(pack: pack, item: item, isUser: false)
+                        }
+                    }
+                    themeSheetDivider()
+                    themeSheetInspectRow(icon: "bubble.left",
+                                         title: sidePickerLabel(for: .user) + AppLocalized("气泡"),
+                                         value: themeBubbleLine(item, isUser: true),
+                                         key: "userBubble") {
+                        if let pack = studio.libraryPack(id: item.id) {
+                            themePreviewRow(pack: pack, item: item, isUser: true)
+                        }
+                    }
+                    themeSheetDivider()
+                    themeSheetInspectRow(icon: "circle.dashed",
+                                         title: sidePickerLabel(for: .assistant) + AppLocalized("挂件"),
+                                         value: themePendantLine(item, isUser: false),
+                                         key: "assistantPendant") {
+                        if let number = item.assistantPendantNumber,
+                           let ring = pendantStore.pendants.first(where: { $0.number == number }) {
+                            HStack(spacing: 8) {
+                                themePreviewAvatar(isUser: false, ring: ring, shape: nil)
+                                Text(ring.title)
+                                    .font(.system(size: fsSub))
+                                    .foregroundStyle(studio.color(.primaryText))
+                                Spacer(minLength: 0)
+                            }
+                        } else {
+                            Text(AppLocalized("没有记挂件，换上时不动"))
+                                .font(.system(size: fsSub))
+                                .foregroundStyle(studio.color(.secondaryText))
+                        }
+                    }
+                    themeSheetDivider()
+                    themeSheetInspectRow(icon: "circle.dashed",
+                                         title: sidePickerLabel(for: .user) + AppLocalized("挂件"),
+                                         value: themePendantLine(item, isUser: true),
+                                         key: "userPendant") {
+                        if let number = item.userPendantNumber,
+                           let ring = pendantStore.pendants.first(where: { $0.number == number }) {
+                            HStack(spacing: 8) {
+                                themePreviewAvatar(isUser: true, ring: ring, shape: nil)
+                                Text(ring.title)
+                                    .font(.system(size: fsSub))
+                                    .foregroundStyle(studio.color(.primaryText))
+                                Spacer(minLength: 0)
+                            }
+                        } else {
+                            Text(AppLocalized("没有记挂件，换上时不动"))
+                                .font(.system(size: fsSub))
+                                .foregroundStyle(studio.color(.secondaryText))
+                        }
+                    }
                     if let pack = studio.libraryPack(id: item.id) {
-                        Text(AppLocalized("头像形状：") + AppearanceAvatarShape.parse(pack.avatarShape).title
-                            + AppLocalized("（随包换上）"))
-                            .font(.system(size: fsCaption))
-                            .foregroundStyle(studio.color(.secondaryText))
-                        Text(AppLocalized("字体：跟主题包走"))
-                            .font(.system(size: fsCaption))
-                            .foregroundStyle(studio.color(.secondaryText))
+                        themeSheetDivider()
+                        themeSheetInfoRow(icon: "person.crop.circle",
+                                          title: AppLocalized("头像形状"),
+                                          value: AppearanceAvatarShape.parse(pack.avatarShape).title
+                                            + AppLocalized("（随包换上）"))
+                        themeSheetDivider()
+                        themeSheetInfoRow(icon: "character",
+                                          title: AppLocalized("字体"),
+                                          value: AppLocalized("跟主题包走"))
                     }
                     if let message = themeApplyMessage {
                         Text(message)
@@ -1256,25 +1424,25 @@ struct DressingShopView: View {
                         Button(AppLocalized("删除这套")) {
                             themeConfirmDelete = true
                         }
-                        .font(.callout)
+                        .font(.system(size: globalPointSize * 16 / 13))
                         .foregroundStyle(studio.color(.destructive))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            Capsule()
                                 .stroke(studio.color(.destructive), lineWidth: 1)
                         )
-                        .buttonStyle(.plain)
+                        .buttonStyle(FontPressStyle(scale: 0.97))
                         Button(AppLocalized("换上整套")) {
                             applyThemeSet(item)
                         }
-                        .font(.callout)
+                        .font(.system(size: globalPointSize * 16 / 13))
                         .foregroundStyle(studio.color(.surface))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .background(studio.color(.accent))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .buttonStyle(.plain)
+                        .clipShape(Capsule())
+                        .buttonStyle(FontPressStyle(scale: 0.97))
                     }
                     .padding(.top, 6)
                 }
@@ -1289,7 +1457,7 @@ struct DressingShopView: View {
                 .transition(.move(edge: .bottom))
             }
         }
-        .background(studio.color(.canvas))
+        .background(AppearanceBackdrop(scope: .global))
         .animation(.easeOut(duration: 0.3), value: themeSheetUp)
         .alert(AppLocalized("删除这套？"), isPresented: $themeConfirmDelete) {
             Button(AppLocalized("删除"), role: .destructive) {
@@ -1314,6 +1482,72 @@ struct DressingShopView: View {
         } message: {
             Text(themePendingApplyWarning ?? "")
         }
+    }
+
+    /// Theme-sheet divider: one hairline between inspect rows.
+    private func themeSheetDivider() -> some View {
+        Rectangle()
+            .fill(studio.color(.border).opacity(0.35))
+            .frame(height: 0.5)
+    }
+
+    /// One theme-sheet inspect row: icon + title + value, tappable.
+    /// Tapping expands the real thing inline (the recorded bubble
+    /// drawn through the same preview row as above, or the recorded
+    /// ring on its avatar) instead of leaving the row as dead text.
+    private func themeSheetInspectRow<Expanded: View>(icon: String, title: String, value: String, key: String,
+                                                     @ViewBuilder expanded: () -> Expanded) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                themeInspectedRow = (themeInspectedRow == key) ? nil : key
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: fsCaption))
+                        .foregroundStyle(studio.color(.secondaryText))
+                        .frame(width: 20)
+                    Text(title)
+                        .font(.system(size: fsCaption, weight: .medium))
+                        .foregroundStyle(studio.color(.primaryText))
+                    Spacer(minLength: 0)
+                    Text(value)
+                        .font(.system(size: fsCaption))
+                        .foregroundStyle(studio.color(.secondaryText))
+                        .lineLimit(1)
+                    Image(systemName: themeInspectedRow == key ? "chevron.up" : "chevron.down")
+                        .font(.system(size: fsCaption, weight: .semibold))
+                        .foregroundStyle(studio.color(.secondaryText))
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(FontPressStyle(scale: 0.98))
+            if themeInspectedRow == key {
+                expanded()
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    /// One theme-sheet info row: same icon + divider language as the
+    /// inspect rows, but not tappable — the value is a pack fact
+    /// (avatar shape, font rule), not an object to inspect.
+    private func themeSheetInfoRow(icon: String, title: String, value: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: fsCaption))
+                .foregroundStyle(studio.color(.secondaryText))
+                .frame(width: 20)
+            Text(title)
+                .font(.system(size: fsCaption, weight: .medium))
+                .foregroundStyle(studio.color(.primaryText))
+            Spacer(minLength: 0)
+            Text(value)
+                .font(.system(size: fsCaption))
+                .foregroundStyle(studio.color(.secondaryText))
+                .lineLimit(1)
+        }
+        .frame(minHeight: 44)
     }
 
     // MARK: - Bubble views
@@ -1568,6 +1802,7 @@ struct DressingShopView: View {
     }
 
     private func openPendantDetail(_ pendant: AvatarPendant) {
+        pendantCloseToken += 1
         pendantSheetUp = false
         // Capture the side being edited: the detail applies to
         // this side even if the picker moves underneath it.
@@ -1580,8 +1815,10 @@ struct DressingShopView: View {
 
     private func closePendantDetail() {
         pendantSheetUp = false
+        pendantCloseToken += 1
+        let token = pendantCloseToken
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            detailPendant = nil
+            if token == pendantCloseToken { detailPendant = nil }
         }
     }
 
@@ -2682,9 +2919,9 @@ struct DressingShopView: View {
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 44)
                     .background(studio.color(.accent))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(FontPressStyle(scale: 0.97))
             if let roll = shakePreview {
                 Text(roll.name)
                     .font(.system(size: fsTitle, weight: .semibold, design: .serif))
@@ -2701,9 +2938,9 @@ struct DressingShopView: View {
                         .frame(maxWidth: .infinity)
                         .frame(minHeight: 44)
                         .background(studio.color(.accent))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(FontPressStyle(scale: 0.97))
                 HStack(spacing: 12) {
                     Button {
                         fontTapHaptic()
@@ -2715,11 +2952,11 @@ struct DressingShopView: View {
                             .frame(maxWidth: .infinity)
                             .frame(minHeight: 44)
                             .background(studio.color(.surface))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .clipShape(Capsule())
+                            .overlay(Capsule()
                                 .stroke(studio.color(.border), lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FontPressStyle(scale: 0.97))
                     Button {
                         fontTapHaptic()
                         discardShakePreview()
@@ -2730,7 +2967,7 @@ struct DressingShopView: View {
                             .frame(maxWidth: .infinity)
                             .frame(minHeight: 44)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FontPressStyle(scale: 0.97))
                 }
                 Text(AppLocalized("预览只画这一小块，店页其他地方仍是现场主题；放弃就什么都不变。"))
                     .font(.system(size: fsCaption))
@@ -2803,13 +3040,22 @@ struct DressingShopView: View {
 
             ForEach(colorVarGroups) { group in
                 VStack(alignment: .leading, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(group.title)
-                            .font(ChatFont.font(15, weight: .bold))
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(group.title)
+                                .font(ChatFont.font(15, weight: .bold))
+                                .foregroundStyle(studio.color(.primaryText))
+                            Text(group.hint)
+                                .font(ChatFont.font(11))
+                                .foregroundStyle(studio.color(.secondaryText))
+                        }
+                        Spacer(minLength: 0)
+                        Text(editingVariant == .light ? AppLocalized("正在改白天那套") : AppLocalized("正在改黑夜那套"))
+                            .font(ChatFont.font(10, weight: .semibold))
                             .foregroundStyle(studio.color(.primaryText))
-                        Text(group.hint)
-                            .font(ChatFont.font(11))
-                            .foregroundStyle(studio.color(.secondaryText))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(studio.color(.mutedSurface), in: Capsule())
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
@@ -2846,7 +3092,7 @@ struct DressingShopView: View {
                     .overlay(RoundedRectangle(cornerRadius: 999, style: .continuous)
                         .stroke(studio.color(.border), lineWidth: 1))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(FontPressStyle(scale: 0.97))
             .padding(.horizontal, 16)
             .padding(.top, 24)
             Text(AppLocalized("只清全局配色，回到内置单色；逐页单独调过的颜色不动。"))
@@ -2871,17 +3117,17 @@ struct DressingShopView: View {
 
     private var colorVarGroups: [ColorVarGroup] {
         [
-            ColorVarGroup(title: AppLocalized("文字"), hint: AppLocalized("标题、正文、说明、时间戳——所有字"),
+            ColorVarGroup(title: AppLocalized("字"), hint: AppLocalized("字长什么样"),
                           roles: [.primaryText, .secondaryText, .tertiaryText]),
-            ColorVarGroup(title: AppLocalized("背景与卡片"), hint: AppLocalized("页面底衬、大块卡片、弹窗浮层、次要底块"),
-                          roles: [.canvas, .surface, .raised, .mutedSurface]),
-            ColorVarGroup(title: AppLocalized("控件"), hint: AppLocalized("图标底、胶囊底、输入框、边线——小零件"),
-                          roles: [.iconTile, .chip, .field, .border]),
-            ColorVarGroup(title: AppLocalized("强调"), hint: AppLocalized("按钮、开关、选中态"),
-                          roles: [.accent]),
-            ColorVarGroup(title: AppLocalized("聊天"), hint: AppLocalized("聊天气泡与气泡里的字（未设置时跟主文字走）"),
+            ColorVarGroup(title: AppLocalized("每一页的底和卡片"), hint: AppLocalized("页面本身和上面的块"),
+                          roles: [.canvas, .surface, .raised, .mutedSurface, .border]),
+            ColorVarGroup(title: AppLocalized("聊天"), hint: AppLocalized("聊天的气泡和里面的字"),
                           roles: [.userBubble, .assistantBubble, .bubbleText, .assistantBubbleText]),
-            ColorVarGroup(title: AppLocalized("状态"), hint: AppLocalized("成功、警告、危险"),
+            ColorVarGroup(title: AppLocalized("打字的地方和小按钮的底"), hint: AppLocalized("打字框和小标签的底色"),
+                          roles: [.field, .iconTile, .chip]),
+            ColorVarGroup(title: AppLocalized("点一下的东西"), hint: AppLocalized("按钮、开关、选中的颜色"),
+                          roles: [.accent]),
+            ColorVarGroup(title: AppLocalized("对错提醒"), hint: AppLocalized("成功、留意、危险三种提醒"),
                           roles: [.success, .warning, .destructive]),
         ]
     }
@@ -2915,28 +3161,295 @@ struct DressingShopView: View {
                       AppearanceContrast.threshold(level))
     }
 
-    /// One variable row: the old studio page's row mode
-    /// (ColorPicker + title + hint + #hex + revert-when-overridden),
+    /// Panel-local plain names for the colour rows (report §2.5).
+    /// The role's own title/hint stay untouched — other screens
+    /// read them — so the panel maps them here, in words a
+    /// non-coder reads at a glance, no jargon.
+    private func colorVarDisplayName(_ role: AppearanceColorRole) -> String {
+        switch role {
+        case .primaryText: return AppLocalized("大标题和正文的字")
+        case .secondaryText: return AppLocalized("说明和小字的颜色")
+        case .tertiaryText: return AppLocalized("最淡的小字")
+        case .canvas: return AppLocalized("整页的背景")
+        case .surface: return AppLocalized("一块一块的卡片")
+        case .raised: return AppLocalized("弹出来的小框")
+        case .mutedSurface: return AppLocalized("淡淡的小底块")
+        case .border: return AppLocalized("卡片的边和中间的线")
+        case .userBubble: return AppLocalized("我的气泡")
+        case .assistantBubble: return AppLocalized("AI 的气泡")
+        case .bubbleText: return AppLocalized("我的气泡里的字")
+        case .assistantBubbleText: return AppLocalized("AI 气泡里的字")
+        case .field: return AppLocalized("打字框")
+        case .iconTile: return AppLocalized("小图标的底色")
+        case .chip: return AppLocalized("小标签的底色")
+        case .accent: return AppLocalized("按钮和开关的颜色")
+        case .success: return AppLocalized("成了")
+        case .warning: return AppLocalized("小心")
+        case .destructive: return AppLocalized("危险、删除")
+        }
+    }
+
+    private func colorVarDisplayHint(_ role: AppearanceColorRole) -> String {
+        switch role {
+        case .primaryText: return AppLocalized("所有标题、正文都用这个颜色")
+        case .secondaryText: return AppLocalized("说明、时间、副标题这种小字")
+        case .tertiaryText: return AppLocalized("占位字、最淡的小字，只做标签，不做正文")
+        case .canvas: return AppLocalized("每一页最底下的颜色；卡片和卡片之间的空地方也透出这个颜色")
+        case .surface: return AppLocalized("设置里一格一格的选项、店里一张一张的卡，都是这个颜色")
+        case .raised: return AppLocalized("弹窗、菜单、浮在页面上面的小面板")
+        case .mutedSurface: return AppLocalized("图片位置空着时显示的浅色块、次要的小底块")
+        case .border: return AppLocalized("每一张卡外面那一圈线，和行与行中间的分隔线")
+        case .userBubble: return AppLocalized("我发出去的那只气泡")
+        case .assistantBubble: return AppLocalized("AI 发过来的那只气泡")
+        case .bubbleText: return AppLocalized("我气泡里面的字；没设的时候跟着大标题的字走")
+        case .assistantBubbleText: return AppLocalized("AI 气泡里面的字；没设的时候跟着大标题的字走")
+        case .field: return AppLocalized("打字的地方、搜索框的底色")
+        case .iconTile: return AppLocalized("消息旁边一格一格的小图标底下的颜色")
+        case .chip: return AppLocalized("用量、状态那种椭圆形小标签的底色")
+        case .accent: return AppLocalized("所有按钮、开关、选中的那一项")
+        case .success: return AppLocalized("成功、通过的时候用的绿")
+        case .warning: return AppLocalized("需要留意的时候用的黄")
+        case .destructive: return AppLocalized("删除、危险操作用的红")
+        }
+    }
+
+    /// The colour a panel row (and its miniature) actually paints,
+    /// in the set being edited. Bubble-text rows follow the main
+    /// text colour while unset — the same rule hex() applies —
+    /// so the miniature never shows a colour the app does not use.
+    private func colorVarLiveColor(_ role: AppearanceColorRole) -> Color {
+        if (role == .bubbleText || role == .assistantBubbleText)
+            && !studio.hasOverride(role, scope: .global, variant: editingVariant) {
+            return Color(hex: studio.hex(.primaryText, scope: .global, variant: editingVariant))
+        }
+        return Color(hex: studio.hex(role, scope: .global, variant: editingVariant))
+    }
+
+    /// Follow-state tags: bubble-text rows say they follow the main
+    /// text while unset; the faintest text says editing it does
+    /// not move chat. A set row shows no tag — it paints itself.
+    private func colorVarFollowTag(_ role: AppearanceColorRole) -> String? {
+        if role == .tertiaryText { return AppLocalized("聊天里不动") }
+        if (role == .bubbleText || role == .assistantBubbleText)
+            && !studio.hasOverride(role, scope: .global, variant: editingVariant) {
+            return AppLocalized("跟着大标题的字走")
+        }
+        return nil
+    }
+
+    private func colorVarBar(width: CGFloat, height: CGFloat, color: Color, opacity: Double = 1) -> some View {
+        RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .fill(color.opacity(opacity))
+            .frame(width: width, height: height)
+    }
+
+    /// One row's miniature: the actual area the row paints, drawn
+    /// in the row's live colour, so the link is visual. Text areas
+    /// are bars, not text — the miniature is a picture, not a
+    /// second label — and symbol sizes are glyph sizes, not text.
+    @ViewBuilder
+    private func colorVarMiniature(_ role: AppearanceColorRole) -> some View {
+        let live = colorVarLiveColor(role)
+        switch role {
+        case .primaryText:
+            VStack(alignment: .leading, spacing: 4) {
+                colorVarBar(width: 56, height: 8, color: live)
+                colorVarBar(width: 40, height: 5, color: live, opacity: 0.55)
+            }
+        case .secondaryText:
+            VStack(alignment: .leading, spacing: 4) {
+                colorVarBar(width: 52, height: 5, color: live)
+                colorVarBar(width: 36, height: 5, color: live, opacity: 0.7)
+            }
+        case .tertiaryText:
+            VStack(alignment: .leading, spacing: 4) {
+                colorVarBar(width: 48, height: 5, color: live)
+                colorVarBar(width: 32, height: 5, color: live, opacity: 0.7)
+            }
+        case .canvas:
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(live)
+                VStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(colorVarLiveColor(.surface)).frame(width: 58, height: 9)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(colorVarLiveColor(.surface)).frame(width: 58, height: 9)
+                }
+            }
+        case .surface:
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(live)
+                VStack(alignment: .leading, spacing: 4) {
+                    colorVarBar(width: 44, height: 6, color: colorVarLiveColor(.primaryText))
+                    colorVarBar(width: 32, height: 5, color: colorVarLiveColor(.secondaryText))
+                }
+            }
+        case .raised:
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(colorVarLiveColor(.surface)).frame(width: 58, height: 26)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(live).frame(width: 44, height: 22)
+                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(colorVarLiveColor(.border).opacity(0.5), lineWidth: 0.5))
+                    .offset(x: 10, y: -4)
+            }
+        case .mutedSurface:
+            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(live)
+        case .border:
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(live, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                    .fill(live).frame(width: 56, height: 1)
+            }
+        case .userBubble:
+            HStack {
+                Spacer(minLength: 0)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(live)
+                    colorVarBar(width: 26, height: 5, color: colorVarLiveColor(.bubbleText))
+                }
+                .frame(width: 46, height: 24)
+            }
+        case .assistantBubble:
+            HStack {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(live)
+                    colorVarBar(width: 26, height: 5, color: colorVarLiveColor(.assistantBubbleText))
+                }
+                .frame(width: 46, height: 24)
+                Spacer(minLength: 0)
+            }
+        case .bubbleText:
+            HStack {
+                Spacer(minLength: 0)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(colorVarLiveColor(.userBubble))
+                    VStack(spacing: 4) {
+                        colorVarBar(width: 26, height: 5, color: live)
+                        colorVarBar(width: 18, height: 5, color: live, opacity: 0.7)
+                    }
+                }
+                .frame(width: 46, height: 28)
+            }
+        case .assistantBubbleText:
+            HStack {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(colorVarLiveColor(.assistantBubble))
+                    VStack(spacing: 4) {
+                        colorVarBar(width: 26, height: 5, color: live)
+                        colorVarBar(width: 18, height: 5, color: live, opacity: 0.7)
+                    }
+                }
+                .frame(width: 46, height: 28)
+                Spacer(minLength: 0)
+            }
+        case .field:
+            ZStack(alignment: .leading) {
+                Capsule().fill(live)
+                HStack(spacing: 4) {
+                    colorVarBar(width: 2, height: 12, color: colorVarLiveColor(.primaryText))
+                    colorVarBar(width: 24, height: 5, color: colorVarLiveColor(.secondaryText))
+                }
+                .padding(.leading, 10)
+            }
+            .frame(width: 62, height: 20)
+        case .iconTile:
+            HStack(spacing: 4) {
+                ForEach(0..<3, id: \.self) { _ in
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous).fill(live)
+                        Circle().fill(colorVarLiveColor(.primaryText).opacity(0.6))
+                            .frame(width: 4, height: 4)
+                    }
+                    .frame(width: 14, height: 14)
+                }
+            }
+        case .chip:
+            HStack(spacing: 4) {
+                ForEach(0..<2, id: \.self) { _ in
+                    ZStack {
+                        Capsule().fill(live)
+                        colorVarBar(width: 14, height: 4, color: colorVarLiveColor(.secondaryText))
+                    }
+                    .frame(width: 28, height: 14)
+                }
+            }
+        case .accent:
+            HStack(spacing: 6) {
+                ZStack {
+                    Capsule().fill(live)
+                    colorVarBar(width: 16, height: 5, color: colorVarLiveColor(.surface))
+                }
+                .frame(width: 30, height: 18)
+                ZStack {
+                    Capsule().fill(live)
+                    Circle().fill(colorVarLiveColor(.surface))
+                        .frame(width: 12, height: 12)
+                        .offset(x: 5)
+                }
+                .frame(width: 26, height: 16)
+            }
+        case .success:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(live)
+        case .warning:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(live)
+        case .destructive:
+            ZStack {
+                Capsule().fill(live)
+                colorVarBar(width: 20, height: 5, color: colorVarLiveColor(.surface))
+            }
+            .frame(width: 44, height: 20)
+        }
+    }
+
+    /// One variable row: the miniature is the colour control
+    /// (a near-invisible full-frame ColorPicker sits over it,
+    /// since the system well cannot be restyled), then the plain
+    /// name, hint, follow tag, #hex and revert-when-overridden,
     /// bound to the GLOBAL scope and the set being edited.
     private func colorVarRow(_ role: AppearanceColorRole) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-        HStack(spacing: 13) {
-            ColorPicker("", selection: studio.colorBinding(role, scope: .global, variant: editingVariant),
-                        supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 32, height: 32)
+        HStack(spacing: 12) {
+            ZStack {
+                colorVarMiniature(role)
+                ColorPicker("", selection: studio.colorBinding(role, scope: .global, variant: editingVariant),
+                            supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 76, height: 36)
+                    .contentShape(Rectangle())
+                    .opacity(0.02)
+                    .accessibilityLabel(colorVarDisplayName(role))
+            }
+            .frame(width: 76, height: 36)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text(role.title)
+                Text(colorVarDisplayName(role))
                     .font(ChatFont.font(13, weight: .medium))
                     .foregroundStyle(studio.color(.primaryText))
-                Text(role.hint)
+                Text(colorVarDisplayHint(role))
                     .font(ChatFont.font(10))
                     .foregroundStyle(studio.color(.secondaryText).opacity(0.72))
-                    .lineLimit(1)
+                    .lineLimit(2)
+                if let tag = colorVarFollowTag(role) {
+                    Text(tag)
+                        .font(ChatFont.font(10, weight: .semibold))
+                        .foregroundStyle(studio.color(.primaryText))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(studio.color(.mutedSurface), in: Capsule())
+                }
             }
             Spacer(minLength: 6)
             Text("#\(studio.hex(role, scope: .global, variant: editingVariant))")
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: globalPointSize * 10 / 13, design: .monospaced))
                 .foregroundStyle(studio.color(.secondaryText).opacity(0.55))
             if studio.hasOverride(role, scope: .global, variant: editingVariant) {
                 Button {
@@ -2948,7 +3461,7 @@ struct DressingShopView: View {
                         .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(FontPressStyle(scale: 0.92))
             }
         }
         .padding(.horizontal, 16)
@@ -2963,6 +3476,7 @@ struct DressingShopView: View {
     }
 
     private func openDetail(_ pack: BubbleStylePack) {
+        bubbleCloseToken += 1
         sheetUp = false
         // Capture the side being edited, same rule as pendants.
         detailPackSide = editingSide
@@ -2976,8 +3490,10 @@ struct DressingShopView: View {
         sheetUp = false
         // Sheet slide-down is 0.3s; removing the page sooner
         // would cut the sheet off mid-animation.
+        bubbleCloseToken += 1
+        let token = bubbleCloseToken
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            detailPack = nil
+            if token == bubbleCloseToken { detailPack = nil }
         }
     }
 
