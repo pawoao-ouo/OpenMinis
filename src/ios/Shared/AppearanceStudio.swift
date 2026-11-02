@@ -1587,14 +1587,21 @@ struct PersonAvatarView: View {
     /// ring is the only ring on that avatar — never a double ring
     /// of applied + preview.
     var showPendant: Bool = true
+    /// Theme-set preview override ONLY. Default nil: shape follows
+    /// the current theme pack, exactly as today, so every existing
+    /// call site is unaffected. A non-nil value draws the avatar
+    /// in that shape instead of the current-pack shape.
+    var shapeOverride: AppearanceAvatarShape? = nil
     @ObservedObject private var studio = AppearanceStudio.shared
     // 人设一改（换头像）就让所有头像视图重画，不等重进页面。
     @ObservedObject private var personaStore = PersonaStore.shared
     @State private var soulIcon = SoulStore.cachedMetadata.icon
 
     /// [10-18 醒醒 第五轮] 头像形状跟着主题包走。
+    /// A preview override, when provided, wins over the current
+    /// pack; nil keeps today's behaviour exactly.
     private var avatarShape: AppearanceAvatarShape {
-        AppearanceAvatarShape.parse(studio.currentThemePack().avatarShape)
+        shapeOverride ?? AppearanceAvatarShape.parse(studio.currentThemePack().avatarShape)
     }
 
     private var resolvedIcon: String? {

@@ -729,7 +729,7 @@ struct DressingShopView: View {
         let ring = ringNumber.flatMap { n in pendantStore.pendants.first { $0.number == n } }
         return HStack(alignment: .center, spacing: 8) {
             if !isUser {
-                themePreviewAvatar(isUser: false, ring: ring)
+                themePreviewAvatar(isUser: false, ring: ring, shape: AppearanceAvatarShape(rawValue: pack.avatarShape))
             }
             if isUser { Spacer(minLength: 0) }
             if let rowPack {
@@ -742,15 +742,18 @@ struct DressingShopView: View {
                                 borderWidth: isUser ? rowPack.style.userBorderWidth : rowPack.style.assistantBorderWidth)
             }
             if isUser {
-                themePreviewAvatar(isUser: true, ring: ring)
+                themePreviewAvatar(isUser: true, ring: ring, shape: AppearanceAvatarShape(rawValue: pack.avatarShape))
             }
             if !isUser { Spacer(minLength: 0) }
         }
     }
 
-    private func themePreviewAvatar(isUser: Bool, ring: AvatarPendant?) -> some View {
+    /// Theme-set preview avatar. `shape` is the previewed pack's
+    /// avatar shape; nil (an invalid pack value) leaves the avatar
+    /// on the current-pack shape, exactly as before this fix.
+    private func themePreviewAvatar(isUser: Bool, ring: AvatarPendant?, shape: AppearanceAvatarShape?) -> some View {
         ZStack {
-            PersonAvatarView(kind: isUser ? .user : .assistant, size: 36, showPendant: false)
+            PersonAvatarView(kind: isUser ? .user : .assistant, size: 36, showPendant: false, shapeOverride: shape)
             if let ring {
                 AvatarRingView(size: 36, color: ring.color, imageFile: ring.imageFile)
             }
