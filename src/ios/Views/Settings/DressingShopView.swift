@@ -432,14 +432,23 @@ struct DressingShopView: View {
     private func sectionHeader(_ title: String, jumpTo: DressingCategory) -> some View {
         HStack {
             Text(title)
-                .font(.system(size: 20, weight: .bold))
+                // Category header keeps its hierarchy above card titles:
+                // at the default global size 13 this is exactly 20pt bold
+                // (13 * 20 / 13), and it scales with the global size.
+                .font(.system(size: globalPointSize * 20 / 13, weight: .bold))
                 .foregroundStyle(studio.color(.primaryText))
             Spacer(minLength: 0)
             Button { category = jumpTo } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 17))
+                    // At the default global size 13 this is exactly 17pt.
+                    .font(.system(size: globalPointSize * 17 / 13))
                     .foregroundStyle(studio.color(.secondaryText))
             }
+            // The chevron glyph alone is far below the 44pt tap minimum;
+            // the frame expands only its hit area, trailing-aligned so
+            // the glyph keeps its exact visual position at the right edge.
+            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+            .contentShape(Rectangle())
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
