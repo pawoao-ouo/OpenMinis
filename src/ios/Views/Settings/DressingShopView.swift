@@ -549,11 +549,11 @@ struct DressingShopView: View {
     // packs through the same bubbleShapeView real chat draws,
     // the real avatars with the recorded rings, and an input
     // bar in the pack's style — never a prettier drawing than
-    // real chat. One honest limit: avatar SHAPE cannot be
-    // previewed here, because PersonAvatarView reads its shape
-    // from the live pack and this batch must not touch that
-    // shared view; the shape is listed in the detail and lands
-    // on apply. A side with no recorded bubble draws no bubble
+    // real chat. Avatar shape IS previewed here: the preview
+    // passes the set pack's shape through PersonAvatarView's
+    // shapeOverride (an invalid pack value falls back to the
+    // live shape, and the shape is also listed in the detail).
+    // A side with no recorded bubble draws no bubble
     // in the preview (nothing is guessed for it), and a recorded
     // number that is no longer in the catalogue is named in the
     // detail and reported as failed on apply, never faked.
