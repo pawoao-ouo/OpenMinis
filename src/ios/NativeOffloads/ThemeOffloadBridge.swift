@@ -162,9 +162,13 @@ import UIKit
             // global entries keep the bare format; non-global entries
             // are scope-labelled (`chat.primaryText (light)`,
             // `wallpaper:chat`). Per-scope wallpapers are untouched by
-            // any pack apply (a pack never carries page wallpapers), so
-            // they are listed whenever an own file exists, even when
-            // the pack carries a global wallpaper.
+            // an AI merge apply (page fields are stripped before
+            // apply, and merge never clears); user replace applies
+            // do carry and write page wallpapers, so the old
+            // "a pack never carries page wallpapers" claim no
+            // longer holds for them. They are listed whenever an
+            // own file exists, even when the pack carries a global
+            // wallpaper.
             let leftovers = AppearanceStudio.shared.aiApplyLeftovers(
                 changedLightRoles: changedLight, changedDarkRoles: changedDark,
                 carriesWallpaper: obj["wallpaperJPEGBase64"] != nil,

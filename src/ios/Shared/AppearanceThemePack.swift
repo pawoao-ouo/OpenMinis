@@ -1190,9 +1190,12 @@ extension AppearanceStudio {
             if wallpaper == nil, !(pack.wallpaperJPEGBase64?.isEmpty == false) {
                 removeWallpaper(.global)
             }
-            // A pack never carries per-page wallpapers, so in replace
-            // mode every page wallpaper goes too, not just the global
-            // one — otherwise a switched theme keeps old page wallpapers.
+            // User packs now carry per-page wallpapers, written back
+            // in the page paint below; this pre-clear still removes
+            // every page wallpaper first, so a scope the new pack does
+            // not carry does not survive the switch. The "never
+            // carries" claim now holds only for the AI merge path,
+            // where page fields are stripped before apply.
             for scope in AppearanceScope.allCases where scope != .global {
                 removeWallpaper(scope)
             }
@@ -1205,19 +1208,33 @@ extension AppearanceStudio {
             if !(pack.characterArtBase64?.isEmpty == false) {
                 removeCharacterArt()
             }
-            // [page-state] Replace means the new pack IS the whole
-            // theme, page state included. The old code kept page
-            // colours here (P0-4) because packs never carried them;
-            // that keep is obsolete now that packs carry page
-            // colours, and keeping them would make replace behave
-            // like merge for pages. Wipe the whole colour map
-            // instead: the global paint below restores the pack's
-            // globals (or built-ins for a colourless pack), and
-            // the page paint below restores the pack's page
-            // colours. An old pack (page fields nil) therefore
-            // clears page colours too, exactly as it already
-            // cleared page wallpapers above — never silently kept.
-            restoreColorOverrides([:])
+            // [page-state-fix] Replace means the new pack IS the whole
+            // theme, page state included — but only when the pack
+            // actually speaks about page colours. A nil page table
+            // means "this pack says nothing about page colours",
+            // not "page colours are empty" (merge mode already
+            // treats nil that way), so an old pack (both page
+            // colour tables nil) must NOT wipe colours the user
+            // tuned on a page on purpose: the P0-4 preserve rule
+            // still applies to it, and the apply path has no undo
+            // snapshot to give them back. Only a pack that carries
+            // page colours gets the wipe-then-repaint below, so
+            // its page state ends up exactly the pack's.
+            if pack.pageColorsLight == nil, pack.pageColorsDark == nil {
+                // P0-4 (restored): page-scope overrides are kept,
+                // so a theme switch does not silently wipe a page
+                // the user tuned on purpose. The global paint below
+                // repaints globals from the pack; a colourless pack
+                // therefore falls back to the built-in palette
+                // instead of keeping the old one.
+                let globalPrefix = AppearanceScope.global.rawValue + "."
+                let keptPageColours = exportColorOverrides().filter {
+                    !$0.key.hasPrefix(globalPrefix)
+                }
+                restoreColorOverrides(keptPageColours)
+            } else {
+                restoreColorOverrides([:])
+            }
         }
         // Character-art write moved after the persist+guard above, so a
         // persist failure cannot leave a half-written character art

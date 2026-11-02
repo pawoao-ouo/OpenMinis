@@ -305,18 +305,16 @@ extension AppearanceStudio {
             }
             let imgs = (j["categoryImages"] as? [String: String]) ?? [:]
             j["categoryImages"] = imgs.keys.sorted()   // 只比哪些槽位有图
-            // [page-state] Page colours compare by value (hex maps);
-            // an absent map and an empty map are the same state, so
-            // an old pack without page keys still matches a live
-            // export that carries empty page maps. Page wallpapers
+            // [page-state] Page colours compare by value (hex maps)
+            // when both sides carry the table. Page wallpapers
             // compare by scope keys only, like category images:
             // re-exported bytes differ (downscale), which is a
             // system behaviour, not a user change — while a scope
             // gaining or losing an image (or a cleared "" entry)
             // is a real change and must drop the in-use tick.
-            for colourKey in ["pageColorsLight", "pageColorsDark"] {
-                if j[colourKey] == nil { j[colourKey] = [:] as [String: Any] }
-            }
+            // Page colour tables are NOT normalised to [:] here:
+            // a nil table means "says nothing about page colours",
+            // and the cross-side drop below handles it.
             let pageWallKeys: [String]
             if let m = j["pageWallpapers"] as? [String: String] { pageWallKeys = Array(m.keys) }
             else if let m = j["pageWallpapers"] as? [String: Any] { pageWallKeys = Array(m.keys) }
@@ -324,7 +322,24 @@ extension AppearanceStudio {
             j["pageWallpapers"] = pageWallKeys.sorted()
             return j
         }
-        return (key(a) as NSDictionary).isEqual(key(b) as NSDictionary)
+        var ka = key(a)
+        var kb = key(b)
+        // [page-state-fix] An apply that did not touch page colours
+        // must not drop the tick: when either side's page colour
+        // table is nil (an old pack, or a live state the apply
+        // preserved under P0-4), that table is dropped from BOTH
+        // sides' comparison, per table. When both sides carry a
+        // table it is compared by value above. Page wallpaper keys
+        // are untouched here: replace always clears page wallpapers,
+        // so the keys already agree after an apply and the tick
+        // cannot falsely drop on them.
+        for colourKey in ["pageColorsLight", "pageColorsDark"] {
+            if ka[colourKey] == nil || kb[colourKey] == nil {
+                ka[colourKey] = nil
+                kb[colourKey] = nil
+            }
+        }
+        return (ka as NSDictionary).isEqual(kb as NSDictionary)
     }
 
     func renameSavedTheme(id: String, name: String) -> Bool {
