@@ -2775,6 +2775,15 @@ private struct OtherSettingsContentView: View {
     @AppStorage("keepScreenAwakeDuringTasks") private var keepScreenAwakeDuringTasks: Bool = false
     @State private var iconFailed = false
 
+    // Same fs ladder as the shop's main view (fsTitle / fsBody /
+    // fsSub / fsCaption), derived from the one global size, so
+    // this section follows the global font size instead of
+    // fixed sizes. Weights and roles stay as they were.
+    private var fsTitle: CGFloat { fontSettings.globalPointSize * 1.15 }
+    private var fsBody: CGFloat { fontSettings.globalPointSize }
+    private var fsSub: CGFloat { fontSettings.globalPointSize * 0.92 }
+    private var fsCaption: CGFloat { fontSettings.globalPointSize * 0.82 }
+
     private var autoGroupingBinding: Binding<Bool> {
         Binding(
             get: { UserDefaults.standard.bool(forKey: "autoGroupingEnabled") },
@@ -2799,16 +2808,16 @@ private struct OtherSettingsContentView: View {
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "globe")
-                                .font(.system(size: 14))
+                                .font(.system(size: fsBody))
                                 .foregroundStyle(studio.color(.secondaryText))
                                 .frame(width: 26)
                             Text(lang.name)
-                                .font(.system(size: 15))
+                                .font(.system(size: fsBody))
                                 .foregroundStyle(studio.color(.primaryText))
                             Spacer(minLength: 0)
                             if appLanguage == lang.id {
                                 Image(systemName: "checkmark")
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: fsCaption, weight: .semibold))
                                     .foregroundStyle(studio.color(.primaryText))
                             }
                         }
@@ -2849,17 +2858,17 @@ private struct OtherSettingsContentView: View {
                                 }
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(option.title)
-                                        .font(.system(size: 15, weight: .medium))
+                                        .font(.system(size: fsBody, weight: .medium))
                                         .foregroundStyle(studio.color(.primaryText))
                                     Text(option.subtitle)
-                                        .font(.system(size: 13))
+                                        .font(.system(size: fsSub))
                                         .foregroundStyle(studio.color(.secondaryText))
                                 }
                                 Spacer(minLength: 0)
                                 if appIconMode == option.id {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundStyle(studio.color(.primaryText))
-                                        .font(.system(size: 16))
+                                        .font(.system(size: fsBody))
                                 }
                             }
                             .padding(.vertical, fontSettings.density(3))
@@ -2869,13 +2878,13 @@ private struct OtherSettingsContentView: View {
                     }
                     if iconFailed {
                         Text(AppLocalized("换图标失败，请重试。"))
-                            .font(.system(size: 13))
+                            .font(.system(size: fsSub))
                             .foregroundStyle(studio.color(.secondaryText))
                             .padding(.top, fontSettings.density(6))
                     }
                 } else {
                     Text(AppLocalized("这台设备不支持换图标。"))
-                        .font(.system(size: 15))
+                        .font(.system(size: fsBody))
                         .foregroundStyle(studio.color(.secondaryText))
                 }
             }
@@ -2889,9 +2898,10 @@ private struct OtherSettingsContentView: View {
                     Text(AppLocalized("首页")).tag(3)
                 }
                 .pickerStyle(.menu)
+                .font(.system(size: fsBody))
                 .tint(studio.color(.primaryText))
                 Text(AppLocalized("打开 App 时显示什么。「自动」会在上次会话超过 15 分钟时开新会话。"))
-                    .font(.system(size: 13))
+                    .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
             }
 
@@ -2902,35 +2912,40 @@ private struct OtherSettingsContentView: View {
                     Text(AppLocalized("发送")).tag(1)
                 }
                 .pickerStyle(.segmented)
+                .font(.system(size: fsBody))
                 Text(AppLocalized("回车是换行还是发送。硬件键盘的 Shift+回车 永远是换行。"))
-                    .font(.system(size: 13))
+                    .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
                 Divider().padding(.vertical, fontSettings.density(4))
                 Toggle(AppLocalized("回复后自动聚焦"), isOn: $autoFocusAfterReply)
+                    .font(.system(size: fsBody))
                     .tint(studio.color(.primaryText))
                 Text(AppLocalized("模型回复完自动弹出键盘，方便接着问。不想被键盘打断就关掉。"))
-                    .font(.system(size: 13))
+                    .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
             }
 
             sectionTitle(AppLocalized("聊天行为"))
             sectionCard {
                 Toggle(AppLocalized("流式展开思考"), isOn: $autoExpandThinking)
+                    .font(.system(size: fsBody))
                     .tint(studio.color(.primaryText))
                 Text(AppLocalized("开着时，模型推理中的思考块自动展开，完成后收起。关掉就保持折叠，点一下才看。"))
-                    .font(.system(size: 13))
+                    .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
                 Divider().padding(.vertical, fontSettings.density(4))
                 Toggle(AppLocalized("自动分组"), isOn: autoGroupingBinding)
+                    .font(.system(size: fsBody))
                     .tint(studio.color(.primaryText))
                 Text(AppLocalized("首次生成会话标题时，顺便归进匹配的分组。每个会话只做一次，只用你已经建好的分组。"))
-                    .font(.system(size: 13))
+                    .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
                 Divider().padding(.vertical, fontSettings.density(4))
                 Toggle(AppLocalized("任务时屏幕常亮"), isOn: $keepScreenAwakeDuringTasks)
+                    .font(.system(size: fsBody))
                     .tint(studio.color(.primaryText))
                 Text(AppLocalized("有会话在跑任务时不熄屏。会更费电。"))
-                    .font(.system(size: 13))
+                    .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
             }
         }
@@ -2938,7 +2953,7 @@ private struct OtherSettingsContentView: View {
 
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 20, weight: .bold))
+            .font(.system(size: fsTitle, weight: .bold))
             .foregroundStyle(studio.color(.primaryText))
             .padding(.horizontal, 16)
             .padding(.top, fontSettings.density(22))
