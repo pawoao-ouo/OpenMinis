@@ -22,6 +22,7 @@ struct TTSServiceEditorView: View {
     let service: TTSServiceOptions?
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     /// Plain-Sendable store — read fresh every render (see VoiceServicesView).
     private var store: TTSServiceStore { TTSServiceStore.shared }
@@ -91,7 +92,7 @@ struct TTSServiceEditorView: View {
             .disabled(service != nil)
             if service != nil {
                 Text("The vendor of an existing service can't be changed — create a new service instead.")
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(MinisTheme.secondaryText)
             }
         }
@@ -166,11 +167,11 @@ struct TTSServiceEditorView: View {
                     Label("Sounds right? Save it, then pick it in the list.",
                           systemImage: "checkmark.circle.fill")
                         .foregroundStyle(MinisTheme.success)
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                 case .failure(let message):
                     Label(message, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(MinisTheme.destructive)
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                 }
             }
         } header: {
@@ -313,13 +314,14 @@ struct LabeledTextField: View {
     let placeholder: String
     var footnote: String? = nil
     var keyboardType: UIKeyboardType = .default
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     var body: some View {
         // [B09-L07 2026-10-22] Label above the field, and no duplicate placeholder
         // — it used to read "My voice / Name" stacked bottom-up, i.e. backwards.
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption)
+                .font(.system(size: fontSettings.scaledApp(12)))
                 .foregroundStyle(MinisTheme.secondaryText)
             TextField(label, text: $text, prompt: Text(placeholder).foregroundColor(MinisTheme.secondaryText))
                 .keyboardType(keyboardType)
@@ -332,7 +334,7 @@ struct LabeledTextField: View {
         .listRowBackground(MinisTheme.color(.surface, scope: .settings))
         if let footnote = footnote {
             Text(footnote)
-                .font(.caption2)
+                .font(.system(size: fontSettings.scaledApp(11)))
                 .foregroundStyle(MinisTheme.secondaryText)
         }
     }
@@ -344,12 +346,13 @@ struct SecureLabeledTextField: View {
     @Binding var text: String
     let placeholder: String
     var footnote: String? = nil
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     var body: some View {
         // [B09-L07 2026-10-22] Same fix as LabeledTextField: label first.
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption)
+                .font(.system(size: fontSettings.scaledApp(12)))
                 .foregroundStyle(MinisTheme.secondaryText)
             SecureField(label, text: $text, prompt: Text(placeholder).foregroundColor(MinisTheme.secondaryText))
                 .autocorrectionDisabled()
@@ -361,7 +364,7 @@ struct SecureLabeledTextField: View {
         .listRowBackground(MinisTheme.color(.surface, scope: .settings))
         if let footnote = footnote {
             Text(footnote)
-                .font(.caption2)
+                .font(.system(size: fontSettings.scaledApp(11)))
                 .foregroundStyle(MinisTheme.secondaryText)
         }
     }

@@ -41,6 +41,7 @@ enum VoiceServicesCopy {
 struct VoiceServicesView: View {
 
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     @State private var editing: TTSServiceOptions?
     @State private var showAddSheet = false
@@ -148,9 +149,9 @@ struct VoiceServicesView: View {
                 rowIcon(symbol: broken == nil ? "waveform" : "speaker.slash.fill", active: broken == nil)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(broken == nil ? AppLocalized("Speaking now") : AppLocalized("No voice"))
-                        .font(.subheadline.weight(.medium))
+                        .font(.system(size: fontSettings.scaledApp(15), weight: .medium))
                     Text(broken ?? label)
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(broken == nil ? MinisTheme.secondaryText : MinisTheme.destructive)
                 }
                 Spacer()
@@ -200,7 +201,7 @@ struct VoiceServicesView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(shadow.displayName)
                                 Text(shadowSummary(shadow))
-                                    .font(.caption)
+                                    .font(.system(size: fontSettings.scaledApp(12)))
                                     .foregroundStyle(MinisTheme.secondaryText)
                             }
                         }
@@ -253,7 +254,7 @@ struct VoiceServicesView: View {
                     Text(allowed
                          ? "Offline · on-device voice"
                          : "Muted — tap to allow System voice")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
                 Spacer()
@@ -278,7 +279,7 @@ struct VoiceServicesView: View {
                         Text("Voice Groups")
                             .foregroundStyle(MinisTheme.primaryText)
                         Text(groupSubtitle)
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                             .lineLimit(1)
                     }
@@ -350,16 +351,16 @@ struct VoiceServicesView: View {
                     Text(service.name)
                         .foregroundStyle(service.enabled ? MinisTheme.primaryText : MinisTheme.secondaryText)
                     Text("\(service.model) · \(service.voice)")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                         .lineLimit(1)
                     if !hasKey {
                         Text(AppLocalized("No API key — tap to add one"))
-                            .font(.caption2.weight(.medium))
+                            .font(.system(size: fontSettings.scaledApp(11), weight: .medium))
                             .foregroundStyle(MinisTheme.destructive)
                     } else if !service.enabled {
                         Text(AppLocalized("Turned off"))
-                            .font(.caption2)
+                            .font(.system(size: fontSettings.scaledApp(11)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
@@ -493,7 +494,7 @@ struct VoiceServicesView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Cache audio for replay")
                     Text("Keep synthesized audio so replaying costs nothing")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
             }
@@ -509,7 +510,7 @@ struct VoiceServicesView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Allow System voice")
                     Text("OFF = only your configured voices speak; never the built-in Apple voice")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
             }

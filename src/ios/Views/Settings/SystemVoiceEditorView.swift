@@ -48,6 +48,7 @@ enum SystemVoiceEditorPreferences {
 struct SystemVoiceEditorView: View {
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     /// The filtered roster; refreshed when the system voice list changes
     /// (downloaded packs etc.).
@@ -126,7 +127,7 @@ struct SystemVoiceEditorView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Auto by language")
                     Text("Each reply uses the voice matching its language")
-                        .font(.caption)
+                        .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
             }
@@ -141,7 +142,7 @@ struct SystemVoiceEditorView: View {
                             Text(voice.name)
                                 .foregroundStyle(MinisTheme.primaryText)
                             Text("\(voice.language) \(SystemVoiceCatalog.qualityStars(voice.quality))")
-                                .font(.caption)
+                                .font(.system(size: fontSettings.scaledApp(12)))
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
                         Spacer()
@@ -166,7 +167,7 @@ struct SystemVoiceEditorView: View {
                 HStack {
                     Text("Speed")
                     Spacer()
-                    Text(rateLabel).foregroundStyle(MinisTheme.secondaryText).font(.caption)
+                    Text(rateLabel).foregroundStyle(MinisTheme.secondaryText).font(.system(size: fontSettings.scaledApp(12)))
                 }
                 Slider(value: $rate, in: 0.3...0.65, step: 0.05)
             }
@@ -174,7 +175,7 @@ struct SystemVoiceEditorView: View {
                 HStack {
                     Text("Pitch")
                     Spacer()
-                    Text(String(format: "%.1f×", pitch)).foregroundStyle(MinisTheme.secondaryText).font(.caption)
+                    Text(String(format: "%.1f×", pitch)).foregroundStyle(MinisTheme.secondaryText).font(.system(size: fontSettings.scaledApp(12)))
                 }
                 Slider(value: $pitch, in: 0.5...2.0, step: 0.1)
             }
@@ -182,7 +183,7 @@ struct SystemVoiceEditorView: View {
                 HStack {
                     Text("Volume")
                     Spacer()
-                    Text(String(format: "%.0f%%", volume * 100)).foregroundStyle(MinisTheme.secondaryText).font(.caption)
+                    Text(String(format: "%.0f%%", volume * 100)).foregroundStyle(MinisTheme.secondaryText).font(.system(size: fontSettings.scaledApp(12)))
                 }
                 Slider(value: $volume, in: 0.0...1.0, step: 0.05)
             }
@@ -208,7 +209,7 @@ struct SystemVoiceEditorView: View {
             if let err = testError {
                 Label(err, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(MinisTheme.destructive)
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
             }
         } header: {
             Text("Test")

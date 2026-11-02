@@ -12,6 +12,7 @@ import SwiftUI
 
 struct TTSGroupsView: View {
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var revision = 0
     @State private var showCreate = false
     @State private var newName = ""
@@ -28,10 +29,10 @@ struct TTSGroupsView: View {
                             .font(.system(size: 32))
                             .foregroundStyle(.quaternary)
                         Text(AppLocalized("No voice groups yet"))
-                            .font(.subheadline)
+                            .font(.system(size: fontSettings.scaledApp(15)))
                             .foregroundStyle(MinisTheme.secondaryText)
                         Text(LocalizedStringKey(VoiceServicesCopy.routingNote))
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                             .multilineTextAlignment(.center)
                     }
@@ -60,7 +61,7 @@ struct TTSGroupsView: View {
                         Text(AppLocalized("Voice Groups"))
                         Spacer()
                         EditButton()
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .textCase(nil)
                     }
                 }
@@ -147,7 +148,7 @@ struct TTSGroupsView: View {
                         .foregroundStyle(MinisTheme.primaryText)
                     if isDefault {
                         Text(AppLocalized("Default"))
-                            .font(.caption2)
+                            .font(.system(size: fontSettings.scaledApp(11)))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Capsule().fill(MinisTheme.accent.opacity(0.15)))
@@ -155,7 +156,7 @@ struct TTSGroupsView: View {
                     }
                 }
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(usable.isEmpty && !members.isEmpty
                                      ? MinisTheme.destructive
                                      : MinisTheme.secondaryText)
@@ -176,6 +177,7 @@ struct TTSGroupDetailView: View {
     let groupId: String
 
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var revision = 0
     @State private var name = ""
     @State private var didLoadName = false
@@ -196,7 +198,7 @@ struct TTSGroupDetailView: View {
                     let members = memberRows(for: g)
                     if members.isEmpty {
                         Text(AppLocalized("No services yet — add some below."))
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                     }
                     ForEach(members, id: \.id) { row in
@@ -210,18 +212,18 @@ struct TTSGroupDetailView: View {
                                     .foregroundStyle(MinisTheme.primaryText)
                                 Text(row.service.map { "\($0.kind.displayName) · \($0.voice)" }
                                      ?? AppLocalized("This service was deleted; its slot is kept"))
-                                    .font(.caption)
+                                    .font(.system(size: fontSettings.scaledApp(12)))
                                     .foregroundStyle(MinisTheme.secondaryText)
                             }
                             Spacer()
                             if let s = row.service {
                                 if !serviceStore.hasAPIKey(for: s) {
                                     Text(AppLocalized("No API key"))
-                                        .font(.caption2.weight(.medium))
+                                        .font(.system(size: fontSettings.scaledApp(11), weight: .medium))
                                         .foregroundStyle(MinisTheme.destructive)
                                 } else if !s.enabled {
                                     Text(AppLocalized("Turned off"))
-                                        .font(.caption2)
+                                        .font(.system(size: fontSettings.scaledApp(11)))
                                         .foregroundStyle(MinisTheme.secondaryText)
                                 }
                             }
@@ -240,7 +242,7 @@ struct TTSGroupDetailView: View {
                         Text(AppLocalized("Members (tried in this order)"))
                         Spacer()
                         EditButton()
-                            .font(.caption)
+                            .font(.system(size: fontSettings.scaledApp(12)))
                             .textCase(nil)
                     }
                 }
