@@ -699,31 +699,47 @@ struct DressingShopView: View {
         return Button { openPendantDetail(pendant) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .topTrailing) {
+                    // Pendant batch aesthetic, copied from the
+                    // bubble cards: monochrome + one accent,
+                    // hairline border from the theme token, soft
+                    // shadows copied from the font card (same
+                    // two layers, same values). No fixed height:
+                    // the art is exactly as tall as the 72pt
+                    // avatar + padding, so no empty space is
+                    // left inside the card. The ring itself is
+                    // untouched: same AvatarRingView, same
+                    // colour and image file as live chat.
                     pendantCardArt(pendant)
-                        .frame(height: 122)
                         .frame(width: fixedWidth ? 125 : nil)
                         .background(studio.color(.surface))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(applied ? studio.color(.accent) : studio.color(.border),
+                                    lineWidth: applied ? 1.5 : 1))
+                        .shadow(color: .black.opacity(applied ? 0.12 : 0.03),
+                                radius: applied ? 16 : 3, x: 0, y: applied ? 4 : 1)
+                        .shadow(color: .black.opacity(applied ? 0 : 0.02),
+                                radius: 2, x: 0, y: 1)
                     if applied {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 22))
-                            .foregroundStyle(studio.color(.primaryText))
+                            .foregroundStyle(studio.color(.accent))
                             .background(studio.color(.surface))
                             .clipShape(Circle())
                             .padding(8)
                     }
                 }
                 Text(pendant.title)
-                    .font(.callout)
+                    .font(.system(size: fsTitle, weight: .semibold, design: .serif))
                     .foregroundStyle(studio.color(.primaryText))
                     .padding(.top, 10)
                 Text(pendant.number)
-                    .font(.footnote)
+                    .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
                     .foregroundStyle(studio.color(.secondaryText))
                     .padding(.top, 3)
                 if applied {
                     Text(AppLocalized("正在用"))
-                        .font(.footnote.weight(.semibold))
+                        .font(.system(size: fsCaption, weight: .semibold))
                         .foregroundStyle(studio.color(.primaryText))
                         .padding(.top, 3)
                 }
@@ -770,7 +786,7 @@ struct DressingShopView: View {
         VStack(spacing: 0) {
             ZStack {
                 Text(AppLocalized("头像挂件"))
-                    .font(.title3.weight(.bold))
+                    .font(.system(size: fsTitle, weight: .bold, design: .serif))
                     .foregroundStyle(studio.color(.primaryText))
                 HStack {
                     Button { closePendantDetail() } label: {
@@ -787,6 +803,11 @@ struct DressingShopView: View {
             }
             .frame(height: 52)
             .background(studio.color(.surface))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(studio.color(.border))
+                    .frame(height: 0.5)
+            }
 
             VStack(alignment: .leading, spacing: 14) {
                 // Side label, resolved live: this detail edits
@@ -796,7 +817,7 @@ struct DressingShopView: View {
                 // for the user side — never a generic disc and
                 // never the other side's picture.
                 Text(AppLocalized("正在改：") + sidePickerLabel(for: detailPendantSide))
-                    .font(.subheadline.weight(.semibold))
+                    .font(.system(size: fsSub, weight: .semibold))
                     .foregroundStyle(studio.color(.primaryText))
                 // Large-avatar preview: the previewed ring on
                 // this side's big avatar, plus one sample chat
@@ -830,21 +851,27 @@ struct DressingShopView: View {
 
             if pendantSheetUp {
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("\(pendant.title) · \(pendant.number)")
-                            .font(.system(size: 22, weight: .bold))
+                    HStack(spacing: 6) {
+                        Text(pendant.title)
+                            .font(.system(size: fsTitle, weight: .bold, design: .serif))
                             .foregroundStyle(studio.color(.primaryText))
+                        Text("·")
+                            .font(.system(size: fsTitle, weight: .bold))
+                            .foregroundStyle(studio.color(.secondaryText))
+                        Text(pendant.number)
+                            .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(studio.color(.secondaryText))
                         Spacer(minLength: 0)
                     }
                     Text(AppLocalized("在大头像上看这款圆环，再确认换上；只换这一边的挂件，另一边不动，其他搭配也不动。"))
-                        .font(.subheadline)
+                        .font(.system(size: fsSub))
                         .foregroundStyle(studio.color(.secondaryText))
                     Text(AppLocalized("组成：") + AppLocalized("圆环"))
-                        .font(.system(size: 14))
+                        .font(.system(size: fsCaption))
                         .foregroundStyle(studio.color(.secondaryText))
                     if !pendant.detail.isEmpty {
                         Text(pendant.detail)
-                            .font(.system(size: 14))
+                            .font(.system(size: fsCaption))
                             .foregroundStyle(studio.color(.secondaryText))
                     }
                     HStack(spacing: 12) {
@@ -853,12 +880,12 @@ struct DressingShopView: View {
                             closePendantDetail()
                         }
                         .font(.callout)
-                        .foregroundStyle(studio.color(.primaryText))
+                        .foregroundStyle(studio.color(.accent))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(studio.color(.primaryText), lineWidth: 1.5)
+                                .stroke(studio.color(.accent), lineWidth: 1)
                         )
                         .buttonStyle(.plain)
                         Button(AppLocalized("换上这款")) {
@@ -869,7 +896,7 @@ struct DressingShopView: View {
                         .foregroundStyle(studio.color(.surface))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        .background(studio.color(.primaryText))
+                        .background(studio.color(.accent))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .buttonStyle(.plain)
                     }
