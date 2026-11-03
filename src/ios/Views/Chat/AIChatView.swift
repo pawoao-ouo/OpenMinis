@@ -2424,7 +2424,10 @@ struct AIChatView: View {
                     //                 and below.
                     // iOS 26 path unchanged (16pt works inside liquid-glass).
                     .font(ChatFont.font(legacyLayout ? 13 : 16, weight: .semibold))
-                    .minimumScaleFactor(legacyLayout ? 0.85 : 1.0)
+                    // [T-18] Fixed navbar: the title cannot grow its layout, so
+                    // it shrinks — but never under the readable floor (the box
+                    // also follows the dial now, capped at .xxLarge, T-16).
+                    .minimumScaleFactor(FontSettings.shrinkFloor(legacyLayout ? 13 : 16, wanted: legacyLayout ? 0.85 : 1.0))
                     .foregroundStyle(ChatColors.primaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -2626,7 +2629,14 @@ struct AIChatView: View {
         // still scale with Dynamic Type by default; clamping the
         // environment here freezes them at the design baseline without
         // having to rewrite every Text modifier individually.
-        .dynamicTypeSize(.large)
+        // [T-16] This stack used to be pinned flat to `.large`, so at the 15pt
+        // dial the navigation title was visibly smaller than the text around it.
+        // It now follows the dial (and the reader's system setting) but is
+        // capped: above ~.xxLarge the name plus the provider·model line starts
+        // to crowd the bar, and the cap is where it stops fitting rather than
+        // clipping. Cap value still needs a real-device pass at dial 15 with a
+        // long model name.
+        .dynamicTypeSize(DynamicTypeSize.medium ... DynamicTypeSize.xxLarge)
         // Blur the title (and model/provider subtitle) while the session
         // is locked, mirroring the chat body's SessionLockGateOverlay.
         // `SessionLockStore.isVisuallyLocked` is the single source of
@@ -6330,7 +6340,7 @@ public struct PlusPanelTileButton: View {
                     .foregroundStyle(CSSThemeVariables.textMain())
                     .lineLimit(1)
                     // [P-06] 最大字号下标题会撑出磁贴宽度，允许压到 80%。
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(FontSettings.shrinkFloor(12, wanted: 0.8))
             }
             .frame(maxWidth: .infinity)
         }

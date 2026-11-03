@@ -122,7 +122,7 @@ struct AgentLoopModelsSection: View {
                             .foregroundStyle(.quaternary)
                         ForEach(badges, id: \.self) { badge in
                             Text(badge)
-                                .font(.system(size: 9, weight: .medium))
+                                .font(ChatFont.font(9, weight: .medium))
                                 .foregroundStyle(MinisTheme.secondaryText)
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 1)

@@ -210,27 +210,39 @@ final class FontSettings: ObservableObject {
         base * densityFactor
     }
 
+    /// [T-38] Density for a container that is *also* a tap target (chips,
+    /// capsules, action buttons). Proportional like `density`, but never
+    /// smaller than `ratio` (85%) of the design height, so the control cannot
+    /// collapse when the dial is pushed down while its text shrinks with it.
+    /// At the 13pt default this is exactly `base`, so the default look is
+    /// unchanged.
+    func densityFloor(_ base: CGFloat, ratio: CGFloat = 0.85) -> CGFloat {
+        max(base * ratio, density(base))
+    }
+
     /// Semantic-size bucket for the global size, for the
     /// root `.dynamicTypeSize` pin and sheet scaling. 13pt
     /// maps to `.large` (the system default bucket), which is
     /// exactly what the old app-base-default pin produced.
     var globalDynamicTypeSize: DynamicTypeSize {
-        switch Int(messagePointSize) {
-        case ...10: return .xSmall
-        case 11: return .small
-        case 12: return .medium
-        case 13: return .large
-        case 14: return .xLarge
-        default: return .xxLarge
-        }
+        DynamicTypeSize(globalContentSizeCategory)
     }
 
     /// UIKit equivalent of `globalDynamicTypeSize`, for the
     /// all-windows content-size override.
+    ///
+    /// [T-12] This is the single table. It used to disagree
+    /// with `globalDynamicTypeSize` at 11pt and 12pt (one said
+    /// `.extraSmall`/`.small`, the other `.small`/`.medium`), so the
+    /// root pin and the window override scaled the same app by
+    /// different amounts. `globalDynamicTypeSize` now derives from
+    /// this, so 13pt is `.large` in both and every step moves them
+    /// together.
     var globalContentSizeCategory: UIContentSizeCategory {
         switch Int(messagePointSize) {
-        case ...11: return .extraSmall
-        case 12: return .small
+        case ...10: return .extraSmall
+        case 11: return .small
+        case 12: return .medium
         case 13: return .large
         case 14: return .extraLarge
         default: return .extraExtraLarge
@@ -239,9 +251,22 @@ final class FontSettings: ObservableObject {
 
     // MARK: - Scaling helpers
 
+    // ⚠️ [T-71] TWO ANCHORS, DO NOT MIX THEM.
+    //
+    //   scaledMessage    → ÷ 16.5   (message-body sites, written at the old 16.5pt base)
+    //   scaledApp        → ÷ 13     (UI / chat-input sites, written at their literal size)
+    //   scaledChatInput  → ÷ 13     (same anchor as scaledApp; kept as a named alias)
+    //
+    // Passing the same number to two of these does NOT give the same result:
+    // at the 13pt default scaledMessage(13) = 10.2pt while scaledApp(13) = 13pt,
+    // a silent ~21% difference. Pick the function that matches the base the
+    // site was written against; when migrating a literal, scaledApp is the
+    // usual choice and leaves the 13pt default pixel-identical.
+
     /// Scale an input-text size by the global size: a site
     /// written at its literal size renders unchanged at the
     /// 13pt default and moves with the global size elsewhere.
+    /// Anchor 13 (see the warning above).
     func scaledChatInput(_ size: CGFloat) -> CGFloat {
         size * messagePointSize / 13
     }
@@ -250,13 +275,57 @@ final class FontSettings: ObservableObject {
     /// user's message point size (10-15pt, default 13pt), so a
     /// site written at the old 16.5pt base renders at exactly
     /// the chosen point size, and smaller sites scale with it.
+    /// Anchor 16.5 (see the warning above).
+    ///
+    /// Fact, not a defect: the input bar renders through
+    /// `scaledChatInput(16.5)`, so at the default it is 16.5pt while the
+    /// message body is 13pt — the composer text is deliberately larger
+    /// than the body. The font-size page should say so rather than let the
+    /// reader assume they are the same size.
     func scaledMessage(_ size: CGFloat) -> CGFloat {
         size * messagePointSize / 16.5
     }
 
+    /// [T-17] Micro copy floor. Footnote / preview-label sizes used to ride
+    /// the dial all the way down (4pt at the 10pt setting, ~3pt on screen).
+    /// Anything in the tiny band goes through this so it stops at
+    /// `microFloor` no matter how far the dial is pushed down. This is the
+    /// lower guard rail the plan asks for; it never raises a size that is
+    /// already at or above the floor.
+    static let microFloor: CGFloat = 6
+
+    func scaledMicro(_ size: CGFloat) -> CGFloat {
+        max(FontSettings.microFloor, scaledApp(size))
+    }
+
+    /// [T-18] Floor for `minimumScaleFactor` on labels that sit in a fixed
+    /// container and therefore cannot grow their layout instead of shrinking
+    /// the text. The site still picks its own `wanted` factor, but the result
+    /// never lets the rendered glyphs fall under `microFloor` (6pt): however
+    /// far the dial is pushed, a one-line label cannot shrink out of sight.
+    /// `size` is the *unscaled* literal the site hands to `ChatFont.font`, so
+    /// the floor is evaluated against the dial-scaled size.
+    ///
+    /// Sites that *can* grow their layout should grow it instead — this is for
+    /// the ones that genuinely cannot (nav title, fixed-size tiles, single-line
+    /// rows in a fixed panel). Each use still needs a real-device pass at the
+    /// 15pt dial with a long string.
+    static func shrinkFloor(_ size: CGFloat, wanted: CGFloat) -> CGFloat {
+        let scaled = FontSettings.shared.scaledApp(size)
+        guard scaled > 0 else { return wanted }
+        return max(wanted, min(1.0, FontSettings.microFloor / scaled))
+    }
+
+    /// [T-38/T-41] Touch-target floor. A control's *visual* size may follow the
+    /// dial, but its tappable area must not: `density` bottoms out at 0.75, so a
+    /// 44pt row scaled by it would fall to 33pt — under the 44pt minimum Apple
+    /// and the plan both ask for. Apply to the interactive element
+    /// (`.frame(minHeight:)`, `.contentShape(...)`), never to the label inside it.
+    static let minHitTarget: CGFloat = 44
+
     /// Scale a UI-text size by the global size, same anchor
     /// as `scaledChatInput`: literal sizes are unchanged at
-    /// the 13pt default.
+    /// the 13pt default. Anchor 13 (see the warning above).
     func scaledApp(_ size: CGFloat) -> CGFloat {
         size * messagePointSize / 13
     }
@@ -381,7 +450,23 @@ enum ChatFont {
     static func font(_ size: CGFloat,
                      weight: Font.Weight = .regular,
                      design: Font.Design? = nil) -> Font {
-        let scaled = FontSettings.shared.scaledApp(size)
+        resolved(FontSettings.shared.scaledApp(size), weight: weight, design: design)
+    }
+
+    /// [T-17] Micro-copy variant: identical to `font(_:)`, except the final
+    /// size stops at `FontSettings.microFloor` (6pt) however far the dial is
+    /// pushed down, so a footnote / status badge cannot shrink out of
+    /// legibility. Use for anything written at 8pt or below.
+    static func micro(_ size: CGFloat,
+                      weight: Font.Weight = .regular,
+                      design: Font.Design? = nil) -> Font {
+        let scaled = max(FontSettings.microFloor, FontSettings.shared.scaledApp(size))
+        return resolved(scaled, weight: weight, design: design)
+    }
+
+    private static func resolved(_ scaled: CGFloat,
+                                 weight: Font.Weight,
+                                 design: Font.Design?) -> Font {
         if let design {
             return .system(size: scaled, weight: weight, design: design)
         }

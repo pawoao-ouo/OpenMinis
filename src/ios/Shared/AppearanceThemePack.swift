@@ -2303,6 +2303,40 @@ enum MinisThemeShape {
     static var userBubbleRadius: CGFloat { pack.radius(.userBubble) }
     static var assistantBubbleRadius: CGFloat { pack.radius(.assistantBubble) }
     static var thinkingRadius: CGFloat { pack.radius(.thinking) }
+
+    // MARK: - [T-41] Font-linked visual tokens (stage-4 subset)
+    //
+    // These four shapes are the ones the plan calls out as "must move with the
+    // font": a container built around scaled text that keeps a fixed corner or
+    // a fixed line height looks wrong as soon as the dial leaves the default.
+    // Every token below is an identity at the 13pt default (the number is the
+    // design value) and rides the same density factor the settings pages use,
+    // so a control around scaled text stays proportional. The remaining bare
+    // literals across the app (the ~250 corner sites, the scattered shadow and
+    // spacing numbers) stay for the stage-8 sweep — this is only the subset the
+    // font work needs.
+    static var cardRadius: CGFloat { FontSettings.shared.density(16) }
+    static var buttonRadius: CGFloat { FontSettings.shared.density(12) }
+    static var capsuleRadius: CGFloat { FontSettings.shared.density(12) }
+    /// Input-bar corner keeps its own pack field, but follows the dial too.
+    static var inputRadius: CGFloat { FontSettings.shared.density(inputBarRadius) }
+
+    /// [T-41] Proportional line height: the font size × 1.4 plus a fixed
+    /// leading, so a computed height follows the dial instead of drifting out
+    /// from under the text it wraps.
+    static func lineHeight(_ size: CGFloat, fixedLeading: CGFloat = 3) -> CGFloat {
+        FontSettings.shared.scaledApp(size) * 1.4 + fixedLeading
+    }
+
+    /// [T-41] Scale a design-time `.lineSpacing` value by the same factor the
+    /// font above it scales by, so leading stays in proportion instead of
+    /// staying fixed while the glyphs grow. `anchor` is the unscaled literal
+    /// the font was built with; at the 13pt default the result is `design`.
+    static func lineSpacing(_ design: CGFloat, anchor: CGFloat) -> CGFloat {
+        guard anchor > 0 else { return design }
+        return design * (FontSettings.shared.scaledApp(anchor) / anchor)
+    }
+
     /// [B28 B-3] 三个 thinking 颜色字段原来写了不生效：`MinisThemeShape`
     /// 直接取 `AppearanceStudio.color(.accent, scope: .chat)`，而 pack 里的
     /// `thinkingFillHex / thinkingStrokeHex / thinkingAccentHex` 只有序列化，
@@ -2458,11 +2492,15 @@ enum MinisThemeShape {
     static var inputBar: MinisBubbleShape {
         MinisBubbleShape(style: inputBarStyle, radius: inputBarRadius, tailOnTrailing: false)
     }
+    /// [T-14] Pack value is a *base*, not the final size: the global dial
+    /// scales it (13pt dial = the pack value itself, exactly as the rest of
+    /// the app is anchored). Before this the thinking card was the one place
+    /// the dial did nothing at all, with no user-facing note saying so.
     static var thinkingTitleSize: CGFloat {
-        CGFloat(min(22, max(10, pack.thinkingTitleSize)))
+        FontSettings.shared.scaledApp(CGFloat(min(22, max(10, pack.thinkingTitleSize))))
     }
     static var thinkingBodySize: CGFloat {
-        CGFloat(min(22, max(10, pack.thinkingBodySize)))
+        FontSettings.shared.scaledApp(CGFloat(min(22, max(10, pack.thinkingBodySize))))
     }
     static var inputBarRadius: CGFloat {
         CGFloat(min(32, max(4, pack.inputBarRadius)))

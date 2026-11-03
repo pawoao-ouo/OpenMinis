@@ -129,12 +129,12 @@ struct NovelDialogueBox: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
                             AssistantSoulName(personaId: personaID)
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(ChatFont.font(14, weight: .semibold))
                                 .foregroundStyle(ChatColors.primaryText)
                             Spacer()
                             if lines.count > 1 {
                                 Text("\(min(cursor, lines.count - 1) + 1) / \(lines.count)")
-                                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                                    .font(ChatFont.font(11, weight: .medium).monospacedDigit())
                                     .foregroundStyle(ChatColors.secondaryText)
                             }
                         }
@@ -153,7 +153,7 @@ struct NovelDialogueBox: View {
                 .padding(.vertical, 16)
             } else {
                 Text("还没有台词")
-                    .font(.system(size: 15))
+                    .font(ChatFont.font(15))
                     .foregroundStyle(ChatColors.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 28)
@@ -166,7 +166,7 @@ struct NovelDialogueBox: View {
                     Image(systemName: cursor + 1 < lines.count ? "chevron.down" : "checkmark")
                         .font(.system(size: 10, weight: .semibold))
                     Text(cursor + 1 < lines.count ? "点一下继续" : "已经到最后")
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                     Spacer()
                 }
                 .foregroundStyle(ChatColors.secondaryText.opacity(0.7))

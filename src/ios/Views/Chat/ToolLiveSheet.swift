@@ -2123,7 +2123,7 @@ private struct ToolPreviewThumbnail: View {
         .overlay(alignment: .bottom) {
             if isLive && isShell {
                 Text("\(resourceMonitor.formattedCPU)  \(resourceMonitor.formattedMem(compact: true))")
-                    .font(.system(size: fontSettings.scaledApp(5), weight: .medium, design: .monospaced))
+                    .font(.system(size: fontSettings.scaledMicro(5), weight: .medium, design: .monospaced))
                     .foregroundStyle(Color.white.opacity(0.8))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 2)
@@ -2147,7 +2147,7 @@ private struct ToolPreviewThumbnail: View {
     private func snapshotTextPreview(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(previewHeader)
-                .font(.system(size: fontSettings.scaledApp(6), weight: .bold, design: isShell ? .monospaced : .default))
+                .font(.system(size: fontSettings.scaledMicro(6), weight: .bold, design: isShell ? .monospaced : .default))
                 .foregroundStyle(isShell ? .white : .white.opacity(0.45))
                 .lineLimit(1)
                 .padding(.horizontal, 4)
@@ -2155,7 +2155,7 @@ private struct ToolPreviewThumbnail: View {
                 .padding(.bottom, 1)
 
             Text(lastLines(text, count: 12))
-                .font(.system(size: fontSettings.scaledApp(4), design: .monospaced))
+                .font(.system(size: fontSettings.scaledMicro(4), design: .monospaced))
                 .foregroundStyle(accentColor.opacity(0.85))
                 .lineLimit(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2201,7 +2201,7 @@ private struct ToolPreviewThumbnail: View {
         }()
         return VStack(alignment: .leading, spacing: 0) {
             Text(previewHeader)
-                .font(.system(size: fontSettings.scaledApp(6), weight: .bold, design: isShell ? .monospaced : .default))
+                .font(.system(size: fontSettings.scaledMicro(6), weight: .bold, design: isShell ? .monospaced : .default))
                 .foregroundStyle(isShell ? .white : .white.opacity(0.45))
                 .lineLimit(1)
                 .padding(.horizontal, 4)
@@ -2209,7 +2209,7 @@ private struct ToolPreviewThumbnail: View {
                 .padding(.bottom, 1)
 
             Text(lastLines(displayText, count: 12))
-                .font(.system(size: fontSettings.scaledApp(4), design: .monospaced))
+                .font(.system(size: fontSettings.scaledMicro(4), design: .monospaced))
                 .foregroundStyle(accentColor.opacity(0.85))
                 .lineLimit(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2236,7 +2236,7 @@ private struct ToolPreviewThumbnail: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             Text(previewHeader)
-                .font(.system(size: fontSettings.scaledApp(6), weight: .bold))
+                .font(.system(size: fontSettings.scaledMicro(6), weight: .bold))
                 .foregroundStyle(.white.opacity(0.45))
                 .lineLimit(1)
                 .padding(.horizontal, 4)
@@ -2245,7 +2245,7 @@ private struct ToolPreviewThumbnail: View {
 
             if !oldText.isEmpty {
                 Text(lastLines(oldText, count: 6).split(separator: "\n", omittingEmptySubsequences: false).map { "- " + $0 }.joined(separator: "\n"))
-                    .font(.system(size: fontSettings.scaledApp(4), design: .monospaced))
+                    .font(.system(size: fontSettings.scaledMicro(4), design: .monospaced))
                     .foregroundStyle(Color(red: 1, green: 0.4, blue: 0.4).opacity(0.85))
                     .lineLimit(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2253,7 +2253,7 @@ private struct ToolPreviewThumbnail: View {
             }
             if !newText.isEmpty {
                 Text(lastLines(newText, count: 6).split(separator: "\n", omittingEmptySubsequences: false).map { "+ " + $0 }.joined(separator: "\n"))
-                    .font(.system(size: fontSettings.scaledApp(4), design: .monospaced))
+                    .font(.system(size: fontSettings.scaledMicro(4), design: .monospaced))
                     .foregroundStyle(Color(red: 0.4, green: 1, blue: 0.4).opacity(0.85))
                     .lineLimit(6)
                     .frame(maxWidth: .infinity, alignment: .leading)

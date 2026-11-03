@@ -57,7 +57,7 @@ struct GlobalRegexRulesView: View {
                     Spacer()
                     if !store.rules.isEmpty {
                         EditButton()
-                            .font(.system(size: 13))
+                            .font(ChatFont.font(13))
                     }
                 }
             } footer: {
@@ -149,7 +149,7 @@ struct GlobalRegexRulesView: View {
                 )) {
                     HStack(spacing: 6) {
                         Text(rule.name.isEmpty ? "未命名规则" : rule.name)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(ChatFont.font(15, weight: .semibold))
                             .foregroundStyle(ChatColors.primaryText)
                         scopeBadge(for: rule)
                     }
@@ -289,7 +289,7 @@ struct GlobalRegexRulesView: View {
 
     private func badge(text: String, color: Color) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .medium))
+            .font(ChatFont.font(10, weight: .medium))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.14)))

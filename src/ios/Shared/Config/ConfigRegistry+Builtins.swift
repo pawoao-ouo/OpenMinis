@@ -1159,16 +1159,37 @@ extension ConfigRegistry {
             defaultIndex: 0
         ))
         // Global UI font scale (settings labels, list rows, etc.).
-        // Backed by FontSettings.shared.appBaseScale — do NOT touch
-        // UserDefaults directly: the @Published setter posts a
-        // notification + retraits all UIWindows on iOS 17+, which a
-        // raw UserDefaults write would skip.
+        // [T-40] The legacy stepped axes no longer drive any size, so this
+        // now forwards through the one live axis (`messagePointSize`). Do NOT
+        // touch UserDefaults directly: the @Published setter posts the cache
+        // notification and re-traits all UIWindows on iOS 17+.
         r.register(fontScaleField(
             path: "appearance.appFontSize",
             displayName: "App font size",
-            description: "Global UI font scale (xSmall / small / default / medium / large / extraLarge).",
-            keyPath: \.appBaseScale,
+            description: "Global text size as a step (xSmall / small / default / medium / large / extraLarge). Forwarded to the live pt size (`appearance.messagePointSize`): the three smallest steps land on 10pt, the largest on 15pt.",
             risk: .normal
+        ))
+        // [T-40] The one live global size. Before this the registry only
+        // advertised the three legacy stepped axes, so every read/write from
+        // `minis-config` (and the AI) reported success while the app did not
+        // move — there was no entry at all for the value that renders.
+        r.register(ClosureField(
+            path: "appearance.messagePointSize",
+            displayName: "Text size (pt)",
+            description: "The one global size for message body, UI and input text: 10-15pt, 13pt default. This is exactly the value the Settings → 字号 dial moves.",
+            valueSchema: .int(min: 10, max: 15),
+            risk: .normal,
+            revertable: true,
+            reader: { .int(Int(FontSettings.shared.messagePointSize.rounded())) },
+            writer: { value in
+                guard case .int(let pt) = value else {
+                    throw ConfigError.typeMismatch(expected: "int")
+                }
+                guard (10...15).contains(pt) else {
+                    throw ConfigError.invalidValue("Text size must be between 10 and 15pt.")
+                }
+                FontSettings.shared.messagePointSize = CGFloat(pt)
+            }
         ))
     }
 
@@ -1243,31 +1264,34 @@ extension ConfigRegistry {
         r.register(fontScaleField(
             path: "chat.inputFontSize",
             displayName: "Input font size",
-            description: "Font size for the chat composer text editor.",
-            keyPath: \.chatInputScale,
+            description: "Font size for the chat composer text editor. Forwarded to the live global pt size (`appearance.messagePointSize`).",
             risk: .normal
         ))
         r.register(fontScaleField(
             path: "chat.messageFontSize",
             displayName: "Message font size",
-            description: "Base font size for assistant / user message bodies (markdown). Setting this invalidates rendered markdown caches.",
-            keyPath: \.messageBaseScale,
+            description: "Base font size for assistant / user message bodies (markdown). Forwarded to the live global pt size (`appearance.messagePointSize`); a change invalidates rendered markdown caches.",
             risk: .normal
         ))
     }
 
     // MARK: Font-scale field factory
     //
-    // Builds a ClosureField that reads/writes one FontScaleLevel axis
-    // on FontSettings.shared. Centralised so the three axes share
-    // identical schema + serialisation, and so audit/revert round-trip
-    // through the same string tokens (xSmall / small / default / …).
+    // Builds a ClosureField for one of the three legacy stepped axes.
+    // [T-40] They no longer drive any rendered size — `messagePointSize` is
+    // the one global size (see FontSettings's class comment) — but they used
+    // to be registered as if they were live, so a `minis-config` write
+    // reported success while nothing moved. They now forward both ways
+    // through the live axis: a write lands as 13pt × the level's multiplier
+    // (clamped to the 10-15pt range the real axis enforces), and a read
+    // reports the level nearest whatever the size currently is. Kept rather
+    // than deleted so old scripts and the stored legacy values keep
+    // round-tripping through the same tokens (xSmall / small / default / …).
     @MainActor
     private static func fontScaleField(
         path: String,
         displayName: String,
         description: String,
-        keyPath: ReferenceWritableKeyPath<FontSettings, FontScaleLevel>,
         risk: ConfigRisk
     ) -> ConfigField {
         let cases = FontScaleLevel.allCases.map(fontScaleToken)
@@ -1279,7 +1303,7 @@ extension ConfigRegistry {
             risk: risk,
             revertable: true,
             reader: {
-                .string(fontScaleToken(FontSettings.shared[keyPath: keyPath]))
+                .string(fontScaleToken(nearestFontLevel(for: FontSettings.shared.messagePointSize)))
             },
             writer: { value in
                 guard case .string(let token) = value else {
@@ -1288,9 +1312,30 @@ extension ConfigRegistry {
                 guard let level = fontScaleFromToken(token) else {
                     throw ConfigError.invalidValue("Unknown font scale: \(token)")
                 }
-                FontSettings.shared[keyPath: keyPath] = level
+                FontSettings.shared.messagePointSize = forwardedPointSize(for: level)
             }
         )
+    }
+
+    /// 13pt × the level's multiplier, clamped to the live axis's 10-15pt range.
+    /// The three smallest steps all clamp to 10pt; the largest to 15pt.
+    private static func forwardedPointSize(for level: FontScaleLevel) -> CGFloat {
+        min(15, max(10, 13 * level.multiplier))
+    }
+
+    /// The level whose forwarded point size is nearest `point`. Ties pick the
+    /// earlier (smaller) level, so the token stays stable across reads.
+    private static func nearestFontLevel(for point: CGFloat) -> FontScaleLevel {
+        var best: FontScaleLevel = .default
+        var bestDelta = CGFloat.greatestFiniteMagnitude
+        for level in FontScaleLevel.allCases {
+            let delta = abs(forwardedPointSize(for: level) - point)
+            if delta < bestDelta {
+                bestDelta = delta
+                best = level
+            }
+        }
+        return best
     }
 
     /// Stable string token for a FontScaleLevel — must match exactly

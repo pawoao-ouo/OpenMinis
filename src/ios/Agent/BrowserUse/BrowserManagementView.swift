@@ -89,7 +89,7 @@ struct BrowserManagementView: View {
                     Label(profile.displayName, systemImage: profile.icon)
                         .foregroundStyle(AppearanceStudio.shared.color(.primaryText))
                     Text(displayUA(for: profile))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(ChatFont.font(11, design: .monospaced))
                         .foregroundStyle(MinisTheme.secondaryText)
                         .lineLimit(2)
                 }
@@ -129,7 +129,7 @@ struct BrowserManagementView: View {
                 }
             }
             TextField("Enter custom user agent...", text: $customUA, axis: .vertical)
-                .font(.system(size: 11, design: .monospaced))
+                .font(ChatFont.font(11, design: .monospaced))
                 .foregroundStyle(MinisTheme.secondaryText)
                 .lineLimit(2...4)
                 .onSubmit {
@@ -242,14 +242,14 @@ struct BrowserManagementView: View {
                 Spacer()
                 TextField("Width", text: $viewportWidthText)
                     .keyboardType(.numberPad)
-                    .font(.system(size: 13, design: .monospaced))
+                    .font(ChatFont.font(13, design: .monospaced))
                     .multilineTextAlignment(.center)
                     .frame(width: 72)
                     .onSubmit { commitCustomViewport() }
                 Text("×").foregroundStyle(MinisTheme.secondaryText)
                 TextField("Height", text: $viewportHeightText)
                     .keyboardType(.numberPad)
-                    .font(.system(size: 13, design: .monospaced))
+                    .font(ChatFont.font(13, design: .monospaced))
                     .multilineTextAlignment(.center)
                     .frame(width: 72)
                     .onSubmit { commitCustomViewport() }
@@ -319,9 +319,9 @@ struct BrowserManagementView: View {
                         } label: {
                             VStack(spacing: 2) {
                                 Text(preset.label)
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(ChatFont.font(12, weight: .medium))
                                 Text("\(preset.width)×\(preset.height)")
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(ChatFont.font(10, design: .monospaced))
                                     .foregroundStyle(MinisTheme.secondaryText)
                             }
                             .padding(.horizontal, 10)
@@ -392,9 +392,9 @@ struct BrowserManagementView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(group.domain)
-                                .font(.system(size: 14, weight: .medium))
+                                .font(ChatFont.font(14, weight: .medium))
                             Text("\(group.cookies.count) cookie\(group.cookies.count == 1 ? "" : "s")")
-                                .font(.system(size: 12))
+                                .font(ChatFont.font(12))
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
                         Spacer()

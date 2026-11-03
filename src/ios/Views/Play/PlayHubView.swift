@@ -212,7 +212,7 @@ struct PlayHubView: View {
                     HStack(spacing: 10) {
                         ProgressView()
                         Text(AppLocalized("正在导入…"))
-                            .font(.system(size: 13, weight: .medium))
+                            .font(ChatFont.font(13, weight: .medium))
                             .foregroundStyle(MinisThemeList.title)
                     }
                     .padding(.horizontal, 18)
@@ -263,7 +263,7 @@ struct PlayHubView: View {
                 showNameEditor = true
             } label: {
                 Text(displayName.isEmpty ? "轻点起个名字" : displayName)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(ChatFont.font(15, weight: .semibold))
                     .foregroundStyle(displayName.isEmpty ? MinisThemeList.subtitle : MinisThemeList.title)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
@@ -337,7 +337,7 @@ struct PlayHubView: View {
                     withAnimation(.easeInOut(duration: 0.18)) { selection = tab }
                 } label: {
                     Text(LocalizedStringKey(tab.title))
-                        .font(.system(size: 13, weight: selection == tab ? .semibold : .regular))
+                        .font(ChatFont.font(13, weight: selection == tab ? .semibold : .regular))
                         .foregroundStyle(selection == tab ? MinisThemeList.title : MinisThemeList.subtitle)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
@@ -556,10 +556,10 @@ struct PlayHubView: View {
             } label: {
                 HStack(spacing: 8) {
                     Text(LocalizedStringKey(category.label))
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(ChatFont.font(16, weight: .semibold))
                         .foregroundStyle(MinisThemeList.title)
                     Text("\(items.count)")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(ChatFont.font(12, weight: .semibold))
                         .foregroundStyle(MinisThemeList.subtitle)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 1.5)
@@ -671,17 +671,23 @@ struct PlayHubView: View {
     private var selectionBar: some View {
         HStack(spacing: 14) {
             Text("已选 \(selectedIDs.count) 项")
-                .font(.system(size: 14, weight: .semibold))
+                .font(ChatFont.font(14, weight: .semibold))
                 .foregroundStyle(MinisThemeList.title)
             Spacer()
             Button(role: .destructive) {
                 showDeleteConfirm = true
             } label: {
-                Label("删除", systemImage: "trash")
-                    .font(.system(size: 14, weight: .semibold))
+                // [T-13] Label 的图标与文字共用同一字号,拆开:文字走 ChatFont 随全局字号,图标保留固定字号
+                Label {
+                    Text("删除")
+                        .font(ChatFont.font(14, weight: .semibold))
+                } icon: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14, weight: .semibold))
+                }
             }
             Button("完成") { selecting = false; selectedIDs = [] }
-                .font(.system(size: 14, weight: .semibold))
+                .font(ChatFont.font(14, weight: .semibold))
                 .foregroundStyle(MinisThemeList.accent)
         }
         .padding(.horizontal, 16)
@@ -708,11 +714,11 @@ struct PlayHubView: View {
                 )
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(ChatFont.font(15, weight: .semibold))
                     .foregroundStyle(MinisThemeList.title)
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.system(size: 11))
+                    .font(ChatFont.font(11))
                     .foregroundStyle(MinisThemeList.subtitle)
                     .lineLimit(1)
             }
@@ -740,7 +746,7 @@ struct PlayHubView: View {
                         .stroke(studio.color(.border, scope: .home).opacity(0.55), lineWidth: 0.6)
                 )
             Text(text)
-                .font(.system(size: 13))
+                .font(ChatFont.font(13))
                 .foregroundStyle(MinisThemeList.subtitle)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)

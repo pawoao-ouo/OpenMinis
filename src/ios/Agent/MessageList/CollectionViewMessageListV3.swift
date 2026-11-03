@@ -4369,15 +4369,23 @@ extension CollectionViewMessageListV3 {
                     // + 4pt block-wrapper vertical padding = 40 (same calibration as tool
                     // capsules, [T-ios-decel-inv-estimate-calibration]).
                     // When expanded, content area adds up to 300pt of inner text + 10pt bottom pad.
-                    let headerH: CGFloat = 40
+                    // [T-15] The body line height, the header height and the
+                    // per-glyph width used to be nailed to 13pt whatever the dial
+                    // said, so every other setting prefetched the wrong height
+                    // (−12% at 15pt, +25% at 10pt). All three now derive from the
+                    // exact size the block draws with — `thinkingBodySize` is the
+                    // pack base already multiplied by the dial — and fall back to
+                    // the 13pt calibration (7.02pt/glyph) at the default.
+                    let thinkingFont = MinisThemeShape.thinkingBodySize
+                    let headerH: CGFloat = 40 * (thinkingFont / 13)
                     guard block.isThinkingExpanded, !block.content.isEmpty else {
                         return headerH
                     }
                     let innerWidth = max(width - 24, 100)         // 12pt horizontal pad each side
-                    let innerLineHeight: CGFloat = 13 * 1.4 + 3   // .lineSpacing(3) on 13pt font
+                    let innerLineHeight: CGFloat = thinkingFont * 1.4 + 3   // .lineSpacing(3)
                     let lines = block.content.split(separator: "\n", omittingEmptySubsequences: false)
                     var textH: CGFloat = 0
-                    let cpl = max(1, innerWidth / 7)              // ~7pt per CJK/wide glyph at 13pt
+                    let cpl = max(1, innerWidth / (thinkingFont * 0.54))  // ~7pt per CJK glyph at 13pt
                     for line in lines {
                         let wrapped = max(1, ceil(CGFloat(line.count) / cpl))
                         textH += wrapped * innerLineHeight

@@ -366,7 +366,8 @@ struct TogetherPanelView: View {
                 .font(ChatFont.font(26 * s, weight: .semibold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                // [T-18] 面板固定一行,长不出布局,所以允许压;下限走系统护栏。
+                .minimumScaleFactor(FontSettings.shrinkFloor(26, wanted: 0.6))
 
             if let en = t.titleEn, !en.isEmpty {
                 Text(en)
@@ -956,7 +957,7 @@ struct TogetherInlineLyricsView: View {
             // 不压整页、不加阴影：靠字号和字重拉开当前行，颜色只用主题本色。
             .multilineTextAlignment(.center)
             .lineLimit(1)
-            .minimumScaleFactor(0.8)
+            .minimumScaleFactor(FontSettings.shrinkFloor(isCurrent ? 17 : 13, wanted: 0.8))
             .frame(maxWidth: .infinity)
             .animation(.easeOut(duration: 0.26), value: isCurrent)
             .contentShape(Rectangle())

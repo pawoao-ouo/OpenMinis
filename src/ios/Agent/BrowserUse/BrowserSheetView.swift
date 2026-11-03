@@ -32,7 +32,7 @@ struct BrowserSheetView: View {
                         BrowserAddressBarIcon(isLoading: manager?.isLoading ?? false)
 
                         TextField("Search or enter URL", text: $addressText)
-                            .font(.system(size: 13, design: .monospaced))
+                            .font(ChatFont.font(13, design: .monospaced))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.URL)
@@ -266,7 +266,7 @@ struct BrowserSheetView: View {
 
                 // Tab count badge
                 Text("\(pool.tabs.count)/\(BrowserTabPool.maxTabs)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(ChatFont.font(10, weight: .medium, design: .monospaced))
                     .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .browser).opacity(0.7))
                     .padding(.leading, 4)
             }
@@ -283,7 +283,7 @@ struct BrowserSheetView: View {
         } label: {
             HStack(spacing: 4) {
                 Text(tabLabel(for: tab))
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .font(ChatFont.font(12, weight: isSelected ? .semibold : .regular))
                     .lineLimit(1)
                     .frame(maxWidth: 120)
 
@@ -369,7 +369,7 @@ private struct AgentBrowsingOverlay: View {
                     .shadow(color: AppearanceStudio.shared.color(.accent).opacity(breathing ? 0.8 : 0), radius: breathing ? 8 : 0)
 
                 Text("嘟嘟 is browsing")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(ChatFont.font(13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.9))
 
                 if let onTakeover {
@@ -380,7 +380,7 @@ private struct AgentBrowsingOverlay: View {
                     Button("Takeover") {
                         onTakeover()
                     }
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(ChatFont.font(13, weight: .semibold))
                     .foregroundStyle(AppearanceStudio.shared.color(.accent))
                 }
             }
@@ -419,10 +419,10 @@ private struct TakeoverActiveBanner: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                 Text("你已接管")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(ChatFont.font(13, weight: .medium))
                     .foregroundStyle(.white)
                 Button("交还给AI") { onDone() }
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(ChatFont.font(13, weight: .semibold))
                     .foregroundStyle(AppearanceStudio.shared.color(.accent))
             }
             .padding(.horizontal, 16)
@@ -504,7 +504,7 @@ struct BrowserDownloadFloatingButton: View {
                     .overlay(alignment: .topTrailing) {
                         if badge > 0 {
                             Text("\(badge)")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(ChatFont.font(10, weight: .bold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, badge > 9 ? 4 : 0)
                                 .frame(minWidth: 16, minHeight: 16)
@@ -642,7 +642,7 @@ private struct BrowserDownloadPanelRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.filename)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(ChatFont.font(14, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 switch entry.state {
@@ -652,18 +652,18 @@ private struct BrowserDownloadPanelRow: View {
                     let totalText = progress.total > 0
                         ? " / \(ByteCountFormatter.string(fromByteCount: progress.total, countStyle: .file))" : ""
                     Text("\(pctText)\(done)\(totalText)")
-                        .font(.system(size: 12))
+                        .font(ChatFont.font(12))
                         .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .browser))
                     ProgressView(value: progress.fraction)
                         .progressViewStyle(.linear)
                         .tint(AppearanceStudio.shared.color(.accent))
                 case .completed(let sizeText):
                     Text("\(sizeText) · \(AppLocalized("Show in Files", comment: "Completed download row hint"))")
-                        .font(.system(size: 12))
+                        .font(ChatFont.font(12))
                         .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .browser))
                 case .failed(let reason):
                     Text(reason)
-                        .font(.system(size: 12))
+                        .font(ChatFont.font(12))
                         .foregroundStyle(.red)
                         .lineLimit(3)
                 }
@@ -747,7 +747,7 @@ struct BrowserDownloadCardRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.filename)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(ChatFont.font(13, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 subtitle
@@ -800,15 +800,15 @@ struct BrowserDownloadCardRow: View {
             let totalText = progress.total > 0
                 ? " / \(ByteCountFormatter.string(fromByteCount: progress.total, countStyle: .file))" : ""
             Text("\(pctText)\(done)\(totalText)")
-                .font(.system(size: 11))
+                .font(ChatFont.font(11))
                 .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .browser))
         case .completed(let sizeText):
             Text("\(sizeText) · \(AppLocalized("Tap to view", comment: "Completed download card"))")
-                .font(.system(size: 11))
+                .font(ChatFont.font(11))
                 .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .browser))
         case .failed(let reason):
             Text(reason)
-                .font(.system(size: 11))
+                .font(ChatFont.font(11))
                 .foregroundStyle(.red)
                 .lineLimit(2)
         }

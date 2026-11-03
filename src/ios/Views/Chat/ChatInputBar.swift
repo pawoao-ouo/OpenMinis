@@ -57,8 +57,12 @@ struct SwipeToSendHint: View {
                      : AppLocalized("Release to send"))
                     .font(ChatFont.font(13, weight: .semibold))
                     .foregroundStyle(chipFg)
-                    .padding(.horizontal, 14)
-                    .frame(height: 34)
+                    // [T-38] This chip is a chat-side capsule and used to hold a
+                    // fixed height while the settings pages scaled theirs, so the
+                    // proportions drifted as the dial moved. It now rides the same
+                    // density factor (1.0 at the 13pt default, unchanged there).
+                    .padding(.horizontal, fontSettings.density(14))
+                    .frame(height: fontSettings.density(34))
                     .background(Capsule().fill(chipBg))
                     .shadow(color: Color.black.opacity(0.15), radius: 5, y: 2)
                     .opacity(Double(capsuleAlpha))

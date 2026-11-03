@@ -512,7 +512,7 @@ struct UserMessageText: View {
                     }
                 } label: {
                     Text(expanded ? AppLocalized("收起") : AppLocalized("展开全文"))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(ChatFont.font(12, weight: .medium))
                         .foregroundStyle(ChatColors.accent)
                 }
                 .buttonStyle(.plain)
@@ -532,7 +532,7 @@ struct UserMessageText: View {
 @MainActor
 private func bubbleMetaText(_ date: Date) -> Text {
     Text(BubbleMetaTimeFormatter.shared.string(from: date))
-        .font(.system(size: 10))
+        .font(ChatFont.font(10))
         .foregroundStyle(ChatColors.secondaryText.opacity(0.8))
 }
 
@@ -821,7 +821,7 @@ struct ChatMessageRow: View {
                         .font(.system(size: 10))
                 }
                 Text(message.content)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(ChatFont.font(12, weight: .medium))
                 if !message.isCompactLoading && message.compactSummary != nil {
                     Button {
                         let summary = message.compactSummary ?? ""
@@ -865,7 +865,7 @@ struct ChatMessageRow: View {
                         .font(.system(size: 10))
                 }
                 Text(message.content)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(ChatFont.font(12, weight: .medium))
                     .multilineTextAlignment(.center)
             }
             .foregroundStyle(MinisTheme.secondaryText)
@@ -922,7 +922,7 @@ struct ChatMessageRow: View {
                 }
                 if MinisThemeShape.userName == .above {
                     Text(appearanceStudio.userDisplayName.isEmpty ? AppLocalized("我") : appearanceStudio.userDisplayName)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(ChatFont.font(9, weight: .medium))
                         .foregroundStyle(ChatColors.secondaryText)
                 }
 
@@ -1016,7 +1016,7 @@ struct ChatMessageRow: View {
                 // knowing immediately.
                 if message.persistenceFailed {
                     Text("消息未保存到本地")
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(ChatColors.destructive)
                         .padding(.trailing, 4)
                         .accessibilityLabel("这条消息未保存到本地数据库")
@@ -1104,7 +1104,7 @@ struct ChatMessageRow: View {
                 VStack {
                     Spacer(minLength: 0)
                     Text(appearanceStudio.userDisplayName.isEmpty ? AppLocalized("我") : appearanceStudio.userDisplayName)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(ChatFont.font(9, weight: .medium))
                         .foregroundStyle(ChatColors.secondaryText)
                     Spacer(minLength: 0)
                 }
@@ -1342,7 +1342,7 @@ struct ChatMessageRow: View {
             Image(systemName: "speedometer")
                 .font(.system(size: 9))
             Text(usageSummary(usage))
-                .font(.system(size: 10, design: .monospaced))
+                .font(ChatFont.font(10, design: .monospaced))
         }
         .foregroundStyle(ChatColors.tertiaryText)
         .padding(.horizontal, 8)
@@ -1358,7 +1358,7 @@ struct ChatMessageRow: View {
             Image(systemName: "arrow.clockwise")
                 .font(.system(size: 9, weight: .semibold))
             Text("\(count)")
-                .font(.system(size: 10, design: .monospaced))
+                .font(ChatFont.font(10, design: .monospaced))
         }
         .foregroundStyle(ChatColors.warning.opacity(0.8))
         .padding(.horizontal, 7)

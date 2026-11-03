@@ -175,7 +175,7 @@ struct ChatFeedbackSheet: View {
             // 头部标题与关闭按钮
             ZStack {
                 Text("反馈这条回复")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(ChatFont.font(15, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.textMain())
 
                 HStack {
@@ -202,7 +202,7 @@ struct ChatFeedbackSheet: View {
                     // 1. 快捷赞踩
                     VStack(alignment: .leading, spacing: 8) {
                         Text("快捷")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(ChatFont.font(11, weight: .medium))
                             .foregroundStyle(CSSThemeVariables.textDim())
 
                         HStack(spacing: 12) {
@@ -224,10 +224,13 @@ struct ChatFeedbackSheet: View {
                                     Image(systemName: isThumbUp ? "hand.thumbsup.fill" : "hand.thumbsup")
                                         .font(.system(size: 16))
                                     Text("赞")
-                                        .font(.system(size: 14, weight: .semibold))
+                                        .font(ChatFont.font(14, weight: .semibold))
                                 }
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 48)
+                                // [T-38] Height follows the dial like the rest of
+                                // the chat controls; the 85% floor stops it
+                                // collapsing into an untappable slab at 10pt.
+                                .frame(height: FontSettings.shared.densityFloor(48))
                                 .background(isThumbUp ? CSSThemeVariables.accent() : CSSThemeVariables.card())
                                 .foregroundStyle(isThumbUp ? CSSThemeVariables.accentFg() : CSSThemeVariables.textMain())
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -257,10 +260,13 @@ struct ChatFeedbackSheet: View {
                                     Image(systemName: isThumbDown ? "hand.thumbsdown.fill" : "hand.thumbsdown")
                                         .font(.system(size: 16))
                                     Text("踩")
-                                        .font(.system(size: 14, weight: .semibold))
+                                        .font(ChatFont.font(14, weight: .semibold))
                                 }
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 48)
+                                // [T-38] Height follows the dial like the rest of
+                                // the chat controls; the 85% floor stops it
+                                // collapsing into an untappable slab at 10pt.
+                                .frame(height: FontSettings.shared.densityFloor(48))
                                 .background(isThumbDown ? CSSThemeVariables.dangerSoft() : CSSThemeVariables.card())
                                 .foregroundStyle(isThumbDown ? CSSThemeVariables.danger() : CSSThemeVariables.textMain())
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -277,7 +283,7 @@ struct ChatFeedbackSheet: View {
                     // 2. 快捷标签与趣味互动
                     VStack(alignment: .leading, spacing: 8) {
                         Text("快捷标签")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(ChatFont.font(11, weight: .medium))
                             .foregroundStyle(CSSThemeVariables.textDim())
 
                         FeedbackFlowLayout(hSpacing: 8, vSpacing: 8) {
@@ -292,12 +298,12 @@ struct ChatFeedbackSheet: View {
                     // 3. 自定义输入
                     VStack(alignment: .leading, spacing: 8) {
                         Text("自定义指令")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(ChatFont.font(11, weight: .medium))
                             .foregroundStyle(CSSThemeVariables.textDim())
 
                         TextField("输入给模型的客户端指令/调整要求…", text: $feedbackText, axis: .vertical)
                             .lineLimit(3...5)
-                            .font(.system(size: 14))
+                            .font(ChatFont.font(14))
                             .padding(12)
                             .background(CSSThemeVariables.optionBg())
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -310,7 +316,7 @@ struct ChatFeedbackSheet: View {
                             Image(systemName: "info.circle.fill")
                                 .font(.system(size: 11))
                             Text("隐身生效：反馈作为独立系统指令注入模型上下文，不在你的气泡中发出；AI 下轮静默执行。")
-                                .font(.system(size: 11))
+                                .font(ChatFont.font(11))
                         }
                         .foregroundStyle(CSSThemeVariables.textDim())
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -320,7 +326,7 @@ struct ChatFeedbackSheet: View {
                     // 4. 常用模板
                     VStack(alignment: .leading, spacing: 8) {
                         Text("常用模板")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(ChatFont.font(11, weight: .medium))
                             .foregroundStyle(CSSThemeVariables.textDim())
 
                         FeedbackFlowLayout(hSpacing: 8, vSpacing: 8) {
@@ -330,7 +336,7 @@ struct ChatFeedbackSheet: View {
                                     feedbackText = tpl
                                 } label: {
                                     Text(tpl)
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(ChatFont.font(12, weight: .medium))
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 8)
                                         .background(CSSThemeVariables.card())
@@ -358,9 +364,11 @@ struct ChatFeedbackSheet: View {
                             } label: {
                                 HStack(spacing: 4) {
                                     Image(systemName: "plus")
+                                        .font(.system(size: 12, weight: .medium))
+                                    // [T-13] 拆图标/文字
                                     Text("存为模板")
+                                        .font(ChatFont.font(12, weight: .medium))
                                 }
-                                .font(.system(size: 12, weight: .medium))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
                                 .background(Color.clear)
@@ -393,7 +401,7 @@ struct ChatFeedbackSheet: View {
                     dismiss()
                 } label: {
                     Text("发送指令")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(ChatFont.font(14, weight: .semibold))
                         .frame(minWidth: 100)
                         .padding(.vertical, 12)
                         .background(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.optionBg() : CSSThemeVariables.accent())
@@ -420,7 +428,7 @@ struct ChatFeedbackSheet: View {
             dismiss()
         } label: {
             Text(title)
-                .font(.system(size: 12, weight: .regular))
+                .font(ChatFont.font(12, weight: .regular))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .background(CSSThemeVariables.optionBg())
@@ -442,7 +450,7 @@ struct ChatFeedbackSheet: View {
         } label: {
             HStack(spacing: 4) {
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(ChatFont.font(12, weight: .semibold))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)

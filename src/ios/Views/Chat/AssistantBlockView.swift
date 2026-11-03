@@ -161,7 +161,7 @@ struct AssistantBlockView: View {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(Array(displayReasons.enumerated()), id: \.offset) { _, line in
                     Text(line)
-                        .font(.system(size: 10))
+                        .font(ChatFont.font(10))
                         .foregroundStyle(ChatColors.primaryText.opacity(0.45))
                         .lineLimit(2)
                 }
@@ -171,7 +171,7 @@ struct AssistantBlockView: View {
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(ChatColors.warning.opacity(0.8))
                         Text(switchedLine)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(ChatFont.font(11, weight: .medium))
                             .foregroundStyle(ChatColors.primaryText.opacity(0.75))
                             .lineLimit(2)
                     }
@@ -649,7 +649,7 @@ struct ChatCodeBlockView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text(displayLanguage)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(ChatFont.font(10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Color(uiColor: theme.codeBlockTextColor).opacity(0.45))
                 .accessibilityLabel("代码块语言")
             Spacer(minLength: 8)
@@ -692,7 +692,8 @@ struct ChatCodeBlockView: View {
 
     private var preview: some View {
         Text(codeText)
-            .lineSpacing(4)
+            // [T-41] Leading scales with the dial like the text above it.
+            .lineSpacing(MinisThemeShape.lineSpacing(4, anchor: 13))
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
@@ -877,7 +878,7 @@ struct ChatCodeBlockDetailView: View {
 
     private var editor: some View {
         TextEditor(text: $code)
-            .font(.system(size: 15, weight: .regular, design: .monospaced))
+            .font(ChatFont.font(15, weight: .regular, design: .monospaced))
             .scrollContentBackground(.hidden)
             .background(Color(uiColor: .systemBackground))
             .tint(.accentColor)
@@ -894,8 +895,9 @@ struct ChatCodeBlockDetailView: View {
     private var codeReader: some View {
         ScrollView {
             Text(AttributedString(attributedCode))
-                .font(.system(size: 15, weight: .regular, design: .monospaced))
-                .lineSpacing(4)
+                .font(ChatFont.font(15, weight: .regular, design: .monospaced))
+                // [T-41] Leading follows the 15pt code font's dial factor.
+                .lineSpacing(MinisThemeShape.lineSpacing(4, anchor: 15))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(16)
@@ -1227,13 +1229,13 @@ struct ToolCapsuleView: View {
                 // Description text with bouncing dots during streaming
                 HStack(spacing: 0) {
                     Text(displayText)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(ChatFont.font(13, weight: .medium))
                         .foregroundStyle(ChatColors.primaryText)
                         .lineLimit(1)
                     if isStreaming {
                         ForEach(0..<3, id: \.self) { i in
                             Text(".")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(ChatFont.font(13, weight: .medium))
                                 .foregroundStyle(ChatColors.primaryText)
                                 .offset(y: dotsActive ? -2 : 1)
                                 .animation(
@@ -1253,7 +1255,7 @@ struct ToolCapsuleView: View {
                 // pill list stays clean.
                 if let dur = durationText {
                     Text(dur)
-                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .font(ChatFont.font(11, weight: .regular, design: .monospaced))
                         .foregroundStyle(ChatColors.tertiaryText)
                 }
 
@@ -1276,8 +1278,12 @@ struct ToolCapsuleView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .frame(height: 36)
+            // [T-38] Chat-side capsules used to hold a fixed height while the
+            // settings pages scaled theirs, so proportions drifted with the dial.
+            // Both padding and height now ride the same factor; the floor keeps
+            // this tappable capsule from collapsing at the 10pt setting.
+            .padding(.horizontal, FontSettings.shared.density(12))
+            .frame(height: FontSettings.shared.densityFloor(36))
             .background(ChatColors.toolBg)
             .clipShape(Capsule())
             .overlay(
@@ -1526,9 +1532,9 @@ struct ToolCallGroupCard: View {
                     Image(systemName: "wrench.and.screwdriver")
                         .font(.system(size: 12, weight: .medium))
                     Text(headerTitle)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(ChatFont.font(13, weight: .semibold))
                     Text("\(blocks.count)")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(ChatFont.font(11, weight: .medium, design: .monospaced))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(ChatColors.secondaryText.opacity(0.12))
@@ -1761,7 +1767,7 @@ struct ThinkingBlockView: View {
                 if block.content.count > 0 || block.thinkingContentBuffer.count > 0 {
                     let charCount = max(block.content.count, block.thinkingContentBuffer.count)
                     Text(charCount > 1000 ? "\(charCount / 1000)K" : "\(charCount)")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(ChatFont.font(11, weight: .medium, design: .monospaced))
                         .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.6))
                 }
                 Spacer()
@@ -1829,7 +1835,7 @@ struct ThinkingBlockView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             if isTruncated {
                                 Text("Showing last \(displayContent.count / 1000)K of \(total / 1000)K characters", comment: "Thinking window truncation hint")
-                                    .font(.system(size: 11))
+                                    .font(ChatFont.font(11))
                                     .foregroundStyle(MinisTheme.secondaryText)
                                     .padding(.horizontal, 12)
                                     .padding(.bottom, 4)
@@ -1842,7 +1848,8 @@ struct ThinkingBlockView: View {
                             let thinkingText = Text(displayContent)
                                 .font(MinisThemeShape.fontFamily.font(size: MinisThemeShape.thinkingBodySize))
                                 .foregroundStyle(ChatColors.tertiaryText)
-                                .lineSpacing(3)
+                                // [T-41] Thinking text leading follows its font.
+                                .lineSpacing(MinisThemeShape.lineSpacing(3, anchor: 13))
                             Group {
                                 if isStreaming {
                                     thinkingText
@@ -2053,7 +2060,7 @@ struct TypingIndicator: View {
         .onReceive(NotificationCenter.default.publisher(for: .personaDidChange)) { _ in
             refreshSoulName()
         }
-        .font(.system(size: 15, weight: .medium))
+        .font(ChatFont.font(15, weight: .medium))
         .foregroundStyle(ChatColors.tertiaryText)
         .padding(.top, 0)
         .onAppear {

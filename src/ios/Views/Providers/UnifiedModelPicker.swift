@@ -852,7 +852,7 @@ struct UnifiedModelPicker: View {
             Image(systemName: strategy == .fallback ? "arrow.down.circle" : "arrow.triangle.branch")
                 .font(.system(size: 8))
             Text(strategy == .fallback ? "FB" : "LB")
-                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .font(ChatFont.font(9, weight: .medium, design: .rounded))
         }
         .foregroundStyle(MinisTheme.secondaryText)
         .padding(.horizontal, 4)
@@ -996,7 +996,7 @@ struct UnifiedModelPicker: View {
                         .foregroundStyle(disabled ? AppearanceStudio.shared.color(.secondaryText).opacity(0.7) : AppearanceStudio.shared.color(.primaryText))
                     if disabled {
                         Text("unavailable", comment: "Modality-incompatible model tag")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(ChatFont.font(9, weight: .medium))
                             .foregroundStyle(MinisTheme.warning)
                     }
                 }
@@ -1261,7 +1261,7 @@ struct UnifiedModelPicker: View {
                                 .foregroundStyle(.quaternary)
                             ForEach(badges, id: \.self) { badge in
                                 Text(badge)
-                                    .font(.system(size: 9, weight: .medium))
+                                    .font(ChatFont.font(9, weight: .medium))
                                     .foregroundStyle(MinisTheme.secondaryText)
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 1)
@@ -1271,7 +1271,7 @@ struct UnifiedModelPicker: View {
                         }
                         if disabled {
                             Text("unavailable", comment: "Modality-incompatible model tag")
-                                .font(.system(size: 9, weight: .medium))
+                                .font(ChatFont.font(9, weight: .medium))
                                 .foregroundStyle(MinisTheme.warning)
                         }
                     }

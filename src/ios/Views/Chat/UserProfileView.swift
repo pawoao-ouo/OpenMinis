@@ -143,17 +143,17 @@ struct UserProfileView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(addressingName)
-                        .font(.system(size: 21, weight: .bold))
+                        .font(ChatFont.font(21, weight: .bold))
                         .foregroundStyle(ChatColors.primaryText)
                     Text(AppLocalized("点头像换图"))
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(ChatColors.secondaryText)
                 }
                 Spacer(minLength: 0)
             }
 
             Text(AppLocalized("这份档案描述的是你，不是任何一只 AI。你写进去的东西，AI 每次对话都会读到；它也可以在长期互动里补充。"))
-                .font(.system(size: 12))
+                .font(ChatFont.font(12))
                 .lineSpacing(2)
                 .foregroundStyle(ChatColors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -175,12 +175,12 @@ struct UserProfileView: View {
         card(title: AppLocalized("叫法"), footnote: AppLocalized("填了之后，界面里的文案和 AI 对你的叫法都跟着变。")) {
             HStack(spacing: 10) {
                 Text(AppLocalized("怎么称呼你"))
-                    .font(.system(size: 14))
+                    .font(ChatFont.font(14))
                     .foregroundStyle(ChatColors.primaryText)
                 Spacer(minLength: 8)
                 TextField(AppLocalized("留空则用「你」"), text: $nameDraft)
                     .multilineTextAlignment(.trailing)
-                    .font(.system(size: 14))
+                    .font(ChatFont.font(14))
                     .submitLabel(.done)
                     .onSubmit { commitName() }
             }
@@ -214,7 +214,7 @@ struct UserProfileView: View {
                 set: { SystemPromptBuilder.userProfileNSFWInjectionEnabled = $0 }
             )) {
                 Text(AppLocalized("把 NSFW 小节给 AI 看"))
-                    .font(.system(size: 14))
+                    .font(ChatFont.font(14))
                     .foregroundStyle(ChatColors.primaryText)
             }
             .tint(accent)
@@ -228,7 +228,7 @@ struct UserProfileView: View {
                 ProgressView(value: Double(stats.filled), total: Double(max(stats.total, 1)))
                     .tint(accent)
                 Text(String(format: AppLocalized("已填 %d / %d 节"), stats.filled, stats.total))
-                    .font(.system(size: 12))
+                    .font(ChatFont.font(12))
                     .foregroundStyle(ChatColors.secondaryText)
             }
         }
@@ -240,13 +240,13 @@ struct UserProfileView: View {
     private func card<Content: View>(title: String, footnote: String?, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(ChatFont.font(12, weight: .semibold))
                 .foregroundStyle(accent)
                 .textCase(nil)
             content()
             if let footnote {
                 Text(footnote)
-                    .font(.system(size: 11))
+                    .font(ChatFont.font(11))
                     .lineSpacing(1.5)
                     .foregroundStyle(ChatColors.secondaryText.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
@@ -268,11 +268,11 @@ struct UserProfileView: View {
         HStack(spacing: 12) {
             SettingsRowIcon(icon: icon)
             Text(title)
-                .font(.system(size: 14))
+                .font(ChatFont.font(14))
                 .foregroundStyle(ChatColors.primaryText)
             Spacer(minLength: 8)
             Text(detail)
-                .font(.system(size: 12))
+                .font(ChatFont.font(12))
                 .foregroundStyle(ChatColors.secondaryText)
                 .lineLimit(1)
             Image(systemName: "chevron.right")
@@ -358,7 +358,7 @@ private struct UserProfileBodyEditor: View {
 
     var body: some View {
         TextEditor(text: $bodyText)
-            .font(.system(size: 13, design: .monospaced))
+            .font(ChatFont.font(13, design: .monospaced))
             .scrollContentBackground(.hidden)
             .background(studio.color(.canvas, scope: .chat))
             .padding(.horizontal, 12)

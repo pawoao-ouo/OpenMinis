@@ -1908,7 +1908,12 @@ final class CodeBlockAttachment: NSTextAttachment {
         if hasLanguage {
             let langLabel = UILabel()
             langLabel.text = language!.lowercased()
-            langLabel.font = .systemFont(ofSize: 11, weight: .medium)
+            // [T-72] Was a hard-coded 11pt system font: it ignored both the
+            // global dial and the chosen font family, so the code header did
+            // not match the code next to it. Both now come from the same
+            // resolver the body uses.
+            langLabel.font = AppearanceFontFamily.resolved()
+                .uiFont(size: FontSettings.shared.scaledApp(11))
             langLabel.textColor = theme.codeBlockTextColor.withAlphaComponent(0.45)
             langLabel.frame = CGRect(x: 12, y: 9, width: contentWidth - 60, height: 14)
             container.addSubview(langLabel)

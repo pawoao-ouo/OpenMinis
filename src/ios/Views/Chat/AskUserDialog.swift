@@ -332,7 +332,7 @@ private struct AskUserDrawerOverlay: View {
                     ZStack(alignment: .trailing) {
                         VStack(spacing: 4) {
                             Text(displayTitle)
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(ChatFont.font(15, weight: .semibold))
                                 .tracking(1)
                                 .foregroundColor(CSSThemeVariables.textMain())
                                 .multilineTextAlignment(.center)
@@ -340,11 +340,11 @@ private struct AskUserDrawerOverlay: View {
 
                             if questions.count > 1 {
                                 Text("问题 \(activeQuestionIndex + 1) / \(questions.count)")
-                                    .font(.system(size: 11))
+                                    .font(ChatFont.font(11))
                                     .foregroundColor(CSSThemeVariables.textDim())
                             } else if isRestored {
                                 Text("之前未答完的问题，答完后继续")
-                                    .font(.system(size: 11))
+                                    .font(ChatFont.font(11))
                                     .foregroundColor(CSSThemeVariables.textDim())
                             }
                         }
@@ -399,7 +399,7 @@ private struct AskUserDrawerOverlay: View {
                                         activeQuestionIndex -= 1
                                     }
                                 }
-                                .font(.system(size: 13, weight: .medium))
+                                .font(ChatFont.font(13, weight: .medium))
                                 .foregroundColor(CSSThemeVariables.textDim())
                                 .padding(.leading, 18)
                             }
@@ -410,7 +410,7 @@ private struct AskUserDrawerOverlay: View {
                                         activeQuestionIndex += 1
                                     }
                                 }
-                                .font(.system(size: 13, weight: .medium))
+                                .font(ChatFont.font(13, weight: .medium))
                                 .foregroundColor(CSSThemeVariables.accent())
                                 .padding(.leading, activeQuestionIndex == 0 ? 18 : 0)
                             }
@@ -421,7 +421,7 @@ private struct AskUserDrawerOverlay: View {
                         // 右下角大胶囊发送按钮 (Send Button)
                         Button(action: submit) {
                             Text("发送")
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(ChatFont.font(15, weight: .semibold))
                                 .tracking(2)
                                 .foregroundColor(CSSThemeVariables.accentFg())
                                 .frame(minWidth: 120, minHeight: 46)
@@ -469,7 +469,7 @@ private struct AskUserDrawerOverlay: View {
                 } label: {
                     HStack(spacing: 12) {
                         Text(option)
-                            .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+                            .font(ChatFont.font(14, weight: isSelected ? .semibold : .regular))
                             .foregroundColor(CSSThemeVariables.textMain())
                             .multilineTextAlignment(.leading)
                             .lineLimit(3)
@@ -527,7 +527,7 @@ private struct AskUserDrawerOverlay: View {
                         }
                     }
                 ))
-                .font(.system(size: 14))
+                .font(ChatFont.font(14))
                 .foregroundColor(CSSThemeVariables.textMain())
                 .submitLabel(.send)
                 .onSubmit {

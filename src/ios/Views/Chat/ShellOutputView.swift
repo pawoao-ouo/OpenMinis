@@ -31,7 +31,7 @@ struct ShellOutputView: View {
             let chunks = isLive ? allChunks : Array(allChunks.prefix(max(revealedChunkCount, 1)))
             VStack(alignment: .leading, spacing: 0) {
                 Text("$ \(cmd)")
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .font(ChatFont.font(13, weight: .bold, design: .monospaced))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
@@ -39,7 +39,7 @@ struct ShellOutputView: View {
 
                 ForEach(chunks, id: \.id) { chunk in
                     Text(attributedShellLine(chunk.text))
-                        .font(.system(size: 13, design: .monospaced))
+                        .font(ChatFont.font(13, design: .monospaced))
                         .foregroundColor(bodyTextColor)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 14)
@@ -77,7 +77,7 @@ struct ShellOutputView: View {
                         Text(resourceMonitor.formattedMem())
                             .foregroundStyle(ChatColors.success)
                     }
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(ChatFont.font(11, weight: .medium, design: .monospaced))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 5)
                     .background(Color(white: 0.08))
@@ -103,14 +103,20 @@ struct ShellOutputView: View {
                 Button {
                     revealedChunkCount = min(revealedChunkCount + ToolLiveSheet.lazyRenderBatchChunks, totalChunks)
                 } label: {
-                    Label("Load more (\(nextBatch * ToolLiveSheet.lazyRenderChunkLines) lines)", systemImage: "chevron.down")
-                        .font(.system(size: 13, weight: .medium))
+                    // [T-13] Label 的图标与文字共用同一字号,拆开:文字走 ChatFont 随全局字号,图标保留固定字号
+                    Label {
+                        Text("Load more (\(nextBatch * ToolLiveSheet.lazyRenderChunkLines) lines)")
+                            .font(ChatFont.font(13, weight: .medium))
+                    } icon: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 13, weight: .medium))
+                    }
                 }
                 Button {
                     revealedChunkCount = totalChunks
                 } label: {
                     Text("Load all")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(ChatFont.font(13, weight: .medium))
                 }
             }
             .padding(.vertical, 12)

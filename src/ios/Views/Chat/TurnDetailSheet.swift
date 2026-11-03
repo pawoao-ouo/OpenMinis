@@ -304,7 +304,7 @@ struct TurnDetailSheet: View {
             let count = max(block.content.count, block.thinkingContentBuffer.count)
             if count > 0 {
                 Text(count > 1000 ? "\(count / 1000)K" : "\(count)")
-                    .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                    .font(ChatFont.font(11.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.7))
             }
 
@@ -333,7 +333,7 @@ struct TurnDetailSheet: View {
 
             if let dur = block.toolDuration {
                 Text(MinisStepTimestampFormatter.duration(seconds: dur, stillRunning: false))
-                    .font(.system(size: 11.5, weight: .regular, design: .monospaced))
+                    .font(ChatFont.font(11.5, weight: .regular, design: .monospaced))
                     .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.7))
             }
 
@@ -440,7 +440,7 @@ struct TurnDetailSheet: View {
                             Image(systemName: showOriginal ? "doc.text" : "character.bubble.fill")
                                 .font(.system(size: 10))
                             Text(showOriginal ? AppLocalized("Show Translation") : AppLocalized("Show Original"))
-                                .font(.system(size: 11, weight: .medium))
+                                .font(ChatFont.font(11, weight: .medium))
                         }
                         .foregroundStyle(ChatColors.accent)
                         .padding(.horizontal, 7)
@@ -458,7 +458,7 @@ struct TurnDetailSheet: View {
                         .scaleEffect(0.6)
                         .frame(width: 14, height: 14)
                     Text(AppLocalized("Translating into \(currentTargetLanguage)…"))
-                        .font(.system(size: 12))
+                        .font(ChatFont.font(12))
                         .foregroundStyle(ChatColors.secondaryText)
                 }
                 .padding(.vertical, 2)
@@ -468,7 +468,8 @@ struct TurnDetailSheet: View {
                 Text(displayContent)
                     .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(14)))
                     .foregroundStyle(ChatColors.primaryText)
-                    .lineSpacing(6)
+                    // [T-41] Leading follows the 14pt message size, not a fixed 6pt.
+                    .lineSpacing(MinisThemeShape.lineSpacing(6, anchor: 14))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }

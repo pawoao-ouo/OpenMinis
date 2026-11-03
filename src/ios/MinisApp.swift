@@ -288,7 +288,11 @@ struct MinisApp: App {
                     appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : nil
                 )
                 .environment(\.locale, appLanguage.isEmpty ? .current : Locale(identifier: appLanguage))
-                .dynamicTypeSize(fontSettings.globalDynamicTypeSize)
+                // [T-11] Was a hard `.dynamicTypeSize(...)` pin. At the 13pt default
+                // that forced every screen back to the default bucket and swallowed
+                // the reader's own iOS Larger Text setting. The dial still wins once
+                // it is moved; at the default the system value passes through.
+                .appFontScale()
                 .onOpenURL { url in
                     shareLog.info("[Share] onOpenURL: \(url.absoluteString)")
                     guard !SessionLockStore.shared.appIsLocked else {

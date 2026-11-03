@@ -95,7 +95,7 @@ struct PersonaContactsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 6) {
                                     Text(PersonaContactsView.displayName(for: persona))
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .font(ChatFont.font(16, weight: .semibold))
                                         .foregroundStyle(ChatColors.primaryText)
 
                                     // [B28 R6 · 醒醒点名] 「内置」批删了：出身不是
@@ -105,7 +105,7 @@ struct PersonaContactsView: View {
                                     if persona.isUserProfile {
                                         // 「我自己」不是聊天对象，标出来免得她被算进联系人。
                                         Text("我自己")
-                                            .font(.system(size: 10, weight: .medium))
+                                            .font(ChatFont.font(10, weight: .medium))
                                             .padding(.horizontal, 7)
                                             .padding(.vertical, 2.5)
                                             .background(Capsule().fill(MinisThemeList.accent.opacity(0.12)))
@@ -118,7 +118,7 @@ struct PersonaContactsView: View {
                                                 .symbolEffect(.pulse, options: .repeating)
                                             Text("使用中")
                                         }
-                                        .font(.system(size: 10, weight: .medium))
+                                        .font(ChatFont.font(10, weight: .medium))
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 2.5)
                                         .background(Capsule().fill(MinisThemeList.accent.opacity(0.15)))
@@ -127,7 +127,7 @@ struct PersonaContactsView: View {
                                 }
 
                                 Text(personaBio(for: persona))
-                                    .font(.system(size: 12))
+                                    .font(ChatFont.font(12))
                                     .foregroundStyle(ChatColors.secondaryText)
                                     .lineLimit(1)
                             }
@@ -289,7 +289,7 @@ struct PersonaDetailHomeView: View {
 
                             HStack(spacing: 6) {
                                 Text(p.name)
-                                    .font(.system(size: 20, weight: .bold))
+                                    .font(ChatFont.font(20, weight: .bold))
                                     .foregroundStyle(ChatColors.primaryText)
 
                                 Button {
@@ -305,7 +305,7 @@ struct PersonaDetailHomeView: View {
 
                             if p.id == store.currentPersonaID {
                                 Text("当前活跃人设")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(ChatFont.font(11, weight: .semibold))
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 3)
                                     .background(Capsule().fill(MinisThemeList.accent.opacity(0.16)))
@@ -471,7 +471,7 @@ struct PersonaDetailHomeView: View {
                                 Spacer()
                                 Image(systemName: "bubble.left.and.bubble.right.fill")
                                 Text("与 Ta 对话")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(ChatFont.font(16, weight: .semibold))
                                 Spacer()
                             }
                             .padding(.vertical, 4)
@@ -485,7 +485,7 @@ struct PersonaDetailHomeView: View {
                                 HStack {
                                     Spacer()
                                     Text("设为当前活跃人设")
-                                        .font(.system(size: 15))
+                                        .font(ChatFont.font(15))
                                     Spacer()
                                 }
                             }
@@ -920,7 +920,7 @@ struct PersonaPresetMessagesView: View {
                                     VStack(alignment: .leading, spacing: 6) {
                                         HStack {
                                             Text(msg.role == "assistant" ? "助手" : "用户")
-                                                .font(.system(size: 11, weight: .semibold))
+                                                .font(ChatFont.font(11, weight: .semibold))
                                                 .padding(.horizontal, 8)
                                                 .padding(.vertical, 2)
                                                 .background(
@@ -934,7 +934,7 @@ struct PersonaPresetMessagesView: View {
                                         }
 
                                         Text(msg.content)
-                                            .font(.system(size: 14))
+                                            .font(ChatFont.font(14))
                                             .foregroundStyle(ChatColors.primaryText)
                                             .lineLimit(3)
                                     }
@@ -959,7 +959,7 @@ struct PersonaPresetMessagesView: View {
                             Spacer()
                             if !p.presetMessages.isEmpty {
                                 EditButton()
-                                    .font(.system(size: 13))
+                                    .font(ChatFont.font(13))
                             }
                         }
                     } footer: {
@@ -993,7 +993,7 @@ struct PersonaPresetMessagesView: View {
                             Section("消息内容") {
                                 TextEditor(text: $editorContent)
                                     .frame(minHeight: 140)
-                                    .font(.system(size: 15))
+                                    .font(ChatFont.font(15))
                             }
                         }
                         .navigationTitle(editingMessage == nil ? "添加快捷短语" : "编辑快捷短语")
@@ -1115,8 +1115,14 @@ struct PersonaCustomRequestView: View {
                             headerValue = ""
                             showHeaderSheet = true
                         } label: {
-                            Label("添加请求头", systemImage: "plus")
-                                .font(.system(size: 15, weight: .medium))
+                            // [T-13] Label 的图标与文字共用同一字号,拆开:文字走 ChatFont 随全局字号,图标保留固定字号
+                            Label {
+                                Text("添加请求头")
+                                    .font(ChatFont.font(15, weight: .medium))
+                            } icon: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 15, weight: .medium))
+                            }
                                 .foregroundStyle(MinisThemeList.accent)
                         }
                     } header: {
@@ -1166,8 +1172,14 @@ struct PersonaCustomRequestView: View {
                             bodyValue = ""
                             showBodySheet = true
                         } label: {
-                            Label("添加请求体参数", systemImage: "plus")
-                                .font(.system(size: 15, weight: .medium))
+                            // [T-13] Label 的图标与文字共用同一字号,拆开:文字走 ChatFont 随全局字号,图标保留固定字号
+                            Label {
+                                Text("添加请求体参数")
+                                    .font(ChatFont.font(15, weight: .medium))
+                            } icon: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 15, weight: .medium))
+                            }
                                 .foregroundStyle(MinisThemeList.accent)
                         }
                     } header: {
@@ -1355,7 +1367,7 @@ struct PersonaPromptSettingsView: View {
                                 Spacer()
                                 Image(systemName: isSaved ? "checkmark" : "square.and.arrow.down")
                                 Text(isSaved ? "已保存" : "保存提示词修改")
-                                    .font(.system(size: 15, weight: .semibold))
+                                    .font(ChatFont.font(15, weight: .semibold))
                                 Spacer()
                             }
                             .foregroundStyle(isSaved ? Color.green : MinisThemeList.accent)
@@ -1444,10 +1456,10 @@ struct PersonaLocalToolsSettingsView: View {
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(tool.title)
-                                            .font(.system(size: 15, weight: .medium))
+                                            .font(ChatFont.font(15, weight: .medium))
                                             .foregroundStyle(ChatColors.primaryText)
                                         Text(tool.subtitle)
-                                            .font(.system(size: 11))
+                                            .font(ChatFont.font(11))
                                             .foregroundStyle(MinisTheme.secondaryText)
                                             .lineLimit(2)
                                     }
@@ -1464,14 +1476,14 @@ struct PersonaLocalToolsSettingsView: View {
                                 updated.localToolIds = LocalToolRegistry.all.map(\.id)
                                 store.updatePersona(updated)
                             }
-                            .font(.system(size: 12))
+                            .font(ChatFont.font(12))
                             Text("·")
                             Button("全关") {
                                 var updated = p
                                 updated.localToolIds = []
                                 store.updatePersona(updated)
                             }
-                            .font(.system(size: 12))
+                            .font(ChatFont.font(12))
                         }
                     } footer: {
                         Text("开启的工具将被注入给模型作为 function call 工具使用。未启用的工具模型将不可见。")
@@ -1527,7 +1539,7 @@ struct PersonaMemorySettingsView: View {
                                 Spacer()
                                 Image(systemName: isSaved ? "checkmark" : "square.and.arrow.down")
                                 Text(isSaved ? "已保存" : "保存记忆修改")
-                                    .font(.system(size: 15, weight: .semibold))
+                                    .font(ChatFont.font(15, weight: .semibold))
                                 Spacer()
                             }
                             .foregroundStyle(isSaved ? Color.green : MinisThemeList.accent)
