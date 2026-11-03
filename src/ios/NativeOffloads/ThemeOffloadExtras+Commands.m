@@ -194,7 +194,10 @@ int theme_extra_color(int argc, char **argv, int stdout_fd, BOOL compact, BOOL q
     }
     // [T-53] 缺省档在结果里显式标出来，别让"我写的是浅色还是它替我选的"
     // 靠猜。给了 --variant 就不加这行。
-    if (raw[@"ok"] && !variantArg) {
+    // raw[@"ok"] 是个对象指针，@NO 也是非 nil —— 必须取 boolValue，
+    // 否则失败的调用也会被加上"缺省浅色档"这句。
+    BOOL rawOK = [raw[@"ok"] respondsToSelector:@selector(boolValue)] ? [raw[@"ok"] boolValue] : NO;
+    if (rawOK && !variantArg) {
         NSMutableDictionary *annotated = [raw mutableCopy];
         annotated[@"variantDefaulted"] = @YES;
         annotated[@"variantNote"] = @"No --variant was passed, so this wrote the LIGHT palette. Pass --variant dark to change the dark one.";

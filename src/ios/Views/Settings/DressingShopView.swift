@@ -305,13 +305,13 @@ struct DressingShopView: View {
                         if lastDeletedTheme != nil {
                             Button(AppLocalized("撤销")) { undoDeleteTheme() }
                                 .font(ChatFont.font(12, weight: .bold))
-                                .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
+                                .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
                                 .padding(.leading, 6)
                                 .buttonStyle(PressableStyle(scale: 0.94))
                         }
                     }
                     // [六定-6] 提示条填主文字，字跟着反色。
-                    .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
+                    .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)
                     .background(studio.color(.primaryText))
@@ -406,7 +406,7 @@ struct DressingShopView: View {
                         Text(item.title)
                             .font(ChatFont.font(17, weight: category == item ? .bold : .regular))
                             .foregroundStyle(category == item
-                                ? FontSettings.contrastForeground(on: studio.hex(.primaryText))
+                                ? FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant))
                                 : studio.color(.secondaryText))
                             .padding(.horizontal, 16)
                             // [T-38] 44pt 最小触达:胶囊再小也该点得中。
@@ -455,7 +455,7 @@ struct DressingShopView: View {
                         Text(item.title)
                             .font(ChatFont.font(15))
                             .foregroundStyle(tag == item
-                                ? FontSettings.contrastForeground(on: studio.hex(.primaryText))
+                                ? FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant))
                                 : studio.color(.secondaryText))
                             .padding(.horizontal, 16)
                             .frame(minHeight: FontSettings.minHitTarget)
@@ -2388,7 +2388,7 @@ struct DressingShopView: View {
                                 .font(MinisThemeShape.messageFont(size: globalPointSize))
                                 .lineSpacing(globalPointSize * 0.25)
                                 // [六定-6] 气泡填主文字，里面的字跟着反色。
-                                .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
+                                .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 10)
                                 .background(studio.color(.primaryText))
@@ -2431,7 +2431,7 @@ struct DressingShopView: View {
                             .font(.system(size: 12))
                     }
                     // [六定-6] 发送钮填主文字，图标跟着反色。
-                    .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
+                    .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
                     .padding(.horizontal, 14)
                     .frame(height: 34)
                     .background(studio.color(.primaryText))
@@ -2525,7 +2525,7 @@ struct DressingShopView: View {
                         .font(MinisThemeShape.messageFont(size: fsMini, weight: .semibold))
                         .tracking(0.2)
                         // [六定-6] 徽标填主文字，字跟着反色。
-                        .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
+                        .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
                         .background(studio.color(.primaryText))
@@ -3048,15 +3048,23 @@ struct DressingShopView: View {
         .padding(.top, 12)
     }
 
+    /// [T-20] 某一页压着全局的项数。用一个真正的结构体，不用元组——
+    /// 元组不支持 keypath，`ForEach(id:)` 拿它没辙。
+    private struct PageOverrideEntry: Identifiable {
+        let scope: AppearanceScope
+        let count: Int
+        var id: String { scope.rawValue }
+    }
+
     /// [T-20] 哪些页有自己的覆盖，一共几项。只读，不写。
-    private var pageOverrideSummary: [(scope: AppearanceScope, count: Int)] {
+    private var pageOverrideSummary: [PageOverrideEntry] {
         AppearanceScope.allCases
             .filter { $0 != .global && $0.supportsColour }
             .compactMap { scope in
                 let count = AppearanceVariant.allCases.reduce(0) { sum, variant in
                     sum + studio.overrideCount(scope: scope, variant: variant)
                 }
-                return count > 0 ? (scope, count) : nil
+                return count > 0 ? PageOverrideEntry(scope: scope, count: count) : nil
             }
     }
 
@@ -3066,7 +3074,7 @@ struct DressingShopView: View {
             Text(AppLocalized("这些页有自己的颜色，会压着上面的全局值："))
                 .font(ChatFont.font(11, weight: .semibold))
                 .foregroundStyle(studio.color(.warning))
-            ForEach(pageOverrideSummary, id: \.scope) { item in
+            ForEach(pageOverrideSummary) { item in
                 HStack(spacing: 8) {
                     Text(AppLocalized("\(item.scope.title) · \(item.count) 项"))
                         .font(ChatFont.font(11))

@@ -946,8 +946,11 @@ final class AppearanceStudio: ObservableObject {
     private func scheduleColorPersist() {
         guard !colorPersistPending else { return }
         colorPersistPending = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            guard let self else { return }
+        // Swift 6：用 Task 回到主 actor，别在非隔离的 DispatchQueue 闭包里
+        // 直接调 @MainActor 的方法。
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard let self, self.colorPersistPending else { return }
             self.colorPersistPending = false
             self.writeColorsNow()
         }
@@ -1684,6 +1687,7 @@ struct AppearanceBackdrop: View {
     /// [T-28] 一张图要不要走双层。判据是"按原比例塞进屏幕时，放大倍数超过
     /// 一点点"——iPhone 竖屏宽 393pt 起，200×200 的图要放大两倍多，必须走
     /// 双层；够大的照片直接铺满，不额外画一层、不额外栅格化。
+    @MainActor
     static func needsDoubleLayer(_ image: UIImage) -> Bool {
         let screenWidth = UIScreen.main.bounds.width
         guard screenWidth > 0, image.size.width > 0, image.size.height > 0 else { return false }

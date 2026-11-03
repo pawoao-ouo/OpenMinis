@@ -91,7 +91,10 @@ enum WidgetProfileBridge {
     static func scheduleThemeRefresh(delay: TimeInterval = 0.6) {
         guard !themeRefreshPending else { return }
         themeRefreshPending = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+        // Swift 6：DispatchQueue 的闭包不是主线程隔离的，不能直接调 @MainActor
+        // 的 refreshTheme。用 Task 回到主 actor 再跑。
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             themeRefreshPending = false
             refreshTheme()
         }

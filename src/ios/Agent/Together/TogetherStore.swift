@@ -1239,6 +1239,10 @@ extension TogetherStore {
             togetherLogger.error("[Together] 换图失败 \(slot)：\(error.localizedDescription)")
             return nil
         }
+        // [T-30/T-59] 压过的图一定是 JPEG，没压的才可能是别的格式 ——
+        // 这两种情况都要按**落盘后的真实文件**再定一次扩展名，不能只信
+        // 源文件名。压过的重编码成 jpg 之后，上面的 finalExt 已经对了。
+        //
         // 落盘后再解一次：写坏/写不全也不许报成功。
         guard let written = UIImage(contentsOfFile: dest.path), written.size.width > 0 else {
             try? fm.removeItem(at: dest)
