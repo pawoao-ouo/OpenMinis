@@ -1461,7 +1461,7 @@ struct DressingShopView: View {
             }
         }
         .background(AppearanceBackdrop(scope: .global))
-        .animation(.easeOut(duration: 0.3), value: themeSheetUp)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: themeSheetUp)
         .alert(AppLocalized("删除这套？"), isPresented: $themeConfirmDelete) {
             Button(AppLocalized("删除"), role: .destructive) {
                 deleteThemeSet(item)
@@ -1958,7 +1958,7 @@ struct DressingShopView: View {
             }
         }
         .background(studio.color(.canvas))
-        .animation(.easeOut(duration: 0.3), value: pendantSheetUp)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: pendantSheetUp)
     }
 
     // MARK: - Outfit view
@@ -2211,7 +2211,7 @@ struct DressingShopView: View {
                     // and shrinks out (v2's 0.2s exit) before
                     // the record is removed.
                     if isUploadedFontApplied(font) { studio.setFontFamily(.system) }
-                    withAnimation(.easeOut(duration: 0.2)) {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
                         uploadedFontStore.delete(font)
                     }
                     showFontToast(AppLocalized("已移除字体：\(font.title)"))
@@ -2753,13 +2753,14 @@ struct DressingShopView: View {
     /// up (v2 clears its timer on every new toast, so rapid taps
     /// never stack pills).
     private func showFontToast(_ message: String) {
-        withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.28)) {
+        // [T-67] 提示条的进出也走同一个开关。
+        withAnimation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.28)) {
             fontToastMessage = message
         }
         let shown = message
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
             if fontToastMessage == shown {
-                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.28)) {
+                withAnimation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.28)) {
                     fontToastMessage = nil
                 }
             }
@@ -3619,7 +3620,7 @@ struct DressingShopView: View {
             }
         }
         .background(studio.color(.canvas))
-        .animation(.easeOut(duration: 0.3), value: sheetUp)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: sheetUp)
     }
 
     /// Detail row pack: the previewed pack for the side being
