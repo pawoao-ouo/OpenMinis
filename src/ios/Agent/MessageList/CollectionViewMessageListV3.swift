@@ -495,6 +495,7 @@ private struct BridgedAssistantBlockV3: View {
 private struct BridgedAssistantFooterV3: View {
     @ObservedObject var message: ChatMessage
     @ObservedObject var bridge: CellStateBridgeV2
+    @ObservedObject private var fontSettings = FontSettings.shared
     var maxWidth: CGFloat
 
     // showUsage and usageContentVisible are on bridge, toggled by double-tap on block cells.
@@ -688,7 +689,7 @@ private struct BridgedAssistantFooterV3: View {
     private func usageCapsule(_ usage: TokenUsage) -> some View {
         HStack(spacing: 4) {
             Image(systemName: "speedometer").font(.system(size: 9))
-            Text(usageSummary(usage)).font(.system(size: 10, design: .monospaced))
+            Text(usageSummary(usage)).font(.system(size: fontSettings.scaledApp(10), design: .monospaced))
         }
         .foregroundStyle(ChatColors.tertiaryText)
         .padding(.horizontal, 8).padding(.vertical, 3)
@@ -700,7 +701,7 @@ private struct BridgedAssistantFooterV3: View {
     private func streamInterruptBadge(_ count: Int) -> some View {
         HStack(spacing: 3) {
             Image(systemName: "arrow.clockwise").font(.system(size: 9, weight: .semibold))
-            Text("\(count)").font(.system(size: 10, design: .monospaced))
+            Text("\(count)").font(.system(size: fontSettings.scaledApp(10), design: .monospaced))
         }
         .foregroundStyle(ChatColors.warning.opacity(0.8))
         .padding(.horizontal, 7).padding(.vertical, 3)
