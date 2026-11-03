@@ -177,7 +177,9 @@ final class KaTeXRenderer: NSObject {
     }
 
     private func cacheKey(latex: String, displayMode: Bool, fontSize: CGFloat) -> String {
-        let isDark = UITraitCollection.current.userInterfaceStyle == .dark
+        // [T-36] 走和正文同一条判定链(窗口 override 优先),
+        // 不用 UITraitCollection.current —— 强制档和系统档不一致时会打架。
+        let isDark = AppearanceStudio.renderInterfaceStyle == .dark
         return (displayMode ? "D:" : "I:") + "\(Int(fontSize)):" + (isDark ? "dk:" : "lt:") + latex
     }
 
@@ -304,7 +306,8 @@ extension KaTeXRenderer: WKScriptMessageHandler {
                         logger.info("pixel@(10,\(midY)): \(ptr[off1]),\(ptr[off1+1]),\(ptr[off1+2]),\(ptr[off1+3])  pixel@(\(cg.width/2),\(midY)): \(ptr[off2]),\(ptr[off2+1]),\(ptr[off2+2]),\(ptr[off2+3])")
                     }
                 }
-                let isDark = UITraitCollection.current.userInterfaceStyle == .dark
+                // [T-36] 同上:反色与否按 App 的强制档定,不按系统当前 trait。
+                let isDark = AppearanceStudio.renderInterfaceStyle == .dark
                 if isDark, let inverted = Self.invertAndTransparentize(cg, scale: scale) {
                     finalImage = inverted
                 } else if let transparent = Self.makeWhiteTransparent(cg, scale: scale) {

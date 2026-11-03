@@ -32,17 +32,10 @@ enum SwiftMathRenderer {
     /// Falls back to `.current` off-main or before a window exists — the
     /// renderers are main-thread-only in practice, and a wrong guess is
     /// self-correcting because the style is part of the cache key.
-    static var interfaceStyle: UIUserInterfaceStyle {
-        guard Thread.isMainThread else { return UITraitCollection.current.userInterfaceStyle }
-        let window = UIApplication.shared.connectedScenes
-            .compactMap { ($0 as? UIWindowScene)?.keyWindow }
-            .first
-        guard let window else { return UITraitCollection.current.userInterfaceStyle }
-        if window.overrideUserInterfaceStyle != .unspecified {
-            return window.overrideUserInterfaceStyle
-        }
-        return window.traitCollection.userInterfaceStyle
-    }
+    /// [T-36] 判定源统一在 `AppearanceStudio.renderInterfaceStyle`(和
+    /// `uiColor` 同一条链:窗口 override 优先)。这里保留原来的名字和文档,
+    /// 少一份会漂移的拷贝。
+    static var interfaceStyle: UIUserInterfaceStyle { AppearanceStudio.renderInterfaceStyle }
 
     /// `UIColor.label` resolved for `interfaceStyle` — a CONCRETE color, so it
     /// survives rasterisation in a trait-less context.

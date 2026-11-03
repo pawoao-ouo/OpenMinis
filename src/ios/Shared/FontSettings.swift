@@ -158,6 +158,8 @@ final class FontSettings: ObservableObject {
             // The window content-size override follows the
             // global size now, not the legacy app-base axis.
             DispatchQueue.main.async { [weak self] in self?.applyAppScaleToAllWindows() }
+            // [T-09] 字号档进小组件快照,桌面文字跟 App 一起变大变小。
+            DispatchQueue.main.async { WidgetProfileBridge.scheduleThemeRefresh(delay: 0) }
         }
     }
 
@@ -210,12 +212,6 @@ final class FontSettings: ObservableObject {
         base * densityFactor
     }
 
-    /// [T-38] Density for a container that is *also* a tap target (chips,
-    /// capsules, action buttons). Proportional like `density`, but never
-    /// smaller than `ratio` (85%) of the design height, so the control cannot
-    /// collapse when the dial is pushed down while its text shrinks with it.
-    /// At the 13pt default this is exactly `base`, so the default look is
-    /// unchanged.
     func densityFloor(_ base: CGFloat, ratio: CGFloat = 0.85) -> CGFloat {
         max(base * ratio, density(base))
     }

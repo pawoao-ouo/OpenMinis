@@ -258,7 +258,25 @@ final class AppearanceStudio: ObservableObject {
     /// page values inherit from global before falling back to built-in.
     @Published private var customColors: [String: String]
     /// Snapshot for UIKit / off-main reads. Written on persist.
-    nonisolated(unsafe) static var colorSnapshot: [String: String] = [:]
+    /// [T-73b] 快照在主线程写(`persistColors`),却由动态色的闭包在任意线程
+    /// 读。原来标 `nonisolated(unsafe)` 只是把编译器按住,读写之间是真的在
+    /// 赛跑 —— 读到半张表会让同一屏的卡片取到新旧各一半的颜色。改成一把锁
+    /// 保护的盒子:读写都串行,读取侧拿到的一定是一份完整的旧表或新表。
+    nonisolated(unsafe) private static let colorSnapshotLock = NSLock()
+    nonisolated(unsafe) private static var colorSnapshotStorage: [String: String] = [:]
+
+    nonisolated static var colorSnapshot: [String: String] {
+        get {
+            colorSnapshotLock.lock()
+            defer { colorSnapshotLock.unlock() }
+            return colorSnapshotStorage
+        }
+        set {
+            colorSnapshotLock.lock()
+            defer { colorSnapshotLock.unlock() }
+            colorSnapshotStorage = newValue
+        }
+    }
     @Published private(set) var wallpaperRevision = 0
     @Published private(set) var iconRevision = 0
     @Published private(set) var userAvatar: String
@@ -524,6 +542,27 @@ final class AppearanceStudio: ObservableObject {
             // 闭包可能不在主线程跑，走快照而不是 @MainActor 的 self。
             return UIColor(hex: AppearanceStudio.snapshotHex(role, scope: scope, variant: resolved))
         }
+    }
+
+    /// [T-36] 栅格化渲染器(KaTeX / SwiftMath)要一个**确定的**明暗值,因为
+    /// 它要把这个决定烘进画好的图里 —— 动态色做不到这件事。
+    ///
+    /// 判定源和 `uiColor` 是同一条链:窗口上的 `overrideUserInterfaceStyle`
+    /// 优先(设置里的强制浅/深就是写在这儿),否则看窗口自己的 trait。这样
+    /// 用户在 App 里强制浅色、系统是深色时,公式区不会和正文分成两种配色。
+    ///
+    /// 没有窗口(后台线程、启动早期)就退回 `UITraitCollection.current`;
+    /// 样式进了缓存键,猜错一次会自纠。
+    nonisolated static var renderInterfaceStyle: UIUserInterfaceStyle {
+        guard Thread.isMainThread else { return UITraitCollection.current.userInterfaceStyle }
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+            .first
+        guard let window else { return UITraitCollection.current.userInterfaceStyle }
+        if window.overrideUserInterfaceStyle != .unspecified {
+            return window.overrideUserInterfaceStyle
+        }
+        return window.traitCollection.userInterfaceStyle
     }
 
     var activeVariant: AppearanceVariant {
@@ -885,6 +924,10 @@ final class AppearanceStudio: ObservableObject {
         }
         Self.colorSnapshot = customColors
         objectWillChange.send()
+        // [T-08] 颜色一变就把主题快照写进 App Group,桌面小组件才跟得上。
+        // 这里是唯一一处写颜色的出口(用户面板、AI、主题包都走 setColor),
+        // 所以挂在这儿不会漏。
+        WidgetProfileBridge.scheduleThemeRefresh()
     }
 
     /// Safe for UIKit callbacks. Resolves chat-scoped roles without hopping the actor.
@@ -1564,11 +1607,44 @@ enum MinisTheme {
     static var destructive: Color { color(.destructive) }
 }
 
+/// [T-57] 谁在画页层壁纸。根层那层全局 backdrop 只在**没有**页层 backdrop
+/// 时才需要画:页层那层是不透明底色 + 同一张图,盖在根层上面,根层画的那份
+/// 一帧都看不见,纯属白烧一次全屏栅格化。
+///
+/// 用一个计数而不是布尔:页与页之间有转场,可能短暂同时挂两层;只要还有
+/// 一层在,根层就让开。计数回到 0 根层自动回来,所以没有页层壁纸的页面
+/// (以及启动早期)行为完全不变。
+@MainActor
+final class PageBackdropPresence: ObservableObject {
+    static let shared = PageBackdropPresence()
+    @Published private(set) var count = 0
+
+    var isCovered: Bool { count > 0 }
+
+    func add() { count += 1 }
+    func remove() { count = max(0, count - 1) }
+}
+
 struct AppearanceBackdrop: View {
     let scope: AppearanceScope
+    /// 只给根层用:有页层 backdrop 在画的时候,这一层不画。
+    var standsDownWhenCovered: Bool = false
     @ObservedObject private var studio = AppearanceStudio.shared
+    @ObservedObject private var presence = PageBackdropPresence.shared
 
     var body: some View {
+        Group {
+            if standsDownWhenCovered && presence.isCovered {
+                Color.clear
+            } else {
+                layers
+            }
+        }
+        .onAppear { if scope != .global { PageBackdropPresence.shared.add() } }
+        .onDisappear { if scope != .global { PageBackdropPresence.shared.remove() } }
+    }
+
+    private var layers: some View {
         ZStack {
             studio.color(.canvas, scope: scope)
             if let image = studio.wallpaper(for: scope) {
