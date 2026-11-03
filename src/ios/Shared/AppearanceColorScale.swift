@@ -8,7 +8,7 @@ import UIKit
 //
 // ## 为什么要有这一层
 //
-// 原来 17 个角色是**孤立**的：`canvas` / `surface` / `raised` / `iconTile` /
+// 原来这些角色是**孤立**的：`canvas` / `surface` / `raised` / `iconTile` /
 // `chip` / `field` …… 每个都得手写一个值。后果很直接——上一轮那个 bug：
 // 「卡片换颜色，AI 消息下面的图标也换颜色了」。根因不是分组起错，是
 // `surface` 和 `iconTile` 之间没有推导关系，只能各自写死，写的时候还容易
@@ -40,7 +40,7 @@ import UIKit
 //
 // ## 这一层做什么
 //
-// 1. 把 17 个角色**映射**到 12 步（`RoleScaleSlot`）
+// 1. 把角色**映射**到 12 步（`RoleScaleSlot`）
 // 2. 给一个主色，**推导**整条 12 步色阶
 // 3. 生成后**校验**对比度，不达标自动校正
 // 4. 老的逐角色覆盖仍然有效（她是手调的，得尊重）
@@ -220,7 +220,7 @@ enum AppearanceScale {
         ]
     }
 
-    /// 把一条色阶摊回 17 个角色。
+    /// 把一条色阶摊回所有角色（含 [T-42] 的不可用色）。
     static func roles(from scale: [AppearanceScaleStep: String],
                       dark: Bool) -> [AppearanceColorRole: String] {
         var out: [AppearanceColorRole: String] = [:]

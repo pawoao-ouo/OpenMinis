@@ -884,7 +884,7 @@ struct DressingShopView: View {
         if let clash = studio.savedThemes().first(where: {
             $0.name.compare(name, options: .caseInsensitive) == .orderedSame
         }) {
-            themeSaveMessage = AppLocalized("已经有一套叫「%@」，再存一套同名的会分不清（%@）。", clash.name, clash.savedAt.formatted(date: .abbreviated, time: .shortened))
+            themeSaveMessage = String(format: AppLocalized("已经有一套叫「%@」，再存一套同名的会分不清（%@）。"), clash.name, clash.savedAt.formatted(date: .abbreviated, time: .shortened))
         }
         if studio.saveCurrentTheme(name: name) != nil {
             themeSaveName = ""
@@ -1275,7 +1275,7 @@ struct DressingShopView: View {
             // [T-49] 删完只有一条一闪而过的提示条,撤销 API 却只死在旧页里。
             // 现在删掉的那套先留一份,店里直接给"撤销"。
             lastDeletedTheme = item
-            showFontToast(AppLocalized("已删除「%@」，可撤销", item.name))
+            showFontToast(String(format: AppLocalized("已删除「%@」，可撤销"), item.name))
             closeThemeDetail()
         } else {
             themeApplyMessage = AppLocalized("这套没删掉，再试一次。")
@@ -1287,7 +1287,7 @@ struct DressingShopView: View {
         guard let item = lastDeletedTheme else { return }
         if studio.restoreSavedTheme(item) {
             lastDeletedTheme = nil
-            showFontToast(AppLocalized("已恢复「%@」", item.name))
+            showFontToast(String(format: AppLocalized("已恢复「%@」"), item.name))
         } else {
             showFontToast(AppLocalized("没恢复成功，可能已经超过回收期限"))
         }

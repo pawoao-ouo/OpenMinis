@@ -23,8 +23,6 @@ struct AgentProfileEntry: TimelineEntry {
     let userName: String
     let line: String
     let theme: WidgetTheme
-
-    var accentHex: String? { theme.accentHex }
 }
 
 /// [T-08][T-09] 小组件侧的主题读取器。明暗两套都在快照里,按小组件自己

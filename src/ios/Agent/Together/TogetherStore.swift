@@ -1262,10 +1262,14 @@ extension TogetherStore {
     static func imageFileExtension(for image: UIImage, source: URL) -> String? {
         // 文件头最可靠：webp 的 RIFF…WEBP、PNG 的 89 50 4E 47、
         // JPEG 的 FF D8、HEIC/HEIF 的 ftyp box。
-        let handle = try? FileHandle(forReadingFrom: source)
-        let head = (try? handle?.read(upToCount: 16)) ?? Data()
-        try? handle?.close()
-        let bytes = [UInt8](head ?? Data())
+        var headData = Data()
+        if let handle = try? FileHandle(forReadingFrom: source) {
+            if let chunk = try? handle.read(upToCount: 16), let chunk {
+                headData = chunk
+            }
+            try? handle.close()
+        }
+        let bytes = [UInt8](headData)
         if bytes.count >= 12 {
             if bytes[0] == 0x89, bytes[1] == 0x50, bytes[2] == 0x4E, bytes[3] == 0x47 { return "png" }
             if bytes[0] == 0xFF, bytes[1] == 0xD8 { return "jpg" }

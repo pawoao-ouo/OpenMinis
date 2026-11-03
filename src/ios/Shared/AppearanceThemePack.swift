@@ -2319,7 +2319,9 @@ enum MinisThemeShape {
     static var buttonRadius: CGFloat { FontSettings.shared.density(12) }
     static var capsuleRadius: CGFloat { FontSettings.shared.density(12) }
     /// Input-bar corner keeps its own pack field, but follows the dial too.
-    static var inputRadius: CGFloat { FontSettings.shared.density(inputBarRadius) }
+    static var inputRadius: CGFloat {
+        FontSettings.shared.density(CGFloat(pack.inputBarRadius))
+    }
 
     /// [T-41] Proportional line height: the font size × 1.4 plus a fixed
     /// leading, so a computed height follows the dial instead of drifting out
