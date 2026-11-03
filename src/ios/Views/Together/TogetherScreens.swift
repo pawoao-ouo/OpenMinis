@@ -2220,9 +2220,10 @@ enum TogetherPhotoImport {
                                      comment: "一起听 · 换壁纸失败 · 临时文件写不进") + ": " + error.localizedDescription)
         }
         guard TogetherStore.shared.setImage(slot: slot, from: tmp) != nil else {
-            // 存不进 together/images：目录不可写，或图片记录没落盘。
-            return fail(AppLocalized("Couldn't save the wallpaper",
-                                     comment: "一起听 · 换壁纸失败 · 存不进图片目录"))
+            // [T-59] 存不进 together/images，或这张图本身解不出来（比如 webp）。
+            // 以前两种情况都弹"已更新"，用户看到壁纸没变也不知道为什么。
+            return fail(AppLocalized("Couldn't save that picture. It may be a format the app can't read.",
+                                     comment: "一起听 · 换壁纸失败 · 存不进或解不出"))
         }
         MinisToast.show(AppLocalized("Wallpaper updated", comment: "一起听 · 壁纸更新成功提示"),
                         systemImage: "checkmark.circle")

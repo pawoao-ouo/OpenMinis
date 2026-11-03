@@ -1123,6 +1123,10 @@ enum TogetherImages {
 
     static let extensions = ["jpg", "jpeg", "png", "heic", "webp"]
 
+    /// [T-30] 一起听壁纸的安全上限，长边像素。和主线壁纸拾取的上限一致：
+    /// 两张图不该各自定规矩。
+    static let maxEdge: CGFloat = 2200
+
     static var directory: URL {
         TogetherStore.shared.rootURL.appendingPathComponent("images", isDirectory: true)
     }
@@ -1141,6 +1145,27 @@ enum TogetherImages {
         guard let img = UIImage(contentsOfFile: url.path) else { return nil }
         cache.setObject(img, forKey: key, cost: Int(img.size.width * img.size.height))
         return img
+    }
+
+    /// [T-30] 超过上限的图统一压到 `maxEdge` 长边、JPEG 0.86。
+    /// 与主线壁纸同一个上限（2200px），不各定一套规矩。
+    static func downscaledJPEG(_ image: UIImage, maxEdge: CGFloat) -> Data? {
+        guard let cg = image.cgImage else { return nil }
+        let source = CGSize(width: cg.width, height: cg.height)
+        guard source.width > 0, source.height > 0 else { return nil }
+        let scale = min(1, maxEdge / max(source.width, source.height))
+        let canvas = CGSize(width: max(1, source.width * scale),
+                            height: max(1, source.height * scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
+            // 透明 PNG 压成 JPEG 会变黑边，先垫白 —— 壁纸本来也是压在底色上。
+            UIColor.white.setFill()
+            UIBezierPath(rect: CGRect(origin: .zero, size: canvas)).fill()
+            image.draw(in: CGRect(origin: .zero, size: canvas))
+        }
+        return rendered.jpegData(compressionQuality: 0.86)
     }
 
     static func invalidate(_ slot: String) {
@@ -1169,8 +1194,31 @@ extension TogetherStore {
         let dir = TogetherImages.directory
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        let ext = source.pathExtension.lowercased()
-        let finalExt = ext.isEmpty ? "jpg" : ext
+        // [T-59] 以前扩展名取自**临时文件**——它恒以 .jpg 命名，所以不管
+        // 内容是什么都存成 .jpg。UIImage 靠内容嗅探能解 PNG/HEIC，但解不了
+        // webp：拷贝成功、弹出"已更新"，渲染时解码失败回落主题色，静默撒谎。
+        // 现在先解码验一次，再按真实格式定扩展名；解不出来就如实失败。
+        guard let image = UIImage(contentsOfFile: source.path),
+              image.size.width > 0, image.size.height > 0 else {
+            togetherLogger.error("[Together] 换图失败 \(slot)：这张图解不出来")
+            return nil
+        }
+        // [T-30] 写入时按安全上限限尺寸：以前相册原样拷进 images/，一张
+        // 上亿像素的图既不缩放也不校验，落盘几十 MB，渲染时整张解码，低端机
+        // 顶着内存峰值走。超过 2200px 的一律压成 JPEG 再落盘；没超的原样留着
+        // （不重压、不降质）。
+        let pixelWidth = CGFloat(image.cgImage?.width ?? Int(image.size.width))
+        let pixelHeight = CGFloat(image.cgImage?.height ?? Int(image.size.height))
+        guard pixelWidth > 0, pixelHeight > 0 else {
+            togetherLogger.error("[Together] 换图失败 \(slot)：图片尺寸为 0")
+            return nil
+        }
+        let oversized = max(pixelWidth, pixelHeight) > TogetherImages.maxEdge
+        let sniffed = oversized ? "jpg" : TogetherStore.imageFileExtension(for: image, source: source)
+        guard let finalExt = sniffed else {
+            togetherLogger.error("[Together] 换图失败 \(slot)：格式不认识")
+            return nil
+        }
         // 一个槽位只留一份：其它扩展名的先清掉
         for old in TogetherImages.extensions where old != finalExt {
             try? fm.removeItem(at: dir.appendingPathComponent("\(slot).\(old)"))
@@ -1178,9 +1226,23 @@ extension TogetherStore {
         let dest = dir.appendingPathComponent("\(slot).\(finalExt)")
         try? fm.removeItem(at: dest)
         do {
-            try fm.copyItem(at: source, to: dest)
+            if oversized {
+                guard let data = TogetherImages.downscaledJPEG(image, maxEdge: TogetherImages.maxEdge) else {
+                    togetherLogger.error("[Together] 换图失败 \(slot)：压图失败")
+                    return nil
+                }
+                try data.write(to: dest, options: .atomic)
+            } else {
+                try fm.copyItem(at: source, to: dest)
+            }
         } catch {
             togetherLogger.error("[Together] 换图失败 \(slot)：\(error.localizedDescription)")
+            return nil
+        }
+        // 落盘后再解一次：写坏/写不全也不许报成功。
+        guard let written = UIImage(contentsOfFile: dest.path), written.size.width > 0 else {
+            try? fm.removeItem(at: dest)
+            togetherLogger.error("[Together] 换图失败 \(slot)：写进去的图解不出来")
             return nil
         }
         let rel = "together/images/\(dest.lastPathComponent)"
@@ -1188,6 +1250,32 @@ extension TogetherStore {
         mutate(by: .user, event: "image") { $0.images[slot] = rel }
         NotificationCenter.default.post(name: TogetherImages.didSetNotification, object: slot)
         return rel
+    }
+
+    /// [T-59] 这张图该用什么扩展名。优先看真实文件头，再看源文件名，
+    /// 最后才回落到 jpg —— 三者都不认识的格式直接返回 nil，让调用方报错，
+    /// 而不是写一个解不出来的文件。
+    static func imageFileExtension(for image: UIImage, source: URL) -> String? {
+        // 文件头最可靠：webp 的 RIFF…WEBP、PNG 的 89 50 4E 47、
+        // JPEG 的 FF D8、HEIC/HEIF 的 ftyp box。
+        let handle = try? FileHandle(forReadingFrom: source)
+        let head = (try? handle?.read(upToCount: 16)) ?? Data()
+        try? handle?.close()
+        let bytes = [UInt8](head ?? Data())
+        if bytes.count >= 12 {
+            if bytes[0] == 0x89, bytes[1] == 0x50, bytes[2] == 0x4E, bytes[3] == 0x47 { return "png" }
+            if bytes[0] == 0xFF, bytes[1] == 0xD8 { return "jpg" }
+            if bytes.count >= 12, bytes[0] == 0x52, bytes[1] == 0x49, bytes[2] == 0x46, bytes[3] == 0x46,
+               bytes[8] == 0x57, bytes[9] == 0x45, bytes[10] == 0x42, bytes[11] == 0x50 { return "webp" }
+            if bytes.count >= 8, bytes[4] == 0x66, bytes[5] == 0x74, bytes[6] == 0x79, bytes[7] == 0x70 {
+                return "heic"
+            }
+            if bytes[0] == 0x47, bytes[1] == 0x49, bytes[2] == 0x46 { return "gif" }
+        }
+        let ext = source.pathExtension.lowercased()
+        if TogetherImages.extensions.contains(ext) { return ext }
+        // 内容能解出来、但头也不认：用 jpg 兜底，UIImage 仍然读得懂。
+        return TogetherImages.extensions.contains("jpg") ? "jpg" : nil
     }
 
     func clearImage(slot: String) {

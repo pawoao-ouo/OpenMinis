@@ -3646,9 +3646,12 @@ struct ContentView: View {
         let studio = AppearanceStudio.shared
         if let wp = studio.wallpaper(for: .bottomBar) {
             VStack(spacing: 0) {
+                // [T-58] 以前用 scaledToFit：竖构图塞进 24pt 的条里会缩成中间
+                // 一小片、两边露底，横图没事。改成铺满 + 居中裁切，和其它
+                // backdrop 一致 —— 条还是 24pt，位置不动，只是不再缩成一小片。
                 Image(uiImage: wp)
                     .resizable()
-                    .scaledToFit()
+                    .scaledToFill()
                     .frame(maxWidth: .infinity)
                     .frame(height: 24)
                     .clipped()

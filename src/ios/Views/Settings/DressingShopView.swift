@@ -121,6 +121,8 @@ struct DressingShopView: View {
     /// the scrolling font section, so it always sits at the
     /// bottom of the screen like the HTML toast.
     @State private var fontToastMessage: String?
+    /// [T-49] 刚删掉的那套,给店里一个撤销位。
+    @State private var lastDeletedTheme: AppearanceSavedTheme?
     /// Which variable set the colour panel is editing. Independent
     /// of the mode picker: with "跟随系统" on a light phone she can
     /// still edit (and preview, by flipping the mode) the dark set.
@@ -299,6 +301,14 @@ struct DressingShopView: View {
                         Text(toast)
                             .font(ChatFont.font(12, weight: .semibold))
                             .lineLimit(2)
+                        // [T-49] 删套之后这里多一个「撤销」，不用再跑别处。
+                        if lastDeletedTheme != nil {
+                            Button(AppLocalized("撤销")) { undoDeleteTheme() }
+                                .font(ChatFont.font(12, weight: .bold))
+                                .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
+                                .padding(.leading, 6)
+                                .buttonStyle(PressableStyle(scale: 0.94))
+                        }
                     }
                     // [六定-6] 提示条填主文字，字跟着反色。
                     .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
@@ -869,6 +879,13 @@ struct DressingShopView: View {
             themeSaveMessage = AppLocalized("库满了，删一套再存")
             return
         }
+        // [T-48] 重名以前一声不响就存进去,列表里两套一模一样,分不清哪套是
+        // 哪套。现在存之前点出来,但不拦着 —— 名字是她的,她说重就重。
+        if let clash = studio.savedThemes().first(where: {
+            $0.name.compare(name, options: .caseInsensitive) == .orderedSame
+        }) {
+            themeSaveMessage = AppLocalized("已经有一套叫「%@」，再存一套同名的会分不清（%@）。", clash.name, clash.savedAt.formatted(date: .abbreviated, time: .shortened))
+        }
         if studio.saveCurrentTheme(name: name) != nil {
             themeSaveName = ""
             themeSaveMessage = AppLocalized("已存下来")
@@ -1255,10 +1272,24 @@ struct DressingShopView: View {
 
     private func deleteThemeSet(_ item: AppearanceSavedTheme) {
         if studio.deleteSavedTheme(id: item.id) {
-            showFontToast(AppLocalized("已删除这套"))
+            // [T-49] 删完只有一条一闪而过的提示条,撤销 API 却只死在旧页里。
+            // 现在删掉的那套先留一份,店里直接给"撤销"。
+            lastDeletedTheme = item
+            showFontToast(AppLocalized("已删除「%@」，可撤销", item.name))
             closeThemeDetail()
         } else {
             themeApplyMessage = AppLocalized("这套没删掉，再试一次。")
+        }
+    }
+
+    /// [T-49] 撤销上一次删除。失败如实说,不假装成功。
+    private func undoDeleteTheme() {
+        guard let item = lastDeletedTheme else { return }
+        if studio.restoreSavedTheme(item) {
+            lastDeletedTheme = nil
+            showFontToast(AppLocalized("已恢复「%@」", item.name))
+        } else {
+            showFontToast(AppLocalized("没恢复成功，可能已经超过回收期限"))
         }
     }
 
@@ -3017,6 +3048,59 @@ struct DressingShopView: View {
         .padding(.top, 12)
     }
 
+    /// [T-20] 哪些页有自己的覆盖，一共几项。只读，不写。
+    private var pageOverrideSummary: [(scope: AppearanceScope, count: Int)] {
+        AppearanceScope.allCases
+            .filter { $0 != .global && $0.supportsColour }
+            .compactMap { scope in
+                let count = AppearanceVariant.allCases.reduce(0) { sum, variant in
+                    sum + studio.overrideCount(scope: scope, variant: variant)
+                }
+                return count > 0 ? (scope, count) : nil
+            }
+    }
+
+    /// [T-20] 页级覆盖提示条。说清"这些页不听全局的"，并给清掉的按钮。
+    private var pageOverrideNotice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(AppLocalized("这些页有自己的颜色，会压着上面的全局值："))
+                .font(ChatFont.font(11, weight: .semibold))
+                .foregroundStyle(studio.color(.warning))
+            ForEach(pageOverrideSummary, id: \.scope) { item in
+                HStack(spacing: 8) {
+                    Text(AppLocalized("\(item.scope.title) · \(item.count) 项"))
+                        .font(ChatFont.font(11))
+                        .foregroundStyle(studio.color(.secondaryText))
+                    Spacer(minLength: 0)
+                    Button(AppLocalized("清掉")) {
+                        clearPageOverrides(item.scope)
+                    }
+                    .font(ChatFont.font(11, weight: .semibold))
+                    .foregroundStyle(studio.color(.destructive))
+                    .frame(minHeight: FontSettings.minHitTarget)
+                    .buttonStyle(PressableStyle(scale: 0.94))
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(studio.color(.mutedSurface))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    /// [T-20] 清掉某一页的全部覆盖（明暗两套都清），清完如实报结果。
+    private func clearPageOverrides(_ scope: AppearanceScope) {
+        for variant in AppearanceVariant.allCases {
+            studio.clearOverrides(scope: scope, variant: variant)
+        }
+        let left = AppearanceVariant.allCases.reduce(0) {
+            $0 + studio.overrideCount(scope: scope, variant: $1)
+        }
+        showFontToast(left == 0
+            ? AppLocalized("\(scope.title) 已回到跟随全局")
+            : AppLocalized("\(scope.title) 还剩 \(left) 项没清掉"))
+    }
+
     private var colorVarsView: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
@@ -3026,6 +3110,12 @@ struct DressingShopView: View {
                 Text(AppLocalized("改一处，全 App 一起变。浅色与深色是两套完整变量，切换模式整套换，不是单色反色。"))
                     .font(ChatFont.font(11))
                     .foregroundStyle(studio.color(.secondaryText))
+                // [T-20] 页级覆盖以前是暗层：这句话对某些页是假的，而唯一能看能清
+                // 的入口在已死的旧页里。这里把"哪几页压着全局"直接摆出来，
+                // 并给一键清掉的入口 —— 不改任何页的取色逻辑，只把暗层点亮。
+                if pageOverrideSummary.isEmpty == false {
+                    pageOverrideNotice
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 18)

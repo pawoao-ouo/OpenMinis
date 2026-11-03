@@ -52,13 +52,13 @@ enum AppearanceScaleStep: Int, CaseIterable, Identifiable {
     case appBackground = 1
     case subtleBackground = 2
     case elementBackground = 3
-    case elementHover = 4
+    case elementTint = 4
     case elementActive = 5
     case subtleBorder = 6
     case elementBorder = 7
-    case elementBorderHover = 8
+    case elementBorderStrong = 8
     case solid = 9
-    case solidHover = 10
+    case solidPressed = 10
     case lowContrastText = 11
     case highContrastText = 12
 
@@ -69,13 +69,13 @@ enum AppearanceScaleStep: Int, CaseIterable, Identifiable {
         case .appBackground: return AppLocalized("页面底")
         case .subtleBackground: return AppLocalized("卡片、微弱组件底")
         case .elementBackground: return AppLocalized("组件默认态")
-        case .elementHover: return AppLocalized("悬停")
+        case .elementTint: return AppLocalized("轻微高亮（标签、小色块）")
         case .elementActive: return AppLocalized("按下、选中")
         case .subtleBorder: return AppLocalized("分隔线、卡片描边")
         case .elementBorder: return AppLocalized("交互组件边框、焦点环")
-        case .elementBorderHover: return AppLocalized("悬停时的边框")
+        case .elementBorderStrong: return AppLocalized("边框再深一档")
         case .solid: return AppLocalized("实心填充（最纯）")
-        case .solidHover: return AppLocalized("实心填充悬停")
+        case .solidPressed: return AppLocalized("实心填充按下时")
         case .lowContrastText: return AppLocalized("次要文字")
         case .highContrastText: return AppLocalized("主文字")
         }
@@ -97,7 +97,7 @@ extension AppearanceColorRole {
         case .field:             return .subtleBackground   // 2
         case .mutedSurface:      return .elementBackground  // 3
         case .iconTile:          return .elementBackground  // 3
-        case .chip:              return .elementHover       // 4
+        case .chip:              return .elementTint       // 4
         case .border:            return .subtleBorder       // 6
         case .accent:            return .solid              // 9
         case .userBubble:        return .elementActive      // 5（气泡是个"选中"质感的块）
@@ -164,13 +164,13 @@ enum AppearanceScale {
             steps[.appBackground]      = HSL(h: hsl.h, s: baseSat * 0.30, l: 0.085).hex
             steps[.subtleBackground]   = HSL(h: hsl.h, s: baseSat * 0.32, l: 0.125).hex
             steps[.elementBackground]  = HSL(h: hsl.h, s: baseSat * 0.34, l: 0.170).hex
-            steps[.elementHover]       = HSL(h: hsl.h, s: baseSat * 0.36, l: 0.205).hex
+            steps[.elementTint]       = HSL(h: hsl.h, s: baseSat * 0.36, l: 0.205).hex
             steps[.elementActive]      = HSL(h: hsl.h, s: baseSat * 0.38, l: 0.245).hex
             steps[.subtleBorder]       = HSL(h: hsl.h, s: baseSat * 0.34, l: 0.255).hex
             steps[.elementBorder]      = HSL(h: hsl.h, s: baseSat * 0.36, l: 0.315).hex
-            steps[.elementBorderHover] = HSL(h: hsl.h, s: baseSat * 0.38, l: 0.375).hex
+            steps[.elementBorderStrong] = HSL(h: hsl.h, s: baseSat * 0.38, l: 0.375).hex
             steps[.solid]              = HSL(h: hsl.h, s: baseSat * 0.85, l: 0.640).hex
-            steps[.solidHover]         = HSL(h: hsl.h, s: baseSat * 0.85, l: 0.700).hex
+            steps[.solidPressed]         = HSL(h: hsl.h, s: baseSat * 0.85, l: 0.700).hex
             steps[.lowContrastText]    = HSL(h: hsl.h, s: baseSat * 0.28, l: 0.680).hex
             steps[.highContrastText]   = HSL(h: hsl.h, s: baseSat * 0.16, l: 0.940).hex
         } else {
@@ -178,13 +178,13 @@ enum AppearanceScale {
             steps[.appBackground]      = HSL(h: hsl.h, s: baseSat * 0.26, l: 0.972).hex
             steps[.subtleBackground]   = HSL(h: hsl.h, s: baseSat * 0.20, l: 0.988).hex
             steps[.elementBackground]  = HSL(h: hsl.h, s: baseSat * 0.32, l: 0.945).hex
-            steps[.elementHover]       = HSL(h: hsl.h, s: baseSat * 0.36, l: 0.915).hex
+            steps[.elementTint]       = HSL(h: hsl.h, s: baseSat * 0.36, l: 0.915).hex
             steps[.elementActive]      = HSL(h: hsl.h, s: baseSat * 0.42, l: 0.885).hex
             steps[.subtleBorder]       = HSL(h: hsl.h, s: baseSat * 0.34, l: 0.870).hex
             steps[.elementBorder]      = HSL(h: hsl.h, s: baseSat * 0.38, l: 0.795).hex
-            steps[.elementBorderHover] = HSL(h: hsl.h, s: baseSat * 0.40, l: 0.730).hex
+            steps[.elementBorderStrong] = HSL(h: hsl.h, s: baseSat * 0.40, l: 0.730).hex
             steps[.solid]              = HSL(h: hsl.h, s: baseSat, l: baseLight).hex
-            steps[.solidHover]         = HSL(h: hsl.h, s: baseSat, l: min(0.86, baseLight + 0.055)).hex
+            steps[.solidPressed]         = HSL(h: hsl.h, s: baseSat, l: min(0.86, baseLight + 0.055)).hex
             steps[.lowContrastText]    = HSL(h: hsl.h, s: baseSat * 0.34, l: 0.505).hex
             steps[.highContrastText]   = HSL(h: hsl.h, s: baseSat * 0.28, l: 0.215).hex
         }
@@ -197,19 +197,19 @@ enum AppearanceScale {
         if dark {
             return [
                 .appBackground: "000000", .subtleBackground: "1C1C1E",
-                .elementBackground: "2C2C2E", .elementHover: "3A3A3C",
+                .elementBackground: "2C2C2E", .elementTint: "3A3A3C",
                 .elementActive: "3A3A3C", .subtleBorder: "38383A",
-                .elementBorder: "48484A", .elementBorderHover: "636366",
-                .solid: "FFFFFF", .solidHover: "FFFFFF",
+                .elementBorder: "48484A", .elementBorderStrong: "636366",
+                .solid: "FFFFFF", .solidPressed: "FFFFFF",
                 .lowContrastText: "AEAEB2", .highContrastText: "FFFFFF",
             ]
         }
         return [
             .appBackground: "F5F5F7", .subtleBackground: "FFFFFF",
-            .elementBackground: "F7F7F9", .elementHover: "EBEBEF",
+            .elementBackground: "F7F7F9", .elementTint: "EBEBEF",
             .elementActive: "E5E5EA", .subtleBorder: "E8E8E8",
-            .elementBorder: "D1D1D6", .elementBorderHover: "AEAEB2",
-            .solid: "111113", .solidHover: "111113",
+            .elementBorder: "D1D1D6", .elementBorderStrong: "AEAEB2",
+            .solid: "111113", .solidPressed: "111113",
             .lowContrastText: "636366", .highContrastText: "111113",
         ]
     }

@@ -174,7 +174,10 @@ int theme_extra_color(int argc, char **argv, int stdout_fd, BOOL compact, BOOL q
         noff_emit_json(stdout_fd, err, compact, quiet);
         return NOFF_EXIT_INVALID_ARGS;
     }
-    NSString *variant = noff_find_arg(argc, argv, "--variant") ?: @"light";
+    // [T-53] --variant 缺省是 light：AI 漏写就写浅色档，结果里回显但不够显眼。
+    // 这里记下是不是缺省，交给结果里显式标注，别让它悄悄发生。
+    NSString *variantArg = noff_find_arg(argc, argv, "--variant");
+    NSString *variant = variantArg ?: @"light";
     NSDictionary *raw;
     if (noff_has_flag(argc, argv, "--clear")) {
         raw = [ThemeOffloadExtras clearColor:role scope:scope variant:variant];
@@ -188,6 +191,14 @@ int theme_extra_color(int argc, char **argv, int stdout_fd, BOOL compact, BOOL q
             return NOFF_EXIT_INVALID_ARGS;
         }
         raw = [ThemeOffloadExtras setColor:role hex:hex scope:scope variant:variant];
+    }
+    // [T-53] 缺省档在结果里显式标出来，别让"我写的是浅色还是它替我选的"
+    // 靠猜。给了 --variant 就不加这行。
+    if (raw[@"ok"] && !variantArg) {
+        NSMutableDictionary *annotated = [raw mutableCopy];
+        annotated[@"variantDefaulted"] = @YES;
+        annotated[@"variantNote"] = @"No --variant was passed, so this wrote the LIGHT palette. Pass --variant dark to change the dark one.";
+        raw = annotated;
     }
     return theme_extra_emit(raw, @"color", stdout_fd, compact, quiet);
 }

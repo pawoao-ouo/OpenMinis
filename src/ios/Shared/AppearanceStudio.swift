@@ -28,7 +28,8 @@ enum AppearanceScope: String, CaseIterable, Identifiable {
         case .home: return AppLocalized("首页")
         case .bottomBar: return AppLocalized("底部栏")
         case .chat: return AppLocalized("聊天")
-        case .settings: return AppLocalized("Settings")
+        // [T-68] 变量名里混着英文，就这一处最显眼。
+        case .settings: return AppLocalized("设置")
         case .browser: return AppLocalized("浏览器")
         case .files: return AppLocalized("文件")
         case .terminal: return AppLocalized("终端")
@@ -51,7 +52,8 @@ enum AppearanceVariant: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         // [B28 E-1] 三元里的裸中文 Text() 也查不到表。
-        self == .light ? AppLocalized("Light") : AppLocalized("Dark")
+        // [T-68] 浅深两档的名字也一直挂着英文。
+        self == .light ? AppLocalized("浅色") : AppLocalized("深色")
     }
 }
 
