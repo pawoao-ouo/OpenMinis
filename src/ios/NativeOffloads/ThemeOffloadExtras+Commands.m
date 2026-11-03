@@ -135,6 +135,13 @@ int theme_extra_icon(int argc, char **argv, int stdout_fd, BOOL compact, BOOL qu
         noff_emit_json(stdout_fd, err, compact, quiet);
         return NOFF_EXIT_INVALID_ARGS;
     }
+    // [T-52] Unreachable today: icon set/clear is locked for the AI. Kept so
+    // the command answers instead of falling off the end if that changes.
+    NSDictionary *unsupported = noff_json_error(
+        EXTRA_TOOL_NAME, @"icon", @"unsupported_action",
+        @"Setting or clearing an icon is not available here. Nothing was changed.");
+    noff_emit_json(stdout_fd, unsupported, compact, quiet);
+    return NOFF_EXIT_INVALID_ARGS;
 }
 
 int theme_extra_wallpaper(int argc, char **argv, int stdout_fd, BOOL compact, BOOL quiet) {
