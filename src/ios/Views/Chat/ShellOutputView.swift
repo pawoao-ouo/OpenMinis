@@ -11,7 +11,7 @@ import SwiftUI
 struct ShellOutputView: View {
     @ObservedObject var block: AssistantBlock
     var isLive: Bool
-    var accentColor: Color
+    var bodyTextColor: Color
     var cardMinHeight: CGFloat
 
     @StateObject private var resourceMonitor = SystemResourceMonitor()
@@ -40,7 +40,7 @@ struct ShellOutputView: View {
                 ForEach(chunks, id: \.id) { chunk in
                     Text(attributedShellLine(chunk.text))
                         .font(.system(size: 13, design: .monospaced))
-                        .foregroundColor(accentColor)
+                        .foregroundColor(bodyTextColor)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 14)
                 }

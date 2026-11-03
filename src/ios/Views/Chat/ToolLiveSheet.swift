@@ -1692,7 +1692,7 @@ struct ToolLiveSheet: View {
                     ShellOutputView(
                         block: block,
                         isLive: isLive,
-                        accentColor: accentColor,
+                        bodyTextColor: ChatColors.shellText,
                         cardMinHeight: cardMinHeight
                     )
                 } else {

@@ -3109,7 +3109,7 @@ struct DressingShopView: View {
     private var colorVarGroups: [ColorVarGroup] {
         [
             ColorVarGroup(title: AppLocalized("字"), hint: AppLocalized("字长什么样"),
-                          roles: [.primaryText, .secondaryText, .tertiaryText]),
+                          roles: [.primaryText, .secondaryText, .tertiaryText, .shellText]),
             ColorVarGroup(title: AppLocalized("每一页的底和卡片"), hint: AppLocalized("页面本身和上面的块"),
                           roles: [.canvas, .surface, .raised, .mutedSurface, .border]),
             ColorVarGroup(title: AppLocalized("聊天"), hint: AppLocalized("聊天的气泡和里面的字"),
@@ -3161,6 +3161,7 @@ struct DressingShopView: View {
         case .primaryText: return AppLocalized("大标题和正文的字")
         case .secondaryText: return AppLocalized("说明和小字的颜色")
         case .tertiaryText: return AppLocalized("最淡的小字")
+        case .shellText: return AppLocalized("黑卡里的字")
         case .canvas: return AppLocalized("整页的背景")
         case .surface: return AppLocalized("一块一块的卡片")
         case .raised: return AppLocalized("弹出来的小框")
@@ -3185,6 +3186,7 @@ struct DressingShopView: View {
         case .primaryText: return AppLocalized("所有标题、正文都用这个颜色")
         case .secondaryText: return AppLocalized("说明、时间、副标题这种小字")
         case .tertiaryText: return AppLocalized("占位字、最淡的小字，只做标签，不做正文")
+        case .shellText: return AppLocalized("聊天里那张黑卡上打出来的字")
         case .canvas: return AppLocalized("每一页最底下的颜色；卡片和卡片之间的空地方也透出这个颜色")
         case .surface: return AppLocalized("设置里一格一格的选项、店里一张一张的卡，都是这个颜色")
         case .raised: return AppLocalized("弹窗、菜单、浮在页面上面的小面板")
@@ -3257,6 +3259,16 @@ struct DressingShopView: View {
                 colorVarBar(width: 48, height: 5, color: live)
                 colorVarBar(width: 32, height: 5, color: live, opacity: 0.7)
             }
+        case .shellText:
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.black)
+                VStack(spacing: 4) {
+                    colorVarBar(width: 26, height: 5, color: live)
+                    colorVarBar(width: 18, height: 5, color: live, opacity: 0.7)
+                }
+            }
+            .frame(width: 46, height: 28)
         case .canvas:
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous).fill(live)

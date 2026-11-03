@@ -110,6 +110,7 @@ extension AppearanceColorRole {
         case .primaryText:       return .highContrastText   // 12
         case .bubbleText:        return .highContrastText   // 12, same as primaryText until set
         case .assistantBubbleText: return .highContrastText // 12, same as primaryText until set
+        case .shellText: return .highContrastText // 12, bright text on the black shell card
         // 状态色不参与主色推导，它们有自己的色相（绿/黄/红）。
         case .success, .warning, .destructive:
             return .solid

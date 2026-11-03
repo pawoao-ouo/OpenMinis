@@ -86,6 +86,11 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
     /// follows primaryText exactly like bubbleText, so existing themes
     /// behave exactly as before until the user sets it on the bubble page.
     case assistantBubbleText
+    /// Shell output text on the black tool card: the body text of
+    /// ShellOutputView. It is text, not accent — it must not share
+    /// the accent colour (buttons/switches), and its default is
+    /// bright because the card background is unconditionally black.
+    case shellText
     /// [bubble-grouping] My-bubble text, separate from global text.
     /// Unset, it follows primaryText (see hex()/snapshotHex() below),
     /// so existing themes behave exactly as before until the user
@@ -108,6 +113,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .primaryText: return AppLocalized("主文字")
         case .secondaryText: return AppLocalized("次文字")
         case .tertiaryText: return AppLocalized("三级文字")
+        case .shellText: return AppLocalized("终端黑卡里的字")
         case .accent: return AppLocalized("强调色")
         case .userBubble: return AppLocalized("我的气泡")
         case .assistantBubble: return AppLocalized("AI 气泡")
@@ -134,6 +140,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .primaryText: return AppLocalized("主文字：标题、正文")
         case .secondaryText: return AppLocalized("次文字：说明、时间戳")
         case .tertiaryText: return AppLocalized("三级文字：占位、最淡说明，只做标签不做正文")
+        case .shellText: return AppLocalized("聊天里黑卡上的终端输出文字")
         case .accent: return AppLocalized("强调色：按钮、选中、开关")
         case .userBubble: return AppLocalized("你的聊天气泡")
         case .assistantBubble: return AppLocalized("AI 聊天气泡")
@@ -1348,7 +1355,7 @@ private enum AppearancePaletteBook {
     static let light: [AppearanceColorRole: String] = [
         .canvas: "F5F5F7", .surface: "FFFFFF", .raised: "FFFFFF",
         .mutedSurface: "F7F7F9", .primaryText: "111113", .secondaryText: "636366",
-        .tertiaryText: "8E8E93",
+        .tertiaryText: "8E8E93", .shellText: "E5E5EA",
         .accent: "111113", .userBubble: "E5E5EA", .assistantBubble: "FFFFFF",
         .border: "E8E8E8",
         .field: "FFFFFF", .iconTile: "F2F2F5", .chip: "EBEBEF",
@@ -1358,7 +1365,7 @@ private enum AppearancePaletteBook {
     static let dark: [AppearanceColorRole: String] = [
         .canvas: "000000", .surface: "1C1C1E", .raised: "2C2C2E",
         .mutedSurface: "2C2C2E", .primaryText: "FFFFFF", .secondaryText: "AEAEB2",
-        .tertiaryText: "8E8E93",
+        .tertiaryText: "8E8E93", .shellText: "E5E5EA",
         .accent: "FFFFFF", .userBubble: "3A3A3C", .assistantBubble: "1C1C1E",
         .border: "38383A",
         .field: "1C1C1E", .iconTile: "2C2C2E", .chip: "3A3A3C",

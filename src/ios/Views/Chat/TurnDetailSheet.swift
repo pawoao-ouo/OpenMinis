@@ -408,7 +408,7 @@ struct TurnDetailSheet: View {
             ShellOutputView(
                 block: block,
                 isLive: false,
-                accentColor: ChatColors.accent,
+                bodyTextColor: ChatColors.shellText,
                 cardMinHeight: 0
             )
             .padding(.horizontal, 8)

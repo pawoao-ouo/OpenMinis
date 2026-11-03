@@ -127,6 +127,7 @@ enum ChatColors {
     }
     static var toolBorder: Color { studio.color(.border, scope: .chat).opacity(0.75) }
     static var accent: Color { studio.color(.accent, scope: .chat) }
+    static var shellText: Color { studio.color(.shellText, scope: .chat) }
     static var success: Color { studio.color(.success, scope: .chat) }
     static var warning: Color { studio.color(.warning, scope: .chat) }
     static var destructive: Color { studio.color(.destructive, scope: .chat) }
