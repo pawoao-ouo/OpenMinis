@@ -2068,16 +2068,6 @@ struct DressingShopView: View {
     private var fsCaption: CGFloat { globalPointSize * 0.82 }
     private var fsMini: CGFloat { globalPointSize * 0.72 }
 
-    /// v2's `:active` press: size cards scale 0.96, font cards
-    /// 0.985, the 195 `.plain` style gave no feedback at all.
-    private struct FontPressStyle: ButtonStyle {
-        var scale: CGFloat
-        func makeBody(configuration: Configuration) -> some View {
-            configuration.label
-                .scaleEffect(configuration.isPressed ? scale : 1)
-                .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.15), value: configuration.isPressed)
-        }
-    }
 
     /// v2's SYNCHRONIZED dot: accent colour, pulsing 2s infinite.
     /// The colour is passed in (the new palette's accent flips
@@ -3651,6 +3641,17 @@ struct DressingShopView: View {
             }
             if !isUser { Spacer(minLength: 0) }
         }
+    }
+}
+
+/// v2's `:active` press: size cards scale 0.96, font cards
+/// 0.985, the 195 `.plain` style gave no feedback at all.
+private struct FontPressStyle: ButtonStyle {
+    var scale: CGFloat
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.15), value: configuration.isPressed)
     }
 }
 
