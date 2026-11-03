@@ -111,6 +111,10 @@ extension AppearanceColorRole {
         case .bubbleText:        return .highContrastText   // 12, same as primaryText until set
         case .assistantBubbleText: return .highContrastText // 12, same as primaryText until set
         case .shellText: return .highContrastText // 12, bright text on the black shell card
+        // [T-42] 不可用态落在"浅底"那一步再淡一档：它是个控件表面，
+        // 不是文字。取 solid 会让它比强调色还抢眼。
+        case .disabled:
+            return .subtleBackground
         // 状态色不参与主色推导，它们有自己的色相（绿/黄/红）。
         case .success, .warning, .destructive:
             return .solid
@@ -123,6 +127,8 @@ extension AppearanceColorRole {
         case .raised:        return 1     // 比卡片再亮
         case .tertiaryText:  return 1     // 三级比次级再淡一档
         case .field:         return 0
+        // [T-42] 不可用态比浅底再淡一点，和 surface 区分开。
+        case .disabled:      return -1
         case .assistantBubble: return 0
         default:             return 0
         }

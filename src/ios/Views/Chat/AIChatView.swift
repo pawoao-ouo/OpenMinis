@@ -108,6 +108,9 @@ enum ChatColors {
     /// [T-04] 以前是「次文字 × 0.72」，`tertiaryText` 这个角色全仓没人读，
     /// 面板上那一行的色样和还原箭头只是装饰。现在真读角色。
     static var tertiaryText: Color { studio.color(.tertiaryText, scope: .chat) }
+    /// [T-42] 不可用态。以前没有这个角色，按钮变灰只能借用次文字或者
+    /// 硬压透明度——把次文字调亮，不能点的按钮看着就跟能点一样。
+    static var disabled: Color { studio.color(.disabled, scope: .chat) }
     static var userBubble: Color {
         studio.color(.userBubble, scope: .chat).opacity(bubbleAlpha)
     }

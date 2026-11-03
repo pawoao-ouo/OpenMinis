@@ -674,6 +674,9 @@ struct MinisApp: App {
             // a jetsam can drop history that only ever reached the -wal sidecar.
             // Cheap and synchronous — this is the last reliable moment to do it.
             ConfigAuditLog.shared.checkpoint()
+            // [T-73c] 颜色落盘现在是合并写的（拖色盘时不每帧写一次）。
+            // 离开前台是最后一个可靠时机，把还没落的那一笔补上。
+            AppearanceStudio.shared.flushColorPersist()
             // "Lock on exit" mode — drop every cached unlock
             // stamp so re-entering any locked session requires Face ID.
             // Per-session AIChatView observer only covers the session

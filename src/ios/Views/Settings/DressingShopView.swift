@@ -3116,6 +3116,13 @@ struct DressingShopView: View {
                 if pageOverrideSummary.isEmpty == false {
                     pageOverrideNotice
                 }
+                // [T-70] 思考卡那三色只有主题包能定，面板里没有对应行。
+                // 不说清楚，用户会以为"我改了强调色，思考卡怎么没变"——
+                // 那是包写了值，把跟随盖住了。本轮不加新面板行（规划定的），
+                // 只把归属写明。
+                Text(AppLocalized("思考卡的颜色只跟主题包走，不在这一页；包没写那三项时才跟强调色。"))
+                    .font(ChatFont.font(11))
+                    .foregroundStyle(studio.color(.tertiaryText))
             }
             .padding(.horizontal, 16)
             .padding(.top, 18)
@@ -3292,6 +3299,7 @@ struct DressingShopView: View {
         case .primaryText: return AppLocalized("大标题和正文的字")
         case .secondaryText: return AppLocalized("说明和小字的颜色")
         case .tertiaryText: return AppLocalized("最淡的小字")
+        case .disabled: return AppLocalized("点不了的东西的颜色")
         case .shellText: return AppLocalized("黑卡里的字")
         case .canvas: return AppLocalized("整页的背景")
         case .surface: return AppLocalized("一块一块的卡片")
@@ -3317,6 +3325,7 @@ struct DressingShopView: View {
         case .primaryText: return AppLocalized("所有标题、正文都用这个颜色")
         case .secondaryText: return AppLocalized("说明、时间、副标题这种小字")
         case .tertiaryText: return AppLocalized("占位字、最淡的小字，只做标签，不做正文")
+        case .disabled: return AppLocalized("按钮、开关不能点的时候显示的颜色")
         case .shellText: return AppLocalized("聊天里那张黑卡上打出来的字")
         case .canvas: return AppLocalized("每一页最底下的颜色；卡片和卡片之间的空地方也透出这个颜色")
         case .surface: return AppLocalized("设置里一格一格的选项、店里一张一张的卡，都是这个颜色")
@@ -3390,6 +3399,13 @@ struct DressingShopView: View {
                 colorVarBar(width: 48, height: 5, color: live)
                 colorVarBar(width: 32, height: 5, color: live, opacity: 0.7)
             }
+        case .disabled:
+            // [T-42] 小样直接画一个"按不动的按钮"：灰底 + 灰字。
+            ZStack {
+                Capsule().fill(live)
+                colorVarBar(width: 28, height: 4, color: colorVarLiveColor(.secondaryText), opacity: 0.5)
+            }
+            .frame(width: 52, height: 20)
         case .shellText:
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)

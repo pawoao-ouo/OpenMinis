@@ -103,6 +103,10 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
     case iconTile
     /// 胶囊/徽章底：用量、状态、标签
     case chip
+    /// [T-42] 不可用态。以前没有这个角色，按钮变灰只能借用次文字或者
+    /// 硬压透明度 —— 用户把次文字调亮，不可用的按钮看着就跟能点一样。
+    /// 现在它有自己的位置：默认取"次文字再淡一档"，但可以被单独调。
+    case disabled
     case success, warning, destructive
 
     var id: String { rawValue }
@@ -125,7 +129,8 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .field: return AppLocalized("输入框")
         case .iconTile: return AppLocalized("图标底")
         case .chip: return AppLocalized("胶囊底")
-        case .success: return AppLocalized("Success")
+        case .disabled: return AppLocalized("不可用")
+        case .success: return AppLocalized("成功")
         case .warning: return AppLocalized("警告")
         case .destructive: return AppLocalized("危险")
         }
@@ -152,6 +157,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .field: return AppLocalized("输入框、搜索栏")
         case .iconTile: return AppLocalized("小方块图标底：消息操作栏、输入栏图标")
         case .chip: return AppLocalized("胶囊底：用量、状态、标签")
+        case .disabled: return AppLocalized("点不了的按钮和开关：按钮灰掉、禁用文字")
         case .success: return AppLocalized("成功状态（绿）")
         case .warning: return AppLocalized("警告状态（黄）")
         case .destructive: return AppLocalized("危险操作（红）")
@@ -207,7 +213,7 @@ enum AppearanceColorRoleGroup: String, CaseIterable, Identifiable {
         switch self {
         case .text: return [.primaryText, .secondaryText, .tertiaryText]
         case .backgrounds: return [.canvas, .surface, .raised, .mutedSurface]
-        case .controls: return [.iconTile, .chip, .field, .border]
+        case .controls: return [.iconTile, .chip, .field, .border, .disabled]
         case .accentGroup: return [.accent]
         case .chat: return [.userBubble, .assistantBubble]
         case .status: return [.success, .warning, .destructive]
@@ -921,15 +927,42 @@ final class AppearanceStudio: ObservableObject {
     }
 
     private func persistColors() {
-        if let data = try? JSONEncoder().encode(customColors) {
-            UserDefaults.standard.set(data, forKey: Keys.colors)
-        }
+        // [T-73c] 拖色盘时每一帧都会走这里：以前每次都把整张颜色表编码
+        // 一次、写一次 UserDefaults（几十个键的字典，主线程上）。屏幕上
+        // 立刻要变的部分（快照 + 视图刷新）照旧同步做，落盘合并成一次 ——
+        // 停下来 0.4 秒后才写，中途被系统杀掉最多丢最后 0.4 秒的拖动。
         Self.colorSnapshot = customColors
         objectWillChange.send()
         // [T-08] 颜色一变就把主题快照写进 App Group,桌面小组件才跟得上。
         // 这里是唯一一处写颜色的出口(用户面板、AI、主题包都走 setColor),
         // 所以挂在这儿不会漏。
         WidgetProfileBridge.scheduleThemeRefresh()
+        scheduleColorPersist()
+    }
+
+    /// [T-73c] 合并落盘。非拖动场景（AI 一次写一个色）只多等 0.4 秒。
+    private var colorPersistPending = false
+
+    private func scheduleColorPersist() {
+        guard !colorPersistPending else { return }
+        colorPersistPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.colorPersistPending = false
+            self.writeColorsNow()
+        }
+    }
+
+    /// 真的写盘。退出/切后台时也该调它，免得最后 0.4 秒丢掉。
+    func flushColorPersist() {
+        guard colorPersistPending else { return }
+        colorPersistPending = false
+        writeColorsNow()
+    }
+
+    private func writeColorsNow() {
+        guard let data = try? JSONEncoder().encode(customColors) else { return }
+        UserDefaults.standard.set(data, forKey: Keys.colors)
     }
 
     /// Safe for UIKit callbacks. Resolves chat-scoped roles without hopping the actor.
@@ -1492,6 +1525,7 @@ private enum AppearancePaletteBook {
         .accent: "111113", .userBubble: "E5E5EA", .assistantBubble: "FFFFFF",
         .border: "E8E8E8",
         .field: "FFFFFF", .iconTile: "F2F2F5", .chip: "EBEBEF",
+        .disabled: "B8B8BD",
         .success: "5A8F6A",
         .warning: "B7791F", .destructive: "D9383A"
     ]
@@ -1502,6 +1536,7 @@ private enum AppearancePaletteBook {
         .accent: "FFFFFF", .userBubble: "3A3A3C", .assistantBubble: "1C1C1E",
         .border: "38383A",
         .field: "1C1C1E", .iconTile: "2C2C2E", .chip: "3A3A3C",
+        .disabled: "5A5A5F",
         .success: "7FBF8F",
         .warning: "D9A441", .destructive: "FF453A"
     ]

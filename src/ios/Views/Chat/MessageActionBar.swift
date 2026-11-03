@@ -404,7 +404,9 @@ struct ChatFeedbackSheet: View {
                         .font(ChatFont.font(14, weight: .semibold))
                         .frame(minWidth: 100)
                         .padding(.vertical, 12)
-                        .background(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.optionBg() : CSSThemeVariables.accent())
+                        // [T-42] 不能点的发送钮以前借"浅底 + 次文字"，把次文字
+                        // 调亮它就看着像能点。现在走专门的不可用色。
+                        .background(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? ChatColors.disabled : CSSThemeVariables.accent())
                         .foregroundStyle(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.textDim() : CSSThemeVariables.accentFg())
                         .clipShape(Capsule())
                 }
