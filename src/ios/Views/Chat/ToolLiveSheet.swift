@@ -268,11 +268,12 @@ struct FloatingToolBar: View {
 /// Tappable URL capsule that copies to clipboard and shows a brief "Copied" tooltip.
 private struct CopyableURLCapsule: View {
     let url: String
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var showCopied = false
 
     var body: some View {
         Text(showCopied ? "Copied!" : url)
-            .font(.system(size: 12, weight: showCopied ? .semibold : .regular))
+            .font(.system(size: fontSettings.scaledApp(12), weight: showCopied ? .semibold : .regular))
             .foregroundStyle(showCopied ? Color.white : Color(white: 0.35))
             .lineLimit(1)
             .truncationMode(.middle)
@@ -294,6 +295,7 @@ private struct CopyableURLCapsule: View {
 /// Full-screen live sheet — Manus-style layout with nav bar, live content, and bottom status/navigation.
 struct ToolLiveSheet: View {
     let toolBlocks: [AssistantBlock]
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State var currentIdx: Int
     var toolSnapshots: [ToolSnapshotItem] = []
     var browserPool: BrowserTabPool?
@@ -544,7 +546,7 @@ struct ToolLiveSheet: View {
                 // elapsed-duration "5s" text) so it lives next to where the
                 // user is already scanning timing info.
                 Text("嘟嘟 Computer")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: fontSettings.scaledApp(15), weight: .semibold))
 
                 Spacer()
 
@@ -880,7 +882,7 @@ struct ToolLiveSheet: View {
                     HStack(spacing: 8) {
                         if !action.isEmpty {
                             Text(action)
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: fontSettings.scaledApp(12), weight: .semibold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
@@ -932,7 +934,7 @@ struct ToolLiveSheet: View {
                                     .font(.system(size: 12))
                                     .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat))
                                 Text("Result")
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                                     .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .chat))
                                     .lineLimit(1)
                             }
@@ -944,7 +946,7 @@ struct ToolLiveSheet: View {
 
                             // Result content
                             Text(text)
-                                .font(.system(size: 13, design: .monospaced))
+                                .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
                                 .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .chat))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
@@ -976,7 +978,7 @@ struct ToolLiveSheet: View {
                     HStack(spacing: 8) {
                         if !action.isEmpty {
                             Text(action)
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: fontSettings.scaledApp(12), weight: .semibold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
@@ -1005,7 +1007,7 @@ struct ToolLiveSheet: View {
                                 .font(.system(size: 12))
                                 .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat))
                             Text("Result")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                                 .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .chat))
                                 .lineLimit(1)
                         }
@@ -1017,7 +1019,7 @@ struct ToolLiveSheet: View {
 
                         // Result content
                         Text(sanitizeForDisplay(text))
-                            .font(.system(size: 13, design: .monospaced))
+                            .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
                             .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .chat))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
@@ -1053,7 +1055,7 @@ struct ToolLiveSheet: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             Text("$ \(cmd)")
-                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .font(.system(size: fontSettings.scaledApp(13), weight: .bold, design: .monospaced))
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 14)
@@ -1061,7 +1063,7 @@ struct ToolLiveSheet: View {
 
                             ForEach(chunks, id: \.id) { chunk in
                                 Text(attributedShellLine(chunk.text))
-                                    .font(.system(size: 13, design: .monospaced))
+                                    .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
                                     .foregroundColor(accentColor)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.horizontal, 14)
@@ -1082,7 +1084,7 @@ struct ToolLiveSheet: View {
                         VStack(alignment: .leading, spacing: 0) {
                             if !contentHeader.isEmpty {
                                 Text(contentHeader)
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.system(size: fontSettings.scaledApp(12), weight: .medium))
                                     .foregroundStyle(ChatColors.secondaryText)
                                     .padding(.horizontal, 16)
                                     .padding(.top, 16)
@@ -1091,7 +1093,7 @@ struct ToolLiveSheet: View {
                             }
 
                             Text(sanitizeForDisplay(text))
-                                .font(.system(size: 13, design: .monospaced))
+                                .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
                                 .foregroundStyle(accentColor)
                                 .frame(maxWidth: .infinity, minHeight: cardMinHeight, alignment: .topLeading)
                                 .textSelection(.enabled)
@@ -1114,11 +1116,11 @@ struct ToolLiveSheet: View {
                 .font(.system(size: 12))
                 .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat))
             Text(fileName)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                 .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .chat))
                 .lineLimit(1)
             Text("(\(Self.formatCharCount(charCount)))")
-                .font(.system(size: 11))
+                .font(.system(size: fontSettings.scaledApp(11)))
                 .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat).opacity(0.7))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1195,11 +1197,11 @@ struct ToolLiveSheet: View {
                                     .font(.system(size: 12))
                                     .foregroundStyle(ChatColors.warning)
                                 Text(fileName)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                                     .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .chat))
                                     .lineLimit(1)
                                 Text("(\(sizeLabel))")
-                                    .font(.system(size: 11))
+                                    .font(.system(size: fontSettings.scaledApp(11)))
                                     .foregroundStyle(isStreaming ? ChatColors.warning.opacity(0.8) : AppearanceStudio.shared.color(.secondaryText, scope: .chat).opacity(0.7))
                                     .lineLimit(1)
                             }
@@ -1221,7 +1223,7 @@ struct ToolLiveSheet: View {
                                     let oldChunks = Self.chunkedDiffLines(oldText, prefix: "- ")
                                     ForEach(oldChunks, id: \.id) { chunk in
                                         Text(chunk.text)
-                                            .font(.system(size: 13, design: .monospaced))
+                                            .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
                                             .foregroundStyle(ChatColors.destructive)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .padding(.horizontal, 14)
@@ -1234,7 +1236,7 @@ struct ToolLiveSheet: View {
                                     let newChunks = Self.chunkedDiffLines(newText, prefix: "+ ")
                                     ForEach(newChunks, id: \.id) { chunk in
                                         Text(chunk.text)
-                                            .font(.system(size: 13, design: .monospaced))
+                                            .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
                                             .foregroundStyle(ChatColors.success)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .padding(.horizontal, 14)
@@ -1273,10 +1275,10 @@ struct ToolLiveSheet: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(spacing: 4) {
                                         Text(label)
-                                            .font(.system(size: 13, weight: .semibold))
+                                            .font(.system(size: fontSettings.scaledApp(13), weight: .semibold))
                                             .foregroundStyle(labelColor)
                                         Text(filePath)
-                                            .font(.system(size: 12, design: .monospaced))
+                                            .font(.system(size: fontSettings.scaledApp(12), design: .monospaced))
                                             .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat))
                                             .lineLimit(1)
                                             .truncationMode(.middle)
@@ -1289,14 +1291,14 @@ struct ToolLiveSheet: View {
                                         // "Failed to edit … Error: …" stacking, and cap at 6
                                         // lines to keep the card height bounded.
                                         Text(Self.trimmedErrorMessage(errText))
-                                            .font(.system(size: 12, design: .monospaced))
+                                            .font(.system(size: fontSettings.scaledApp(12), design: .monospaced))
                                             .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat))
                                             .lineLimit(6)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .textSelection(.enabled)
                                     } else if let detail = resultDetail {
                                         Text(detail)
-                                            .font(.system(size: 12))
+                                            .font(.system(size: fontSettings.scaledApp(12)))
                                             .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat).opacity(0.7))
                                     }
                                 }
@@ -1394,12 +1396,12 @@ struct ToolLiveSheet: View {
                     .font(.system(size: 11))
                     .foregroundStyle(ChatColors.warning.opacity(0.7))
                 Text("JavaScript")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                     .foregroundStyle(ChatColors.warning)
                     .lineLimit(1)
                 Spacer()
                 Text(Self.formatBytes(script.utf8.count))
-                    .font(.system(size: 11))
+                    .font(.system(size: fontSettings.scaledApp(11)))
                     .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat).opacity(0.7))
             }
             .padding(.horizontal, 12)
@@ -1410,7 +1412,7 @@ struct ToolLiveSheet: View {
 
             // Script content
             Text(script)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: fontSettings.scaledApp(12), design: .monospaced))
                 .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .chat))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
@@ -1438,11 +1440,11 @@ struct ToolLiveSheet: View {
                             .font(.system(size: 12))
                             .foregroundStyle(ChatColors.accent.opacity(0.6))
                         Text(action)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                             .foregroundStyle(ChatColors.accent)
                             .lineLimit(1)
                         Text("(\(sizeLabel))")
-                            .font(.system(size: 11))
+                            .font(.system(size: fontSettings.scaledApp(11)))
                             .foregroundStyle(isStreaming ? ChatColors.warning.opacity(0.8) : ChatColors.accent.opacity(0.5))
                     }
                     .frame(maxWidth: .infinity)
@@ -1458,7 +1460,7 @@ struct ToolLiveSheet: View {
                             : Self.chunkedLines(memoryContent.isEmpty ? " " : memoryContent)
                         ForEach(chunks, id: \.id) { chunk in
                             Text(chunk.text)
-                                .font(.system(size: 13, design: .monospaced))
+                                .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
                                 .foregroundStyle(ChatColors.accent.opacity(0.85))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 14)
@@ -1504,11 +1506,11 @@ struct ToolLiveSheet: View {
                             .font(.system(size: 12))
                             .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat))
                         Text(fileName)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                             .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .chat))
                             .lineLimit(1)
                         Text("(\(sizeLabel))")
-                            .font(.system(size: 11))
+                            .font(.system(size: fontSettings.scaledApp(11)))
                             .foregroundStyle(isStreaming ? ChatColors.warning.opacity(0.8) : AppearanceStudio.shared.color(.secondaryText, scope: .chat).opacity(0.7))
                     }
                     .frame(maxWidth: .infinity)
@@ -1521,7 +1523,7 @@ struct ToolLiveSheet: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(chunks, id: \.id) { chunk in
                             Text(chunk.text)
-                                .font(.system(size: 13, design: .monospaced))
+                                .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
                                 .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .chat))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 14)
@@ -1549,13 +1551,13 @@ struct ToolLiveSheet: View {
                             .font(.system(size: 12))
                             .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat))
                         Text(fullPath)
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.system(size: fontSettings.scaledApp(12), design: .monospaced))
                             .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .chat))
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Spacer(minLength: 4)
                         Text(sizeLabel)
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.system(size: fontSettings.scaledApp(12), design: .monospaced))
                             .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat).opacity(0.7))
                     }
                     .padding(.horizontal, 12)
@@ -1632,13 +1634,13 @@ struct ToolLiveSheet: View {
                     revealedChunkCount = min(revealedChunkCount + Self.lazyRenderBatchChunks, totalChunks)
                 } label: {
                     Label("Load more (\(nextBatch * Self.lazyRenderChunkLines) lines)", systemImage: "chevron.down")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                 }
                 Button {
                     revealedChunkCount = totalChunks
                 } label: {
                     Text("Load all")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                 }
             }
             .padding(.vertical, 12)
@@ -1700,7 +1702,7 @@ struct ToolLiveSheet: View {
                     VStack(alignment: .leading, spacing: 0) {
                         if !contentHeader.isEmpty {
                             Text(contentHeader)
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: fontSettings.scaledApp(12), weight: .medium))
                                 .foregroundStyle(ChatColors.secondaryText)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 16)
@@ -1717,7 +1719,7 @@ struct ToolLiveSheet: View {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(chunks, id: \.id) { chunk in
                                 Text(chunk.text)
-                                    .font(.system(size: 13, design: .monospaced))
+                                    .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
                                     .foregroundColor(accentColor)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.horizontal, 14)
@@ -1772,7 +1774,7 @@ struct ToolLiveSheet: View {
                             HStack(spacing: 8) {
                                 if !action.isEmpty {
                                     Text(action)
-                                        .font(.system(size: 12, weight: .semibold))
+                                        .font(.system(size: fontSettings.scaledApp(12), weight: .semibold))
                                         .foregroundStyle(.white)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
@@ -1821,7 +1823,7 @@ struct ToolLiveSheet: View {
                         HStack(spacing: 8) {
                             if !action.isEmpty {
                                 Text(action)
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: fontSettings.scaledApp(12), weight: .semibold))
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
@@ -1847,7 +1849,7 @@ struct ToolLiveSheet: View {
                             .font(.system(size: 32))
                             .foregroundStyle(ChatColors.tertiaryText)
                         Text("Loading...")
-                            .font(.system(size: 13))
+                            .font(.system(size: fontSettings.scaledApp(13)))
                             .foregroundStyle(ChatColors.tertiaryText)
                     }
                     Spacer()
@@ -1872,11 +1874,11 @@ struct ToolLiveSheet: View {
                 statusIcon
                 VStack(alignment: .leading, spacing: 1) {
                     Text(toolTitle)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: fontSettings.scaledApp(13), weight: .semibold))
                         .foregroundStyle(ChatColors.primaryText)
                         .lineLimit(1)
                     Text(toolSubtitle)
-                        .font(.system(size: 11))
+                        .font(.system(size: fontSettings.scaledApp(11)))
                         .foregroundStyle(ChatColors.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -1893,12 +1895,12 @@ struct ToolLiveSheet: View {
                     VStack(alignment: .trailing, spacing: 1) {
                         if let dur {
                             Text(Self.formatDuration(dur))
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.system(size: fontSettings.scaledApp(11), design: .monospaced))
                                 .foregroundStyle(ChatColors.tertiaryText)
                         }
                         if let started = block.toolStartTime {
                             Text(MinisStepTimestampFormatter.string(from: started))
-                                .font(.system(size: 9, design: .monospaced))
+                                .font(.system(size: fontSettings.scaledApp(9), design: .monospaced))
                                 .foregroundStyle(ChatColors.tertiaryText.opacity(0.75))
                         }
                     }
@@ -1926,12 +1928,12 @@ struct ToolLiveSheet: View {
                             .fill(ChatColors.success)
                             .frame(width: 7, height: 7)
                         Text("Live")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                             .foregroundStyle(ChatColors.primaryText)
                     }
                 } else {
                     Text("\(currentIdx + 1) / \(toolBlocks.count)")
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .font(.system(size: fontSettings.scaledApp(13), weight: .medium, design: .monospaced))
                         .foregroundStyle(ChatColors.secondaryText)
                 }
 
@@ -2070,6 +2072,7 @@ struct ToolLiveSheet: View {
 /// Small preview thumbnail for the collapsed state.
 private struct ToolPreviewThumbnail: View {
     @ObservedObject var block: AssistantBlock
+    @ObservedObject private var fontSettings = FontSettings.shared
     var snapshot: ToolSnapshotItem?
     var browserPool: BrowserTabPool?
     var onTap: () -> Void
@@ -2117,7 +2120,7 @@ private struct ToolPreviewThumbnail: View {
         .overlay(alignment: .bottom) {
             if isLive && isShell {
                 Text("\(resourceMonitor.formattedCPU)  \(resourceMonitor.formattedMem(compact: true))")
-                    .font(.system(size: 5, weight: .medium, design: .monospaced))
+                    .font(.system(size: fontSettings.scaledApp(5), weight: .medium, design: .monospaced))
                     .foregroundStyle(Color.white.opacity(0.8))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 2)
@@ -2141,7 +2144,7 @@ private struct ToolPreviewThumbnail: View {
     private func snapshotTextPreview(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(previewHeader)
-                .font(.system(size: 6, weight: .bold, design: isShell ? .monospaced : .default))
+                .font(.system(size: fontSettings.scaledApp(6), weight: .bold, design: isShell ? .monospaced : .default))
                 .foregroundStyle(isShell ? .white : .white.opacity(0.45))
                 .lineLimit(1)
                 .padding(.horizontal, 4)
@@ -2149,7 +2152,7 @@ private struct ToolPreviewThumbnail: View {
                 .padding(.bottom, 1)
 
             Text(lastLines(text, count: 12))
-                .font(.system(size: 4, design: .monospaced))
+                .font(.system(size: fontSettings.scaledApp(4), design: .monospaced))
                 .foregroundStyle(accentColor.opacity(0.85))
                 .lineLimit(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2195,7 +2198,7 @@ private struct ToolPreviewThumbnail: View {
         }()
         return VStack(alignment: .leading, spacing: 0) {
             Text(previewHeader)
-                .font(.system(size: 6, weight: .bold, design: isShell ? .monospaced : .default))
+                .font(.system(size: fontSettings.scaledApp(6), weight: .bold, design: isShell ? .monospaced : .default))
                 .foregroundStyle(isShell ? .white : .white.opacity(0.45))
                 .lineLimit(1)
                 .padding(.horizontal, 4)
@@ -2203,7 +2206,7 @@ private struct ToolPreviewThumbnail: View {
                 .padding(.bottom, 1)
 
             Text(lastLines(displayText, count: 12))
-                .font(.system(size: 4, design: .monospaced))
+                .font(.system(size: fontSettings.scaledApp(4), design: .monospaced))
                 .foregroundStyle(accentColor.opacity(0.85))
                 .lineLimit(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2230,7 +2233,7 @@ private struct ToolPreviewThumbnail: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             Text(previewHeader)
-                .font(.system(size: 6, weight: .bold))
+                .font(.system(size: fontSettings.scaledApp(6), weight: .bold))
                 .foregroundStyle(.white.opacity(0.45))
                 .lineLimit(1)
                 .padding(.horizontal, 4)
@@ -2239,7 +2242,7 @@ private struct ToolPreviewThumbnail: View {
 
             if !oldText.isEmpty {
                 Text(lastLines(oldText, count: 6).split(separator: "\n", omittingEmptySubsequences: false).map { "- " + $0 }.joined(separator: "\n"))
-                    .font(.system(size: 4, design: .monospaced))
+                    .font(.system(size: fontSettings.scaledApp(4), design: .monospaced))
                     .foregroundStyle(Color(red: 1, green: 0.4, blue: 0.4).opacity(0.85))
                     .lineLimit(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2247,7 +2250,7 @@ private struct ToolPreviewThumbnail: View {
             }
             if !newText.isEmpty {
                 Text(lastLines(newText, count: 6).split(separator: "\n", omittingEmptySubsequences: false).map { "+ " + $0 }.joined(separator: "\n"))
-                    .font(.system(size: 4, design: .monospaced))
+                    .font(.system(size: fontSettings.scaledApp(4), design: .monospaced))
                     .foregroundStyle(Color(red: 0.4, green: 1, blue: 0.4).opacity(0.85))
                     .lineLimit(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2423,6 +2426,7 @@ private struct ToolStatusBarSurface: ViewModifier {
 
 private struct ToolStatusBar: View {
     @ObservedObject var block: AssistantBlock
+    @ObservedObject private var fontSettings = FontSettings.shared
     let toolBlocks: [AssistantBlock]
     let displayedIdx: Int
     @Binding var expanded: Bool
@@ -2439,7 +2443,7 @@ private struct ToolStatusBar: View {
             // detail sheet so the always-visible status bar stays clean.
 
             Text(displayTitle)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: fontSettings.scaledApp(13), weight: .medium))
                 .foregroundStyle(ChatColors.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -2463,7 +2467,7 @@ private struct ToolStatusBar: View {
                     .disabled(displayedIdx <= 0)
 
                     Text("\(displayedIdx + 1)/\(toolBlocks.count)")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(.system(size: fontSettings.scaledApp(11), weight: .medium, design: .monospaced))
                         .foregroundStyle(ChatColors.secondaryText)
 
                     Button {
