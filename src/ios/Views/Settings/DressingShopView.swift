@@ -2077,6 +2077,8 @@ struct DressingShopView: View {
     /// black/white with the mode) rather than a literal.
     private struct SyncDot: View {
         var color: Color
+        /// [T-67] 嵌套类型读不到外层的环境值,自己取一份。
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
         @State private var pulse = false
         var body: some View {
             Circle()
