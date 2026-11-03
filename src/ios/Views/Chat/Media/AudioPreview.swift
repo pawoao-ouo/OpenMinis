@@ -99,7 +99,7 @@ struct MinisAudioPreviewView: View {
                     .contentShape(Circle())
                     .background(.ultraThinMaterial, in: Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
 
             Spacer()
 
@@ -114,7 +114,7 @@ struct MinisAudioPreviewView: View {
                     .contentShape(Circle())
                     .background(.ultraThinMaterial, in: Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
 
             Button {
                 showShareSheet = true
@@ -127,7 +127,7 @@ struct MinisAudioPreviewView: View {
                     .contentShape(Circle())
                     .background(.ultraThinMaterial, in: Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
         }
         .padding(.horizontal, 12)
         .padding(.top, 13)
@@ -234,21 +234,21 @@ struct MinisAudioPreviewView: View {
                     .font(.system(size: 28, weight: .medium))
                     .foregroundColor(artworkImage != nil ? .white : AppearanceStudio.shared.color(.primaryText, scope: .chat))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
 
             Button { player.togglePlayPause() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 44, weight: .medium))
                     .foregroundColor(artworkImage != nil ? .white : AppearanceStudio.shared.color(.primaryText, scope: .chat))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
 
             Button { player.skip(by: 10) } label: {
                 Image(systemName: "goforward.10")
                     .font(.system(size: 28, weight: .medium))
                     .foregroundColor(artworkImage != nil ? .white : AppearanceStudio.shared.color(.primaryText, scope: .chat))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
@@ -310,7 +310,7 @@ struct MinisAudioPreviewView: View {
                         .foregroundColor(artworkImage != nil ? .white : AppearanceStudio.shared.color(.primaryText, scope: .chat))
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
         }
         .padding(.horizontal, 36)
         .padding(.bottom, 24)

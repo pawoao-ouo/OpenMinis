@@ -295,7 +295,7 @@ struct BrowserSheetView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .browser))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableStyle())
                 }
             }
             .padding(.horizontal, 10)
@@ -306,7 +306,7 @@ struct BrowserSheetView: View {
                 Capsule().stroke(isSelected ? AppearanceStudio.shared.color(.accent).opacity(0.4) : Color.clear, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
     }
 
     private func tabLabel(for tab: BrowserTabPool.Tab) -> String {
@@ -513,7 +513,7 @@ struct BrowserDownloadFloatingButton: View {
                         }
                     }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
             .transition(.opacity.combined(with: .scale(scale: 0.8)))
         }
     }
@@ -677,7 +677,7 @@ private struct BrowserDownloadPanelRow: View {
                         .font(.system(size: 20))
                         .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .browser))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
             case .completed:
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
@@ -688,7 +688,7 @@ private struct BrowserDownloadPanelRow: View {
                         .font(.system(size: 15))
                         .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .browser))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
             }
         }
         .padding(.vertical, 6)
@@ -766,7 +766,7 @@ struct BrowserDownloadCardRow: View {
                         .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .browser))
                         .padding(6)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
             }
         }
         .padding(.horizontal, 12)

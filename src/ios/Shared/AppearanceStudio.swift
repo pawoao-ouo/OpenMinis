@@ -1644,6 +1644,16 @@ struct AppearanceBackdrop: View {
         .onDisappear { if scope != .global { PageBackdropPresence.shared.remove() } }
     }
 
+    /// [T-28] 一张图要不要走双层。判据是"按原比例塞进屏幕时，放大倍数超过
+    /// 一点点"——iPhone 竖屏宽 393pt 起，200×200 的图要放大两倍多，必须走
+    /// 双层；够大的照片直接铺满，不额外画一层、不额外栅格化。
+    static func needsDoubleLayer(_ image: UIImage) -> Bool {
+        let screenWidth = UIScreen.main.bounds.width
+        guard screenWidth > 0, image.size.width > 0, image.size.height > 0 else { return false }
+        let upscale = screenWidth / image.size.width
+        return upscale > 1.35
+    }
+
     private var layers: some View {
         ZStack {
             studio.color(.canvas, scope: scope)
@@ -1661,12 +1671,31 @@ struct AppearanceBackdrop: View {
                         Spacer(minLength: 0)
                     }
                 } else {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .clipped()
-                    studio.color(.canvas, scope: scope)
-                        .opacity(studio.wallpaperShade)
+                    // [T-28] 小图双层：图比屏幕小的时候，单层 scaledToFill 会把
+                    // 它拉糊。垫底那层同图拉伸 + 模糊（只压这一层，原图不压），
+                    // 上面原图清晰、按比例居中适配。图够大就还是原来的单层铺满，
+                    // 像素不变。壁纸归属不变：这条只决定一张图怎么画。
+                    if AppearanceBackdrop.needsDoubleLayer(image) {
+                        ZStack {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .blur(radius: 28, opaque: true)
+                                .clipped()
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                        }
+                        studio.color(.canvas, scope: scope)
+                            .opacity(studio.wallpaperShade)
+                    } else {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .clipped()
+                        studio.color(.canvas, scope: scope)
+                            .opacity(studio.wallpaperShade)
+                    }
                 }
             }
         }

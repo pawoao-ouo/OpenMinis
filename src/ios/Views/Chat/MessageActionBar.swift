@@ -191,7 +191,7 @@ struct ChatFeedbackSheet: View {
                             .background(CSSThemeVariables.accentSoft())
                             .clipShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableStyle())
                 }
             }
             .padding(.horizontal, 20)
@@ -240,7 +240,7 @@ struct ChatFeedbackSheet: View {
                                 )
                                 .shadow(color: CSSThemeVariables.sheetShadow().opacity(0.06), radius: 6, x: 0, y: 2)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PressableStyle())
 
                             Button {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -276,7 +276,7 @@ struct ChatFeedbackSheet: View {
                                 )
                                 .shadow(color: CSSThemeVariables.sheetShadow().opacity(0.06), radius: 6, x: 0, y: 2)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PressableStyle())
                         }
                     }
 
@@ -346,7 +346,7 @@ struct ChatFeedbackSheet: View {
                                             Capsule().strokeBorder(CSSThemeVariables.optionBorder(), lineWidth: 1.0)
                                         )
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(PressableStyle())
                             }
 
                             // ＋ 存为模板
@@ -379,7 +379,7 @@ struct ChatFeedbackSheet: View {
                                 )
                                 .clipShape(Capsule())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PressableStyle())
                         }
                     }
                 }
@@ -408,7 +408,7 @@ struct ChatFeedbackSheet: View {
                         .foregroundStyle(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.textDim() : CSSThemeVariables.accentFg())
                         .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
                 .disabled(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(.horizontal, 20)
@@ -438,7 +438,7 @@ struct ChatFeedbackSheet: View {
                     Capsule().strokeBorder(CSSThemeVariables.optionBorder(), lineWidth: 1.0)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
     }
 
     private func funTagButton(_ title: String, systemMsg: String) -> some View {
@@ -461,7 +461,7 @@ struct ChatFeedbackSheet: View {
                 Capsule().strokeBorder(CSSThemeVariables.accent().opacity(0.35), lineWidth: 1.0)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
     }
 }
 

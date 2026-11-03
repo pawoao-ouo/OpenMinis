@@ -88,6 +88,18 @@ enum CSSThemeVariables {
         colored(.secondaryText, scope: scope)
     }
 
+    /// [T-03] 最淡的一档字（脚注、时间、次要说明）接全局 tertiaryText。
+    /// 以前一起听自己写死 #8E8E93，主文字换了它不跟。
+    static func textTertiary(scope: AppearanceScope = .chat) -> Color {
+        colored(.tertiaryText, scope: scope)
+    }
+
+    /// [T-03] 玻璃面用的底色。有壁纸时跟 card 一样带透明度，没壁纸时是纯
+    /// surface —— 这样一起听的瓷白玻璃在浅色/深色、有图/没图下都还站得住。
+    static func surfaceFill(scope: AppearanceScope = .chat) -> Color {
+        card(scope: scope)
+    }
+
     /// --color-divider / var(--dudu-divider)
     /// [4-1 醒醒] 分隔线接入全局 border 角色
     /// 同 card：一起听打开时跟壁纸明暗那套走。

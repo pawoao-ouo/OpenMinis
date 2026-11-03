@@ -283,12 +283,12 @@ struct TogetherMiniBar: View {
     private func ghostCapsule(side: TogetherCapsuleDockSide) -> some View {
         ZStack {
             TogetherBlurBackdrop()
-            Color.white.opacity(0.55)
+            TogetherSpec.glass(0.55)
         }
         .clipShape(capsuleShape(for: side))
         .overlay(
             capsuleShape(for: side)
-                .strokeBorder(Color.white.opacity(0.9), lineWidth: 1)
+                .strokeBorder(TogetherSpec.glass(0.9), lineWidth: 1)
         )
         .overlay(
             capsuleShape(for: side)
@@ -347,8 +347,8 @@ struct TogetherMiniBar: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(Color.white)
-                        .overlay(Circle().strokeBorder(Color.black.opacity(0.08), lineWidth: 1))
+                        .fill(TogetherSpec.glass(1))
+                        .overlay(Circle().strokeBorder(TogetherSpec.ink(0.08), lineWidth: 1))
                         .shadow(color: .black.opacity(0.06), radius: 3, x: 0, y: 2)
                     Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
                         .font(.system(size: 12, weight: .semibold))
@@ -611,12 +611,12 @@ struct TogetherRefinedVinylView: View {
 
             // Static rim + sheen: outside the rotating group
             Circle()
-                .strokeBorder(Color.white.opacity(0.9), lineWidth: 1.5)
+                .strokeBorder(TogetherSpec.glass(0.9), lineWidth: 1.5)
             Circle()
                 .fill(
                     LinearGradient(
-                        colors: [Color.white.opacity(0.35), Color.white.opacity(0.0),
-                                 Color.white.opacity(0.15)],
+                        colors: [TogetherSpec.glass(0.35), TogetherSpec.glass(0.0),
+                                 TogetherSpec.glass(0.15)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -663,7 +663,7 @@ struct TogetherRefinedVinylView: View {
                 Circle()
                     .strokeBorder(
                         LinearGradient(
-                            colors: [Color.white.opacity(0.22), Color.black.opacity(0.12)],
+                            colors: [TogetherSpec.glass(0.22), TogetherSpec.ink(0.12)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
@@ -890,8 +890,8 @@ struct TogetherDeckView: View {
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
-        .background(Capsule().fill(Color.black.opacity(0.04)))
-        .overlay(Capsule().strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5))
+        .background(Capsule().fill(TogetherSpec.ink(0.04)))
+        .overlay(Capsule().strokeBorder(TogetherSpec.ink(0.08), lineWidth: 0.5))
         .fixedSize()
         .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dotPulse)
         .onAppear { dotPulse = true }
@@ -906,9 +906,9 @@ struct TogetherDeckView: View {
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.black.opacity(0.04))
+                    .fill(TogetherSpec.ink(0.04))
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+                    .strokeBorder(TogetherSpec.ink(0.06), lineWidth: 1)
                 VStack(spacing: 3.6) {
                     ForEach(0..<lines, id: \.self) { _ in
                         Capsule()
@@ -964,17 +964,17 @@ struct TogetherDeckView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.62))
+                    .fill(TogetherSpec.glass(0.62))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.black.opacity(0.05), lineWidth: 1)
+                    .strokeBorder(TogetherSpec.ink(0.05), lineWidth: 1)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(
                         LinearGradient(
-                            colors: [Color.white.opacity(0.9), .clear],
+                            colors: [TogetherSpec.glass(0.9), .clear],
                             startPoint: .top,
                             endPoint: .bottom
                         ),
@@ -1024,13 +1024,13 @@ struct TogetherDeckView: View {
                 let ratio = displayRatio
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.black.opacity(0.06))
+                        .fill(TogetherSpec.ink(0.06))
                         .frame(height: 4)
                     Capsule()
                         .fill(TogetherSpec.charcoal)
                         .frame(width: max(0, width * ratio), height: 4)
                     Circle()
-                        .fill(Color.white)
+                        .fill(TogetherSpec.glass(1))
                         .overlay(Circle().strokeBorder(TogetherSpec.charcoal, lineWidth: 1.5))
                         .frame(width: 10, height: 10)
                         .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
@@ -1266,7 +1266,7 @@ struct TogetherDeckView: View {
                     .padding(.vertical, 2)
                     .overlay(
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .strokeBorder(Color.black.opacity(0.1), lineWidth: 0.5)
+                            .strokeBorder(TogetherSpec.ink(0.1), lineWidth: 0.5)
                     )
                     .fixedSize()
             }
@@ -1274,11 +1274,11 @@ struct TogetherDeckView: View {
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.white.opacity(0.7))
+                    .fill(TogetherSpec.glass(0.7))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+                    .strokeBorder(TogetherSpec.ink(0.06), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -1305,7 +1305,7 @@ struct TogetherDeckView: View {
         .frame(width: 17, height: 17)
         .clipShape(Circle())
         .padding(1.5)
-        .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 1))
+        .overlay(Circle().strokeBorder(TogetherSpec.ink(0.12), lineWidth: 1))
         .frame(width: 22, height: 22)
     }
 
@@ -1383,7 +1383,7 @@ struct TogetherLyricDrawer: View {
         VStack(spacing: 0) {
             header
             Rectangle()
-                .fill(Color.black.opacity(0.06))
+                .fill(TogetherSpec.ink(0.06))
                 .frame(height: 1)
                 .padding(.bottom, 0)
             scrollArea
@@ -1393,7 +1393,7 @@ struct TogetherLyricDrawer: View {
         .background {
             ZStack {
                 TogetherBlurBackdrop(style: .systemThinMaterialLight)
-                Color.white.opacity(0.94)
+                TogetherSpec.glass(0.94)
             }
         }
         .clipShape(
@@ -1407,7 +1407,7 @@ struct TogetherLyricDrawer: View {
         )
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(Color.black.opacity(0.08))
+                .fill(TogetherSpec.ink(0.08))
                 .frame(height: 1)
         }
         .shadow(color: .black.opacity(0.12), radius: 30, x: 0, y: -20)
@@ -1437,8 +1437,8 @@ struct TogetherLyricDrawer: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(Color.black.opacity(0.04))
-                        .overlay(Circle().strokeBorder(Color.black.opacity(0.08), lineWidth: 1))
+                        .fill(TogetherSpec.ink(0.04))
+                        .overlay(Circle().strokeBorder(TogetherSpec.ink(0.08), lineWidth: 1))
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(TogetherSpec.sub)
@@ -1542,14 +1542,42 @@ import UIKit
 
 // MARK: - 变量（对应 html :root）
 
+/// [T-03] 一起听的小胶囊与面板归主题引擎。
+///
+/// 形态一个字都不动：尺寸、圆角、吸边、展开、瓷白玻璃的层次和模糊半径
+/// 全留在原处。变的只有"颜色从哪来"——填充、描边、文字这三类接上全局
+/// 变量，用户在装扮店调一次，这一间屋子跟着变，AI 走同一套也改得动。
+///
+/// 以前这里写死 `#18181B` 墨灰，跟主题完全无关：把主文字调成别的颜色，
+/// 一起听还是那套灰，看起来像另一个 App。
+@MainActor
 enum TogetherSpec {
-    static let charcoal = Color(red: 0x18/255, green: 0x18/255, blue: 0x1b/255)
-    static let sub      = Color(red: 0x52/255, green: 0x52/255, blue: 0x5b/255)
-    static let muted    = Color(red: 0x8e/255, green: 0x8e/255, blue: 0x93/255)
+    /// 主文字：接全局 primaryText。
+    static var charcoal: Color { CSSThemeVariables.textMain(scope: .chat) }
+    /// 次文字：接全局 secondaryText。
+    static var sub: Color { CSSThemeVariables.textDim(scope: .chat) }
+    /// 最淡的字：接全局 tertiaryText。
+    static var muted: Color { CSSThemeVariables.textTertiary(scope: .chat) }
 
-    static let capsuleSurface = Color.white.opacity(0.85)
-    static let capsuleBorder  = Color.white.opacity(0.95)
-    static let capsuleOuter   = Color(red: 0x18/255, green: 0x18/255, blue: 0x1b/255).opacity(0.07)
+    /// 胶囊的瓷白玻璃面。玻璃层保留：底色取全局 surface，透明度还是 0.85
+    /// —— 这一层是"玻璃"，不是纯色填充，所以不跟壁纸、也不跟强调色。
+    static var capsuleSurface: Color { CSSThemeVariables.surfaceFill(scope: .chat).opacity(0.85) }
+    /// 玻璃边：保留原来的白边观感，但跟着 surface 的明暗走。
+    static var capsuleBorder: Color { CSSThemeVariables.surfaceFill(scope: .chat).opacity(0.95) }
+    /// 外投影：接全局主文字，深色模式下才不会变成一块灰斑。
+    static var capsuleOuter: Color { CSSThemeVariables.textMain(scope: .chat).opacity(0.07) }
+
+    /// 玻璃上的高光与内描边。以前写死纯白，深色主题里亮得刺眼；
+    /// 现在取玻璃面自己那层色，透明度不变 —— 玻璃层还是玻璃层。
+    static func glass(_ opacity: Double) -> Color {
+        CSSThemeVariables.surfaceFill(scope: .chat).opacity(opacity)
+    }
+
+    /// 玻璃上的暗部：内描边、压痕、分割。取主文字，透明度不变。
+    /// 纯黑投影不在此列 —— 投影在任何主题里都是黑的，那不算取色。
+    static func ink(_ opacity: Double) -> Color {
+        CSSThemeVariables.textMain(scope: .chat).opacity(opacity)
+    }
 }
 
 /// 复刻苹果原生物理质感：高阻尼无震荡柔和弹簧，彻底消除残影与突兀抖动
@@ -1613,11 +1641,14 @@ struct TogetherVinylDisc: View {
                     .frame(width: size * CGFloat(i) / 6.0, height: size * CGFloat(i) / 6.0)
             }
             // 中心标
+            // [T-03] 唱片中心标原本写死米白 + 墨黑。唱片本身是黑色物件
+            // （不跟主题），但这两块是"贴纸"——换成玻璃面与主文字，
+            // 深色主题下才不会跳出一块刺眼的米白。
             Circle()
-                .fill(Color(red: 0xfa/255, green: 0xf8/255, blue: 0xf5/255))
+                .fill(TogetherSpec.glass(1))
                 .frame(width: label, height: label)
                 .overlay(
-                    Circle().strokeBorder(Color(red: 0x1c/255, green: 0x1c/255, blue: 0x1f/255), lineWidth: 2)
+                    Circle().strokeBorder(TogetherSpec.charcoal, lineWidth: 2)
                 )
                 .shadow(color: .black.opacity(0.4), radius: 1.5)
             // 油光

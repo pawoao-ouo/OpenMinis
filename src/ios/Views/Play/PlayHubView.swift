@@ -238,7 +238,7 @@ struct PlayHubView: View {
                         .clipped()
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
                 .contextMenu {
                     if backgroundImage != nil {
                         Button("移除背景", role: .destructive) { removeBackground() }
@@ -254,7 +254,7 @@ struct PlayHubView: View {
                 PhotosPicker(selection: $avatarItem, matching: .images) {
                     avatar
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
                 .offset(y: 38)
             }
 
@@ -269,7 +269,7 @@ struct PlayHubView: View {
                     .padding(.vertical, 7)
                     .background(MinisThemeList.rowFill, in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
             .padding(.top, 44)
         }
         .overlay(alignment: .topTrailing) {
@@ -351,7 +351,7 @@ struct PlayHubView: View {
                         }
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
             }
         }
         .padding(4)
@@ -402,7 +402,7 @@ struct PlayHubView: View {
                                 AsyncCacheURLImageTile(cacheURL: hit.url, tileSize: side)
                                     .overlay(alignment: .topLeading) { selectionBadge(hit) }
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PressableStyle())
                             .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in longPressSelect(hit) })
                         }
                     }
@@ -467,7 +467,7 @@ struct PlayHubView: View {
                                      subtitle: "\(PlayHubFormat.size(hit.size)) · \(PlayHubFormat.date(hit.modified))")
                                 .overlay(alignment: .topLeading) { selectionBadge(hit) }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressableStyle())
                         .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in longPressSelect(hit) })
                     }
                 }
@@ -576,7 +576,7 @@ struct PlayHubView: View {
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
 
             if !isCollapsed {
                 VStack(spacing: 8) {
@@ -592,7 +592,7 @@ struct PlayHubView: View {
                                      subtitle: "\(hit.relative) · \(PlayHubFormat.size(hit.size))")
                                 .overlay(alignment: .topLeading) { selectionBadge(hit) }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressableStyle())
                         .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in longPressSelect(hit) })
                     }
                 }
@@ -930,7 +930,7 @@ private struct PlayHubVideoTile: View {
                     .stroke(studio.color(.border, scope: .home).opacity(0.5), lineWidth: 0.5)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .task(id: fileURL) { await loadThumbnail() }
     }
 

@@ -216,6 +216,27 @@ final class FontSettings: ObservableObject {
         max(base * ratio, density(base))
     }
 
+    /// [六定-6] Picks the foreground that stays readable on a given fill:
+    /// white on dark fills, black on light ones. The theme store's selected
+    /// category capsule fills with `primaryText` (whatever the user picked →
+    /// can be near-white in light mode or near-black in dark mode), so the
+    /// label must invert against the *actual* fill instead of assuming a
+    /// colour. `on` is a hex like "#RRGGBB".
+    static func contrastForeground(on hex: String) -> Color {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        guard cleaned.count >= 6, let value = UInt64(cleaned.prefix(6), radix: 16) else {
+            return .white
+        }
+        let r = Double((value >> 16) & 0xFF) / 255.0
+        let g = Double((value >> 8) & 0xFF) / 255.0
+        let b = Double(value & 0xFF) / 255.0
+        // WCAG relative luminance; 0.179 is the sRGB mid-tone breakpoint
+        // between black and white text.
+        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return lum > 0.179 ? Color.black : Color.white
+    }
+
+
     /// Semantic-size bucket for the global size, for the
     /// root `.dynamicTypeSize` pin and sheet scaling. 13pt
     /// maps to `.large` (the system default bucket), which is

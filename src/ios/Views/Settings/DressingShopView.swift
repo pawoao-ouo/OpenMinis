@@ -300,13 +300,21 @@ struct DressingShopView: View {
                             .font(ChatFont.font(12, weight: .semibold))
                             .lineLimit(2)
                     }
-                    .foregroundStyle(studio.color(.surface))
+                    // [六定-6] 提示条填主文字，字跟着反色。
+                    .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)
                     .background(studio.color(.primaryText))
                     .clipShape(RoundedRectangle(cornerRadius: 999, style: .continuous))
                     .shadow(color: .black.opacity(0.18), radius: 24, x: 0, y: 8)
                     .padding(.bottom, 24)
+                    // [T-63] 这条黑底小条是全店唯一的确认途径 —— 换套、删字体、
+                    // 摇一摇、恢复默认，做完都只靠它。VoiceOver 以前完全听不到
+                    // (它 2.2 秒后自己消失，读屏还在念上一句)。现在整条作为一个
+                    // 无障碍元素，并由 showFontToast 主动发一条 announcement。
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(toast)
+                    .accessibilityAddTraits(.isStaticText)
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -386,13 +394,13 @@ struct DressingShopView: View {
                 ForEach(DressingCategory.allCases) { item in
                     Button { category = item } label: {
                         Text(item.title)
-                            .font(.system(size: globalPointSize * 17 / 13,
-                                          weight: category == item ? .bold : .regular))
+                            .font(ChatFont.font(17, weight: category == item ? .bold : .regular))
                             .foregroundStyle(category == item
-                                ? studio.color(.surface)
+                                ? FontSettings.contrastForeground(on: studio.hex(.primaryText))
                                 : studio.color(.secondaryText))
                             .padding(.horizontal, 16)
-                            .frame(minHeight: 44)
+                            // [T-38] 44pt 最小触达:胶囊再小也该点得中。
+                            .frame(minHeight: FontSettings.minHitTarget)
                             .background(category == item
                                 ? studio.color(.primaryText)
                                 : studio.color(.mutedSurface))
@@ -435,12 +443,12 @@ struct DressingShopView: View {
                 ForEach(offered) { item in
                     Button { tag = item } label: {
                         Text(item.title)
-                            .font(.system(size: globalPointSize * 15 / 13))
+                            .font(ChatFont.font(15))
                             .foregroundStyle(tag == item
-                                ? studio.color(.surface)
+                                ? FontSettings.contrastForeground(on: studio.hex(.primaryText))
                                 : studio.color(.secondaryText))
                             .padding(.horizontal, 16)
-                            .frame(minHeight: 44)
+                            .frame(minHeight: FontSettings.minHitTarget)
                             .background(tag == item
                                 ? studio.color(.primaryText)
                                 : studio.color(.mutedSurface))
@@ -464,6 +472,19 @@ struct DressingShopView: View {
                 // (13 * 20 / 13), and it scales with the global size.
                 .font(.system(size: globalPointSize * 20 / 13, weight: .bold))
                 .foregroundStyle(studio.color(.primaryText))
+                // [T-62] 有壁纸时这块大标题直接压在照片上，中间只隔一层 8%
+                // 的底色 —— 换一张深色或杂乱的照片，标题就糊进去了。
+                // 这里给它垫一块不透明的底：只在有壁纸时才出现，用负 padding
+                // 把底色向外撑一圈，**不占布局**（标题位置、行高、间距都不变），
+                // 所以没有壁纸的页面看起来和以前一模一样。
+                .background {
+                    if studio.hasWallpaper(.global) {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(studio.color(.canvas))
+                            .padding(.horizontal, -6)
+                            .padding(.vertical, -2)
+                    }
+                }
             Spacer(minLength: 0)
             Button { category = jumpTo } label: {
                 Image(systemName: "chevron.right")
@@ -792,10 +813,17 @@ struct DressingShopView: View {
                 Slider(value: $studio.wallpaperShade, in: 0...0.65)
                     .frame(minHeight: 44)
                     .accessibilityLabel(AppLocalized("壁纸压色"))
-                Text(String(format: "%.2f", studio.wallpaperShade))
-                    .font(.system(size: fsCaption, design: .monospaced))
+                // [T-68] 以前直接吐 "0.42" —— 一个没人知道含义的小数。
+                // 换成浅/中/深，并在下面补一句它到底干什么。
+                Text(wallpaperShadeLabel)
+                    .font(.system(size: fsCaption, weight: .medium))
                     .foregroundStyle(studio.color(.secondaryText))
+                    .frame(minWidth: 28, alignment: .trailing)
             }
+            // [T-68] 压色是干什么的，得有一句话。以前只有一根滑杆和一个数字。
+            Text(AppLocalized("把壁纸压暗，字更清楚。"))
+                .font(.system(size: fsCaption))
+                .foregroundStyle(studio.color(.secondaryText))
             Text(AppLocalized("只管全局壁纸；各页自己的壁纸不在这里改，跟着主题整套和主题包走。"))
                 .font(.system(size: fsCaption))
                 .foregroundStyle(studio.color(.secondaryText))
@@ -2243,6 +2271,16 @@ struct DressingShopView: View {
     /// radius 18 tail 4 with v2's shadows, tertiary meta,
     /// a pulsing SYNCHRONIZED badge, a leading pen icon and
     /// a send capsule with its paper-plane icon.
+    /// [T-68] 压色档位的大白话。0 = 不压，往上是浅/中/深。
+    private var wallpaperShadeLabel: String {
+        switch studio.wallpaperShade {
+        case ..<0.08: return AppLocalized("不压")
+        case ..<0.26: return AppLocalized("浅")
+        case ..<0.46: return AppLocalized("中")
+        default: return AppLocalized("深")
+        }
+    }
+
     private var fontLivePreview: some View {
         VStack(alignment: .leading, spacing: 0) {
             fontSectionHead(
@@ -2257,7 +2295,7 @@ struct DressingShopView: View {
                 HStack {
                     HStack(spacing: 6) {
                         SyncDot(color: studio.color(.accent))
-                        Text("SYNCHRONIZED")
+                        Text(AppLocalized("实时同步"))
                             .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
                             .tracking(0.6)
                     }
@@ -2269,7 +2307,7 @@ struct DressingShopView: View {
                     .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous)
                         .stroke(studio.color(.border), lineWidth: 0.5))
                     Spacer(minLength: 0)
-                    Text(AppLocalized("全域毫秒响应"))
+                    Text(AppLocalized("改一下，全 App 立刻跟着变"))
                         .font(MinisThemeShape.messageFont(size: fsCaption))
                         .foregroundStyle(studio.color(.tertiaryText))
                 }
@@ -2318,7 +2356,8 @@ struct DressingShopView: View {
                             Text(AppLocalized("我也想你"))
                                 .font(MinisThemeShape.messageFont(size: globalPointSize))
                                 .lineSpacing(globalPointSize * 0.25)
-                                .foregroundStyle(studio.color(.surface))
+                                // [六定-6] 气泡填主文字，里面的字跟着反色。
+                                .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 10)
                                 .background(studio.color(.primaryText))
@@ -2360,7 +2399,8 @@ struct DressingShopView: View {
                         Image(systemName: "paperplane.fill")
                             .font(.system(size: 12))
                     }
-                    .foregroundStyle(studio.color(.surface))
+                    // [六定-6] 发送钮填主文字，图标跟着反色。
+                    .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
                     .padding(.horizontal, 14)
                     .frame(height: 34)
                     .background(studio.color(.primaryText))
@@ -2441,7 +2481,7 @@ struct DressingShopView: View {
             guard !applied else { return }
             fontTapHaptic()
             fontSettings.messagePointSize = CGFloat(pt)
-            showFontToast(AppLocalized("全局字号已应用：\(pt)pt"))
+            showFontToast(AppLocalized("字号已调到 \(pt) 号"))
         } label: {
             VStack(alignment: .leading, spacing: fontSettings.density(2)) {
                 HStack {
@@ -2453,7 +2493,8 @@ struct DressingShopView: View {
                     Text(AppLocalized("正在用"))
                         .font(MinisThemeShape.messageFont(size: fsMini, weight: .semibold))
                         .tracking(0.2)
-                        .foregroundStyle(studio.color(.surface))
+                        // [六定-6] 徽标填主文字，字跟着反色。
+                        .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText)))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
                         .background(studio.color(.primaryText))
@@ -2759,8 +2800,14 @@ struct DressingShopView: View {
         withAnimation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.28)) {
             fontToastMessage = message
         }
+        // [T-63] 主动播报。视觉上是一闪而过的黑条，读屏用户等不到它 ——
+        // 操作结果必须能听见，所以这里直接发通告。
+        UIAccessibility.post(notification: .announcement, argument: message)
         let shown = message
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+        // [T-63] 2.2 秒对低视力用户太短：跟着「减弱动态效果」一起放宽到 4 秒，
+        // 否则刚看清就没了。
+        let dwell: TimeInterval = reduceMotion ? 4.0 : 2.2
+        DispatchQueue.main.asyncAfter(deadline: .now() + dwell) {
             if fontToastMessage == shown {
                 withAnimation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.28)) {
                     fontToastMessage = nil

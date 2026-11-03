@@ -285,7 +285,7 @@ struct PersonaDetailHomeView: View {
                                         .offset(x: -2, y: -2)
                                 }
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PressableStyle())
 
                             HStack(spacing: 6) {
                                 Text(p.name)
@@ -300,7 +300,7 @@ struct PersonaDetailHomeView: View {
                                         .font(.system(size: 14))
                                         .foregroundStyle(MinisTheme.secondaryText)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(PressableStyle())
                             }
 
                             if p.id == store.currentPersonaID {
@@ -940,7 +940,7 @@ struct PersonaPresetMessagesView: View {
                                     }
                                     .padding(.vertical, 2)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(PressableStyle())
                             }
                             .onDelete { indexSet in
                                 var updated = p
@@ -1100,7 +1100,7 @@ struct PersonaCustomRequestView: View {
                                             .truncationMode(.middle)
                                     }
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(PressableStyle())
                             }
                             .onDelete { indexSet in
                                 var updated = p
@@ -1157,7 +1157,7 @@ struct PersonaCustomRequestView: View {
                                             .truncationMode(.middle)
                                     }
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(PressableStyle())
                             }
                             .onDelete { indexSet in
                                 var updated = p

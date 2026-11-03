@@ -38,13 +38,32 @@ struct TogetherWallpaperLayer: View {
         GeometryReader { geo in
             ZStack {
                 // 没图时露主题底色；有图就把图原样铺满，图上不压任何全局底色。
+                //
+                // [T-28] 小图双层：这张图比屏幕小的时候，单层 scaledToFill 会
+                // 把它拉糊。垫底那层同图拉伸 + 模糊（只压这一层），上面原图
+                // 清晰、按比例居中。图够大就是原来的单层铺满，一个像素不变。
                 if let url = TogetherImages.url(for: slot),
                    let img = TogetherImages.cachedImage(for: url) {
-                    Image(uiImage: img)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
+                    if AppearanceBackdrop.needsDoubleLayer(img) {
+                        ZStack {
+                            Image(uiImage: img)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .blur(radius: 28, opaque: true)
+                                .clipped()
+                            Image(uiImage: img)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: geo.size.width, height: geo.size.height)
+                        }
+                    } else {
+                        Image(uiImage: img)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipped()
+                    }
                 }
             }
         }
