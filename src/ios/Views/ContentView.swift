@@ -492,6 +492,7 @@ private struct FolderPickerRequest: Identifiable {
 /// multi-select toolbar, the row context menu, and later entry points, so the
 /// flows can't drift apart.
 private struct FolderPickerSheet: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     enum Choice {
         case existing(String)                    // folder id
         case create(name: String, desc: String?) // new group name + optional description
@@ -653,7 +654,7 @@ private struct FolderPickerSheet: View {
                                         .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .home))
                                         .lineLimit(1)
                                     Text("Remove from its current group")
-                                        .font(.system(size: 13))
+                                        .font(.system(size: fontSettings.scaledApp(13)))
                                         .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .home))
                                         .lineLimit(1)
                                 }
@@ -690,7 +691,7 @@ private struct FolderPickerSheet: View {
                                                 Text("Empty group")
                                             }
                                         }
-                                        .font(.system(size: 13))
+                                        .font(.system(size: fontSettings.scaledApp(13)))
                                         .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .home))
                                         .lineLimit(1)
                                     }
@@ -905,6 +906,7 @@ struct ContentView: View {
     @ObservedObject private var sidebarBadgeStore = SessionBadgeStore.shared
     @ObservedObject private var sidebarConcurrencyManager = SessionConcurrencyManager.shared
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var sessions: [ChatSession] = []
     @State private var folders: [ChatFolder] = []
     // ［persona］人设列表 sheet。
@@ -2706,7 +2708,7 @@ struct ContentView: View {
                     FolderComposedIcon(glyphs: folderMiniBarGlyphs(folder.id), diameter: 30)
                     // Folder names are user data — verbatim.
                     Text(folder.name)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: fontSettings.scaledApp(14), weight: .semibold))
                         .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .home))
                         .lineLimit(1)
                 }
@@ -3412,7 +3414,7 @@ struct ContentView: View {
     private func syncTypeChip(label: String, count: Int) -> some View {
         HStack(spacing: 3) {
             Text(label)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: fontSettings.scaledApp(9), weight: .semibold))
                 .foregroundStyle(MinisTheme.secondaryText)
             Text(formatCompact(count))
                 .font(.caption2.monospacedDigit())
@@ -3461,7 +3463,7 @@ struct ContentView: View {
                 // This Text now only READS `soulName`.
                 let titleLabel = HStack(spacing: 4) {
                     Text(soulName)
-                        .font(.system(size: 18.5, weight: .semibold))
+                        .font(.system(size: fontSettings.scaledApp(18.5), weight: .semibold))
                         .foregroundStyle(.primary)
                     // [B2] 可点击提示：小 chevron，走全局变量、不加底色。
                     Image(systemName: "chevron.up.chevron.down")
@@ -4177,7 +4179,7 @@ struct ContentView: View {
                             .foregroundColor(.white)
                     } else {
                         Text("\(number)")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .font(.system(size: fontSettings.scaledApp(15), weight: .semibold, design: .rounded))
                             .foregroundColor(.white)
                     }
                 }
@@ -4629,7 +4631,7 @@ struct ContentView: View {
                     // Folder names are user data — verbatim Text, never a
                     // LocalizedStringKey lookup.
                     Text(group.label)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: fontSettings.scaledApp(16), weight: .semibold))
                         .foregroundStyle(MinisThemeList.title)
                         .lineLimit(1)
                     Group {
@@ -4641,7 +4643,7 @@ struct ContentView: View {
                             Text("Empty group")
                         }
                     }
-                    .font(.system(size: 14))
+                    .font(.system(size: fontSettings.scaledApp(14)))
                     .foregroundStyle(MinisThemeList.subtitle)
                     .lineLimit(1)
                 }
@@ -4651,7 +4653,7 @@ struct ContentView: View {
                 VStack(alignment: .trailing, spacing: 6) {
                     if let date = group.latestDate {
                         Text(SessionRow.relativeDateImpl(date))
-                            .font(.system(size: 13))
+                            .font(.system(size: fontSettings.scaledApp(13)))
                             .foregroundStyle(MinisThemeList.meta)
                     }
                     HStack(spacing: 4) {
@@ -5646,6 +5648,7 @@ private struct DeleteConfirmSheet: View {
 // MARK: - Export Preview Sheet
 
 private struct ExportPreviewSheet: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
     /// The artifact the user shares / saves — normally a `.zip`.
     let fileURL: URL?
     /// [T-export-preview-blank] The text payload to RENDER. Distinct from
@@ -5682,7 +5685,7 @@ private struct ExportPreviewSheet: View {
                 } else {
                     ScrollView {
                         Text(previewText)
-                            .font(.system(size: 13, design: .monospaced))
+                            .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
                             .foregroundStyle(AppearanceStudio.shared.color(.primaryText, scope: .home))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12)

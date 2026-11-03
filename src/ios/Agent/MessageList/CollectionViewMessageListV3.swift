@@ -235,6 +235,7 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
 /// obvious place to reach for when changing it.
 private struct BridgedAssistantHeaderV3: View {
     @ObservedObject var message: ChatMessage
+    @ObservedObject private var fontSettings = FontSettings.shared
     var maxWidth: CGFloat = 0
     @State private var soulMeta: SoulMetadata = SoulStore.cachedMetadata
     /// [T-ios-assistant-header-open-soul] Injected, NOT read from the
@@ -287,7 +288,7 @@ private struct BridgedAssistantHeaderV3: View {
             // because the footer cell only exists for some turns.
             if MinisThemeShape.assistantMeta == .above {
                 Text(message.createdAt, format: .dateTime.hour().minute())
-                    .font(.system(size: 10))
+                    .font(.system(size: fontSettings.scaledApp(10)))
                     .foregroundStyle(ChatColors.secondaryText.opacity(0.8))
             }
         }

@@ -255,6 +255,7 @@ private struct VideoLoadingChip: View {
 private struct AttachmentChip: View {
     let attachment: InputAttachment
     let onRemove: () -> Void
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var showPreview = false
     @State private var cachedImage: UIImage? = nil
 
@@ -448,7 +449,7 @@ private struct AttachmentChip: View {
                     .frame(maxHeight: .infinity, alignment: .bottom)
 
                 Text(attachment.fileName)
-                    .font(.system(size: 9))
+                    .font(.system(size: fontSettings.scaledApp(9)))
                     .foregroundStyle(ChatColors.primaryText)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -612,6 +613,7 @@ enum UserAttachmentTileMetrics {
 
 struct UserAttachmentList: View {
     let attachments: [AttachmentMeta]
+    @ObservedObject private var fontSettings = FontSettings.shared
     @Environment(\.openURL) private var openURL
     @Environment(\.openImageGallery) private var openImageGallery
 
@@ -686,7 +688,7 @@ struct UserAttachmentList: View {
                     .frame(maxHeight: .infinity, alignment: .bottom)
 
                 Text(meta.fileName)
-                    .font(.system(size: 9))
+                    .font(.system(size: fontSettings.scaledApp(9)))
                     .foregroundStyle(ChatColors.primaryText)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -763,6 +765,7 @@ private struct WebAppAddToHomeMenuModifier: ViewModifier {
 /// Async image tile — loads and decodes off the main thread, caches via NativeMediaImageCache.
 struct QueuedAttachmentPreview: View {
     let attachments: [InputAttachment]
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     private let tileSize: CGFloat = UserAttachmentTileMetrics.tile
 
@@ -788,7 +791,7 @@ struct QueuedAttachmentPreview: View {
                 .font(.title3)
                 .foregroundStyle(MinisTheme.secondaryText)
             Text(fileName)
-                .font(.system(size: 8))
+                .font(.system(size: fontSettings.scaledApp(8)))
                 .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                 .lineLimit(1)
         }

@@ -769,6 +769,7 @@ struct TogetherDeckView: View {
 
     @ObservedObject private var player = TogetherPlayer.shared
     @ObservedObject private var hub = TogetherStateHub.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     @State private var lyrics: TogetherLyrics?
     @State private var thumbVisible = false
@@ -1296,7 +1297,7 @@ struct TogetherDeckView: View {
                 ZStack {
                     Circle().fill(TogetherSpec.charcoal)
                     Text(String(aiName.prefix(1)))
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: fontSettings.scaledApp(10), weight: .bold))
                         .foregroundStyle(.white)
                 }
             }
