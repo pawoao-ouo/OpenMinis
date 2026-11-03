@@ -105,7 +105,9 @@ enum ChatColors {
     /// message body (markdown label colour) and nothing else.
     static var assistantBubbleText: Color { MinisThemeShape.packTextColor(user: false) ?? studio.color(.assistantBubbleText, scope: .chat) }
     static var secondaryText: Color { studio.color(.secondaryText, scope: .chat) }
-    static var tertiaryText: Color { studio.color(.secondaryText, scope: .chat).opacity(0.72) }
+    /// [T-04] 以前是「次文字 × 0.72」，`tertiaryText` 这个角色全仓没人读，
+    /// 面板上那一行的色样和还原箭头只是装饰。现在真读角色。
+    static var tertiaryText: Color { studio.color(.tertiaryText, scope: .chat) }
     static var userBubble: Color {
         studio.color(.userBubble, scope: .chat).opacity(bubbleAlpha)
     }

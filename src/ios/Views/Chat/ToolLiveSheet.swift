@@ -1064,7 +1064,10 @@ struct ToolLiveSheet: View {
                             ForEach(chunks, id: \.id) { chunk in
                                 Text(attributedShellLine(chunk.text))
                                     .font(.system(size: fontSettings.scaledApp(13), design: .monospaced))
-                                    .foregroundColor(accentColor)
+                                    // [T-34] 实时卡片读 ChatColors.shellText，
+                                    // 快照却读强调色：同一张黑卡，两处跟着
+                                    // 两个不同的变量走。这里对齐实时卡片。
+                                    .foregroundColor(ChatColors.shellText)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.horizontal, 14)
                             }

@@ -279,7 +279,17 @@ final class AppearanceStudio: ObservableObject {
     }
     @Published var themePackRevision = 0
 
-    private var wallpaperCache: [AppearanceScope: UIImage] = [:]
+    /// [T-56] 以前是普通字典,只有写/删操作会清:9 个作用域各背一张
+    /// 约 19MB 的图,理论上限约 170MB,谁都不主动回收。改成带 cost 上限的
+    /// NSCache,内存吃紧时由系统自己丢,不用我们猜什么时候清。
+    private let wallpaperCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 48 * 1024 * 1024
+        return cache
+    }()
+    private func cacheKey(_ scope: AppearanceScope) -> NSString { scope.rawValue as NSString }
+    /// [T-31] Scopes whose wallpaper file exists but does not decode.
+    private var wallpaperUnreadable: Set<AppearanceScope> = []
     /// [T-wallpaper-clear][09-10 醒醒] Scopes whose own wallpaper was CLEARED
     /// with "清除当前背景" — they do NOT fall back to the global image, so the
     /// page returns to its plain initial canvas colour. Removing the global
@@ -583,21 +593,40 @@ final class AppearanceStudio: ObservableObject {
                 failures.append("\(variant.rawValue) \(role.rawValue) alpha \(String(format: "%.2f", Double(alpha) / 255)) < 1 (text would be see-through)")
             }
         }
-        let keyRoles: [AppearanceColorRole] = [.primaryText, .accent, .canvas, .surface]
-        guard proposed.keys.contains(where: { keyRoles.contains($0) }) else { return failures }
-        var effective: [AppearanceColorRole: String] = [:]
-        for role in keyRoles { effective[role] = hex(role, scope: scope, variant: variant) }
-        for (role, value) in proposed { effective[role] = value }
-        let checks: [(AppearanceColorRole, AppearanceColorRole, Double)] = [
-            (.primaryText, .canvas, 4.5), (.primaryText, .surface, 4.5),
-            (.accent, .canvas, 3.0), (.accent, .surface, 3.0),
-        ]
-        for (fg, bg, threshold) in checks {
-            guard let f = effective[fg], let b = effective[bg],
-                  let ratio = Self.contrastRatio(f, b), ratio < threshold else { continue }
-            failures.append("\(variant.rawValue) \(fg.rawValue)/\(bg.rawValue) \(String(format: "%.2f", ratio)) < \(threshold)")
+        // [T-23] 以前只查主文字和强调色：次文字、最淡小字、气泡字、黑卡字
+        // 都能被设到看不见而零警告，气泡字对他那块气泡底的对比度更是从没
+        // 算过。现在每个文字角色对自己实际坐的那块底算。
+        var checked = 0
+        for (role, value) in proposed {
+            for (bg, threshold) in Self.contrastPairs(for: role) {
+                checked += 1
+                let bgHex = proposed[bg] ?? hex(bg, scope: scope, variant: variant)
+                guard let ratio = Self.contrastRatio(value, bgHex), ratio < threshold else { continue }
+                failures.append("\(variant.rawValue) \(role.rawValue)/\(bg.rawValue) \(String(format: "%.2f", ratio)) < \(threshold)")
+            }
         }
+        _ = checked
         return failures
+    }
+
+    /// [T-23] 每个文字角色实际坐在哪块底上，以及要求多少。
+    ///
+    /// 面板警告和 AI 关卡共用这一张表：两处各写一份，迟早又只查两个角色。
+    /// `shellText` 不在这里——黑卡底是写死的黑，不跟主题，也就没有"改配色
+    /// 把它改糊"这条路。
+    static func contrastPairs(for role: AppearanceColorRole) -> [(bg: AppearanceColorRole, threshold: Double)] {
+        switch role {
+        case .primaryText, .secondaryText, .tertiaryText:
+            return [(.canvas, 4.5), (.surface, 4.5)]
+        case .bubbleText:
+            return [(.userBubble, 4.5)]
+        case .assistantBubbleText:
+            return [(.assistantBubble, 4.5)]
+        case .accent:
+            return [(.canvas, 3.0), (.surface, 3.0)]
+        default:
+            return []
+        }
     }
 
     // MARK: - Shared AI merge leftovers (F3)
@@ -773,6 +802,15 @@ final class AppearanceStudio: ObservableObject {
     }
 
     func applyPreset(_ preset: AppearancePreset) {
+        // [T-05] 以前只写预设表里列出的角色：上一套设过的壳字、最淡小字
+        // 会原样留着，切完预设等于两套颜色混在一起。预设是「整套配色」，
+        // 先把全局覆盖清干净再写（页级覆盖不动——那是另一层）。
+        for variant in AppearanceVariant.allCases {
+            let prefix = "\(AppearanceScope.global.rawValue).\(variant.rawValue)."
+            for key in customColors.keys where key.hasPrefix(prefix) {
+                customColors.removeValue(forKey: key)
+            }
+        }
         let palettes = preset.colors
         for variant in AppearanceVariant.allCases {
             let values = variant == .light ? palettes.light : palettes.dark
@@ -923,14 +961,24 @@ final class AppearanceStudio: ObservableObject {
         appearanceDirectory.appendingPathComponent("wallpaper-\(scope.rawValue).jpg")
     }
 
+    /// [T-31] "有壁纸"以能不能解码为准，不以文件在不在为准。
+    ///
+    /// 零字节或坏文件以前让文案说"有壁纸"、渲染却是纯色底，用户只能自己
+    /// 找到清除才恢复。这里共用 wallpaper(for:) 的解码结果（带着缓存，
+    /// 不会每次调用都真解一遍图）。
     func hasWallpaper(_ scope: AppearanceScope) -> Bool {
-        if FileManager.default.fileExists(atPath: wallpaperURL(scope).path) { return true }
-        // [batch7 用户-P2-9] 底部栏永不继承全局图：没专属图就是纯透明，
-        // 否则全局图会被压成一条"邮票"小图（见 ContentView.homeBottomBarBackground
-        // "默认完全透明，只有放了壁纸才出图"）。
-        guard scope != .global, scope != .bottomBar,
-              !wallpaperClearedFallback.contains(scope) else { return false }
-        return FileManager.default.fileExists(atPath: wallpaperURL(.global).path)
+        wallpaper(for: scope) != nil
+    }
+
+    /// 文件在、但解不出来。给界面一句"这张图坏了，点按清除"用。
+    func hasCorruptWallpaper(_ scope: AppearanceScope) -> Bool {
+        let url = wallpaperURL(scope)
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        if let data = try? Data(contentsOf: url), let image = UIImage(data: data),
+           image.size.width > 0, image.size.height > 0 {
+            return false
+        }
+        return true
     }
 
     func hasOwnWallpaper(_ scope: AppearanceScope) -> Bool {
@@ -938,7 +986,7 @@ final class AppearanceStudio: ObservableObject {
     }
 
     func wallpaper(for scope: AppearanceScope) -> UIImage? {
-        if let cached = wallpaperCache[scope] { return cached }
+        if let cached = wallpaperCache.object(forKey: cacheKey(scope)) { return cached }
         let own = wallpaperURL(scope)
         // [T-wallpaper-clear] A cleared page never inherits the global image.
         // [batch7 用户-P2-9] 底部栏同样永不继承：无专属图时返回 nil（纯透明），
@@ -946,11 +994,18 @@ final class AppearanceStudio: ObservableObject {
         let fallbackURL = (scope == .global || scope == .bottomBar
                            || wallpaperClearedFallback.contains(scope))
             ? nil : wallpaperURL(.global)
+        // [T-31] 解不出来的文件记一笔，免得每次渲染都重新解码一张坏图。
+        if wallpaperUnreadable.contains(scope) { return nil }
         let url = FileManager.default.fileExists(atPath: own.path)
             ? own
             : (fallbackURL.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
-        guard let url, let image = UIImage(contentsOfFile: url.path) else { return nil }
-        wallpaperCache[scope] = image
+        guard let url else { return nil }
+        guard let data = try? Data(contentsOf: url),
+              let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else {
+            wallpaperUnreadable.insert(scope)
+            return nil
+        }
+        wallpaperCache.setObject(image, forKey: cacheKey(scope), cost: image.cacheCost)
         return image
     }
 
@@ -970,11 +1025,15 @@ final class AppearanceStudio: ObservableObject {
     /// happens when the image is larger than the wallpaper edge limit.
     @discardableResult
     func setWallpaperEncoded(_ data: Data, for scope: AppearanceScope) -> Bool {
-        if let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 {
-            let longest = max(image.size.width, image.size.height)
-            if longest > 2200 {
-                return setWallpaper(image, for: scope)
-            }
+        // [T-29] 解不出来的字节不许落盘。以前原样写进 wallpaper-<scope>.jpg
+        // 再回 true：文件在、hasWallpaper 也真，渲染却是纯色底，只有手动
+        // 清除能救回来。现在直接失败，让调用方（主题包流程）追加 warning。
+        guard let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else {
+            appearanceLog.warning("wallpaper bytes for \(scope.rawValue) do not decode; nothing written")
+            return false
+        }
+        if max(image.size.width, image.size.height) > 2200 {
+            return setWallpaper(image, for: scope)
         }
         return writeWallpaperData(data, for: scope)
     }
@@ -992,7 +1051,8 @@ final class AppearanceStudio: ObservableObject {
         // fallback for this scope (the clear only sticks until overridden).
         wallpaperClearedFallback.remove(scope)
         persistWallpaperCleared()
-        wallpaperCache.removeAll()
+        wallpaperUnreadable.remove(scope)
+        wallpaperCache.removeAllObjects()
         wallpaperRevision += 1
         return true
     }
@@ -1007,7 +1067,8 @@ final class AppearanceStudio: ObservableObject {
             wallpaperClearedFallback.remove(scope)
         }
         persistWallpaperCleared()
-        wallpaperCache.removeAll()
+        wallpaperUnreadable.removeAll()
+        wallpaperCache.removeAllObjects()
         wallpaperRevision += 1
     }
 
@@ -1063,7 +1124,7 @@ final class AppearanceStudio: ObservableObject {
                 try? FileManager.default.removeItem(at: dst)
             }
         }
-        wallpaperCache.removeAll()
+        wallpaperCache.removeAllObjects()
         wallpaperRevision += 1
     }
 
@@ -1080,7 +1141,8 @@ final class AppearanceStudio: ObservableObject {
         try? FileManager.default.removeItem(at: wallpaperURL(scope))
         if scope != .global { wallpaperClearedFallback.insert(scope) }
         persistWallpaperCleared()
-        wallpaperCache.removeAll()
+        wallpaperUnreadable.removeAll()
+        wallpaperCache.removeAllObjects()
         wallpaperRevision += 1
     }
 
@@ -1100,7 +1162,7 @@ final class AppearanceStudio: ObservableObject {
             }
         }
         if removed {
-            wallpaperCache.removeAll()
+            wallpaperCache.removeAllObjects()
             wallpaperRevision += 1
         }
     }
@@ -1966,7 +2028,7 @@ extension AppearanceStudio {
         themePackLoaded = true
         themePackLock.unlock()
         themePackRevision += 1
-        wallpaperCache.removeAll()
+        wallpaperCache.removeAllObjects()
         wallpaperRevision += 1
         iconRevision += 1
         configureUIKitSurfaces()
@@ -2003,5 +2065,13 @@ enum ChatAddressing {
         if !fromProfile.isEmpty { return fromProfile }
         let n = AppearanceStudio.shared.userDisplayName
         return n.isEmpty ? AppLocalized("用户") : n
+    }
+}
+
+private extension UIImage {
+    /// [T-56] Rough decoded size, used as the wallpaper cache's cost.
+    var cacheCost: Int {
+        guard let cg = cgImage else { return 2 * 1024 * 1024 }
+        return max(cg.bytesPerRow * cg.height, 64 * 1024)
     }
 }

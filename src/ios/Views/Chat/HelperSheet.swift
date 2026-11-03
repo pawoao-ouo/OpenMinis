@@ -194,7 +194,9 @@ struct HelperTranscriptPage: View {
                         } label: {
                             Image(systemName: "stop.circle")
                                 .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(.red)
+                                // [T-69] 系统红绕开了 destructive 角色:她在
+                                // 店里把“危险”改过色,这枚停止钮不跟着变。
+                                .foregroundStyle(ChatColors.destructive)
                         }
                         .accessibilityLabel(AppLocalized("Stop"))
                     }
@@ -313,7 +315,10 @@ struct HelperTranscriptPage: View {
                 if isRunning {
                     ReattachingSpinner(size: 12, lineWidth: 1.8, color: HelperAccent.color)
                 } else {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 13))
+                    // [T-69] 同上,完成勾接 success 角色而不是系统绿。
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(ChatColors.success)
+                        .font(.system(size: 13))
                 }
                 Text(AgentJobRegistry.childSessionTitle(target.title))
                     .font(.system(size: 15, weight: .semibold))

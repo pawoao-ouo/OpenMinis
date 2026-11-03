@@ -106,6 +106,9 @@ struct DressingShopView: View {
     @ObservedObject private var pendantStore = AvatarPendantStore.shared
     @ObservedObject private var outfitStore = DressingOutfitStore.shared
     @ObservedObject private var fontSettings = FontSettings.shared
+    /// [T-67] 店里这几处动画一直不看系统开关。开启“减少动态效果”后,
+    /// 呼吸点、字号变化的回弹、详情浮层的进出都还照动。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var uploadedFontStore = UploadedFontStore.shared
     @State private var showFontPicker = false
     @State private var fontImportFailed = false
@@ -322,12 +325,12 @@ struct DressingShopView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .animation(.easeOut(duration: 0.32), value: detailPack != nil)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.32), value: detailPack != nil)
         // Detail overlays animate out instead of vanishing: the
         // parent used to watch only detailPack, so a theme or
         // pendant close jumped after its sheet delay.
-        .animation(.easeOut(duration: 0.32), value: detailTheme != nil)
-        .animation(.easeOut(duration: 0.32), value: detailPendant != nil)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.32), value: detailTheme != nil)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.32), value: detailPendant != nil)
         // Same-persona rename arrives via SOUL.md, not via a
         // published store value: bump the side-label tick so the
         // picker and strip re-resolve their (dynamic) names.
@@ -2082,6 +2085,8 @@ struct DressingShopView: View {
                 .scaleEffect(pulse ? 1.2 : 0.9)
                 .opacity(pulse ? 1 : 0.3)
                 .onAppear {
+                    // [T-67] 减少动态效果时保持静态,不转圈。
+                    guard !reduceMotion else { return }
                     withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
                         pulse = true
                     }
@@ -2149,8 +2154,8 @@ struct DressingShopView: View {
         // (preview, cards, badges) eases 0.22s on the spring curve
         // instead of jumping. Font rendering itself cannot tween
         // glyphs, but layout, badge fades, and card borders do.
-        .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.22), value: globalPointSize)
-        .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.22), value: currentFontLabel.number)
+        .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22), value: globalPointSize)
+        .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22), value: currentFontLabel.number)
         .sheet(isPresented: $showFontPicker) {
             FontFilePicker(
                 onPick: { url in
@@ -2744,21 +2749,6 @@ struct DressingShopView: View {
         studio.setGlobalCustomFont(font.postScriptName)
         return true
     }
-
-    // MARK: - Next-batch panels (honest placeholders, no fake cards)
-
-    private func nextBatchPanel(_ title: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.title3.weight(.bold))
-                .foregroundStyle(studio.color(.primaryText))
-            Text(AppLocalized("下一批做：详情预览、换上、保存成搭配，都会按气泡这批同一套路接上。"))
-                .font(.subheadline)
-                .foregroundStyle(studio.color(.secondaryText))
-        }
-        .padding(16)
-    }
-
     /// Show a v2-style toast for 2.2s, replacing any toast already
     /// up (v2 clears its timer on every new toast, so rapid taps
     /// never stack pills).
@@ -3124,32 +3114,31 @@ struct DressingShopView: View {
     }
 
     /// Contrast warning for a colour-panel row, live values only.
-    /// Only primaryText (4.5) and accent (3.0) are checked, against
-    /// canvas and surface of the variant being edited. Nil when the
-    /// value passes, so passing rows show nothing. This never blocks:
-    /// the user's own colour choice is respected, it just never lands
-    /// silently unreadable.
+    ///
+    /// [T-23] Uses the same role→background table as the AI gate
+    /// (AppearanceStudio.contrastPairs), so every text role is checked
+    /// against the surface it actually sits on: body copy on canvas/card,
+    /// bubble text on its own bubble, accent on canvas/card. Nil when the
+    /// value passes, so passing rows show nothing. This never blocks: her
+    /// own choice is respected, it just never lands silently unreadable.
     private func colorContrastWarning(for role: AppearanceColorRole) -> String? {
-        let level: AppearanceContrast.Level
-        switch role {
-        case .primaryText: level = .body
-        case .accent: level = .ui
-        default: return nil
-        }
+        let pairs = AppearanceStudio.contrastPairs(for: role)
+        guard !pairs.isEmpty else { return nil }
         let fg = studio.hex(role, scope: .global, variant: editingVariant)
         var failing: [String] = []
-        for (bgName, bgRole) in [(AppLocalized("底色"), AppearanceColorRole.canvas),
-                                 (AppLocalized("卡片底"), AppearanceColorRole.surface)] {
+        var strictest = 0.0
+        for (bgRole, threshold) in pairs {
             let bg = studio.hex(bgRole, scope: .global, variant: editingVariant)
             let r = AppearanceContrast.ratio(fg, on: bg)
-            if r < AppearanceContrast.threshold(level) {
-                failing.append(String(format: AppLocalized("%@约 %.1f"), bgName, r))
+            strictest = max(strictest, threshold)
+            if r < threshold {
+                failing.append(String(format: AppLocalized("%@约 %.1f"),
+                                      colorVarDisplayName(bgRole), r))
             }
         }
         guard !failing.isEmpty else { return nil }
         return String(format: AppLocalized("%@对比不够：%@（要 %.1f），个别地方可能看不清"),
-                      role.title, failing.joined(separator: "、"),
-                      AppearanceContrast.threshold(level))
+                      colorVarDisplayName(role), failing.joined(separator: "、"), strictest)
     }
 
     /// Panel-local plain names for the colour rows (report §2.5).
@@ -3200,9 +3189,9 @@ struct DressingShopView: View {
         case .iconTile: return AppLocalized("消息旁边一格一格的小图标底下的颜色")
         case .chip: return AppLocalized("用量、状态那种椭圆形小标签的底色")
         case .accent: return AppLocalized("所有按钮、开关、选中的那一项")
-        case .success: return AppLocalized("成功、通过的时候用的绿")
-        case .warning: return AppLocalized("需要留意的时候用的黄")
-        case .destructive: return AppLocalized("删除、危险操作用的红")
+        case .success: return AppLocalized("成功、通过时用的颜色(就在上面“成了”那行)")
+        case .warning: return AppLocalized("需要留意时用的颜色(就在上面“小心”那行)")
+        case .destructive: return AppLocalized("删除、危险操作用色(就在上面“危险、删除”那行)")
         }
     }
 
@@ -3421,18 +3410,10 @@ struct DressingShopView: View {
     private func colorVarRow(_ role: AppearanceColorRole) -> some View {
         VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 12) {
-            ZStack {
-                colorVarMiniature(role)
-                ColorPicker("", selection: studio.colorBinding(role, scope: .global, variant: editingVariant),
-                            supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(width: 76, height: 36)
-                    .contentShape(Rectangle())
-                    .opacity(0.02)
-                    .accessibilityLabel(colorVarDisplayName(role))
-            }
-            .frame(width: 76, height: 36)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            colorVarMiniature(role)
+                .frame(width: 76, height: 36)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .allowsHitTesting(false)
             VStack(alignment: .leading, spacing: 2) {
                 Text(colorVarDisplayName(role))
                     .font(ChatFont.font(13, weight: .medium))
@@ -3454,6 +3435,7 @@ struct DressingShopView: View {
             Text("#\(studio.hex(role, scope: .global, variant: editingVariant))")
                 .font(.system(size: globalPointSize * 10 / 13, design: .monospaced))
                 .foregroundStyle(studio.color(.secondaryText).opacity(0.55))
+                .allowsHitTesting(false)
             if studio.hasOverride(role, scope: .global, variant: editingVariant) {
                 Button {
                     studio.clearOverride(role, scope: .global, variant: editingVariant)
@@ -3465,10 +3447,24 @@ struct DressingShopView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(FontPressStyle(scale: 0.92))
+                .accessibilityLabel(AppLocalized("恢复默认"))
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        // [T-21] 以前只有小样上那块 76×36、透明度 0.02 的系统取色器能点,
+        // 行里最大的可点目标是还原箭头——她点行没反应就是这个原因。
+        // 现在取色器铺满整行做底;行内文字与小样不接点击,点哪都开取色器,
+        // 只有还原按钮留在上层,仍然独立。
+        .background {
+            ColorPicker("", selection: studio.colorBinding(role, scope: .global, variant: editingVariant),
+                        supportsOpacity: false)
+                .labelsHidden()
+                .opacity(0.02)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel(colorVarDisplayName(role))
+                .accessibilityHint(AppLocalized("点一下打开取色器"))
+        }
         if let warning = colorContrastWarning(for: role) {
             Text(warning)
                 .font(.system(size: fsSub))

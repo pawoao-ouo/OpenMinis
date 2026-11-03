@@ -7653,10 +7653,12 @@ private struct ForceSyncToastBanner: View {
         HStack(spacing: 10) {
             Image(systemName: "icloud.and.arrow.up")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white)
+                // [T-32] 白字写死：强调色调到浅黄/浅粉就彻底看不见。
+                // 和提问弹窗一样，按 WCAG 在黑白之间挑前景。
+                .foregroundStyle(CSSThemeVariables.accentFg(scope: .global))
             Text(text)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white)
+                .foregroundStyle(CSSThemeVariables.accentFg(scope: .global))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
         }
