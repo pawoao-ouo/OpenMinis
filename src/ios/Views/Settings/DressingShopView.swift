@@ -2994,6 +2994,7 @@ struct DressingShopView: View {
                         Text(AppLocalized("深色")).tag(2)
                     }
                     .pickerStyle(.segmented)
+                    .accessibilityLabel(AppLocalized("白天 / 黑夜"))
                     Text(AppLocalized("跟随系统就跟着手机走；选浅色或深色就固定那一套。"))
                         .font(ChatFont.font(11))
                         .foregroundStyle(studio.color(.secondaryText))
@@ -3007,6 +3008,7 @@ struct DressingShopView: View {
                         Text(AppLocalized("深色变量")).tag(AppearanceVariant.dark)
                     }
                     .pickerStyle(.segmented)
+                    .accessibilityLabel(AppLocalized("正在编辑哪一套变量"))
                     Text(AppLocalized("跟上面那档无关：手机是浅色时也能调深色那套，改完切模式就看见。"))
                         .font(ChatFont.font(11))
                         .foregroundStyle(studio.color(.secondaryText))
