@@ -432,7 +432,7 @@ struct DressingShopView: View {
                 ForEach(offered) { item in
                     Button { tag = item } label: {
                         Text(item.title)
-                            .font(.system(size: 15))
+                            .font(.system(size: globalPointSize * 15 / 13))
                             .foregroundStyle(tag == item
                                 ? studio.color(.surface)
                                 : studio.color(.secondaryText))
@@ -516,7 +516,7 @@ struct DressingShopView: View {
                 ForEach(pendantStore.pendants) { pendant in pendantCard(pendant) }
             }
             Text(AppLocalized("点卡片进入详情预览，确认后再换上；标签条按心情筛选当前页的卡片。"))
-                .font(.system(size: 13))
+                .font(.system(size: globalPointSize * 13 / 13))
                 .foregroundStyle(studio.color(.secondaryText))
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
@@ -526,25 +526,25 @@ struct DressingShopView: View {
     private var nowWearingStrip: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(AppLocalized("现在穿着"))
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: globalPointSize * 15 / 13, weight: .semibold))
                 .foregroundStyle(studio.color(.primaryText))
             ForEach(DressingSide.allCases, id: \.self) { side in
                 HStack(spacing: 10) {
                     Text(sidePickerLabel(for: side))
-                        .font(.system(size: 14))
+                        .font(.system(size: globalPointSize * 14 / 13))
                         .foregroundStyle(studio.color(.primaryText))
                     if let pack = appliedPack(for: side) {
                         Text("\(pack.title) · \(pack.number)")
-                            .font(.system(size: 14))
+                            .font(.system(size: globalPointSize * 14 / 13))
                             .foregroundStyle(studio.color(.secondaryText))
                     } else {
                         Text(AppLocalized("还没选款式"))
-                            .font(.system(size: 14))
+                            .font(.system(size: globalPointSize * 14 / 13))
                             .foregroundStyle(studio.color(.secondaryText))
                     }
                     if let pendant = pendantStore.applied(for: side) {
                         Text("\(pendant.title) · \(pendant.number)")
-                            .font(.system(size: 14))
+                            .font(.system(size: globalPointSize * 14 / 13))
                             .foregroundStyle(studio.color(.secondaryText))
                     }
                     Spacer(minLength: 0)
