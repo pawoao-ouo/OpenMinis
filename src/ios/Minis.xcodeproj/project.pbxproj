@@ -332,6 +332,8 @@
 		E5G000002 /* AgentLiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5G000012 /* AgentLiveActivityManager.swift */; };
 		E5G000003 /* EnhancedBackgroundSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5G000013 /* EnhancedBackgroundSettingsView.swift */; };
 		XMSTYLE001 /* AppearanceStudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE101 /* AppearanceStudio.swift */; };
+		THMW001 /* ThemeBridgeCall.swift in Sources */ = {isa = PBXBuildFile; fileRef = THMW101 /* ThemeBridgeCall.swift */; };
+		THMW002 /* ThemeWriteConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = THMW102 /* ThemeWriteConfirmation.swift */; };
 		XMSTYLE002 /* AppearanceStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE102 /* AppearanceStudioView.swift */; };
 		DSHP00001 /* DressingShopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DSHP00101 /* DressingShopView.swift */; };
 		XMSTYLE003 /* AppearanceThemePack.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE103 /* AppearanceThemePack.swift */; };
@@ -1289,6 +1291,8 @@
 		E5Q000013 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		E5Q000014 /* FontSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontSettings.swift; sourceTree = "<group>"; };
 		XMSTYLE101 /* AppearanceStudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceStudio.swift; sourceTree = "<group>"; };
+		THMW101 /* ThemeBridgeCall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeBridgeCall.swift; sourceTree = "<group>"; };
+		THMW102 /* ThemeWriteConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeWriteConfirmation.swift; sourceTree = "<group>"; };
 		XMSTYLE102 /* AppearanceStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceStudioView.swift; sourceTree = "<group>"; };
 		DSHP00101 /* DressingShopView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DressingShopView.swift; sourceTree = "<group>"; };
 		XMSTYLE103 /* AppearanceThemePack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceThemePack.swift; sourceTree = "<group>"; };
@@ -2174,6 +2178,8 @@
 				E5PRIV12 /* EnvVarRedactor.swift */,
 				E5Q000014 /* FontSettings.swift */,
 				XMSTYLE101 /* AppearanceStudio.swift */,
+				THMW101 /* ThemeBridgeCall.swift */,
+				THMW102 /* ThemeWriteConfirmation.swift */,
 				XMSTYLE103 /* AppearanceThemePack.swift */,
 				XMSTYLE107 /* AppearanceThemeLibrary.swift */,
 				XMSTYLE120 /* AppearanceThemeShuffle.swift */,
@@ -3536,6 +3542,8 @@
 				E5G000002 /* AgentLiveActivityManager.swift in Sources */,
 				E5G000003 /* EnhancedBackgroundSettingsView.swift in Sources */,
 				XMSTYLE001 /* AppearanceStudio.swift in Sources */,
+				THMW001 /* ThemeBridgeCall.swift in Sources */,
+				THMW002 /* ThemeWriteConfirmation.swift in Sources */,
 				XMSTYLE002 /* AppearanceStudioView.swift in Sources */,
 				DSHP00001 /* DressingShopView.swift in Sources */,
 				XMSTYLE003 /* AppearanceThemePack.swift in Sources */,

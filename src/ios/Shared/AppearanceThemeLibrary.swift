@@ -2,6 +2,16 @@ import Foundation
 import SwiftUI
 import UIKit
 
+/// Result of deleting one saved theme. [H-03]
+///
+/// `trashed` = the pack file really moved into the trash, so it can be
+/// restored. `deleted` = the library list no longer carries it. A delete
+/// never reports success while the pack is unrecoverable-but-unlisted.
+struct ThemeDeletionOutcome {
+    let deleted: Bool
+    let trashed: Bool
+}
+
 /// Saved theme history. Current pack stays in AppearanceStudio;
 /// this drawer only keeps names. Full packs live as JSON files so
 /// wallpaper / category pictures never land in UserDefaults.
@@ -347,13 +357,21 @@ extension AppearanceStudio {
         guard !trimmed.isEmpty else { return false }
         var list = savedThemes()
         guard let idx = list.firstIndex(where: { $0.id == id }) else { return false }
-        list[idx].name = trimmed
+        // [H-03] 写文件的结果以前不看就持久化新名字：文件写失败时列表已经
+        // 改名，读回来还是旧名，两边对不上。现在写完读回验一次，验不过就
+        // 把元数据恢复原样并如实失败。
+        let previousName = list[idx].name
+        var packWritten = true
         if var pack = readLibraryPack(id: id) {
             pack.name = trimmed
             writeLibraryPack(pack, id: id)
+            packWritten = readLibraryPack(id: id)?.name == trimmed
         }
+        guard packWritten else { return false }
+        list[idx].name = trimmed
         persistLibrary(list)
-        return true
+        return savedThemes().first(where: { $0.id == id })?.name == trimmed
+            || previousName == trimmed
     }
 
     /// [B28 B-2] 删掉一套。pack 文件不真删，挪进 `trash/` 留着撤销。
@@ -361,21 +379,41 @@ extension AppearanceStudio {
     /// 原来直接 `removeItem` —— 点错一下这套就没了，没有二次确认、没有
     /// 撤销、也没有提示。
     func deleteSavedTheme(id: String) -> Bool {
+        deleteSavedThemeDetailed(id: id).deleted
+    }
+
+    /// [H-03] Delete with the trash result the caller needs to tell the truth.
+    ///
+    /// `trashed` is false when there was no pack file to keep — the theme is
+    /// gone for good and the AI/user must not be told it can be restored.
+    /// A move that fails leaves the metadata untouched: reporting success
+    /// while dropping the metadata is what turned a failed move into a
+    /// theme that was neither listed nor restorable.
+    @discardableResult
+    func deleteSavedThemeDetailed(id: String) -> ThemeDeletionOutcome {
         var list = savedThemes()
         let before = list.count
         list.removeAll { $0.id == id }
-        guard list.count != before else { return false }
+        guard list.count != before else { return ThemeDeletionOutcome(deleted: false, trashed: false) }
         let src = libraryPackURL(id)
         let dst = trashedPackURL(id)
+        var trashed = false
         if FileManager.default.fileExists(atPath: src.path) {
-            try? FileManager.default.createDirectory(at: trashDirectory(),
-                                                     withIntermediateDirectories: true)
-            try? FileManager.default.removeItem(at: dst)
-            try? FileManager.default.moveItem(at: src, to: dst)
+            do {
+                try FileManager.default.createDirectory(at: trashDirectory(),
+                                                        withIntermediateDirectories: true)
+                if FileManager.default.fileExists(atPath: dst.path) {
+                    try FileManager.default.removeItem(at: dst)
+                }
+                try FileManager.default.moveItem(at: src, to: dst)
+                trashed = true
+            } catch {
+                return ThemeDeletionOutcome(deleted: false, trashed: false)
+            }
         }
         pruneTrash()
         persistLibrary(list)
-        return true
+        return ThemeDeletionOutcome(deleted: true, trashed: trashed)
     }
 
     /// [B28 B-2] 撤销删除：文件搬回 library/，元数据插回列表最前面。

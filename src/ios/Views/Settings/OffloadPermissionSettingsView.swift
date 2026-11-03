@@ -32,6 +32,18 @@ struct OffloadPermissionSettingsView: View {
                 }
             }
 
+            // [T-02 / H-01] 主题面单独一节：改的是她亲手调过的配色/壁纸/
+            // 头像/主题库，不属于隐私数据，混在 Privacy 里名不副实。
+            Section {
+                ForEach(appearanceCommands, id: \.name) { cmd in
+                    CommandPermissionRow(command: cmd)
+                }
+            } header: {
+                Text("Appearance")
+            } footer: {
+                Text("主题命令会改你的配色、壁纸、头像和已保存的主题套。默认第一次使用时先问一次；只读命令（查看当前主题）不打扰你。删除、改名、换头像、换壁纸、重置这些动作每次都会单独弹确认单。")
+            }
+
             // [s2-approve] 工作区命令（shell_execute）审批总开关，默认关。
             Section {
                 Toggle("执行前先询问", isOn: $shellApproval.needsApproval)
@@ -102,7 +114,15 @@ struct OffloadPermissionSettingsView: View {
     }
 
     private var settingsCommands: [OffloadCommandInfo] {
-        OffloadPermissionManager.allCommands.filter { $0.showInSettings }
+        OffloadPermissionManager.allCommands.filter {
+            $0.showInSettings && $0.category != .appearance
+        }
+    }
+
+    private var appearanceCommands: [OffloadCommandInfo] {
+        OffloadPermissionManager.allCommands.filter {
+            $0.showInSettings && $0.category == .appearance
+        }
     }
 }
 

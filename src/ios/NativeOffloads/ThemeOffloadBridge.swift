@@ -5,6 +5,12 @@
 //  Swift bridge for `minis-theme`. ObjC handler parses argv / files;
 //  this type applies packs on the main actor.
 //
+//  [H-02 / H-06] Every entry point goes through `ThemeBridgeCall.run`,
+//  which owns the semaphore, the timeout and the cancellation token.
+//  Reads keep the original 5s ceiling; a destructive command waits for the
+//  confirmation sheet instead, and a timed-out call can no longer write
+//  after the CLI has already reported failure.
+//
 
 import Foundation
 import UIKit
@@ -25,9 +31,7 @@ import UIKit
     }
 
     @objc public static func currentPack() -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
+        ThemeBridgeCall.run { _ in
             let pack = AppearanceStudio.shared.exportThemePack(includeWallpaper: false)
             var out = pack.asJSONObject()
             // [B28 A-1] 立绘整张 base64 不再吐给 AI：几百 KB 能把上下文吃满。
@@ -39,32 +43,19 @@ import UIKit
             out["aiEditableOnly"] = true
             out["strippedLockedFields"] = stripped
             out["ok"] = true
-            result = out
-            sem.signal()
+            return out
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            // 超时不能当成功返回：ObjC 侧把缺 ok 视为 true，会变成
-            // 「命令成功但什么都没做」。这里明确给 ok:false。
-            NSLog("[CLIBridge] semaphore wait timed out")
-            return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
-        }
-        return result as NSDictionary
     }
 
     @objc public static func applyJSON(_ json: String) -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
+        ThemeBridgeCall.run { token in
             guard let data = json.data(using: .utf8),
                   let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                result = [
+                return [
                     "ok": false,
                     "error": "invalid_pack",
                     "message": "JSON is not a theme pack.",
                 ]
-                sem.signal()
-                return
             }
             // [T-theme-export-roundtrip] `export` writes the tool envelope
             // (`{ok,tool,action,data,timestamp}`, NativeOffloadUtils.m:135)
@@ -90,26 +81,22 @@ import UIKit
             // radii, spacing, and shapes in the UI.
             let locked = AppearanceThemePack.aiApplyRejectedFields(in: obj)
             if !locked.isEmpty {
-                result = [
+                return [
                     "ok": false,
                     "error": "locked_field",
                     "lockedFields": locked,
                     "message": "AI theme apply is locked to colours, wallpaper/surface images, font sizes, and avatar shape (except rectangle). Locked field(s) rejected, nothing was applied: \(locked.joined(separator: ", ")). Remove those fields and retry.",
                 ]
-                sem.signal()
-                return
             }
             // Merge onto the live pack: an AI call that only names colors must
             // not reset radii, fonts, images, or anything else it left out.
             let live = AppearanceStudio.shared.currentThemePack()
             guard let pack = try? AppearanceThemePack.decode(obj, merging: live) else {
-                result = [
+                return [
                     "ok": false,
                     "error": "invalid_pack",
                     "message": "JSON is not a theme pack.",
                 ]
-                sem.signal()
-                return
             }
             // [AI contrast gate] Refuse BEFORE applying, never after.
             // Only variants the JSON actually recolours are checked, so
@@ -146,14 +133,12 @@ import UIKit
                     scope: .global, variant: variant, proposed: proposed)
             }
             if !contrastFailures.isEmpty {
-                result = [
+                return [
                     "ok": false,
                     "error": "contrast_failed",
                     "contrastFailures": contrastFailures,
                     "message": "Contrast check failed before applying; nothing was changed: \(contrastFailures.joined(separator: "; ")). Adjust the colours and retry.",
                 ]
-                sem.signal()
-                return
             }
             // [AI merge leftovers] Capture BEFORE applying what this
             // partial apply will leave untouched, so the result can say
@@ -182,6 +167,7 @@ import UIKit
             // fields it names, so it must NOT reset anything it left
             // out. Merge mode is kept for this path alone; a full theme
             // switch (library apply, clipboard import) uses replace.
+            guard token.beginWrite() else { return ["ok": false, "error": "timeout"] }
             let warnings = AppearanceStudio.shared.applyThemePack(pack, mode: .merge)
             var out = AppearanceStudio.shared.currentThemePack().asJSONObject()
             out["ok"] = true
@@ -203,23 +189,15 @@ import UIKit
             out = cleanedOut
             out["aiEditableOnly"] = true
             out["strippedLockedFields"] = strippedOut
-            result = out
-            sem.signal()
+            // [T-02] apply has no undo snapshot; say how to back out instead
+            // of letting the AI imply it is free to re-run.
+            out["revertNote"] = "No automatic undo for apply. Read the current values with `minis-theme get` before applying if you may need to revert; a single colour can be reverted with `color --role <r> --clear`."
+            return out
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            // 超时不能当成功返回：ObjC 侧把缺 ok 视为 true，会变成
-            // 「命令成功但什么都没做」。这里明确给 ok:false。
-            NSLog("[CLIBridge] semaphore wait timed out")
-            return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
-        }
-        return result as NSDictionary
     }
 
     @objc public static func exportJSON(includeWallpaper: Bool) -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
+        ThemeBridgeCall.run { _ in
             let pack = AppearanceStudio.shared.exportThemePack(includeWallpaper: includeWallpaper)
             var out = pack.asJSONObject()
             // [B28 A-1] 默认不吐立绘；只有 `--wallpaper` 明确要整包时才带。
@@ -232,30 +210,26 @@ import UIKit
             out["aiEditableOnly"] = true
             out["strippedLockedFields"] = stripped
             out["ok"] = true
-            result = out
-            sem.signal()
+            return out
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            // 超时不能当成功返回：ObjC 侧把缺 ok 视为 true，会变成
-            // 「命令成功但什么都没做」。这里明确给 ok:false。
-            NSLog("[CLIBridge] semaphore wait timed out")
-            return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
-        }
-        return result as NSDictionary
-    }
-
-    /// [Safe-mode recovery] The chat reset path. The result must state
+    }/// [Safe-mode recovery] The chat reset path. The result must state
     /// plainly what was reset, because the user reads it in chat after a
     /// broken theme — a bare `reset: true` lets the AI invent the scope.
     /// `undoAvailable` means THIS reset captured a snapshot, not merely
     /// that some older snapshot file exists on disk: a reset with no
     /// pack JSON captures nothing, and promising undo for it would
     /// restore that older snapshot instead of this reset.
+    ///
+    /// [T-02] `--force` is a flag the AI writes itself, so it never was a
+    /// user confirmation. The reset now stops at the confirm sheet first.
     @objc public static func resetPack() -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
+        ThemeBridgeCall.run(timeout: ThemeWriteConfirmation.waitWindow) { token in
+            let decision = await ThemeWriteConfirmation.check(
+                "reset",
+                what: "重置整套主题",
+                detail: "清掉所有页级配色、各页壁纸和上传的图（思考卡、输入栏、立绘、分类图）")
+            if let refusal = decision.refusal { return refusal }
+            guard token.beginWrite() else { return ["ok": false, "error": "timeout"] }
             let snapshotCaptured = AppearanceStudio.shared.resetThemePack()
             let name = AppearanceThemePack.default.name
             let resetScope = [
@@ -271,7 +245,7 @@ import UIKit
             } else {
                 message = "Theme reset to the default \"\(name)\" pack: \(resetScope.joined(separator: "; ")). Chats, backups, and saved library themes were not touched. No undo snapshot was captured for this reset, so `minis-theme undo` cannot restore the theme this reset removed."
             }
-            result = [
+            return [
                 "ok": true,
                 "reset": true,
                 "id": AppearanceThemePack.default.id,
@@ -280,75 +254,42 @@ import UIKit
                 "undoAvailable": snapshotCaptured,
                 "message": message,
             ]
-            sem.signal()
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            // 超时不能当成功返回：ObjC 侧把缺 ok 视为 true，会变成
-            // 「命令成功但什么都没做」。这里明确给 ok:false。
-            NSLog("[CLIBridge] semaphore wait timed out")
-            return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
-        }
-        return result as NSDictionary
     }
 
     @objc public static func undoReset() -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
+        ThemeBridgeCall.run { token in
+            guard token.beginWrite() else { return ["ok": false, "error": "timeout"] }
             let ok = AppearanceStudio.shared.undoThemeReset()
-            result = ok
+            return ok
                 ? ["ok": true, "restored": true]
                 : ["ok": false, "error": "no_snapshot",
                    "message": "No theme reset to undo. The snapshot only covers the last reset."]
-            sem.signal()
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            // 超时不能当成功返回：ObjC 侧把缺 ok 视为 true，会变成
-            // 「命令成功但什么都没做」。这里明确给 ok:false。
-            NSLog("[CLIBridge] semaphore wait timed out")
-            return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
-        }
-        return result as NSDictionary
     }
 
     @objc public static func saveCurrent(name: String) -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
+        ThemeBridgeCall.run { _ in
             // [B28 R2-3] 满 40 套时 saveCurrentTheme 现在返回 nil —— 如实
             // 报「库满，先删一套」，不再悄悄顶掉最旧的来腾地方。
             if let item = AppearanceStudio.shared.saveCurrentTheme(name: name) {
-                result = [
+                return [
                     "ok": true,
                     "saved": true,
                     "id": item.id,
                     "name": item.name,
                 ]
-            } else {
-                result = [
-                    "ok": false,
-                    "error": "library full",
-                    "message": "The theme library holds 40 themes. Delete one before saving another.",
-                ]
             }
-            sem.signal()
+            return [
+                "ok": false,
+                "error": "library full",
+                "message": "The theme library holds 40 themes. Delete one before saving another.",
+            ]
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            // 超时不能当成功返回：ObjC 侧把缺 ok 视为 true，会变成
-            // 「命令成功但什么都没做」。这里明确给 ok:false。
-            NSLog("[CLIBridge] semaphore wait timed out")
-            return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
-        }
-        return result as NSDictionary
     }
 
     @objc public static func listSaved() -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
+        ThemeBridgeCall.run { _ in
             let items = AppearanceStudio.shared.savedThemes().map { item -> [String: Any] in
                 [
                     "id": item.id,
@@ -356,21 +297,12 @@ import UIKit
                     "savedAt": ISO8601DateFormatter().string(from: item.savedAt),
                 ]
             }
-            result = [
+            return [
                 "ok": true,
                 "count": items.count,
                 "themes": items,
             ]
-            sem.signal()
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            // 超时不能当成功返回：ObjC 侧把缺 ok 视为 true，会变成
-            // 「命令成功但什么都没做」。这里明确给 ok:false。
-            NSLog("[CLIBridge] semaphore wait timed out")
-            return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
-        }
-        return result as NSDictionary
     }
 
     /// AI-path `minis-theme use`. This bridge entry is AI-only: the
@@ -383,22 +315,19 @@ import UIKit
     /// the user left it, and says so in the result. It does not mark the
     /// saved theme as in use, because the result is not that theme.
     @objc public static func applySaved(id: String) -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
+        ThemeBridgeCall.run { token in
             // [F2] Same contrast gate as apply, BEFORE anything is
             // applied: a saved pack that would fail contrast is refused
             // with nothing changed. nil = no such saved theme.
             if let failures = AppearanceStudio.shared.savedPackContrastFailures(id: id),
                !failures.isEmpty {
-                result = [
+                return [
                     "ok": false, "error": "contrast_failed",
                     "contrastFailures": failures,
                     "message": "Contrast check failed before applying the saved theme; nothing was changed: \(failures.joined(separator: "; ")). Adjust the colours and retry.",
                 ]
-                sem.signal()
-                return
             }
+            guard token.beginWrite() else { return ["ok": false, "error": "timeout"] }
             if let applied = AppearanceStudio.shared.applySavedThemeAI(id: id) {
                 var out: [String: Any] = [
                     "ok": true, "applied": true, "partial": true, "id": id,
@@ -411,59 +340,74 @@ import UIKit
                 if !applied.untouchedImages.isEmpty || !applied.untouchedColourRoles.isEmpty {
                     out["leftoverNote"] = "Partial apply: the images and custom colours listed in untouchedImages/untouchedColourRoles were left unchanged, not cleared."
                 }
-                result = out
-            } else {
-                result = ["ok": false, "error": "not_found", "message": "No saved theme \(id)"]
+                return out
             }
-            sem.signal()
+            return ["ok": false, "error": "not_found", "message": "No saved theme \(id)"]
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            // 超时不能当成功返回：ObjC 侧把缺 ok 视为 true，会变成
-            // 「命令成功但什么都没做」。这里明确给 ok:false。
-            NSLog("[CLIBridge] semaphore wait timed out")
-            return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
-        }
-        return result as NSDictionary
     }
 
+    /// [T-02] Deleting a saved theme used to be one AI keystroke away from a
+    /// permanent loss: the trash keeps 5 packs, the 6th prunes the oldest.
+    /// The delete now asks first, and the result states whether the pack is
+    /// restorable instead of reporting a bare `deleted: true`.
     @objc public static func deleteSaved(id: String) -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
-            let ok = AppearanceStudio.shared.deleteSavedTheme(id: id)
-            result = ok
-                ? ["ok": true, "deleted": true, "id": id]
-                : ["ok": false, "error": "not_found", "message": "No saved theme \(id)"]
-            sem.signal()
+        ThemeBridgeCall.run(timeout: ThemeWriteConfirmation.waitWindow) { token in
+            guard let item = AppearanceStudio.shared.savedThemes().first(where: { $0.id == id }) else {
+                return ["ok": false, "error": "not_found", "message": "No saved theme \(id)"]
+            }
+            let decision = await ThemeWriteConfirmation.check(
+                "delete",
+                what: "删除主题套「\(item.name)」",
+                detail: "移进回收站（最多留 5 套，更早的会被永久清掉）")
+            if let refusal = decision.refusal { return refusal }
+            guard token.beginWrite() else { return ["ok": false, "error": "timeout"] }
+            let outcome = AppearanceStudio.shared.deleteSavedThemeDetailed(id: id)
+            // [H-03] A failed move used to be swallowed and the metadata was
+            // dropped anyway, leaving a pack that could no longer be restored.
+            if !outcome.deleted {
+                return [
+                    "ok": false,
+                    "error": "trash_failed",
+                    "message": "「\(item.name)」没删成：把它移进回收站失败，主题套原样保留。",
+                    "restorable": true,
+                ]
+            }
+            return [
+                "ok": true,
+                "deleted": true,
+                "id": id,
+                "name": item.name,
+                "restorable": outcome.trashed,
+                "message": outcome.trashed
+                    ? "Deleted「\(item.name)」. It is in the trash and can be restored from the theme shop."
+                    : "Deleted「\(item.name)」. No pack file was found, so there is nothing to restore from the trash.",
+            ]
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            // 超时不能当成功返回：ObjC 侧把缺 ok 视为 true，会变成
-            // 「命令成功但什么都没做」。这里明确给 ok:false。
-            NSLog("[CLIBridge] semaphore wait timed out")
-            return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
-        }
-        return result as NSDictionary
     }
 
+    /// [T-02] Renaming is reversible but it rewrites what the user sees in
+    /// their own library, so it goes through the same confirmation. [H-03]
+    /// The metadata write is verified against the pack write instead of
+    /// reporting success unconditionally.
     @objc public static func renameSaved(id: String, name: String) -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
-            let ok = AppearanceStudio.shared.renameSavedTheme(id: id, name: name)
-            result = ok
-                ? ["ok": true, "renamed": true, "id": id, "name": name]
-                : ["ok": false, "error": "not_found", "message": "Rename failed"]
-            sem.signal()
+        ThemeBridgeCall.run(timeout: ThemeWriteConfirmation.waitWindow) { token in
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return ["ok": false, "error": "invalid_name", "message": "Name cannot be empty."]
+            }
+            guard let item = AppearanceStudio.shared.savedThemes().first(where: { $0.id == id }) else {
+                return ["ok": false, "error": "not_found", "message": "No saved theme \(id)"]
+            }
+            let decision = await ThemeWriteConfirmation.check(
+                "rename",
+                what: "把主题套「\(item.name)」改名成「\(trimmed)」",
+                detail: "只改名字，配色和壁纸不动")
+            if let refusal = decision.refusal { return refusal }
+            guard token.beginWrite() else { return ["ok": false, "error": "timeout"] }
+            guard AppearanceStudio.shared.renameSavedTheme(id: id, name: trimmed) else {
+                return ["ok": false, "error": "rename_failed", "message": "Rename failed; the theme name was left unchanged."]
+            }
+            return ["ok": true, "renamed": true, "id": id, "name": trimmed]
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            // 超时不能当成功返回：ObjC 侧把缺 ok 视为 true，会变成
-            // 「命令成功但什么都没做」。这里明确给 ok:false。
-            NSLog("[CLIBridge] semaphore wait timed out")
-            return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
-        }
-        return result as NSDictionary
     }
 }

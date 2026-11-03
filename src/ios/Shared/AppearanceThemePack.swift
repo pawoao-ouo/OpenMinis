@@ -569,8 +569,15 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     /// rectangle, plus id / name / schema metadata).
     static func aiApplyRejectedFields(in raw: [String: Any]) -> [String] {
         var rejected = aiApplyLockedFields.intersection(raw.keys)
-        if (raw["avatarShape"] as? String) == "rectangle" {
-            rejected.insert("avatarShape")
+        if let shape = raw["avatarShape"] as? String {
+            // [T-51] Unknown shape names used to sail through and quietly
+            // parse into a circle — the AI reported a change that never
+            // happened. Reject anything that is not a real shape, and keep
+            // rectangle locked (it resizes the avatar frame).
+            let known = Set(AppearanceAvatarShape.allCases.map(\.rawValue))
+            if shape == "rectangle" || !known.contains(shape) {
+                rejected.insert("avatarShape")
+            }
         }
         return rejected.sorted()
     }

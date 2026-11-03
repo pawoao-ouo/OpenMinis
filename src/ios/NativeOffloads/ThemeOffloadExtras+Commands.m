@@ -28,6 +28,7 @@
                               scope:(NSString * _Nonnull)scope variant:(NSString * _Nonnull)variant;
 + (NSDictionary * _Nonnull)clearColor:(NSString * _Nonnull)role
                                 scope:(NSString * _Nonnull)scope variant:(NSString * _Nonnull)variant;
++ (BOOL)aiAllowsIconSet;
 @end
 #endif
 
@@ -82,7 +83,24 @@ static NSString *_Nullable extra_host_path(NSString *guest, int stdout_fd,
 }
 
 int theme_extra_avatar(int argc, char **argv, int stdout_fd, BOOL compact, BOOL quiet) {
-    NSString *role = noff_find_arg(argc, argv, "--role") ?: @"user";
+    // [T-27] --role used to default to `user`, so an AI call that simply
+    // forgot the flag overwrote the USER's avatar. Which side is changed
+    // must be named, never guessed.
+    NSString *role = noff_find_arg(argc, argv, "--role");
+    if (role.length == 0) {
+        NSDictionary *err = noff_json_error(
+            EXTRA_TOOL_NAME, @"avatar", NOFF_ERR_INVALID_ARGS,
+            @"--role <user|assistant> is required. `user` is the human's avatar, `assistant` is the AI's own.");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_INVALID_ARGS;
+    }
+    if (![role isEqualToString:@"user"] && ![role isEqualToString:@"assistant"]) {
+        NSDictionary *err = noff_json_error(
+            EXTRA_TOOL_NAME, @"avatar", NOFF_ERR_INVALID_ARGS,
+            @"--role must be `user` or `assistant`.");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_INVALID_ARGS;
+    }
     BOOL remove = noff_has_flag(argc, argv, "--remove");
     NSDictionary *raw;
     if (remove) {
@@ -102,18 +120,21 @@ int theme_extra_icon(int argc, char **argv, int stdout_fd, BOOL compact, BOOL qu
                                 stdout_fd, compact, quiet);
     }
     // [AI theme lock] Icons are not in the AI allowlist (colours,
-    // wallpaper, font sizes, avatar). Set/clear are gated here with a
-    // named-field error, same treatment as `apply`'s locked_field, and
-    // nothing is changed. `--list` above stays read-only. Icons are
-    // user-only, changed in the settings UI. There is deliberately no
-    // set/clear path below this gate in the AI command surface.
-    NSDictionary *err = noff_json_error(
-        EXTRA_TOOL_NAME, @"icon", @"locked_field",
-        @"AI theme icon changes are locked. Locked field: icon. "
-         "Icons are user-only: change them in the settings UI. "
-         "Only `minis-theme icon --list` is available to the AI.");
-    noff_emit_json(stdout_fd, err, compact, quiet);
-    return NOFF_EXIT_INVALID_ARGS;
+    // wallpaper, font sizes, avatar). [T-52] The answer itself now lives
+    // in Swift (`ThemeOffloadExtras.aiAllowsIconSet`) so the ObjC command
+    // surface and any future Swift caller cannot drift apart. Set/clear
+    // are gated here with a named-field error, same treatment as
+    // `apply`'s locked_field, and nothing is changed. `--list` above
+    // stays read-only. Icons are user-only, changed in the settings UI.
+    if (![ThemeOffloadExtras aiAllowsIconSet]) {
+        NSDictionary *err = noff_json_error(
+            EXTRA_TOOL_NAME, @"icon", @"locked_field",
+            @"AI theme icon changes are locked. Locked field: icon. "
+             "Icons are user-only: change them in the settings UI. "
+             "Only `minis-theme icon --list` is available to the AI.");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_INVALID_ARGS;
+    }
 }
 
 int theme_extra_wallpaper(int argc, char **argv, int stdout_fd, BOOL compact, BOOL quiet) {

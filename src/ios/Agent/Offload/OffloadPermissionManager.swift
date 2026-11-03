@@ -97,6 +97,9 @@ struct PermissionRequest: Identifiable {
 
 enum OffloadCommandCategory: String, CaseIterable {
     case privacy = "Privacy"
+    /// [T-02 / H-01] 主题面。不是隐私数据，但写入的是用户亲手调过的东西
+    /// （配色、壁纸、头像、整个主题库），所以和隐私类一样默认先问。
+    case appearance = "Appearance"
     case media = "Media"
     case system = "System"
 }
@@ -148,6 +151,15 @@ final class OffloadPermissionManager: ObservableObject {
         .init(name: "apple-weather", displayLabel: "Weather", description: "", category: .system, showInSettings: false),
         .init(name: "apple-nlp", displayLabel: "NLP", description: "", category: .system, showInSettings: false),
         .init(name: "apple-vision", displayLabel: "Vision", description: "", category: .system, showInSettings: false),
+        // [T-02 / H-01] 主题写入面。改配色、换壁纸、换头像、删主题套都会
+        // 直接落到用户数据上；此前 `minis-theme` 不在登记表，Ask Once /
+        // Not Allowed 对它一律不生效，等于没有权限闸门。只读子命令在
+        // checkPermission 里按子命令豁免，不会让 AI 每读一次主题都弹窗。
+        .init(name: "minis-theme",
+              displayLabel: "Theme",
+              description: "改配色、壁纸、头像和主题库",
+              category: .appearance,
+              showInSettings: true),
     ]
 
     @Published var pendingRequest: PermissionRequest?
@@ -204,7 +216,29 @@ final class OffloadPermissionManager: ObservableObject {
     /// 否则每问一次天气都要点一次确认，没人受得了。
     static func defaultLevel(for command: String) -> OffloadPermissionLevel {
         let info = allCommands.first { $0.name == command }
-        return info?.category == .privacy ? .askOnce : .bypass
+        // [T-02 / H-01] 主题面写入的是用户亲手调过的东西，与隐私类同为
+        // Ask Once：第一次改主题先问一次，点过「Allow in Session」本会话
+        // 不再重复问。
+        if info?.category == .privacy || info?.category == .appearance { return .askOnce }
+        return .bypass
+    }
+
+    /// 只读的主题调用（get/export/list、icon --list、color --list）不碰
+    /// 任何存储，直接放行。登记表按命令粒度记，所以这一层按子命令豁免，
+    /// 否则 AI 每读一次主题都会弹一次窗。
+    static func isReadOnlyThemeInvocation(command: String, fullCommand: String) -> Bool {
+        guard command == "minis-theme", !fullCommand.isEmpty else { return false }
+        let tokens = fullCommand.split(separator: " ").map(String.init)
+        // 裸 `minis-theme` 等于 get。
+        guard let sub = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }) else { return true }
+        switch sub {
+        case "get", "export", "list":
+            return true
+        case "icon", "color":
+            return tokens.contains("--list")
+        default:
+            return false
+        }
     }
 
     func permissionLevel(for command: String) -> OffloadPermissionLevel {
@@ -283,6 +317,10 @@ final class OffloadPermissionManager: ObservableObject {
         // while still working for non-chat callers.
         let trimmed = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let sessionId = trimmed.isEmpty ? OFFLOAD_GLOBAL_SESSION_ID : trimmed
+        // 只读的主题调用不问（登记表是命令粒度，这里按子命令豁免）。
+        if Self.isReadOnlyThemeInvocation(command: command, fullCommand: fullCommand) {
+            return .allowed
+        }
         let level = permissionLevel(for: command)
 
         switch level {

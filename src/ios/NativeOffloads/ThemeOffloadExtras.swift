@@ -23,26 +23,30 @@ import UIKit
 
     // MARK: - Shared plumbing
 
-    /// Runs `work` on the main actor and waits, with the same 5s ceiling the
-    /// rest of the theme bridge uses.
-    private static func onMain(_ work: @escaping @MainActor () -> [String: Any]) -> NSDictionary {
-        let sem = DispatchSemaphore(value: 0)
-        var result: [String: Any] = [:]
-        Task { @MainActor in
-            result = work()
-            sem.signal()
-        }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
-            NSLog("[CLIBridge] semaphore wait timed out - returning default value")
-            return ["ok": false, "error": "timeout",
-                    "message": "The appearance system did not answer in 5s."] as NSDictionary
-        }
-        return result as NSDictionary
+    /// Runs `work` on the main actor and waits.
+    ///
+    /// [H-02 / H-06] The wait, the timeout and the cancellation token live
+    /// in `ThemeBridgeCall` so every command shares one contract: once the
+    /// CLI has timed out, a late main-actor task can no longer write.
+    /// Reads keep the 5s ceiling; the callers that wait for a confirmation
+    /// sheet pass a window wider than the gate's own timeout.
+    private static func onMain(_ work: @escaping @MainActor (ThemeBridgeCallToken) -> [String: Any]) -> NSDictionary {
+        ThemeBridgeCall.run { token in work(token) }
+    }
+
+    private static func onMainAwaited(_ work: @escaping @MainActor (ThemeBridgeCallToken) async -> [String: Any]) -> NSDictionary {
+        ThemeBridgeCall.run(timeout: ThemeWriteConfirmation.waitWindow) { token in await work(token) }
     }
 
     private static func fail(_ code: String, _ message: String) -> [String: Any] {
         ["ok": false, "error": code, "message": message]
     }
+
+    /// [T-52] The icon lock lives here as data so the ObjC command surface
+    /// and any future Swift caller read ONE answer instead of two copies.
+    /// Icons stay user-only; `minis-theme icon --list` is the AI's only
+    /// permitted icon subcommand.
+    @objc public static func aiAllowsIconSet() -> Bool { false }
 
     /// Reads an image from a path the caller already resolved.
     ///
@@ -60,7 +64,17 @@ import UIKit
         guard let image = loadImage(hostPath) else {
             return fail("no_image", "Cannot read an image at \(hostPath).") as NSDictionary
         }
-        return onMain {
+        return onMainAwaited { token in
+            // [T-02] 换头像会覆盖现有的那一张，之前一句话就能改掉。
+            let decision = await ThemeWriteConfirmation.check(
+                "avatar",
+                what: role == "user" ? "把 AI 给的头像设成你的头像" : "更换 AI 自己的头像",
+                detail: "会覆盖当前头像，旧图不留",
+                verb: "set")
+            if let refusal = decision.refusal { return refusal }
+            guard token.beginWrite() else {
+                return fail("timeout", "The call timed out before writing; no avatar was changed.")
+            }
             switch role {
             case "user":
                 // [B28 R16] 以前只写 studio.userAvatar，而界面读的是 Persona.avatar，
@@ -86,7 +100,17 @@ import UIKit
     }
 
     @objc public static func removeAvatar(_ role: String) -> NSDictionary {
-        onMain {
+        onMainAwaited { token in
+            // [T-02] 清头像同样会丢东西，先问。
+            let decision = await ThemeWriteConfirmation.check(
+                "avatar",
+                what: role == "user" ? "清掉你的头像" : "清掉 AI 的头像",
+                detail: "头像会被移除，回到默认图形",
+                verb: "remove")
+            if let refusal = decision.refusal { return refusal }
+            guard token.beginWrite() else {
+                return fail("timeout", "The call timed out before writing; no avatar was changed.")
+            }
             switch role {
             case "user":
                 clearAvatar(personaID: PersonaStore.userProfilePersonaID)
@@ -131,7 +155,7 @@ import UIKit
         guard let image = loadImage(hostPath) else {
             return fail("no_image", "Cannot read an image at \(hostPath).") as NSDictionary
         }
-        return onMain {
+        return onMain { _ in
             // [B28 R2-7] 编码或写盘失败以前也报 ok:true。
             guard AppearanceStudio.shared.setIcon(image, for: slot) else {
                 return fail("icon_write_failed", "Could not store the icon for slot \u{22}" + slot + "\u{22}.")
@@ -141,7 +165,7 @@ import UIKit
     }
 
     @objc public static func removeIcon(_ slot: String) -> NSDictionary {
-        onMain {
+        onMain { _ in
             // [B28 R2-7 / A-3] 删一个根本没有图标的 slot 以前也回
             // "removed": true —— AI 据此以为清理完成了。现在如实区分。
             let existed = AppearanceStudio.shared.removeIcon(for: slot)
@@ -151,7 +175,7 @@ import UIKit
     }
 
     @objc public static func listIconSlots() -> NSDictionary {
-        onMain {
+        onMain { _ in
             let slots = QuietIconSlot.allCases.map { slot -> [String: Any] in
                 [
                     "slot": slot.rawValue,
@@ -172,8 +196,24 @@ import UIKit
         guard let parsed = AppearanceScope(rawValue: scope) else {
             return fail("bad_scope", "scope must be one of: \(AppearanceScope.allCases.map(\.rawValue).joined(separator: ", ")).") as NSDictionary
         }
-        return onMain {
-            AppearanceStudio.shared.setWallpaper(image, for: parsed)
+        return onMainAwaited { token in
+            // [T-02] 换壁纸会盖掉用户原来的图；页级还会盖掉她单独给这一页
+            // 挑的图（T-25 的页级覆盖），所以一并说清楚。
+            let isPage = parsed != .global
+            let decision = await ThemeWriteConfirmation.check(
+                "wallpaper",
+                what: isPage ? "换「\(parsed.rawValue)」页的壁纸" : "换全局壁纸",
+                detail: isPage ? "会覆盖这一页单独设的图，其他页不动" : "会覆盖当前全局壁纸",
+                verb: "set")
+            if let refusal = decision.refusal { return refusal }
+            guard token.beginWrite() else {
+                return fail("timeout", "The call timed out before writing; no wallpaper was changed.")
+            }
+            // [T-29] 写不进去就如实失败，不再回一个 ok 让 AI 以为换上了。
+            guard AppearanceStudio.shared.setWallpaper(image, for: parsed) else {
+                return fail("wallpaper_write_failed",
+                            "Could not store the wallpaper for scope \(parsed.rawValue); nothing was changed.")
+            }
             return ["ok": true, "scope": parsed.rawValue]
         }
     }
@@ -182,7 +222,18 @@ import UIKit
         guard let parsed = AppearanceScope(rawValue: scope) else {
             return fail("bad_scope", "scope must be one of: \(AppearanceScope.allCases.map(\.rawValue).joined(separator: ", ")).") as NSDictionary
         }
-        return onMain {
+        return onMainAwaited { token in
+            // [T-02] 清壁纸会丢掉用户上传的图（进不了回收站），先问。
+            let existed = AppearanceStudio.shared.hasOwnWallpaper(parsed)
+            let decision = await ThemeWriteConfirmation.check(
+                "wallpaper",
+                what: "清掉「\(parsed.rawValue)」页的壁纸",
+                detail: existed ? "这张图会被移除，不能撤回" : "这一页本来没有自己的图",
+                verb: "remove")
+            if let refusal = decision.refusal { return refusal }
+            guard token.beginWrite() else {
+                return fail("timeout", "The call timed out before writing; no wallpaper was changed.")
+            }
             AppearanceStudio.shared.removeWallpaper(parsed)
             return ["ok": true, "scope": parsed.rawValue, "removed": true]
         }
@@ -210,7 +261,13 @@ import UIKit
               cleaned.allSatisfy({ $0.isHexDigit }) else {
             return fail("bad_hex", "hex must be 6 or 8 hex digits, e.g. D4778B.") as NSDictionary
         }
-        return onMain {
+        return onMainAwaited { token in
+            // [T-22] 底部栏/终端只挂壁纸，不吃颜色。以前这里一路绿灯回
+            // ok:true，界面纹丝不动，AI 转头就说「改好了」。现在明说。
+            guard parsedScope.supportsColour else {
+                return fail("scope_no_colour",
+                            "scope \u{22}\(parsedScope.rawValue)\u{22} is wallpaper-only and carries no colours. Nothing was changed. Use a colour scope: \(AppearanceScope.allCases.filter(\.supportsColour).map(\.rawValue).joined(separator: ", ")).")
+            }
             // [F1] Same contrast gate as AI apply, BEFORE setColor, on
             // this AI command path only: the settings UI calls
             // AppearanceStudio.setColor directly and is never gated here.
@@ -220,10 +277,7 @@ import UIKit
             // same thresholds (primaryText 4.5, accent 3.0). A failing
             // change returns contrast_failed and changes nothing.
             // --clear is not gated: clearing restores the default, which
-            // is the way OUT of a bad override, not into one. Scopes
-            // that cannot carry colours (bottomBar/terminal) are
-            // wallpaper-only; setColor ignores them, and the gate
-            // returns [] for them, so that behaviour is unchanged.
+            // is the way OUT of a bad override, not into one.
             let failures = AppearanceStudio.shared.contrastFailures(
                 scope: parsedScope, variant: parsedVariant,
                 proposed: [parsedRole: cleaned])
@@ -236,12 +290,35 @@ import UIKit
                     "message": "Contrast check failed before changing the colour; nothing was changed: \(failures.joined(separator: "; ")). Adjust the colour and retry.",
                 ]
             }
-            AppearanceStudio.shared.setColor(Color(hex: cleaned), role: parsedRole,
-                                             scope: parsedScope, variant: parsedVariant)
-            return [
+            // [T-25] 页级覆盖是用户在这一页亲手调过的值，锁表只保护了
+            // apply，color --scope chat 以前能直接盖掉。页级写现在先过确认
+            // 单，并把原来的值一起报回去。
+            var previousValue: String?
+            if parsedScope != .global {
+                previousValue = AppearanceStudio.shared.hex(parsedRole, scope: parsedScope, variant: parsedVariant)
+                let decision = await ThemeWriteConfirmation.check(
+                    "color",
+                    what: "改「\(parsedScope.rawValue)」页的「\(parsedRole.title)」",
+                    detail: previousValue.map { "这一页单独的值，原来是 \($0)" } ?? "这一页原来没有单独设过",
+                    verb: "set")
+                if let refusal = decision.refusal { return refusal }
+            }
+            guard token.beginWrite() else {
+                return fail("timeout", "The call timed out before writing; no colour was changed.")
+            }
+            guard AppearanceStudio.shared.setColor(Color(hex: cleaned), role: parsedRole,
+                                                   scope: parsedScope, variant: parsedVariant) else {
+                return fail("scope_no_colour", "scope \u{22}\(parsedScope.rawValue)\u{22} does not carry colours; nothing was changed.")
+            }
+            var out: [String: Any] = [
                 "ok": true, "role": parsedRole.rawValue, "hex": cleaned,
                 "scope": parsedScope.rawValue, "variant": parsedVariant.rawValue,
             ]
+            if let previousValue {
+                out["previousValue"] = previousValue
+                out["pageScopeNote"] = "This wrote a page-level override for \(parsedScope.rawValue); the other pages are unchanged."
+            }
+            return out
         }
     }
 
@@ -252,7 +329,16 @@ import UIKit
               let parsedVariant = AppearanceVariant(rawValue: variant) else {
             return fail("bad_args", "Unknown role, scope or variant.") as NSDictionary
         }
-        return onMain {
+        return onMain { token in
+            // [T-22] 清色同样只对能吃颜色的作用域有意义；否则「清成功」也
+            // 是空话。
+            guard parsedScope.supportsColour else {
+                return fail("scope_no_colour",
+                            "scope \u{22}\(parsedScope.rawValue)\u{22} is wallpaper-only and carries no colours; there is nothing to clear.")
+            }
+            guard token.beginWrite() else {
+                return fail("timeout", "The call timed out before writing; no colour was changed.")
+            }
             AppearanceStudio.shared.clearOverride(parsedRole, scope: parsedScope, variant: parsedVariant)
             return ["ok": true, "role": parsedRole.rawValue,
                     "scope": parsedScope.rawValue, "variant": parsedVariant.rawValue,
@@ -277,7 +363,7 @@ import UIKit
             return fail("bad_scope",
                         "scope must be one of: \(AppearanceScope.allCases.map(\.rawValue).joined(separator: ", ")).") as NSDictionary
         }
-        return onMain {
+        return onMain { _ in
             let studio = AppearanceStudio.shared
             let roles = AppearanceColorRole.allCases.map { role -> [String: Any] in
                 [

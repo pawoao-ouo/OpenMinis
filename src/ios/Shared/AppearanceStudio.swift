@@ -553,6 +553,18 @@ final class AppearanceStudio: ObservableObject {
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
+    /// Alpha byte of an 8-digit colour, nil for the usual 6-digit form.
+    ///
+    /// [T-24] `rgb()` deliberately works on RGB only, so #00000000 scanned
+    /// as opaque black and scored 21:1 — while the renderer honours the
+    /// alpha byte and paints fully transparent text. A pack could therefore
+    /// make the whole app's body copy invisible and pass the gate.
+    private static func alphaByte(_ hex: String) -> Int? {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        guard cleaned.count == 8, let value = Int(cleaned.suffix(2), radix: 16) else { return nil }
+        return value
+    }
+
     /// Failures for one scope+variant after applying `proposed`, or []
     /// when the call touches none of primaryText/accent/canvas/surface.
     /// A call that only changes e.g. secondaryText is never blocked by a
@@ -562,12 +574,20 @@ final class AppearanceStudio: ObservableObject {
     func contrastFailures(scope: AppearanceScope, variant: AppearanceVariant,
                           proposed: [AppearanceColorRole: String]) -> [String] {
         guard scope.supportsColour else { return [] }
+        // [T-24] Reject see-through values before any ratio is computed: a
+        // ratio can only judge RGB, and alpha < 1 renders the text invisible
+        // no matter how good that ratio looks.
+        var failures: [String] = []
+        for (role, value) in proposed {
+            if let alpha = Self.alphaByte(value), alpha < 255 {
+                failures.append("\(variant.rawValue) \(role.rawValue) alpha \(String(format: "%.2f", Double(alpha) / 255)) < 1 (text would be see-through)")
+            }
+        }
         let keyRoles: [AppearanceColorRole] = [.primaryText, .accent, .canvas, .surface]
-        guard proposed.keys.contains(where: { keyRoles.contains($0) }) else { return [] }
+        guard proposed.keys.contains(where: { keyRoles.contains($0) }) else { return failures }
         var effective: [AppearanceColorRole: String] = [:]
         for role in keyRoles { effective[role] = hex(role, scope: scope, variant: variant) }
         for (role, value) in proposed { effective[role] = value }
-        var failures: [String] = []
         let checks: [(AppearanceColorRole, AppearanceColorRole, Double)] = [
             (.primaryText, .canvas, 4.5), (.primaryText, .surface, 4.5),
             (.accent, .canvas, 3.0), (.accent, .surface, 3.0),
@@ -621,14 +641,20 @@ final class AppearanceStudio: ObservableObject {
         return (images, colours)
     }
 
+    /// Returns false when the scope cannot carry colours (bottomBar / terminal
+    /// are wallpaper-only). The AI command path reports that as an error
+    /// instead of claiming a change that never happened (T-22); the settings
+    /// UI ignores the result, exactly as before.
+    @discardableResult
     func setColor(_ color: Color, role: AppearanceColorRole,
-                  scope: AppearanceScope, variant: AppearanceVariant) {
+                  scope: AppearanceScope, variant: AppearanceVariant) -> Bool {
         // 底部栏只挂壁纸，不收颜色。静默忽略，不报错——旧数据或 AI 传进来
         // 也不会写出一个永远读不到的键。
-        guard scope.supportsColour else { return }
+        guard scope.supportsColour else { return false }
         customColors[key(role, scope: scope, variant: variant)] = UIColor(color).hexRGB
         persistColors()
         configureUIKitSurfaces()
+        return true
     }
 
     func colorBinding(_ role: AppearanceColorRole, scope: AppearanceScope,
