@@ -81,7 +81,7 @@ struct MinisApp: App {
     // `UIApplicationShortcutItem` events (Home Screen Quick Actions).
     // SwiftUI's pure App lifecycle has no equivalent surface.
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @AppStorage("appearanceMode") private var appearanceMode: Int = 0
+    @AppStorage(AppearanceMode.defaultsKey) private var appearanceMode: Int = 0
     @AppStorage("appLanguage") private var appLanguage: String = ""
     @StateObject private var shareCoordinator = ShareCoordinator.shared
     @ObservedObject private var fontSettings = FontSettings.shared
@@ -285,7 +285,7 @@ struct MinisApp: App {
                 }
                 .environmentObject(shareCoordinator)
                 .preferredColorScheme(
-                    appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : nil
+                    AppearanceMode.parse(appearanceMode).colorScheme
                 )
                 .environment(\.locale, appLanguage.isEmpty ? .current : Locale(identifier: appLanguage))
                 // [T-11] Was a hard `.dynamicTypeSize(...)` pin. At the 13pt default

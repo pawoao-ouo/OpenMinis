@@ -47,7 +47,7 @@ struct AppearanceStudioView: View {
     @State private var page: AppearanceStudioPage = .palette
 
     // 行为设置
-    @AppStorage("appearanceMode") private var appearanceMode: Int = 0
+    @AppStorage(AppearanceMode.defaultsKey) private var appearanceMode: Int = 0
     @AppStorage("appIconMode") private var appIconMode: Int = 0
     @AppStorage("appLanguage") private var appLanguage: String = ""
     @AppStorage("launchScreen") private var launchScreen: Int = 0
@@ -634,7 +634,7 @@ struct AppearanceStudioView: View {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
         scene.windows.forEach { window in
             window.overrideUserInterfaceStyle =
-                appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : .unspecified
+                AppearanceMode.parse(appearanceMode).interfaceStyle
         }
     }
 

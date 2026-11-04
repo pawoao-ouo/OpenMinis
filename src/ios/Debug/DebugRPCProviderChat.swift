@@ -1539,14 +1539,19 @@ enum DebugRPCChat {
     /// 0 system / 1 light / 2 dark) — test hook so appearance-dependent
     /// rendering (e.g. dark-mode color sampling) can be driven headlessly.
     static func appearanceSet(params: [String: Any]) async throws -> [String: Any] {
-        let mode = try require(params["mode"] as? Int, "mode")
-        guard (0...2).contains(mode) else { throw DebugRPCErr(-32602, "mode must be 0(system)/1(light)/2(dark)") }
+        let raw = try require(params["mode"] as? Int, "mode")
+        // [T-07] 合法性判定和键名都走 AppearanceMode，别再自己写一遍 (0...2)。
+        guard AppearanceMode.isLegal(raw) else {
+            throw DebugRPCErr(-32602, "mode must be 0(system)/1(light)/2(dark)")
+        }
+        let mode = AppearanceMode.parse(raw)
         await MainActor.run {
-            UserDefaults.standard.set(mode, forKey: "appearanceMode")
+            AppearanceMode.current = mode
+            let style = mode.interfaceStyle
             for scene in UIApplication.shared.connectedScenes {
                 guard let ws = scene as? UIWindowScene else { continue }
                 for window in ws.windows {
-                    window.overrideUserInterfaceStyle = mode == 1 ? .light : mode == 2 ? .dark : .unspecified
+                    window.overrideUserInterfaceStyle = style
                 }
             }
         }

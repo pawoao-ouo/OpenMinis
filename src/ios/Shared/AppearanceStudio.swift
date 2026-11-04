@@ -339,6 +339,56 @@ extension AppearanceColorRole {
     static var legacyRawValues: [String] { ["input", "searchField", "toolCard"] }
 }
 
+/// [T-07] 明暗模式：一个键、一个枚举、一个换算。
+///
+/// 以前 `appearanceMode` 是裸键，`1=浅 / 2=深` 这套映射在五处各写一遍
+/// （MinisApp、MinisMediaViews、WebPreviewSheet ×2、AppearanceStudio ×2）。
+/// 任一处写歪就是"主界面浅色、某张表深色"；写了个 3 之类的非法值，五处
+/// 全部静默回落跟随系统，谁也不知道。
+///
+/// 现在只有这里定义。别处只许调 `AppearanceMode.current` 和 `.colorScheme`，
+/// 不许再写 `== 1 ? ... : == 2 ? ...`。放在类型外面是因为它要在非隔离
+/// 上下文里读（UIKit 回调、非主线程快照），挂在 `@MainActor` 类里反而
+/// 得为它开一堆洞。
+enum AppearanceMode: Int, CaseIterable {
+    /// 跟随系统。0 是默认值，也是任何认不出的整数该落到的位置。
+    case system = 0
+    case light = 1
+    case dark = 2
+
+    static let defaultsKey = "appearanceMode"
+
+    /// 认不出的整数一律当跟随系统。
+    static func parse(_ raw: Int) -> AppearanceMode { AppearanceMode(rawValue: raw) ?? .system }
+
+    /// 写入口拿它校验：非法值要当场报，不能悄悄变成"跟随系统"。
+    static func isLegal(_ raw: Int) -> Bool { AppearanceMode(rawValue: raw) != nil }
+
+    /// 当前档位。读和写都走这里，不再各自 `integer(forKey:)`。
+    static var current: AppearanceMode {
+        get { parse(UserDefaults.standard.integer(forKey: defaultsKey)) }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey) }
+    }
+
+    /// 给 `.preferredColorScheme` 用：`system` 返回 nil，让系统自己决定。
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+
+    /// 给 `overrideUserInterfaceStyle` 用。
+    var interfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .system: return .unspecified
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
 @MainActor
 final class AppearanceStudio: ObservableObject {
     static let shared = AppearanceStudio()
@@ -353,6 +403,9 @@ final class AppearanceStudio: ObservableObject {
         static let bubbleOpacity = "appearanceStudio.bubbleOpacity"
         static let wallpaperShade = "appearanceStudio.wallpaperShade"
         static let icons = "appearanceStudio.icons.v1"
+        /// [T-07] 明暗模式原来是个裸键，散在五处各读各写。收进来之后只有
+        /// `AppearanceStudio.mode` 一处碰它。
+        static let appearanceMode = AppearanceMode.defaultsKey
     }
 
     /// Custom values only. Missing values inherit from the built-in palette;
@@ -667,10 +720,13 @@ final class AppearanceStudio: ObservableObject {
     }
 
     var activeVariant: AppearanceVariant {
-        let mode = UserDefaults.standard.integer(forKey: "appearanceMode")
-        if mode == 1 { return .light }
-        if mode == 2 { return .dark }
-        return UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
+        // [T-07] 五处重复的映射收到一处：合法档位照它走，跟随系统才问
+        // trait collection。非法整数按"跟随系统"处理。
+        switch AppearanceMode.current {
+        case .light: return .light
+        case .dark: return .dark
+        case .system: return UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
+        }
     }
 
     // MARK: - Shared AI contrast gate (F1/F2)
@@ -1065,10 +1121,11 @@ final class AppearanceStudio: ObservableObject {
     nonisolated static func uiColorSnapshot(_ role: AppearanceColorRole,
                                             scope: AppearanceScope = .chat) -> UIColor {
         let variant: AppearanceVariant = {
-            let mode = UserDefaults.standard.integer(forKey: "appearanceMode")
-            if mode == 1 { return .light }
-            if mode == 2 { return .dark }
-            return UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
+            switch AppearanceMode.current {
+            case .light: return .light
+            case .dark: return .dark
+            case .system: return UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
+            }
         }()
         return UIColor(hex: snapshotHex(role, scope: scope, variant: variant))
     }

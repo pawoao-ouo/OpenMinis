@@ -1130,7 +1130,7 @@ extension ConfigRegistry {
             path: "appearance.theme",
             displayName: "Light/Dark appearance",
             description: "Light / dark / system appearance mode. NOT the theme pack — bubbles, fonts and wallpapers live in `minis-theme`.",
-            userDefaultsKey: "appearanceMode",
+            userDefaultsKey: AppearanceMode.defaultsKey,
             cases: ["system", "light", "dark"],
             defaultIndex: 0
         ))

@@ -130,7 +130,7 @@ struct DressingShopView: View {
     /// The one mode key the whole app already uses (MinisApp root
     /// `.preferredColorScheme` + AppearanceStudio dynamic colours).
     /// The panel reuses it — it must NOT invent a second mode key.
-    @AppStorage("appearanceMode") private var appearanceMode = 0
+    @AppStorage(AppearanceMode.defaultsKey) private var appearanceMode = 0
     // Observed so a persona switch (or a user-profile rename via
     // the studio's published display name) redraws every side
     // label in this shop at once — side names are never stored.

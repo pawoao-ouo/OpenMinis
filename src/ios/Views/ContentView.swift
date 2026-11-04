@@ -6912,7 +6912,7 @@ private struct SettingsSheet: View {
     /// stack there would double the navigation bar.
     enum Presentation { case sheet, page }
     var presentation: Presentation = .sheet
-    @AppStorage("appearanceMode") private var appearanceMode: Int = 0
+    @AppStorage(AppearanceMode.defaultsKey) private var appearanceMode: Int = 0
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var deepLink = DeepLinkCoordinator.shared
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
@@ -6930,7 +6930,7 @@ private struct SettingsSheet: View {
                 settingsRoot
             }
         }
-        .preferredColorScheme(appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : nil)
+        .preferredColorScheme(AppearanceMode.parse(appearanceMode).colorScheme)
         .appFontScale()
     }
 

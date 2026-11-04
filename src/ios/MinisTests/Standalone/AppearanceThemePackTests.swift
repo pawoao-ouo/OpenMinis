@@ -272,6 +272,33 @@ check("sheet defaults through the contract",
       && !askDialog.contains("scope: AppearanceScope = .chat"))
 check("home list defaults through the contract", pack.contains("scope: ThemeColorLayer.home"))
 
+// [T-07] 明暗模式只许一处映射。任何文件里再出现 `== 1 ? .light` 这类
+// 三目就是又长出一份副本，直接判失败。
+let modeFiles = ["MinisApp.swift", "Views/ContentView.swift",
+                 "Views/Chat/MinisMediaViews.swift", "Views/Chat/WebPreviewSheet.swift",
+                 "Views/Settings/AppearanceStudioView.swift", "Views/Settings/DressingShopView.swift",
+                 "Debug/DebugRPCProviderChat.swift"]
+check("appearance mode enum exists", studio.contains("enum AppearanceMode: Int, CaseIterable"))
+check("appearance mode owns the key",
+      studio.contains("static let defaultsKey = \"appearanceMode\""))
+check("appearance mode parses to a legal case",
+      studio.contains("static func parse(_ raw: Int) -> AppearanceMode"))
+check("appearance mode rejects illegal values",
+      studio.contains("static func isLegal(_ raw: Int) -> Bool"))
+check("appearance mode maps to a colour scheme",
+      studio.contains("var colorScheme: ColorScheme?"))
+check("appearance mode maps to a ui style",
+      studio.contains("var interfaceStyle: UIUserInterfaceStyle"))
+for name in modeFiles {
+    let body = read(here.appendingPathComponent(name))
+    check("\(name) has no hand-rolled mode ternary",
+          !body.contains("appearanceMode == 1 ? .light")
+          && !body.contains("appearanceMode == 2 ? .dark"))
+    check("\(name) has no bare mode key", !body.contains("\"appearanceMode\""))
+}
+check("keys table holds the mode key",
+      studio.contains("static let appearanceMode = AppearanceMode.defaultsKey"))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)

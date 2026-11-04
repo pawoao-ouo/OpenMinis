@@ -877,7 +877,7 @@ struct MinisHTMLPreviewView: View {
     let fileURL: URL
     var onExpand: ((WebViewHolder) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("appearanceMode") private var appearanceMode: Int = 0
+    @AppStorage(AppearanceMode.defaultsKey) private var appearanceMode: Int = 0
     @StateObject private var holder: WebViewHolder
     @State private var showShareSheet = false
     @State private var showAddToHomeSheet = false
@@ -943,7 +943,7 @@ struct MinisHTMLPreviewView: View {
         // iPad/Mac, matching MinisMarkdownPreviewView. iPhone unaffected.
         .modifier(WideSheetSizingModifier())
         .presentationDragIndicator(.hidden)
-        .preferredColorScheme(appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : nil)
+        .preferredColorScheme(AppearanceMode.parse(appearanceMode).colorScheme)
     }
 }
 
