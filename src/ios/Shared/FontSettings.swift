@@ -347,6 +347,18 @@ final class FontSettings: ObservableObject {
         size * messagePointSize / 13
     }
 
+    /// [T-72] 非隔离的同一支换算。
+    ///
+    /// 代码块的 UILabel 是在 `NSTextAttachment` 里搭的，那个类不是
+    /// `@MainActor`，碰不到实例方法。这里直接读 UserDefaults 里的同一个值
+    /// （`messagePointSize` 的 setter 就是写这个键），所以两条路径给出的
+    /// 数字一致，不需要在主线程上再转一圈。
+    nonisolated static func scaledAppDetached(_ size: CGFloat) -> CGFloat {
+        let stored = UserDefaults.standard.object(forKey: Keys.messagePoint) as? Double
+        let point = min(15, max(10, CGFloat(stored ?? 13)))
+        return size * point / 13
+    }
+
     // MARK: - Init
 
     private init() {

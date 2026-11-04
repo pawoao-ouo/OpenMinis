@@ -1913,7 +1913,7 @@ final class CodeBlockAttachment: NSTextAttachment {
             // not match the code next to it. Both now come from the same
             // resolver the body uses.
             langLabel.font = AppearanceFontFamily.resolved()
-                .uiFont(size: FontSettings.shared.scaledApp(11))
+                .uiFont(size: FontSettings.scaledAppDetached(11))
             langLabel.textColor = theme.codeBlockTextColor.withAlphaComponent(0.45)
             langLabel.frame = CGRect(x: 12, y: 9, width: contentWidth - 60, height: 14)
             container.addSubview(langLabel)
