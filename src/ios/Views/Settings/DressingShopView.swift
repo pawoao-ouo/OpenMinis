@@ -2383,7 +2383,7 @@ struct DressingShopView: View {
     @ViewBuilder
     private var deadPageImageSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionTitle(AppLocalized("输入栏贴图"))
+            decalSectionTitle(AppLocalized("输入栏贴图"))
             HStack(spacing: 12) {
                 Button(AppLocalized("选一张")) {
                     pickedDecalTarget = .inputBar
@@ -2412,7 +2412,7 @@ struct DressingShopView: View {
             .frame(minHeight: 44)
             .accessibilityLabel(AppLocalized("输入栏贴图浓度"))
 
-            sectionTitle(AppLocalized("思考卡贴图"))
+            decalSectionTitle(AppLocalized("思考卡贴图"))
             HStack(spacing: 12) {
                 Button(AppLocalized("选一张")) {
                     pickedDecalTarget = .thinkingCard
@@ -2438,7 +2438,7 @@ struct DressingShopView: View {
 
             // [T-39] 分类图：原来也只有死页能贴。分类键取自
             // `AppearanceThemePack.categoryKeys` 那张表，这里逐个列出可贴的项。
-            sectionTitle(AppLocalized("分类图"))
+            decalSectionTitle(AppLocalized("分类图"))
             ForEach(AppearanceThemePack.categoryKeys, id: \.self) { key in
                 HStack(spacing: 12) {
                     Text(dressingCategoryTitle(key))
@@ -2467,6 +2467,19 @@ struct DressingShopView: View {
                     .foregroundStyle(studio.color(.secondaryText))
             }
         }
+    }
+
+    /// [T-39] 小节标题。
+    ///
+    /// 用 `OtherSettingsContentView` 里那个同名方法不行——那是另一个类型的
+    /// private 方法，从这里调不到，编译直接报 "cannot find sectionTitle"。
+    /// 这一份用本类型的 `fsTitle`，和店里别处的小节标题同字号。
+    private func decalSectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: fsTitle, weight: .bold))
+            .foregroundStyle(studio.color(.primaryText))
+            .padding(.top, fontSettings.density(22))
+            .padding(.bottom, fontSettings.density(8))
     }
 
     /// [T-39] 分类键的显示名。键本身是英文标识（code/writing/...），
