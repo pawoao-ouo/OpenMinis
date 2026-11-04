@@ -79,12 +79,17 @@ jobs:
           set -euo pipefail
           cd src/ios/MinisTests/Standalone
           # Every file here is written to run on its own (`swift <file>.swift`)
-          # and exits non-zero on failure. Only the theme-pack suite is wired
-          # in so far — it is the one whose assertions this branch actually
-          # touched and re-verified. The other nine exist but have never been
-          # executed by CI, so enabling them blind would just trade a silent
-          # gap for a red build nobody can attribute. Add them one at a time.
+          # and exits non-zero on failure. Only the suites whose assertions the
+          # current branch actually touched and re-verified are wired in. The
+          # rest exist but have never been executed by CI, so enabling them
+          # blind would just trade a silent gap for a red build nobody can
+          # attribute. Add them one at a time.
           /usr/bin/swift AppearanceThemePackTests.swift
+          # [T-skill-description-stuck-forever] The description staleness
+          # predicate is what decides whether <available_skills> injects a
+          # rotted sentence, so it ships with its own executable assertions
+          # rather than an unrun file.
+          /usr/bin/swift SkillDescriptionStaleTests.swift
 
       - name: Archive OpenMinis clone app unsigned
         run: |

@@ -1759,10 +1759,36 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
                     // It also cannot overwrite a user's deliberate description:
                     // the DB value must be empty for this to fire, and an empty
                     // description is not something a user meaningfully "set".
-                    let descStale = (description == "|" || description == ">" || description.isEmpty)
-                        && !parsed.description.isEmpty
+                    //
+                    // [T-skill-description-stuck-forever] The empty-only test was
+                    // too narrow: it left every skill whose description was
+                    // EDITED ON DISK after first import stuck on the old sentence
+                    // forever. The column has exactly one real writer — the
+                    // SKILL.md parse (import / rescan / this refresh); there is
+                    // no free-text description editor in the UI (the detail
+                    // screen renders the body read-only), so a DB value that
+                    // disagrees with the file is stale by definition, not a user
+                    // override.
+                    //
+                    // Why it matters beyond cosmetics: systemPromptFragment
+                    // injects skill.description — the DB column — into
+                    // <available_skills>, never the file. So a rotted description
+                    // keeps telling the model the wrong "when to use" text, and
+                    // the skill mis-triggers. Six skills were stuck this way.
+                    //
+                    // a720585db still holds: the refresh requires a non-empty
+                    // parsed description and explicitly skips a parse failure
+                    // (name == defaultSkillName && description == ""), so a
+                    // mid-edit or malformed SKILL.md can never wipe good metadata.
+                    let parsedOK = !(parsed.name == Self.defaultSkillName && parsed.description.isEmpty)
+                    // Trimmed compare: a whitespace-only file description is not
+                    // worth adopting, and trailing-space differences alone must
+                    // not churn the row (and re-sync) on every launch.
+                    let fileDesc = parsed.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let descStale = parsedOK && !fileDesc.isEmpty
+                        && fileDesc != description.trimmingCharacters(in: .whitespacesAndNewlines)
                     if nameStale { resolvedName = parsed.name }
-                    if descStale { resolvedDesc = parsed.description }
+                    if descStale { resolvedDesc = fileDesc }
                     if nameStale || descStale {
                         dbUpdateSkillMeta(id: id, name: resolvedName, description: resolvedDesc, version: version, updatedAt: updatedAt)
                     }
@@ -1772,6 +1798,25 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
                     if let rootfsContent = try? String(contentsOf: rootfsFile, encoding: .utf8) {
                         let parsed = Self.parse(skillMD: rootfsContent)
                         body = parsed.body
+                        // [T-skill-description-stuck-forever] Same staleness rule
+                        // as the Library branch above: the rootfs copy is a real
+                        // source of truth too, so a description that only ever
+                        // lived there must refresh the column instead of being
+                        // parsed into `body` and thrown away.
+                        let parsedOK = !(parsed.name == Self.defaultSkillName && parsed.description.isEmpty)
+                        let fileDesc = parsed.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let descStale = parsedOK && !fileDesc.isEmpty
+                            && fileDesc != description.trimmingCharacters(in: .whitespacesAndNewlines)
+                        // Name stays conservative (only repair an untrusted
+                        // "Untitled Skill"), matching the Library branch — a
+                        // name mismatch alone is not proof the DB is wrong,
+                        // and renaming churns the id the user sees.
+                        let nameStale = name == Self.defaultSkillName && parsed.name != Self.defaultSkillName
+                        if nameStale { resolvedName = parsed.name }
+                        if descStale { resolvedDesc = fileDesc }
+                        if nameStale || descStale {
+                            dbUpdateSkillMeta(id: id, name: resolvedName, description: resolvedDesc, version: version, updatedAt: updatedAt)
+                        }
                     } else if fm.fileExists(atPath: skillFile.path) || fm.fileExists(atPath: rootfsFile.path) {
                         // A SKILL.md EXISTS but doesn't decode as UTF-8.
                         // That is not "the skill was deleted": keep the DB
