@@ -1737,8 +1737,9 @@ enum ThemeColorLayer {
     static let settings: AppearanceScope = .global
     /// Minis 首页列表。
     static let home: AppearanceScope = .home
-    /// 一起听播放页与曲库。
-    static let together: AppearanceScope = .together
+    /// 一起听：**没有独立作用域**。它复用聊天层取色，壁纸另走
+    /// `TogetherImages`（见 T-55 的 `WallpaperPipeline`）。这里只留一行
+    /// 说明，不定义常量——定义了就有人去用，然后发现读到的还是 chat。
     /// 没写明自己属于哪类界面的调用方拿到的层。
     static let fallback: AppearanceScope = .global
 }
