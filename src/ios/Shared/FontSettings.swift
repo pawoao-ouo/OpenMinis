@@ -242,7 +242,11 @@ final class FontSettings: ObservableObject {
     /// maps to `.large` (the system default bucket), which is
     /// exactly what the old app-base-default pin produced.
     var globalDynamicTypeSize: DynamicTypeSize {
-        DynamicTypeSize(globalContentSizeCategory)
+        // `DynamicTypeSize(_:)` is failable — an unknown category returns nil.
+        // Every category this maps to is a real one, but fall back to `.large`
+        // rather than force-unwrap: the root environment must always have a
+        // value, and `.large` is the bucket 13pt is defined as.
+        DynamicTypeSize(globalContentSizeCategory) ?? .large
     }
 
     /// UIKit equivalent of `globalDynamicTypeSize`, for the
