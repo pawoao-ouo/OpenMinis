@@ -302,16 +302,27 @@ enum AppearanceColorRoleGroup: String, CaseIterable, Identifiable {
         }
     }
 
+    /// [T-44] 这是**唯一**一份角色分组表。
+    ///
+    /// 以前有两套：这个枚举覆盖 18 个角色，装扮店那一页自己另写一份覆盖
+    /// 20 个。两套各缺各的——枚举缺壳字和两个气泡字，面板缺 disabled——
+    /// 于是同一份「完整配色表」在两个界面上条数不一样，加新角色时必然
+    /// 漏掉一边。
+    ///
+    /// 现在 `allRoles` 和 `AppearanceColorRole.allCases` 必须一致，断言会查。
     var roles: [AppearanceColorRole] {
         switch self {
-        case .text: return [.primaryText, .secondaryText, .tertiaryText]
+        case .text: return [.primaryText, .secondaryText, .tertiaryText, .shellText]
         case .backgrounds: return [.canvas, .surface, .raised, .mutedSurface]
         case .controls: return [.iconTile, .chip, .field, .border, .disabled]
         case .accentGroup: return [.accent]
-        case .chat: return [.userBubble, .assistantBubble]
+        case .chat: return [.userBubble, .assistantBubble, .bubbleText, .assistantBubbleText]
         case .status: return [.success, .warning, .destructive]
         }
     }
+
+    /// 全部分组摊平后的角色，按分组顺序。断言拿它和 `allCases` 对。
+    static var allRoles: [AppearanceColorRole] { allCases.flatMap(\.roles) }
 }
 
 // MARK: - 旧角色兼容

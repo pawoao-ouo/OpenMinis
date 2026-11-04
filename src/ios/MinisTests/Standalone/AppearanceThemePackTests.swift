@@ -331,6 +331,21 @@ check("dark surfaces are three distinct steps",
 check("dark muted block sits between surface and raised",
       studio.contains(".mutedSurface: \"242426\""))
 
+// [T-44] 角色分组只许一份源，且必须覆盖每一个角色。
+check("role groups flatten to every case",
+      studio.contains("static var allRoles: [AppearanceColorRole] { allCases.flatMap(\\.roles) }"))
+check("text group carries the shell text",
+      studio.contains("case .text: return [.primaryText, .secondaryText, .tertiaryText, .shellText]"))
+check("chat group carries both bubble texts",
+      studio.contains("case .chat: return [.userBubble, .assistantBubble, .bubbleText, .assistantBubbleText]"))
+check("controls group carries disabled",
+      studio.contains("case .controls: return [.iconTile, .chip, .field, .border, .disabled]"))
+let shopView = read(here.appendingPathComponent("Views/Settings/DressingShopView.swift"))
+check("shop panel builds its groups from the enum",
+      shopView.contains("AppearanceColorRoleGroup.allCases.map { group in"))
+check("shop panel has no second group table",
+      !shopView.contains("ColorVarGroup(title: AppLocalized(\"字\")"))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)

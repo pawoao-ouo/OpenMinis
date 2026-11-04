@@ -3242,10 +3242,14 @@ struct DressingShopView: View {
         }
     }
 
-    /// Panel groups, in the old studio page's grouping order.
-    /// The chat group adds the two bubble-text slots the old
-    /// page's chat group never listed — without them the panel
-    /// would not be the "complete set" it claims to be.
+    /// [T-44] 面板不再自带一份分组表。
+    ///
+    /// 原来这里写着第二份 `ColorVarGroup` 列表，和
+    /// `AppearanceColorRoleGroup` 各覆盖各的：枚举 18 条、面板 20 条，
+    /// 缺的还不是同样的几条。同一份「完整配色表」在两个界面条数不一样，
+    /// 加个新角色必然漏一边。
+    ///
+    /// 现在标题、说明、成员全取自枚举，这边只负责画。
     private struct ColorVarGroup: Identifiable {
         var title: String
         var hint: String
@@ -3254,20 +3258,9 @@ struct DressingShopView: View {
     }
 
     private var colorVarGroups: [ColorVarGroup] {
-        [
-            ColorVarGroup(title: AppLocalized("字"), hint: AppLocalized("字长什么样"),
-                          roles: [.primaryText, .secondaryText, .tertiaryText, .shellText]),
-            ColorVarGroup(title: AppLocalized("每一页的底和卡片"), hint: AppLocalized("页面本身和上面的块"),
-                          roles: [.canvas, .surface, .raised, .mutedSurface, .border]),
-            ColorVarGroup(title: AppLocalized("聊天"), hint: AppLocalized("聊天的气泡和里面的字"),
-                          roles: [.userBubble, .assistantBubble, .bubbleText, .assistantBubbleText]),
-            ColorVarGroup(title: AppLocalized("打字的地方和小按钮的底"), hint: AppLocalized("打字框和小标签的底色"),
-                          roles: [.field, .iconTile, .chip]),
-            ColorVarGroup(title: AppLocalized("点一下的东西"), hint: AppLocalized("按钮、开关、选中的颜色"),
-                          roles: [.accent]),
-            ColorVarGroup(title: AppLocalized("对错提醒"), hint: AppLocalized("成功、留意、危险三种提醒"),
-                          roles: [.success, .warning, .destructive]),
-        ]
+        AppearanceColorRoleGroup.allCases.map { group in
+            ColorVarGroup(title: group.title, hint: group.hint, roles: group.roles)
+        }
     }
 
     /// Contrast warning for a colour-panel row, live values only.
