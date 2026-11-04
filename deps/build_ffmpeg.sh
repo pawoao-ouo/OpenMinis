@@ -114,15 +114,37 @@ check_prerequisites() {
 fetch_ffmpeg_source() {
     local version="6.1.2"
     local tarball="ffmpeg-${version}.tar.xz"
-    local url="https://ffmpeg.org/releases/${tarball}"
+    # ffmpeg.org 从 GitHub 的 macOS runner 上经常连不上：跑几个 run 里都是
+    # "Failed to connect to ffmpeg.org port 443 after 75014 ms"——不是我们这边
+    # 的错，是整个构建卡在一个连不上的源上。官方主站失败就换镜像，每次都带
+    # 连接超时，别让一次 DNS 抽风赔上十几分钟。
+    local urls=(
+        "https://ffmpeg.org/releases/${tarball}"
+        "https://ftp.osuosl.org/pub/ffmpeg/releases/${tarball}"
+        "https://mirrors.ustc.edu.cn/ffmpeg/releases/${tarball}"
+        "https://mirror.aarnet.edu.au/pub/ffmpeg/releases/${tarball}"
+    )
     local tmp
     tmp="$(mktemp -d)"
 
     log_info "FFmpeg source not present — downloading ${version}..."
-    if ! curl -fL# "$url" -o "$tmp/$tarball"; then
+    local url got=""
+    for url in "${urls[@]}"; do
+        log_info "  trying ${url}"
+        rm -f "$tmp/$tarball"
+        if curl -fL# --connect-timeout 20 --max-time 420 --retry 2 --retry-delay 2 \
+                "$url" -o "$tmp/$tarball" \
+           && tar -tf "$tmp/$tarball" >/dev/null 2>&1; then
+            got="$url"
+            break
+        fi
+        log_error "  no usable source at ${url}, trying the next mirror"
+    done
+    if [ -z "$got" ]; then
         rm -rf "$tmp"
-        log_error "Failed to download $url — check your network, or place the source at $FFMPEG_DIR manually."
+        log_error "Failed to download FFmpeg ${version} from every mirror — place the source at $FFMPEG_DIR manually."
     fi
+    log_info "  using ${got}"
 
     log_info "Extracting..."
     if ! tar -xf "$tmp/$tarball" -C "$tmp"; then
