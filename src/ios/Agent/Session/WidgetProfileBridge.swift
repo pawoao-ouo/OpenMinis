@@ -53,6 +53,7 @@ enum WidgetProfileBridge {
     /// 桌面还是小字,和 App 里对不上。
     @MainActor
     static func refreshTheme() {
+        let studio = AppearanceStudio.shared
 
         // 明暗各写一套,让小组件按自己的 colorScheme 挑,而不是跟随 App
         // 当前模式——小组件常驻桌面,可能和 App 里的明暗不一样。

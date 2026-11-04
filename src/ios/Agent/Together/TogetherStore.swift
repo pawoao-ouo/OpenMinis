@@ -1264,7 +1264,8 @@ extension TogetherStore {
         // JPEG 的 FF D8、HEIC/HEIF 的 ftyp box。
         var headData = Data()
         if let handle = try? FileHandle(forReadingFrom: source) {
-            if let chunk = try? handle.read(upToCount: 16), let chunk {
+            // read(upToCount:) throws and returns Data? — one try?, one binding.
+            if let chunk = try? handle.read(upToCount: 16) {
                 headData = chunk
             }
             try? handle.close()
