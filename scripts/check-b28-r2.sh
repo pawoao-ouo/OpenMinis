@@ -4,7 +4,7 @@
 # 规则：每条先在基线（未修）上 FAIL，修完 PASS。任何一条修完还红 = 没修好。
 # 和 round 1 的 check-b28.sh 一样，只用 grep 可验证的结构事实，不猜语义。
 cd "$(dirname "$0")/.." || exit 2
-V=src/ios/Views/Settings/AppearanceStudioView.swift
+V=src/ios/Views/Settings/DressingShopView.swift  # [T-39] 原死页已删除，改查活页面
 S=src/ios/Shared/AppearanceStudio.swift
 L=src/ios/Shared/AppearanceThemeLibrary.swift
 P=src/ios/Shared/AppearanceThemePack.swift

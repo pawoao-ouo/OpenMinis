@@ -1,7 +1,7 @@
 #!/bin/sh
 # [B28 round 3] 真机反馈三条：alert 层级、标题重复、内外卡片语言。
 cd "$(dirname "$0")/.." || exit 2
-V=src/ios/Views/Settings/AppearanceStudioView.swift
+V=src/ios/Views/Settings/DressingShopView.swift  # [T-39] 原死页已删除，改查活页面
 P=src/ios/Shared/AppearanceThemePack.swift
 L=src/ios/Shared/AppearanceThemeLibrary.swift
 fail=0

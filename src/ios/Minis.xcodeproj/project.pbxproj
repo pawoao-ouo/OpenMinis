@@ -335,7 +335,6 @@
 		THMW001 /* ThemeBridgeCall.swift in Sources */ = {isa = PBXBuildFile; fileRef = THMW101 /* ThemeBridgeCall.swift */; };
 		PRSS001 /* PressableStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = PRSS101 /* PressableStyle.swift */; };
 		THMW002 /* ThemeWriteConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = THMW102 /* ThemeWriteConfirmation.swift */; };
-		XMSTYLE002 /* AppearanceStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE102 /* AppearanceStudioView.swift */; };
 		DSHP00001 /* DressingShopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DSHP00101 /* DressingShopView.swift */; };
 		XMSTYLE003 /* AppearanceThemePack.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE103 /* AppearanceThemePack.swift */; };
 		XMSTYLE007 /* AppearanceThemeLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = XMSTYLE107 /* AppearanceThemeLibrary.swift */; };
@@ -1295,7 +1294,6 @@
 		THMW101 /* ThemeBridgeCall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeBridgeCall.swift; sourceTree = "<group>"; };
 		PRSS101 /* PressableStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PressableStyle.swift; sourceTree = "<group>"; };
 		THMW102 /* ThemeWriteConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeWriteConfirmation.swift; sourceTree = "<group>"; };
-		XMSTYLE102 /* AppearanceStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceStudioView.swift; sourceTree = "<group>"; };
 		DSHP00101 /* DressingShopView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DressingShopView.swift; sourceTree = "<group>"; };
 		XMSTYLE103 /* AppearanceThemePack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceThemePack.swift; sourceTree = "<group>"; };
 		XMSTYLE107 /* AppearanceThemeLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceThemeLibrary.swift; sourceTree = "<group>"; };
@@ -2704,7 +2702,6 @@
 				F1T00024 /* TTSServiceEditorView.swift */,
 				F1T00049 /* TTSGroupsView.swift */,
 				F1T00029 /* SystemVoiceEditorView.swift */,
-				XMSTYLE102 /* AppearanceStudioView.swift */,
 				DSHP00101 /* DressingShopView.swift */,
 				E5P000012 /* EnvironmentVariablesView.swift */,
 				E5J000012 /* LogManagementView.swift */,
@@ -3548,7 +3545,6 @@
 				THMW001 /* ThemeBridgeCall.swift in Sources */,
 				PRSS001 /* PressableStyle.swift in Sources */,
 				THMW002 /* ThemeWriteConfirmation.swift in Sources */,
-				XMSTYLE002 /* AppearanceStudioView.swift in Sources */,
 				DSHP00001 /* DressingShopView.swift in Sources */,
 				XMSTYLE003 /* AppearanceThemePack.swift in Sources */,
 				XMSTYLE007 /* AppearanceThemeLibrary.swift in Sources */,

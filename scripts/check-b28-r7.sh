@@ -3,7 +3,7 @@
 # 每页自己的样张。这条脚本守「代码块三层高度公式必须逐值一致」。
 cd "$(dirname "$0")/.." || exit 2
 S=src/ios/Views/Chat/SelectableMarkdownView.swift
-V=src/ios/Views/Settings/AppearanceStudioView.swift
+V=src/ios/Views/Settings/DressingShopView.swift  # [T-39] 原死页已删除，改查活页面
 fail=0
 ok()  { printf 'OK   %s\n' "$1"; }
 bad() { printf 'FAIL %s\n' "$1"; fail=$((fail+1)); }

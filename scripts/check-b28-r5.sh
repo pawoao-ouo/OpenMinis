@@ -1,7 +1,7 @@
 #!/bin/sh
 # [B28 round 5] 预览试点：样张必须是真的 —— 嵌的是聊天页同款组件，不是复刻。
 cd "$(dirname "$0")/.." || exit 2
-V=src/ios/Views/Settings/AppearanceStudioView.swift
+V=src/ios/Views/Settings/DressingShopView.swift  # [T-39] 原死页已删除，改查活页面
 C=src/ios/Views/Chat/ChatMessageViews.swift
 fail=0
 ok()  { printf 'OK   %s\n' "$1"; }

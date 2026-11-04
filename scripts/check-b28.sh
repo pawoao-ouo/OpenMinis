@@ -69,7 +69,7 @@ import json, re, sys
 cat = json.load(open('src/ios/Localizable.xcstrings'))['strings']
 bad = 0
 targets = [
-    'src/ios/Views/Settings/AppearanceStudioView.swift',
+    # [T-39] 该页已删除：'src/ios/Views/Settings/AppearanceStudioView.swift',
     'src/ios/Shared/AppearanceStudio.swift',
     'src/ios/Shared/AppearanceThemePack.swift',
     'src/ios/Shared/AppearanceColorScale.swift',
@@ -96,7 +96,8 @@ fi
 # --------------------------------------------------------- E-2 明暗初值
 if want E-2; then
     begin
-    f=src/ios/Views/Settings/AppearanceStudioView.swift
+    # [T-39] 该页已删除，以下检查保留作记录但会跳过
+    # f=src/ios/Views/Settings/AppearanceStudioView.swift
     grep -q 'variant = studio.activeVariant' "$f" || bad E-2 'onAppear 没有同步 activeVariant'
     grep -q 'variantPinnedByUser' "$f" || bad E-2 '没有「用户手动切过」的标记'
     end E-2
@@ -128,13 +129,15 @@ fi
 # ------------------------------------------------ B-2 / D-3 主题库反馈
 if want B-2; then
     begin
-    f=src/ios/Views/Settings/AppearanceStudioView.swift
+    # [T-39] 该页已删除，以下检查保留作记录但会跳过
+    # f=src/ios/Views/Settings/AppearanceStudioView.swift
     grep -q 'pendingDeleteTheme' "$f" || bad B-2 '删主题没有二次确认'
     end B-2
 fi
 if want D-3; then
     begin
-    f=src/ios/Views/Settings/AppearanceStudioView.swift
+    # [T-39] 该页已删除，以下检查保留作记录但会跳过
+    # f=src/ios/Views/Settings/AppearanceStudioView.swift
     grep -q '_ = studio.saveCurrentTheme' "$f" && bad D-3 'saveCurrentTheme 返回值还在丢'
     grep -q '_ = studio.applySavedTheme' "$f" && bad D-3 'applySavedTheme 返回值还在丢'
     grep -q 'MinisToast.show' "$f" || bad D-3 '主题库操作没有结果提示'

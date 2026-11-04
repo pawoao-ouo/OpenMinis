@@ -48,7 +48,6 @@ let chat = read(here.appendingPathComponent("Views/Chat/ChatMessageViews.swift")
 let think = read(here.appendingPathComponent("Views/Chat/AssistantBlockView.swift"))
 let input = read(here.appendingPathComponent("Views/Chat/AIChatView.swift"))
 let list = read(here.appendingPathComponent("Views/ContentView.swift"))
-let studioView = read(here.appendingPathComponent("Views/Settings/AppearanceStudioView.swift"))
 let kernel = read(here.appendingPathComponent("iSH/ISHKernel.m"))
 let offload = read(here.appendingPathComponent("NativeOffloads/ThemeOffload.m"))
 let offloadBridge = read(here.appendingPathComponent("NativeOffloads/ThemeOffloadBridge.swift"))
@@ -88,8 +87,6 @@ check("font family", pack.contains("enum AppearanceFontFamily"))
 check("input bar style", pack.contains("inputBarStyle"))
 check("input bar image", pack.contains("func setInputBarImage"))
 check("composer uses pack shape", input.contains("MinisThemeShape.inputBar"))
-check("studio font picker", studioView.contains("正文字体"))
-check("studio input bar image", studioView.contains("给输入栏贴图"))
 // [04b-2] Message sites moved from `MinisThemeShape.fontFamily` to the
 // per-part `MinisThemeShape.messageFont(size:)`, which honours the
 // message-part family and uploaded fonts — same behaviour, new accessor.
@@ -102,11 +99,8 @@ check("wipe category images", pack.contains("func wipeCategoryImageFiles"))
 check("thinking body uses pack size", think.contains("MinisThemeShape.thinkingBodySize"))
 check("thinking title uses pack size", think.contains("MinisThemeShape.thinkingTitleSize"))
 check("composer observes studio", input.contains("@ObservedObject private var appearanceStudio"))
-check("studio category picker", studioView.contains("setCategoryImage"))
 check("category symbol setter", pack.contains("func setCategorySymbol"))
 check("category color setter", pack.contains("func setCategoryColor"))
-check("studio sf field", studioView.contains("SF 名，空着就是默认"))
-check("studio category color", studioView.contains("categoryColorBinding"))
 check("edit sheet custom icon", list.contains("categoryImage(for: cat.key)"))
 check("v1 pack still decodes", pack.contains("userBubbleStyle"))
 check("list row fill", pack.contains("listRowFillHex"))
@@ -122,15 +116,11 @@ check("save current", library.contains("func saveCurrentTheme"))
 check("library files not defaults", library.contains("libraryPackURL"))
 check("legacy library migrate", library.contains("func migrateLegacyLibrary"))
 check("apply strips jpeg", pack.contains("stored.thinkingCardJPEGBase64 = nil"))
-check("studio title binding", studioView.contains("thinkingTitleSizeBinding"))
 // [K-4] The eight per-row `PhotosPicker`s collapsed into one page-level picker
 // driven by `pickedPhoto` + `pickerTarget`. The old assertion pinned the now
 // deleted `categoryImageItem`; pin the replacement wiring instead — a single
 // `.photosPicker(isPresented:selection:)` plus the dispatch that routes the
 // picked item to the row that asked for it.
-check("category onChange", studioView.contains("onChange(of: pickedPhoto)")
-      && studioView.contains("case .categoryImage")
-      && studioView.contains("pickerTarget = .categoryImage"))
 check("edit sheet observes studio", list.contains("struct SessionEditSheet"))
 check("list category fill", list.contains("categoryImage(for: key)"))
 check("default input radius 20", pack.contains("inputBarRadius: 20"))
@@ -143,7 +133,6 @@ check("schema 5 asJSONObject write", pack.contains("\"schema\": Self.schemaVersi
 check("upgrade rewrite UserDefaults", pack.contains("storedSchema != AppearanceThemePack.schemaVersion"))
 check("cli save", offload.contains("cmd_save"))
 check("cli use", offload.contains("cmd_use"))
-check("studio library section", studioView.contains("主题库"))
 check("no hardcoded thinking blue fill", !think.contains("Color.blue.opacity(0.06)"))
 check("kernel registers theme", kernel.contains("theme_offload_register()"))
 check("offload stub", offload.contains("noff_ensure_guest_stub(\"/usr/local/bin/minis-theme\")"))
@@ -196,8 +185,6 @@ check("wallpaper takes raw bytes", studio.contains("func setWallpaperEncoded"))
 check("thinking card takes raw bytes", pack.contains("func setThinkingCardImageEncoded"))
 check("input bar takes raw bytes", pack.contains("func setInputBarImageEncoded"))
 check("ai apply merges live pack", offloadBridge.contains("merging: live"))
-check("clipboard import does not merge live pack", !studioView.contains("merging: studio.currentThemePack()"))
-check("clipboard import is replace", studioView.contains("mode: .replace"))
 check("reset snapshots first", pack.contains("func captureThemeUndoSnapshot"))
 check("reset is undoable", pack.contains("func undoThemeReset"))
 check("reset needs force", offload.contains("--force"))
@@ -275,7 +262,7 @@ check("home list defaults through the contract", pack.contains("scope: ThemeColo
 // 三目就是又长出一份副本，直接判失败。
 let modeFiles = ["MinisApp.swift", "Views/ContentView.swift",
                  "Views/Chat/MinisMediaViews.swift", "Views/Chat/WebPreviewSheet.swift",
-                 "Views/Settings/AppearanceStudioView.swift", "Views/Settings/DressingShopView.swift",
+                 "Views/Settings/DressingShopView.swift",
                  "Debug/DebugRPCProviderChat.swift"]
 check("appearance mode enum exists", studio.contains("enum AppearanceMode: Int, CaseIterable"))
 check("appearance mode owns the key",
@@ -382,6 +369,20 @@ check("mention menu inverts its text on the accent fill",
       input.contains("isSelected ? onSelectedFill : ChatColors.secondaryText"))
 check("chat selection fill is still the accent role",
       input.contains("(isSelected || configuration.isPressed) ? ChatColors.accent : Color.clear"))
+
+// [T-39] 死页已删除，它独有的三组贴图控件搬到了装扮店。这里钉住搬运
+// 结果，免得以后又悄悄丢掉某一样。
+check("shop can set the input bar decal",
+      shopView.contains("studio.setInputBarImage(image)"))
+check("shop can set the thinking card decal",
+      shopView.contains("studio.setThinkingCardImage(image)"))
+check("shop can set a category decal",
+      shopView.contains("studio.setCategoryImage(image, for: key)"))
+check("shop exposes both decal opacities",
+      shopView.contains("studio.setInputBarImageOpacity($0)")
+      && shopView.contains("studio.setThinkingCardImageOpacity($0)"))
+check("shop lists the real category keys",
+      shopView.contains("ForEach(AppearanceThemePack.categoryKeys, id: \\.self)"))
 
 if failures == 0 {
     print("\nALL PASS")

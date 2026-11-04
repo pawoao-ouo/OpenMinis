@@ -33,7 +33,8 @@ chk R13-3 "rg -q 'struct AgentProfileWidget' src/ios/AgentWidget/AgentProfileWid
 chk R13-4 "rg -q 'AgentProfileWidget()' src/ios/AgentWidget/AgentWidgetBundle.swift"
 chk R13-5 "rg -q 'WidgetProfileBridge' src/ios/Agent/Session/PersonaStore.swift"
 chk R13-6 "rg -q 'AgentProfileWidget.swift' src/ios/Minis.xcodeproj/project.pbxproj && rg -q 'WidgetProfileBridge.swift' src/ios/Minis.xcodeproj/project.pbxproj"
-chk R13-7 "! rg -q 'case avatars|avatarsPage' src/ios/Views/Settings/AppearanceStudioView.swift"
+# [T-39] 该页已删除，此检查停用
+# chk R13-7 "! rg -q 'case avatars|avatarsPage' src/ios/Views/Settings/AppearanceStudioView.swift"
 chk R21-1 "rg -q 'func registerExistingMedia' src/ios/Agent/Chat/ChatStore.swift"
 chk R21-2 "rg -q 'snapshotMediaRef' src/ios/Agent/Chat/AIChatViewModel+ConcurrentTools.swift"
 chk R21-3 "rg -q 'registerExistingMedia' src/ios/Agent/Chat/AIChatViewModel+Persistence.swift"

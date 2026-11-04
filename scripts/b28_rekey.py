@@ -19,7 +19,7 @@ for k, v in CAT.items():
         REV[zh] = (k, n)
 
 FILES = [
-    'src/ios/Views/Settings/AppearanceStudioView.swift',
+    # [T-39] 该页已删除：'src/ios/Views/Settings/AppearanceStudioView.swift',
     'src/ios/Shared/AppearanceStudio.swift',
     'src/ios/Shared/AppearanceThemePack.swift',
     'src/ios/Shared/AppearanceColorScale.swift',

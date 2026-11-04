@@ -1,7 +1,7 @@
 #!/bin/sh
 # [B28 round 6] 样张共享卡（气泡页+配色页）+ 摘掉假控件（禁用色板僵尸）。
 cd "$(dirname "$0")/.." || exit 2
-V=src/ios/Views/Settings/AppearanceStudioView.swift
+V=src/ios/Views/Settings/DressingShopView.swift  # [T-39] 原死页已删除，改查活页面
 fail=0
 ok()  { printf 'OK   %s\n' "$1"; }
 bad() { printf 'FAIL %s\n' "$1"; fail=$((fail+1)); }

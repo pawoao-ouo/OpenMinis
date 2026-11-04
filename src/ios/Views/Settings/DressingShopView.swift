@@ -178,6 +178,11 @@ struct DressingShopView: View {
     @State private var pickedWallpaperItem: PhotosPickerItem?
     @State private var pickedWallpaperIsDark = false
     @State private var wallpaperMessage: String?
+    /// [T-39] 从死页搬来的两组贴图各自要贴到哪。
+    @State private var pickedDecalTarget: DecalTarget?
+    @State private var decalMessage: String?
+
+    private enum DecalTarget { case inputBar, thinkingCard, category(String) }
     @State private var showSTImporter = false
     @State private var stImportReport: [String]?
     // Shake preview (2026-11-02 shake-preview batch): the rolled palette
@@ -362,7 +367,13 @@ struct DressingShopView: View {
                       selection: $pickedWallpaperItem, matching: .images)
         .onChange(of: pickedWallpaperItem) { item in
             guard let item else { return }
-            Task { await applyPickedWallpaper(item) }
+            // [T-39] 同一个拾图入口，按"这次想贴哪"分流：原来这类活只有
+            // 死页能干，现在这一页也干得了。
+            if let target = pickedDecalTarget {
+                Task { await applyPickedDecal(item, target: target) }
+            } else {
+                Task { await applyPickedWallpaper(item) }
+            }
         }
     }
 
@@ -849,6 +860,11 @@ struct DressingShopView: View {
             Text(AppLocalized("卡片、输入栏、胶囊的底有多实。调低能透出壁纸；1 是完全不透明。"))
                 .font(.system(size: fsCaption))
                 .foregroundStyle(studio.color(.secondaryText))
+            // [T-39] 这三组控件原来只活在 `AppearanceStudioView` 里，而那个
+            // 页面没有任何入口。删页之前先把它们搬到这一页，否则就是借着
+            // "清理死代码"把功能删掉——输入栏贴图、思考卡贴图、分类图，
+            // 底层接口一直都在，只是没人点得到。
+            deadPageImageSection
             // [T-46] 这三根旋钮以前没有任何复位入口，只能靠"恢复默认配色"
             // 顺手抹掉（而且不说）。现在给一个明说的按钮。
             Button(AppLocalized("透明度和压色回到默认")) {
@@ -885,8 +901,34 @@ struct DressingShopView: View {
     }
 
     @MainActor
+    /// [T-39] 贴图落地。和壁纸走同一个解码上限，但落点不同：
+    /// 输入栏、思考卡各自一套 setter + 浓度。
+    @MainActor
+    private func applyPickedDecal(_ item: PhotosPickerItem, target: DecalTarget) async {
+        defer { pickedWallpaperItem = nil; pickedDecalTarget = nil }
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let image = ThumbnailCache.downsampledImage(from: data, maxEdge: WallpaperPipeline.maxEdge) else {
+            decalMessage = AppLocalized("选中的图读不出来。")
+            return
+        }
+        switch target {
+        case .inputBar:
+            decalMessage = studio.setInputBarImage(image)
+                ? AppLocalized("输入栏贴图已换上。")
+                : AppLocalized("选中的图读不出来。")
+        case .thinkingCard:
+            decalMessage = studio.setThinkingCardImage(image)
+                ? AppLocalized("思考卡贴图已换上。")
+                : AppLocalized("选中的图读不出来。")
+        case .category(let key):
+            decalMessage = studio.setCategoryImage(image, for: key)
+                ? AppLocalized("分类图已换上。")
+                : AppLocalized("选中的图读不出来。")
+        }
+    }
+
     private func applyPickedWallpaper(_ item: PhotosPickerItem) async {
-        defer { pickedWallpaperItem = nil }
+        defer { pickedWallpaperItem = nil; pickedDecalTarget = nil }
         guard let data = try? await item.loadTransferable(type: Data.self),
               let image = ThumbnailCache.downsampledImage(from: data, maxEdge: WallpaperPipeline.maxEdge) else {
             wallpaperMessage = AppLocalized("选中的图读不出来。")
@@ -2333,6 +2375,124 @@ struct DressingShopView: View {
     /// a pulsing SYNCHRONIZED badge, a leading pen icon and
     /// a send capsule with its paper-plane icon.
     /// [T-68] 压色档位的大白话。0 = 不压，往上是浅/中/深。
+    /// [T-39] 从死页搬来的三组贴图控件。
+    ///
+    /// 输入栏贴图 + 浓度、思考卡贴图 + 浓度、分类图。三者的写入接口
+    /// （setInputBarImage / setThinkingCardImage / setCategoryImage 及其
+    /// 浓度 setter）都在 `AppearanceThemePack` 里，一直是好的，只是入口
+    /// 在死页上。这里用这一页已有的 PhotosPicker + 状态，不另起一套。
+    @ViewBuilder
+    private var deadPageImageSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle(AppLocalized("输入栏贴图"))
+            HStack(spacing: 12) {
+                Button(AppLocalized("选一张")) {
+                    pickedDecalTarget = .inputBar
+                    wallpaperPickerPresented = true
+                }
+                    .font(.system(size: fsCaption, weight: .semibold))
+                    .foregroundStyle(studio.color(.accent))
+                    .frame(minHeight: 44)
+                Button(AppLocalized("去掉")) {
+                    studio.removeInputBarImage()
+                    decalMessage = AppLocalized("输入栏贴图已去掉。")
+                }
+                .font(.system(size: fsCaption))
+                .foregroundStyle(studio.color(.secondaryText))
+                .frame(minHeight: 44)
+            }
+            if studio.currentThemePack().inputBarImageOpacity < 1 {
+                Text(AppLocalized("浓度 \(Int((studio.currentThemePack().inputBarImageOpacity * 100).rounded()))%"))
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+            Slider(value: Binding(
+                get: { studio.currentThemePack().inputBarImageOpacity },
+                set: { studio.setInputBarImageOpacity($0) }
+            ), in: 0.05...1)
+            .frame(minHeight: 44)
+            .accessibilityLabel(AppLocalized("输入栏贴图浓度"))
+
+            sectionTitle(AppLocalized("思考卡贴图"))
+            HStack(spacing: 12) {
+                Button(AppLocalized("选一张")) {
+                    pickedDecalTarget = .thinkingCard
+                    wallpaperPickerPresented = true
+                }
+                    .font(.system(size: fsCaption, weight: .semibold))
+                    .foregroundStyle(studio.color(.accent))
+                    .frame(minHeight: 44)
+                Button(AppLocalized("去掉")) {
+                    studio.removeThinkingCardImage()
+                    decalMessage = AppLocalized("思考卡贴图已去掉。")
+                }
+                .font(.system(size: fsCaption))
+                .foregroundStyle(studio.color(.secondaryText))
+                .frame(minHeight: 44)
+            }
+            Slider(value: Binding(
+                get: { studio.currentThemePack().thinkingCardImageOpacity },
+                set: { studio.setThinkingCardImageOpacity($0) }
+            ), in: 0.05...1)
+            .frame(minHeight: 44)
+            .accessibilityLabel(AppLocalized("思考卡贴图浓度"))
+
+            // [T-39] 分类图：原来也只有死页能贴。分类键取自
+            // `AppearanceThemePack.categoryKeys` 那张表，这里逐个列出可贴的项。
+            sectionTitle(AppLocalized("分类图"))
+            ForEach(AppearanceThemePack.categoryKeys, id: \.self) { key in
+                HStack(spacing: 12) {
+                    Text(dressingCategoryTitle(key))
+                        .font(.system(size: fsSub))
+                        .foregroundStyle(studio.color(.primaryText))
+                    Spacer(minLength: 8)
+                    Button(AppLocalized("选一张")) {
+                        pickedDecalTarget = .category(key)
+                        wallpaperPickerPresented = true
+                    }
+                    .font(.system(size: fsCaption, weight: .semibold))
+                    .foregroundStyle(studio.color(.accent))
+                    .frame(minHeight: 44)
+                    Button(AppLocalized("去掉")) {
+                        studio.removeCategoryImage(for: key)
+                        decalMessage = AppLocalized("这张分类图已去掉。")
+                    }
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
+                    .frame(minHeight: 44)
+                }
+            }
+            if let message = decalMessage {
+                Text(message)
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+        }
+    }
+
+    /// [T-39] 分类键的显示名。键本身是英文标识（code/writing/...），
+    /// 直接摆上去她看不懂，这里给中文。
+    private func dressingCategoryTitle(_ key: String) -> String {
+        switch key {
+        case "code": return AppLocalized("写代码")
+        case "writing": return AppLocalized("写作")
+        case "research": return AppLocalized("查资料")
+        case "analysis": return AppLocalized("分析")
+        case "creative": return AppLocalized("创作")
+        case "chat": return AppLocalized("闲聊")
+        case "math": return AppLocalized("数学")
+        case "translation": return AppLocalized("翻译")
+        case "health": return AppLocalized("健康")
+        case "finance": return AppLocalized("财务")
+        case "travel": return AppLocalized("出行")
+        case "education": return AppLocalized("学习")
+        case "design": return AppLocalized("设计")
+        case "productivity": return AppLocalized("效率")
+        case "support": return AppLocalized("客服")
+        default: return AppLocalized("其他")
+        }
+    }
+
     /// [T-46] 卡片透明度读成百分比，别吐小数——同一个页面里压色已经这么做了。
     private var cardOpacityLabel: String {
         "\(Int((studio.surfaceOpacity * 100).rounded()))%"
