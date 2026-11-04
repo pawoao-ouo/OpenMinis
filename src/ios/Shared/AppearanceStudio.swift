@@ -416,6 +416,14 @@ final class AppearanceStudio: ObservableObject {
     /// 读。原来标 `nonisolated(unsafe)` 只是把编译器按住,读写之间是真的在
     /// 赛跑 —— 读到半张表会让同一屏的卡片取到新旧各一半的颜色。改成一把锁
     /// 保护的盒子:读写都串行,读取侧拿到的一定是一份完整的旧表或新表。
+    /// [T-33] 非隔离上下文的透明度读取。`surfaceOpacity` 是 `@Published`，
+    /// 只能在主线程读；而卡片底那几个 static computed property 不在
+    /// `@MainActor` 里。直接读 UserDefaults 拿到的是同一个值——它本来就是
+    /// 这个属性的落盘源，写的时候 didSet 立刻写。
+    nonisolated static var surfaceOpacitySnapshot: Double {
+        (UserDefaults.standard.object(forKey: Keys.surfaceOpacity) as? Double) ?? 0.88
+    }
+
     nonisolated(unsafe) private static let colorSnapshotLock = NSLock()
     nonisolated(unsafe) private static var colorSnapshotStorage: [String: String] = [:]
 

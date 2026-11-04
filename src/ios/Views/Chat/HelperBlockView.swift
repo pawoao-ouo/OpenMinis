@@ -351,7 +351,14 @@ enum HelperAccent {
     /// 黄=警告），助手面得跟它们区分开。所以走"主题强调色优先、没调过才用
     /// 紫色"——她调了就听她的，没调过就是原来那个紫，观感不变。
     static var color: Color {
-        Self.accentWasTuned ? ChatColors.accent : Self.violet
+        Self.accentWasTuned ? Self.themeAccent : Self.violet
+    }
+
+    /// 主题强调色。走 `uiColorSnapshot`（nonisolated，锁保护），因为
+    /// `HelperAccent.color` 会被非视图体的 computed property 读到——
+    /// `ChatColors.accent` 是 `@MainActor`，直接引就编不过。
+    static var themeAccent: Color {
+        Color(AppearanceStudio.uiColorSnapshot(.accent, scope: ThemeColorLayer.chat))
     }
 
     /// 强调色有没有被她亲手调过。
@@ -378,7 +385,7 @@ enum HelperAccent {
     /// (already passing). HelperAccent.color is untouched everywhere else.
     static var badgeText: Color {
         // 强调色被调过时，徽章字跟着强调色；没调过就是原来那个加深的紫。
-        Self.accentWasTuned ? ChatColors.accent : Self.badgeViolet
+        Self.accentWasTuned ? Self.themeAccent : Self.badgeViolet
     }
 
     static let badgeViolet = Color(UIColor { tc in
@@ -1110,12 +1117,12 @@ struct HelperDetailCard: View {
 struct AgentDetailCard<Trailing: View, Content: View>: View {
     let title: String
     let icon: String
-    var iconTint: Color = ChatColors.secondaryText
+    var iconTint: Color = Color(AppearanceStudio.uiColorSnapshot(.secondaryText, scope: ThemeColorLayer.chat))
     var trailing: () -> Trailing
     var bodyPadding: CGFloat = 12
     @ViewBuilder var content: () -> Content
 
-    init(title: String, icon: String, iconTint: Color = ChatColors.secondaryText,
+    init(title: String, icon: String, iconTint: Color = Color(AppearanceStudio.uiColorSnapshot(.secondaryText, scope: ThemeColorLayer.chat)),
          @ViewBuilder trailing: @escaping () -> Trailing,
          bodyPadding: CGFloat = 12,
          @ViewBuilder content: @escaping () -> Content) {
@@ -1127,14 +1134,18 @@ struct AgentDetailCard<Trailing: View, Content: View>: View {
     // 调深或调亮，助手块这一整块纹丝不动。现在接卡片 / 描边角色，和别的
     // 卡片同一套。barBg 用 mutedSurface（比卡片再低一档的"条"），cardBg
     // 用 surface，stroke 用 border。
+    // 取色走 `uiColorSnapshot`（nonisolated，锁保护）：这几个 static 属性
+    // 不是 @MainActor 的，直接引 `ChatColors.*` 会编不过。
     private static var barBg: Color {
-        ChatColors.secondaryBg
+        Color(AppearanceStudio.uiColorSnapshot(.surface, scope: ThemeColorLayer.chat))
+            .opacity(AppearanceStudio.surfaceOpacitySnapshot)
     }
     private static var cardBg: Color {
-        ChatColors.toolBg
+        Color(AppearanceStudio.uiColorSnapshot(.surface, scope: ThemeColorLayer.chat))
+            .opacity(AppearanceStudio.surfaceOpacitySnapshot)
     }
     private static var stroke: Color {
-        ChatColors.toolBorder
+        Color(AppearanceStudio.uiColorSnapshot(.border, scope: ThemeColorLayer.chat)).opacity(0.75)
     }
 
     var body: some View {
@@ -1168,7 +1179,7 @@ struct AgentDetailCard<Trailing: View, Content: View>: View {
 }
 
 extension AgentDetailCard where Trailing == EmptyView {
-    init(title: String, icon: String, iconTint: Color = ChatColors.secondaryText,
+    init(title: String, icon: String, iconTint: Color = Color(AppearanceStudio.uiColorSnapshot(.secondaryText, scope: ThemeColorLayer.chat)),
          bodyPadding: CGFloat = 12,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, icon: icon, iconTint: iconTint, trailing: { EmptyView() },
