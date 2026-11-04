@@ -299,6 +299,26 @@ for name in modeFiles {
 check("keys table holds the mode key",
       studio.contains("static let appearanceMode = AppearanceMode.defaultsKey"))
 
+// [T-33] 助手块整块只许跟主题，不许再掺系统语义色和自写动态闭包。
+let helperBlock = read(here.appendingPathComponent("Views/Chat/HelperBlockView.swift"))
+check("helper block has no system semantic label colours",
+      !helperBlock.contains("UIColor.label")
+      && !helperBlock.contains("UIColor.secondaryLabel")
+      && !helperBlock.contains("UIColor.tertiaryLabel"))
+check("helper block card surfaces read theme roles",
+      helperBlock.contains("private static var cardBg: Color {")
+      && helperBlock.contains("ChatColors.toolBg")
+      && helperBlock.contains("ChatColors.toolBorder"))
+check("helper accent follows the theme when tuned",
+      helperBlock.contains("Self.accentWasTuned ? ChatColors.accent : Self.violet"))
+check("helper accent keeps the violet as the untuned default",
+      helperBlock.contains("static let violet = Color(UIColor { tc in"))
+check("helper badge text follows the theme when tuned",
+      helperBlock.contains("Self.accentWasTuned ? ChatColors.accent : Self.badgeViolet"))
+check("helper accent reads the snapshot, not the isolated studio",
+      helperBlock.contains("AppearanceStudio.colorSnapshot")
+      && !helperBlock.contains("AppearanceStudio.shared.hasOverride"))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)

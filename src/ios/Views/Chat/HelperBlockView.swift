@@ -340,12 +340,33 @@ struct HelperBlockInfo {
 
 /// Shared accent for every helper surface (capsule, sheet header, block).
 enum HelperAccent {
-    /// [T-agent-accent-color] Electric violet — reads as "AI / tech" without
-    /// colliding with the app's semantic hues (red = stop/error, green =
-    /// done, yellow = warning/timeout, system blue = thinking). Slightly
-    /// deeper in light mode for contrast on the light card, lifted in dark
-    /// mode so it stays luminous on near-black.
-    static let color = Color(UIColor { tc in
+    /// [T-agent-accent-color][T-33] 助手面的强调色。
+    ///
+    /// 以前这里是写死的紫色（浅色 #734DED / 深色 #A385FF），跟主题强调色
+    /// 完全脱钩：面板里把强调色改成绿的，助手块的胶囊、工具名、条底还全是
+    /// 紫的。审计把这条列作"自有紫"，问是不是人设专属——不是，它就是助手
+    /// 面的强调色，和人设无关，所以接 `accent` 角色。
+    ///
+    /// 但写死色删掉会丢一件事：系统蓝被别的语义占了（红=停、绿=完成、
+    /// 黄=警告），助手面得跟它们区分开。所以走"主题强调色优先、没调过才用
+    /// 紫色"——她调了就听她的，没调过就是原来那个紫，观感不变。
+    static var color: Color {
+        Self.accentWasTuned ? ChatColors.accent : Self.violet
+    }
+
+    /// 强调色有没有被她亲手调过。
+    ///
+    /// 读 `colorSnapshot`（nonisolated，锁保护）而不是 `hasOverride`：后者是
+    /// `@MainActor` 实例方法，而 `HelperAccent.color` 会被 `ToolLiveSheet`
+    /// 那种非 body 的 computed property 读到，挂上隔离就编不过。快照的键就是
+    /// `scope.variant.role`，判存在完全等价。
+    static var accentWasTuned: Bool {
+        let snap = AppearanceStudio.colorSnapshot
+        return snap["global.light.accent"] != nil || snap["global.dark.accent"] != nil
+    }
+
+    /// 助手面自带的紫，只在强调色没被调过时出现。
+    static let violet = Color(UIColor { tc in
         tc.userInterfaceStyle == .dark
             ? UIColor(red: 0.64, green: 0.52, blue: 1.00, alpha: 1)   // #A385FF
             : UIColor(red: 0.45, green: 0.30, blue: 0.93, alpha: 1)   // #734DED
@@ -355,7 +376,12 @@ enum HelperAccent {
     /// so badge text uses this one darker step of the same hue
     /// (#5628E9, 5.27 on the same blend). Dark mode keeps the main colour
     /// (already passing). HelperAccent.color is untouched everywhere else.
-    static let badgeText = Color(UIColor { tc in
+    static var badgeText: Color {
+        // 强调色被调过时，徽章字跟着强调色；没调过就是原来那个加深的紫。
+        Self.accentWasTuned ? ChatColors.accent : Self.badgeViolet
+    }
+
+    static let badgeViolet = Color(UIColor { tc in
         tc.userInterfaceStyle == .dark
             ? UIColor(red: 0.64, green: 0.52, blue: 1.00, alpha: 1)   // #A385FF
             : UIColor(red: 86/255, green: 40/255, blue: 233/255, alpha: 1)   // #5628E9
@@ -766,7 +792,7 @@ struct HelperDetailCard: View {
                                 .foregroundStyle(HelperAccent.color)
                             }
                             if !activity.isEmpty {
-                                Text(activity).font(ChatFont.font(13)).foregroundStyle(Color(UIColor.label))
+                                Text(activity).font(ChatFont.font(13)).foregroundStyle(ChatColors.primaryText)
                                     .textSelection(.enabled)
                             }
                         }
@@ -792,7 +818,7 @@ struct HelperDetailCard: View {
                                     icon: "exclamationmark.octagon") {
                         Text(detail)
                             .font(ChatFont.font(13, design: .monospaced))
-                            .foregroundStyle(Color(UIColor.label))
+                            .foregroundStyle(ChatColors.primaryText)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -826,7 +852,7 @@ struct HelperDetailCard: View {
                         } else {
                             Text(AppLocalized("No deliverable was returned"))
                                 .font(ChatFont.font(13))
-                                .foregroundStyle(Color(UIColor.secondaryLabel))
+                                .foregroundStyle(ChatColors.secondaryText)
                         }
                     }
                 }
@@ -858,13 +884,13 @@ struct HelperDetailCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, r in
                         HStack(alignment: .top, spacing: 8) {
-                            Text(r.0).font(ChatFont.font(12)).foregroundStyle(Color(UIColor.secondaryLabel))
+                            Text(r.0).font(ChatFont.font(12)).foregroundStyle(ChatColors.secondaryText)
                                 // [T-18] Fixed 84pt label column — cannot grow, so it
                                 // shrinks, but the floor comes from the system guard.
                                 .lineLimit(1).minimumScaleFactor(FontSettings.shrinkFloor(12, wanted: 0.8))
                                 .frame(width: 84, alignment: .leading)
                             Text(r.1).font(ChatFont.font(12, design: r.mono ? .monospaced : .default))
-                                .foregroundStyle(Color(UIColor.label))
+                                .foregroundStyle(ChatColors.primaryText)
                                 .textSelection(.enabled)
                             // [T-subagent-thinking-badge] Same pill the main
                             // conversation's nav bar puts beside its model, so
@@ -904,7 +930,7 @@ struct HelperDetailCard: View {
                 ReattachingSpinner(size: 11, lineWidth: 1.6, color: HelperAccent.color)
                 Text(AppLocalized("running")).font(ChatFont.font(11, weight: .semibold)).foregroundStyle(HelperAccent.color)
                 if !clock.isEmpty {
-                    Text(clock).font(ChatFont.font(11, design: .monospaced)).foregroundStyle(Color(UIColor.tertiaryLabel))
+                    Text(clock).font(ChatFont.font(11, design: .monospaced)).foregroundStyle(ChatColors.tertiaryText)
                 }
             case .finished(let status, let tier, _, let elapsed, _, _, _, _):
                 Text(info.statusText)
@@ -920,7 +946,7 @@ struct HelperDetailCard: View {
                 }
                 if let elapsed {
                     Text(HelperBlockInfo.elapsedLabel(elapsed))
-                        .font(ChatFont.font(11, design: .monospaced)).foregroundStyle(Color(UIColor.tertiaryLabel))
+                        .font(ChatFont.font(11, design: .monospaced)).foregroundStyle(ChatColors.tertiaryText)
                 }
             }
         }
@@ -1084,12 +1110,12 @@ struct HelperDetailCard: View {
 struct AgentDetailCard<Trailing: View, Content: View>: View {
     let title: String
     let icon: String
-    var iconTint: Color = Color(UIColor.secondaryLabel)
+    var iconTint: Color = ChatColors.secondaryText
     var trailing: () -> Trailing
     var bodyPadding: CGFloat = 12
     @ViewBuilder var content: () -> Content
 
-    init(title: String, icon: String, iconTint: Color = Color(UIColor.secondaryLabel),
+    init(title: String, icon: String, iconTint: Color = ChatColors.secondaryText,
          @ViewBuilder trailing: @escaping () -> Trailing,
          bodyPadding: CGFloat = 12,
          @ViewBuilder content: @escaping () -> Content) {
@@ -1097,9 +1123,19 @@ struct AgentDetailCard<Trailing: View, Content: View>: View {
         self.trailing = trailing; self.bodyPadding = bodyPadding; self.content = content
     }
 
-    private static var barBg: Color { Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.13, alpha: 1) : UIColor(white: 0.92, alpha: 1) }) }
-    private static var cardBg: Color { Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.10, alpha: 1) : UIColor(white: 0.94, alpha: 1) }) }
-    private static var stroke: Color { Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.25, alpha: 1) : UIColor(white: 0.82, alpha: 1) }) }
+    // [T-33] 这三处原来自写动态闭包，只看系统明暗、不看主题：面板里把卡片
+    // 调深或调亮，助手块这一整块纹丝不动。现在接卡片 / 描边角色，和别的
+    // 卡片同一套。barBg 用 mutedSurface（比卡片再低一档的"条"），cardBg
+    // 用 surface，stroke 用 border。
+    private static var barBg: Color {
+        ChatColors.secondaryBg
+    }
+    private static var cardBg: Color {
+        ChatColors.toolBg
+    }
+    private static var stroke: Color {
+        ChatColors.toolBorder
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1109,7 +1145,7 @@ struct AgentDetailCard<Trailing: View, Content: View>: View {
                     .foregroundStyle(iconTint)
                 Text(title)
                     .font(ChatFont.font(13, weight: .medium))
-                    .foregroundStyle(Color(UIColor.label))
+                    .foregroundStyle(ChatColors.primaryText)
                     .lineLimit(1)
                 Spacer(minLength: 6)
                 trailing()
@@ -1132,7 +1168,7 @@ struct AgentDetailCard<Trailing: View, Content: View>: View {
 }
 
 extension AgentDetailCard where Trailing == EmptyView {
-    init(title: String, icon: String, iconTint: Color = Color(UIColor.secondaryLabel),
+    init(title: String, icon: String, iconTint: Color = ChatColors.secondaryText,
          bodyPadding: CGFloat = 12,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, icon: icon, iconTint: iconTint, trailing: { EmptyView() },
