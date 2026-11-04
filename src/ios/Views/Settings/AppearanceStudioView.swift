@@ -321,7 +321,7 @@ struct AppearanceStudioView: View {
     private func applyPickedPhoto(_ item: PhotosPickerItem, for picker: AppearancePicker) async {
         let maxEdge: CGFloat
         switch picker {
-        case .wallpaper: maxEdge = 2200
+        case .wallpaper: maxEdge = WallpaperPipeline.maxEdge
         case .userAvatar, .assistantAvatar, .icon: maxEdge = 512
         case .thinkingCard, .inputBar: maxEdge = 1400
         case .categoryImage: maxEdge = 256

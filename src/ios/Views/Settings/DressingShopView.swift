@@ -858,7 +858,7 @@ struct DressingShopView: View {
     private func applyPickedWallpaper(_ item: PhotosPickerItem) async {
         defer { pickedWallpaperItem = nil }
         guard let data = try? await item.loadTransferable(type: Data.self),
-              let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 2200) else {
+              let image = ThumbnailCache.downsampledImage(from: data, maxEdge: WallpaperPipeline.maxEdge) else {
             wallpaperMessage = AppLocalized("选中的图读不出来。")
             return
         }

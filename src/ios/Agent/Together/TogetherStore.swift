@@ -1121,11 +1121,13 @@ enum TogetherImages {
     // 常量和 slots 清掉了；旧 state.json 里万一还留着 "wallpaper-sweet" 这条键，
     // 解码字典时多余的键会被忽略，文件原样留着不删、不崩。
 
-    static let extensions = ["jpg", "jpeg", "png", "heic", "webp"]
+    /// [T-55] 认得的扩展名和长边上限不再在这里定——都取自
+    /// `WallpaperPipeline`，跟主壁纸同一份。原来这里各写一套 2200，
+    /// 数值碰巧一样，改一处漏一处只是时间问题。
+    static let extensions = WallpaperPipeline.extensions
 
-    /// [T-30] 一起听壁纸的安全上限，长边像素。和主线壁纸拾取的上限一致：
-    /// 两张图不该各自定规矩。
-    static let maxEdge: CGFloat = 2200
+    /// [T-30] 一起听壁纸的安全上限，长边像素。现在它就是主壁纸那个上限本身。
+    static let maxEdge = WallpaperPipeline.maxEdge
 
     static var directory: URL {
         TogetherStore.shared.rootURL.appendingPathComponent("images", isDirectory: true)
@@ -1145,27 +1147,6 @@ enum TogetherImages {
         guard let img = UIImage(contentsOfFile: url.path) else { return nil }
         cache.setObject(img, forKey: key, cost: Int(img.size.width * img.size.height))
         return img
-    }
-
-    /// [T-30] 超过上限的图统一压到 `maxEdge` 长边、JPEG 0.86。
-    /// 与主线壁纸同一个上限（2200px），不各定一套规矩。
-    static func downscaledJPEG(_ image: UIImage, maxEdge: CGFloat) -> Data? {
-        guard let cg = image.cgImage else { return nil }
-        let source = CGSize(width: cg.width, height: cg.height)
-        guard source.width > 0, source.height > 0 else { return nil }
-        let scale = min(1, maxEdge / max(source.width, source.height))
-        let canvas = CGSize(width: max(1, source.width * scale),
-                            height: max(1, source.height * scale))
-        let format = UIGraphicsImageRendererFormat()
-        format.opaque = true
-        format.scale = 1
-        let rendered = UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
-            // 透明 PNG 压成 JPEG 会变黑边，先垫白 —— 壁纸本来也是压在底色上。
-            UIColor.white.setFill()
-            UIBezierPath(rect: CGRect(origin: .zero, size: canvas)).fill()
-            image.draw(in: CGRect(origin: .zero, size: canvas))
-        }
-        return rendered.jpegData(compressionQuality: 0.86)
     }
 
     static func invalidate(_ slot: String) {
@@ -1198,8 +1179,8 @@ extension TogetherStore {
         // 内容是什么都存成 .jpg。UIImage 靠内容嗅探能解 PNG/HEIC，但解不了
         // webp：拷贝成功、弹出"已更新"，渲染时解码失败回落主题色，静默撒谎。
         // 现在先解码验一次，再按真实格式定扩展名；解不出来就如实失败。
-        guard let image = UIImage(contentsOfFile: source.path),
-              image.size.width > 0, image.size.height > 0 else {
+        // [T-55] 解码验证走同一份 `WallpaperPipeline.decodedImage`，跟主壁纸一样。
+        guard let image = WallpaperPipeline.decodedImage(at: source) else {
             togetherLogger.error("[Together] 换图失败 \(slot)：这张图解不出来")
             return nil
         }
@@ -1227,7 +1208,7 @@ extension TogetherStore {
         try? fm.removeItem(at: dest)
         do {
             if oversized {
-                guard let data = TogetherImages.downscaledJPEG(image, maxEdge: TogetherImages.maxEdge) else {
+                guard let data = WallpaperPipeline.jpeg(image, matte: .white) else {
                     togetherLogger.error("[Together] 换图失败 \(slot)：压图失败")
                     return nil
                 }
@@ -1244,7 +1225,7 @@ extension TogetherStore {
         // 源文件名。压过的重编码成 jpg 之后，上面的 finalExt 已经对了。
         //
         // 落盘后再解一次：写坏/写不全也不许报成功。
-        guard let written = UIImage(contentsOfFile: dest.path), written.size.width > 0 else {
+        guard WallpaperPipeline.decodedImage(at: dest) != nil else {
             try? fm.removeItem(at: dest)
             togetherLogger.error("[Together] 换图失败 \(slot)：写进去的图解不出来")
             return nil
@@ -1259,32 +1240,10 @@ extension TogetherStore {
     /// [T-59] 这张图该用什么扩展名。优先看真实文件头，再看源文件名，
     /// 最后才回落到 jpg —— 三者都不认识的格式直接返回 nil，让调用方报错，
     /// 而不是写一个解不出来的文件。
+    /// [T-55] 扩展名判定只剩一份，和主壁纸共用 `WallpaperPipeline`。
+    /// 以前这里和主壁纸各有一套嗅探，虽然规则一样，改一处就容易漏另一处。
     static func imageFileExtension(for image: UIImage, source: URL) -> String? {
-        // 文件头最可靠：webp 的 RIFF…WEBP、PNG 的 89 50 4E 47、
-        // JPEG 的 FF D8、HEIC/HEIF 的 ftyp box。
-        var headData = Data()
-        if let handle = try? FileHandle(forReadingFrom: source) {
-            // read(upToCount:) throws and returns Data? — one try?, one binding.
-            if let chunk = try? handle.read(upToCount: 16) {
-                headData = chunk
-            }
-            try? handle.close()
-        }
-        let bytes = [UInt8](headData)
-        if bytes.count >= 12 {
-            if bytes[0] == 0x89, bytes[1] == 0x50, bytes[2] == 0x4E, bytes[3] == 0x47 { return "png" }
-            if bytes[0] == 0xFF, bytes[1] == 0xD8 { return "jpg" }
-            if bytes.count >= 12, bytes[0] == 0x52, bytes[1] == 0x49, bytes[2] == 0x46, bytes[3] == 0x46,
-               bytes[8] == 0x57, bytes[9] == 0x45, bytes[10] == 0x42, bytes[11] == 0x50 { return "webp" }
-            if bytes.count >= 8, bytes[4] == 0x66, bytes[5] == 0x74, bytes[6] == 0x79, bytes[7] == 0x70 {
-                return "heic"
-            }
-            if bytes[0] == 0x47, bytes[1] == 0x49, bytes[2] == 0x46 { return "gif" }
-        }
-        let ext = source.pathExtension.lowercased()
-        if TogetherImages.extensions.contains(ext) { return ext }
-        // 内容能解出来、但头也不认：用 jpg 兜底，UIImage 仍然读得懂。
-        return TogetherImages.extensions.contains("jpg") ? "jpg" : nil
+        WallpaperPipeline.fileExtension(for: image, source: source)
     }
 
     func clearImage(slot: String) {

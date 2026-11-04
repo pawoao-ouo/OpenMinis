@@ -5,6 +5,99 @@ import UIKit
 /// [B28 R2-2] 图片写失败不再静默：留一条可查的日志。
 let appearanceLog = AppLogger(category: "Appearance")
 
+// MARK: - Wallpaper pipeline
+
+/// 所有壁纸走同一条管线：同一个长边上限、同一种压色、同一套格式判定。
+///
+/// [T-55] 以前主壁纸和一起听壁纸各写一份——两份 2200 常量、两个几乎逐行
+/// 相同的缩放 + JPEG 函数、两套扩展名嗅探。数值碰巧一样，改一处漏一处只是
+/// 时间问题；"并系统"在这层才算真的并上。现在只剩这一份，两处都调它。
+///
+/// 不标 `@MainActor`：`UIImage` 与 `UIGraphicsImageRenderer` 都不是主线程
+/// 独占的，而一起听的写入路径在外层已经隔离，多挂一层反而挡住它。
+enum WallpaperPipeline {
+
+    /// 长边上限，像素。超过的一律缩到这个尺寸再编码。
+    /// 全仓壁纸只认这一个数。
+    static let maxEdge: CGFloat = 2200
+
+    /// 压过之后的质量。0.86 是肉眼看不出、体积又明显下来的位置。
+    static let jpegQuality: CGFloat = 0.86
+
+    /// 认得的扩展名白名单。落盘只写这几种。
+    static let extensions = ["jpg", "jpeg", "png", "heic", "webp"]
+
+    /// 缩到 `maxEdge` 以内并编码成 JPEG。
+    ///
+    /// `matte` 是透明区域垫的底色——JPEG 没有 alpha，不垫会变黑边。主壁纸
+    /// 垫画布色（跟着明暗走），一起听垫白，两者靠这个参数分开，不再各写一份。
+    static func jpeg(_ image: UIImage,
+                     maxEdge: CGFloat = WallpaperPipeline.maxEdge,
+                     matte: UIColor) -> Data? {
+        guard let cg = image.cgImage else { return nil }
+        let source = CGSize(width: cg.width, height: cg.height)
+        guard source.width > 0, source.height > 0 else { return nil }
+        let scale = min(1, maxEdge / max(source.width, source.height))
+        let canvas = CGSize(width: max(1, (source.width * scale).rounded()),
+                            height: max(1, (source.height * scale).rounded()))
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
+            matte.setFill()
+            UIBezierPath(rect: CGRect(origin: .zero, size: canvas)).fill()
+            image.draw(in: CGRect(origin: .zero, size: canvas))
+        }
+        return rendered.jpegData(compressionQuality: jpegQuality)
+    }
+
+    /// 这张图该存成什么扩展名。先看真实文件头，再看源文件名，最后回落 jpg。
+    /// 三者都不认识时返回 nil，让调用方如实报错，而不是写一个解不出来的文件。
+    static func fileExtension(for image: UIImage, source: URL) -> String? {
+        var headData = Data()
+        if let handle = try? FileHandle(forReadingFrom: source) {
+            if let chunk = try? handle.read(upToCount: 16) {
+                headData = chunk
+            }
+            try? handle.close()
+        }
+        return fileExtension(forHead: [UInt8](headData),
+                             fallbackPathExtension: source.pathExtension)
+    }
+
+    /// 只看字节的版本，方便单测直接喂 Data。
+    static func fileExtension(forHead bytes: [UInt8],
+                              fallbackPathExtension: String? = nil) -> String? {
+        if bytes.count >= 12 {
+            // PNG 的 89 50 4E 47、JPEG 的 FF D8、webp 的 RIFF…WEBP、
+            // HEIC/HEIF 的 ftyp box、GIF 的 GIF8。
+            if bytes[0] == 0x89, bytes[1] == 0x50, bytes[2] == 0x4E, bytes[3] == 0x47 { return "png" }
+            if bytes[0] == 0xFF, bytes[1] == 0xD8 { return "jpg" }
+            if bytes[0] == 0x52, bytes[1] == 0x49, bytes[2] == 0x46, bytes[3] == 0x46,
+               bytes[8] == 0x57, bytes[9] == 0x45, bytes[10] == 0x42, bytes[11] == 0x50 { return "webp" }
+            if bytes[4] == 0x66, bytes[5] == 0x74, bytes[6] == 0x79, bytes[7] == 0x70 { return "heic" }
+            if bytes[0] == 0x47, bytes[1] == 0x49, bytes[2] == 0x46 { return "gif" }
+        }
+        if let ext = fallbackPathExtension?.lowercased(), extensions.contains(ext) { return ext }
+        // 头也不认、名字也不认：用 jpg 兜底，UIImage 仍然读得懂。
+        return extensions.contains("jpg") ? "jpg" : nil
+    }
+
+    /// 解码验证。写盘前和写盘后各用一次：解不出来就是解不出来，不许报成功。
+    static func decodedImage(_ data: Data) -> UIImage? {
+        guard let image = UIImage(data: data),
+              image.size.width > 0, image.size.height > 0 else { return nil }
+        return image
+    }
+
+    /// 解码验证（落盘后按文件读）。
+    static func decodedImage(at url: URL) -> UIImage? {
+        guard let image = UIImage(contentsOfFile: url.path),
+              image.size.width > 0, image.size.height > 0 else { return nil }
+        return image
+    }
+}
+
 // MARK: - Semantic appearance system
 
 enum AppearanceScope: String, CaseIterable, Identifiable {
@@ -1109,11 +1202,12 @@ final class AppearanceStudio: ObservableObject {
         // [T-29] 解不出来的字节不许落盘。以前原样写进 wallpaper-<scope>.jpg
         // 再回 true：文件在、hasWallpaper 也真，渲染却是纯色底，只有手动
         // 清除能救回来。现在直接失败，让调用方（主题包流程）追加 warning。
-        guard let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else {
+        // [T-55] 解码验证和一起听同一个入口（`WallpaperPipeline.decodedImage`）。
+        guard let image = WallpaperPipeline.decodedImage(data) else {
             appearanceLog.warning("wallpaper bytes for \(scope.rawValue) do not decode; nothing written")
             return false
         }
-        if max(image.size.width, image.size.height) > 2200 {
+        if max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge {
             return setWallpaper(image, for: scope)
         }
         return writeWallpaperData(data, for: scope)
@@ -1258,26 +1352,17 @@ final class AppearanceStudio: ObservableObject {
         wallpaperClearedFallback = Set(raw.compactMap(AppearanceScope.init(rawValue:)))
     }
 
+    /// [T-8/T-54/T-55] 主壁纸编码。缩放、压色、质量全在 `WallpaperPipeline`
+    /// 那一份里，这里只负责挑垫底的颜色。
+    ///
+    /// [PIC-8] Matte follows the color scheme: a transparent PNG set in dark
+    /// mode used to be flattened onto the light canvas color, leaving a pale
+    /// fringe around dark content. [T-54] 这一条就是审计说的"透明 PNG 烘焙
+    /// 底色"——垫的是画布色而不是写死的白，所以换明暗不会留下一圈亮边。
     private static func backgroundJPEG(_ image: UIImage, dark: Bool = false) -> Data? {
-        guard let cg = image.cgImage else { return nil }
-        let maxEdge: CGFloat = 2200
-        let source = CGSize(width: cg.width, height: cg.height)
-        let scale = min(1, maxEdge / max(source.width, source.height))
-        let size = CGSize(width: max(1, source.width * scale),
-                          height: max(1, source.height * scale))
-        let format = UIGraphicsImageRendererFormat()
-        format.opaque = true
-        format.scale = 1
-        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            // [PIC-8] Matte follows the color scheme: a transparent PNG set
-            // in dark mode used to be flattened onto the light canvas color,
-            // leaving a pale fringe around dark content.
-            let book = dark ? darkDefaults : lightDefaults
-            UIColor(hex: book[.canvas] ?? (dark ? "000000" : "F5F5F7")).setFill()
-            UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
-            image.draw(in: CGRect(origin: .zero, size: size))
-        }
-        return rendered.jpegData(compressionQuality: 0.86)
+        let book = dark ? darkDefaults : lightDefaults
+        let matte = UIColor(hex: book[.canvas] ?? (dark ? "000000" : "F5F5F7"))
+        return WallpaperPipeline.jpeg(image, matte: matte)
     }
 
     // MARK: Paired avatars

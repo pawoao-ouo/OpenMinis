@@ -221,6 +221,23 @@ check("hex rejected before store", extras.contains("allSatisfy({ $0.isHexDigit }
 check("extras emit maps ok", extrasCommands.contains("theme_extra_emit"))
 check("host path resolved in objc", extrasCommands.contains("noff_resolve_host_path"))
 
+// [T-55] 壁纸只认一处上限。主壁纸和一起听各写一份 2200、各写一份压色，
+// 是这条审计的原始问题；收敛之后只许 `WallpaperPipeline.maxEdge` 一处出现。
+let together = read(here.appendingPathComponent("Agent/Together/TogetherStore.swift"))
+let shop = read(here.appendingPathComponent("Views/Settings/DressingShopView.swift"))
+check("wallpaper maxEdge lives in one place",
+      studio.contains("static let maxEdge: CGFloat = 2200"))
+check("together has no second 2200 literal", !together.contains("= 2200"))
+check("shop has no second 2200 literal", !shop.contains("maxEdge: 2200"))
+check("together encodes through the pipeline",
+      together.contains("WallpaperPipeline.jpeg(image, matte: .white)"))
+check("together sniffs through the pipeline",
+      together.contains("WallpaperPipeline.fileExtension(for: image, source: source)"))
+check("main wallpaper encodes through the pipeline",
+      studio.contains("return WallpaperPipeline.jpeg(image, matte: matte)"))
+check("together downscale implementation is gone", !together.contains("func downscaledJPEG"))
+check("pipeline owns the only quality constant", studio.contains("static let jpegQuality: CGFloat = 0.86"))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)
