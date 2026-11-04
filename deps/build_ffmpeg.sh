@@ -58,6 +58,11 @@ log_error() {
     exit 1
 }
 
+# 不算失败的坏消息：还能继续往下走的那种。
+log_warn() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+}
+
 # ============================================================================
 # Clean Build
 # ============================================================================
@@ -138,7 +143,8 @@ fetch_ffmpeg_source() {
             got="$url"
             break
         fi
-        log_error "  no usable source at ${url}, trying the next mirror"
+        # log_error 会 exit 1——单个镜像失败只是"换下一个"，不能结束整个构建。
+        log_warn "  no usable source at ${url}, trying the next mirror"
     done
     if [ -z "$got" ]; then
         rm -rf "$tmp"
