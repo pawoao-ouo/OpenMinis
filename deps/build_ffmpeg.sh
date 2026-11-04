@@ -118,47 +118,52 @@ check_prerequisites() {
 # ============================================================================
 fetch_ffmpeg_source() {
     local version="6.1.2"
-    local tarball="ffmpeg-${version}.tar.xz"
-    # ffmpeg.org 从 GitHub 的 macOS runner 上经常连不上：跑几个 run 里都是
-    # "Failed to connect to ffmpeg.org port 443 after 75014 ms"——不是我们这边
-    # 的错，是整个构建卡在一个连不上的源上。官方主站失败就换镜像，每次都带
-    # 连接超时，别让一次 DNS 抽风赔上十几分钟。
-    local urls=(
-        "https://ffmpeg.org/releases/${tarball}"
-        "https://ftp.osuosl.org/pub/ffmpeg/releases/${tarball}"
-        "https://mirrors.ustc.edu.cn/ffmpeg/releases/${tarball}"
-        "https://mirror.aarnet.edu.au/pub/ffmpeg/releases/${tarball}"
-    )
     local tmp
     tmp="$(mktemp -d)"
 
+    # ffmpeg.org 从 GitHub 的 macOS runner 上根本连不上——三次构建全是
+    # "curl: (28) SSL connection timeout / Failed to connect port 443"。
+    # 它的镜像站（OSUOSL、中科大、AARNet）路径也都不对，四个全是 404。
+    # 唯一稳定可达的是 GitHub 自己的源码包，所以主源换成它，官方站留作备用。
+    #
+    # 每个候选写清"文件名 + 解开后顶层目录名"，因为 .tar.xz 解出
+    # `ffmpeg-6.1.2`，GitHub 的 .tar.gz 解出 `FFmpeg-n6.1.2`——两种都有，
+    # 不能假定一种。
+    local names=(
+        "ffmpeg-${version}.tar.gz|FFmpeg-n${version}|https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n${version}"
+        "ffmpeg-${version}.tar.xz|ffmpeg-${version}|https://ffmpeg.org/releases/ffmpeg-${version}.tar.xz"
+        "ffmpeg-${version}.tar.xz|ffmpeg-${version}|https://ftp.osuosl.org/pub/ffmpeg/releases/ffmpeg-${version}.tar.xz"
+    )
+
     log_info "FFmpeg source not present — downloading ${version}..."
-    local url got=""
-    for url in "${urls[@]}"; do
+    local entry file dir url got=""
+    for entry in "${names[@]}"; do
+        IFS='|' read -r file dir url <<< "$entry"
         log_info "  trying ${url}"
-        rm -f "$tmp/$tarball"
-        if curl -fL# --connect-timeout 20 --max-time 420 --retry 2 --retry-delay 2 \
-                "$url" -o "$tmp/$tarball" \
-           && tar -tf "$tmp/$tarball" >/dev/null 2>&1; then
-            got="$url"
-            break
+        rm -f "$tmp/$file"
+        rm -rf "$tmp/$dir"
+        # --retry 只对 5xx/超时重试；404 立刻放弃换下一个，别空等。
+        if curl -fL# --connect-timeout 20 --max-time 600 --retry 3 --retry-delay 3 \
+                "$url" -o "$tmp/$file" \
+           && tar -tf "$tmp/$file" >/dev/null 2>&1; then
+            log_info "  extracting ${file}..."
+            if tar -xf "$tmp/$file" -C "$tmp" && [ -d "$tmp/$dir" ]; then
+                got="$url"
+                break
+            fi
+            log_warn "  ${file} downloaded but did not extract to ${dir}"
         fi
-        # log_error 会 exit 1——单个镜像失败只是"换下一个"，不能结束整个构建。
-        log_warn "  no usable source at ${url}, trying the next mirror"
+        # log_error 会 exit 1——单个源失败只是"换下一个"，不能结束整个构建。
+        log_warn "  no usable source at ${url}, trying the next one"
     done
+
     if [ -z "$got" ]; then
         rm -rf "$tmp"
-        log_error "Failed to download FFmpeg ${version} from every mirror — place the source at $FFMPEG_DIR manually."
+        log_error "Failed to download FFmpeg ${version} from every source — place the source at $FFMPEG_DIR manually."
     fi
     log_info "  using ${got}"
 
-    log_info "Extracting..."
-    if ! tar -xf "$tmp/$tarball" -C "$tmp"; then
-        rm -rf "$tmp"
-        log_error "Failed to extract $tarball"
-    fi
-
-    mv "$tmp/ffmpeg-${version}" "$FFMPEG_DIR"
+    mv "$tmp/$dir" "$FFMPEG_DIR"
     rm -rf "$tmp"
     log_success "FFmpeg ${version} source ready at $FFMPEG_DIR"
 }
