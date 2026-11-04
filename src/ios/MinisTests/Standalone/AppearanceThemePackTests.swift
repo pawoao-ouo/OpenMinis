@@ -346,6 +346,19 @@ check("shop panel builds its groups from the enum",
 check("shop panel has no second group table",
       !shopView.contains("ColorVarGroup(title: AppLocalized(\"字\")"))
 
+// [T-46] 透明度三根旋钮：活界面必须能调，重置不许静默改值。
+check("shop exposes the card opacity dial",
+      shopView.contains("Slider(value: $studio.surfaceOpacity, in: 0.35...1)"))
+check("shop exposes a named reset for the opacity dials",
+      shopView.contains("studio.resetOpacityDials()"))
+check("resetColors no longer touches the opacity dials",
+      studio.contains("func resetColors() {\n        customColors.removeAll()\n        persistColors()"))
+check("opacity reset is its own action",
+      studio.contains("func resetOpacityDials() {"))
+check("a pack that omits opacity keeps hers",
+      pack.contains("warnings.append(\"surfaceOpacityKept\")")
+      && !pack.contains("else if replace { surfaceOpacity = 0.88 }"))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)

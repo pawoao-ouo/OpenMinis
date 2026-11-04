@@ -1256,14 +1256,20 @@ extension AppearanceStudio {
         if !pack.colorsLight.isEmpty || !pack.colorsDark.isEmpty {
             applyPackColors(light: pack.colorsLight, dark: pack.colorsDark)
         }
+        // [T-46] 包里没写这三个旋钮时，**不再**强制拉回默认值。
+        //
+        // 原来 replace 模式会把 surfaceOpacity 压回 0.88、bubbleOpacity 压回
+        // 1.0、wallpaperShade 压回 0.08——而这三个值当时在活界面上根本没有
+        // 入口，她调不了也看不见，只会发现自己调好的卡片忽然变实了。现在
+        // 有入口了，更要保留她的值：一个包没说透明度，就是"不关我的事"，
+        // 不是"要 0.88"。
         if let opacity = pack.surfaceOpacity { surfaceOpacity = opacity }
-        else if replace { surfaceOpacity = 0.88 }
+        else if replace { warnings.append("surfaceOpacityKept") }
         if let shade = pack.wallpaperShade { wallpaperShade = shade }
-        else if replace { wallpaperShade = 0.08 }
-        // A saved pack never carries bubbleOpacity, so in replace mode
-        // it reverts to the built-in 1.0 instead of keeping the old
-        // theme's value — same rule as surfaceOpacity/wallpaperShade.
-        if replace { bubbleOpacity = 1.0 }
+        else if replace { warnings.append("wallpaperShadeKept") }
+        // A saved pack never carries bubbleOpacity, so in replace mode it
+        // used to revert to 1.0. Same rule as above: keep hers.
+        if replace { warnings.append("bubbleOpacityKept") }
         if let wallpaper {
             if !setWallpaper(wallpaper, for: .global) { warnings.append("wallpaper") }
         } else if let b64 = pack.wallpaperJPEGBase64 {

@@ -1073,13 +1073,22 @@ final class AppearanceStudio: ObservableObject {
         configureUIKitSurfaces()
     }
 
+    /// [T-46] 恢复默认配色**不再碰**透明度和压色。
+    ///
+    /// 原来这三行会悄悄把它们改回 0.88 / 1.0 / 0.08，而界面上根本没有入口
+    /// （唯一那根滑杆在死页里），所以她永远看不到自己调过的值被抹掉，也
+    /// 不知道为什么卡片忽然变实了。现在只清颜色，三个旋钮各归各的按钮改。
     func resetColors() {
         customColors.removeAll()
+        persistColors()
+        configureUIKitSurfaces()
+    }
+
+    /// 三个旋钮回到出厂值。单独一个动作，界面上有按钮，改之前问一声。
+    func resetOpacityDials() {
         surfaceOpacity = 0.88
         bubbleOpacity = 1.0
         wallpaperShade = 0.08
-        persistColors()
-        configureUIKitSurfaces()
     }
 
     /// Clear ONLY the global colour overrides, back to the built-in

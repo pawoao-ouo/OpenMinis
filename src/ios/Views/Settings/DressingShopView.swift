@@ -830,6 +830,36 @@ struct DressingShopView: View {
                     .foregroundStyle(studio.color(.secondaryText))
                     .frame(minWidth: 28, alignment: .trailing)
             }
+            // [T-46] 卡片透明度（surfaceOpacity）一直没有活界面的入口——
+            // 唯一那根滑杆在 `AppearanceStudioView` 里，而那个页面根本没有
+            // 入口，点不到。于是这个值只会在"恢复默认"时被静默重置成 0.88，
+            // 她却没有任何地方能看见、能改。现在接到这一页，壁纸压色旁边。
+            HStack(spacing: 12) {
+                Text(AppLocalized("卡片透明度"))
+                    .font(.system(size: fsSub))
+                    .foregroundStyle(studio.color(.primaryText))
+                Slider(value: $studio.surfaceOpacity, in: 0.35...1)
+                    .frame(minHeight: 44)
+                    .accessibilityLabel(AppLocalized("卡片透明度"))
+                Text(cardOpacityLabel)
+                    .font(.system(size: fsCaption, weight: .medium))
+                    .foregroundStyle(studio.color(.secondaryText))
+                    .frame(minWidth: 34, alignment: .trailing)
+            }
+            Text(AppLocalized("卡片、输入栏、胶囊的底有多实。调低能透出壁纸；1 是完全不透明。"))
+                .font(.system(size: fsCaption))
+                .foregroundStyle(studio.color(.secondaryText))
+            // [T-46] 这三根旋钮以前没有任何复位入口，只能靠"恢复默认配色"
+            // 顺手抹掉（而且不说）。现在给一个明说的按钮。
+            Button(AppLocalized("透明度和压色回到默认")) {
+                studio.resetOpacityDials()
+                wallpaperMessage = AppLocalized("透明度与压色已回到默认。")
+            }
+            .font(.system(size: fsCaption, weight: .semibold))
+            .foregroundStyle(studio.color(.secondaryText))
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .overlay(Capsule().stroke(studio.color(.border), lineWidth: 1))
+            .buttonStyle(FontPressStyle(scale: 0.97))
             // [T-68] 压色是干什么的，得有一句话。以前只有一根滑杆和一个数字。
             Text(AppLocalized("把壁纸压暗，字更清楚。"))
                 .font(.system(size: fsCaption))
@@ -2303,6 +2333,11 @@ struct DressingShopView: View {
     /// a pulsing SYNCHRONIZED badge, a leading pen icon and
     /// a send capsule with its paper-plane icon.
     /// [T-68] 压色档位的大白话。0 = 不压，往上是浅/中/深。
+    /// [T-46] 卡片透明度读成百分比，别吐小数——同一个页面里压色已经这么做了。
+    private var cardOpacityLabel: String {
+        "\(Int((studio.surfaceOpacity * 100).rounded()))%"
+    }
+
     private var wallpaperShadeLabel: String {
         switch studio.wallpaperShade {
         case ..<0.08: return AppLocalized("不压")
