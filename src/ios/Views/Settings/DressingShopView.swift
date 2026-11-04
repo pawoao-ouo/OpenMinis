@@ -900,7 +900,6 @@ struct DressingShopView: View {
         .padding(.horizontal, 16)
     }
 
-    @MainActor
     /// [T-39] 贴图落地。和壁纸走同一个解码上限，但落点不同：
     /// 输入栏、思考卡各自一套 setter + 浓度。
     @MainActor
