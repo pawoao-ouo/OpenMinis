@@ -1678,24 +1678,31 @@ private enum AppearancePaletteBook {
     // saturation: they are small badges and prompts, and hue is
     // how they mean anything; every surface, text, and accent
     // token stays black / white / neutral grey.
+    // [T-43] 浅色档原来 canvas/surface/raised/field 里三个是同一个 FFFFFF，
+    // 卡片、浮层、输入框在白底上完全没有层次——她说的"看不出哪层是哪层"。
+    // 现在按"canvas 最灰 → raised 次之 → surface 最白"排，输入框单独一档
+    // 灰（iOS 的 search field 语言），四层各差一点点。
     static let light: [AppearanceColorRole: String] = [
-        .canvas: "F5F5F7", .surface: "FFFFFF", .raised: "FFFFFF",
+        .canvas: "F5F5F7", .surface: "FFFFFF", .raised: "FBFBFD",
         .mutedSurface: "F7F7F9", .primaryText: "111113", .secondaryText: "636366",
         .tertiaryText: "8E8E93", .shellText: "E5E5EA",
         .accent: "111113", .userBubble: "E5E5EA", .assistantBubble: "FFFFFF",
         .border: "E8E8E8",
-        .field: "FFFFFF", .iconTile: "F2F2F5", .chip: "EBEBEF",
+        .field: "F4F4F7", .iconTile: "F2F2F5", .chip: "EBEBEF",
         .disabled: "B8B8BD",
         .success: "5A8F6A",
         .warning: "B7791F", .destructive: "D9383A"
     ]
+    // [T-43] 深色档原来 raised 和 mutedSurface 都是 2C2C2E、field 和 surface
+    // 都是 1C1C1E，同样是撞车。浮层保持最高一档，浅底块下移到卡片与浮层
+    // 之间，输入框单独一档——HIG 的两层深色面拉开成四档。
     static let dark: [AppearanceColorRole: String] = [
         .canvas: "000000", .surface: "1C1C1E", .raised: "2C2C2E",
-        .mutedSurface: "2C2C2E", .primaryText: "FFFFFF", .secondaryText: "AEAEB2",
+        .mutedSurface: "242426", .primaryText: "FFFFFF", .secondaryText: "AEAEB2",
         .tertiaryText: "8E8E93", .shellText: "E5E5EA",
         .accent: "FFFFFF", .userBubble: "3A3A3C", .assistantBubble: "1C1C1E",
         .border: "38383A",
-        .field: "1C1C1E", .iconTile: "2C2C2E", .chip: "3A3A3C",
+        .field: "262628", .iconTile: "2C2C2E", .chip: "3A3A3C",
         .disabled: "5A5A5F",
         .success: "7FBF8F",
         .warning: "D9A441", .destructive: "FF453A"

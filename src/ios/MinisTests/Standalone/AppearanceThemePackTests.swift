@@ -320,6 +320,17 @@ check("helper accent reads the snapshot, not the isolated studio",
       helperBlock.contains("AppearanceStudio.colorSnapshot")
       && !helperBlock.contains("AppearanceStudio.shared.hasOverride"))
 
+// [T-43] 内置默认表里，卡片 / 浮层 / 输入框必须是三个不同的值——原来浅色
+// 三个都是 FFFFFF、深色 field 与 surface 同值，白底上根本看不出层次。
+check("light surfaces are three distinct steps",
+      studio.contains(".surface: \"FFFFFF\", .raised: \"FBFBFD\"")
+      && studio.contains(".field: \"F4F4F7\""))
+check("dark surfaces are three distinct steps",
+      studio.contains(".surface: \"1C1C1E\", .raised: \"2C2C2E\"")
+      && studio.contains(".field: \"262628\""))
+check("dark muted block sits between surface and raised",
+      studio.contains(".mutedSurface: \"242426\""))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)
