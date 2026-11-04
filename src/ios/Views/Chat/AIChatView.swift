@@ -71,26 +71,26 @@ private final class CachedViewModel: ObservableObject {
 enum ChatColors {
     private static var studio: AppearanceStudio { .shared }
     static var background: Color {
-        studio.hasWallpaper(.chat) ? .clear : studio.color(.canvas, scope: .chat)
+        studio.hasWallpaper(ThemeColorLayer.chat) ? .clear : studio.color(.canvas, scope: ThemeColorLayer.chat)
     }
     static var secondaryBg: Color {
-        studio.color(.surface, scope: .chat).opacity(studio.surfaceOpacity)
+        studio.color(.surface, scope: ThemeColorLayer.chat).opacity(studio.surfaceOpacity)
     }
     /// 小方块图标底。原先输入栏走 mutedSurface、消息操作栏走 surface，
     /// 两处同一种控件挂两个角色，怎么调都只能对一半。现在统一走 iconTile。
     static var inputIconBg: Color {
-        studio.color(.iconTile, scope: .chat).opacity(studio.surfaceOpacity)
+        studio.color(.iconTile, scope: ThemeColorLayer.chat).opacity(studio.surfaceOpacity)
     }
     /// 胶囊/徽章底。
     static var chipBg: Color {
-        studio.color(.chip, scope: .chat).opacity(studio.surfaceOpacity)
+        studio.color(.chip, scope: ThemeColorLayer.chat).opacity(studio.surfaceOpacity)
     }
-    static var inputIconBorder: Color { studio.color(.border, scope: .chat) }
+    static var inputIconBorder: Color { studio.color(.border, scope: ThemeColorLayer.chat) }
     static var inputBg: Color {
-        studio.color(.field, scope: .chat).opacity(studio.surfaceOpacity)
+        studio.color(.field, scope: ThemeColorLayer.chat).opacity(studio.surfaceOpacity)
     }
-    static var inputBorder: Color { studio.color(.border, scope: .chat) }
-    static var primaryText: Color { studio.color(.primaryText, scope: .chat) }
+    static var inputBorder: Color { studio.color(.border, scope: ThemeColorLayer.chat) }
+    static var primaryText: Color { studio.color(.primaryText, scope: ThemeColorLayer.chat) }
     /// [bubble-grouping] My-bubble text only. Unset, it follows
     /// primaryText; set on the bubble page, it no longer moves global text.
     /// [bubble-foundation] A pack's own text colour wins when the
@@ -99,23 +99,23 @@ enum ChatColors {
     /// theme slot, as before. Shop and detail resolve the same way
     /// from the pack record, so text colour cannot disagree
     /// between sample and live.
-    static var bubbleText: Color { MinisThemeShape.packTextColor(user: true) ?? studio.color(.bubbleText, scope: .chat) }
+    static var bubbleText: Color { MinisThemeShape.packTextColor(user: true) ?? studio.color(.bubbleText, scope: ThemeColorLayer.chat) }
     /// [fixer-F1] AI-bubble text only, mirror of bubbleText. Unset, it
     /// follows primaryText; set on the bubble page, it drives the AI
     /// message body (markdown label colour) and nothing else.
-    static var assistantBubbleText: Color { MinisThemeShape.packTextColor(user: false) ?? studio.color(.assistantBubbleText, scope: .chat) }
-    static var secondaryText: Color { studio.color(.secondaryText, scope: .chat) }
+    static var assistantBubbleText: Color { MinisThemeShape.packTextColor(user: false) ?? studio.color(.assistantBubbleText, scope: ThemeColorLayer.chat) }
+    static var secondaryText: Color { studio.color(.secondaryText, scope: ThemeColorLayer.chat) }
     /// [T-04] 以前是「次文字 × 0.72」，`tertiaryText` 这个角色全仓没人读，
     /// 面板上那一行的色样和还原箭头只是装饰。现在真读角色。
-    static var tertiaryText: Color { studio.color(.tertiaryText, scope: .chat) }
+    static var tertiaryText: Color { studio.color(.tertiaryText, scope: ThemeColorLayer.chat) }
     /// [T-42] 不可用态。以前没有这个角色，按钮变灰只能借用次文字或者
     /// 硬压透明度——把次文字调亮，不能点的按钮看着就跟能点一样。
-    static var disabled: Color { studio.color(.disabled, scope: .chat) }
+    static var disabled: Color { studio.color(.disabled, scope: ThemeColorLayer.chat) }
     static var userBubble: Color {
-        studio.color(.userBubble, scope: .chat).opacity(bubbleAlpha)
+        studio.color(.userBubble, scope: ThemeColorLayer.chat).opacity(bubbleAlpha)
     }
     static var assistantBubble: Color {
-        studio.color(.assistantBubble, scope: .chat).opacity(bubbleAlpha)
+        studio.color(.assistantBubble, scope: ThemeColorLayer.chat).opacity(bubbleAlpha)
     }
     /// [T-bubble-opacity-slider][v3 09-10] Was `min(bubbleOpacity,
     /// surfaceOpacity)` — the card-opacity cap silently clamped the top of
@@ -128,16 +128,16 @@ enum ChatColors {
     }
     static var toolBg: Color {
         // [10-15 1-4 醒醒] 工具卡归入卡片体系：消费点改走卡片角色（surface），旧 toolCard 键仍保留兼容读取
-        studio.color(.surface, scope: .chat).opacity(studio.surfaceOpacity)
+        studio.color(.surface, scope: ThemeColorLayer.chat).opacity(studio.surfaceOpacity)
     }
-    static var toolBorder: Color { studio.color(.border, scope: .chat).opacity(0.75) }
-    static var accent: Color { studio.color(.accent, scope: .chat) }
-    static var shellText: Color { studio.color(.shellText, scope: .chat) }
-    static var success: Color { studio.color(.success, scope: .chat) }
-    static var warning: Color { studio.color(.warning, scope: .chat) }
-    static var destructive: Color { studio.color(.destructive, scope: .chat) }
-    static var sendButton: Color { studio.color(.accent, scope: .chat) }
-    static var sendButtonDisabled: Color { studio.color(.secondaryText, scope: .chat).opacity(0.4) }
+    static var toolBorder: Color { studio.color(.border, scope: ThemeColorLayer.chat).opacity(0.75) }
+    static var accent: Color { studio.color(.accent, scope: ThemeColorLayer.chat) }
+    static var shellText: Color { studio.color(.shellText, scope: ThemeColorLayer.chat) }
+    static var success: Color { studio.color(.success, scope: ThemeColorLayer.chat) }
+    static var warning: Color { studio.color(.warning, scope: ThemeColorLayer.chat) }
+    static var destructive: Color { studio.color(.destructive, scope: ThemeColorLayer.chat) }
+    static var sendButton: Color { studio.color(.accent, scope: ThemeColorLayer.chat) }
+    static var sendButtonDisabled: Color { studio.color(.secondaryText, scope: ThemeColorLayer.chat).opacity(0.4) }
 }
 
 // MARK: - Main View
@@ -3054,7 +3054,7 @@ struct AIChatView: View {
     private struct ScrollToBottomBackground: View {
         @Environment(\.colorScheme) private var colorScheme
         var body: some View {
-            AppearanceStudio.shared.color(.canvas, scope: .chat).opacity(colorScheme == .dark ? 0.8 : 0.92)
+            AppearanceStudio.shared.color(.canvas, scope: ThemeColorLayer.chat).opacity(colorScheme == .dark ? 0.8 : 0.92)
         }
     }
 
@@ -4626,7 +4626,7 @@ struct AIChatView: View {
                         Capsule().fill(
                             isSelected
                             ? ChatColors.accent.opacity(0.2)
-                            : AppearanceStudio.shared.color(.mutedSurface, scope: .chat)
+                            : AppearanceStudio.shared.color(.mutedSurface, scope: ThemeColorLayer.chat)
                         )
                     )
             }
@@ -5414,13 +5414,13 @@ private struct MoveToSessionSheet: View {
                                     highlightedText(
                                         session.title ?? AppLocalized("New Chat"),
                                         font: ChatFont.font(16, weight: .semibold),
-                                        color: AppearanceStudio.shared.color(.primaryText, scope: .chat)
+                                        color: AppearanceStudio.shared.color(.primaryText, scope: ThemeColorLayer.chat)
                                     )
                                     .lineLimit(1)
                                     highlightedText(
                                         session.lastMessage ?? AppLocalized("No messages yet"),
                                         font: ChatFont.font(14),
-                                        color: AppearanceStudio.shared.color(.secondaryText, scope: .chat)
+                                        color: AppearanceStudio.shared.color(.secondaryText, scope: ThemeColorLayer.chat)
                                     )
                                     .lineLimit(1)
                                 }
@@ -5428,11 +5428,11 @@ private struct MoveToSessionSheet: View {
                                 VStack(alignment: .trailing, spacing: 2) {
                                     Text(relativeDate(session.updatedAt))
                                         .font(ChatFont.font(13))
-                                        .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat).opacity(0.7))
+                                        .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: ThemeColorLayer.chat).opacity(0.7))
                                     if showAllPersonas, let owner = personaName(for: session) {
                                         Text(owner)
                                             .font(ChatFont.font(11))
-                                            .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: .chat).opacity(0.6))
+                                            .foregroundStyle(AppearanceStudio.shared.color(.secondaryText, scope: ThemeColorLayer.chat).opacity(0.6))
                                     }
                                 }
                             }
@@ -5652,7 +5652,7 @@ private struct SessionLockGateOverlay: View {
                 .fill(.regularMaterial)
                 .ignoresSafeArea()
                 .overlay {
-                    AppearanceStudio.shared.color(.canvas, scope: .chat).opacity(0.4)
+                    AppearanceStudio.shared.color(.canvas, scope: ThemeColorLayer.chat).opacity(0.4)
                         .ignoresSafeArea()
                 }
 
@@ -6124,7 +6124,7 @@ struct LoadingDotsView: View {
     // [batch8b] `ChatColors` is @MainActor; a member default value is
     // evaluated in a nonisolated context, so the snapshot (nonisolated) path
     // is used here instead — the resolved hex is identical.
-    var color: Color = Color(AppearanceStudio.uiColorSnapshot(.accent, scope: .chat))
+    var color: Color = Color(AppearanceStudio.uiColorSnapshot(.accent, scope: ThemeColorLayer.chat))
     @State private var animating = false
 
     var body: some View {
@@ -8354,7 +8354,7 @@ public struct StickerZoomPreviewSheet: View {
                         }
                     }
                     .padding(16)
-                    .background(AppearanceStudio.shared.color(.surface, scope: .chat))
+                    .background(AppearanceStudio.shared.color(.surface, scope: ThemeColorLayer.chat))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .padding()
@@ -8433,7 +8433,7 @@ struct StickerEditSheet: View {
                                 )
                         } else {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(AppearanceStudio.shared.color(.mutedSurface, scope: .chat))
+                                .fill(AppearanceStudio.shared.color(.mutedSurface, scope: ThemeColorLayer.chat))
                                 .frame(width: 84, height: 84)
                                 .overlay(
                                     Image(systemName: "photo.badge.plus")

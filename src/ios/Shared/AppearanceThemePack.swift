@@ -2513,15 +2513,15 @@ enum MinisThemeShape {
 enum MinisThemeList {
     static var pack: AppearanceThemePack { AppearanceStudio.shared.loadStoredPack() }
 
-    static var title: Color { AppearanceStudio.shared.color(.primaryText, scope: .home) }
-    static var subtitle: Color { AppearanceStudio.shared.color(.secondaryText, scope: .home) }
-    static var meta: Color { AppearanceStudio.shared.color(.secondaryText, scope: .home).opacity(0.72) }
-    static var accent: Color { AppearanceStudio.shared.color(.accent, scope: .home) }
+    static var title: Color { AppearanceStudio.shared.color(.primaryText, scope: ThemeColorLayer.home) }
+    static var subtitle: Color { AppearanceStudio.shared.color(.secondaryText, scope: ThemeColorLayer.home) }
+    static var meta: Color { AppearanceStudio.shared.color(.secondaryText, scope: ThemeColorLayer.home).opacity(0.72) }
+    static var accent: Color { AppearanceStudio.shared.color(.accent, scope: ThemeColorLayer.home) }
     static var rowFill: Color {
         if let hex = pack.listRowFillHex {
             return Color(hex: hex).opacity(AppearanceStudio.shared.surfaceOpacity)
         }
-        return AppearanceStudio.shared.color(.surface, scope: .home)
+        return AppearanceStudio.shared.color(.surface, scope: ThemeColorLayer.home)
             .opacity(AppearanceStudio.shared.surfaceOpacity)
     }
     static var iconShape: AppearanceListIconShape {

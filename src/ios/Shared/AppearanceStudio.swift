@@ -1714,9 +1714,38 @@ extension UIColor {
 // MARK: - Theme access and backgrounds
 
 @MainActor
+/// [T-06] 每类界面固定一层颜色。
+///
+/// 以前四个取色入口各有各的默认：`MinisTheme` 默认 `.global`、`ChatColors`
+/// 全 `.chat`、`CSSThemeVariables` 默认 `.chat`、`MinisThemeList` 全 `.home`。
+/// 同一个角色在不同层读到不同作用域，页级覆盖生不生效取决于调用方随手挑了
+/// 哪一层——这不叫灵活，是没定规矩。
+///
+/// 现在规矩只写在这一个地方：每类界面对应一层，入口不再自己写作用域字面量。
+/// 旧签名一律保留（`scope:` 仍可显式传），所以这是一轮"包一层"——下一轮才
+/// 合并入口本身。
+///
+/// 表面透明度的两套算法还没收：`MinisTheme` / `ChatColors` 无条件乘
+/// `surfaceOpacity`，`CSSThemeVariables.card` 只在有壁纸时乘。收成一套会改
+/// 渲染，要真机比图，不在这一轮动。
+enum ThemeColorLayer {
+    /// 聊天消息区：气泡、消息操作栏、输入栏。
+    static let chat: AppearanceScope = .chat
+    /// 弹窗、表单、面板：跟着聊天页走，不单独成层。
+    static let sheet: AppearanceScope = .chat
+    /// 设置、装扮店、主题面板。
+    static let settings: AppearanceScope = .global
+    /// Minis 首页列表。
+    static let home: AppearanceScope = .home
+    /// 一起听播放页与曲库。
+    static let together: AppearanceScope = .together
+    /// 没写明自己属于哪类界面的调用方拿到的层。
+    static let fallback: AppearanceScope = .global
+}
+
 enum MinisTheme {
     static func color(_ role: AppearanceColorRole,
-                      scope: AppearanceScope = .global) -> Color {
+                      scope: AppearanceScope = ThemeColorLayer.fallback) -> Color {
         AppearanceStudio.shared.color(role, scope: scope)
     }
     static var canvas: Color { color(.canvas) }

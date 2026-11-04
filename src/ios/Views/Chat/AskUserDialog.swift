@@ -61,7 +61,7 @@ enum CSSThemeVariables {
     /// [4-1 醒醒] 背景卡接入全局 surface 角色，支持壁纸透明度
     /// 一起听打开时（togetherVariant 非 nil）跟壁纸明暗那套走：
     /// 只配主文字、卡片还留在另一套变量里，页面会一半深一半浅。
-    static func card(scope: AppearanceScope = .chat) -> Color {
+    static func card(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         let surface = colored(.surface, scope: scope)
         if studio.hasWallpaper(scope) {
             return surface.opacity(studio.surfaceOpacity)
@@ -72,50 +72,50 @@ enum CSSThemeVariables {
     /// --color-bg / var(--dudu-cream)
     /// [4-1 醒醒] 背景底衬接入全局 canvas 角色
     /// 同 card：一起听打开时跟壁纸明暗那套走。
-    static func bg(scope: AppearanceScope = .chat) -> Color {
+    static func bg(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         colored(.canvas, scope: scope)
     }
 
     /// --color-text-main / var(--dudu-brown)
     /// [4-1 醒醒] 主文字接入全局 primaryText 角色
-    static func textMain(scope: AppearanceScope = .chat) -> Color {
+    static func textMain(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         colored(.primaryText, scope: scope)
     }
 
     /// --color-text-dim / var(--dudu-text-dim)
     /// [4-1 醒醒] 次文字接入全局 secondaryText 角色
-    static func textDim(scope: AppearanceScope = .chat) -> Color {
+    static func textDim(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         colored(.secondaryText, scope: scope)
     }
 
     /// [T-03] 最淡的一档字（脚注、时间、次要说明）接全局 tertiaryText。
     /// 以前一起听自己写死 #8E8E93，主文字换了它不跟。
-    static func textTertiary(scope: AppearanceScope = .chat) -> Color {
+    static func textTertiary(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         colored(.tertiaryText, scope: scope)
     }
 
     /// [T-03] 玻璃面用的底色。有壁纸时跟 card 一样带透明度，没壁纸时是纯
     /// surface —— 这样一起听的瓷白玻璃在浅色/深色、有图/没图下都还站得住。
-    static func surfaceFill(scope: AppearanceScope = .chat) -> Color {
+    static func surfaceFill(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         card(scope: scope)
     }
 
     /// --color-divider / var(--dudu-divider)
     /// [4-1 醒醒] 分隔线接入全局 border 角色
     /// 同 card：一起听打开时跟壁纸明暗那套走。
-    static func divider(scope: AppearanceScope = .chat) -> Color {
+    static func divider(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         colored(.border, scope: scope)
     }
 
     /// --color-accent-soft / var(--dudu-pink-soft)
     /// [4-1 醒醒] 柔和强调色由 accent 角色动态派生
-    static func accentSoft(scope: AppearanceScope = .chat) -> Color {
+    static func accentSoft(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         studio.color(.accent, scope: scope).opacity(0.18)
     }
 
     /// --color-accent / var(--dudu-pink)
     /// [4-1 醒醒] 强调色接入全局 accent 角色
-    static func accent(scope: AppearanceScope = .chat) -> Color {
+    static func accent(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         studio.color(.accent, scope: scope)
     }
 
@@ -124,13 +124,13 @@ enum CSSThemeVariables {
     /// [T-dynamic-color] 原来硬写 `Color.white`。强调色是用户自己挑的，
     /// 挑成浅黄、浅粉、米白时白字直接看不见。现在按 WCAG 对比度在黑白之间
     /// 选更好的那个，逐明暗各算一遍。
-    static func accentFg(scope: AppearanceScope = .chat) -> Color {
+    static func accentFg(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         Color(uiColor: accentFgUIColor(scope: scope))
     }
 
     /// `accentFg` 的 UIKit 形式。动态色闭包里算对比度，所以不用调用方告诉
     /// 它现在是深还是浅。
-    static func accentFgUIColor(scope: AppearanceScope = .chat) -> UIColor {
+    static func accentFgUIColor(scope: AppearanceScope = ThemeColorLayer.sheet) -> UIColor {
         UIColor { trait in
             let variant: AppearanceVariant = trait.userInterfaceStyle == .dark ? .dark : .light
             let accentHex = AppearanceStudio.snapshotHex(.accent, scope: scope, variant: variant)
@@ -164,14 +164,14 @@ enum CSSThemeVariables {
     /// --color-option-bg (输入框/未选中胶囊底色)
     /// [10-15 1-3 醒醒] 输入框与选项底色接入全局 input 角色（同族统一，不再硬编码 hex）
     /// 同 card：一起听打开时跟壁纸明暗那套走。
-    static func optionBg(scope: AppearanceScope = .chat) -> Color {
+    static func optionBg(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         colored(.field, scope: scope)
     }
 
     /// --color-option-border (输入框/未选中胶囊边框)
     /// [10-15 1-3 醒醒] 输入框与选项边线接入全局 border 角色
     /// 同 divider：一起听打开时跟壁纸明暗那套走。
-    static func optionBorder(scope: AppearanceScope = .chat) -> Color {
+    static func optionBorder(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         colored(.border, scope: scope)
     }
 
@@ -198,12 +198,12 @@ enum CSSThemeVariables {
 
     /// --color-danger
     /// [4-1 醒醒] 危险操作接入全局 destructive 角色
-    static func danger(scope: AppearanceScope = .chat) -> Color {
+    static func danger(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         studio.color(.destructive, scope: scope)
     }
 
     /// --color-danger-soft
-    static func dangerSoft(scope: AppearanceScope = .chat) -> Color {
+    static func dangerSoft(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         studio.color(.destructive, scope: scope).opacity(0.18)
     }
 
@@ -213,12 +213,12 @@ enum CSSThemeVariables {
     /// literals: `AppearanceStudio.color(_:)` already resolves per
     /// appearance, so this variable follows the user's theme and its dark
     /// variant for free.
-    static func success(scope: AppearanceScope = .chat) -> Color {
+    static func success(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         studio.color(.success, scope: scope)
     }
 
     /// --color-warning
-    static func warning(scope: AppearanceScope = .chat) -> Color {
+    static func warning(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         studio.color(.warning, scope: scope)
     }
 }

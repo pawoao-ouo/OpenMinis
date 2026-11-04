@@ -255,6 +255,23 @@ check("page colour clear is awaited and gated",
 check("wallpaper filenames come from one accessor",
       studio.contains("func ownWallpaperFileName(_ scope: AppearanceScope) -> String?"))
 
+// [T-06] 四个取色入口的默认作用域必须来自 ThemeColorLayer，不再各写字面量。
+// 只钉默认值：主题包 apply 那类"写入"仍显式写 .global 是对的，不能一刀切。
+let chatView = read(here.appendingPathComponent("Views/Chat/AIChatView.swift"))
+let askDialog = read(here.appendingPathComponent("Views/Chat/AskUserDialog.swift"))
+check("layer contract exists", studio.contains("enum ThemeColorLayer"))
+check("chat layer is chat", studio.contains("static let chat: AppearanceScope = .chat"))
+check("sheet layer follows chat", studio.contains("static let sheet: AppearanceScope = .chat"))
+check("settings layer is global", studio.contains("static let settings: AppearanceScope = .global"))
+check("home layer is home", studio.contains("static let home: AppearanceScope = .home"))
+check("MinisTheme defaults through the contract",
+      studio.contains("scope: AppearanceScope = ThemeColorLayer.fallback"))
+check("ChatColors has no bare .chat scope", !chatView.contains("scope: .chat"))
+check("sheet defaults through the contract",
+      askDialog.contains("scope: AppearanceScope = ThemeColorLayer.sheet")
+      && !askDialog.contains("scope: AppearanceScope = .chat"))
+check("home list defaults through the contract", pack.contains("scope: ThemeColorLayer.home"))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)
