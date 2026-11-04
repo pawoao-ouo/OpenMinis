@@ -217,23 +217,39 @@ final class FontSettings: ObservableObject {
     }
 
     /// [六定-6] Picks the foreground that stays readable on a given fill:
-    /// white on dark fills, black on light ones. The theme store's selected
-    /// category capsule fills with `primaryText` (whatever the user picked →
-    /// can be near-white in light mode or near-black in dark mode), so the
-    /// label must invert against the *actual* fill instead of assuming a
-    /// colour. `on` is a hex like "#RRGGBB".
+    /// white on dark fills, black on light ones. The selected category
+    /// capsule fills with `primaryText` (whatever the user picked → can be
+    /// near-white in light mode or near-black in dark mode), so the label
+    /// must invert against the *actual* fill instead of assuming a colour.
+    /// `on` is a hex like "#RRGGBB".
+    ///
+    /// The maths: WCAG 2.x relative luminance needs each sRGB channel
+    /// linearised first (c <= 0.04045 ? c/12.92 : ((c+0.055)/1.055)^2.4).
+    /// This used to skip that step and weight the raw sRGB values, then
+    /// called the result "WCAG relative luminance" — the name was wrong
+    /// and the breakpoint was off. Linearised, the threshold for choosing
+    /// black over white text is L = 0.179 (the crossing point of the two
+    /// contrast-ratio curves), which is what we compare against.
     static func contrastForeground(on hex: String) -> Color {
+        relativeLuminance(hex: hex) > 0.179 ? Color.black : Color.white
+    }
+
+    /// WCAG 2.x relative luminance of a `#RRGGBB` / `RRGGBB` string, with
+    /// the sRGB gamma step applied. Returns 1.0 (white) for unparseable
+    /// input so callers fall back to dark text rather than invisible text.
+    static func relativeLuminance(hex: String) -> Double {
         let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         guard cleaned.count >= 6, let value = UInt64(cleaned.prefix(6), radix: 16) else {
-            return .white
+            return 1.0
         }
-        let r = Double((value >> 16) & 0xFF) / 255.0
-        let g = Double((value >> 8) & 0xFF) / 255.0
-        let b = Double(value & 0xFF) / 255.0
-        // WCAG relative luminance; 0.179 is the sRGB mid-tone breakpoint
-        // between black and white text.
-        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        return lum > 0.179 ? Color.black : Color.white
+        func channel(_ raw: UInt64) -> Double {
+            let c = Double(raw & 0xFF) / 255.0
+            return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        let r = channel(value >> 16)
+        let g = channel(value >> 8)
+        let b = channel(value)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
     }
 
 

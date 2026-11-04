@@ -257,7 +257,6 @@ check("wallpaper filenames come from one accessor",
 
 // [T-06] 四个取色入口的默认作用域必须来自 ThemeColorLayer，不再各写字面量。
 // 只钉默认值：主题包 apply 那类"写入"仍显式写 .global 是对的，不能一刀切。
-let chatView = read(here.appendingPathComponent("Views/Chat/AIChatView.swift"))
 let askDialog = read(here.appendingPathComponent("Views/Chat/AskUserDialog.swift"))
 check("layer contract exists", studio.contains("enum ThemeColorLayer"))
 check("chat layer is chat", studio.contains("static let chat: AppearanceScope = .chat"))
@@ -358,6 +357,31 @@ check("opacity reset is its own action",
 check("a pack that omits opacity keeps hers",
       pack.contains("warnings.append(\"surfaceOpacityKept\")")
       && !pack.contains("else if replace { surfaceOpacity = 0.88 }"))
+
+// [T-47] 调色板是字典，缺项只在运行时变 808080 灰。断言把"每个角色都有
+// 值"钉死，并说明两个气泡文字角色是故意缺席的。
+check("palette declares its intentional gaps",
+      studio.contains("static let rolesWithoutOwnEntry: Set<AppearanceColorRole> = [.bubbleText, .assistantBubbleText]"))
+check("palette reports missing roles",
+      studio.contains("static var missingRoles: [AppearanceColorRole] {"))
+check("palette完整性在启动时断言",
+      studio.contains("assert(AppearancePaletteBook.missingRoles.isEmpty"))
+
+// [六定-6] 选中胶囊换了填充，里面的字必须跟着反色。聊天的两处选中行
+// （斜杠菜单、文件提及菜单）底都是 accent，字却原来还是 primaryText ——
+// 默认配色下两者同为 #111113，选中即黑底黑字。
+let fontSettings = read(here.appendingPathComponent("Shared/FontSettings.swift"))
+check("contrast foreground linearises sRGB",
+      fontSettings.contains("static func relativeLuminance(hex: String) -> Double")
+      && fontSettings.contains("pow((c + 0.055) / 1.055, 2.4)"))
+check("contrast foreground uses the linearised luminance",
+      fontSettings.contains("relativeLuminance(hex: hex) > 0.179 ? Color.black : Color.white"))
+check("slash menu inverts its text on the accent fill",
+      input.contains("isSelected ? onSelectedFill : ChatColors.primaryText"))
+check("mention menu inverts its text on the accent fill",
+      input.contains("isSelected ? onSelectedFill : ChatColors.secondaryText"))
+check("chat selection fill is still the accent role",
+      input.contains("(isSelected || configuration.isPressed) ? ChatColors.accent : Color.clear"))
 
 if failures == 0 {
     print("\nALL PASS")

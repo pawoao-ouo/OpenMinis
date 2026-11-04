@@ -4599,27 +4599,32 @@ struct AIChatView: View {
         let isSelected: Bool
         let query: String
 
+        /// [六定-6] 选中行的底是 `ChatColors.accent`，字必须跟着反色。
+        private var onSelectedFill: Color {
+            FontSettings.contrastForeground(on: AppearanceStudio.shared.hex(.accent, scope: ThemeColorLayer.chat, variant: AppearanceStudio.shared.activeVariant))
+        }
+
         var body: some View {
             HStack(spacing: 10) {
                 Image(systemName: iconName)
                     .font(ChatFont.font(14, weight: .medium))
-                    .foregroundStyle(isSelected ? ChatColors.primaryText : ChatColors.secondaryText)
+                    .foregroundStyle(isSelected ? onSelectedFill : ChatColors.secondaryText)
                     .frame(width: 20)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(entry.basename)
                         .font(ChatFont.font(13, weight: .medium))
-                        .foregroundStyle(ChatColors.primaryText)
+                        .foregroundStyle(isSelected ? onSelectedFill : ChatColors.primaryText)
                         .lineLimit(1)
                     Text(entry.displayPath)
                         .font(ChatFont.font(11))
-                        .foregroundStyle(isSelected ? ChatColors.primaryText.opacity(0.75) : ChatColors.secondaryText)
+                        .foregroundStyle(isSelected ? onSelectedFill.opacity(0.75) : ChatColors.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
                 Spacer()
                 Text(entry.mountName ?? entry.scope.displayLabel)
                     .font(ChatFont.font(10, weight: .medium))
-                    .foregroundStyle(isSelected ? ChatColors.primaryText.opacity(0.9) : ChatColors.secondaryText)
+                    .foregroundStyle(isSelected ? onSelectedFill.opacity(0.9) : ChatColors.secondaryText)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(
@@ -4701,13 +4706,13 @@ struct AIChatView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         let isThinkingActive = cmd.id == "thinking" && thinkingLevel.isEnabled && thinkingSupported
                         let titleColor: Color = isThinkingActive
-                        ? ChatColors.accent : ChatColors.primaryText
+                        ? ChatColors.accent : (isSelected ? onSelectedFill : ChatColors.primaryText)
                         let subtitleText = (cmd.id == "thinking" && !thinkingSupported)
                             ? AppLocalized("Not supported by current model")
                             : cmd.subtitle
                         let subtitleColor: Color = (cmd.id == "thinking" && !thinkingSupported)
                             ? ChatColors.secondaryText
-                            : (isThinkingActive ? ChatColors.accent.opacity(0.7) : (isSelected ? ChatColors.primaryText.opacity(0.7) : ChatColors.secondaryText))
+                            : (isThinkingActive ? ChatColors.accent.opacity(0.7) : (isSelected ? onSelectedFill.opacity(0.7) : ChatColors.secondaryText))
                         // [T-slash-picker-product-rules] Title + subtitle
                         // each clamped to a single line. Long skill names
                         // and descriptions used to wrap and pump the row
@@ -4735,7 +4740,7 @@ struct AIChatView: View {
                     // VoiceOver read "checkmark circle fill" / "slash circle".
                     Image(systemName: memoryEnabled ? "checkmark.circle.fill" : "slash.circle")
                         .font(ChatFont.font(16))
-                        .foregroundStyle(memoryEnabled ? (isSelected ? ChatColors.primaryText : ChatColors.success) : (isSelected ? ChatColors.primaryText.opacity(0.6) : ChatColors.secondaryText))
+                        .foregroundStyle(memoryEnabled ? (isSelected ? onSelectedFill : ChatColors.success) : (isSelected ? onSelectedFill.opacity(0.6) : ChatColors.secondaryText))
                         .accessibilityLabel(Text(
                             memoryEnabled
                                 ? AppLocalized("Memory on", comment: "VoiceOver label for the memory status icon when enabled")
@@ -4751,12 +4756,22 @@ struct AIChatView: View {
             .frame(minHeight: 44)
         }
 
+        /// [六定-6][T-42] 选中行的底是 `ChatColors.accent`（`SlashMenuButtonStyle`），
+        /// 所以里面的字必须按**那个底**反色，不能仍用 `primaryText`。
+        /// 默认配色下 accent 与 primaryText 都是 #111113 —— 原来选中就是
+        /// 黑底黑字，整行读不出来。
+        ///
+        /// 未选中时按普通层次走（主文字 / 次文字）。
+        private var onSelectedFill: Color {
+            FontSettings.contrastForeground(on: AppearanceStudio.shared.hex(.accent, scope: ThemeColorLayer.chat, variant: AppearanceStudio.shared.activeVariant))
+        }
+
         private var thinkingIconColor: Color {
             guard cmd.id == "thinking" else {
-                return isSelected ? ChatColors.primaryText.opacity(0.8) : ChatColors.secondaryText
+                return isSelected ? onSelectedFill : ChatColors.secondaryText
             }
             if !thinkingSupported { return .secondary }
-            return thinkingLevel.isEnabled ? ChatColors.accent : (isSelected ? ChatColors.primaryText.opacity(0.8) : ChatColors.secondaryText)
+            return thinkingLevel.isEnabled ? ChatColors.accent : (isSelected ? onSelectedFill : ChatColors.secondaryText)
         }
 
         private var thinkingLevelPicker: some View {

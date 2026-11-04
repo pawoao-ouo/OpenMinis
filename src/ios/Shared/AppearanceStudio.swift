@@ -492,6 +492,10 @@ final class AppearanceStudio: ObservableObject {
     let themePackLock = NSLock()
 
     private init() {
+        // [T-47] 调色板完整性：少配一个角色就是一块灰，且编译时不报。
+        // 这里在启动时当场断，开发期第一眼就看见。
+        assert(AppearancePaletteBook.missingRoles.isEmpty,
+               "AppearancePaletteBook is missing roles: \(AppearancePaletteBook.missingRoles)")
         if let data = UserDefaults.standard.data(forKey: Keys.colors),
            let value = try? JSONDecoder().decode([String: String].self, from: data) {
             customColors = value
@@ -1716,6 +1720,19 @@ private enum AppearancePaletteBook {
     // [T-43] 深色档原来 raised 和 mutedSurface 都是 2C2C2E、field 和 surface
     // 都是 1C1C1E，同样是撞车。浮层保持最高一档，浅底块下移到卡片与浮层
     // 之间，输入框单独一档——HIG 的两层深色面拉开成四档。
+    // [T-47] 调色板是字典——少一个键不会编译报错，会在运行时静默渲染
+    // 808080 灰。这条断言把"每个角色都有值"变成启动即失败，不再等人看图
+    // 才发现某个新角色是灰的。
+    //
+    // 故意缺席的是两个气泡文字角色：它们跟主文字走，不在表里配。这里把
+    // 这份例外写清楚，别让后来的人以为是漏配。
+    static let rolesWithoutOwnEntry: Set<AppearanceColorRole> = [.bubbleText, .assistantBubbleText]
+
+    static var missingRoles: [AppearanceColorRole] {
+        let expected = AppearanceColorRole.allCases.filter { !rolesWithoutOwnEntry.contains($0) }
+        return expected.filter { light[$0] == nil || dark[$0] == nil }
+    }
+
     static let dark: [AppearanceColorRole: String] = [
         .canvas: "000000", .surface: "1C1C1E", .raised: "2C2C2E",
         .mutedSurface: "242426", .primaryText: "FFFFFF", .secondaryText: "AEAEB2",
