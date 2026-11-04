@@ -1713,7 +1713,6 @@ extension UIColor {
 
 // MARK: - Theme access and backgrounds
 
-@MainActor
 /// [T-06] 每类界面固定一层颜色。
 ///
 /// 以前四个取色入口各有各的默认：`MinisTheme` 默认 `.global`、`ChatColors`
@@ -1744,6 +1743,7 @@ enum ThemeColorLayer {
     static let fallback: AppearanceScope = .global
 }
 
+@MainActor
 enum MinisTheme {
     static func color(_ role: AppearanceColorRole,
                       scope: AppearanceScope = ThemeColorLayer.fallback) -> Color {
