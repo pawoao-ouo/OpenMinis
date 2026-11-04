@@ -307,14 +307,15 @@ check("helper block has no system semantic label colours",
       && !helperBlock.contains("UIColor.tertiaryLabel"))
 check("helper block card surfaces read theme roles",
       helperBlock.contains("private static var cardBg: Color {")
-      && helperBlock.contains("ChatColors.toolBg")
-      && helperBlock.contains("ChatColors.toolBorder"))
+      && helperBlock.contains("uiColorSnapshot(.surface, scope: ThemeColorLayer.chat)")
+      && helperBlock.contains("uiColorSnapshot(.border, scope: ThemeColorLayer.chat)"))
 check("helper accent follows the theme when tuned",
-      helperBlock.contains("Self.accentWasTuned ? ChatColors.accent : Self.violet"))
+      helperBlock.contains("Self.accentWasTuned ? Self.themeAccent : Self.violet")
+      && helperBlock.contains("Color(AppearanceStudio.uiColorSnapshot(.accent, scope: ThemeColorLayer.chat))"))
 check("helper accent keeps the violet as the untuned default",
       helperBlock.contains("static let violet = Color(UIColor { tc in"))
 check("helper badge text follows the theme when tuned",
-      helperBlock.contains("Self.accentWasTuned ? ChatColors.accent : Self.badgeViolet"))
+      helperBlock.contains("Self.accentWasTuned ? Self.themeAccent : Self.badgeViolet"))
 check("helper accent reads the snapshot, not the isolated studio",
       helperBlock.contains("AppearanceStudio.colorSnapshot")
       && !helperBlock.contains("AppearanceStudio.shared.hasOverride"))
