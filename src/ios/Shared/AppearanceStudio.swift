@@ -1159,6 +1159,13 @@ final class AppearanceStudio: ObservableObject {
         FileManager.default.fileExists(atPath: wallpaperURL(scope).path)
     }
 
+    /// [T-25] 这一页自己的壁纸文件叫什么。给 AI 子命令报原值用——
+    /// 只说"会覆盖这一页的图"不够，得说清盖掉的是哪一张。没有就 nil。
+    func ownWallpaperFileName(_ scope: AppearanceScope) -> String? {
+        let url = wallpaperURL(scope)
+        return FileManager.default.fileExists(atPath: url.path) ? url.lastPathComponent : nil
+    }
+
     func wallpaper(for scope: AppearanceScope) -> UIImage? {
         if let cached = wallpaperCache.object(forKey: cacheKey(scope)) { return cached }
         let own = wallpaperURL(scope)

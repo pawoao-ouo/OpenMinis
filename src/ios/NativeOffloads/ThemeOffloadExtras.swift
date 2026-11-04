@@ -200,10 +200,15 @@ import UIKit
             // [T-02] 换壁纸会盖掉用户原来的图；页级还会盖掉她单独给这一页
             // 挑的图（T-25 的页级覆盖），所以一并说清楚。
             let isPage = parsed != .global
+            // [T-25] 报原值：这一页原来有没有自己的图、是哪一张。
+            let previousFile = AppearanceStudio.shared.ownWallpaperFileName(parsed)
             let decision = await ThemeWriteConfirmation.check(
                 "wallpaper",
                 what: isPage ? "换「\(parsed.rawValue)」页的壁纸" : "换全局壁纸",
-                detail: isPage ? "会覆盖这一页单独设的图，其他页不动" : "会覆盖当前全局壁纸",
+                detail: isPage
+                    ? (previousFile.map { "会盖掉这一页现在的 \($0)，其他页不动" }
+                        ?? "这一页原来没有自己的图；换了之后别的页不动")
+                    : (previousFile.map { "会盖掉现在的全局壁纸 \($0)" } ?? "会覆盖当前全局壁纸"),
                 verb: "set")
             if let refusal = decision.refusal { return refusal }
             guard token.beginWrite() else {
@@ -214,7 +219,13 @@ import UIKit
                 return fail("wallpaper_write_failed",
                             "Could not store the wallpaper for scope \(parsed.rawValue); nothing was changed.")
             }
-            return ["ok": true, "scope": parsed.rawValue]
+            var out: [String: Any] = ["ok": true, "scope": parsed.rawValue]
+            if isPage {
+                if let previousFile { out["previousWallpaper"] = previousFile }
+                out["hadOwnWallpaper"] = previousFile != nil
+                out["pageScopeNote"] = "This wrote a page-level wallpaper for \(parsed.rawValue); the other pages are unchanged."
+            }
+            return out
         }
     }
 
@@ -224,18 +235,24 @@ import UIKit
         }
         return onMainAwaited { token in
             // [T-02] 清壁纸会丢掉用户上传的图（进不了回收站），先问。
-            let existed = AppearanceStudio.shared.hasOwnWallpaper(parsed)
+            // [T-25] 报原值：被清掉的是哪一张。
+            let removedFile = AppearanceStudio.shared.ownWallpaperFileName(parsed)
             let decision = await ThemeWriteConfirmation.check(
                 "wallpaper",
                 what: "清掉「\(parsed.rawValue)」页的壁纸",
-                detail: existed ? "这张图会被移除，不能撤回" : "这一页本来没有自己的图",
+                detail: removedFile.map { "\($0) 会被移除，不能撤回" } ?? "这一页本来没有自己的图",
                 verb: "remove")
             if let refusal = decision.refusal { return refusal }
             guard token.beginWrite() else {
                 return fail("timeout", "The call timed out before writing; no wallpaper was changed.")
             }
             AppearanceStudio.shared.removeWallpaper(parsed)
-            return ["ok": true, "scope": parsed.rawValue, "removed": true]
+            var out: [String: Any] = ["ok": true, "scope": parsed.rawValue, "removed": true]
+            if let removedFile {
+                out["removedWallpaper"] = removedFile
+                out["pageScopeNote"] = "This cleared the page-level wallpaper for \(parsed.rawValue); the other pages are unchanged."
+            }
+            return out
         }
     }
 
@@ -294,12 +311,20 @@ import UIKit
             // apply，color --scope chat 以前能直接盖掉。页级写现在先过确认
             // 单，并把原来的值一起报回去。
             var previousValue: String?
+            var hadOwnOverride = false
             if parsedScope != .global {
-                previousValue = AppearanceStudio.shared.hex(parsedRole, scope: parsedScope, variant: parsedVariant)
+                // [T-25] 报的是**这一页自己的覆盖**，不是含回落的有效值——
+                // 后者永远有值，分不清"她亲手调过"和"跟着全局走"。
+                hadOwnOverride = AppearanceStudio.shared.hasOverride(
+                    parsedRole, scope: parsedScope, variant: parsedVariant)
+                previousValue = hadOwnOverride
+                    ? AppearanceStudio.shared.hex(parsedRole, scope: parsedScope, variant: parsedVariant)
+                    : nil
                 let decision = await ThemeWriteConfirmation.check(
                     "color",
                     what: "改「\(parsedScope.rawValue)」页的「\(parsedRole.title)」",
-                    detail: previousValue.map { "这一页单独的值，原来是 \($0)" } ?? "这一页原来没有单独设过",
+                    detail: previousValue.map { "这一页单独调过，原来是 \($0)；改完只有这一页变" }
+                        ?? "这一页原来跟着全局走，没有单独设过；改完只有这一页变",
                     verb: "set")
                 if let refusal = decision.refusal { return refusal }
             }
@@ -314,9 +339,12 @@ import UIKit
                 "ok": true, "role": parsedRole.rawValue, "hex": cleaned,
                 "scope": parsedScope.rawValue, "variant": parsedVariant.rawValue,
             ]
-            if let previousValue {
-                out["previousValue"] = previousValue
-                out["pageScopeNote"] = "This wrote a page-level override for \(parsedScope.rawValue); the other pages are unchanged."
+            if parsedScope != .global {
+                if let previousValue { out["previousValue"] = previousValue }
+                out["hadOwnOverride"] = hadOwnOverride
+                out["pageScopeNote"] = hadOwnOverride
+                    ? "This replaced this page's own override for \(parsedScope.rawValue); the other pages are unchanged."
+                    : "This wrote a page-level override for \(parsedScope.rawValue), which was following the global value; the other pages are unchanged."
             }
             return out
         }
@@ -329,20 +357,49 @@ import UIKit
               let parsedVariant = AppearanceVariant(rawValue: variant) else {
             return fail("bad_args", "Unknown role, scope or variant.") as NSDictionary
         }
-        return onMain { token in
+        // [T-25] 页级 --clear 也要过确认单。apply 的锁表管不到子命令，而
+        // 这条抹掉的正是她在那一页亲手调的值——原来是"清成功、没问过、
+        // 也没说清掉的是哪个值"。
+        return onMainAwaited { token in
             // [T-22] 清色同样只对能吃颜色的作用域有意义；否则「清成功」也
             // 是空话。
             guard parsedScope.supportsColour else {
                 return fail("scope_no_colour",
                             "scope \u{22}\(parsedScope.rawValue)\u{22} is wallpaper-only and carries no colours; there is nothing to clear.")
             }
+            var previousValue: String?
+            var hadOwnOverride = false
+            if parsedScope != .global {
+                // 只在这一页真的有覆盖时才问：没有覆盖的话这次 clear 是空操作，
+                // 拿确认单去烦她没有意义。
+                hadOwnOverride = AppearanceStudio.shared.hasOverride(
+                    parsedRole, scope: parsedScope, variant: parsedVariant)
+                if hadOwnOverride {
+                    previousValue = AppearanceStudio.shared.hex(
+                        parsedRole, scope: parsedScope, variant: parsedVariant)
+                    let decision = await ThemeWriteConfirmation.check(
+                        "color",
+                        what: "清掉「\(parsedScope.rawValue)」页的「\(parsedRole.title)」",
+                        detail: "这一页原来单独调的是 \(previousValue ?? "—")，清掉就回去跟全局",
+                        verb: "clear")
+                    if let refusal = decision.refusal { return refusal }
+                }
+            }
             guard token.beginWrite() else {
                 return fail("timeout", "The call timed out before writing; no colour was changed.")
             }
             AppearanceStudio.shared.clearOverride(parsedRole, scope: parsedScope, variant: parsedVariant)
-            return ["ok": true, "role": parsedRole.rawValue,
-                    "scope": parsedScope.rawValue, "variant": parsedVariant.rawValue,
-                    "cleared": true]
+            var out: [String: Any] = ["ok": true, "role": parsedRole.rawValue,
+                                      "scope": parsedScope.rawValue, "variant": parsedVariant.rawValue,
+                                      "cleared": true]
+            if parsedScope != .global {
+                if let previousValue { out["previousValue"] = previousValue }
+                out["hadOwnOverride"] = hadOwnOverride
+                out["pageScopeNote"] = hadOwnOverride
+                    ? "This removed this page's own override; the page follows the global value again."
+                    : "This page had no override of its own; nothing changed."
+            }
+            return out
         }
     }
 

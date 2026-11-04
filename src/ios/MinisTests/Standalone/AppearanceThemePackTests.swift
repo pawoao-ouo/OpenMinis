@@ -238,6 +238,23 @@ check("main wallpaper encodes through the pipeline",
 check("together downscale implementation is gone", !together.contains("func downscaledJPEG"))
 check("pipeline owns the only quality constant", studio.contains("static let jpegQuality: CGFloat = 0.86"))
 
+// [T-25] 页级写保护：apply 的锁表管不到子命令，所以每条能改到页级的
+// 命令都得自己过确认单、自己报原值。这里是源码级钉住，防止以后被顺手删掉。
+// `extras` 在文件前面已经读过一次，这里直接复用，不重复声明。
+check("page colour write asks first",
+      extras.contains("previousValue = hadOwnOverride"))
+check("page colour reports whether it replaced an override",
+      extras.contains("out[\"hadOwnOverride\"] = hadOwnOverride"))
+check("page wallpaper reports the file it replaced",
+      extras.contains("out[\"previousWallpaper\"] = previousFile"))
+check("page wallpaper clear reports the file it removed",
+      extras.contains("out[\"removedWallpaper\"] = removedFile"))
+check("page colour clear is awaited and gated",
+      extras.contains("return onMainAwaited { token in")
+      && extras.contains("what: \"清掉「\\(parsedScope.rawValue)」页的「\\(parsedRole.title)」\""))
+check("wallpaper filenames come from one accessor",
+      studio.contains("func ownWallpaperFileName(_ scope: AppearanceScope) -> String?"))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)
