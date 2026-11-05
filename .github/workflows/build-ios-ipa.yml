@@ -74,6 +74,15 @@ jobs:
       # `test-without-building` against a simulator destination cannot link.
       # The standalone suite is a plain Swift script with no app graph, so run
       # it for real — that is where the theme-pack assertions live.
+      - name: Check standalone sources statically
+        run: |
+          set -euo pipefail
+          # 静态检查先跑：括号配平、重复声明、未声明标识符、每条
+          # X.contains("...") 的字符串是否真的出现在它引用的源文件里。
+          # 这些错在 swift 运行时才炸，而且炸在断言脚本自己身上，看不出
+          # 是断言写错还是代码写错。先在这里拦掉，省一次完整的排队。
+          python3 scripts/theme/check-standalone.py
+
       - name: Run standalone source assertions
         run: |
           set -euo pipefail
