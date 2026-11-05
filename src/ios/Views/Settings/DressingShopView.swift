@@ -3832,11 +3832,10 @@ struct DressingShopView: View {
         }
     }
 
-    /// One variable row: the miniature is the colour control
-    /// (a near-invisible full-frame ColorPicker sits over it,
-    /// since the system well cannot be restyled), then the plain
-    /// name, hint, follow tag, #hex and revert-when-overridden,
-    /// bound to the GLOBAL scope and the set being edited.
+    /// One variable row: the miniature is the live preview (not a
+    /// control), then the plain name, hint, follow tag, #hex, a visible
+    /// 32x32 ColorPicker, and revert-when-overridden, bound to the
+    /// GLOBAL scope and the set being edited.
     private func colorVarRow(_ role: AppearanceColorRole) -> some View {
         VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 12) {
@@ -3866,6 +3865,17 @@ struct DressingShopView: View {
                 .font(.system(size: globalPointSize * 10 / 13, design: .monospaced))
                 .foregroundStyle(studio.color(.secondaryText).opacity(0.55))
                 .allowsHitTesting(false)
+            // The colour control: a visible system well, same pattern as
+            // AppearanceStudioView.paletteRow (32x32, direct HStack child).
+            // The old invisible full-row picker in .background never
+            // received taps: the name/hint text above it claimed them.
+            // Do not move the picker back into .background.
+            ColorPicker("", selection: studio.colorBinding(role, scope: .global, variant: editingVariant),
+                        supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 32, height: 32)
+                .accessibilityLabel(colorVarDisplayName(role))
+                .accessibilityHint(AppLocalized("点一下打开取色器"))
             if studio.hasOverride(role, scope: .global, variant: editingVariant) {
                 Button {
                     studio.clearOverride(role, scope: .global, variant: editingVariant)
@@ -3882,19 +3892,6 @@ struct DressingShopView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        // [T-21] 以前只有小样上那块 76×36、透明度 0.02 的系统取色器能点,
-        // 行里最大的可点目标是还原箭头——她点行没反应就是这个原因。
-        // 现在取色器铺满整行做底;行内文字与小样不接点击,点哪都开取色器,
-        // 只有还原按钮留在上层,仍然独立。
-        .background {
-            ColorPicker("", selection: studio.colorBinding(role, scope: .global, variant: editingVariant),
-                        supportsOpacity: false)
-                .labelsHidden()
-                .opacity(0.02)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityLabel(colorVarDisplayName(role))
-                .accessibilityHint(AppLocalized("点一下打开取色器"))
-        }
         if let warning = colorContrastWarning(for: role) {
             Text(warning)
                 .font(.system(size: fsSub))
