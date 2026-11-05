@@ -478,7 +478,11 @@ final class AppearanceStudio: ObservableObject {
         cache.totalCostLimit = 48 * 1024 * 1024
         return cache
     }()
-    private func cacheKey(_ scope: AppearanceScope) -> NSString { scope.rawValue as NSString }
+    /// [T-54] 缓存键要带档位：同一作用域浅/深两份文件现在是两张不同的图，
+    /// 只按作用域缓存会把浅色那份当成深色的继续用。
+    private func cacheKey(_ scope: AppearanceScope) -> NSString {
+        "\(scope.rawValue).\(activeVariant.rawValue)" as NSString
+    }
     /// [T-31] Scopes whose wallpaper file exists but does not decode.
     private var wallpaperUnreadable: Set<AppearanceScope> = []
     /// [T-wallpaper-clear][09-10 醒醒] Scopes whose own wallpaper was CLEARED
@@ -1224,6 +1228,33 @@ final class AppearanceStudio: ObservableObject {
         appearanceDirectory.appendingPathComponent("wallpaper-\(scope.rawValue).jpg")
     }
 
+    /// [T-54] 分档壁纸文件。
+    ///
+    /// 审计的原症状：透明 PNG 只在**拾取那一刻**垫一次底色。那时候垫的是
+    /// 当时的档位色，之后切成另一档，文件里留的还是旧档配色，暗色内容
+    /// 周围就是一圈惨白。修法取"存分档文件"：拾取时检测到 alpha，就按浅/
+    /// 深两档的画布色各压一份，渲染时按当前档位挑。不依赖源文件还在。
+    private func wallpaperURL(_ scope: AppearanceScope, variant: AppearanceVariant) -> URL {
+        appearanceDirectory.appendingPathComponent("wallpaper-\(scope.rawValue)-\(variant.rawValue).jpg")
+    }
+
+    /// [T-54] 一个作用域可能的三个文件：旧单文件 + 浅/深两档。
+    /// 快照、恢复、清除都必须按这三个来，漏一个就是"清了还在"。
+    private func wallpaperURLs(_ scope: AppearanceScope) -> [URL] {
+        [wallpaperURL(scope),
+         wallpaperURL(scope, variant: .light),
+         wallpaperURL(scope, variant: .dark)]
+    }
+
+    /// 这张图带不带透明区域。带的话单份 JPEG 一定会把某一种档位垫错。
+    private static func hasAlpha(_ image: UIImage) -> Bool {
+        guard let cg = image.cgImage else { return false }
+        switch cg.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast: return false
+        default: return true
+        }
+    }
+
     /// [T-31] "有壁纸"以能不能解码为准，不以文件在不在为准。
     ///
     /// 零字节或坏文件以前让文案说"有壁纸"、渲染却是纯色底，用户只能自己
@@ -1235,7 +1266,10 @@ final class AppearanceStudio: ObservableObject {
 
     /// 文件在、但解不出来。给界面一句"这张图坏了，点按清除"用。
     func hasCorruptWallpaper(_ scope: AppearanceScope) -> Bool {
-        let url = wallpaperURL(scope)
+        // [T-54] 看当前档位真正会读的那一份。
+        let variantURL = wallpaperURL(scope, variant: activeVariant)
+        let url = FileManager.default.fileExists(atPath: variantURL.path)
+            ? variantURL : wallpaperURL(scope)
         guard FileManager.default.fileExists(atPath: url.path) else { return false }
         if let data = try? Data(contentsOf: url), let image = UIImage(data: data),
            image.size.width > 0, image.size.height > 0 {
@@ -1245,7 +1279,10 @@ final class AppearanceStudio: ObservableObject {
     }
 
     func hasOwnWallpaper(_ scope: AppearanceScope) -> Bool {
-        FileManager.default.fileExists(atPath: wallpaperURL(scope).path)
+        let fm = FileManager.default
+        return [wallpaperURL(scope),
+                wallpaperURL(scope, variant: .light),
+                wallpaperURL(scope, variant: .dark)].contains { fm.fileExists(atPath: $0.path) }
     }
 
     /// [T-25] 这一页自己的壁纸文件叫什么。给 AI 子命令报原值用——
@@ -1257,13 +1294,19 @@ final class AppearanceStudio: ObservableObject {
 
     func wallpaper(for scope: AppearanceScope) -> UIImage? {
         if let cached = wallpaperCache.object(forKey: cacheKey(scope)) { return cached }
-        let own = wallpaperURL(scope)
+        // [T-54] 先看当前档位的那一份；没有才回落到旧的单文件。
+        let fm = FileManager.default
+        let ownVariant = wallpaperURL(scope, variant: activeVariant)
+        let own = fm.fileExists(atPath: ownVariant.path) ? ownVariant : wallpaperURL(scope)
         // [T-wallpaper-clear] A cleared page never inherits the global image.
         // [batch7 用户-P2-9] 底部栏同样永不继承：无专属图时返回 nil（纯透明），
         // 不拿全局图来凑。
+        let globalVariant = wallpaperURL(.global, variant: activeVariant)
+        let globalLegacy = wallpaperURL(.global)
+        let globalURL = fm.fileExists(atPath: globalVariant.path) ? globalVariant : globalLegacy
         let fallbackURL = (scope == .global || scope == .bottomBar
                            || wallpaperClearedFallback.contains(scope))
-            ? nil : wallpaperURL(.global)
+            ? nil : globalURL
         // [T-31] 解不出来的文件记一笔，免得每次渲染都重新解码一张坏图。
         if wallpaperUnreadable.contains(scope) { return nil }
         let url = FileManager.default.fileExists(atPath: own.path)
@@ -1283,6 +1326,17 @@ final class AppearanceStudio: ObservableObject {
     /// 什么也没发生、什么也没说。撒谎的沉默。现在把失败如实报给 UI。
     @discardableResult
     func setWallpaper(_ image: UIImage, for scope: AppearanceScope, dark: Bool = false) -> Bool {
+        // [T-54] 带透明的图按档位各存一份，切档不会再留旧配色的白边。
+        // 不透的图维持原样：单文件就够，尺寸也省一半。
+        if Self.hasAlpha(image) {
+            guard let light = Self.backgroundJPEG(image, dark: false),
+                  let darkData = Self.backgroundJPEG(image, dark: true) else { return false }
+            guard writeWallpaperData(light, for: scope, variant: .light),
+                  writeWallpaperData(darkData, for: scope, variant: .dark) else { return false }
+            // 旧单文件必须删掉，否则它会先被读到、又是旧配色。
+            try? FileManager.default.removeItem(at: wallpaperURL(scope))
+            return true
+        }
         guard let data = Self.backgroundJPEG(image, dark: dark) else { return false }
         writeWallpaperData(data, for: scope)
         return true
@@ -1310,10 +1364,12 @@ final class AppearanceStudio: ObservableObject {
     }
 
     @discardableResult
-    private func writeWallpaperData(_ data: Data, for scope: AppearanceScope) -> Bool {
+    private func writeWallpaperData(_ data: Data, for scope: AppearanceScope,
+                                    variant: AppearanceVariant? = nil) -> Bool {
         // [B28 R2-2] 写失败（磁盘满、目录异常）以前被 try? 吃掉。现在报出去。
         do {
-            try data.write(to: wallpaperURL(scope), options: .atomic)
+            let dest = variant.map { wallpaperURL(scope, variant: $0) } ?? wallpaperURL(scope)
+            try data.write(to: dest, options: .atomic)
         } catch {
             appearanceLog.warning("wallpaper write failed for \(scope.rawValue): \(error.localizedDescription)")
             return false
@@ -1329,7 +1385,10 @@ final class AppearanceStudio: ObservableObject {
     }
 
     func removeWallpaper(_ scope: AppearanceScope) {
+        // [T-54] 三份都要删：单文件 + 浅/深两档。漏一份就是"清了还在"。
         try? FileManager.default.removeItem(at: wallpaperURL(scope))
+        try? FileManager.default.removeItem(at: wallpaperURL(scope, variant: .light))
+        try? FileManager.default.removeItem(at: wallpaperURL(scope, variant: .dark))
         // [B28 R2-9] 恢复继承就得把"不继承"标记一起清掉 —— 以前只删文件
         // 不清标记，用户选了"跟随全局"，全局图却不出现：状态和承诺不符。
         if scope == .global {
@@ -1362,9 +1421,11 @@ final class AppearanceStudio: ObservableObject {
     /// snapshot) without it is never mistaken for one.
     func captureWallpapers(into dir: URL) {
         for scope in AppearanceScope.allCases where hasOwnWallpaper(scope) {
-            let src = wallpaperURL(scope)
-            try? FileManager.default.copyItem(
-                at: src, to: dir.appendingPathComponent("wallpaper-\(scope.rawValue).jpg"))
+            // [T-54] 三份都搬，只搬旧单文件的话，透明图快照回来就丢了分档。
+            for src in wallpaperURLs(scope) where FileManager.default.fileExists(atPath: src.path) {
+                try? FileManager.default.copyItem(
+                    at: src, to: dir.appendingPathComponent(src.lastPathComponent))
+            }
         }
         let cleared = Array(wallpaperClearedFallback.map(\.rawValue))
         if let data = try? JSONEncoder().encode(cleared) {
@@ -1386,13 +1447,15 @@ final class AppearanceStudio: ObservableObject {
         wallpaperClearedFallback = Set(raw.compactMap(AppearanceScope.init(rawValue:)))
         persistWallpaperCleared()
         for scope in AppearanceScope.allCases {
-            let src = dir.appendingPathComponent("wallpaper-\(scope.rawValue).jpg")
-            let dst = wallpaperURL(scope)
-            if FileManager.default.fileExists(atPath: src.path) {
-                try? FileManager.default.removeItem(at: dst)
-                try? FileManager.default.copyItem(at: src, to: dst)
-            } else {
-                try? FileManager.default.removeItem(at: dst)
+            // [T-54] 逐份对齐：快照里有就恢复，没有就把本机那份删掉。
+            for dst in wallpaperURLs(scope) {
+                let src = dir.appendingPathComponent(dst.lastPathComponent)
+                if FileManager.default.fileExists(atPath: src.path) {
+                    try? FileManager.default.removeItem(at: dst)
+                    try? FileManager.default.copyItem(at: src, to: dst)
+                } else {
+                    try? FileManager.default.removeItem(at: dst)
+                }
             }
         }
         wallpaperCache.removeAllObjects()
@@ -1409,7 +1472,7 @@ final class AppearanceStudio: ObservableObject {
     }
 
     func clearWallpaper(_ scope: AppearanceScope) {
-        try? FileManager.default.removeItem(at: wallpaperURL(scope))
+        for url in wallpaperURLs(scope) { try? FileManager.default.removeItem(at: url) }
         if scope != .global { wallpaperClearedFallback.insert(scope) }
         persistWallpaperCleared()
         wallpaperUnreadable.removeAll()
@@ -1426,8 +1489,7 @@ final class AppearanceStudio: ObservableObject {
         var removed = false
         for scope in wallpaperClearedFallback where scope != .global {
             guard !packagedScopes.contains(scope) else { continue }
-            let url = wallpaperURL(scope)
-            if FileManager.default.fileExists(atPath: url.path) {
+            for url in wallpaperURLs(scope) where FileManager.default.fileExists(atPath: url.path) {
                 try? FileManager.default.removeItem(at: url)
                 removed = true
             }

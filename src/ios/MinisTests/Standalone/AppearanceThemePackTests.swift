@@ -418,6 +418,29 @@ check("T-54 case: the matte actually reaches the pipeline",
 check("T-54 case: dark and light produce different mattes",
       studio.contains("\"000000\"") && studio.contains("\"F5F5F7\""))
 
+// [T-54] 真正的修法：带透明的图按档位各存一份，切档不再沿用旧配色的白边。
+// 原来只在拾取那一刻垫一次底，切档后文件里还是旧档的画布色 —— 这才是审计
+// 要修的那个场景，光有上面那几条"拾取时垫对了"是不够的。
+check("T-54 fix: a per-variant wallpaper path exists",
+      studio.contains("wallpaper-\\(scope.rawValue)-\\(variant.rawValue).jpg"))
+check("T-54 fix: transparency is actually detected",
+      studio.contains("case .none, .noneSkipFirst, .noneSkipLast: return false"))
+check("T-54 fix: a transparent image is written once per variant",
+      studio.contains("writeWallpaperData(light, for: scope, variant: .light)")
+      && studio.contains("writeWallpaperData(darkData, for: scope, variant: .dark)"))
+check("T-54 fix: the legacy single file is removed for transparent sources",
+      studio.contains("try? FileManager.default.removeItem(at: wallpaperURL(scope))\n            return true"))
+check("T-54 fix: reading prefers the current variant",
+      studio.contains("let ownVariant = wallpaperURL(scope, variant: activeVariant)"))
+check("T-54 fix: the cache is keyed by variant too",
+      studio.contains("\"\\(scope.rawValue).\\(activeVariant.rawValue)\" as NSString"))
+check("T-54 fix: clear removes all three files",
+      studio.contains("for url in wallpaperURLs(scope) { try? FileManager.default.removeItem(at: url) }"))
+check("T-54 fix: snapshots capture all three files",
+      studio.contains("for src in wallpaperURLs(scope) where FileManager.default.fileExists(atPath: src.path)"))
+check("T-54 fix: pack export falls back to the variant names",
+      pack.contains("private func wallpaperFileData(_ scope: AppearanceScope) -> Data?"))
+
 // [T-39] 死页删掉之后，凡是有 setter 却没人调的就是被"删代码删掉了功能"。
 // 这三样（我的头像、立绘、设置行图标）原本只有死页能改，现在必须活在店里。
 check("shop can set the user avatar",

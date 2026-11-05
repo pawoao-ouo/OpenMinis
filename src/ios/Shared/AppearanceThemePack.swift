@@ -1362,7 +1362,7 @@ extension AppearanceStudio {
         // them untouched when no downscale is needed — so read those instead
         // of round-tripping through UIImage. The UIImage path stays as the
         // fallback for anything not backed by a file.
-        if includeWallpaper, let data = originalImageData(fileName: "wallpaper-\(AppearanceScope.global.rawValue).jpg") {
+        if includeWallpaper, let data = wallpaperFileData(.global) {
             pack.wallpaperJPEGBase64 = data.base64EncodedString()
         } else if includeWallpaper, let image = wallpaper(for: .global),
                   let data = image.jpegData(compressionQuality: 0.82) {
@@ -1404,7 +1404,7 @@ extension AppearanceStudio {
             for scope in AppearanceScope.allCases where scope != .global {
                 if wallpaperClearsGlobal(scope) {
                     pageWallpapers[scope.rawValue] = ""
-                } else if let data = originalImageData(fileName: "wallpaper-\(scope.rawValue).jpg") {
+                } else if let data = wallpaperFileData(scope) {
                     pageWallpapers[scope.rawValue] = data.base64EncodedString()
                 }
             }
@@ -1433,6 +1433,22 @@ extension AppearanceStudio {
     ///
     /// Deliberately not `UIImage(contentsOfFile:)`: decoding and re-encoding is
     /// what inflated exported packs.
+    /// [T-54] 带透明的壁纸会存成 `wallpaper-<scope>-light/dark.jpg`，不再有
+    /// 旧名的单文件。导出时按"当前档 → 另一档 → 旧单文件"找，找到哪份用哪份；
+    /// 少了这一步，透明壁纸会静默地从导出的主题包里消失。
+    private func wallpaperFileData(_ scope: AppearanceScope) -> Data? {
+        let names = [
+            "wallpaper-\(scope.rawValue)-\(AppearanceStudio.shared.activeVariant.rawValue).jpg",
+            "wallpaper-\(scope.rawValue)-light.jpg",
+            "wallpaper-\(scope.rawValue)-dark.jpg",
+            "wallpaper-\(scope.rawValue).jpg",
+        ]
+        for name in names {
+            if let data = originalImageData(fileName: name) { return data }
+        }
+        return nil
+    }
+
     private func originalImageData(fileName: String) -> Data? {
         let url = appearanceDirectory.appendingPathComponent(fileName)
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
