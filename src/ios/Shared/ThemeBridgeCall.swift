@@ -67,6 +67,23 @@ enum ThemeBridgeCall {
     ///   window wider than the confirmation gate's own timeout.
     static func run(timeout: TimeInterval = 5,
                     _ work: @escaping @MainActor (ThemeBridgeCallToken) async -> [String: Any]) -> NSDictionary {
+        // [T-73a] 这里必须不在主线程。
+        //
+        // 函数体先在当前线程上阻塞 `sem.wait`，然后靠 `Task { @MainActor }`
+        // 在主线程上跑 work 并 `sem.signal()`。如果调用线程本身就是主线程，
+        // 主线程被 wait 堵死，那个 Task 永远排不上，signal 永远不会来 ——
+        // 每次调用都卡满 timeout，什么也不发生，然后报超时。
+        //
+        // 现在断言写死这条前提：谁在主线程上调用，Debug 直接崩在这里，
+        // 而不是表现成"主题命令总是超时"。Release 下 assert 不生效，但下面
+        // 的 `runWithoutBlockingMain` 会给主线程调用一条真的能跑的路。
+        assert(!Thread.isMainThread,
+               "ThemeBridgeCall.run must not be called on the main thread: it blocks the caller on a semaphore while the work is queued onto the main actor, which deadlocks until the timeout.")
+
+        if Thread.isMainThread {
+            return runOffMainThread(timeout: timeout, work)
+        }
+
         let sem = DispatchSemaphore(value: 0)
         let token = ThemeBridgeCallToken()
         var result: [String: Any] = [:]
@@ -88,6 +105,31 @@ enum ThemeBridgeCall {
             ] as NSDictionary
         }
         return result as NSDictionary
+    }
+
+    /// [T-73a] 主线程调用时的退路。
+    ///
+    /// 不能在主线程上等 —— 那就别等：把 work 排到主 actor 上异步跑，立刻
+    /// 返回一个"已提交"的结果。调用方（ObjC 子命令）是同步函数，拿不到
+    /// 最终值，所以这条路的返回是明确的 `accepted`，而不是假装成功或超时。
+    ///
+    /// 正常情况下走不到这里：真实的 CLI 桥接跑在 offload 工作线程上，
+    /// 上面的 assert 就是用来保证这一点的。这是防"哪天有人从按钮里直接
+    /// 调它"的兜底。
+    private static func runOffMainThread(timeout: TimeInterval,
+                                         _ work: @escaping @MainActor (ThemeBridgeCallToken) async -> [String: Any]) -> NSDictionary {
+        let token = ThemeBridgeCallToken()
+        NSLog("[CLIBridge] theme call reached ThemeBridgeCall.run on the main thread - scheduling without blocking")
+        Task { @MainActor in
+            guard !token.isCancelled else { return }
+            _ = await work(token)
+        }
+        return [
+            "ok": true,
+            "accepted": true,
+            "deferred": true,
+            "message": "This call was dispatched from the main thread, so it was scheduled instead of waited on; the change will be applied on the next main-actor turn.",
+        ] as NSDictionary
     }
 
     /// The standard answer when a confirmation did not come back approved.
