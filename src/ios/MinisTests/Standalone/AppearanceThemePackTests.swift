@@ -252,7 +252,7 @@ check("settings layer is global", studio.contains("static let settings: Appearan
 check("home layer is home", studio.contains("static let home: AppearanceScope = .home"))
 check("MinisTheme defaults through the contract",
       studio.contains("scope: AppearanceScope = ThemeColorLayer.fallback"))
-check("ChatColors has no bare .chat scope", !chatView.contains("scope: .chat"))
+check("ChatColors has no bare .chat scope", !input.contains("scope: .chat"))
 check("sheet defaults through the contract",
       askDialog.contains("scope: AppearanceScope = ThemeColorLayer.sheet")
       && !askDialog.contains("scope: AppearanceScope = .chat"))
@@ -383,6 +383,18 @@ check("shop exposes both decal opacities",
       && shopView.contains("studio.setThinkingCardImageOpacity($0)"))
 check("shop lists the real category keys",
       shopView.contains("ForEach(AppearanceThemePack.categoryKeys, id: \\.self)"))
+
+// [T-73a] AI 桥不能在主线程上阻塞信号量。断言写死这条前提，并给主线程
+// 调用留一条不阻塞的退路。
+let bridgeCall = read(here.appendingPathComponent("Shared/ThemeBridgeCall.swift"))
+check("theme bridge asserts it is off the main thread",
+      bridgeCall.contains("assert(!Thread.isMainThread,"))
+check("theme bridge has a non-blocking path for main-thread callers",
+      bridgeCall.contains("private static func runOffMainThread("))
+check("main-thread path reports itself as deferred",
+      bridgeCall.contains("\"deferred\": true"))
+check("deferred path never claims to have written",
+      !bridgeCall.contains("\"ok\": true, \"written\": true"))
 
 if failures == 0 {
     print("\nALL PASS")
