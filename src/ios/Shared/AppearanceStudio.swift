@@ -1288,8 +1288,16 @@ final class AppearanceStudio: ObservableObject {
     /// [T-25] 这一页自己的壁纸文件叫什么。给 AI 子命令报原值用——
     /// 只说"会覆盖这一页的图"不够，得说清盖掉的是哪一张。没有就 nil。
     func ownWallpaperFileName(_ scope: AppearanceScope) -> String? {
-        let url = wallpaperURL(scope)
-        return FileManager.default.fileExists(atPath: url.path) ? url.lastPathComponent : nil
+        // [T-54 r2] 带透明的壁纸只存分档文件，旧单文件被删掉了。只看旧
+        // 名字就会答"这一页没有自己的图"，可它明明有——AI 报原值时说的是
+        // 假话，`hadOwnWallpaper` 也跟着假。先当前档，再另一档，最后旧名。
+        let fm = FileManager.default
+        for variant in [activeVariant, .light, .dark] {
+            let url = wallpaperURL(scope, variant: variant)
+            if fm.fileExists(atPath: url.path) { return url.lastPathComponent }
+        }
+        let legacy = wallpaperURL(scope)
+        return fm.fileExists(atPath: legacy.path) ? legacy.lastPathComponent : nil
     }
 
     func wallpaper(for scope: AppearanceScope) -> UIImage? {

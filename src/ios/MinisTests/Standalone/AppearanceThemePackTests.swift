@@ -441,6 +441,11 @@ check("T-54 fix: snapshots capture all three files",
 check("T-54 fix: pack export falls back to the variant names",
       pack.contains("private func wallpaperFileData(_ scope: AppearanceScope) -> Data?"))
 
+// [T-54 r2] 带透明的壁纸只存分档文件，旧单文件被删了。只看旧名字，AI
+// 报原值时会说"这一页没有自己的图"，可它明明有。
+check("T-54 r2: reporting the previous wallpaper looks at the variant files",
+      studio.contains("for variant in [activeVariant, .light, .dark] {"))
+
 // [T-39] 死页删掉之后，凡是有 setter 却没人调的就是被"删代码删掉了功能"。
 // 这三样（我的头像、立绘、设置行图标）原本只有死页能改，现在必须活在店里。
 check("shop can set the user avatar",
