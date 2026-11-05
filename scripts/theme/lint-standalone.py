@@ -4,7 +4,7 @@
 CI 的 compile gate 只查 App，第 10 步才跑这个脚本；脚本里一个没声明的
 标识符要等到那一步才暴露，前面白等一整轮构建。这里把能静态查的先查掉。
 
-用法: python3 /var/minis/workspace/theme-fix/lint-standalone.py <文件>
+用法: python3 scripts/theme/lint-standalone.py <文件>
 """
 import re
 import sys
