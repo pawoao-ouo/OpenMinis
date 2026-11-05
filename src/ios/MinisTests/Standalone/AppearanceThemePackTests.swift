@@ -43,6 +43,7 @@ let here = URL(fileURLWithPath: #file)
     .deletingLastPathComponent()
 let pack = read(here.appendingPathComponent("Shared/AppearanceThemePack.swift"))
 let studio = read(here.appendingPathComponent("Shared/AppearanceStudio.swift"))
+let lib = read(here.appendingPathComponent("Shared/AppearanceThemeLibrary.swift"))
 let library = read(here.appendingPathComponent("Shared/AppearanceThemeLibrary.swift"))
 let chat = read(here.appendingPathComponent("Views/Chat/ChatMessageViews.swift"))
 let think = read(here.appendingPathComponent("Views/Chat/AssistantBlockView.swift"))
@@ -438,8 +439,40 @@ check("T-54 fix: clear removes all three files",
       studio.contains("for url in wallpaperURLs(scope) { try? FileManager.default.removeItem(at: url) }"))
 check("T-54 fix: snapshots capture all three files",
       studio.contains("for src in wallpaperURLs(scope) where FileManager.default.fileExists(atPath: src.path)"))
-check("T-54 fix: pack export falls back to the variant names",
-      pack.contains("private func wallpaperFileData(_ scope: AppearanceScope) -> Data?"))
+check("T-54 fix: pack export reads the light variant, falling back to the legacy name",
+      pack.contains("private func wallpaperLightFileData(_ scope: AppearanceScope) -> Data?")
+      && pack.contains("originalImageData(fileName: \"wallpaper-\\(scope.rawValue)-light.jpg\")"))
+
+// [T-54 r2] 只带一份的话，浅色档导出、别人导入、切深色档，读到的还是浅色
+// 垫的那张——原症状换了个入口。包必须两档都带，导入必须两档都落盘。
+check("T-54 r2: the pack carries a second variant for the global wallpaper",
+      pack.contains("pack.wallpaperDarkJPEGBase64 = wallpaperDarkFileData(.global)?.base64EncodedString()"))
+check("T-54 r2: the pack carries a second variant per page scope",
+      pack.contains("pageDarkWallpapers[scope.rawValue] = dark.base64EncodedString()"))
+check("T-54 r2: the second variant is a real field, not a comment",
+      pack.contains("var wallpaperDarkJPEGBase64: String? = nil")
+      && pack.contains("var pageDarkWallpapers: [String: String]? = nil"))
+check("T-54 r2: the second variant survives decode and re-encode",
+      pack.contains("wallpaperDarkJPEGBase64: raw[\"wallpaperDarkJPEGBase64\"] as? String")
+      && pack.contains("if let wallpaperDarkJPEGBase64 { obj[\"wallpaperDarkJPEGBase64\"] = wallpaperDarkJPEGBase64 }"))
+check("T-54 r2: image bytes never land in UserDefaults",
+      pack.contains("stored.wallpaperDarkJPEGBase64 = nil")
+      && pack.contains("stored.pageDarkWallpapers = nil"))
+check("T-54 r2: import writes both variants and drops the legacy file",
+      studio.contains("func setWallpaperEncoded(_ data: Data, for scope: AppearanceScope,\n                             darkData: Data? = nil) -> Bool")
+      && studio.contains("writeWallpaperData(darkJPEG, for: scope, variant: .dark)"))
+check("T-54 r2: apply feeds both variants in",
+      pack.contains("setWallpaperEncoded(data, for: .global, darkData: darkData)")
+      && pack.contains("darkData: pack.pageDarkWallpapers?[scopeRaw]"))
+check("T-54 r2: a single-file write clears stale variant files",
+      studio.contains("for stale in [wallpaperURL(scope, variant: .light),"))
+check("T-54 r2: the AI cannot use the new key to reach a page wallpaper",
+      pack.contains("\"pageWallpapers\", \"pageDarkWallpapers\",\n    ]"))
+check("T-54 r2: a saved theme keeps the second variant",
+      lib.contains("partial.wallpaperDarkJPEGBase64 = saved.wallpaperDarkJPEGBase64"))
+check("T-54 r2: the in-use check ignores variant bytes but not variant slots",
+      lib.contains("\"wallpaperJPEGBase64\", \"wallpaperDarkJPEGBase64\"")
+      && lib.contains("j[\"pageDarkWallpapers\"] = pageDarkWallKeys.sorted()"))
 
 // [T-54 r2] 带透明的壁纸只存分档文件，旧单文件被删了。只看旧名字，AI
 // 报原值时会说"这一页没有自己的图"，可它明明有。

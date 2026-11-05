@@ -1356,7 +1356,8 @@ final class AppearanceStudio: ObservableObject {
     /// threw away a generation and inflated the file. Re-encoding now only
     /// happens when the image is larger than the wallpaper edge limit.
     @discardableResult
-    func setWallpaperEncoded(_ data: Data, for scope: AppearanceScope) -> Bool {
+    func setWallpaperEncoded(_ data: Data, for scope: AppearanceScope,
+                             darkData: Data? = nil) -> Bool {
         // [T-29] 解不出来的字节不许落盘。以前原样写进 wallpaper-<scope>.jpg
         // 再回 true：文件在、hasWallpaper 也真，渲染却是纯色底，只有手动
         // 清除能救回来。现在直接失败，让调用方（主题包流程）追加 warning。
@@ -1364,6 +1365,24 @@ final class AppearanceStudio: ObservableObject {
         guard let image = WallpaperPipeline.decodedImage(data) else {
             appearanceLog.warning("wallpaper bytes for \(scope.rawValue) do not decode; nothing written")
             return false
+        }
+        // [T-54 r2] 主题包带了第二档：两档各写各的文件，再删旧单文件。
+        // 只写单份的话，浅色档导出、别人导入、切深色档，读到的还是浅色
+        // 垫的那张——T-54 的原症状换了个入口。
+        if let darkData {
+            guard let darkImage = WallpaperPipeline.decodedImage(darkData) else {
+                appearanceLog.warning("dark wallpaper bytes for \(scope.rawValue) do not decode; nothing written")
+                return false
+            }
+            let lightJPEG = max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge
+                ? Self.backgroundJPEG(image, dark: false) : data
+            let darkJPEG = max(darkImage.size.width, darkImage.size.height) > WallpaperPipeline.maxEdge
+                ? Self.backgroundJPEG(darkImage, dark: true) : darkData
+            guard let lightJPEG, let darkJPEG,
+                  writeWallpaperData(lightJPEG, for: scope, variant: .light),
+                  writeWallpaperData(darkJPEG, for: scope, variant: .dark) else { return false }
+            try? FileManager.default.removeItem(at: wallpaperURL(scope))
+            return true
         }
         if max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge {
             return setWallpaper(image, for: scope)
@@ -1381,6 +1400,15 @@ final class AppearanceStudio: ObservableObject {
         } catch {
             appearanceLog.warning("wallpaper write failed for \(scope.rawValue): \(error.localizedDescription)")
             return false
+        }
+        // [T-54 r2] 单文件落盘＝这一页没有分档。旧的 -light/-dark 必须
+        // 一起删，否则读取时它们排在前面，用户换了不透明图、切档看到的
+        // 还是上一张透明图垫出来的样子。
+        if variant == nil {
+            for stale in [wallpaperURL(scope, variant: .light),
+                          wallpaperURL(scope, variant: .dark)] {
+                try? FileManager.default.removeItem(at: stale)
+            }
         }
         // [T-wallpaper-clear] Choosing a new image re-enables global
         // fallback for this scope (the clear only sticks until overridden).

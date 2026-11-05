@@ -156,7 +156,8 @@ import UIKit
             // wallpaper.
             let leftovers = AppearanceStudio.shared.aiApplyLeftovers(
                 changedLightRoles: changedLight, changedDarkRoles: changedDark,
-                carriesWallpaper: obj["wallpaperJPEGBase64"] != nil,
+                carriesWallpaper: obj["wallpaperJPEGBase64"] != nil
+                    || obj["wallpaperDarkJPEGBase64"] != nil,
                 carriesThinkingCard: obj["thinkingCardJPEGBase64"] != nil,
                 carriesInputBar: obj["inputBarJPEGBase64"] != nil)
             let untouchedImages = leftovers.images
@@ -174,6 +175,8 @@ import UIKit
             out["applied"] = true
             if !warnings.isEmpty { out["warnings"] = warnings }
             out.removeValue(forKey: "wallpaperJPEGBase64")
+            // [T-54 r2] 第二档也是图字节，一样不能出现在回给 AI 的包里。
+            out.removeValue(forKey: "wallpaperDarkJPEGBase64")
             out.removeValue(forKey: "characterArtBase64")
             out["hasCharacterArt"] = AppearanceStudio.shared.hasCharacterArt
             if !untouchedImages.isEmpty { out["untouchedImages"] = untouchedImages }

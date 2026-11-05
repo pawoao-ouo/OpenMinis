@@ -178,7 +178,8 @@ extension AppearanceStudio {
         let leftovers = aiApplyLeftovers(
             changedLightRoles: Set(saved.colorsLight.keys),
             changedDarkRoles: Set(saved.colorsDark.keys),
-            carriesWallpaper: saved.wallpaperJPEGBase64 != nil,
+            carriesWallpaper: saved.wallpaperJPEGBase64 != nil
+                || saved.wallpaperDarkJPEGBase64 != nil,
             carriesThinkingCard: saved.thinkingCardJPEGBase64 != nil,
             carriesInputBar: saved.inputBarJPEGBase64 != nil)
         var partial = currentThemePack()
@@ -203,6 +204,7 @@ extension AppearanceStudio {
         // Images only; a nil image means "leave the current file", which
         // the bridge result reports as an untouched leftover, not a clear.
         partial.wallpaperJPEGBase64 = saved.wallpaperJPEGBase64
+        partial.wallpaperDarkJPEGBase64 = saved.wallpaperDarkJPEGBase64
         partial.thinkingCardJPEGBase64 = saved.thinkingCardJPEGBase64
         partial.inputBarJPEGBase64 = saved.inputBarJPEGBase64
         // [page-state] Page state is never an AI apply: the partial
@@ -215,6 +217,7 @@ extension AppearanceStudio {
         partial.pageColorsLight = nil
         partial.pageColorsDark = nil
         partial.pageWallpapers = nil
+        partial.pageDarkWallpapers = nil
         // Everything else stays live: radii, styles, lineHeight,
         // letterSpacing, opacities, shade, display modes, fontFamily,
         // category icons/images, character art.
@@ -309,7 +312,8 @@ extension AppearanceStudio {
         func key(_ p: AppearanceThemePack) -> [String: Any] {
             var j = p.asJSONObject()
             for volatile in ["name", "id", "savedAt",
-                             "wallpaperJPEGBase64", "thinkingCardJPEGBase64",
+                             "wallpaperJPEGBase64", "wallpaperDarkJPEGBase64",
+                             "thinkingCardJPEGBase64",
                              "inputBarJPEGBase64", "characterArtBase64"] {
                 j[volatile] = nil
             }
@@ -330,6 +334,12 @@ extension AppearanceStudio {
             else if let m = j["pageWallpapers"] as? [String: Any] { pageWallKeys = Array(m.keys) }
             else { pageWallKeys = [] }
             j["pageWallpapers"] = pageWallKeys.sorted()
+            // [T-54 r2] 暗档同样只比槽位，不比字节。
+            let pageDarkWallKeys: [String]
+            if let m = j["pageDarkWallpapers"] as? [String: String] { pageDarkWallKeys = Array(m.keys) }
+            else if let m = j["pageDarkWallpapers"] as? [String: Any] { pageDarkWallKeys = Array(m.keys) }
+            else { pageDarkWallKeys = [] }
+            j["pageDarkWallpapers"] = pageDarkWallKeys.sorted()
             return j
         }
         var ka = key(a)

@@ -57,6 +57,11 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var colorsLight: [String: String]
     var colorsDark: [String: String]
     var wallpaperJPEGBase64: String?
+    // [T-54 r2] 带透明的壁纸按明暗各存一份。只带当前档那一份的话，
+    // 浅色档导出、别人导入、切到深色档，读到的还是浅色垫的那张——
+    // T-54 的原症状换了个入口。nil = 这个包没带第二档（不透明壁纸
+    // 或旧包），导入时按单份处理。
+    var wallpaperDarkJPEGBase64: String? = nil
     // [page-state] Page-scope colour overrides carried by the pack,
     // keyed by scope raw value, then role raw value. Nil = this pack
     // says nothing about page colours (old packs, partial merges):
@@ -76,6 +81,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     // applyThemePack nils this on the stored pack before
     // persisting, so image bytes never live in UserDefaults.
     var pageWallpapers: [String: String]?
+    // [T-54 r2] 页级壁纸的暗档，键与 pageWallpapers 相同。只写非空
+    // 条目：空串的"明确清空"语义只属于 pageWallpapers，别重复。
+    var pageDarkWallpapers: [String: String]? = nil
     // [10-18 醒醒 第五轮] 五个新的可调维度，补的是"结构"自由度，
     // 之前只有颜色和圆角。
     /// 头像形状：圆 / 方 / 圆角方 / 竖矩形
@@ -423,6 +431,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         if let wallpaperShade { obj["wallpaperShade"] = wallpaperShade }
         if let surfaceOpacity { obj["surfaceOpacity"] = surfaceOpacity }
         if let wallpaperJPEGBase64 { obj["wallpaperJPEGBase64"] = wallpaperJPEGBase64 }
+        // [T-54 r2] 第二档只在真有两份时才写。老包没有这个键，
+        // 读的时候当"只有一份"处理，不会多出半张图。
+        if let wallpaperDarkJPEGBase64 { obj["wallpaperDarkJPEGBase64"] = wallpaperDarkJPEGBase64 }
         // [page-state] Written only when non-nil, so an old pack
         // (keys absent) stays distinguishable from a new pack
         // that explicitly carries empty page state. Wallpaper
@@ -430,6 +441,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         if let pageColorsLight { obj["pageColorsLight"] = pageColorsLight }
         if let pageColorsDark { obj["pageColorsDark"] = pageColorsDark }
         if let pageWallpapers { obj["pageWallpapers"] = pageWallpapers }
+        if let pageDarkWallpapers { obj["pageDarkWallpapers"] = pageDarkWallpapers }
         if let thinkingCardJPEGBase64 { obj["thinkingCardJPEGBase64"] = thinkingCardJPEGBase64 }
         if let inputBarJPEGBase64 { obj["inputBarJPEGBase64"] = inputBarJPEGBase64 }
         return obj
@@ -448,8 +460,8 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "thinkingTitleSize", "thinkingBodySize", "fontFamily",
         "messageFontFamily", "messageCustomFont", "uiCustomFont",
         "wallpaperShade", "surfaceOpacity",
-        "colorsLight", "colorsDark", "wallpaperJPEGBase64",
-        "pageColorsLight", "pageColorsDark", "pageWallpapers",
+        "colorsLight", "colorsDark", "wallpaperJPEGBase64", "wallpaperDarkJPEGBase64",
+        "pageColorsLight", "pageColorsDark", "pageWallpapers", "pageDarkWallpapers",
         "avatarShape", "chatDisplay", "lineHeight", "letterSpacing", "rowBackgroundHex",
         "novelMode", "characterArtBase64",
         "userBubbleSurface", "assistantBubbleSurface",
@@ -560,7 +572,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         // Page-scope state: the AI may change global colours and
         // the global wallpaper, but never a page's colours or
         // wallpaper — those are the user's per-page tuning.
-        "pageColorsLight", "pageColorsDark", "pageWallpapers",
+        "pageColorsLight", "pageColorsDark", "pageWallpapers", "pageDarkWallpapers",
     ]
 
     /// Locked keys present in `raw`, sorted. Empty means the AI apply
@@ -685,6 +697,18 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             }
             return out
         }
+        func pageDarkWallpaperMap() -> [String: String]? {
+            guard let outer = raw["pageDarkWallpapers"] as? [String: Any] else { return nil }
+            var out: [String: String] = [:]
+            for (scopeRaw, v) in outer {
+                // 空串在这里没有意义（清空只属于 pageWallpapers），丢掉。
+                guard AppearanceScope(rawValue: scopeRaw) != nil,
+                      scopeRaw != AppearanceScope.global.rawValue,
+                      let s = v as? String, !s.isEmpty else { continue }
+                out[scopeRaw] = s
+            }
+            return out.isEmpty ? nil : out
+        }
         var pack = AppearanceThemePack(
             id: str("id", fallback: base.id),
             name: str("name", fallback: base.name),
@@ -718,9 +742,11 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             colorsLight: normalizeHexMap(map("colorsLight", fallback: base.colorsLight)),
             colorsDark: normalizeHexMap(map("colorsDark", fallback: base.colorsDark)),
             wallpaperJPEGBase64: raw["wallpaperJPEGBase64"] as? String,
+            wallpaperDarkJPEGBase64: raw["wallpaperDarkJPEGBase64"] as? String,
             pageColorsLight: pageColorMap("pageColorsLight"),
             pageColorsDark: pageColorMap("pageColorsDark"),
             pageWallpapers: pageWallpaperMap(),
+            pageDarkWallpapers: pageDarkWallpaperMap(),
             avatarShape: AppearanceAvatarShape.parse(str("avatarShape", fallback: base.avatarShape)).rawValue,
             chatDisplay: AppearanceChatDisplay.parse(str("chatDisplay", fallback: base.chatDisplay)).rawValue,
             lineHeight: min(2.2, max(0.9, num("lineHeight", fallback: base.lineHeight))),
@@ -1155,6 +1181,8 @@ extension AppearanceStudio {
         let replace = (mode == .replace)
         var stored = pack
         stored.wallpaperJPEGBase64 = nil
+        // [T-54 r2] 第二档同样是图字节，一样不许进 defaults。
+        stored.wallpaperDarkJPEGBase64 = nil
         stored.thinkingCardJPEGBase64 = nil
         stored.inputBarJPEGBase64 = nil
         // [page-state] Page wallpapers are transport only, like
@@ -1162,6 +1190,7 @@ extension AppearanceStudio {
         // Page colours stay on the stored pack, like the global
         // colour maps — they are hex, not image bytes.
         stored.pageWallpapers = nil
+        stored.pageDarkWallpapers = nil
         // [B28 A-1] 立绘也不再进 defaults：落成文件，字段置 nil。
         stored.characterArtBase64 = nil
         // Merge mode keeps markers for category images the caller did
@@ -1274,7 +1303,11 @@ extension AppearanceStudio {
             if !setWallpaper(wallpaper, for: .global) { warnings.append("wallpaper") }
         } else if let b64 = pack.wallpaperJPEGBase64 {
             if let data = Data(base64Encoded: b64) {
-                if !setWallpaperEncoded(data, for: .global) { warnings.append("wallpaper") }
+                // [T-54 r2] 包里带第二档就两档都落盘，没有就还按单份写。
+                let darkData = pack.wallpaperDarkJPEGBase64.flatMap { Data(base64Encoded: $0) }
+                if !setWallpaperEncoded(data, for: .global, darkData: darkData) {
+                    warnings.append("wallpaper")
+                }
             } else { warnings.append("wallpaper") }
         }
         if let b64 = pack.thinkingCardJPEGBase64 {
@@ -1315,7 +1348,9 @@ extension AppearanceStudio {
                     warnings.append("wallpaper:\(scopeRaw)")
                     continue
                 }
-                if !setWallpaperEncoded(data, for: scope) {
+                if !setWallpaperEncoded(data, for: scope,
+                                        darkData: pack.pageDarkWallpapers?[scopeRaw]
+                                            .flatMap { Data(base64Encoded: $0) }) {
                     warnings.append("wallpaper:\(scopeRaw)")
                 }
             }
@@ -1339,6 +1374,10 @@ extension AppearanceStudio {
 
     func exportThemePack(includeWallpaper: Bool) -> AppearanceThemePack {
         var pack = loadStoredPack()
+        // [T-54 r2] 第二档只由这一次导出决定，不沿用已存值：不带的
+        // 时候必须是 nil，不能留上一轮的旧图。
+        pack.wallpaperDarkJPEGBase64 = nil
+        pack.pageDarkWallpapers = nil
         pack.colorsLight = exportColors(variant: .light)
         pack.colorsDark = exportColors(variant: .dark)
         // [page-state] Page colours always export (they are hex,
@@ -1362,8 +1401,10 @@ extension AppearanceStudio {
         // them untouched when no downscale is needed — so read those instead
         // of round-tripping through UIImage. The UIImage path stays as the
         // fallback for anything not backed by a file.
-        if includeWallpaper, let data = wallpaperFileData(.global) {
+        if includeWallpaper, let data = wallpaperLightFileData(.global) {
             pack.wallpaperJPEGBase64 = data.base64EncodedString()
+            // [T-54 r2] 有暗档就一起带上，两档都进包才谈得上往返。
+            pack.wallpaperDarkJPEGBase64 = wallpaperDarkFileData(.global)?.base64EncodedString()
         } else if includeWallpaper, let image = wallpaper(for: .global),
                   let data = image.jpegData(compressionQuality: 0.82) {
             pack.wallpaperJPEGBase64 = data.base64EncodedString()
@@ -1401,14 +1442,19 @@ extension AppearanceStudio {
         // field comment), so cleared and inherited stay distinct.
         if includeWallpaper {
             var pageWallpapers: [String: String] = [:]
+            var pageDarkWallpapers: [String: String] = [:]
             for scope in AppearanceScope.allCases where scope != .global {
                 if wallpaperClearsGlobal(scope) {
                     pageWallpapers[scope.rawValue] = ""
-                } else if let data = wallpaperFileData(scope) {
+                } else if let data = wallpaperLightFileData(scope) {
                     pageWallpapers[scope.rawValue] = data.base64EncodedString()
+                    if let dark = wallpaperDarkFileData(scope) {
+                        pageDarkWallpapers[scope.rawValue] = dark.base64EncodedString()
+                    }
                 }
             }
             pack.pageWallpapers = pageWallpapers
+            pack.pageDarkWallpapers = pageDarkWallpapers.isEmpty ? nil : pageDarkWallpapers
         } else {
             pack.pageWallpapers = nil
         }
@@ -1434,19 +1480,18 @@ extension AppearanceStudio {
     /// Deliberately not `UIImage(contentsOfFile:)`: decoding and re-encoding is
     /// what inflated exported packs.
     /// [T-54] 带透明的壁纸会存成 `wallpaper-<scope>-light/dark.jpg`，不再有
-    /// 旧名的单文件。导出时按"当前档 → 另一档 → 旧单文件"找，找到哪份用哪份；
-    /// 少了这一步，透明壁纸会静默地从导出的主题包里消失。
-    private func wallpaperFileData(_ scope: AppearanceScope) -> Data? {
-        let names = [
-            "wallpaper-\(scope.rawValue)-\(AppearanceStudio.shared.activeVariant.rawValue).jpg",
-            "wallpaper-\(scope.rawValue)-light.jpg",
-            "wallpaper-\(scope.rawValue)-dark.jpg",
-            "wallpaper-\(scope.rawValue).jpg",
-        ]
-        for name in names {
-            if let data = originalImageData(fileName: name) { return data }
-        }
-        return nil
+    /// 旧名的单文件；不透明壁纸和旧文件仍只有单份。
+    // [T-54 r2] 明暗两份分开取，不再"找到哪份用哪份"：只带一份的话，
+    // 别的设备导入后切到另一档，读到的还是导出时那一档的底色。
+    // 浅档回落旧单文件：不透明壁纸和有年代的文件都只有那一份。
+    private func wallpaperLightFileData(_ scope: AppearanceScope) -> Data? {
+        originalImageData(fileName: "wallpaper-\(scope.rawValue)-light.jpg")
+            ?? originalImageData(fileName: "wallpaper-\(scope.rawValue).jpg")
+    }
+
+    /// 暗档没有回落：旧单文件就是浅档垫的那张，当暗档会原样复现旧白边。
+    private func wallpaperDarkFileData(_ scope: AppearanceScope) -> Data? {
+        originalImageData(fileName: "wallpaper-\(scope.rawValue)-dark.jpg")
     }
 
     private func originalImageData(fileName: String) -> Data? {
