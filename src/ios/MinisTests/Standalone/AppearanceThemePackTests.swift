@@ -396,6 +396,28 @@ check("main-thread path reports itself as deferred",
 check("deferred path never claims to have written",
       !bridgeCall.contains("\"ok\": true, \"written\": true"))
 
+// [T-54] 透明 PNG 的烘焙底色。审计的原症状：透明 PNG 在深色档被压到画布
+// 浅色上，暗内容周围留一圈惨白（PIC-8）。核对项固定成四条，逐条给结果：
+//
+//   用例：一张带透明区域的 PNG 当主壁纸
+//   期望：垫的是当前档位的画布色（浅 F5F5F7 / 深 000000），不是写死的白
+//   做法：opaque=true，且先填 matte 再画图（顺序反了等于没垫）
+//   结果：下面四条断言，代码层全部成立；渲染观感仍待真机
+check("T-54 case: transparent PNG mattes with the scheme canvas",
+      studio.contains("let matte = UIColor(hex: book[.canvas] ?? (dark ? \"000000\" : \"F5F5F7\"))"))
+check("T-54 case: the pipeline renders opaque, so alpha cannot survive",
+      studio.contains("format.opaque = true"))
+if let fillAt = studio.range(of: "matte.setFill()")?.lowerBound,
+   let drawAt = studio.range(of: "image.draw(in: CGRect(origin: .zero, size: canvas))")?.lowerBound {
+    check("T-54 case: matte is filled BEFORE the image is drawn", fillAt < drawAt)
+} else {
+    check("T-54 case: matte is filled BEFORE the image is drawn", false)
+}
+check("T-54 case: the matte actually reaches the pipeline",
+      studio.contains("return WallpaperPipeline.jpeg(image, matte: matte)"))
+check("T-54 case: dark and light produce different mattes",
+      studio.contains("\"000000\"") && studio.contains("\"F5F5F7\""))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)
