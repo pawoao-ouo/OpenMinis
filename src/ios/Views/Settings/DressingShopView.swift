@@ -182,7 +182,12 @@ struct DressingShopView: View {
     @State private var pickedDecalTarget: DecalTarget?
     @State private var decalMessage: String?
 
-    private enum DecalTarget { case inputBar, thinkingCard, category(String) }
+    private enum DecalTarget {
+        case inputBar, thinkingCard, category(String)
+        /// [T-39] 死页删掉之后这三样在界面上就没有入口了，必须补回来：
+        /// 她的头像、立绘、设置里的行图标。留着不动等于借删代码删功能。
+        case userAvatar, characterArt, icon(String)
+    }
     @State private var showSTImporter = false
     @State private var stImportReport: [String]?
     // Shake preview (2026-11-02 shake-preview batch): the rolled palette
@@ -922,6 +927,16 @@ struct DressingShopView: View {
         case .category(let key):
             decalMessage = studio.setCategoryImage(image, for: key)
                 ? AppLocalized("分类图已换上。")
+                : AppLocalized("选中的图读不出来。")
+        case .userAvatar:
+            studio.setUserAvatar(image)
+            decalMessage = AppLocalized("我的头像已换上。")
+        case .characterArt:
+            studio.setCharacterArtImage(image)
+            decalMessage = AppLocalized("立绘已换上。")
+        case .icon(let slot):
+            decalMessage = studio.setIcon(image, for: slot)
+                ? AppLocalized("这个图标已换上。")
                 : AppLocalized("选中的图读不出来。")
         }
     }
@@ -2461,6 +2476,55 @@ struct DressingShopView: View {
                     .frame(minHeight: 44)
                 }
             }
+            // [T-39] 头像与立绘：死页删掉后无入口，补在这里。
+            decalSectionTitle(AppLocalized("头像"))
+            HStack(spacing: 12) {
+                Button(AppLocalized("换我的头像")) {
+                    pickedDecalTarget = .userAvatar
+                    wallpaperPickerPresented = true
+                }
+                .font(.system(size: fsCaption, weight: .semibold))
+                .foregroundStyle(studio.color(.accent))
+                .frame(minHeight: 44)
+                Button(AppLocalized("换立绘")) {
+                    pickedDecalTarget = .characterArt
+                    wallpaperPickerPresented = true
+                }
+                .font(.system(size: fsCaption, weight: .semibold))
+                .foregroundStyle(studio.color(.accent))
+                .frame(minHeight: 44)
+            }
+            Text(AppLocalized("立绘用在小说模式的对话框里。AI 那边那头像在推荐页里换。"))
+                .font(.system(size: fsCaption))
+                .foregroundStyle(studio.color(.secondaryText))
+
+            // [T-39] 行图标：设置里那些能换图的条目。只列能换的那几种。
+            decalSectionTitle(AppLocalized("设置行图标"))
+            ForEach(QuietIconSlot.allCases) { slot in
+                HStack(spacing: 12) {
+                    Text(slot.title)
+                        .font(.system(size: fsSub))
+                        .foregroundStyle(studio.color(.primaryText))
+                    Spacer(minLength: 8)
+                    Button(AppLocalized("选一张")) {
+                        pickedDecalTarget = .icon(slot.rawValue)
+                        wallpaperPickerPresented = true
+                    }
+                    .font(.system(size: fsCaption, weight: .semibold))
+                    .foregroundStyle(studio.color(.accent))
+                    .frame(minHeight: 44)
+                    if studio.customIcon(for: slot.rawValue) != nil {
+                        Button(AppLocalized("换回默认")) {
+                            _ = studio.removeIcon(for: slot.rawValue)
+                            decalMessage = AppLocalized("这个图标已换回默认。")
+                        }
+                        .font(.system(size: fsCaption))
+                        .foregroundStyle(studio.color(.secondaryText))
+                        .frame(minHeight: 44)
+                    }
+                }
+            }
+
             if let message = decalMessage {
                 Text(message)
                     .font(.system(size: fsCaption))

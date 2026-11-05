@@ -418,6 +418,19 @@ check("T-54 case: the matte actually reaches the pipeline",
 check("T-54 case: dark and light produce different mattes",
       studio.contains("\"000000\"") && studio.contains("\"F5F5F7\""))
 
+// [T-39] 死页删掉之后，凡是有 setter 却没人调的就是被"删代码删掉了功能"。
+// 这三样（我的头像、立绘、设置行图标）原本只有死页能改，现在必须活在店里。
+check("shop can set the user avatar",
+      shopView.contains("studio.setUserAvatar(image)"))
+check("shop can set the character art",
+      shopView.contains("studio.setCharacterArtImage(image)"))
+check("shop can set a settings row icon",
+      shopView.contains("studio.setIcon(image, for: slot)"))
+check("shop can clear a settings row icon",
+      shopView.contains("studio.removeIcon(for: slot.rawValue)"))
+check("shop lists the real icon slots",
+      shopView.contains("ForEach(QuietIconSlot.allCases)"))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)
