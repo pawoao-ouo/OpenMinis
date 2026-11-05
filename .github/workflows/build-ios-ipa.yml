@@ -85,6 +85,9 @@ jobs:
           # blind would just trade a silent gap for a red build nobody can
           # attribute. Add them one at a time.
           /usr/bin/swift AppearanceThemePackTests.swift
+          # [T-47] 调色板完整性：内置表是字典，漏配一个角色只在运行时变 808080
+          # 灰、编译不报。这条套件按角色枚举逐条核对两本书，缺一个就红。
+          /usr/bin/swift AppearancePaletteIntegrityTests.swift
           # [T-skill-description-stuck-forever] The description staleness
           # predicate is what decides whether <available_skills> injects a
           # rotted sentence, so it ships with its own executable assertions
