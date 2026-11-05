@@ -101,7 +101,7 @@ check("missingRoles is computed from the enum, not a hand-kept list",
 // 6. The 808080 fallback still exists — this suite is the thing that must
 //    make it unreachable, so record that it is still the runtime fallback.
 check("the silent grey fallback is still visible in source",
-      studio.contains("?? \\"808080\\""))
+      studio.contains("?? \"808080\""))
 
 if failures == 0 {
     print("\nALL PASS")
