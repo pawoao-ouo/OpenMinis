@@ -118,19 +118,52 @@ enum AppearanceThemeShuffle {
         return (light, dark, name(hue: hue, sat: sat, mood: picked))
     }
 
-    /// 纯随机摇一套（2026-11-02 摇色预览批）：色相全圈 0–360 连续摇，
-    /// 饱和度只在莫兰迪区间 0.15–0.40 内摇，不按任何风格区间摇，也
-    /// 不给风格按钮。推导与对比度兜底与 shuffle() 走同一条
-    /// deriveMaps，不另起配色数学。只出预览用，不直接写进现场配色。
+    /// 摇一摇的配色只从这张小清单里抽（2026-11-06：全圈随机摇出来的
+    /// 太丑，她要浅色系高级感，白底 + 克兰因蓝打头）。
+    ///
+    /// 每条是一个种子色相/饱和度，走同一条 deriveMaps 推导浅深两套
+    /// （对比度兜底不变），再钉死三处：浅色底与卡片纯白、强调色就是
+    /// 清单上写明的那个色、自己气泡是它的淡底。深色强调色是同一色相
+    /// 的亮版，深底上的按钮字才看得清。白字压浅色强调色 5.8:1 起、
+    /// 深墨字压淡气泡 10:1 起，都是算过的数，不是手感。
+    private struct CuratedShakePalette {
+        let name: String
+        let hue: Double
+        let sat: Double
+        let accentLight: String
+        let accentDark: String
+        let bubbleLight: String
+    }
+
+    private static let curatedShakePalettes: [CuratedShakePalette] = [
+        // 打头：白 + 克兰因蓝 #002FA7。
+        CuratedShakePalette(name: "克兰因蓝", hue: 221, sat: 0.62, accentLight: "002FA7", accentDark: "6E8FFF", bubbleLight: "E9EEFB"),
+        CuratedShakePalette(name: "雾灰蓝", hue: 212, sat: 0.30, accentLight: "35506B", accentDark: "7FA0C4", bubbleLight: "EAF0F5"),
+        CuratedShakePalette(name: "灰绿", hue: 152, sat: 0.28, accentLight: "3F6B58", accentDark: "7FB094", bubbleLight: "EAF2EE"),
+        CuratedShakePalette(name: "暖陶", hue: 28, sat: 0.30, accentLight: "7D5F4B", accentDark: "B99B83", bubbleLight: "F5EFE9"),
+        CuratedShakePalette(name: "墨", hue: 222, sat: 0.10, accentLight: "2B2F36", accentDark: "C9C9D1", bubbleLight: "ECECF0"),
+        CuratedShakePalette(name: "丁香灰", hue: 268, sat: 0.22, accentLight: "6B5B8C", accentDark: "A493C7", bubbleLight: "F0EDF7"),
+        CuratedShakePalette(name: "湖青", hue: 174, sat: 0.28, accentLight: "2F6B66", accentDark: "6FA8A0", bubbleLight: "E9F2F0"),
+    ]
+
+    /// 从上面的清单里随机抽一套（2026-11-02 摇色预览批立的规矩不变：
+    /// 只出预览，不直接写进现场配色）。推导与对比度兜底与 shuffle()
+    /// 走同一条 deriveMaps，不另起配色数学。
     static func shufflePureRandom(seed: UInt64? = nil) -> (light: [AppearanceColorRole: String],
                                                            dark: [AppearanceColorRole: String],
                                                            name: String) {
         var rng = SplitMix64(seed: seed ?? UInt64.random(in: 0...UInt64.max))
-        let hue = Double(rng.next() % 3600) / 10.0
-        let sat = 0.15 + Double(rng.next() % 10_000) / 10_000 * 0.25
-        let (light, dark) = deriveMaps(hue: hue, sat: sat)
-        // name() 只看色相与浓度，mood 参数未被使用；纯随机没有风格可传。
-        return (light, dark, name(hue: hue, sat: sat, mood: .night))
+        let picked = curatedShakePalettes[Int(rng.next() % UInt64(curatedShakePalettes.count))]
+        var (light, dark) = deriveMaps(hue: picked.hue, sat: picked.sat)
+        // 白底：浅色底与卡片钉死纯白，不再是带色相的米白。
+        light[.canvas] = "FFFFFF"
+        light[.surface] = "FFFFFF"
+        // 强调色就是清单上写明的那个色，不是由种子推导的近似色。
+        light[.accent] = picked.accentLight
+        dark[.accent] = picked.accentDark
+        // 自己气泡是强调色的淡底，里面的深墨字对比度 10:1 起。
+        light[.userBubble] = picked.bubbleLight
+        return (light, dark, picked.name)
     }
 
     /// 从一个主色推导浅深两套色，并过一遍对比度兜底。
