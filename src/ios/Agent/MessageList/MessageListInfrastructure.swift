@@ -1083,16 +1083,6 @@ final class MessageListViewController: UIViewController {
     var collectionView: UICollectionView!
     var messageListLayout: MessageListLayout!
 
-    /// Fired from `viewDidLayoutSubviews` whenever the CONTROLLER's height
-    /// changes, with (oldHeight, newHeight). The only consumer is the scroll
-    /// coordinator: when the page shrinks by the keyboard's height, the list's
-    /// viewport shrinks with it and the pinned bottom must ride that change by
-    /// the same delta, on the keyboard's own curve. Before this hook the only
-    /// reaction was a delayed re-pin, which ran after the keyboard had already
-    /// moved — the "list overshoots, then drifts back" report.
-    var onViewportHeightChange: ((CGFloat, CGFloat) -> Void)?
-    private var lastLaidOutHeight: CGFloat = 0
-
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
@@ -1112,15 +1102,6 @@ final class MessageListViewController: UIViewController {
         collectionView.alwaysBounceVertical = true
         collectionView.contentInsetAdjustmentBehavior = .automatic
         view.addSubview(collectionView)
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        let h = view.bounds.height
-        if lastLaidOutHeight > 0.5, abs(h - lastLaidOutHeight) > 0.5 {
-            onViewportHeightChange?(lastLaidOutHeight, h)
-        }
-        lastLaidOutHeight = h
     }
 
     /// [RotationFix] Rotation handler — without this, on rotation the
@@ -1281,4 +1262,81 @@ final class CellStateBridgeV2: ObservableObject {
     /// 此前工具详情页（ToolLiveSheet）这条链断着，接管按钮不显示（BR-2）。
     var onBrowserTakeover: (() -> Void)?
     var onTakeoverDone: (() -> Void)?
+}
+
+// MARK: - [T-send-composer-shrink-absorb] Composer shrink absorption
+
+/// The composer's height as layout last reported it — NOT debounced.
+///
+/// The message list's bottom inset is built from `inputBarHeight`, a SwiftUI
+/// state that follows the composer through a 380 ms trailing debounce (the
+/// debounce is what keeps transitional heights out of the inset). This box
+/// carries the same measurement the moment it is made, so the list can tell
+/// that a shrink is on its way before the state lands. A reference type on
+/// purpose: writing it does not re-evaluate any view body. Main thread only.
+///
+/// (Ported from upstream OpenMinis, where this is its own file — kept here so
+/// the app target's explicit file list does not have to grow.)
+final class ComposerLiveHeight {
+    private(set) var value: CGFloat = 0
+    /// Called after `value` changed. Set by the message list.
+    var onChange: (() -> Void)?
+
+    func report(_ height: CGFloat) {
+        guard height > 0, abs(height - value) > 0.5 else { return }
+        value = height
+        onChange?()
+    }
+}
+
+/// Which part of a composer shrink that the debounce has not committed yet has
+/// already been taken out of the list's bottom inset.
+///
+/// With the inset still at the pre-send height, each appended row was pinned
+/// against a line that no longer existed and pushed the conversation up by its
+/// own height; when the debounce landed, the whole shrink was applied in one
+/// frame and the conversation dropped back.
+///
+/// Rule: when a pin is about to scroll the content up by `reach` points and the
+/// composer is known to be shorter than the inset assumes, take up to `reach`
+/// points of that shrink out of the inset first. The new rows then fill the
+/// space the composer released and the content above them stays where it is.
+struct ComposerShrinkAbsorption {
+    /// The debounced composer height the list's base inset is built from.
+    private(set) var committed: CGFloat = 0
+    /// Points of a not-yet-committed shrink already removed from the inset.
+    private(set) var absorbed: CGFloat = 0
+
+    /// The debounced height as the list sees it on every update. When it
+    /// changes it is the truth again and nothing is outstanding.
+    mutating func noteCommitted(_ height: CGFloat) {
+        guard abs(height - committed) > 0.5 else { return }
+        committed = height
+        absorbed = 0
+    }
+
+    /// Shrink the composer has reported and no row has consumed yet.
+    func pending(live: CGFloat) -> CGFloat {
+        guard live > 0 else { return 0 }
+        return max(0, committed - live - absorbed)
+    }
+
+    /// A pin is about to scroll the content up by `reach`. Returns how many
+    /// points to take out of the bottom inset before it does (0 = none).
+    mutating func absorb(live: CGFloat, reach: CGFloat) -> CGFloat {
+        let take = min(pending(live: live), reach)
+        guard take > 0.5 else { return 0 }
+        absorbed += take
+        return take
+    }
+
+    /// The live height changed. If the composer grew back above what was
+    /// absorbed against, returns the points to give back to the inset.
+    mutating func release(live: CGFloat) -> CGFloat {
+        let allowed = live > 0 ? max(0, committed - live) : 0
+        guard absorbed > allowed + 0.5 else { return 0 }
+        let give = absorbed - allowed
+        absorbed = allowed
+        return give
+    }
 }

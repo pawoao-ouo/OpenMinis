@@ -224,15 +224,12 @@ struct AIChatView: View {
         showTogetherBar ? TogetherMiniBar.stackHeight : 0
     }
     @State private var inputBarHeightDebounce: Task<Void, Never>?
-    /// [T-keyboard-owns-bottom] How much the on-screen keyboard covers the
-    /// window bottom. Read from the keyboard's own frame notifications and
-    /// applied as an explicit bottom padding on the composer stack; the page
-    /// itself ignores the keyboard safe area, so this ONE number is what moves
-    /// the composer and what the list reserves at the bottom. That removes the
-    /// whole class of "two things animating the same edge" bugs: the list's
-    /// inset and the composer's position are derived from the same value in the
-    /// same SwiftUI transaction, on the keyboard's own duration/curve.
-    @State private var keyboardOverlap: CGFloat = 0
+    /// [T-send-composer-shrink-absorb] The composer's undebounced height. The
+    /// list reads it to take a just-released shrink out of its bottom inset
+    /// before the debounced `inputBarHeight` lands, so a sent message fills the
+    /// space the composer gives up instead of pushing the conversation up and
+    /// then dropping it back.
+    @State private var composerLiveHeight = ComposerLiveHeight()
     /// [T-inputbar-stretch] Delay before the plus drawer opens after a keyboard
     /// dismissal. Long enough for the keyboard's own animation to finish
     /// driving the bottom inset, short enough to still read as one gesture.
@@ -666,14 +663,8 @@ struct AIChatView: View {
                         }
                         // 胶囊出现/消失是滑入滑出，不是瞬移：斜杠弹窗跟着它一起平移，不跳变。
                         .animation(.easeInOut(duration: 0.28), value: showTogetherBar)
-                        // [T-keyboard-owns-bottom] The ONLY thing that lifts the
-                        // composer above the keyboard. The page ignores the
-                        // keyboard safe area, so this padding is it — one value,
-                        // animated on the keyboard's own curve, never fighting a
-                        // second inset.
-                        .padding(.bottom, keyboardOverlap)
                         inputPopupOverlay
-                            .padding(.bottom, inputBarHeight + togetherBarInset + keyboardOverlap)
+                            .padding(.bottom, inputBarHeight + togetherBarInset)
                     }
                 }
                 .overlay {
@@ -731,7 +722,7 @@ struct AIChatView: View {
                         personaID: vm.sessionPersonaId ?? PersonaStore.currentID()
                     )
                     // 让开输入栏 + 一起听胶囊的高度，不然对话框压在胶囊上
-                    .padding(.bottom, inputBarHeight + togetherBarInset + keyboardOverlap + 8)
+                    .padding(.bottom, inputBarHeight + togetherBarInset + 8)
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .animation(.easeInOut(duration: 0.2), value: novelMode)
@@ -1589,31 +1580,13 @@ struct AIChatView: View {
         // was processed, and no keyboard event fires on foreground return — the
         // zombie inset persisted and the panel floated (the reported bottom
         // gap). Ignoring the keyboard edge in this state makes ANY such stale
-        // inset harmless. (Superseded below: the page now always ignores the
-        // keyboard edge and drives the lift from `keyboardOverlap`.)
-        // [T-keyboard-owns-bottom] ALWAYS ignore the keyboard safe area here;
-        // `keyboardOverlap` (fed by the keyboard's own notifications) is the
-        // single source of truth for how far the composer lifts. Previously
-        // this was conditional (only in voice mode), so in text mode SwiftUI's
-        // implicit avoidance and the composer's own geometry each moved the
-        // bottom edge — the "input bar sinks ~50pt behind the keyboard for a
-        // moment" report, where a keyboard-frame update (third-party prediction
-        // bar) shrank the safe area before the bar could follow.
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        // [T-keyboard-owns-bottom] One observer for the keyboard's own frames.
-        // Everything below the message list reads `keyboardOverlap`; nothing
-        // reads the keyboard safe area any more (the page ignores it).
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-            guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-            let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.25
-            let curveRaw = (note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.intValue
-                ?? UIView.AnimationCurve.easeInOut.rawValue
-            let overlap = chatKeyboardOverlap(for: end)
-            withAnimation(.easeInOut(duration: max(0.01, duration))) {
-                keyboardOverlap = overlap
-            }
-            AppLogger(category: "InputBarLayout").info("keyboardOverlap \(Int(keyboardOverlap))→\(Int(overlap)) dur=\(String(format: "%.2f", duration)) curve=\(curveRaw)")
-        }
+        // inset harmless; edit mode (edges: []) keeps normal avoidance so the
+        // panel still lifts above the keyboard while editing, and text mode is
+        // untouched.
+        .ignoresSafeArea(
+            .keyboard,
+            edges: (voiceInputActive && !voiceVM.isEditingTranscript) ? .bottom : []
+        )
         .onChange(of: scenePhase) { phase in
             if phase == .active {
                 // [T-voice-inputbar-fg-stale-debounce] iOS changes safe area
@@ -2975,7 +2948,7 @@ struct AIChatView: View {
                 // 胶囊的高度也要给消息列表留出来：不留，最后一条气泡就盖在胶囊底下。
                 floatingBarHeight: floatingBarHeight + togetherBarInset,
                 inputBarHeight: inputBarHeight,
-                keyboardOverlap: keyboardOverlap
+                composerLiveHeight: composerLiveHeight
             )
             // Empty/loading overlay for tap-to-dismiss-keyboard.
             // Placed BEFORE the directory timeline in the ZStack so the
@@ -3041,7 +3014,7 @@ struct AIChatView: View {
                 .padding(.trailing, 4)
                 .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
                 .padding(.horizontal, 12)
-                .padding(.bottom, inputBarHeight + togetherBarInset + keyboardOverlap + 12)
+                .padding(.bottom, inputBarHeight + togetherBarInset + 12)
                 .animation(.easeInOut(duration: 0.2), value: vm.isNearBottom)
                 .animation(.easeInOut(duration: 0.2), value: vm.isAtFirstTurn)
                 }
@@ -3058,7 +3031,7 @@ struct AIChatView: View {
             .padding(.trailing, 4)
             .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
             .padding(.horizontal, 12)
-            .padding(.bottom, inputBarHeight + keyboardOverlap + 12 + 92)
+            .padding(.bottom, inputBarHeight + 12 + 92)
         }
     }
 
@@ -4082,7 +4055,10 @@ struct AIChatView: View {
                 // debounce's settle-confirm read this, so it must already reflect
                 // the current callback (writing it after the seed's `return`
                 // would leave the confirm reading a stale/zero value).
-                if onscreen { latestInputBarFrameH = newH }
+                if onscreen {
+                    latestInputBarFrameH = newH
+                    composerLiveHeight.report(newH)
+                }
                 // [T-voice-inputbar-collapse-selfheal] Liveness, recorded for
                 // EVERY callback — an off-screen sample is still proof the host
                 // is laying out, which is exactly what the health probe asks.
@@ -4129,20 +4105,6 @@ struct AIChatView: View {
                 }
                 inputBarHeightDebounce?.cancel()
                 let voiceAtCapture = voiceInputActive
-                // [T-composer-immediate-inset] Commit the new height NOW, not
-                // after the 380 ms debounce. The old trailing commit is exactly
-                // the "last message sits under the composer / list follows late"
-                // report: while the composer grew (multi-line, panel, attachment
-                // grid) the list's bottom inset kept the previous number for
-                // 380 ms, so the bottom of the conversation was covered and then
-                // re-pinned in a second, visible motion. The debounce existed to
-                // avoid freezing on a mid-animation sample; the correction task
-                // below already handles that (it re-reads the latest reported
-                // geometry and fixes a stale number), so the inset can follow
-                // every frame instead.
-                if abs(newH - inputBarHeight) > 0.5 {
-                    inputBarHeight = newH
-                }
                 inputBarHeightDebounce = Task { @MainActor in
                     // [T-voice-inputbar-anim-tail] 380ms, not 300ms. The panel's
                     // expand/collapse and transcript-band animations are
@@ -4925,10 +4887,13 @@ struct AIChatView: View {
 
 
     private func performEnqueue() {
-        // [T-send-keeps-keyboard] Same rule as performSend: queueing keeps the
-        // keyboard up, so the next message can be typed straight away and the
-        // list never has to follow a keyboard dismissal that the user did not
-        // ask for.
+        // Dismiss the software keyboard on enqueue. With a hardware keyboard,
+        // keep focus so the user can continue typing the next candidate.
+        if GCKeyboard.coalesced == nil {
+            inputFocused = false
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
         vm.forceScrollToBottom.send()
         if speechManager.state == .recording {
             speechManager.stopRecording()
@@ -4959,16 +4924,16 @@ struct AIChatView: View {
         if !isVoiceOrigin, vm.tryExecuteInputAsSlashCommand() { return }
 
         minisLogger.info("🔑DRAFT performSend vm=\(vm.vmInstanceId) vm.sessionId=\(vm.sessionId ?? "nil") draftId=\(draftId ?? "nil") inputText='\(String(vm.inputText.prefix(50)))' isProcessing=\(vm.isProcessing)")
-        // [T-send-keeps-keyboard] Do NOT resign on send. Every chat app the
-        // user compares this to (ChatGPT, Claude, iMessage) keeps the keyboard
-        // up so the next message can be typed immediately; dismissing it here
-        // was also the root of the "list jumps up then slides back" report —
-        // the scroll signal ran in the same tap, before the keyboard's hide
-        // notification arrived, so it was computed against a viewport that was
-        // still keyboard-inset and then corrected while the keyboard animated.
-        // With the keyboard stationary there is no second motion at all: the
-        // new bubble grows the content, the pinned bottom follows it in the
-        // same layout pass, and nothing else moves.
+        // Keep SwiftUI focus when a hardware keyboard is connected — dropping
+        // it would force the user to tap the field again before typing the
+        // next message. With only the software keyboard, clear focus and
+        // dismiss it so the @FocusState binding stays in sync.
+        let hasHardwareKeyboard = GCKeyboard.coalesced != nil
+        if !hasHardwareKeyboard {
+            inputFocused = false
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
         // [T-composer-send-glide] NO pre-send force scroll. It used to fire here,
         // animating to the OLD bottom before the message even existed — then the
         // post-append scroll (scrollToBottomSignal, fired by vm.send()) teleported
@@ -4995,27 +4960,6 @@ struct AIChatView: View {
         if voiceInputActive {
             voiceVM.clearAndRearm()
         }
-    }
-
-    /// How much of the window the keyboard covers, in points.
-    /// The keyboard frame arrives in screen coordinates; convert through the
-    /// key window and clamp — a hardware keyboard or a floating iPad keyboard
-    /// reports a frame that is not docked, and must not lift the composer.
-    private func chatKeyboardOverlap(for endFrame: CGRect) -> CGFloat {
-        let window = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first(where: \.isKeyWindow)
-        guard let window else { return 0 }
-        // The chat page is full-screen in its window, so the keyboard's screen
-        // frame and the window's bounds share an origin; comparing heights is
-        // enough. Undocked/floating keyboards (iPad) do not span the window and
-        // must not lift the composer.
-        let windowH = window.bounds.height
-        guard endFrame.minY < windowH, endFrame.width >= window.bounds.width - 40 else { return 0 }
-        // The composer already sits above the home-indicator safe area, so the
-        // lift it needs is the keyboard height MINUS that inset.
-        return max(0, windowH - endFrame.minY - window.safeAreaInsets.bottom)
     }
 
     /// Max content width — unconstrained in compact (portrait iPhone),

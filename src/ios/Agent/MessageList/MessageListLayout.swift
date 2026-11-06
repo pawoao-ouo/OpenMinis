@@ -551,23 +551,7 @@ final class MessageListLayout: UICollectionViewLayout {
             let cellBottom = originalAttributes.frame.maxY
             let viewportTop = cv.contentOffset.y
             let viewportBottom = viewportTop + cv.bounds.height
-            // [T-bottom-anchored-growth] While the list is pinned to the bottom,
-            // EVERY height change is compensated by its own delta — no matter
-            // where the cell sits. That is the difference between a chat app and
-            // a document: at the bottom, the BOTTOM edge is the anchor, so a cell
-            // growing anywhere above it must push the offset down by the same
-            // amount in this same layout pass. Before this branch only the
-            // streaming cell got that treatment; any other cell (thinking card,
-            // tool card, footer, a block committed a beat earlier) fell into the
-            // "keep the top of the visible content still" rule below, which moved
-            // the bottom edge off the viewport — and the contentSize-KVO pin then
-            // chased it a frame later. That pair of writes is the per-chunk jump
-            // users see while a reply streams, and the small jump while typing.
-            // Only cells at or above the viewport can move visible content —
-            // a cell entirely BELOW the fold must not drag the offset.
-            if isAutoScrollPinning, cellTop < viewportBottom {
-                ctx.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
-            } else if cellTop < viewportTop && cellBottom <= viewportTop {
+            if cellTop < viewportTop && cellBottom <= viewportTop {
                 // Cell entirely above viewport — always adjust to keep
                 // visible content in place.
                 ctx.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
