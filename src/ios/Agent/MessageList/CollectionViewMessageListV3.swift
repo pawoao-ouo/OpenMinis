@@ -855,6 +855,18 @@ extension CollectionViewMessageListV3 {
         /// directly mutate contentOffset during this window — UIKit animation interpolation
         /// can produce a corrupted final offset. Instead, defer via scheduleCoalescedScroll().
         private var isAnimatingScrollToBottom = false
+        /// [T-composer-send-glide] Generation of the latest programmatic
+        /// bottom-scroll animation. Bumped on every scrollToBottomNow
+        /// animated/kb start; completions clear isAnimatingScrollToBottom only
+        /// when their generation is still current, so an interrupted
+        /// animation's completion can never clear the flag out from under a
+        /// newer glide that re-targeted mid-flight.
+        private var scrollToBottomGeneration = 0
+        /// Generation of the last setContentOffset(animated:) bottom scroll, so
+        /// scrollViewDidEndScrollingAnimation can tell whether the animation
+        /// that just ended is the latest bottom scroll or was superseded by a
+        /// newer glide.
+        private var animatedScrollGeneration = 0
 
         /// [T-composer-send-glide] Last keyboard animation params, captured from
         /// UIKeyboardWillShow/Hide. The post-append scroll animates with these so
@@ -2853,6 +2865,17 @@ extension CollectionViewMessageListV3 {
                 guard let self else { return }
                 let isTracking = self.viewController?.collectionView?.isTracking ?? false
                 if self.scrollMode != .autoScrolling || isTracking { return }
+                // [T-composer-send-glide] Never teleport while a glide is in
+                // flight — a direct contentOffset write corrupts UIKit's
+                // interpolation. Re-arm and retry once the glide has settled;
+                // growth events re-schedule anyway, so a dropped attempt
+                // self-heals on the next chunk. The re-arm is bounded in
+                // practice: every glide clears its flag on completion or via
+                // its duration safety net (see scrollToBottomNow).
+                if self.isAnimatingScrollToBottom {
+                    self.scheduleCoalescedScroll()
+                    return
+                }
                 self.scrollToBottomNow()
             }
             pendingScrollWork = work
@@ -4973,19 +4996,48 @@ extension CollectionViewMessageListV3 {
                 // UIView.animate offset does NOT call
                 // scrollViewDidEndScrollingAnimation, so clear the flag in the
                 // completion handler — nowhere else clears it for this path.
+                // Only the latest glide owns the flag: an interrupted
+                // completion (finished == false) must not clear it while the
+                // newer glide still runs — the newer glide's own completion
+                // clears it. The duration safety net covers animations killed
+                // by a direct contentOffset write (sub-viewport PIN, snapshot
+                // shrink) or a user gesture, whose completions never report a
+                // clean finish: past duration + margin this generation is over
+                // either way, so a still-current flag is safe to clear and can
+                // never strand KVO pins.
+                scrollToBottomGeneration += 1
+                let generation = scrollToBottomGeneration
                 isAnimatingScrollToBottom = true
                 UIView.animate(withDuration: kb.duration, delay: 0,
                     options: [UIView.AnimationOptions(rawValue: UInt(kb.curve.rawValue << 16)), .allowUserInteraction, .beginFromCurrentState],
                     animations: { cv.contentOffset = target },
-                    completion: { [weak self] _ in
-                        self?.isAnimatingScrollToBottom = false
-                        self?.syncScrollFlags()
+                    completion: { [weak self] finished in
+                        guard let self else { return }
+                        if finished, generation == self.scrollToBottomGeneration {
+                            self.isAnimatingScrollToBottom = false
+                            self.syncScrollFlags()
+                        }
                     })
+                DispatchQueue.main.asyncAfter(deadline: .now() + kb.duration + 0.1) { [weak self] in
+                    guard let self, generation == self.scrollToBottomGeneration else { return }
+                    self.isAnimatingScrollToBottom = false
+                }
                 return
             }
             if animated {
+                scrollToBottomGeneration += 1
+                animatedScrollGeneration = scrollToBottomGeneration
                 isAnimatingScrollToBottom = true
                 cv.setContentOffset(target, animated: true)
+                // Safety net, same reasoning as the glide's: if this animation
+                // is cancelled by a direct write or a gesture and its end
+                // callback never fires, the flag must not stay true past the
+                // animation's own lifetime.
+                let generation = scrollToBottomGeneration
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                    guard let self, generation == self.scrollToBottomGeneration else { return }
+                    self.isAnimatingScrollToBottom = false
+                }
                 // The animated set's final scrollViewDidScroll should land within
                 // the near-bottom threshold, but an interrupted animation or
                 // sub-pixel/inset rounding can leave vm.isNearBottom stuck false,
@@ -5908,7 +5960,15 @@ extension CollectionViewMessageListV3 {
         private let decelSlowFrameThreshold: CFTimeInterval = 0.032
 
         func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-            isAnimatingScrollToBottom = false
+            // [T-composer-send-glide] Only the latest bottom scroll owns the
+            // flag: this callback also fires when an earlier setContentOffset
+            // animation is interrupted by a newer glide — clearing then would
+            // let the KVO handler teleport mid-glide. A stale generation means
+            // a newer glide started since; it owns the flag now (its own
+            // completion / safety net clears it).
+            if animatedScrollGeneration == scrollToBottomGeneration {
+                isAnimatingScrollToBottom = false
+            }
             // Final clamp: ensure offset doesn't exceed actual content bounds
             // after the animation completes (contentSize may have changed mid-flight).
             guard let cv = viewController?.collectionView else { return }
