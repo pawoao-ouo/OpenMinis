@@ -2084,7 +2084,30 @@ private struct AppearancePageModifier: ViewModifier {
             .scrollContentBackground(.hidden)
             .foregroundStyle(studio.color(.primaryText, scope: scope))
             .tint(studio.color(.accent, scope: scope))
-            .background(AppearanceBackdrop(scope: scope))
+            // [T-composer-wallpaper-stable] Pin the page wallpaper to the WINDOW.
+            //
+            // It used to be a plain `.background(AppearanceBackdrop(...))`, so
+            // the backdrop was sized by the page's own frame — and the page's
+            // frame changes when the keyboard appears, so `scaledToFill` picked
+            // a new scale and the wallpaper visibly zoomed ~1.25-1.5x every time
+            // the input bar came up. Here the backdrop gets an explicit
+            // full-window frame and is positioned at the window centre, with
+            // the host's global origin compensated via GeometryReader (so an
+            // iPad split-view inset doesn't shift it). The rendered rect is
+            // therefore invariant: keyboard / safe-area / page resizes only
+            // re-run the arithmetic, never the picture. Only the page path is
+            // pinned — AppearanceBackdrop itself stays host-sized, so the 150pt
+            // wallpaper preview card in the studio keeps its own crop.
+            .background(
+                GeometryReader { proxy in
+                    AppearanceBackdrop(scope: scope)
+                        .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
+                        .position(
+                            x: UIScreen.main.bounds.width / 2 - proxy.frame(in: .global).minX,
+                            y: UIScreen.main.bounds.height / 2 - proxy.frame(in: .global).minY
+                        )
+                }
+            )
             // Wallpaper-fullscreen pages: the nav bar sits transparently over
             // the backdrop instead of a material/opaque band at the top, so
             // the wallpaper runs edge to edge under the title.
