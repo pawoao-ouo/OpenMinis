@@ -850,6 +850,24 @@ extension CollectionViewMessageListV3 {
         /// can produce a corrupted final offset. Instead, defer via scheduleCoalescedScroll().
         private var isAnimatingScrollToBottom = false
 
+        /// [T-composer-send-glide] Last keyboard animation params, captured from
+        /// UIKeyboardWillShow/Hide. The post-append scroll animates with these so
+        /// the list glides with the keyboard instead of teleporting while the
+        /// keyboard is mid-flight. Only meaningful until `endsAt`; outside a
+        /// keyboard transition the signal sink teleports exactly as before.
+        private var keyboardAnimation: (duration: TimeInterval, curve: UIView.AnimationCurve, endsAt: Date)?
+        /// Keyboard observation lives here, NOT in `subscriptions` — bindViewModel
+        /// clears `subscriptions` on every VM rebind, and the keyboard params
+        /// must survive rebinds.
+        private var keyboardObservationCancellables = Set<AnyCancellable>()
+
+        /// Keyboard animation params if a keyboard show/hide animation is
+        /// currently in flight (per the last WillShow/WillHide notification).
+        private func keyboardAnimationInFlight() -> (duration: TimeInterval, curve: UIView.AnimationCurve)? {
+            guard let kb = keyboardAnimation, Date() < kb.endsAt else { return nil }
+            return (duration: kb.duration, curve: kb.curve)
+        }
+
         // === O(1) Lookup Indices ===
         private var messageIndex: [UUID: Int] = [:]
         private var itemToIndex: [MessageListItem: Int] = [:]
@@ -1089,6 +1107,22 @@ extension CollectionViewMessageListV3 {
             // come on-screen. Heights are still pre-estimated via setEstimatedHeight
             // in applySnapshot / configureCell, so layout positions don't shift.
             collectionView.isPrefetchingEnabled = false
+
+            // [T-composer-send-glide] Capture keyboard animation params once per
+            // attach (idempotent: re-attach clears and re-registers). The
+            // post-append scroll reads them to glide with the keyboard.
+            keyboardObservationCancellables.removeAll()
+            for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillHideNotification] {
+                NotificationCenter.default.publisher(for: name)
+                    .sink { [weak self] note in
+                        guard let self else { return }
+                        let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.25
+                        let curveRaw = (note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.intValue ?? UIView.AnimationCurve.easeInOut.rawValue
+                        let curve = UIView.AnimationCurve(rawValue: curveRaw) ?? .easeInOut
+                        self.keyboardAnimation = (duration: duration, curve: curve, endsAt: Date().addingTimeInterval(duration))
+                    }
+                    .store(in: &keyboardObservationCancellables)
+            }
 
             let wholeReg = UICollectionView.CellRegistration<WholeMessageCellV3, MessageListItem> {
                 [weak self] cell, indexPath, item in
@@ -2179,7 +2213,18 @@ extension CollectionViewMessageListV3 {
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] in
                     guard let self, self.scrollMode == .autoScrolling else { return }
-                    self.scrollToBottomNow()
+                    // [T-composer-send-glide] While a keyboard show/hide animation
+                    // is in flight (e.g. the send tap dismissing the keyboard),
+                    // glide with the keyboard's own duration/curve instead of
+                    // teleporting — that teleport-while-keyboard-moves was half the
+                    // send hitch. Outside a keyboard transition (steady streaming
+                    // with the keyboard already up) this is exactly the old
+                    // instant pin, so per-chunk streaming behaviour is unchanged.
+                    if let kb = self.keyboardAnimationInFlight() {
+                        self.scrollToBottomNow(keyboardAnimation: kb)
+                    } else {
+                        self.scrollToBottomNow()
+                    }
                 }
                 .store(in: &subscriptions)
 
@@ -4882,7 +4927,7 @@ extension CollectionViewMessageListV3 {
             return needsCompensation
         }
 
-        func scrollToBottomNow(animated: Bool = false) {
+        func scrollToBottomNow(animated: Bool = false, keyboardAnimation: (duration: TimeInterval, curve: UIView.AnimationCurve)? = nil) {
             guard let cv = viewController?.collectionView else { return }
             // Sub-viewport overflow path: re-evaluate compensation, then pin.
             if applySubViewportCompensation(caller: "scrollToBottom") {
@@ -4892,6 +4937,27 @@ extension CollectionViewMessageListV3 {
             let maxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
             guard maxOff > 0 else { return }
             let target = CGPoint(x: 0, y: maxOff)
+            if let kb = keyboardAnimation {
+                // [T-composer-send-glide] Glide with the keyboard: animate the
+                // offset with the keyboard's own duration/curve instead of
+                // teleporting while it is mid-flight. beginFromCurrentState so a
+                // fresh signal re-targets rather than queueing behind the glide.
+                // Same isAnimatingScrollToBottom guard as the animated path: KVO
+                // grow events must defer (scheduleCoalescedScroll) while the
+                // interpolation runs. Unlike setContentOffset(animated:), a
+                // UIView.animate offset does NOT call
+                // scrollViewDidEndScrollingAnimation, so clear the flag in the
+                // completion handler — nowhere else clears it for this path.
+                isAnimatingScrollToBottom = true
+                UIView.animate(withDuration: kb.duration, delay: 0,
+                    options: [UIView.AnimationOptions(rawValue: UInt(kb.curve.rawValue << 16)), .allowUserInteraction, .beginFromCurrentState],
+                    animations: { cv.contentOffset = target },
+                    completion: { [weak self] _ in
+                        self?.isAnimatingScrollToBottom = false
+                        self?.syncScrollFlags()
+                    })
+                return
+            }
             if animated {
                 isAnimatingScrollToBottom = true
                 cv.setContentOffset(target, animated: true)

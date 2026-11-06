@@ -2408,10 +2408,20 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // threshold-gated and skips already-offloaded parts).
             trimOldImagesFromHistory()
             let preCheckModel = resolveCurrentEntry()?.model ?? selectedModel
-            // [batch7-fix] send() 入口还没有 turnUsage（它是 agent-loop 里的局部量）；
-            // 传 0 表"无 API 基线"，offloadContextIfNeeded 会用字符估算兜底。
-            offloadContextIfNeeded(model: preCheckModel, lastContextTokens: 0)
-            switch checkContextBeforeSend() {
+            // [T-composer-send-hitch] One BPE pass per tap, not two. send() used
+            // to pay for a full-history BPE estimate twice on the tap path:
+            // offloadContextIfNeeded estimated once (lastContextTokens: 0), then
+            // checkContextBeforeSend estimated the same history again — and
+            // estimateContextTokens() is full BPE over the whole history, so a
+            // long session froze the main thread between tap and append. Estimate
+            // once here (history is unchanged since trim ran, so the value is
+            // identical to what either call would compute) and reuse it for both.
+            // NOTE: offload logs this as source "API" (it keys off
+            // lastContextTokens > 0); the value is a BPE estimate, not an API
+            // baseline — same number, only computed once.
+            let preSendTokens = estimateContextTokens()
+            offloadContextIfNeeded(model: preCheckModel, lastContextTokens: preSendTokens)
+            switch checkContextBeforeSend(estimatedTokens: preSendTokens) {
             case .ok:
                 break
             case .needsCompact:

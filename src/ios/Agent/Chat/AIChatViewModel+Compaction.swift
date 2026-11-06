@@ -17,13 +17,16 @@ extension AIChatViewModel {
     /// a group's stale resolvedEntryId (member since disabled/hidden) judged
     /// capacity by the WRONG member's window, and sessions without a binding
     /// (e.g. iCloud-synced) skipped capacity checks entirely.
-    func checkContextBeforeSend() -> ContextPolicy.CheckResult {
+    func checkContextBeforeSend(estimatedTokens: Int? = nil) -> ContextPolicy.CheckResult {
         guard let entry = resolveCurrentEntry() else { return .ok }
         let contextWindow = effectiveContextWindow(for: entry.model)
         guard contextWindow > 0 else { return .ok }
 
         let policy = ContextPolicy(contextWindow: contextWindow)
-        let estimated = estimateContextTokens()
+        // [T-composer-send-hitch] send() already paid for the BPE estimate and
+        // passes it in, so the tap path doesn't estimate the same history twice.
+        // Callers without one (needsCompactBeforeSend) estimate here as before.
+        let estimated = estimatedTokens ?? estimateContextTokens()
         let result = policy.check(estimatedTokens: estimated, contextWindow: contextWindow)
         let markerInfo: String
         if let m = cachedLatestMarker {

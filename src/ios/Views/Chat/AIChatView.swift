@@ -4924,8 +4924,15 @@ struct AIChatView: View {
             UIApplication.shared.sendAction(
                 #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
-        // User actively sending — force scroll-to-bottom so the response scrolls into view
-        vm.forceScrollToBottom.send()
+        // [T-composer-send-glide] NO pre-send force scroll. It used to fire here,
+        // animating to the OLD bottom before the message even existed — then the
+        // post-append scroll (scrollToBottomSignal, fired by vm.send()) teleported
+        // to the new bottom, then the focus-change handler scrolled again 0.3s
+        // later. Three competing motions per tap was the send hitch. Now there is
+        // exactly one: vm.send() appends, its signal scrolls once, gliding with
+        // the keyboard's own animation (see the signal sink in
+        // CollectionViewMessageListV3). The enqueue path keeps its own force
+        // scroll — it appends through a different route.
         // Stop recording and clear recognized text so it doesn't linger after send
         if speechManager.state == .recording {
             speechManager.stopRecording()
