@@ -406,17 +406,12 @@ final class MessageListLayout: UICollectionViewLayout {
         if deferSelfSizing {
             let hasCached = heightCache[index] != nil
             if hasCached {
-                // [10-23 醒醒 问题3] 以前只推迟「缩小/不变」，增长一律放行。
-                // 可滚动中视口上方或里面任何一个格子长高，都会把正在看的
-                // 内容整体推走；而 tracking/decelerating 期间 offset 补偿是
-                // 关着的（为了保动量），于是她看到「自己跳到没滑到的位置」。
-                // 滚动中只放行视口下方的格子：看不见，改了也不影响她。
-                let viewportBottom = (collectionView?.contentOffset.y ?? 0)
-                    + (collectionView?.bounds.height ?? 0)
-                // 流式中的 cell 例外：它的内容正在长，压住会裁掉新出的字，
-                // 而流式时用户基本停在底部（autoScrolling 不在这条分支里）。
-                if originalAttributes.frame.minY < viewportBottom,
-                   !isStreamingCell(index) {
+                // [T-scroll-up-jank-upstream] Upstream rule: while browsing,
+                // defer only SHRINKING or stable corrections on rows we have a
+                // height for. Growth passes through — a frozen growing row
+                // overflows its frame and then has to be fixed in one burst at
+                // settle.
+                if preferred <= original + 0.5 {
                     if abs(preferred - original) > 0.5 {
                         deferredHeights[index] = preferred
                     }
@@ -424,19 +419,17 @@ final class MessageListLayout: UICollectionViewLayout {
                 }
                 // Growing while deferred + has cache — allow through
             } else {
-                // First measurement (no cached height). Cells at/below the
-                // viewport may be measured immediately (they'd otherwise be
-                // truncated when scrolled into view). A cell entirely ABOVE
-                // the viewport is invisible, so letting it grow mid-scroll
-                // would push the visible content down for no benefit — defer
-                // it to the settle pass instead.
-                let viewportTop = collectionView?.contentOffset.y ?? 0
-                if originalAttributes.frame.maxY <= viewportTop {
-                    if abs(preferred - original) > 0.5 {
-                        deferredHeights[index] = preferred
-                    }
-                    return false
-                }
+                // First measurement (no cached height) — allow it through so
+                // the cell isn't truncated when scrolled into view.
+                //
+                // [T-scroll-up-jank-upstream] This used to defer first
+                // measurement for rows entirely ABOVE the viewport. Scrolling
+                // UP is exactly that case: the rows entering the screen were
+                // parked at their estimate, then all measured at once when the
+                // finger lifted — the visible "stutter, then everything jumps
+                // to its real height" report. Upstream measures on arrival, so
+                // each row is correct the moment it appears and the settle pass
+                // has nothing left to correct.
             }
         }
 

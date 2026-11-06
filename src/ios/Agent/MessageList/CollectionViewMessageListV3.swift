@@ -2256,19 +2256,11 @@ extension CollectionViewMessageListV3 {
             vm.scrollToBottomSignal
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] in
+                    // Upstream: the append signal is a plain pin. The smooth
+                    // part comes from composer shrink absorption + the layout's
+                    // own compensation, not from animating this call.
                     guard let self, self.scrollMode == .autoScrolling else { return }
-                    // [T-composer-send-glide] While a keyboard show/hide animation
-                    // is in flight (e.g. the send tap dismissing the keyboard),
-                    // glide with the keyboard's own duration/curve instead of
-                    // teleporting — that teleport-while-keyboard-moves was half the
-                    // send hitch. Outside a keyboard transition (steady streaming
-                    // with the keyboard already up) this is exactly the old
-                    // instant pin, so per-chunk streaming behaviour is unchanged.
-                    if let kb = self.keyboardAnimationInFlight() {
-                        self.scrollToBottomNow(keyboardAnimation: kb)
-                    } else {
-                        self.scrollToBottomNow()
-                    }
+                    self.scrollToBottomNow()
                 }
                 .store(in: &subscriptions)
 
@@ -5079,7 +5071,7 @@ extension CollectionViewMessageListV3 {
             cv.layer.add(glide, forKey: "composerShrinkGlide")
         }
 
-        func scrollToBottomNow(animated: Bool = false, keyboardAnimation: (duration: TimeInterval, curve: UIView.AnimationCurve)? = nil) {
+        func scrollToBottomNow(animated: Bool = false) {
             guard let cv = viewController?.collectionView else { return }
             absorbPendingComposerShrink(caller: "scrollToBottom")
             // Sub-viewport overflow path: re-evaluate compensation, then pin.
@@ -5090,64 +5082,8 @@ extension CollectionViewMessageListV3 {
             let maxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
             guard maxOff > 0 else { return }
             let target = CGPoint(x: 0, y: maxOff)
-            if let kb = keyboardAnimation {
-                // [T-composer-send-glide] Glide with the keyboard: animate the
-                // offset with the keyboard's own duration/curve instead of
-                // teleporting while it is mid-flight. beginFromCurrentState so a
-                // fresh signal re-targets rather than queueing behind the glide.
-                // Same isAnimatingScrollToBottom guard as the animated path: KVO
-                // grow events must defer (scheduleCoalescedScroll) while the
-                // interpolation runs. Unlike setContentOffset(animated:), a
-                // UIView.animate offset does NOT call
-                // scrollViewDidEndScrollingAnimation, so clear the flag in the
-                // completion handler — nowhere else clears it for this path.
-                // Only the latest glide owns the flag: an interrupted
-                // completion (finished == false) must not clear it while the
-                // newer glide still runs — the newer glide's own completion
-                // clears it. The duration safety net covers animations killed
-                // by a direct contentOffset write (sub-viewport PIN, snapshot
-                // shrink) or a user gesture, whose completions never report a
-                // clean finish: past duration + margin this generation is over
-                // either way, so a still-current flag is safe to clear and can
-                // never strand KVO pins.
-                scrollToBottomGeneration += 1
-                let generation = scrollToBottomGeneration
-                isAnimatingScrollToBottom = true
-                UIView.animate(withDuration: kb.duration, delay: 0,
-                    options: [UIView.AnimationOptions(rawValue: UInt(kb.curve.rawValue << 16)), .allowUserInteraction, .beginFromCurrentState],
-                    animations: { cv.contentOffset = target },
-                    completion: { [weak self] finished in
-                        guard let self else { return }
-                        if finished, generation == self.scrollToBottomGeneration {
-                            self.isAnimatingScrollToBottom = false
-                            self.syncScrollFlags()
-                        }
-                    })
-                DispatchQueue.main.asyncAfter(deadline: .now() + kb.duration + 0.1) { [weak self] in
-                    guard let self, generation == self.scrollToBottomGeneration else { return }
-                    self.isAnimatingScrollToBottom = false
-                }
-                return
-            }
             if animated {
-                scrollToBottomGeneration += 1
-                animatedScrollGeneration = scrollToBottomGeneration
-                isAnimatingScrollToBottom = true
                 cv.setContentOffset(target, animated: true)
-                // Safety net, same reasoning as the glide's: if this animation
-                // is cancelled by a direct write or a gesture and its end
-                // callback never fires, the flag must not stay true past the
-                // animation's own lifetime.
-                let generation = scrollToBottomGeneration
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                    guard let self, generation == self.scrollToBottomGeneration else { return }
-                    self.isAnimatingScrollToBottom = false
-                }
-                // The animated set's final scrollViewDidScroll should land within
-                // the near-bottom threshold, but an interrupted animation or
-                // sub-pixel/inset rounding can leave vm.isNearBottom stuck false,
-                // so the scroll-to-bottom button keeps showing while already at
-                // the bottom. Re-sync once the animation settles.
                 DispatchQueue.main.async { [weak self] in self?.syncScrollFlags() }
             } else {
                 cv.contentOffset = target
