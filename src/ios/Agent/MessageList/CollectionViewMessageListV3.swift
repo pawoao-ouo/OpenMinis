@@ -213,9 +213,15 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
             let wasNearBottom = coord.scrollMode == .autoScrolling && coord.isNearBottom()
             coord.lastInputFocused = inputFocused
             if wasNearBottom {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak coord] in
-                    coord?.scrollToBottomNow(animated: true)
-                }
+                // [T-composer-send-glide] The old code fired a second
+                // default-curve scroll 0.3s after EVERY focus flip — including
+                // the send tap's dismiss, where the send glide already re-pins
+                // to the new bottom. When the keyboard animation runs longer
+                // than 0.3s that second scroll interrupts the glide
+                // mid-flight. Coordinate instead: the re-pin defers while a
+                // glide is in flight (bounded re-arms) rather than competing
+                // with it. Plain keyboard-show re-pins are unchanged.
+                coord.scheduleFocusRepin()
             }
         }
     }
@@ -2851,6 +2857,25 @@ extension CollectionViewMessageListV3 {
             }
             pendingScrollWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
+        }
+
+        /// Re-pin to bottom after a keyboard show/hide focus flip. The 0.3s
+        /// delay lets the keyboard animation settle; if a glide is still in
+        /// flight at fire time, re-arm (bounded) instead of firing a competing
+        /// default-curve scroll that would interrupt it mid-flight. The
+        /// scrollMode re-check keeps a user who scrolled up in the meantime
+        /// from being yanked back down.
+        private func scheduleFocusRepin(delay: TimeInterval = 0.3, attempt: Int = 0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                guard self.scrollMode == .autoScrolling else { return }
+                if self.isAnimatingScrollToBottom, attempt < 3 {
+                    self.scheduleFocusRepin(delay: 0.15, attempt: attempt + 1)
+                    return
+                }
+                guard !self.isAnimatingScrollToBottom else { return }
+                self.scrollToBottomNow(animated: true)
+            }
         }
 
         // MARK: - Snapshot
