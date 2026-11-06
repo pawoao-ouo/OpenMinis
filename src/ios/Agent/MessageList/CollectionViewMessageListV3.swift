@@ -2888,7 +2888,7 @@ extension CollectionViewMessageListV3 {
         /// default-curve scroll that would interrupt it mid-flight. The
         /// scrollMode re-check keeps a user who scrolled up in the meantime
         /// from being yanked back down.
-        private func scheduleFocusRepin(delay: TimeInterval = 0.3, attempt: Int = 0) {
+        fileprivate func scheduleFocusRepin(delay: TimeInterval = 0.3, attempt: Int = 0) {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self else { return }
                 guard self.scrollMode == .autoScrolling else { return }
