@@ -3957,6 +3957,32 @@ struct AIChatView: View {
                 lastRecognizedLength = newLength
             }
             .modifier(ComposerSurface())
+            // [T-composer-tap-to-focus] The whole pill focuses on tap.
+            //
+            // The only hit target used to be the one-line UITextView itself, so
+            // tapping the pill's padding (or anywhere around the text) did
+            // nothing. This is a BACKGROUND tap-catcher, not an ancestor
+            // .onTapGesture on the container: an ancestor gesture also fires
+            // when a child Button is tapped, which here would re-focus right
+            // after Send dismisses the keyboard, and would summon the keyboard
+            // over the plus/sticker drawer (whose taps must stay independent —
+            // see the bottomDrawerSection note below). A catcher behind the
+            // content only receives taps that miss everything above it, so the
+            // send / mic / + buttons and the drawer keep winning hit-testing —
+            // the same pattern the empty-chat tap-to-dismiss overlay (:2955)
+            // and the popup tap-outside catcher (:635) already rely on.
+            //
+            // Gated to plain text mode only: in voice / recording mode the
+            // composer is a voice panel, not a text field — focusing there
+            // would pop the keyboard over it.
+            .background {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard !voiceInputActive, speechManager.state != .recording else { return }
+                        inputFocused = true
+                    }
+            }
             .frame(maxWidth: maxContentWidth)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
