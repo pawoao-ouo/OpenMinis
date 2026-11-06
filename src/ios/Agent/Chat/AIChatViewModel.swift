@@ -2394,6 +2394,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
 
         // Check if context is near capacity
+        // [T-send-offload-async] Hoisted: the async send task reuses this number
+        // to decide whether the exact offload walk is worth running.
+        var preSendTokensForOffload = 0
         if skipCompactCheck {
             skipCompactCheck = false
         } else {
@@ -2419,8 +2422,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // NOTE: offload logs this as source "API" (it keys off
             // lastContextTokens > 0); the value is a BPE estimate, not an API
             // baseline — same number, only computed once.
-            let preSendTokens = estimateContextTokens()
-            offloadContextIfNeeded(model: preCheckModel, lastContextTokens: preSendTokens)
+            // [T-send-no-main-thread-freeze] The pre-send GATE now uses the
+            // character-based estimator: it is O(history characters), not a
+            // BPE encode, so the tap returns immediately and the bubble appears
+            // in the same frame. The expensive exact pass (and the offload it
+            // drives) moved into the async send task below, where nobody is
+            // waiting on it — see [T-send-offload-async].
+            let preSendTokens = estimateContextTokensFast()
+            preSendTokensForOffload = preSendTokens
             switch checkContextBeforeSend(estimatedTokens: preSendTokens) {
             case .ok:
                 break
@@ -2660,6 +2669,21 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
             // Lazily create session before persisting anything
             await self.ensureSession()
+
+            // [T-send-offload-async] Deferred from the tap: this walks the whole
+            // history and BPE-counts candidate parts, which used to run between
+            // the send tap and the bubble appearing. Here the bubble is already
+            // on screen and a single yield keeps the main thread responsive.
+            // Only pay for the exact walk when the fast gate says we are
+            // anywhere near the offload threshold. A normal session skips it
+            // entirely; a full one still gets exactly the old behaviour.
+            let offloadModel = self.resolveCurrentEntry()?.model ?? self.selectedModel
+            let offloadPolicy = ContextPolicy(contextWindow: self.effectiveContextWindow(for: offloadModel))
+            if offloadPolicy.offloadThreshold > 0,
+               preSendTokensForOffload >= offloadPolicy.offloadThreshold - 2_000 {
+                self.offloadContextIfNeeded(model: offloadModel, lastContextTokens: 0)
+            }
+            await Task.yield()
 
             // Defensive: ensure tracker reflects the real session ID after draft→real migration.
             if let sid = self.sessionId, self.isProcessing {

@@ -62,6 +62,10 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
     var maxContentWidth: CGFloat
     var floatingBarHeight: CGFloat
     var inputBarHeight: CGFloat
+    /// [T-keyboard-owns-bottom] How far the on-screen keyboard lifts the
+    /// composer. Folded into the same bottom inset as the composer itself, so
+    /// the list and the bar move as one piece when the keyboard appears.
+    var keyboardOverlap: CGFloat = 0
 
     func makeUIViewController(context: Context) -> MessageListViewController {
         let vc = MessageListViewController()
@@ -130,7 +134,7 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
         // heights now accurate the +16 breathing room becomes pure
         // dead space — observed as ~100pt gap between the last bubble
         // and the composer top. Restored to the historical +8.
-        let bottomPad: CGFloat = inputBarHeight + floatingBarHeight + 8
+        let bottomPad: CGFloat = inputBarHeight + floatingBarHeight + keyboardOverlap + 8
         let baseChanged = abs(coord.baseBottomInset - bottomPad) > 0.5
         if baseChanged {
             let cv = vc.collectionView!
@@ -172,7 +176,15 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
                     AppLogger(category: "ScrollDiag").info("[ScrollDiag][baseInsetShrink] \(String(format: "%.2f", previousBase))→\(String(format: "%.2f", bottomPad)) inputBar=\(String(format: "%.2f", inputBarHeight)) offset=\(String(format: "%.1f", cv.contentOffset.y)) — re-pinning to hide the UIKit clamp")
                 }
                 coord.scrollMode = .autoScrolling
-                coord.scrollToBottomNow(animated: false)
+                // [T-composer-inset-follow] Move by the inset delta, not to an
+                // absolute bottom. The composer grows/shrinks continuously
+                // (multi-line typing, attachment row, panels); each step must
+                // shift the viewport by exactly the same amount, in the same
+                // pass, or the last bubble visually detaches from the composer
+                // and gets yanked back by whatever pin fires next. An absolute
+                // re-pin also fights the keyboard animation that may be in
+                // flight at the same moment.
+                coord.followInsetChange(delta: bottomPad - previousBase)
             }
         }
 
@@ -210,19 +222,15 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
         }
 
         if inputFocused != coord.lastInputFocused {
-            let wasNearBottom = coord.scrollMode == .autoScrolling && coord.isNearBottom()
             coord.lastInputFocused = inputFocused
-            if wasNearBottom {
-                // [T-composer-send-glide] The old code fired a second
-                // default-curve scroll 0.3s after EVERY focus flip — including
-                // the send tap's dismiss, where the send glide already re-pins
-                // to the new bottom. When the keyboard animation runs longer
-                // than 0.3s that second scroll interrupts the glide
-                // mid-flight. Coordinate instead: the re-pin defers while a
-                // glide is in flight (bounded re-arms) rather than competing
-                // with it. Plain keyboard-show re-pins are unchanged.
-                coord.scheduleFocusRepin()
-            }
+            // [T-keyboard-viewport-follow] No delayed re-pin here any more.
+            // The 0.3 s timer was a guess at when the keyboard would finish;
+            // when it fired early it scrolled against a viewport that was still
+            // animating (the reported "list overshoots, then drifts back"), and
+            // when it fired late it was a second, unrelated motion. The list now
+            // follows the viewport height change itself
+            // (viewportHeightChanged), frame by frame, on the keyboard's own
+            // curve — which is what the timer was approximating.
         }
     }
 
@@ -1112,6 +1120,11 @@ extension CollectionViewMessageListV3 {
             guard let collectionView = vc.collectionView else { return }
             collectionView.delegate = self
             collectionView.prefetchDataSource = self
+            // [T-keyboard-viewport-follow] The list rides the page's height
+            // change (keyboard show/hide) instead of waiting for a timer.
+            vc.onViewportHeightChange = { [weak self] old, new in
+                self?.viewportHeightChanged(from: old, to: new)
+            }
             // Disable UIKit's main-thread cell prefetch. Profile (Time Profiler)
             // showed -[UICollectionView _prefetchItemsForPrefetchingContext:]
             // chains through _createPreparedCellForItemAtIndexPath → +UIView
@@ -2231,18 +2244,17 @@ extension CollectionViewMessageListV3 {
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] in
                     guard let self, self.scrollMode == .autoScrolling else { return }
-                    // [T-composer-send-glide] While a keyboard show/hide animation
-                    // is in flight (e.g. the send tap dismissing the keyboard),
-                    // glide with the keyboard's own duration/curve instead of
-                    // teleporting — that teleport-while-keyboard-moves was half the
-                    // send hitch. Outside a keyboard transition (steady streaming
-                    // with the keyboard already up) this is exactly the old
-                    // instant pin, so per-chunk streaming behaviour is unchanged.
-                    if let kb = self.keyboardAnimationInFlight() {
-                        self.scrollToBottomNow(keyboardAnimation: kb)
-                    } else {
-                        self.scrollToBottomNow()
-                    }
+                    // [T-one-bottom-motion] One primitive for every automatic
+                    // scroll. The old path teleported whenever no keyboard
+                    // animation was registered at that exact instant — which is
+                    // the send tap: it resigns first responder (the hide
+                    // notification lands a runloop later), so the signal ran
+                    // against keyboard-up geometry and jumped the list up by
+                    // the keyboard's height before the keyboard even moved.
+                    // glideToBottom re-targets instead of teleporting, and the
+                    // viewport hook below finishes the motion when the keyboard
+                    // actually changes the list's height.
+                    self.glideToBottom(duration: 0.22)
                 }
                 .store(in: &subscriptions)
 
@@ -2872,33 +2884,14 @@ extension CollectionViewMessageListV3 {
                 // self-heals on the next chunk. The re-arm is bounded in
                 // practice: every glide clears its flag on completion or via
                 // its duration safety net (see scrollToBottomNow).
-                if self.isAnimatingScrollToBottom {
-                    self.scheduleCoalescedScroll()
-                    return
-                }
-                self.scrollToBottomNow()
+                // [T-one-bottom-motion] Never defer to a later teleport: a
+                // glide re-targets itself when a new chunk lands
+                // (beginFromCurrentState), so there is nothing to queue and
+                // nothing to jump over.
+                self.glideToBottom(duration: 0.18)
             }
             pendingScrollWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
-        }
-
-        /// Re-pin to bottom after a keyboard show/hide focus flip. The 0.3s
-        /// delay lets the keyboard animation settle; if a glide is still in
-        /// flight at fire time, re-arm (bounded) instead of firing a competing
-        /// default-curve scroll that would interrupt it mid-flight. The
-        /// scrollMode re-check keeps a user who scrolled up in the meantime
-        /// from being yanked back down.
-        fileprivate func scheduleFocusRepin(delay: TimeInterval = 0.3, attempt: Int = 0) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self else { return }
-                guard self.scrollMode == .autoScrolling else { return }
-                if self.isAnimatingScrollToBottom, attempt < 3 {
-                    self.scheduleFocusRepin(delay: 0.15, attempt: attempt + 1)
-                    return
-                }
-                guard !self.isAnimatingScrollToBottom else { return }
-                self.scrollToBottomNow(animated: true)
-            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01, execute: work)
         }
 
         // MARK: - Snapshot
@@ -3897,12 +3890,26 @@ extension CollectionViewMessageListV3 {
                     // forceRelax bypasses the monotonic guard.
                     applySubViewportCompensation(caller: "snapshot-shrink", forceRelax: true)
                 } else if scrollMode == .autoScrolling && maxOff > 0 {
-                    cv.contentOffset.y = maxOff
+                    // [T-one-bottom-motion] A snapshot that appends content while
+                    // we are pinned is a MOVE, not a jump: animate to the new
+                    // bottom on the same primitive every other automatic scroll
+                    // uses. A single appended block used to teleport the viewport
+                    // by its own height in one frame — the "AI 回消息一格一格往下蹦"
+                    // report. The first load stays instant (see isFirstLoad), and
+                    // the deferred self-sizing case is still covered by the
+                    // coalesced glide below.
+                    let appended = newItems.count > oldCount
+                    let jump = abs(cv.contentOffset.y - maxOff)
+                    if appended && jump > 1 && jump < cv.bounds.height * 1.5 {
+                        glideToBottom(duration: 0.20)
+                    } else {
+                        cv.contentOffset.y = maxOff
+                    }
                     // Deferred pin-to-bottom: UIHostingConfiguration self-sizing may
                     // complete asynchronously after layoutIfNeeded(), updating contentSize
                     // via KVO. But if another applySnapshot starts before that KVO fires,
-                    // isFlushing suppresses it. The coalesced scroll (80ms) catches the
-                    // final contentSize and corrects any undershoot.
+                    // isFlushing suppresses it. The coalesced scroll catches the final
+                    // contentSize and corrects any undershoot.
                     scheduleCoalescedScroll()
                 } else {
                     // Sub-viewport (rawMaxOff <= 0) or non-autoScrolling: keep
@@ -4986,68 +4993,112 @@ extension CollectionViewMessageListV3 {
             guard maxOff > 0 else { return }
             let target = CGPoint(x: 0, y: maxOff)
             if let kb = keyboardAnimation {
-                // [T-composer-send-glide] Glide with the keyboard: animate the
-                // offset with the keyboard's own duration/curve instead of
-                // teleporting while it is mid-flight. beginFromCurrentState so a
-                // fresh signal re-targets rather than queueing behind the glide.
-                // Same isAnimatingScrollToBottom guard as the animated path: KVO
-                // grow events must defer (scheduleCoalescedScroll) while the
-                // interpolation runs. Unlike setContentOffset(animated:), a
-                // UIView.animate offset does NOT call
-                // scrollViewDidEndScrollingAnimation, so clear the flag in the
-                // completion handler — nowhere else clears it for this path.
-                // Only the latest glide owns the flag: an interrupted
-                // completion (finished == false) must not clear it while the
-                // newer glide still runs — the newer glide's own completion
-                // clears it. The duration safety net covers animations killed
-                // by a direct contentOffset write (sub-viewport PIN, snapshot
-                // shrink) or a user gesture, whose completions never report a
-                // clean finish: past duration + margin this generation is over
-                // either way, so a still-current flag is safe to clear and can
-                // never strand KVO pins.
-                scrollToBottomGeneration += 1
-                let generation = scrollToBottomGeneration
-                isAnimatingScrollToBottom = true
-                UIView.animate(withDuration: kb.duration, delay: 0,
-                    options: [UIView.AnimationOptions(rawValue: UInt(kb.curve.rawValue << 16)), .allowUserInteraction, .beginFromCurrentState],
-                    animations: { cv.contentOffset = target },
-                    completion: { [weak self] finished in
-                        guard let self else { return }
-                        if finished, generation == self.scrollToBottomGeneration {
-                            self.isAnimatingScrollToBottom = false
-                            self.syncScrollFlags()
-                        }
-                    })
-                DispatchQueue.main.asyncAfter(deadline: .now() + kb.duration + 0.1) { [weak self] in
-                    guard let self, generation == self.scrollToBottomGeneration else { return }
-                    self.isAnimatingScrollToBottom = false
-                }
+                glideToBottom(duration: kb.duration, keyboardAnimation: kb)
                 return
             }
             if animated {
-                scrollToBottomGeneration += 1
-                animatedScrollGeneration = scrollToBottomGeneration
-                isAnimatingScrollToBottom = true
-                cv.setContentOffset(target, animated: true)
-                // Safety net, same reasoning as the glide's: if this animation
-                // is cancelled by a direct write or a gesture and its end
-                // callback never fires, the flag must not stay true past the
-                // animation's own lifetime.
-                let generation = scrollToBottomGeneration
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                    guard let self, generation == self.scrollToBottomGeneration else { return }
-                    self.isAnimatingScrollToBottom = false
-                }
-                // The animated set's final scrollViewDidScroll should land within
-                // the near-bottom threshold, but an interrupted animation or
-                // sub-pixel/inset rounding can leave vm.isNearBottom stuck false,
-                // so the scroll-to-bottom button keeps showing while already at
-                // the bottom. Re-sync once the animation settles.
-                DispatchQueue.main.async { [weak self] in self?.syncScrollFlags() }
-            } else {
-                cv.contentOffset = target
-                syncScrollFlags()
+                // A plain "go to bottom" is one ease-out glide, not a
+                // system-speed setContentOffset (0.25s fixed): the system
+                // duration makes every caller's motion look unrelated to the
+                // ones around it. [T-one-bottom-motion]
+                glideToBottom(duration: 0.22)
+                return
             }
+            // Unanimated path (session load, clamp, sub-viewport pin): land
+            // immediately. Everything user-visible goes through glideToBottom.
+            cv.contentOffset = target
+            scrollToBottomGeneration += 1
+            isAnimatingScrollToBottom = false
+            syncScrollFlags()
+        }
+
+        /// The single automatic "follow the bottom" primitive. Every path that
+        /// wants the last cell to sit on the composer's top edge goes through
+        /// here — content growth, send, jump-to-bottom, keyboard settle — so
+        /// exactly one animation is ever in flight and nothing teleports
+        /// underneath it. `beginFromCurrentState` makes a second call re-target
+        /// the running animation instead of queueing behind it, which is what
+        /// turns per-chunk streaming growth into one continuous motion.
+        func glideToBottom(duration: TimeInterval = 0.22,
+                           keyboardAnimation: (duration: TimeInterval, curve: UIView.AnimationCurve)? = nil) {
+            guard let cv = viewController?.collectionView else { return }
+            guard !cv.isTracking, !cv.isDecelerating else { return }
+            let maxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
+            guard maxOff > 0 else { return }
+            guard abs(cv.contentOffset.y - maxOff) > 0.5 else { syncScrollFlags(); return }
+            let d = max(0.01, keyboardAnimation?.duration ?? duration)
+            let curve = keyboardAnimation?.curve ?? .easeOut
+            scrollToBottomGeneration += 1
+            let generation = scrollToBottomGeneration
+            isAnimatingScrollToBottom = true
+            UIView.animate(withDuration: d, delay: 0,
+                           options: [UIView.AnimationOptions(rawValue: UInt(curve.rawValue << 16)),
+                                     .allowUserInteraction, .beginFromCurrentState],
+                           animations: { cv.contentOffset.y = maxOff },
+                           completion: { [weak self] finished in
+                guard let self else { return }
+                if finished, generation == self.scrollToBottomGeneration {
+                    self.isAnimatingScrollToBottom = false
+                    self.syncScrollFlags()
+                }
+            })
+            // Safety net: a gesture or a direct write can kill the animation
+            // without a clean completion.
+            DispatchQueue.main.asyncAfter(deadline: .now() + d + 0.1) { [weak self] in
+                guard let self, generation == self.scrollToBottomGeneration else { return }
+                self.isAnimatingScrollToBottom = false
+            }
+        }
+
+        /// The composer's own bottom inset changed (it grew or shrank). Shift
+        /// the viewport by exactly that delta so the last bubble keeps its
+        /// distance to the composer, with no re-pin to an absolute position and
+        /// no second motion. Called from updateUIViewController, i.e. in the
+        /// same SwiftUI pass that changed the inset.
+        func followInsetChange(delta: CGFloat) {
+            guard let cv = viewController?.collectionView else { return }
+            guard abs(delta) > 0.5 else { return }
+            guard !cv.isTracking, !cv.isDecelerating else { return }
+            let maxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
+            let minOff = -cv.adjustedContentInset.top
+            let target = min(max(cv.contentOffset.y + delta, minOff), max(minOff, maxOff))
+            guard abs(target - cv.contentOffset.y) > 0.5 else { return }
+            if let kb = keyboardAnimationInFlight() {
+                UIView.animate(withDuration: kb.duration, delay: 0,
+                               options: [UIView.AnimationOptions(rawValue: UInt(kb.curve.rawValue << 16)),
+                                         .allowUserInteraction, .beginFromCurrentState],
+                               animations: { cv.contentOffset.y = target })
+            } else {
+                cv.contentOffset.y = target
+            }
+            syncScrollFlags()
+        }
+
+        /// Keyboard-driven viewport change: the page shrinks/grows as the
+        /// keyboard animates, and the list must ride that change by exactly the
+        /// same number of points, on the keyboard's own curve — otherwise the
+        /// bottom edge drifts off the composer and a later re-pin yanks it back
+        /// (the "overshoot then drift" report). Called from the controller's
+        /// layout pass, so it fires once per frame of the transition.
+        fileprivate func viewportHeightChanged(from old: CGFloat, to new: CGFloat) {
+            guard let cv = viewController?.collectionView else { return }
+            guard scrollMode == .autoScrolling else { return }
+            guard !isAnimatingScrollToBottom else { return }
+            guard abs(old - new) > 0.5 else { return }
+            let shifted = cv.contentOffset.y + (old - new)
+            let maxOff = cv.contentSize.height - new + cv.adjustedContentInset.bottom
+            let minOff = -cv.adjustedContentInset.top
+            let target = min(max(shifted, minOff), max(minOff, maxOff))
+            guard abs(target - cv.contentOffset.y) > 0.5 else { return }
+            if let kb = keyboardAnimationInFlight() {
+                UIView.animate(withDuration: kb.duration, delay: 0,
+                               options: [UIView.AnimationOptions(rawValue: UInt(kb.curve.rawValue << 16)),
+                                         .allowUserInteraction, .beginFromCurrentState],
+                               animations: { cv.contentOffset.y = target })
+            } else {
+                cv.contentOffset.y = target
+            }
+            syncScrollFlags()
         }
 
         /// Push the current near-bottom / far-from-top readings to the view
@@ -5670,6 +5721,34 @@ extension CollectionViewMessageListV3 {
             }
         }
 
+        /// [T-prefetch-lookahead] Seed cheap estimates for the items just above
+        /// and below the viewport. Bounded (40 items each way) so a long history
+        /// never turns one drag into a main-thread sweep; anything skipped keeps
+        /// its existing estimate from the snapshot seed and is picked up the next
+        /// time the user drags.
+        private func prefetchHeightEstimates(around cv: UICollectionView?, radius: Int = 40) {
+            guard let cv, let layout = viewController?.messageListLayout else { return }
+            let messages = snapshotMessages.isEmpty ? (vm?.messages ?? []) : snapshotMessages
+            guard !messages.isEmpty, !previousSnapshotIds.isEmpty else { return }
+            let visible = cv.indexPathsForVisibleItems
+            guard let firstVisible = visible.min()?.item, let lastVisible = visible.max()?.item else { return }
+            let lower = max(0, firstVisible - radius)
+            let upper = min(previousSnapshotIds.count - 1, lastVisible + radius)
+            guard lower <= upper else { return }
+            let width = maxContentWidth > 0 ? min(cv.bounds.width, maxContentWidth) : cv.bounds.width
+            var seeded = 0
+            for index in lower...upper {
+                guard layout.cachedHeight(at: index) == nil,
+                      !layout.hasPrecalcHeight(at: index) else { continue }
+                let item = previousSnapshotIds[index]
+                layout.setEstimatedHeight(Self.estimateItemHeight(item, messages: messages, width: width), at: index)
+                seeded += 1
+            }
+            if seeded > 0 {
+                AppLogger(category: "ScrollDiag").info("[ScrollDiag][prefetchLookahead] seeded=\(seeded) window=\(lower)…\(upper) visible=\(firstVisible)…\(lastVisible)")
+            }
+        }
+
         // MARK: - UICollectionViewDataSourcePrefetching
 
         func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
@@ -5707,6 +5786,17 @@ extension CollectionViewMessageListV3 {
             stopDecelDisplayLink()
             #endif
             scrollMode = .userBrowsing
+            // [T-prefetch-lookahead] Front-load the cheap height ESTIMATES for
+            // the region the finger is heading into, so a cell that scrolls in
+            // already has a real-ish height instead of being laid out from
+            // `estimatedItemHeight` and then snapping to its measured height.
+            // This is the dataSource prefetch the code used to rely on; that one
+            // was disabled because UIKit's own prefetch CREATES and self-sizes
+            // cells (~44 ms of main-thread TextKit per big cell — 2–3 dropped
+            // frames). The estimate path below only runs CTFramesetter over the
+            // block's attributed string and writes a number — no cell, no
+            // hosting configuration — so it is safe to do eagerly here.
+            prefetchHeightEstimates(around: viewController?.collectionView)
             // Cancel session-load clamp immediately — user has started interacting.
             clampAfterSessionLoad = false
             // A manual drag breaks the up-button's turn-walk chain: the next tap

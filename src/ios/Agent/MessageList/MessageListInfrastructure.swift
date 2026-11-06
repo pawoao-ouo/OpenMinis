@@ -1083,6 +1083,16 @@ final class MessageListViewController: UIViewController {
     var collectionView: UICollectionView!
     var messageListLayout: MessageListLayout!
 
+    /// Fired from `viewDidLayoutSubviews` whenever the CONTROLLER's height
+    /// changes, with (oldHeight, newHeight). The only consumer is the scroll
+    /// coordinator: when the page shrinks by the keyboard's height, the list's
+    /// viewport shrinks with it and the pinned bottom must ride that change by
+    /// the same delta, on the keyboard's own curve. Before this hook the only
+    /// reaction was a delayed re-pin, which ran after the keyboard had already
+    /// moved — the "list overshoots, then drifts back" report.
+    var onViewportHeightChange: ((CGFloat, CGFloat) -> Void)?
+    private var lastLaidOutHeight: CGFloat = 0
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
@@ -1102,6 +1112,15 @@ final class MessageListViewController: UIViewController {
         collectionView.alwaysBounceVertical = true
         collectionView.contentInsetAdjustmentBehavior = .automatic
         view.addSubview(collectionView)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let h = view.bounds.height
+        if lastLaidOutHeight > 0.5, abs(h - lastLaidOutHeight) > 0.5 {
+            onViewportHeightChange?(lastLaidOutHeight, h)
+        }
+        lastLaidOutHeight = h
     }
 
     /// [RotationFix] Rotation handler — without this, on rotation the

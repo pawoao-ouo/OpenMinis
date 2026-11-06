@@ -357,6 +357,41 @@ extension AIChatViewModel {
         return totalTokens
     }
 
+    /// [T-send-no-main-thread-freeze] Character-based twin of
+    /// `estimateContextTokens`, for the SEND TAP only.
+    ///
+    /// The exact estimator runs a BPE encode over every part of the whole
+    /// history. On a long session that is hundreds of milliseconds of main
+    /// thread work *between the tap and the bubble appearing* — the reported
+    /// "sending freezes for a moment". This variant answers the same question
+    /// (are we near the context limit?) with arithmetic over character counts:
+    /// ~3.5 chars/token for text, ~85 tokens per KB for images (the same rule
+    /// the exact path documents). It is deliberately used only as the pre-send
+    /// gate; everything that needs precision (offload accounting, logs that
+    /// claim token counts, the post-compaction budget) still goes through the
+    /// exact estimator.
+    func estimateContextTokensFast() -> Int {
+        var total = lastRequestFixedTokens
+        for msg in effectiveAgentHistory() {
+            for part in msg.parts {
+                switch part {
+                case .text(let t):
+                    total += Int(Double(t.count) / 3.5) + 4
+                case .toolUse(_, let name, let input):
+                    var chars = name.count
+                    for (k, v) in input { chars += k.count + String(describing: v).count }
+                    total += Int(Double(chars) / 3.5) + 8
+                case .toolResult(_, let name, let content, _, let imageData, _, _, _):
+                    total += Int(Double(name.count + content.count) / 3.5) + 4
+                    if let d = imageData { total += d.count / 1024 * 85 }
+                case .imageData(let data, _, _):
+                    total += max(85, data.count / 1024 * 85)
+                }
+            }
+        }
+        return total
+    }
+
     /// - `force`: When true, skip the threshold check and offload all eligible candidates
     ///   regardless of current context usage. Used after compaction to unconditionally slim down
     ///   the kept messages.
