@@ -85,17 +85,50 @@ final class TogetherStore {
     }()
 
     var stateURL: URL { rootURL.appendingPathComponent("state.json") }
-    /// 音乐目录：shell 侧抓歌落在 shared/together/music，App 必须去同一个地方找。
-    /// （以前这里指 shared/music，跟 shell 写的地方差一层，结果曲库永远是空的。）
-    var musicDirectory: URL { rootURL.appendingPathComponent("music", isDirectory: true) }
-    /// 曲库索引：真源是 music/index.json（together-fetch 写的就是它）。
-    /// together/index.json 当镜像读，两个都在时以 music 下那份为准。
-    var libraryURL: URL {
-        let primary = musicDirectory.appendingPathComponent("index.json")
-        if FileManager.default.fileExists(atPath: primary.path) { return primary }
-        return rootURL.appendingPathComponent("index.json")
+    /// 音乐目录：按"哪个目录里真有音频"来选，不靠"目录存不存在"。
+    /// 以前 App 固定看 shared/music，shell 却把歌抓进 shared/together/music——
+    /// 曲库永远是空的，歌也永远加载不到，点了没声音。
+    /// 也不能用"存在就用"判：老版本 App 自己会把 shared/music 建出来（空的），
+    /// 一判就判错。所以看内容：有音频的那个优先，两个都没音频才用 together/music
+    /// （抓歌脚本写的地方）。
+    var musicDirectory: URL {
+        let togetherMusic = rootURL.appendingPathComponent("music", isDirectory: true)
+        let sharedMusic = Self.sharedRootURL.appendingPathComponent("music", isDirectory: true)
+        if Self.hasAudioFiles(in: togetherMusic) { return togetherMusic }
+        if Self.hasAudioFiles(in: sharedMusic) { return sharedMusic }
+        return togetherMusic
     }
-    /// 写回永远写 music/index.json，和抓歌脚本同一个文件，别劈成两份。
+
+    /// 这个目录里有没有哪怕一个音频文件（只读目录项，不解码、不递归）。
+    static func hasAudioFiles(in dir: URL) -> Bool {
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return false }
+        return items.contains { audioExtensions.contains($0.pathExtension.lowercased()) }
+    }
+
+    /// 曲库索引：和曲库同一个目录。另一处若也有 index.json（老位置），
+    /// 取条目更多的那份，别让老文件把新曲库盖掉。
+    var libraryURL: URL {
+        let candidates = [
+            musicDirectory.appendingPathComponent("index.json"),
+            rootURL.appendingPathComponent("index.json"),
+            Self.sharedRootURL.appendingPathComponent("music/index.json")
+        ]
+        var best: URL?
+        var bestCount = -1
+        for url in candidates {
+            guard let lib = Self.decode(TogetherLibrary.self, at: url) else { continue }
+            if lib.tracks.count > bestCount {
+                bestCount = lib.tracks.count
+                best = url
+            }
+        }
+        return best ?? candidates[0]
+    }
+    /// 写回永远写进曲库目录下的 index.json，和抓歌脚本同一个文件，别劈成两份。
     var libraryWriteURL: URL { musicDirectory.appendingPathComponent("index.json") }
     var lyricsDirectory: URL { rootURL.appendingPathComponent("lyrics", isDirectory: true) }
 
@@ -105,12 +138,21 @@ final class TogetherStore {
         guard let rel = track.file, !rel.isEmpty else { return nil }
         var trimmed = rel
         if trimmed.hasPrefix("shared/") { trimmed = String(trimmed.dropFirst("shared/".count)) }
+        // `music/x.mp3` 是相对曲库目录的（抓歌脚本就这么写）：
+        // 直接拼在当前曲库目录后面，两种布局都对。
+        if trimmed.hasPrefix("music/") {
+            let name = String(trimmed.dropFirst("music/".count))
+            if !name.isEmpty {
+                let url = musicDirectory.appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: url.path) { return url }
+            }
+        }
         let underTogether = rootURL.appendingPathComponent(trimmed)
         if FileManager.default.fileExists(atPath: underTogether.path) { return underTogether }
-        // 兼容：早期文件放在 shared/music 下。
+        // 兼容：早期文件按 shared 根记的相对路径。
         let underShared = Self.sharedRootURL.appendingPathComponent(trimmed)
         if FileManager.default.fileExists(atPath: underShared.path) { return underShared }
-        return underTogether
+        return musicDirectory.appendingPathComponent(trimmed.hasPrefix("music/") ? String(trimmed.dropFirst("music/".count)) : trimmed)
     }
 
     static let audioExtensions: Set<String> = [
