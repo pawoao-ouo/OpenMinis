@@ -225,11 +225,11 @@ struct TogetherPanelView: View {
 
                 Button {
                     TogetherHaptics.select()
-                    let st = TogetherStore.shared
-                    var cur = st.load()
-                    cur.showMiniBar.toggle()
-                    st.commit("user", "setMiniBar", ["showMiniBar": cur.showMiniBar])
-                    showMiniBar = cur.showMiniBar
+                    let next = !showMiniBar
+                    TogetherStore.shared.mutate(by: .user, event: "setMiniBar") { state in
+                        state.showMiniBar = next
+                    }
+                    showMiniBar = next
                 } label: {
                     ZStack {
                         Circle().fill(CSSThemeVariables.optionBg(scope: .chat).opacity(0.8))

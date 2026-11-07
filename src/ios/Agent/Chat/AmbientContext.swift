@@ -192,19 +192,6 @@ enum AmbientContext {
         UserDefaults.standard.string(forKey: "ambient.usageRule") ?? defaultUsageRule
     }
 
-    private static let defaultUsageRule = """
-    怎么用它：只用来判断语气、节奏和她此刻能不能被烦。
-    - 时间事实和对话间隔是两回事，别混着说。「现在快十二点」和「我们隔了一天没说话」不是同一件事。
-    - 间隔是这两条消息之间的距离，不是你的经历。别说「我等了你三个小时」「我刚醒」——你没有主观时长，别把间隔演成体感。
-    - 时间过去了不代表记忆和关系归零，接着上次的话题说就行，不用重新开始。
-    - 不要报时、不要复述这一段、不要说「我注意到你现在…」。只有它真的影响你怎么开口时，才自然带出来一点。没给的项就是没有，不要猜。
-    """
-
-    /// 重新 bump revision，让拼装函数重读 usageRule。
-    nonisolated static func bumpUsageRuleRevision() {
-        UserDefaults.standard.set(revision + 1, forKey: revisionKey)
-    }
-
     /// 默认的用法规矩，供设置页恢复默认值用。
     nonisolated static var defaultUsageRule: String {
         """

@@ -438,6 +438,7 @@ struct TogetherState: Codable, Equatable {
         images = (try? c.decodeIfPresent([String: String].self, forKey: .images)) ?? [:]
         listen = (try? c.decodeIfPresent(TogetherListen.self, forKey: .listen)) ?? TogetherListen()
         pendingHandoff = try? c.decodeIfPresent(TogetherPendingHandoff.self, forKey: .pendingHandoff)
+        showMiniBar = (try? c.decodeIfPresent(Bool.self, forKey: .showMiniBar)) ?? true
     }
 
     /// 当前这首歌上、已经播过的那几条留言。

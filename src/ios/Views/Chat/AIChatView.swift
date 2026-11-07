@@ -217,7 +217,7 @@ struct AIChatView: View {
         // 常驻小胶囊开关由 TogetherState.showMiniBar 控制（在面板里设置）。
         // 开启时只在播放时显示（暂停不显示）；关闭时永远不显示。
         // 以前是"有歌就留着"，现在改成交互需求。
-        guard TogetherStore.shared.load().showMiniBar else { return false }
+        guard togetherHub.state.showMiniBar else { return false }
         return togetherPlayer.isPlaying && !showTogether
     }
 
@@ -334,6 +334,8 @@ struct AIChatView: View {
     // [R24] 一起听：全屏空间。叉掉之后不是关掉，是缩成悬浮卡继续放。
     @State private var showTogether = false
     @ObservedObject private var togetherPlayer = TogetherPlayer.shared
+    /// 小胶囊开关跟着 state 走，不然在面板里关掉了主界面不知道。
+    @ObservedObject private var togetherHub = TogetherStateHub.shared
     @State private var showPlusPanel = false
     @State private var showStickerPanel = false
     /// [K-2] The tile the user tapped, while the drawer is still animating out
