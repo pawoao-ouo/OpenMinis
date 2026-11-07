@@ -666,12 +666,19 @@ struct AIChatView: View {
                         VStack(spacing: 2) {
                             if showTogetherBar {
                                 TogetherMiniBar(onOpen: { showTogether = true })
-                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                                    // [T-capsule-retract-to-side] 收起时往侧边缩走再淡出，
+                                    // 不是从底部整条掉下去：她说"日常乖乖呆在侧边藏着，
+                                    // 收回侧边的动画要丝滑柔和"。进来时也从侧边滑出来，
+                                    // 两段都用同一支柔弹簧。
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                                        removal: .move(edge: .trailing).combined(with: .opacity)
+                                    ))
                             }
                             inputBar
                         }
                         // 胶囊出现/消失是滑入滑出，不是瞬移：斜杠弹窗跟着它一起平移，不跳变。
-                        .animation(.easeInOut(duration: 0.28), value: showTogetherBar)
+                        .animation(.spring(response: 0.44, dampingFraction: 0.88, blendDuration: 0.1), value: showTogetherBar)
                         inputPopupOverlay
                             .padding(.bottom, inputBarHeight + togetherBarInset)
                     }
