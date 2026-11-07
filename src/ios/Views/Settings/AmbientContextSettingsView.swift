@@ -32,7 +32,7 @@ struct AmbientContextSettingsView: View {
                     .frame(minHeight: 120)
                     .onChange(of: customRule) { _, newValue in
                         UserDefaults.standard.set(newValue, forKey: "ambient.usageRule")
-                        AmbientSignal.bumpUsageRuleRevision()
+                        AmbientSignal.bumpRevision()
                         revision += 1
                     }
             } header: {
