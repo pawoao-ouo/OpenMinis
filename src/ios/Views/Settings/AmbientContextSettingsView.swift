@@ -12,6 +12,7 @@ struct AmbientContextSettingsView: View {
     @ObservedObject private var fontSettings = FontSettings.shared
     @State private var revision = 0
     @State private var preview = ""
+    @State private var customRule = ""
 
     var body: some View {
         Form {
@@ -23,6 +24,21 @@ struct AmbientContextSettingsView: View {
                 Text(AppLocalized("每轮随消息一起发给模型"))
             } footer: {
                 Text(AppLocalized("这些内容会随每条消息发给模型服务商。关掉的项连一行字都不会出现。它们不会出现在聊天记录里，模型也不会复述——同一条规矩写在它收到的指令里。"))
+            }
+
+            Section {
+                TextEditor(text: $customRule)
+                    .font(.system(size: fontSettings.scaledApp(12), design: .monospaced))
+                    .frame(minHeight: 120)
+                    .onChange(of: customRule) { _, newValue in
+                        UserDefaults.standard.set(newValue, forKey: "ambient.usageRule")
+                        AmbientSignal.bumpUsageRuleRevision()
+                        revision += 1
+                    }
+            } header: {
+                Text(AppLocalized("AI 如何感知这些信息"))
+            } footer: {
+                Text(AppLocalized("这里是写给模型的指令，解释该怎么用上面那些信息。你可以修改这段话，让它更符合你的期望。"))
             }
 
             Section {
@@ -40,7 +56,10 @@ struct AmbientContextSettingsView: View {
         }
         .navigationTitle(AppLocalized("她此刻的状态"))
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { refreshPreview() }
+        .onAppear {
+            customRule = UserDefaults.standard.string(forKey: "ambient.usageRule") ?? AmbientContext.defaultUsageRule
+            refreshPreview()
+        }
         .onChange(of: revision) { _, _ in refreshPreview() }
     }
 

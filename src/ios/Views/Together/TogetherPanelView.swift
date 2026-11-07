@@ -38,6 +38,9 @@ struct TogetherPanelView: View {
     @State private var echoCorner: Int = 0
     @State private var echoGen = 0
 
+    /// 常驻小胶囊开关：关掉后小胶囊不再出现。由 TogetherStore 持久化。
+    @State private var showMiniBar = true
+
     /// 抽屉与中心弹窗：同一视图只挂一个 .sheet，靠这个枚举切换。
     /// 以前四个 .sheet(isPresented:) 叠在同一个视图上会互相顶掉——
     /// 刻字弹窗被回声墙抽屉抢掉就是这么来的。
@@ -219,10 +222,39 @@ struct TogetherPanelView: View {
                 }
                 .togetherPress()
                 .accessibilityLabel(TogetherCopy.historyEchoes)
+
+                Button {
+                    TogetherHaptics.select()
+                    let st = TogetherStore.shared
+                    var cur = st.load()
+                    cur.showMiniBar.toggle()
+                    st.commit("user", "setMiniBar", ["showMiniBar": cur.showMiniBar])
+                    showMiniBar = cur.showMiniBar
+                } label: {
+                    ZStack {
+                        Circle().fill(CSSThemeVariables.optionBg(scope: .chat).opacity(0.8))
+                            .frame(width: 34, height: 34)
+                        Image(systemName: showMiniBar ? "capsule.fill" : "capsule")
+                            .togetherIcon(13, dim: false)
+                            .foregroundStyle(showMiniBar ? CSSThemeVariables.accent(scope: .chat) : CSSThemeVariables.textDim(scope: .chat))
+                    }
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                }
+                .togetherPress()
+                .accessibilityLabel("常驻小胶囊")
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 10)
+        .onAppear {
+            let st = TogetherStore.shared.load()
+            showMiniBar = st.showMiniBar
+        }
+        .onReceive(hub.$state) { _ in
+            let st = TogetherStore.shared.load()
+            showMiniBar = st.showMiniBar
+        }
     }
 
     // MARK: - 黑胶（同页常驻，纯视觉，不可点）

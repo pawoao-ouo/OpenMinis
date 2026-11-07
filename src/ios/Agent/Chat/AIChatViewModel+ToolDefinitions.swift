@@ -597,6 +597,7 @@ public enum CatalogCategory: String, CaseIterable, Sendable {
     case apple = "Apple Native Frameworks"
     case webMedia = "Web & Communication"
     case memoryExtensions = "Memory & Extensions"
+    case together = "一起听"
 }
 
 /// [T-vector-router-hook] Extension point for dedicated embedding / vector router model.
@@ -681,6 +682,16 @@ public final class ToolCatalogRouter: @unchecked Sendable {
                 synopsis: "Interactive terminal for stdin tasks (passwords, ssh, htop).",
                 quickSyntax: "[Open Terminal](minis-clone://open_terminal?init_command=...)",
                 docRef: "Markdown link with percent-encoded init_command"
+            ),
+
+            // Together: 一起听播放器控制（通过 shell_execute 调用 /usr/local/bin/together）
+            CatalogItem(
+                id: "together",
+                name: "together",
+                category: .together,
+                synopsis: "一起听播放器：播放/暂停/切歌/进度控制（通过 together 命令，控制 /var/minis/shared/music 里的本地音乐）。",
+                quickSyntax: "together play <trackId> [--at 秒] | pause | resume | next | prev | seek <秒>",
+                docRef: "together --help"
             ),
 
             // Apple Native Frameworks

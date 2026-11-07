@@ -416,6 +416,8 @@ struct TogetherState: Codable, Equatable {
     var listen = TogetherListen()
     /// 正在递交中的遥控器。nil = 没有交接在进行。
     var pendingHandoff: TogetherPendingHandoff?
+    /// 常驻小胶囊开关：关掉后小胶囊不再出现。
+    var showMiniBar: Bool = true
 
     init() {}
 

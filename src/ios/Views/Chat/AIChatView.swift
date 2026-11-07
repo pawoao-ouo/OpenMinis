@@ -214,10 +214,11 @@ struct AIChatView: View {
 
     /// 一起听胶囊占的高度：只一处定义，见 TogetherMiniBar.stackHeight（48 胶囊 + 2 间距）。
     private var showTogetherBar: Bool {
-        // 以前还要求 isPlaying：一暂停、或一首放完，整条直接消失，而全 App 没有第二个
-        // 常驻入口（只有聊天菜单里那个），用户暂停一次就找不到回播放页的路。
-        // 改成"有歌就留着"——暂停也该能点回去。
-        togetherPlayer.track != nil && !showTogether
+        // 常驻小胶囊开关由 TogetherState.showMiniBar 控制（在面板里设置）。
+        // 开启时只在播放时显示（暂停不显示）；关闭时永远不显示。
+        // 以前是"有歌就留着"，现在改成交互需求。
+        guard TogetherStateHub.shared.state.showMiniBar else { return false }
+        return togetherPlayer.isPlaying && !showTogether
     }
 
     private var togetherBarInset: CGFloat {
@@ -3014,7 +3015,7 @@ struct AIChatView: View {
                 .padding(.trailing, 4)
                 .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
                 .padding(.horizontal, 12)
-                .padding(.bottom, inputBarHeight + togetherBarInset + 12)
+                .padding(.bottom, (latestInputBarFrameH > 0 ? latestInputBarFrameH : inputBarHeight) + togetherBarInset + 12)
                 .animation(.easeInOut(duration: 0.2), value: vm.isNearBottom)
                 .animation(.easeInOut(duration: 0.2), value: vm.isAtFirstTurn)
                 }
@@ -3031,7 +3032,7 @@ struct AIChatView: View {
             .padding(.trailing, 4)
             .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
             .padding(.horizontal, 12)
-            .padding(.bottom, inputBarHeight + 12 + 92)
+            .padding(.bottom, (latestInputBarFrameH > 0 ? latestInputBarFrameH : inputBarHeight) + 12 + 92)
         }
     }
 
