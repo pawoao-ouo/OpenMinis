@@ -7164,6 +7164,18 @@ private struct SettingsSheet: View {
                             QuietAppIcon(id: QuietIconSlot.env.id, systemName: QuietIconSlot.env.systemName)
                         }
                     }
+                    // [T-ambient-context 11-07] 每轮随消息发给模型的那一小段
+                    // 她此刻的状态（时间 / 间隔 / 在听什么 / 电量 / 网络）。
+                    // 放在 Agent Runtime 里：它是运行时行为，不是外观。
+                    NavigationLink {
+                        AmbientContextSettingsView()
+                    } label: {
+                        Label {
+                            Text("她此刻的状态")
+                        } icon: {
+                            QuietAppIcon(id: QuietIconSlot.ambient.id, systemName: QuietIconSlot.ambient.systemName)
+                        }
+                    }
                 }
 
                 Section("Storage") {

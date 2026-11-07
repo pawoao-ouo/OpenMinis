@@ -16,6 +16,8 @@
 		E5SAS0001 /* SubAgentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SAS0011 /* SubAgentStore.swift */; };
 		E5SAD0001 /* SubAgentDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SAD0011 /* SubAgentDefinition.swift */; };
 		E5TSV0001 /* ToolsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TSV0011 /* ToolsSettingsView.swift */; };
+		E5AMB0001 /* AmbientContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AMB0011 /* AmbientContext.swift */; };
+		E5AMB0002 /* AmbientContextSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AMB0012 /* AmbientContextSettingsView.swift */; };
 		E5ACB0001 /* AgentCallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5ACB0011 /* AgentCallback.swift */; };
 		E5ACB0002 /* AgentCallbackCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5ACB0012 /* AgentCallbackCellView.swift */; };
 		E5AJR0001 /* AgentJobRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AJR0011 /* AgentJobRegistry.swift */; };
@@ -768,6 +770,8 @@
 		E5SAS0011 /* SubAgentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "SubAgentStore.swift"; path = "Providers/SubAgentStore.swift"; sourceTree = SOURCE_ROOT; };
 		E5SAD0011 /* SubAgentDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "SubAgentDefinition.swift"; path = "Providers/SubAgentDefinition.swift"; sourceTree = SOURCE_ROOT; };
 		E5TSV0011 /* ToolsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ToolsSettingsView.swift"; path = "Views/Settings/ToolsSettingsView.swift"; sourceTree = SOURCE_ROOT; };
+		E5AMB0011 /* AmbientContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AmbientContext.swift"; path = "Agent/Chat/AmbientContext.swift"; sourceTree = SOURCE_ROOT; };
+		E5AMB0012 /* AmbientContextSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AmbientContextSettingsView.swift"; path = "Views/Settings/AmbientContextSettingsView.swift"; sourceTree = SOURCE_ROOT; };
 		E5ACB0011 /* AgentCallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AgentCallback.swift"; path = "Agent/Jobs/AgentCallback.swift"; sourceTree = SOURCE_ROOT; };
 		E5ACB0012 /* AgentCallbackCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AgentCallbackCellView.swift"; path = "Views/Chat/AgentCallbackCellView.swift"; sourceTree = SOURCE_ROOT; };
 		E5AJR0011 /* AgentJobRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AgentJobRegistry.swift"; path = "Agent/Jobs/AgentJobRegistry.swift"; sourceTree = SOURCE_ROOT; };
@@ -2639,6 +2643,8 @@
 				E5SAS0011 /* SubAgentStore.swift */,
 				E5SAD0011 /* SubAgentDefinition.swift */,
 				E5TSV0011 /* ToolsSettingsView.swift */,
+				E5AMB0011 /* AmbientContext.swift */,
+				E5AMB0012 /* AmbientContextSettingsView.swift */,
 				E5ACB0011 /* AgentCallback.swift */,
 				E5ACB0012 /* AgentCallbackCellView.swift */,
 				E5AJR0011 /* AgentJobRegistry.swift */,
@@ -3218,6 +3224,8 @@
 				E5SRS0001 /* SessionRefreshScheduler.swift in Sources */,
 				E5PCV0001 /* PersonaContactsView.swift in Sources */,
 				E5TSV0001 /* ToolsSettingsView.swift in Sources */,
+				E5AMB0001 /* AmbientContext.swift in Sources */,
+				E5AMB0002 /* AmbientContextSettingsView.swift in Sources */,
 				E5SAD0001 /* SubAgentDefinition.swift in Sources */,
 				E5SAS0001 /* SubAgentStore.swift in Sources */,
 				E5AJR0003 /* ModelTierResolver.swift in Sources */,

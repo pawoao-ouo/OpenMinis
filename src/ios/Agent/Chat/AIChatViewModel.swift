@@ -920,6 +920,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// [10-20 醒醒] 本轮的时间感知片段缓存。每轮 runAgentLoop 开始时清空，
     /// 这样 fallback 重试不会重算出一个「隔了 0 分钟」。
     var cachedTimeAwarenessFragment: String?
+    /// 缓存那份片段是按哪一版开关算的（见 AmbientSignal.revision）。
+    var cachedRevision: Int = -1
     /// When true, shows a prompt asking user to compact before sending.
     @Published var showCompactBeforeSendPrompt = false
     /// [T-chat-auto-compact-opt-in] Global (cross-session) opt-in: when the
@@ -1956,13 +1958,16 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // Authoritative memory-status footer (overrides any earlier
         // baseSystemPrompt mentions when memory is disabled).
         p += memoryStatusFragment
-        // [10-20 醒醒] 时间感知片段。每轮只在**开局**算一次并缓存：fallback
-        // 重试会再走一遍 buildTurnSystemPrompt，那时模型已经开工了，重算会把
-        // 「隔了多久」算成 0，同一个 turn 里 prompt 还会前后不一致。
-        if let cached = cachedTimeAwarenessFragment {
+        // [T-ambient-context 11-07] 她此刻的状态（时间 / 间隔 / 在听什么 /
+        // 电量 / 网络）。每轮只在**开局**算一次并缓存：fallback 重试会再走
+        // 一遍 buildTurnSystemPrompt，那时模型已经开工了，重算会把「隔了
+        // 多久」算成 0，同一个 turn 里 prompt 还会前后不一致。
+        let ambientRevision = AmbientSignal.revision
+        if let cached = cachedTimeAwarenessFragment, cachedRevision == ambientRevision {
             p += "\n\n" + cached
-        } else if let fresh = timeAwarenessFragment() {
+        } else if let fresh = ambientContextFragment() {
             cachedTimeAwarenessFragment = fresh
+            cachedRevision = ambientRevision
             p += "\n\n" + fresh
         }
         // [S3-2][evolution] Injector hook — off/shadow return "" (prompt stays
@@ -1972,42 +1977,17 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         return p
     }
 
-    /// [10-20 醒醒] 时间感知片段。
+    /// [T-ambient-context 11-07] 「她此刻的状态」片段。
     ///
-    /// 两个信息：现在几点，以及距上一轮对话**精确**过了多久。
-    /// 她不要「大约几小时」这种档位——11 分钟就是 11 分钟。
-    /// 3 分钟内不提（同一句话的连续对话，提了很吵）。
-    func timeAwarenessFragment() -> String? {
-        let now = Date()
-
-        // 星期 + 日期 + 时刻，模型能据此判断是不是深夜。
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "zh_Hans_CN")
-        df.dateFormat = "yyyy年M月d日 EEEE HH:mm"
-        var out = "## 当前时间\n现在是 \(df.string(from: now))。"
-
-        // 上一轮对话的时刻。agentHistory 没有时间戳，走 UI 层的 messages。
-        guard let last = lastConversationDate() else { return out }
-        let gap = now.timeIntervalSince(last)
-        // 3 分钟内不提——同一句话的连续对话，提了很吵。
-        if gap < 3 * 60 { return out }
-
-        let totalMinutes = Int(gap / 60)
-        let days = totalMinutes / (24 * 60)
-        let hours = (totalMinutes % (24 * 60)) / 60
-        let minutes = totalMinutes % 60
-
-        // 精确到分钟，不取整。有几天就说几天，剩下的小时和分钟接着报。
-        var parts: [String] = []
-        if days > 0 { parts.append("\(days) 天") }
-        if hours > 0 { parts.append("\(hours) 小时") }
-        if minutes > 0 || parts.isEmpty { parts.append("\(minutes) 分钟") }
-
-        out += "\n距离上一轮对话过去了 \(parts.joined(separator: " "))"
-        out += "（上一条消息在 \(df.string(from: last))）。"
-        out += "\n这个时间只给你判断语境用：她是刚走开还是隔了几天回来，"
-        out += "语气该松还是该紧。**不要复述、不要提这个时长**，自然地接话就行。"
-        return out
+    /// 逐项开关、逐项拼装都在 `AmbientContext` 那个文件里——这里只负责把
+    /// UI 层才有的「上一条消息是什么时候」递过去（agentHistory 没有时间戳）。
+    /// 全关或没有可报的项时返回 nil，prompt 与没有这个功能时逐字节相同。
+    func ambientContextFragment() -> String? {
+        AmbientContext.fragment(
+            now: Date(),
+            lastConversation: lastConversationDate(),
+            isSubAgentChild: isSubAgentChild
+        )
     }
 
     /// 上一轮对话的时刻。agentHistory 没有时间戳，走 UI 层的 messages。
@@ -5423,6 +5403,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // [10-20 醒醒] 新一轮开始，时间感知重新算。放在这里而不是 build 里，
         // 是因为 build 每次 fallback 都会再走一遍。
         cachedTimeAwarenessFragment = nil
+        cachedRevision = -1
 
         // Resolve provider from ProviderConfigStore
         guard let entry = resolveCurrentEntry() else {

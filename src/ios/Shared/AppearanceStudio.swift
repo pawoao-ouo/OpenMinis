@@ -2374,6 +2374,8 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
     case scheduled
     /// [batch7] Settings → Agent Runtime 的「Sub Agents」行（子代理设置页）。
     case subAgents
+    /// [T-ambient-context 11-07] Settings → Agent Runtime 的「她此刻的状态」行。
+    case ambient
 
     var id: String { rawValue }
     var title: String {
@@ -2404,6 +2406,7 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
         case .webSearch: return AppLocalized("联网搜索")
         case .scheduled: return AppLocalized("定时任务与脉搏")
         case .subAgents: return AppLocalized("Sub agent")
+        case .ambient: return AppLocalized("她此刻的状态")
         case .agentTools: return AppLocalized("工具开关")
         }
     }
@@ -2435,6 +2438,7 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
         case .webSearch: return "magnifyingglass"
         case .scheduled: return "clock.arrow.circlepath"
         case .subAgents: return "person.2.fill"
+        case .ambient: return "clock.arrow.circlepath"
         case .agentTools: return "wrench.and.screwdriver.fill"
         }
     }
