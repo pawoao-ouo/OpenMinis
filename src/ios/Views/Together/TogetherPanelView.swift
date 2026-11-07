@@ -499,6 +499,20 @@ struct TogetherPanelView: View {
             }
             .togetherPress()
             .accessibilityLabel(TogetherCopy.leaveALine)
+
+            // 播放队列抽屉：从控制排挪上来的，那边腾出位置让播放键居中。
+            Button {
+                TogetherHaptics.select()
+                activeSheet = .queue
+            } label: {
+                Image(systemName: "list.bullet")
+                    .togetherIcon(15 * s)
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .chat))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .togetherPress()
+            .accessibilityLabel(TogetherCopy.a11yQueue)
         }
         .frame(maxWidth: .infinity)
     }
@@ -582,41 +596,47 @@ struct TogetherPanelView: View {
     }
 
     private func mainControlsRow(s: CGFloat) -> some View {
+        // [T-together-controls-center] 以前 6 颗键在这排里平分宽度，3 左 3 右，
+        // 播放键就落在第三格上——实测中心在 x=546，屏幕中线 642，偏左 96pt。
+        // 歌词、歌名、进度条全都对齐在中线，只有这排歪。
+        // 现在两边各两颗、宽度相等，播放键自然落在正中间；队列键挪到上面
+        // 那排小图标里（喜欢/回声/刻字旁边），不再挤这排。
         HStack(spacing: 0) {
-            // 随机：独立开关，只管出牌顺序。亮 = 开。
-            Button {
-                TogetherHaptics.select()
-                TogetherStore.shared.setModes(shuffle: !state.playback.shuffle)
-                hub.refreshNow()
-            } label: {
-                Image(systemName: "shuffle")
-                    .togetherIcon(19 * s, dim: false)
-                    .foregroundStyle(state.playback.shuffle ? CSSThemeVariables.accent(scope: .chat)
-                                                            : CSSThemeVariables.textDim(scope: .chat))
-                    .frame(minWidth: 44, minHeight: 44)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-            }
-            .togetherPress()
-            .accessibilityLabel(TogetherCopy.a11yShuffle)
-            .accessibilityValue(state.playback.shuffle ? TogetherCopy.shuffleEcho : TogetherCopy.inOrderEcho)
+            HStack(spacing: 0) {
+                // 随机：独立开关，只管出牌顺序。亮 = 开。
+                Button {
+                    TogetherHaptics.select()
+                    TogetherStore.shared.setModes(shuffle: !state.playback.shuffle)
+                    hub.refreshNow()
+                } label: {
+                    Image(systemName: "shuffle")
+                        .togetherIcon(19 * s, dim: false)
+                        .foregroundStyle(state.playback.shuffle ? CSSThemeVariables.accent(scope: .chat)
+                                                                : CSSThemeVariables.textDim(scope: .chat))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .togetherPress()
+                .accessibilityLabel(TogetherCopy.a11yShuffle)
+                .accessibilityValue(state.playback.shuffle ? TogetherCopy.shuffleEcho : TogetherCopy.inOrderEcho)
 
-            // 上一首
-            Button {
-                TogetherHaptics.select()
-                player.previousTrack()
-                hub.refreshNow()
-            } label: {
-                Image(systemName: "backward")
-                    .togetherIcon(22 * s, dim: false)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
+                // 上一首
+                Button {
+                    TogetherHaptics.select()
+                    player.previousTrack()
+                    hub.refreshNow()
+                } label: {
+                    Image(systemName: "backward")
+                        .togetherIcon(22 * s, dim: false)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .togetherPress()
+                .accessibilityLabel(TogetherCopy.a11yPrevious)
             }
-            .togetherPress()
-            .accessibilityLabel(TogetherCopy.a11yPrevious)
+            .frame(maxWidth: .infinity)
 
-            // 播放/暂停大圆键
+            // 播放/暂停大圆键：正中间这一颗，两边等宽夹住它
             Button {
                 TogetherHaptics.tap()
                 player.userToggle()
@@ -631,55 +651,41 @@ struct TogetherPanelView: View {
             }
             .togetherPress()
             .frame(minWidth: 44, minHeight: 44)
-            .frame(maxWidth: .infinity)
             .accessibilityLabel(player.showsPauseControl ? TogetherCopy.a11yPause : TogetherCopy.a11yPlay)
 
-            // 下一首
-            Button {
-                TogetherHaptics.select()
-                player.nextTrack()
-                hub.refreshNow()
-            } label: {
-                Image(systemName: "forward")
-                    .togetherIcon(22 * s, dim: false)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-            }
-            .togetherPress()
-            .accessibilityLabel(TogetherCopy.a11yNext)
+            HStack(spacing: 0) {
+                // 下一首
+                Button {
+                    TogetherHaptics.select()
+                    player.nextTrack()
+                    hub.refreshNow()
+                } label: {
+                    Image(systemName: "forward")
+                        .togetherIcon(22 * s, dim: false)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .togetherPress()
+                .accessibilityLabel(TogetherCopy.a11yNext)
 
-            // 循环：关 → 全部循环 → 单曲循环 → 关。图标 + 字面状态一起变。
-            Button {
-                TogetherHaptics.select()
-                cycleRepeatMode()
-                hub.refreshNow()
-            } label: {
-                Image(systemName: repeatIcon)
-                    .togetherIcon(19 * s, dim: false)
-                    .foregroundStyle(isRepeatActive ? CSSThemeVariables.accent(scope: .chat)
-                                                    : CSSThemeVariables.textDim(scope: .chat))
-                    .frame(minWidth: 44, minHeight: 44)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
+                // 循环：关 → 全部循环 → 单曲循环 → 关。图标 + 字面状态一起变。
+                Button {
+                    TogetherHaptics.select()
+                    cycleRepeatMode()
+                    hub.refreshNow()
+                } label: {
+                    Image(systemName: repeatIcon)
+                        .togetherIcon(19 * s, dim: false)
+                        .foregroundStyle(isRepeatActive ? CSSThemeVariables.accent(scope: .chat)
+                                                        : CSSThemeVariables.textDim(scope: .chat))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .togetherPress()
+                .accessibilityLabel(TogetherCopy.a11yRepeat)
+                .accessibilityValue(repeatEcho)
             }
-            .togetherPress()
-            .accessibilityLabel(TogetherCopy.a11yRepeat)
-            .accessibilityValue(repeatEcho)
-
-            // 播放队列抽屉按钮
-            Button {
-                TogetherHaptics.select()
-                activeSheet = .queue
-            } label: {
-                Image(systemName: "list.bullet")
-                    .togetherIcon(19 * s)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-            }
-            .togetherPress()
-            .accessibilityLabel(TogetherCopy.a11yQueue)
+            .frame(maxWidth: .infinity)
         }
     }
 
