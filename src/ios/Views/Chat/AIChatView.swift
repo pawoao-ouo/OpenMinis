@@ -4032,9 +4032,9 @@ struct AIChatView: View {
                 // 浮在消息上面。托盘出现时它还是浮着，托盘从它下面滑出来。
                 .modifier(ComposerSurface(style: .bar))
                 .padding(.horizontal, 8)
-                // 托盘收起时输入条浮在消息上（离底 6）；托盘一出来就贴到托盘
-                // 顶上，不留那条缝——留了缝，缝里漏出来的就是壁纸，看着像悬空。
-                .padding(.bottom, (showPlusPanel || showStickerPanel) ? 0 : 6)
+                // 输入条永远浮着（离底 6）：它是胶囊，底角是圆的，贴死在托盘
+                // 上反而会跟托盘顶边打架。真正要贴底的是托盘自己。
+                .padding(.bottom, 6)
 
                 // 底部抽屉：加号清单 / 表情宫格。贴底满宽，底边一路铺到
                 // 屏幕物理底（ComposerSurface 的 .tray 只圆上两角），
