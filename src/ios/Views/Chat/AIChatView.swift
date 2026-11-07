@@ -3400,9 +3400,37 @@ struct AIChatView: View {
                         inputFocused = true
                     }
                 },
+                onSetMemory: { enabled in
+                    // 和斜杠 /memory 走同一方法：改状态 + 落库 + 留一条系统提示。
+                    vm.setMemoryWrites(enabled)
+                },
+                onToggleSkill: { skillId, enabled in
+                    // draft 会话先落成真会话，再写会话级覆盖（Skills/MCPs 页同一条路）。
+                    if let sid = vm.sessionId {
+                        SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
+                    } else {
+                        Task {
+                            let sid = await vm.ensureSessionReturningId()
+                            await MainActor.run {
+                                SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
+                            }
+                        }
+                    }
+                },
+                onToggleConnector: { serverId, enabled in
+                    if let sid = vm.sessionId {
+                        MCPStore.shared.setSessionOverride(serverId: serverId, sessionId: sid, enabled: enabled)
+                    } else {
+                        Task {
+                            let sid = await vm.ensureSessionReturningId()
+                            await MainActor.run {
+                                MCPStore.shared.setSessionOverride(serverId: serverId, sessionId: sid, enabled: enabled)
+                            }
+                        }
+                    }
+                },
                 onClose: { closeComposerTray(focusKeyboard: true) }
             )
-            .transition(.move(edge: .bottom).combined(with: .opacity))
             return AnyView(panel)
         } else if showStickerPanel {
             let panel = ChatStickerPanel(
@@ -3417,7 +3445,6 @@ struct AIChatView: View {
                     inputFocused = true
                 }
             )
-            .transition(.move(edge: .bottom).combined(with: .opacity))
             return AnyView(panel)
         } else {
             return AnyView(EmptyView())
@@ -3833,9 +3860,17 @@ struct AIChatView: View {
                 field.fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
         .frame(minHeight: 34, alignment: .center)
+        // 输入框本体再嵌一颗圆角小胶囊：里面是主题的输入底色，外面一圈是输入条
+        // 的卡面色，两层都是圆的，看起来才不是「一个方框套一个方框」。
+        // 用大圆角矩形而不是 Capsule：多行时 Capsule 会变成跑道形，
+        // 左右两端把字切掉；圆角矩形长高也只是更像一张小卡。
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(CSSThemeVariables.optionBg(scope: ThemeColorLayer.chat).opacity(0.55))
+        )
         .overlay(alignment: .top) {
             if composerResizeEnabled { composerResizeHandle }
         }
@@ -3978,9 +4013,37 @@ struct AIChatView: View {
                     // 微信式单行聊天输入条 (AnyView 类型擦除，杜绝深层泛型栈溢出)
                     singleLineInputRow
                 }
+                // [T-composer-tap-to-focus] 整条都能点着聚焦。这是**底层**的
+                // 点击接收器，不是祖先手势：祖先手势会在子按钮被点时也触发，
+                // 那正好会在发送后重新聚焦、或者在抽屉打开时把键盘拉上来。
+                // 它必须声明在 ComposerSurface 之前 —— 后加的 background 排在
+                // 更底下，于是它压在底色上面、内容下面，只有没打中按钮和输入框
+                // 的点击才落到它这里。
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard !voiceInputActive, speechManager.state != .recording else { return }
+                            if showPlusPanel || showStickerPanel { return }
+                            inputFocused = true
+                        }
+                }
+                // 输入条本身是一颗胖胶囊：四角全圆，左右留 8、离底留 6，
+                // 浮在消息上面。托盘出现时它还是浮着，托盘从它下面滑出来。
+                .modifier(ComposerSurface(style: .bar))
+                .padding(.horizontal, 8)
+                // 托盘收起时输入条浮在消息上（离底 6）；托盘一出来就贴到托盘
+                // 顶上，不留那条缝——留了缝，缝里漏出来的就是壁纸，看着像悬空。
+                .padding(.bottom, (showPlusPanel || showStickerPanel) ? 0 : 6)
 
-                // 底部抽屉功能/表情包面板（完全独立，不被输入框点击手势干扰）
-                bottomDrawerSection
+                // 底部抽屉：加号清单 / 表情宫格。贴底满宽，底边一路铺到
+                // 屏幕物理底（ComposerSurface 的 .tray 只圆上两角），
+                // 所以不管开哪一个，下面都不会漏出一条壁纸。
+                if showPlusPanel || showStickerPanel {
+                    bottomDrawerSection
+                        .modifier(ComposerSurface(style: .tray))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
             .onReceive(speechManager.$recognizedText) { text in
                 guard speechManager.state == .recording || !text.isEmpty else { return }
@@ -3992,7 +4055,6 @@ struct AIChatView: View {
                 }
                 lastRecognizedLength = newLength
             }
-            .modifier(ComposerSurface())
             // [T-composer-tap-to-focus] The whole pill focuses on tap.
             //
             // The only hit target used to be the one-line UITextView itself, so
@@ -4011,14 +4073,6 @@ struct AIChatView: View {
             // Gated to plain text mode only: in voice / recording mode the
             // composer is a voice panel, not a text field — focusing there
             // would pop the keyboard over it.
-            .background {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard !voiceInputActive, speechManager.state != .recording else { return }
-                        inputFocused = true
-                    }
-            }
             .frame(maxWidth: maxContentWidth)
             // [T-ios-geometry-observer-crash] onGeometryChange replaces the
             // GeometryReader scaffold (async-renderer SIGTRAP — see the
@@ -5047,37 +5101,48 @@ private struct MorphPressStyle: ButtonStyle {
 /// [B28 R7 醒醒分类] 输入栏样张要用真皮肤，不能复刻一份假的。
 /// 从 private 放开到 internal：装扮页的气泡页样张直接复用这一份。
 struct ComposerSurface: ViewModifier {
+    /// 同一个贴面，两处用：
+    ///   `.bar`  —— 输入条本身。四角都圆（跟着主题的输入栏圆角），左右留一点点，
+    ///              像一颗胖胶囊浮在消息上面；
+    ///   `.tray` —— 加号抽屉 / 表情宫格。只圆上两角，底边一路铺到屏幕物理底
+    ///              （home indicator 那条也铺），所以托盘永远不会「底部悬空」。
+    enum Style: Equatable { case bar, tray }
+
+    var style: Style = .bar
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
-    /// [T-composer-four] 输入栏改成贴底满宽的一条：左右不留白，底边直接压到
-    /// 屏幕物理底（背景用 ignoresSafeArea 伸进 home indicator 那条），
-    /// 只在顶部两角跟主题包的输入栏圆角/形状走。做成上方一条发丝线 + 卡面色底，
-    /// 不再是一颗悬空药丸 —— 表情宫格从它下面吸出来时，两条才磁吸得起来。
-    private var shape: MinisBubbleShape {
-        // 形状/圆角还是主题里那两项，只是这次只落在顶上两角：
-        // 底层用 MinisBubbleShape 的 per-corner 通道（rounded/squircle 支持
-        // 逐角半径），所以先把 pill/sharp/tail 映射成它认的连续/直角两档，
-        // 半径沿用设置页对 pill 的既有规矩（15），保证底边永远是直角。
-        let packStyle = MinisThemeShape.inputBarStyle
-        let continuous: Bool
-        let r: CGFloat
-        switch packStyle {
-        case .pill:
-            continuous = true; r = 15
-        case .squircle, .tail:
-            continuous = true; r = MinisThemeShape.inputRadius
-        case .sharp:
-            continuous = false; r = min(6, MinisThemeShape.inputRadius)
-        case .rounded:
-            continuous = false; r = MinisThemeShape.inputRadius
+    /// 连续圆角还是直角圆角，跟着主题包那三项走；半径沿用设置页对 pill 的既有规矩。
+    private var continuousCorners: Bool {
+        switch MinisThemeShape.inputBarStyle {
+        case .pill, .squircle, .tail: return true
+        case .rounded, .sharp: return false
         }
+    }
+
+    private var cornerRadius: CGFloat {
+        switch MinisThemeShape.inputBarStyle {
+        case .pill:
+            // 单行高度约 48，24 就是一颗正胶囊——「椭圆的那种」，不是方盒子。
+            return 24
+        case .sharp:
+            return min(6, MinisThemeShape.inputRadius)
+        case .rounded, .squircle, .tail:
+            // 这类形状由设置里的「输入栏圆角」管，但至少 16：低于这个数
+            // 一条满宽的横条就又像方框了。
+            return max(16, MinisThemeShape.inputRadius)
+        }
+    }
+
+    private var shape: MinisBubbleShape {
+        let r = cornerRadius
+        let corners: RectangleCornerRadii = style == .bar
+            ? RectangleCornerRadii(topLeading: r, bottomLeading: r, bottomTrailing: r, topTrailing: r)
+            : RectangleCornerRadii(topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r)
         return MinisBubbleShape(
-            style: continuous ? .squircle : .rounded,
+            style: continuousCorners ? .squircle : .rounded,
             radius: r,
             tailOnTrailing: false,
-            cornerRadii: RectangleCornerRadii(
-                topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r
-            )
+            cornerRadii: corners
         )
     }
 
@@ -5096,25 +5161,28 @@ struct ComposerSurface: ViewModifier {
             .background {
                 ZStack {
                     shape.fill(fill)
-                    overlay
+                    overlay.clipShape(shape)
                 }
-                // 先铺到物理底（home indicator 那条也铺），再按形状裁：
-                // 裁在后一步，path 才能按最终那一块矩形算圆角。
-                .ignoresSafeArea(edges: .bottom)
-                .clipShape(shape)
                 .shadow(
                     color: Color(UIColor { $0.userInterfaceStyle == .dark
                         ? UIColor(white: 0, alpha: 0.34)
                         : UIColor(white: 0, alpha: 0.05) }),
                     radius: 10, x: 0, y: -2
                 )
+                // 关键：ignoresSafeArea 必须落在背景这一层**最后**一步。
+                // 之前它后面还跟了 clipShape，裁剪把「铺到物理底」那一段又收回了
+                // 安全区里，于是托盘的底边和屏幕之间露出一条壁纸——就是那个
+                // 「底部悬空」。形状自己带圆角，用不着再裁一次。
+                .ignoresSafeArea(.container, edges: style == .tray ? .bottom : [])
             }
             .overlay(alignment: .top) {
-                // 顶边发丝分隔线：贴边之后靠它跟消息区分开，不靠阴影。
-                Rectangle()
-                    .fill(CSSThemeVariables.divider(scope: ThemeColorLayer.chat))
-                    .frame(height: 0.5)
-                    .allowsHitTesting(false)
+                // 贴底那条靠发丝线跟消息区分，不靠阴影；悬浮胶囊不需要。
+                if style == .tray {
+                    Rectangle()
+                        .fill(CSSThemeVariables.divider(scope: ThemeColorLayer.chat))
+                        .frame(height: 0.5)
+                        .allowsHitTesting(false)
+                }
             }
     }
 }
@@ -6387,6 +6455,11 @@ public struct ChatPlusPanel: View {
     let sessionId: String?
     let onItemTap: (PlusPanelItemType) -> Void
     let onInsertSlash: (String) -> Void
+    let onSetMemory: (Bool) -> Void
+    /// 会话级开关（技能 / 连接器）：宿主负责先把 draft 落成真会话再写覆盖，
+    /// 因为只有宿主手里有 vm 的 ensure 路径。
+    let onToggleSkill: (String, Bool) -> Void
+    let onToggleConnector: (String, Bool) -> Void
     let onClose: () -> Void
 
     @ObservedObject private var skillStore = SkillStore.shared
@@ -6402,6 +6475,9 @@ public struct ChatPlusPanel: View {
         sessionId: String?,
         onItemTap: @escaping (PlusPanelItemType) -> Void,
         onInsertSlash: @escaping (String) -> Void,
+        onSetMemory: @escaping (Bool) -> Void,
+        onToggleSkill: @escaping (String, Bool) -> Void,
+        onToggleConnector: @escaping (String, Bool) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.currentModelName = currentModelName
@@ -6409,6 +6485,9 @@ public struct ChatPlusPanel: View {
         self.sessionId = sessionId
         self.onItemTap = onItemTap
         self.onInsertSlash = onInsertSlash
+        self.onSetMemory = onSetMemory
+        self.onToggleSkill = onToggleSkill
+        self.onToggleConnector = onToggleConnector
         self.onClose = onClose
     }
 
@@ -6434,20 +6513,17 @@ public struct ChatPlusPanel: View {
             }
             .frame(maxHeight: 372)
         }
-        // 底色跟着 ComposerSurface（整条输入栏是同一块面），这里只负责
-        // 把抽屉和输入行之间那条分界线画出来，不再自己套一层圆角卡片——
-        // 两层圆角叠在一起就成了「卡片里还有张卡片」，正是要避免的乱。
+        // 底与顶线都由外层 ComposerSurface(style: .tray) 负责：这一块只排内容，
+        // 不再自己套一层圆角卡片，也不再画第二条分隔线。
         .background(Color.clear)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(CSSThemeVariables.divider(scope: ThemeColorLayer.chat))
-                .frame(height: 0.5)
-        }
         .animation(.spring(response: 0.34, dampingFraction: 0.9), value: page)
         // 点抽屉自身的空白不要穿透到输入栏那层「点一下聚焦键盘」的兜底层，
         // 否则刚拉开抽屉点一下就自己合上了。
         .contentShape(Rectangle())
         .onTapGesture {}
+        // 连接器列表读的是 servers.json，和「设置 → MCP」同一个文件；抽屉每次
+        // 出来都重读一遍，外面刚加完一台回来就能看见（MCPStore 只在别处 load）。
+        .onAppear { mcpStore.load() }
     }
 
     // MARK: 头部
@@ -6500,24 +6576,37 @@ public struct ChatPlusPanel: View {
 
     // MARK: 根清单
 
+    /// 常用在上、不常用在下；同一组内按「会弹东西的」在前、「一行就走的」在后。
+    /// 每行都接的是 App 里真有的东西：记忆是开关（和斜杠 `/memory` 同一个方法），
+    /// 技能/连接器是二级列表，模型/新建会话/一起听走各自原有的入口。
     private var rootContent: some View {
         VStack(spacing: 14) {
             tileRow
             VStack(spacing: 0) {
-                navRow(title: "连接器", icon: "square.grid.2x2", value: nil) {
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { page = .connectors }
+                memoryRow
+                rowDivider
+                navRow(title: "会话记忆", icon: "list.bullet.rectangle", value: nil) {
+                    onItemTap(.memory)
                 }
                 rowDivider
-                navRow(title: "技能", icon: "puzzlepiece.extension", value: nil) {
+                navRow(title: "斜杠指令", icon: "slash.circle", value: nil) {
+                    onItemTap(.slash)
+                }
+                rowDivider
+                navRow(title: "技能", icon: "puzzlepiece.extension", value: skillCountText) {
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { page = .skills }
                 }
                 rowDivider
-                navRow(title: "一起听", icon: "headphones", value: nil) {
-                    onItemTap(.together)
+                navRow(title: "连接器", icon: "wrench.and.screwdriver", value: connectorCountText) {
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { page = .connectors }
                 }
                 rowDivider
                 navRow(title: "模型切换", icon: "sparkles", value: currentModelName) {
                     onItemTap(.sparkles)
+                }
+                rowDivider
+                navRow(title: "一起听", icon: "headphones", value: nil) {
+                    onItemTap(.together)
                 }
                 rowDivider
                 navRow(title: "新建会话", icon: "square.and.pencil", value: nil) {
@@ -6526,10 +6615,42 @@ public struct ChatPlusPanel: View {
             }
             .background(cardFill)
 
-            memoryRow
-
             quickActions
         }
+    }
+
+    private var skillCountText: String {
+        let n = visibleSkills.count
+        return n == 0 ? "无" : "\(n) 个"
+    }
+
+    private var connectorCountText: String {
+        let n = visibleConnectors.count
+        return n == 0 ? "无" : "\(n) 个"
+    }
+
+    /// 已装的技能（会话里被关掉的不隐藏，只是标灰——列表空白比「关掉了」
+    /// 更难懂）。排序与斜杠菜单一致。
+    private var visibleSkills: [Skill] {
+        skillStore.skills.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private var visibleConnectors: [MCPServerConfig] {
+        mcpStore.servers.sorted {
+            $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending
+        }
+    }
+
+    private func skillEnabled(_ skill: Skill) -> Bool {
+        guard let sid = sessionId else { return skill.isEnabled }
+        return skillStore.isEnabledForSession(skill.id, sessionId: sid)
+    }
+
+    private func connectorEnabled(_ server: MCPServerConfig) -> Bool {
+        guard let sid = sessionId else { return server.enabled }
+        return mcpStore.isEnabledForSession(server.id, sessionId: sid)
     }
 
     /// 顶上四件：只用小格子，不做大卡片。字 11pt，图标 20pt，高度 62。
@@ -6616,38 +6737,54 @@ public struct ChatPlusPanel: View {
         .buttonStyle(DrawerRowStyle())
     }
 
-    /// 记忆开关：这一格只显示状态，不给改（参考图里那句灰字就是这个意思）。
+    /// 记忆写入开关。原来是张不响的假图（画了个开关但点不动），现在真接到
+    /// `vm.setMemoryWrites`——就是斜杠 `/memory` 用的那一个方法，两边永远一致。
+    /// 这里不做「此对话中无法更改」：那句话本来只在没实现时才说得通。
     private var memoryRow: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "brain.head.profile")
-                .font(ChatFont.font(16, weight: .regular))
-                .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("记忆")
-                    .font(ChatFont.font(15, weight: .regular))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
-                Text("此对话中无法更改")
-                    .font(ChatFont.font(11.5))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet).opacity(0.75))
-            }
-            Spacer(minLength: 8)
-            Capsule()
-                .fill(memoryEnabled
-                      ? CSSThemeVariables.accent(scope: ThemeColorLayer.sheet).opacity(0.45)
-                      : CSSThemeVariables.divider(scope: ThemeColorLayer.sheet))
-                .frame(width: 46, height: 28)
-                .overlay(alignment: memoryEnabled ? .trailing : .leading) {
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 24, height: 24)
-                        .padding(2)
-                        .shadow(color: Color.black.opacity(0.08), radius: 2, y: 1)
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onSetMemory(!memoryEnabled)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "brain.head.profile")
+                    .font(ChatFont.font(16, weight: .regular))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("记忆")
+                        .font(ChatFont.font(15, weight: .regular))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                    Text(memoryEnabled ? "会写入记忆 · 读取始终开着" : "不写入记忆 · 读取仍然开着")
+                        .font(ChatFont.font(11.5))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
                 }
+                Spacer(minLength: 8)
+                drawerSwitch(isOn: memoryEnabled)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: Self.rowHeight)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(cardFill)
+        .buttonStyle(DrawerRowStyle())
+        .accessibilityLabel(Text("记忆写入"))
+        .accessibilityValue(Text(memoryEnabled ? "开" : "关"))
+    }
+
+    /// 抽屉里的开关外观。真值由调用方给，点整行就翻，不用去戳那个小圆点。
+    private func drawerSwitch(isOn: Bool) -> some View {
+        Capsule()
+            .fill(isOn
+                  ? CSSThemeVariables.accent(scope: ThemeColorLayer.sheet)
+                  : CSSThemeVariables.divider(scope: ThemeColorLayer.sheet))
+            .frame(width: 46, height: 28)
+            .overlay(alignment: isOn ? .trailing : .leading) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 24, height: 24)
+                    .padding(2)
+                    .shadow(color: Color.black.opacity(0.10), radius: 2, y: 1)
+            }
+            .animation(.spring(response: 0.28, dampingFraction: 0.82), value: isOn)
     }
 
     /// 底部小按钮：没有详情页的功能，一排小胶囊点一下就走。
@@ -6710,31 +6847,31 @@ public struct ChatPlusPanel: View {
 
     // MARK: 二级列表
 
+    /// 技能：一行一个，右边是会话里开着/关着的状态 + 那条 `/名字` 字面量。
+    /// 点行 = 只用不改；要改开关就点右边那颗小胶囊（走原来那张管理页）。
     private var skillList: some View {
-        let sid = sessionId
-        let rows = skillStore.skills
-            .filter { skill in
-                guard let sid else { return skill.isEnabled }
-                return skillStore.isEnabledForSession(skill.id, sessionId: sid)
-            }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        // 订阅会话覆盖版本：开关就在本页改，改完这一行立刻重画。
+        let _ = skillStore.sessionOverrideVersion
         return VStack(spacing: 14) {
             VStack(spacing: 0) {
-                if rows.isEmpty {
-                    emptyHint("还没有可用的技能")
+                if visibleSkills.isEmpty {
+                    emptyHint("还没有安装技能。装好之后这里会列出来，点一行就把 /名字 放进输入栏。")
                 } else {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, skill in
+                    ForEach(Array(visibleSkills.enumerated()), id: \.element.id) { index, skill in
                         if index > 0 { rowDivider }
-                        slashRow(
+                        itemRow(
                             title: skill.name,
                             subtitle: skill.description.trimmingCharacters(in: .whitespacesAndNewlines),
-                            token: skill.name
-                        )
+                            token: skill.name,
+                            icon: "puzzlepiece.extension",
+                            isOn: skillEnabled(skill)
+                        ) {
+                            toggleSkill(skill)
+                        }
                     }
                 }
             }
             .background(cardFill)
-            // 开关某一项技能仍然在原来的面板里做（这里只负责取用）。
             navRow(title: "管理技能", icon: "slider.horizontal.3", value: nil) {
                 onItemTap(.skills)
             }
@@ -6742,28 +6879,28 @@ public struct ChatPlusPanel: View {
         }
     }
 
+    /// 连接器 = MCP 服务器（App 里就是这么叫的，Settings → MCP 里配的那批）。
     private var connectorList: some View {
-        let sid = sessionId
-        let rows = mcpStore.servers
-            .filter { server in
-                guard let sid else { return server.enabled }
-                return mcpStore.isEnabledForSession(server.id, sessionId: sid)
-            }
-            .sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+        let _ = mcpStore.sessionOverrideVersion
         return VStack(spacing: 14) {
             VStack(spacing: 0) {
-                if rows.isEmpty {
-                    emptyHint("还没有配置连接器")
+                if visibleConnectors.isEmpty {
+                    emptyHint("还没有配置连接器。在 设置 → MCP 里加一台，这里就会列出来。")
                 } else {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, server in
+                    ForEach(Array(visibleConnectors.enumerated()), id: \.element.id) { index, server in
                         if index > 0 { rowDivider }
-                        slashRow(
+                        let note = (server.note ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        itemRow(
                             title: server.id,
-                            subtitle: (server.note ?? "").isEmpty
-                                ? (server.isSTDIO ? "STDIO" : "HTTP")
-                                : (server.note ?? ""),
-                            token: server.id
-                        )
+                            subtitle: note.isEmpty
+                                ? "MCP · \(server.isSTDIO ? "STDIO" : "HTTP")"
+                                : note,
+                            token: server.id,
+                            icon: "wrench.and.screwdriver",
+                            isOn: connectorEnabled(server)
+                        ) {
+                            toggleConnector(server)
+                        }
                     }
                 }
             }
@@ -6775,41 +6912,78 @@ public struct ChatPlusPanel: View {
         }
     }
 
-    /// 点一行 = 把 `/名字 ` 放进输入栏，然后收起抽屉、聚焦键盘。
-    private func slashRow(title: String, subtitle: String, token: String) -> some View {
-        Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            onInsertSlash(token)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "slash.circle")
-                    .font(ChatFont.font(16, weight: .regular))
-                    .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
-                    .frame(width: 22)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(ChatFont.font(15, weight: .medium))
-                        .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
-                        .lineLimit(1)
-                    if !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(ChatFont.font(11.5))
-                            .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
-                            .lineLimit(2)
+    /// 会话级开关只上报「谁、目标状态」，落库由宿主负责（它才有 draft→真会话
+    /// 的 ensure 路径，和 Skills/MCPs 管理页走的是同一条）。
+    private func toggleSkill(_ skill: Skill) {
+        onToggleSkill(skill.id, !skillEnabled(skill))
+    }
+
+    private func toggleConnector(_ server: MCPServerConfig) {
+        onToggleConnector(server.id, !connectorEnabled(server))
+    }
+
+    /// 二级列表的一行：左边名字 + 说明，右边那颗开关 + `/名字` 字面量。
+    /// **点整行**＝把 `/名字 ` 放进输入栏（和斜杠菜单选中同一条路，不执行）；
+    /// **点右边开关**＝就地开关这一项（不塞字、不收起抽屉）。
+    private func itemRow(
+        title: String,
+        subtitle: String,
+        token: String,
+        icon: String,
+        isOn: Bool,
+        onToggle: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                onInsertSlash(token)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: icon)
+                        .font(ChatFont.font(16, weight: .regular))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(ChatFont.font(15, weight: .medium))
+                            .foregroundStyle(isOn
+                                             ? CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet)
+                                             : CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                            .lineLimit(1)
+                        if !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(ChatFont.font(11.5))
+                                .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                                .lineLimit(2)
+                        }
                     }
+                    Spacer(minLength: 6)
+                    Text("/\(token)")
+                        .font(ChatFont.font(11.5, weight: .medium))
+                        .foregroundStyle(isOn
+                                         ? CSSThemeVariables.accent(scope: ThemeColorLayer.sheet)
+                                         : CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                        .lineLimit(1)
                 }
-                Spacer(minLength: 8)
-                Text("/\(token)")
-                    .font(ChatFont.font(11.5, weight: .medium))
-                    .foregroundStyle(CSSThemeVariables.accent(scope: ThemeColorLayer.sheet))
-                    .lineLimit(1)
+                .padding(.leading, 14)
+                .padding(.vertical, 10)
+                .frame(minHeight: Self.rowHeight, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .frame(minHeight: Self.rowHeight, alignment: .leading)
-            .contentShape(Rectangle())
+            .buttonStyle(DrawerRowStyle())
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                onToggle()
+            } label: {
+                drawerSwitch(isOn: isOn)
+                    .frame(height: Self.rowHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 14)
+            .accessibilityLabel(Text(isOn ? "在本次对话中关闭 \(title)" : "在本次对话中开启 \(title)"))
         }
-        .buttonStyle(DrawerRowStyle())
     }
 
     private func emptyHint(_ text: String) -> some View {
@@ -6972,11 +7146,6 @@ struct ChatStickerPanel: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // 顶部分割线
-            Rectangle()
-                .fill(CSSThemeVariables.divider())
-                .frame(height: 1)
-
             // 顶部分类与功能操作栏
             if isManageMode {
                 // 管理模式操作栏
@@ -7350,6 +7519,8 @@ struct ChatStickerPanel: View {
             }
             .frame(height: gridHeight)
         }
+        // 高度只算到内容为止；底下 home indicator 那条由外层 .tray 的
+        // ignoresSafeArea 铺满，所以宫格本身不需要垫一条假的底边。
         .frame(height: panelHeight)
         .background(Color.clear)
         .contentShape(Rectangle())

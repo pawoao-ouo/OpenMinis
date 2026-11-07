@@ -79,6 +79,26 @@ extension AIChatViewModel {
 
     /// Dismiss slash menu, restoring saved input + caret if any. Strips the
     /// "/ " prefix that `showSlashMenuOverInput` injected.
+    /// 记忆写入开关的唯一实现：改 @Published、落库到当前会话、在消息流里留一条
+    /// 系统提示。斜杠 `/memory` 与加号抽屉里那个开关共用它 —— 以前抽屉只画了个
+    /// 不响的假开关，两边状态就对不上了。
+    @discardableResult
+    func toggleMemoryWrites() -> Bool {
+        setMemoryWrites(!memoryEnabled)
+        return memoryEnabled
+    }
+
+    /// 显式设定（抽屉的 Toggle 需要这个，不能只给 flip）。
+    func setMemoryWrites(_ enabled: Bool) {
+        guard enabled != memoryEnabled else { return }
+        memoryEnabled = enabled
+        if let sid = sessionId {
+            Task { await ChatStore.shared.setMemoryEnabled(sessionId: sid, enabled: enabled) }
+        }
+        let status = enabled ? "enabled" : "disabled"
+        appendSystemInfo("Memory writes \(status). Reads are unaffected.", icon: "brain.head.profile")
+    }
+
     /// [T-composer-drawer] 抽屉里的「技能 / 连接器」列表选中一行时走这里：
     /// 只把 `/名字 ` 放进输入框（和斜杠菜单选中同一条路径），不执行、不开关。
     ///
@@ -428,12 +448,8 @@ extension AIChatViewModel {
         case "compact":
             compactAll()
         case "memory":
-            memoryEnabled.toggle()
-            if let sid = sessionId {
-                Task { await ChatStore.shared.setMemoryEnabled(sessionId: sid, enabled: memoryEnabled) }
-            }
-            let status = memoryEnabled ? "enabled" : "disabled"
-            appendSystemInfo("Memory writes \(status). Reads are unaffected.", icon: "brain.head.profile")
+            // 走同一条路：斜杠命令与加号抽屉里的那个开关，都是这一个方法。
+            toggleMemoryWrites()
         case "clear":
             clearChatConfirmRequested = true
         case "move":

@@ -474,7 +474,7 @@ struct AppearanceStudioView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .modifier(ComposerSurface())
+        .modifier(ComposerSurface(style: .bar))
     }
 
     /// 背景页样张：它管的是「贴在卡片上的图」—— thinking 卡片 + 输入栏。
