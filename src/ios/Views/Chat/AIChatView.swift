@@ -6895,6 +6895,9 @@ struct ChatStickerPanel: View {
     /// 顶部选项卡 + 标签栏那一条占的高度。
     private var chromeHeight: CGFloat { 52 }
 
+    /// 宫格自身可滚的那块高度（总高减掉顶部那一条）。
+    private var gridHeight: CGFloat { panelHeight - chromeHeight }
+
     private var displayCategories: [String] {
         // [P-08] 分类标签要跟 store.categories 走。原来写死 ["全部","常用"]，
         // 登记时却能选 10 个分类，选完回抽屉找不到那个标签。
