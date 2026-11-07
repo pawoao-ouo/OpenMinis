@@ -3345,87 +3345,69 @@ struct AIChatView: View {
     }
 
     /// 加号展开按钮（收纳所有功能为宫格抽屉，实体可爱图标 + CSS全局变量驱动）
+    /// 加号键：拉开「添加到对话」清单；清单开着时再点是收起。
+    /// 表情宫格开着时点它是「换成清单」，不是一起关掉——用户想换面板，
+    /// 不该先合上再点第二下。
     @ViewBuilder
     private var attachmentMenuButton: some View {
-        let isPanelOpen = (showPlusPanel || showStickerPanel)
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            if isPanelOpen {
-                // 点叉叉按钮关闭弹窗，并直接弹出输入法键盘
-                // [T-inputbar-stretch] Same two-driver race in reverse: the
-                // drawer collapse and the keyboard rise both move the bottom
-                // inset. Collapse first, raise the keyboard after it lands.
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
-                    showPlusPanel = false
-                    showStickerPanel = false
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardDismissLead) {
-                    inputFocused = true
-                }
+            if showPlusPanel {
+                closeComposerTray(focusKeyboard: true)
             } else {
-                // [T-inputbar-stretch] Keyboard down and drawer up used to
-                // start in the same layout pass. The keyboard dismissal drives
-                // the bottom safe-area inset one way while the drawer
-                // transition drives it the other, so for the length of the
-                // keyboard animation the composer is laid out against two
-                // competing heights — that is the stretch users see, and the
-                // debounced height capture can settle on a mid-animation
-                // value and stay there. Let the keyboard finish first.
+                // [T-inputbar-stretch] 键盘先降完再抬抽屉：两个都在动底部
+                // 安全区，同帧开始会让输入栏在两种高度之间被拉一下。
                 let wasEditing = inputFocused
                 inputFocused = false
-                if wasEditing {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardDismissLead) {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
-                            showPlusPanel = true
-                            showStickerPanel = false
-                        }
-                    }
-                } else {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
+                let open = {
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
                         showPlusPanel = true
                         showStickerPanel = false
                     }
                 }
+                if wasEditing && !showStickerPanel {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardDismissLead, execute: open)
+                } else {
+                    open()
+                }
             }
         } label: {
             Image(systemName: "plus")
-                .font(ChatFont.font(18, weight: .semibold))
-                .foregroundStyle(isPanelOpen ? CSSThemeVariables.accent() : CSSThemeVariables.textMain())
-                .rotationEffect(.degrees(isPanelOpen ? 45 : 0))
-                // [T-composer-polish] 36 → 34，和麦克风、发送键同一尺寸，
-                // 三个圆排一排不再一大两小。
+                .font(ChatFont.font(20, weight: .regular))
+                .foregroundStyle(showPlusPanel ? ChatColors.accent : ChatColors.secondaryText)
+                .rotationEffect(.degrees(showPlusPanel ? 45 : 0))
                 .frame(width: 34, height: 34)
-                .background(isPanelOpen ? CSSThemeVariables.accentSoft() : CSSThemeVariables.optionBg())
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .strokeBorder(isPanelOpen ? CSSThemeVariables.accent().opacity(0.35) : CSSThemeVariables.optionBorder(), lineWidth: 1.0)
-                )
-                .shadow(
-                    color: CSSThemeVariables.sheetShadow().opacity(0.06),
-                    radius: 4, x: 0, y: 1
-                )
+                .contentShape(Circle())
+                .animation(.spring(response: 0.3, dampingFraction: 0.82), value: showPlusPanel)
         }
-        .accessibilityLabel(Text(isPanelOpen ? "收起功能面板并输入" : "展开更多功能"))
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(showPlusPanel ? "收起面板并输入" : "添加到对话"))
     }
 
-    /// 底部抽屉面板区域（加号面板与微信式表情包面板同高度无缝切换）
+    /// 底部抽屉面板区域：加号＝「添加到对话」清单，表情键＝表情宫格。
+    /// 两个都从输入栏下面吸出来（转场一致），并且互斥，绝不同时叠两层。
     private var bottomDrawerSection: AnyView {
         if showPlusPanel {
             let panel = ChatPlusPanel(
-                onItemTap: { item in handlePlusPanelAction(item) }
+                currentModelName: (vm.resolveCurrentEntry()?.model ?? vm.selectedModel).displayName,
+                memoryEnabled: vm.memoryEnabled,
+                sessionId: vm.sessionId,
+                onItemTap: { item in handlePlusPanelAction(item) },
+                onInsertSlash: { token in
+                    closeComposerTray(focusKeyboard: false)
+                    vm.insertSlashToken(token)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.drawerExitLead) {
+                        inputFocused = true
+                    }
+                },
+                onClose: { closeComposerTray(focusKeyboard: true) }
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
             return AnyView(panel)
         } else if showStickerPanel {
             let panel = ChatStickerPanel(
                 vm: vm,
-                onBackToPlus: {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
-                        showStickerPanel = false
-                        showPlusPanel = true
-                    }
-                },
+                onClose: { closeComposerTray(focusKeyboard: true) },
                 onSelectSticker: { sticker in
                     vm.pendingSticker = sticker
                     withAnimation(.easeOut(duration: 0.2)) {
@@ -3445,21 +3427,129 @@ struct AIChatView: View {
     /// [Single-Line WeChat Style] 微信式单行聊天输入条：左加号、中输入框、右语音与发送
     /// AnyView-erased 防止输入条复杂组件加深 inputBar 泛型深度导致栈溢出 (crash 2026-04-17 / 2026-10-12)
     private var singleLineInputRow: AnyView {
-        let row = HStack(alignment: .center, spacing: 8) {
+        // [T-composer-four] 满宽一条，只留四件：加号、输入框、表情、形态键。
+        // 语音/发送不再是并排两个圆，合并进 morphButton 同一个位置——那正是
+        // 用户给的稿子里「打字时右边自己变成发送键」的意思，也顺带把输入框
+        // 让回一个圆键的宽度。
+        let row = HStack(alignment: .center, spacing: 4) {
             attachmentMenuButton
 
             // 输入框在底栏按钮之间自适应
             inputFieldOrWaveform
 
-            micButtonContainer
+            stickerTrayButton
 
-            sendButton
+            morphButton
         }
-        // [T-composer-polish] 上下内边距原来只有 bottom 6，文字贴顶。
-        // 改成上下各 6，单行时整条垂直居中。
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
         return AnyView(row)
+    }
+
+    // MARK: - [T-composer-four] 表情键与形态键
+
+    /// 表情键：点开＝表情宫格从输入栏下面吸出来（像调起输入法），再点收回、
+    /// 键盘跟着弹回来。宫格出现时不再叠加旧的功能面板。
+    private var stickerTrayButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            if showStickerPanel {
+                closeComposerTray(focusKeyboard: true)
+            } else {
+                inputFocused = false
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                    showPlusPanel = false
+                    showStickerPanel = true
+                }
+            }
+        } label: {
+            Image(systemName: showStickerPanel ? "face.smiling.inverse" : "face.smiling")
+                .font(ChatFont.font(19, weight: .regular))
+                .foregroundStyle(showStickerPanel ? ChatColors.accent : ChatColors.secondaryText)
+                .frame(width: 34, height: 34)
+                .contentShape(Circle())
+                .scaleEffect(showStickerPanel ? 1.02 : 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(showStickerPanel ? "收起表情" : "表情包"))
+    }
+
+    /// 形态键：一个圆顶三态。
+    ///   · 空输入 → 话筒（进语音面板）
+    ///   · 有内容 → 发送箭头（跑着的时候是入队）
+    ///   · 跑着又没内容 → 停止
+    ///   · 语音面板里 → 键盘图标（切回文字）
+    /// 图标之间交叉淡入淡出，位置不动，所以不会「一大两小」地跳。
+    private var morphButton: some View {
+        let hasContent = canSend || canEnqueue
+        let showingStop = vm.isProcessing && !canEnqueue
+        let tint: Color = showingStop
+            ? Color.white
+            : (voiceInputActive
+               ? ChatColors.secondaryText
+               : (hasContent ? CSSThemeVariables.accentFg() : ChatColors.secondaryText))
+        let fill: Color = showingStop
+            ? ChatColors.destructive
+            : (voiceInputActive
+               ? ChatColors.inputIconBg
+               : (hasContent ? ChatColors.sendButton : ChatColors.inputIconBg))
+        let glyph: String = voiceInputActive
+            ? "keyboard"
+            : (hasContent ? "arrow.up" : (showingStop ? "stop.fill" : "mic"))
+        let glyphSize: CGFloat = voiceInputActive ? 16 : (hasContent || showingStop ? 17 : 18)
+
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            if voiceInputActive {
+                voiceVM.reset(clearTranscript: false)
+                withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = false }
+            } else if showingStop {
+                vm.cancel()
+            } else if canEnqueue {
+                performEnqueue()
+            } else if canSend {
+                performSend()
+            } else {
+                vm.voiceUsedInComposition = true
+                VoiceModePreference.shared.enteredFromText = true
+                withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(fill)
+                    .overlay(
+                        Circle().strokeBorder(
+                            hasContent || voiceInputActive || showingStop
+                                ? Color.clear
+                                : ChatColors.inputIconBorder,
+                            lineWidth: 0.5
+                        )
+                    )
+                Image(systemName: glyph)
+                    .font(ChatFont.font(glyphSize, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .frame(width: 34, height: 34)
+            .contentShape(Circle())
+            .animation(.spring(response: 0.26, dampingFraction: 0.82), value: glyph)
+        }
+        .buttonStyle(MorphPressStyle())
+        .disabled(!voiceInputActive && !hasContent && !showingStop && !vm.isReady)
+        .accessibilityLabel(Text(voiceInputActive ? "切回文字输入" : (hasContent ? "发送" : (showingStop ? "停止生成" : "语音输入"))))
+    }
+
+    /// 收起底部托盘；`focusKeyboard` 为真时把键盘叫回来。
+    private func closeComposerTray(focusKeyboard: Bool) {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
+            showStickerPanel = false
+            showPlusPanel = false
+        }
+        guard focusKeyboard else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardDismissLead) {
+            inputFocused = true
+        }
     }
 
     /// [Edit Header] 编辑模式提示栏（贴在输入框右上方，AnyView-erased 不增加泛型深度，不挤占单行输入条宽度）
@@ -3616,67 +3706,6 @@ struct AIChatView: View {
                 .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
         }
         .accessibilityLabel(AppLocalized("识别语言"))
-    }
-
-    /// Mic button plus the attached language-picker sheet.
-    private var micButtonContainer: some View {
-        MicButton(speechManager: speechManager, inputFocused: $inputFocused, onTap: {
-            if voiceInputActive {
-                // Already in voice mode — the "T" button switches back to text.
-                // [T-ios-voice-keyboard-text-carry] Keep the transcript: the
-                // composer mirrors it, so clearing here would empty the input
-                // box and lose the dictated text on the way back to keyboard.
-                voiceVM.reset(clearTranscript: false)
-                withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = false }
-            } else {
-                // Mark the composition as voice-assisted (committed to the
-                // "voice" input-mode preference only at send time). Switch the
-                // composer into inline voice mode — the single voice entry point.
-                vm.voiceUsedInComposition = true
-                // Switching text→voice opens the panel expanded this one time;
-                // afterwards it resumes the remembered expand/compact state.
-                VoiceModePreference.shared.enteredFromText = true
-                withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
-            }
-        }, isVoiceActive: voiceInputActive)
-    }
-
-    /// Send / Enqueue / Stop circular button.
-    ///
-    /// [T-ios-voiceover-labels] All three states are icon-only, and two of them
-    /// (send / enqueue) use the SAME glyph, so without explicit labels
-    /// VoiceOver reads "arrow up circle fill" for both and a blind user cannot
-    /// tell what pressing it will do. Each branch therefore names its own
-    /// action; the destructive one also carries a hint.
-    @ViewBuilder
-    private var sendButton: some View {
-        if vm.isProcessing && canEnqueue {
-            Button { performEnqueue() } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 34))
-                    .foregroundStyle(ChatColors.sendButton)
-            }
-            .keyboardShortcut(.return, modifiers: .command)
-            .accessibilityLabel(Text("Add to queue", comment: "VoiceOver label for the send button while a reply is generating"))
-            .accessibilityHint(Text("Queues this message to send after the current reply finishes", comment: "VoiceOver hint for the queue button"))
-        } else if vm.isProcessing {
-            Button { vm.cancel() } label: {
-                Image(systemName: "stop.circle.fill")
-                    .font(.system(size: 34))
-                    .foregroundStyle(ChatColors.destructive)
-            }
-            .accessibilityLabel(Text("Stop generating", comment: "VoiceOver label for the stop button"))
-            .accessibilityHint(Text("Stops the reply that is being generated", comment: "VoiceOver hint for the stop button"))
-        } else {
-            Button { performSend() } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 34))
-                    .foregroundStyle(canSend ? ChatColors.sendButton : ChatColors.sendButtonDisabled)
-            }
-            .disabled(!canSend)
-            .keyboardShortcut(.return, modifiers: .command)
-            .accessibilityLabel(Text("Send", comment: "VoiceOver label for the send button"))
-        }
     }
 
     /// Either the multi-line text field or the audio waveform, depending on
@@ -3991,8 +4020,6 @@ struct AIChatView: View {
                     }
             }
             .frame(maxWidth: maxContentWidth)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
             // [T-ios-geometry-observer-crash] onGeometryChange replaces the
             // GeometryReader scaffold (async-renderer SIGTRAP — see the
             // floating-bar site). Fires with the initial value too, so the
@@ -4887,6 +4914,13 @@ struct AIChatView: View {
 
 
     private func performEnqueue() {
+        // 托盘开着就一起收：入队之后键盘要降，抽屉挂在上面只会挡住刚出现的那条。
+        if showPlusPanel || showStickerPanel {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                showPlusPanel = false
+                showStickerPanel = false
+            }
+        }
         // Dismiss the software keyboard on enqueue. With a hardware keyboard,
         // keep focus so the user can continue typing the next candidate.
         if GCKeyboard.coalesced == nil {
@@ -4921,6 +4955,13 @@ struct AIChatView: View {
         // commands in text mode are unaffected (the panel replaces the
         // composer, so there is no mixed state to arbitrate).
         let isVoiceOrigin = voiceInputActive && vm.inputText == voiceVM.transcript
+        // 托盘开着时先收，再走原来的发/入队判定。
+        if showPlusPanel || showStickerPanel {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                showPlusPanel = false
+                showStickerPanel = false
+            }
+        }
         if !isVoiceOrigin, vm.tryExecuteInputAsSlashCommand() { return }
 
         minisLogger.info("🔑DRAFT performSend vm=\(vm.vmInstanceId) vm.sessionId=\(vm.sessionId ?? "nil") draftId=\(draftId ?? "nil") inputText='\(String(vm.inputText.prefix(50)))' isProcessing=\(vm.isProcessing)")
@@ -4970,6 +5011,15 @@ struct AIChatView: View {
 
 }
 
+/// 形态键的按压反馈：缩一下就好，不要系统按钮那一层灰底。
+private struct MorphPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
 // MARK: - Composer Surface
 
 /// Background + shadow for the composer's outer rounded container.
@@ -4999,7 +5049,37 @@ struct AIChatView: View {
 struct ComposerSurface: ViewModifier {
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
-    private var shape: MinisBubbleShape { MinisThemeShape.inputBar }
+    /// [T-composer-four] 输入栏改成贴底满宽的一条：左右不留白，底边直接压到
+    /// 屏幕物理底（背景用 ignoresSafeArea 伸进 home indicator 那条），
+    /// 只在顶部两角跟主题包的输入栏圆角/形状走。做成上方一条发丝线 + 卡面色底，
+    /// 不再是一颗悬空药丸 —— 表情宫格从它下面吸出来时，两条才磁吸得起来。
+    private var shape: MinisBubbleShape {
+        // 形状/圆角还是主题里那两项，只是这次只落在顶上两角：
+        // 底层用 MinisBubbleShape 的 per-corner 通道（rounded/squircle 支持
+        // 逐角半径），所以先把 pill/sharp/tail 映射成它认的连续/直角两档，
+        // 半径沿用设置页对 pill 的既有规矩（15），保证底边永远是直角。
+        let packStyle = MinisThemeShape.inputBarStyle
+        let continuous: Bool
+        let r: CGFloat
+        switch packStyle {
+        case .pill:
+            continuous = true; r = 15
+        case .squircle, .tail:
+            continuous = true; r = MinisThemeShape.inputRadius
+        case .sharp:
+            continuous = false; r = min(6, MinisThemeShape.inputRadius)
+        case .rounded:
+            continuous = false; r = MinisThemeShape.inputRadius
+        }
+        return MinisBubbleShape(
+            style: continuous ? .squircle : .rounded,
+            radius: r,
+            tailOnTrailing: false,
+            cornerRadii: RectangleCornerRadii(
+                topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r
+            )
+        )
+    }
 
     func body(content: Content) -> some View {
         let _ = appearanceStudio.themePackRevision
@@ -5012,25 +5092,30 @@ struct ComposerSurface: ViewModifier {
                     .opacity(MinisThemeShape.inputBarImageOpacity)
             }
         }
-        if #available(iOS 26.0, *) {
-            content
-                .background {
-                    overlay.clipShape(shape)
+        content
+            .background {
+                ZStack {
+                    shape.fill(fill)
+                    overlay
                 }
-                .glassEffect(.regular, in: shape)
+                // 先铺到物理底（home indicator 那条也铺），再按形状裁：
+                // 裁在后一步，path 才能按最终那一块矩形算圆角。
+                .ignoresSafeArea(edges: .bottom)
                 .clipShape(shape)
-        } else {
-            content
-                .background {
-                    ZStack {
-                        shape.fill(fill)
-                        overlay
-                    }
-                }
-                .clipShape(shape)
-                .shadow(color: Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0, alpha: 0.5) : UIColor(white: 0, alpha: 0.12) }), radius: 8, x: 0, y: 2)
-                .shadow(color: Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0, alpha: 0.5) : UIColor(white: 0, alpha: 0) }), radius: 8, x: 0, y: -4)
-        }
+                .shadow(
+                    color: Color(UIColor { $0.userInterfaceStyle == .dark
+                        ? UIColor(white: 0, alpha: 0.34)
+                        : UIColor(white: 0, alpha: 0.05) }),
+                    radius: 10, x: 0, y: -2
+                )
+            }
+            .overlay(alignment: .top) {
+                // 顶边发丝分隔线：贴边之后靠它跟消息区分开，不靠阴影。
+                Rectangle()
+                    .fill(CSSThemeVariables.divider(scope: ThemeColorLayer.chat))
+                    .frame(height: 0.5)
+                    .allowsHitTesting(false)
+            }
     }
 }
 
@@ -5803,81 +5888,6 @@ private struct SessionLockGateOverlay: View {
     }
 }
 
-// MARK: - Mic Button (touch-release activation)
-
-/// Mic button that triggers on touch-release (finger lift) to avoid accidental activation.
-/// Press highlight is provided via GestureState.
-private struct MicButton: View {
-    // [P-06] 观察字号/主题字体，设置里一改这里立刻重绘。
-    // 不能加 private：private 存储属性会把成员逐一初始化器一起压成 private，
-    // 而这个结构体是在同文件的 AIChatView 里构造的。
-    @ObservedObject var fontSettings = FontSettings.shared
-    @ObservedObject var appearanceStudio = AppearanceStudio.shared
-    @ObservedObject var speechManager: SpeechRecognitionManager
-    @Binding var inputFocused: Bool
-    /// Opens the voice-input (VAD) panel. The mic button no longer drives the
-    /// in-bar SFSpeech live dictation directly — the panel (with the configured
-    /// ASR provider, or the offline System fallback) is the single voice entry
-    /// point. The SpeechRecognitionManager path stays in place but is no longer
-    /// triggered from here.
-    var onTap: () -> Void = {}
-    /// True while inline voice mode is active — the button flips to a "T" glyph
-    /// that switches back to text input.
-    var isVoiceActive: Bool = false
-    /// Press feedback for the custom-gesture button.
-    @State private var micPressed = false
-
-    private static let diameter: CGFloat = 34
-
-    var body: some View {
-        // NOT a Button: SwiftUI's Button has a generous system touch-slop / touch-
-        // up tolerance that fires when the finger lifts slightly outside, or moves
-        // a little during a scroll/drag — which made this toggle very easy to
-        // mis-tap. We use a DragGesture(minimumDistance: 0) and only activate when
-        // BOTH the press and release land inside the circle AND movement is tiny.
-        // In voice mode: a keyboard glyph = switch back to text input. The keyboard
-        // glyph is wider than the mic, so render it ~4pt smaller for parity.
-        Image(systemName: isVoiceActive ? "keyboard" : "mic")
-            .font(ChatFont.font(isVoiceActive ? 15 : 18, weight: .medium))
-            .foregroundStyle(ChatColors.secondaryText)
-            .frame(width: Self.diameter, height: Self.diameter)
-            .background(ChatColors.inputIconBg)
-            .clipShape(Circle())
-            .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
-            .scaleEffect(micPressed ? 0.9 : 1.0)
-            .contentShape(Circle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        micPressed = Self.isInside(value.location)
-                    }
-                    .onEnded { value in
-                        let started = Self.isInside(value.startLocation)
-                        let ended = Self.isInside(value.location)
-                        let moved = hypot(value.translation.width, value.translation.height)
-                        micPressed = false
-                        guard started, ended, moved < 10 else { return }
-                        inputFocused = false
-                        onTap()
-                    }
-            )
-            .accessibilityAddTraits(.isButton)
-            // [P-10] 底层是 DragGesture 不是 Button，旁白双击不会走手势。
-            // 补一个显式默认动作，VoiceOver 用户才能真正触发语音输入。
-            .accessibilityAction { onTap() }
-            .accessibilityLabel(isVoiceActive
-                ? Text("Switch to text input", comment: "Mic button exits voice mode")
-                : Text("Voice input", comment: "Mic button opens voice panel"))
-    }
-
-    /// Whether a point (in the button's local space) is within the visible circle.
-    private static func isInside(_ p: CGPoint) -> Bool {
-        let r = diameter / 2
-        let dx = p.x - r, dy = p.y - r
-        return (dx * dx + dy * dy) <= r * r
-    }
-}
-
 // MARK: - Speech Language Picker Sheet
 
 // MARK: - Compact Summary Sheet
@@ -6356,186 +6366,481 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - 单个功能按钮磁贴组件 (PlusPanelTileButton)
-
-public struct PlusPanelTileButton: View {
-    // [P-06] 观察字号/主题字体，设置里一改这里立刻重绘。
-    @ObservedObject var fontSettings = FontSettings.shared
-    @ObservedObject var appearanceStudio = AppearanceStudio.shared
-    let item: PlusPanelItemType
-    let onTap: () -> Void
-
-    public init(item: PlusPanelItemType, onTap: @escaping () -> Void) {
-        self.item = item
-        self.onTap = onTap
-    }
-
-    public var body: some View {
-        Button(action: {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            onTap()
-        }) {
-            VStack(spacing: 8) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(CSSThemeVariables.optionBg())
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(CSSThemeVariables.optionBorder(), lineWidth: 1.0)
-                        )
-                        .shadow(
-                            color: CSSThemeVariables.sheetShadow().opacity(0.06),
-                            radius: 6, x: 0, y: 2
-                        )
-                        .frame(width: 58, height: 58)
-
-                    Image(systemName: item.systemImageName)
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(CSSThemeVariables.accent())
-                }
-
-                // [T-dynamic-color] `item.title` 是 String，直接塞进 Text 会走
-                // 不查表的那个初始化器 —— 切到英文后磁贴标题还是中文。
-                Text(LocalizedStringKey(item.title))
-                    .font(ChatFont.font(12, weight: .regular))
-                    .foregroundStyle(CSSThemeVariables.textMain())
-                    .lineLimit(1)
-                    // [P-06] 最大字号下标题会撑出磁贴宽度，允许压到 80%。
-                    .minimumScaleFactor(FontSettings.shrinkFloor(12, wanted: 0.8))
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(TilePressButtonStyle())
-        .accessibilityLabel(Text(LocalizedStringKey(item.title)))
-    }
-}
-
-private struct TilePressButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
-// MARK: - 主加号面板抽屉 (ChatPlusPanel)
+// MARK: - 「添加到对话」小抽屉 (ChatPlusPanel)
+//
+// [T-composer-four] 这一版把原来的三页磁贴宫格整个换掉了：加号弹出来的是一张
+// 清单式的抽屉，自上而下按「常用 → 不常用」排，同一屏内左右 16、行高 58、
+// 圆角 26/16 两档，一条轴线对齐。四件小格子（相机/照片/文件/语音设置）只在
+// 顶上占一行，尺寸跟图标差不多大；没有详情页的功能（压缩、清空、导出、用量、
+// 终端、浏览器、会话文件）收成底部一排小胶囊按钮，不再假装成磁贴。
+//
+// 技能与连接器是二级列表：点一行只往输入栏放 `/名字 `，不执行、不开关，
+// 和斜杠菜单选中后落进输入框是同一条路径（见 AIChatViewModel.insertSlashToken）。
+// 动画全部用同一档 spring，进出与翻页都柔和，不做位移式的硬切。
 
 public struct ChatPlusPanel: View {
+    /// 抽屉自己的两层：根清单，以及技能 / 连接器两个二级列表。
+    private enum Page: Hashable { case root, skills, connectors }
+
+    let currentModelName: String
+    let memoryEnabled: Bool
+    let sessionId: String?
     let onItemTap: (PlusPanelItemType) -> Void
-    @State private var currentPage: Int = 0
+    let onInsertSlash: (String) -> Void
+    let onClose: () -> Void
 
-    // 两页分页：8 + 8
-    // [plus-panel-two-pages] 第三页原先是「压缩历史 / 清空会话 / 移动到… /
-    // 快速模式 / 增强缓存」。前两项斜杠菜单里本来就有，后两项按模型能力
-    // 决定要不要出现、点不支持时只弹一句「不支持」——都不该占磁贴。
-    // 快速模式/增强缓存搬进模型选择页，移动到…改成 /move 斜杠命令。
-    // [R24] 一起听占一个常驻位；斜杠指令下放到第三页（它本来也有 / 键入口）。
-    // 第一页布局定死 4 列 × 2 行，第 9 个会顶到第三行压掉消息区，所以是换位不是加位。
-    private let page1Items: [PlusPanelItemType] = [
-        .photo, .camera, .doc, .sticker,
-        .voice, .sparkles, .newChat, .together
-    ]
-    private let page2Items: [PlusPanelItemType] = [
-        .skills, .mcps, .memory, .terminal,
-        .browser, .files, .gauge, .share
-    ]
-    // [B28 R10] 会话空间整理放回加号，不再只藏在斜杠命令里。
-    private let page3Items: [PlusPanelItemType] = [
-        .compactHistory, .clearChat, .slash
-    ]
-    private let columns = [
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10)
-    ]
+    @ObservedObject private var skillStore = SkillStore.shared
+    @ObservedObject private var mcpStore = MCPStore.shared
+    @State private var page: Page = .root
 
-    /// [P-20] 面板高度不再写死 295。
-    /// 一页磁贴 = 58 图标 + 8 间距 + 12 文字 ≈ 82，行距 22，
-    /// 两行 = 82*2 + 22 = 186；上下内边距 16 + 6 = 22 → 内容 208。
-    /// 指示点区 4 + 7 + 12 = 23，分隔线 1 → 总高 ≈ 232。
-    /// 原来 295 在小屏上把消息区压到 106pt，现在按内容给，不多占。
-    /// [P-06] 字号调大后标题靠 `.minimumScaleFactor(0.8)` 收住，高度不用跟着长。
-    private var panelHeight: CGFloat { 232 }
+    private static let rowHeight: CGFloat = 58
+    private static let hPad: CGFloat = 16
 
-    /// TabView 的高度 = 面板高 − 指示点区 − 分隔线
-    private var tabViewHeight: CGFloat { panelHeight - 24 }
-
-    public init(onItemTap: @escaping (PlusPanelItemType) -> Void) {
+    public init(
+        currentModelName: String,
+        memoryEnabled: Bool,
+        sessionId: String?,
+        onItemTap: @escaping (PlusPanelItemType) -> Void,
+        onInsertSlash: @escaping (String) -> Void,
+        onClose: @escaping () -> Void
+    ) {
+        self.currentModelName = currentModelName
+        self.memoryEnabled = memoryEnabled
+        self.sessionId = sessionId
         self.onItemTap = onItemTap
+        self.onInsertSlash = onInsertSlash
+        self.onClose = onClose
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            // 顶部分割线
-            Rectangle()
-                .fill(CSSThemeVariables.divider())
-                .frame(height: 1)
-
-            // 两页横向翻页 TabView
-            TabView(selection: $currentPage) {
-                // Page 1
-                LazyVGrid(columns: columns, spacing: 22) {
-                    ForEach(page1Items) { item in
-                        PlusPanelTileButton(item: item) {
-                            onItemTap(item)
-                        }
+            grabber
+            headerRow
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 14) {
+                    switch page {
+                    case .root: rootContent
+                    case .skills: skillList
+                    case .connectors: connectorList
                     }
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
-                .padding(.bottom, 6)
-                // 格子少的那页别居中飘着：一律贴顶，和第一页第一排同高。
-                .frame(maxHeight: .infinity, alignment: .top)
-                .tag(0)
-
-                // Page 2
-                LazyVGrid(columns: columns, spacing: 22) {
-                    ForEach(page2Items) { item in
-                        PlusPanelTileButton(item: item) {
-                            onItemTap(item)
-                        }
-                    }
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
-                .padding(.bottom, 6)
-                // 格子少的那页别居中飘着：一律贴顶，和第一页第一排同高。
-                .frame(maxHeight: .infinity, alignment: .top)
-                .tag(1)
-
-                // Page 3
-                LazyVGrid(columns: columns, spacing: 22) {
-                    ForEach(page3Items) { item in
-                        PlusPanelTileButton(item: item) {
-                            onItemTap(item)
-                        }
-                    }
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
-                .padding(.bottom, 6)
-                // 格子少的那页别居中飘着：一律贴顶，和第一页第一排同高。
-                .frame(maxHeight: .infinity, alignment: .top)
-                .tag(2)
+                .padding(.horizontal, Self.hPad)
+                .padding(.bottom, 18)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .offset(x: 12)),
+                    removal: .opacity
+                ))
+                .id(page)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(height: tabViewHeight)
-
-            // 底部指示小圆点
-            HStack(spacing: 8) {
-                ForEach(0..<3, id: \.self) { idx in
-                    Capsule()
-                        .fill(currentPage == idx ? CSSThemeVariables.accent() : CSSThemeVariables.divider())
-                        .frame(width: currentPage == idx ? 20 : 7, height: 7)
-                        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: currentPage)
-                }
-            }
-            .padding(.top, 4)
-            .padding(.bottom, 12)
+            .frame(maxHeight: 372)
         }
-        .frame(height: panelHeight)
-        .background(CSSThemeVariables.card())
+        // 底色跟着 ComposerSurface（整条输入栏是同一块面），这里只负责
+        // 把抽屉和输入行之间那条分界线画出来，不再自己套一层圆角卡片——
+        // 两层圆角叠在一起就成了「卡片里还有张卡片」，正是要避免的乱。
+        .background(Color.clear)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(CSSThemeVariables.divider(scope: ThemeColorLayer.chat))
+                .frame(height: 0.5)
+        }
+        .animation(.spring(response: 0.34, dampingFraction: 0.9), value: page)
+        // 点抽屉自身的空白不要穿透到输入栏那层「点一下聚焦键盘」的兜底层，
+        // 否则刚拉开抽屉点一下就自己合上了。
+        .contentShape(Rectangle())
+        .onTapGesture {}
+    }
+
+    // MARK: 头部
+
+    private var grabber: some View {
+        Capsule()
+            .fill(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet).opacity(0.28))
+            .frame(width: 36, height: 5)
+            .padding(.top, 7)
+            .padding(.bottom, 2)
+    }
+
+    private var headerRow: some View {
+        ZStack {
+            Text(page == .root ? "添加到对话" : (page == .skills ? "技能" : "连接器"))
+                .font(ChatFont.font(15, weight: .semibold))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+            HStack {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    if page == .root {
+                        onClose()
+                    } else {
+                        withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
+                            page = .root
+                        }
+                    }
+                } label: {
+                    Image(systemName: page == .root ? "xmark" : "chevron.left")
+                        .font(ChatFont.font(13, weight: .semibold))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                        .frame(width: 30, height: 30)
+                        .background(
+                            Circle().fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
+                        )
+                        .overlay(
+                            Circle().strokeBorder(
+                                CSSThemeVariables.divider(scope: ThemeColorLayer.sheet), lineWidth: 0.5
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, Self.hPad)
+        .padding(.top, 4)
+        .padding(.bottom, 12)
+    }
+
+    // MARK: 根清单
+
+    private var rootContent: some View {
+        VStack(spacing: 14) {
+            tileRow
+            VStack(spacing: 0) {
+                navRow(title: "连接器", icon: "square.grid.2x2", value: nil) {
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { page = .connectors }
+                }
+                rowDivider
+                navRow(title: "技能", icon: "puzzlepiece.extension", value: nil) {
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { page = .skills }
+                }
+                rowDivider
+                navRow(title: "一起听", icon: "headphones", value: nil) {
+                    onItemTap(.together)
+                }
+                rowDivider
+                navRow(title: "模型切换", icon: "sparkles", value: currentModelName) {
+                    onItemTap(.sparkles)
+                }
+                rowDivider
+                navRow(title: "新建会话", icon: "square.and.pencil", value: nil) {
+                    onItemTap(.newChat)
+                }
+            }
+            .background(cardFill)
+
+            memoryRow
+
+            quickActions
+        }
+    }
+
+    /// 顶上四件：只用小格子，不做大卡片。字 11pt，图标 20pt，高度 62。
+    private var tileRow: some View {
+        HStack(spacing: 12) {
+            tile(title: "相机", icon: "camera", action: { onItemTap(.camera) })
+            tile(title: "照片", icon: "photo", action: { onItemTap(.photo) })
+            tile(title: "文件", icon: "doc", action: { onItemTap(.doc) })
+            tile(title: "语音设置", icon: "waveform", action: { onItemTap(.voice) })
+        }
+    }
+
+    private func tile(title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(ChatFont.font(20, weight: .regular))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                Text(title)
+                    .font(ChatFont.font(11, weight: .medium))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 62)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(DrawerPressStyle())
+    }
+
+    private var rowDivider: some View {
+        Rectangle()
+            .fill(CSSThemeVariables.divider(scope: ThemeColorLayer.sheet).opacity(0.6))
+            .frame(height: 0.5)
+            .padding(.leading, 46)
+    }
+
+    private var cardFill: some View {
+        RoundedRectangle(cornerRadius: 26, style: .continuous)
+            .fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
+    }
+
+    private func navRow(
+        title: String,
+        icon: String,
+        value: String?,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(ChatFont.font(16, weight: .regular))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                    .frame(width: 22)
+                Text(title)
+                    .font(ChatFont.font(15, weight: .regular))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                Spacer(minLength: 8)
+                if let value {
+                    Text(value)
+                        .font(ChatFont.font(14))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.right")
+                    .font(ChatFont.font(12, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet).opacity(0.7))
+            }
+            .padding(.horizontal, 14)
+            .frame(height: Self.rowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(DrawerRowStyle())
+    }
+
+    /// 记忆开关：这一格只显示状态，不给改（参考图里那句灰字就是这个意思）。
+    private var memoryRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "brain.head.profile")
+                .font(ChatFont.font(16, weight: .regular))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("记忆")
+                    .font(ChatFont.font(15, weight: .regular))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                Text("此对话中无法更改")
+                    .font(ChatFont.font(11.5))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet).opacity(0.75))
+            }
+            Spacer(minLength: 8)
+            Capsule()
+                .fill(memoryEnabled
+                      ? CSSThemeVariables.accent(scope: ThemeColorLayer.sheet).opacity(0.45)
+                      : CSSThemeVariables.divider(scope: ThemeColorLayer.sheet))
+                .frame(width: 46, height: 28)
+                .overlay(alignment: memoryEnabled ? .trailing : .leading) {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 24, height: 24)
+                        .padding(2)
+                        .shadow(color: Color.black.opacity(0.08), radius: 2, y: 1)
+                }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(cardFill)
+    }
+
+    /// 底部小按钮：没有详情页的功能，一排小胶囊点一下就走。
+    private var quickActions: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 88), spacing: 8)],
+            alignment: .leading,
+            spacing: 8
+        ) {
+            quickChip("压缩上下文", icon: "arrow.down.right.and.arrow.up.left", item: .compactHistory)
+            quickChip("清空对话", icon: "trash", item: .clearChat, destructive: true)
+            quickChip("导出会话", icon: "square.and.arrow.up", item: .share)
+            quickChip("Token 用量", icon: "gauge.with.needle", item: .gauge)
+            quickChip("终端", icon: "terminal", item: .terminal)
+            quickChip("浏览器", icon: "globe", item: .browser)
+            quickChip("会话文件", icon: "folder", item: .files)
+        }
+    }
+
+    private func quickChip(
+        _ title: String,
+        icon: String,
+        item: PlusPanelItemType,
+        destructive: Bool = false
+    ) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onItemTap(item)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(ChatFont.font(11, weight: .semibold))
+                Text(title)
+                    .font(ChatFont.font(12, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundStyle(destructive
+                             ? CSSThemeVariables.danger(scope: ThemeColorLayer.sheet)
+                             : CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .frame(maxWidth: .infinity)
+            .background(
+                Capsule().fill(destructive
+                               ? CSSThemeVariables.dangerSoft(scope: ThemeColorLayer.sheet)
+                               : CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
+            )
+            .overlay(
+                Capsule().strokeBorder(
+                    destructive
+                        ? CSSThemeVariables.danger(scope: ThemeColorLayer.sheet).opacity(0.3)
+                        : CSSThemeVariables.divider(scope: ThemeColorLayer.sheet).opacity(0.7),
+                    lineWidth: 0.5
+                )
+            )
+        }
+        .buttonStyle(DrawerPressStyle())
+    }
+
+    // MARK: 二级列表
+
+    private var skillList: some View {
+        let sid = sessionId
+        let rows = skillStore.skills
+            .filter { skill in
+                guard let sid else { return skill.isEnabled }
+                return skillStore.isEnabledForSession(skill.id, sessionId: sid)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return VStack(spacing: 14) {
+            VStack(spacing: 0) {
+                if rows.isEmpty {
+                    emptyHint("还没有可用的技能")
+                } else {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, skill in
+                        if index > 0 { rowDivider }
+                        slashRow(
+                            title: skill.name,
+                            subtitle: skill.description.trimmingCharacters(in: .whitespacesAndNewlines),
+                            token: skill.name
+                        )
+                    }
+                }
+            }
+            .background(cardFill)
+            // 开关某一项技能仍然在原来的面板里做（这里只负责取用）。
+            navRow(title: "管理技能", icon: "slider.horizontal.3", value: nil) {
+                onItemTap(.skills)
+            }
+            .background(cardFill)
+        }
+    }
+
+    private var connectorList: some View {
+        let sid = sessionId
+        let rows = mcpStore.servers
+            .filter { server in
+                guard let sid else { return server.enabled }
+                return mcpStore.isEnabledForSession(server.id, sessionId: sid)
+            }
+            .sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+        return VStack(spacing: 14) {
+            VStack(spacing: 0) {
+                if rows.isEmpty {
+                    emptyHint("还没有配置连接器")
+                } else {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, server in
+                        if index > 0 { rowDivider }
+                        slashRow(
+                            title: server.id,
+                            subtitle: (server.note ?? "").isEmpty
+                                ? (server.isSTDIO ? "STDIO" : "HTTP")
+                                : (server.note ?? ""),
+                            token: server.id
+                        )
+                    }
+                }
+            }
+            .background(cardFill)
+            navRow(title: "管理连接器", icon: "slider.horizontal.3", value: nil) {
+                onItemTap(.mcps)
+            }
+            .background(cardFill)
+        }
+    }
+
+    /// 点一行 = 把 `/名字 ` 放进输入栏，然后收起抽屉、聚焦键盘。
+    private func slashRow(title: String, subtitle: String, token: String) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onInsertSlash(token)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "slash.circle")
+                    .font(ChatFont.font(16, weight: .regular))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(ChatFont.font(15, weight: .medium))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                        .lineLimit(1)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(ChatFont.font(11.5))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 8)
+                Text("/\(token)")
+                    .font(ChatFont.font(11.5, weight: .medium))
+                    .foregroundStyle(CSSThemeVariables.accent(scope: ThemeColorLayer.sheet))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(minHeight: Self.rowHeight, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(DrawerRowStyle())
+    }
+
+    private func emptyHint(_ text: String) -> some View {
+        Text(text)
+            .font(ChatFont.font(13))
+            .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 28)
+    }
+}
+
+/// 抽屉里格子的按压反馈：整格淡淡压一下，不起灰底。
+private struct DrawerPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.2, dampingFraction: 0.75), value: configuration.isPressed)
+    }
+}
+
+/// 行按下时的整行底色，跟 iOS 列表一致。
+private struct DrawerRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                configuration.isPressed
+                    ? CSSThemeVariables.optionBg(scope: ThemeColorLayer.sheet).opacity(0.5)
+                    : Color.clear
+            )
+            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
     }
 }
 
@@ -6569,7 +6874,8 @@ struct ChatStickerPanel: View {
     }
 
     @ObservedObject var vm: AIChatViewModel
-    var onBackToPlus: () -> Void
+    /// 收起整个表情宫格（输入栏上的表情键也走同一条路）。
+    var onClose: () -> Void = {}
     @ObservedObject private var store = StickerStore.shared
 
     @State private var selectedCategory: String = "全部"
@@ -6580,10 +6886,14 @@ struct ChatStickerPanel: View {
     @State private var selectedStickerIds: Set<String> = []
 
 
-    /// [P-20] 与加号面板同高，两个抽屉切换时不跳。
-    private var panelHeight: CGFloat { 232 }
+    /// [T-composer-four] 宫格像输入法一样从输入栏下面吸出来：高度固定一档，
+    /// 内容超出就在格子里滚，抽屉本身不跟着长高，避免把消息区挤没。
+    /// 这里只定义内容高度——输入栏那条底下那截安全区由 ComposerSurface 的
+    /// ignoresSafeArea 铺满，宫格自身的底色也用 clear，两段之间不留缝。
+    private var panelHeight: CGFloat { 274 }
 
-    private var gridHeight: CGFloat { panelHeight - 52 }
+    /// 顶部选项卡 + 标签栏那一条占的高度。
+    private var chromeHeight: CGFloat { 52 }
 
     private var displayCategories: [String] {
         // [P-08] 分类标签要跟 store.categories 走。原来写死 ["全部","常用"]，
@@ -6639,16 +6949,19 @@ struct ChatStickerPanel: View {
         }
     }
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10)
-    ]
+    /// [T-composer-four] 5 列：一屏能扫完一整包，单格小一点更精致（稿子里的样子）。
+    private let columns = Array(
+        repeating: GridItem(.flexible(), spacing: 8),
+        count: 5
+    )
 
-    init(vm: AIChatViewModel, onBackToPlus: @escaping () -> Void, onSelectSticker: ((StickerItem) -> Void)? = nil) {
+    init(
+        vm: AIChatViewModel,
+        onClose: @escaping () -> Void = {},
+        onSelectSticker: ((StickerItem) -> Void)? = nil
+    ) {
         self.vm = vm
-        self.onBackToPlus = onBackToPlus
+        self.onClose = onClose
         self.onSelectSticker = onSelectSticker
     }
 
@@ -6776,28 +7089,6 @@ struct ChatStickerPanel: View {
             } else {
                 // 普通模式操作栏
                 HStack(spacing: 8) {
-                    // 返回加号面板小图标
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        onBackToPlus()
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "chevron.left")
-                                .font(ChatFont.font(11, weight: .bold))
-                            Image(systemName: "square.grid.2x2")
-                                .font(ChatFont.font(12, weight: .semibold))
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(CSSThemeVariables.optionBg())
-                        .foregroundStyle(CSSThemeVariables.textMain())
-                        .overlay(
-                            Capsule().strokeBorder(CSSThemeVariables.optionBorder(), lineWidth: 1.0)
-                        )
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
                     // 核心「功能」操作菜单 (实至名归：批量管理、批量导入、手动登记)
                     Menu {
                         Button {
@@ -6910,26 +7201,26 @@ struct ChatStickerPanel: View {
 
             // 中间上下滑动表情包宫格区 (与加号面板总高度严格一致)
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVGrid(columns: columns, spacing: 14) {
+                LazyVGrid(columns: columns, spacing: 12) {
                     // 第一个格子：微信式「+ 添加/批量」卡片 (非管理模式时显示)
                     if !isManageMode {
                         Button {
                             DispatchQueue.main.async { showPhotosPicker = true }
                         } label: {
                             VStack(spacing: 4) {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .strokeBorder(
-                                        style: StrokeStyle(lineWidth: 1.5, dash: [4, 4])
+                                        style: StrokeStyle(lineWidth: 1.2, dash: [4, 4])
                                     )
                                     .foregroundStyle(CSSThemeVariables.accent().opacity(0.45))
-                                    .frame(height: 72)
+                                    .frame(height: 52)
                                     .overlay(
                                         Image(systemName: "plus")
-                                            .font(.system(size: 22, weight: .semibold))
+                                            .font(.system(size: 18, weight: .semibold))
                                             .foregroundStyle(CSSThemeVariables.accent())
                                     )
-                                Text("添加/批量")
-                                    .font(ChatFont.font(11, weight: .regular))
+                                Text("添加")
+                                    .font(ChatFont.font(10.5))
                                     .foregroundStyle(CSSThemeVariables.textDim())
                             }
                             .contentShape(Rectangle())
@@ -6968,7 +7259,7 @@ struct ChatStickerPanel: View {
                                     onSelectSticker(sticker)
                                 } else {
                                     vm.pendingSticker = sticker
-                                    onBackToPlus()
+                                    onClose()
                                 }
                             }
                         } label: {
@@ -7014,9 +7305,10 @@ struct ChatStickerPanel: View {
                                 }
 
                                 Text(sticker.title)
-                                    .font(ChatFont.font(11, weight: .regular))
+                                    .font(ChatFont.font(10.5))
                                     .lineLimit(1)
-                                    .foregroundStyle(CSSThemeVariables.textMain())
+                                    .minimumScaleFactor(0.8)
+                                    .foregroundStyle(CSSThemeVariables.textDim())
                             }
                         }
                         .buttonStyle(.plain)
@@ -7049,14 +7341,14 @@ struct ChatStickerPanel: View {
                         }
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 12)
                 .padding(.top, 8)
                 .padding(.bottom, 16)
             }
             .frame(height: gridHeight)
         }
         .frame(height: panelHeight)
-        .background(CSSThemeVariables.card())
+        .background(Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
             // 阻断内部点击穿透到底层收起手势

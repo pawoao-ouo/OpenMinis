@@ -79,6 +79,29 @@ extension AIChatViewModel {
 
     /// Dismiss slash menu, restoring saved input + caret if any. Strips the
     /// "/ " prefix that `showSlashMenuOverInput` injected.
+    /// [T-composer-drawer] 抽屉里的「技能 / 连接器」列表选中一行时走这里：
+    /// 只把 `/名字 ` 放进输入框（和斜杠菜单选中同一条路径），不执行、不开关。
+    ///
+    /// 输入框已经有字时**前置**，和 `showSlashMenuOverInput` 的语义一致：最终
+    /// 读作 `/skill 原来的话`，光标落在名字后面，用户可以接着写。
+    func insertSlashToken(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let prefix = "/\(trimmed) "
+        let existing = inputText
+        if existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            inputText = prefix
+        } else if existing.hasPrefix(prefix) {
+            pendingCaret = prefix.count
+            requestComposerFocusSignal.send()
+            return
+        } else {
+            inputText = prefix + existing
+        }
+        pendingCaret = prefix.count
+        requestComposerFocusSignal.send()
+    }
+
     func dismissSlashMenu() {
         if let saved = savedInputBeforeSlash {
             inputText = saved
