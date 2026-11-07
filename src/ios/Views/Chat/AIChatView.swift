@@ -3067,7 +3067,8 @@ struct AIChatView: View {
     /// 两个坐标还没到（首帧）时，退回老算法，别让按钮瞬移到屏幕底。
     private var floatingButtonsBottomInset: CGFloat {
         if composerTopY > 0, listHostBottomY > 0, composerTopY < listHostBottomY {
-            return max(12, listHostBottomY - composerTopY + 12)
+            // + 胶囊那一档：放歌时微控条就在输入栏上面，按钮得让开它。
+            return max(12, listHostBottomY - composerTopY + 12 + togetherBarInset)
         }
         let fallback = latestInputBarFrameH > 0 ? latestInputBarFrameH : inputBarHeight
         return fallback + togetherBarInset + 12
