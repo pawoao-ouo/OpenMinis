@@ -217,7 +217,7 @@ struct AIChatView: View {
         // 常驻小胶囊开关由 TogetherState.showMiniBar 控制（在面板里设置）。
         // 开启时只在播放时显示（暂停不显示）；关闭时永远不显示。
         // 以前是"有歌就留着"，现在改成交互需求。
-        guard TogetherStateHub.shared.state.showMiniBar else { return false }
+        guard TogetherStore.shared.load().showMiniBar else { return false }
         return togetherPlayer.isPlaying && !showTogether
     }
 
