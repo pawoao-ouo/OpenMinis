@@ -211,12 +211,6 @@ struct AIChatView: View {
     /// composer has nothing to scroll.
     @State private var inputAtScrollBottom: Bool = true
     @State private var inputBarHeight: CGFloat = 0
-    /// [T-floatbtn-follows-composer] 悬浮按钮的位置不再靠"输入栏高度"这个数字算：
-    /// 键盘收起时输入栏高度不变、位置变了，用高度算出来的按钮就留在原地不动。
-    /// 这里直接记两个全局坐标——输入栏顶边、消息区底边——按钮的底边内边距
-    /// 就是这两者的差，键盘、附件栏、语音面板怎么动都跟着。
-    @State private var composerTopY: CGFloat = 0
-    @State private var listHostBottomY: CGFloat = 0
 
     /// 一起听胶囊占的高度：只一处定义，见 TogetherMiniBar.stackHeight（48 胶囊 + 2 间距）。
     private var showTogetherBar: Bool {
@@ -664,6 +658,12 @@ struct AIChatView: View {
                         // 一起听微控条：跟输入栏同一个 VStack，
                         // 谁也别想让它跟着气泡飘走。
                         VStack(spacing: 2) {
+                            // [T-floatbtn-follows-composer] 悬浮键（回顶/到底/下载）
+                            // 也住进这一摞：以前它们挂在消息区上、靠"输入栏高度"这个
+                            // 数字算位置，键盘收起时高度不变位置变了，按钮就留在原地
+                            // 没跟下去。放进同一个容器，布局自己保证它贴着输入栏，
+                            // 键盘、托盘、胶囊怎么动都跟得住，不需要任何坐标。
+                            floatingComposerButtons
                             if showTogetherBar {
                                 TogetherMiniBar(onOpen: { showTogether = true })
                                     // [T-capsule-retract-to-side] 收起时往侧边缩走再淡出，
@@ -2992,86 +2992,44 @@ struct AIChatView: View {
                     .padding(.horizontal, 24)
             }
         }
-        // [T-floatbtn-follows-composer] 记消息区底边的全局 y。它和输入栏顶边
-        // 相减就是"输入栏占了多高"，键盘收放、附件栏展开都算在里面。
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.frame(in: .global).maxY
-        } action: { bottomY in
-            listHostBottomY = bottomY
-        }
-        .overlay(alignment: .bottom) {
-            // Open the overlay only when at least one button will actually
-            // render — i.e. the gate is the OR of the two buttons' own
-            // conditions. Otherwise an in-between state (e.g. far from top but
-            // within one screen of the bottom, at rest) would mount an empty
-            // VStack.
-            if !vm.messages.isEmpty && !vm.isNearBottom {
-                VStack(spacing: 10) {
-                    // Up-button: walk back one user turn at a time. Visible when
-                    // off the bottom AND there's still an earlier turn to jump to
-                    // (isAtFirstTurn == false). Once the user has walked all the
-                    // way up to the first turn, it hides — nothing further up.
-                    if !vm.isAtFirstTurn {
-                        Button {
-                            vm.forceScrollToTop.send()
-                        } label: {
-                            // arrow.up.to.line: "jump to a top anchor" reads truer
-                            // for the turn-walk / scroll-to-top action than a plain
-                            // chevron, and distinguishes it from the down button's
-                            // chevron.down. Available since iOS 16 (both our legacy
-                            // and iOS 26 floors).
-                            scrollFloatingButtonLabel("arrow.up.to.line")
-                        }
-                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    }
-                    // Scroll to bottom — ORIGINAL behavior: shown whenever not
-                    // near the bottom (within the 20pt nearBottom threshold), so
-                    // it appears as soon as you leave the bottom.
-                    Button {
-                        vm.forceScrollToBottom.send()
-                    } label: {
-                        scrollFloatingButtonLabel("chevron.down")
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                }
-                .padding(.trailing, 4)
-                .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
-                .padding(.horizontal, 12)
-                .padding(.bottom, floatingButtonsBottomInset)
-                .animation(.easeInOut(duration: 0.2), value: vm.isNearBottom)
-                .animation(.easeInOut(duration: 0.2), value: vm.isAtFirstTurn)
-                }
-        }
-        // [T-browser-download-ux-v2] Floating download button — same visual
-        // family as the scroll buttons, stacked ABOVE their slot (the scroll
-        // group can show up to two 36pt buttons + spacing, so offset by 92pt)
-        // so the two never overlap regardless of scroll state. Hidden while
-        // the session has no download records.
-        .overlay(alignment: .bottom) {
+    }
+
+    /// [T-floatbtn-follows-composer] 悬浮键（回顶 / 到底 / 下载）。
+    /// 它就住在输入栏那一摞里，位置由布局决定，不需要任何高度/坐标计算——
+    /// 键盘收放、托盘展开、胶囊出现，整摞一起动，不存在"没跟住"。
+    @ViewBuilder
+    private var floatingComposerButtons: some View {
+        let showScroll = !vm.messages.isEmpty && !vm.isNearBottom
+        // 没有任何键要画时，这一行必须是零高度——否则它会在胶囊和输入栏
+        // 之间凭空垫出一段空白。有内容时才留那 6pt 呼吸。
+        VStack(spacing: 10) {
+            // 下载键自己知道有没有记录（没有就什么都不画），跟滚动键同住一列。
             BrowserDownloadFloatingButton(sessionId: vm.sessionId ?? "") {
                 showDownloadsPanel = true
             }
-            .padding(.trailing, 4)
-            .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
-            .padding(.horizontal, 12)
-            .padding(.bottom, floatingButtonsBottomInset + 92)
+            if showScroll {
+                if !vm.isAtFirstTurn {
+                    Button {
+                        vm.forceScrollToTop.send()
+                    } label: {
+                        scrollFloatingButtonLabel("arrow.up.to.line")
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
+                Button {
+                    vm.forceScrollToBottom.send()
+                } label: {
+                    scrollFloatingButtonLabel("chevron.down")
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
         }
-    }
-
-    /// 悬浮按钮（滚动/下载）的底边内边距。
-    ///
-    /// 以前是 `inputBarHeight + 12`——输入栏"有多高"。键盘收起时输入栏高度不变、
-    /// 只是整体下移，所以按钮跟着那个数字留在原地，看起来就像"飞起来的没跟住"。
-    /// 现在改成量真实距离：输入栏顶边到消息区底边。键盘一收，输入栏下移，
-    /// 距离缩小，按钮跟着下去，永远贴着输入栏上面那 12pt。
-    /// 两个坐标还没到（首帧）时，退回老算法，别让按钮瞬移到屏幕底。
-    private var floatingButtonsBottomInset: CGFloat {
-        if composerTopY > 0, listHostBottomY > 0, composerTopY < listHostBottomY {
-            // + 胶囊那一档：放歌时微控条就在输入栏上面，按钮得让开它。
-            return max(12, listHostBottomY - composerTopY + 12 + togetherBarInset)
-        }
-        let fallback = latestInputBarFrameH > 0 ? latestInputBarFrameH : inputBarHeight
-        return fallback + togetherBarInset + 12
+        .padding(.trailing, 4)
+        .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
+        .padding(.horizontal, 12)
+        .padding(.bottom, showScroll ? 6 : 0)
+        .animation(.easeInOut(duration: 0.2), value: vm.isNearBottom)
+        .animation(.easeInOut(duration: 0.2), value: vm.isAtFirstTurn)
     }
 
     /// Shared label style for the floating scroll buttons (up / down), matching
@@ -4178,9 +4136,6 @@ struct AIChatView: View {
                 if onscreen {
                     latestInputBarFrameH = newH
                     composerLiveHeight.report(newH)
-                    // [T-floatbtn-follows-composer] 记输入栏顶边的全局 y。
-                    // 悬浮按钮的位置靠它跟消息区底边相减得到，不再靠高度数字。
-                    composerTopY = frame.minY
                 }
                 // [T-voice-inputbar-collapse-selfheal] Liveness, recorded for
                 // EVERY callback — an off-screen sample is still proof the host

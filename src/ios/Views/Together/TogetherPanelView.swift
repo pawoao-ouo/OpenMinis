@@ -209,6 +209,13 @@ struct TogetherPanelView: View {
                         echoBubbles.removeAll()
                         echoQueue.removeAll()
                     }
+                    // 同小胶囊那颗：开着时图标只是少一笔填充，看不出来，
+                    // 点完补一句话，免得她以为这两颗键坏了。
+                    MinisToast.show(
+                        echoOn ? AppLocalized("回声已开：能听见留下的那句")
+                               : AppLocalized("回声已关"),
+                        systemImage: echoOn ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right"
+                    )
                 } label: {
                     ZStack {
                         Circle().fill(CSSThemeVariables.optionBg(scope: .chat).opacity(0.8))
@@ -230,6 +237,13 @@ struct TogetherPanelView: View {
                         state.showMiniBar = next
                     }
                     showMiniBar = next
+                    // 图标从实心到空心太不明显，她点完看不出发生过什么，
+                    // 以为没反应——补一句话说清楚现在是开还是关。
+                    MinisToast.show(
+                        next ? AppLocalized("小胶囊已开：放歌时会出现")
+                             : AppLocalized("小胶囊已关：不再出现"),
+                        systemImage: next ? "capsule.fill" : "capsule"
+                    )
                 } label: {
                     ZStack {
                         Circle().fill(CSSThemeVariables.optionBg(scope: .chat).opacity(0.8))
