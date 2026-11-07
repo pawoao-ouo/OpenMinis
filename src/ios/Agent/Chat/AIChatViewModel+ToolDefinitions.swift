@@ -689,8 +689,8 @@ public final class ToolCatalogRouter: @unchecked Sendable {
                 id: "together",
                 name: "together",
                 category: .together,
-                synopsis: "一起听播放器：播放/暂停/切歌/进度控制（通过 together 命令，控制 /var/minis/shared/music 里的本地音乐）。",
-                quickSyntax: "together play <trackId> [--at 秒] | pause | resume | next | prev | seek <秒>",
+                synopsis: "一起听播放器：播放指定歌曲 / 暂停 / 继续 / 拖进度（通过 together 命令，放的是一起听曲库里的本地音乐，曲库在 /var/minis/shared/together/music）。换下一首/上一首先 together lib 拿曲库顺序，再 play 目标那首的 trackId。发出去的命令 App 会立刻跟着响。",
+                quickSyntax: "together lib | now | play <trackId> [--at 秒] | pause | resume | seek <秒>",
                 docRef: "together --help"
             ),
 

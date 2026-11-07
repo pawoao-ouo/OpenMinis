@@ -211,6 +211,12 @@ struct AIChatView: View {
     /// composer has nothing to scroll.
     @State private var inputAtScrollBottom: Bool = true
     @State private var inputBarHeight: CGFloat = 0
+    /// [T-floatbtn-follows-composer] 悬浮按钮的位置不再靠"输入栏高度"这个数字算：
+    /// 键盘收起时输入栏高度不变、位置变了，用高度算出来的按钮就留在原地不动。
+    /// 这里直接记两个全局坐标——输入栏顶边、消息区底边——按钮的底边内边距
+    /// 就是这两者的差，键盘、附件栏、语音面板怎么动都跟着。
+    @State private var composerTopY: CGFloat = 0
+    @State private var listHostBottomY: CGFloat = 0
 
     /// 一起听胶囊占的高度：只一处定义，见 TogetherMiniBar.stackHeight（48 胶囊 + 2 间距）。
     private var showTogetherBar: Bool {
@@ -2979,6 +2985,13 @@ struct AIChatView: View {
                     .padding(.horizontal, 24)
             }
         }
+        // [T-floatbtn-follows-composer] 记消息区底边的全局 y。它和输入栏顶边
+        // 相减就是"输入栏占了多高"，键盘收放、附件栏展开都算在里面。
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.frame(in: .global).maxY
+        } action: { bottomY in
+            listHostBottomY = bottomY
+        }
         .overlay(alignment: .bottom) {
             // Open the overlay only when at least one button will actually
             // render — i.e. the gate is the OR of the two buttons' own
@@ -3017,7 +3030,7 @@ struct AIChatView: View {
                 .padding(.trailing, 4)
                 .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
                 .padding(.horizontal, 12)
-                .padding(.bottom, (latestInputBarFrameH > 0 ? latestInputBarFrameH : inputBarHeight) + togetherBarInset + 12)
+                .padding(.bottom, floatingButtonsBottomInset)
                 .animation(.easeInOut(duration: 0.2), value: vm.isNearBottom)
                 .animation(.easeInOut(duration: 0.2), value: vm.isAtFirstTurn)
                 }
@@ -3034,8 +3047,23 @@ struct AIChatView: View {
             .padding(.trailing, 4)
             .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
             .padding(.horizontal, 12)
-            .padding(.bottom, (latestInputBarFrameH > 0 ? latestInputBarFrameH : inputBarHeight) + 12 + 92)
+            .padding(.bottom, floatingButtonsBottomInset + 92)
         }
+    }
+
+    /// 悬浮按钮（滚动/下载）的底边内边距。
+    ///
+    /// 以前是 `inputBarHeight + 12`——输入栏"有多高"。键盘收起时输入栏高度不变、
+    /// 只是整体下移，所以按钮跟着那个数字留在原地，看起来就像"飞起来的没跟住"。
+    /// 现在改成量真实距离：输入栏顶边到消息区底边。键盘一收，输入栏下移，
+    /// 距离缩小，按钮跟着下去，永远贴着输入栏上面那 12pt。
+    /// 两个坐标还没到（首帧）时，退回老算法，别让按钮瞬移到屏幕底。
+    private var floatingButtonsBottomInset: CGFloat {
+        if composerTopY > 0, listHostBottomY > 0, composerTopY < listHostBottomY {
+            return max(12, listHostBottomY - composerTopY + 12)
+        }
+        let fallback = latestInputBarFrameH > 0 ? latestInputBarFrameH : inputBarHeight
+        return fallback + togetherBarInset + 12
     }
 
     /// Shared label style for the floating scroll buttons (up / down), matching
@@ -4142,6 +4170,9 @@ struct AIChatView: View {
                 if onscreen {
                     latestInputBarFrameH = newH
                     composerLiveHeight.report(newH)
+                    // [T-floatbtn-follows-composer] 记输入栏顶边的全局 y。
+                    // 悬浮按钮的位置靠它跟消息区底边相减得到，不再靠高度数字。
+                    composerTopY = frame.minY
                 }
                 // [T-voice-inputbar-collapse-selfheal] Liveness, recorded for
                 // EVERY callback — an off-screen sample is still proof the host

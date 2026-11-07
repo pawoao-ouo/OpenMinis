@@ -85,15 +85,32 @@ final class TogetherStore {
     }()
 
     var stateURL: URL { rootURL.appendingPathComponent("state.json") }
-    /// 音乐目录就是内置那个，apple-player 播的是同一批文件。
-    var musicDirectory: URL { Self.sharedRootURL.appendingPathComponent("music", isDirectory: true) }
-    var libraryURL: URL { rootURL.appendingPathComponent("index.json") }
+    /// 音乐目录：shell 侧抓歌落在 shared/together/music，App 必须去同一个地方找。
+    /// （以前这里指 shared/music，跟 shell 写的地方差一层，结果曲库永远是空的。）
+    var musicDirectory: URL { rootURL.appendingPathComponent("music", isDirectory: true) }
+    /// 曲库索引：真源是 music/index.json（together-fetch 写的就是它）。
+    /// together/index.json 当镜像读，两个都在时以 music 下那份为准。
+    var libraryURL: URL {
+        let primary = musicDirectory.appendingPathComponent("index.json")
+        if FileManager.default.fileExists(atPath: primary.path) { return primary }
+        return rootURL.appendingPathComponent("index.json")
+    }
+    /// 写回永远写 music/index.json，和抓歌脚本同一个文件，别劈成两份。
+    var libraryWriteURL: URL { musicDirectory.appendingPathComponent("index.json") }
     var lyricsDirectory: URL { rootURL.appendingPathComponent("lyrics", isDirectory: true) }
 
-    /// 音频按 shared 根解析：`music/x.mp3` → `/var/minis/shared/music/x.mp3`。
+    /// 音频按 together 根解析：`music/x.mp3` → `shared/together/music/x.mp3`。
+    /// 老数据里可能记着 `shared/music/x.mp3` 这种绝对风格，两种都试。
     func audioURL(for track: TogetherTrack) -> URL? {
         guard let rel = track.file, !rel.isEmpty else { return nil }
-        return Self.sharedRootURL.appendingPathComponent(rel)
+        var trimmed = rel
+        if trimmed.hasPrefix("shared/") { trimmed = String(trimmed.dropFirst("shared/".count)) }
+        let underTogether = rootURL.appendingPathComponent(trimmed)
+        if FileManager.default.fileExists(atPath: underTogether.path) { return underTogether }
+        // 兼容：早期文件放在 shared/music 下。
+        let underShared = Self.sharedRootURL.appendingPathComponent(trimmed)
+        if FileManager.default.fileExists(atPath: underShared.path) { return underShared }
+        return underTogether
     }
 
     static let audioExtensions: Set<String> = [
@@ -250,13 +267,14 @@ final class TogetherStore {
     /// 调用方必须已持有文件锁（见 acquireFileLock），且在同一串行队列里。
     @discardableResult
     private func saveLibraryLocked(_ library: TogetherLibrary) -> Bool {
-        try? FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        // 写回 music/index.json（和 together-fetch 同一个文件），别在根目录再造一份。
+        try? FileManager.default.createDirectory(at: musicDirectory, withIntermediateDirectories: true)
         // 按 id 去重：写前比对失败重算 body 时，追加类 body 会跑两遍，
         // 同一条歌不能在库里出现两次。保留第一次出现的顺序和内容。
         var seen: Set<String> = []
         var deduped = library
         deduped.tracks = library.tracks.filter { seen.insert($0.id).inserted }
-        return Self.encode(deduped, to: libraryURL)
+        return Self.encode(deduped, to: libraryWriteURL)
     }
 
     private func loadLibraryLocked() -> TogetherLibrary {
@@ -310,7 +328,7 @@ final class TogetherStore {
         var deadTrackIds = Set<String>()
         lib.tracks.removeAll { track in
             guard let f = track.file, f.hasPrefix("music/") else { return false }
-            let exists = fm.fileExists(atPath: Self.sharedRootURL.appendingPathComponent(f).path)
+            let exists = fm.fileExists(atPath: audioURL(for: track)?.path ?? "")
             if !exists { deadTrackIds.insert(track.id) }
             return !exists
         }
@@ -591,6 +609,10 @@ extension TogetherStore {
             state.playback.playing = true
             state.playback.by = actor.rawValue
             state.playback.updatedAt = TogetherStore.now()
+            // 显式换歌本身就是"要它响"：攥住的暂停在这一刻作废。
+            // 不清这一位，AI 推了歌、播放器也认了，可文件里 heldPause 还写着 true，
+            // 冷启动/压音恢复都会被它拦住，表现就是"推了但没声音"。
+            state.playback.heldPause = false
             if let q = queue {
                 state.playback.queue = q
                 if let source = queueSource {
@@ -1323,8 +1345,11 @@ extension TogetherStore {
         let wasCurrent = load().track?.id == trackId
         let lib = library()
         if let t = lib.track(id: trackId), let rel = t.file {
-            let audioPath = Self.sharedRootURL.appendingPathComponent(rel)
-            try? fm.removeItem(at: audioPath)
+            if let audio = audioURL(for: t) {
+                try? fm.removeItem(at: audio)
+            } else {
+                try? fm.removeItem(at: Self.sharedRootURL.appendingPathComponent(rel))
+            }
             if let lrc = t.lyrics {
                 try? fm.removeItem(at: rootURL.appendingPathComponent(lrc))
             }
