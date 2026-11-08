@@ -3671,27 +3671,6 @@ struct AIChatView: View {
         return AnyView(view)
     }
 
-    /// `/` button that opens the slash command menu.
-    private var slashMenuButton: some View {
-        Button {
-            if vm.showSlashMenu {
-                vm.dismissSlashMenu()
-            } else {
-                vm.showSlashMenuOverInput()
-                inputFocused = true
-            }
-        } label: {
-            Text("/")
-                .font(ChatFont.font(18, weight: .semibold, design: .rounded))
-                .italic()
-                .foregroundStyle(ChatColors.secondaryText)
-                .frame(width: 34, height: 34)
-                .background(ChatColors.inputIconBg)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
-        }
-    }
-
     /// "Exit Edit Mode" capsule shown while editing a past message.
     private var editExitButton: some View {
         return Button {
