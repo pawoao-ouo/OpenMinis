@@ -80,8 +80,16 @@ struct InlineVoiceInputView: View {
     }
 
 
-    /// Compact height — only ~20pt taller than the single-line text composer.
-    private static let compactHeight: CGFloat = 92
+    /// Compact height — 麦克风 + 上下留白，就这么高。
+    ///
+    /// [T-voice-compact-height] 原来写死 92，注释还说「只比单行输入条高约 20」，
+    /// 可 92 − 52 = 40，算错了。收起态里只有一个 60 的麦克风，撑 92 就是在它
+    /// 上下各留 16 的空，看着是一块空盒子。改成按内容算：60 + 上下各 8。
+    /// 只有转写里已经攒了字的时候才多一行计数提示（提示 13 + 间隔 6）。
+    private var compactHeight: CGFloat {
+        let base = Self.compactMic + 16
+        return viewModel.transcript.isEmpty ? base : base + 19
+    }
     /// Expanded height WITHOUT any transcript (status + mic + chip + spacing + padding).
     /// Tuned to leave minimal blank space below the model chip when no transcript
     /// is present. The Spacer between status and controls absorbs any remaining gap.
@@ -203,7 +211,7 @@ struct InlineVoiceInputView: View {
     /// Effective panel height per mode. Expand grows with the transcript up to the
     /// 60%-screen cap, after which the transcript scrolls internally.
     private var effectiveHeight: CGFloat {
-        guard expanded else { return Self.compactHeight }
+        guard expanded else { return compactHeight }
         let band = transcriptBandHeight
         // [T-ios-voice-transcript-blank-band] Reserve the in-frame chrome, not
         // just `band + 8`.
@@ -290,21 +298,34 @@ struct InlineVoiceInputView: View {
         // Compact↔expand toggle (top-left) + globe (top-right). Pinned to the top
         // corners in BOTH modes. Leading/trailing insets = 12 to line up with the
         // bottom toolbar's `+` and send buttons (inputBottomRow padding 12).
+        // [T-voice-exit] 回键盘的键，位置按形态分：
+        //   · 收起态 —— 跟折叠键并排放在左上。这一态没有转写，左上本来就是空的。
+        //   · 展开态 —— 放左下角。左上第一行是转写文字，压一颗不透明的圆等于
+        //     盖住她说的第一句话；展开态的高度是算出来的，再加一行头会把这块
+        //     本来就嫌空的板子撑得更高。左下角两种形态下都没有别的东西
+        //     （麦克风居中、模型片居中、删除键在右边），拇指也够得到。
         .overlay(alignment: .topLeading) {
-            expandCollapseButton
-                .padding(.top, 10)
-                .padding(.leading, 12)
+            if expanded {
+                // 键的命中框是 44、看的圆是 30，四周各多 7；留白扣掉这 7，
+                // 可见的圆才还落在原来的 10 / 12 上。
+                expandCollapseButton
+                    .padding(.top, 3)
+                    .padding(.leading, 5)
+            } else {
+                HStack(spacing: 0) {
+                    expandCollapseButton
+                    exitVoiceButton
+                }
+                .padding(.top, 4)
+                .padding(.leading, 4)
+            }
         }
-        // [T-voice-exit] 回键盘的键放在左下角。
-        //
-        // 不放左上：展开态第一行是转写文字，上面再压一颗不透明的圆就等于盖住
-        // 她的第一句话；展开态的高度是算出来的（expandedBaseHeight + 转写带），
-        // 再加一行 44 的头会把这块本来就嫌空的板子撑得更高。左下角两种模式下
-        // 都是空的（麦克风居中、模型片居中），拇指也够得到。
         .overlay(alignment: .bottomLeading) {
-            exitVoiceButton
-                .padding(.bottom, 8)
-                .padding(.leading, 6)
+            if expanded {
+                exitVoiceButton
+                    .padding(.bottom, 8)
+                    .padding(.leading, 6)
+            }
         }
         .overlay(alignment: .topTrailing) {
             // [voice-correction, experimental] In DEBUG, this corner doubles as the
@@ -796,6 +817,9 @@ struct InlineVoiceInputView: View {
                 .background(Circle().fill(ChatColors.inputIconBg))
                 .overlay(Circle().strokeBorder(ChatColors.inputIconBorder, lineWidth: 0.5))
         }
+        .buttonStyle(.plain)
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
         .accessibilityLabel(expanded
             ? Text("Collapse voice panel", comment: "Voice panel collapse")
             : Text("Expand voice panel", comment: "Voice panel expand"))

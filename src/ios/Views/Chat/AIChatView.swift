@@ -4074,7 +4074,12 @@ struct AIChatView: View {
                 .modifier(ComposerSurface(style: showStickerPanel ? .barAttached : .bar))
                 // [T-composer-upstream] 左右 12、离底 8，跟上游一致。原来左右 8
                 // 让整条栏贴到屏幕边上，键看着要「掉出去」；12 是上游定的呼吸量。
-                .padding(.horizontal, 12)
+                //
+                // [T-tray-seam] 托盘在下面时这 12 要收掉：托盘是满宽的，胶囊
+                // 缩进 12 就会在接缝两侧各留一道 12 的台阶——看着是「一条胶囊
+                // 摞在一块平板上」，不是一整块。收成 0 之后两块同宽同色，圆角
+                // 又都取直，才接得严。
+                .padding(.horizontal, showStickerPanel ? 0 : 12)
                 // 输入条永远浮着（离底 6）：它是胶囊，底角是圆的，贴死在托盘
                 // 上反而会跟托盘顶边打架。真正要贴底的是托盘自己。
                 // [T-tray-seam] 托盘在下面时这 6pt 必须收掉：托盘是从输入条
@@ -7145,13 +7150,29 @@ struct ChatStickerPanel: View {
     /// 内容超出就在格子里滚，抽屉本身不跟着长高，避免把消息区挤没。
     /// 这里只定义内容高度——输入栏那条底下那截安全区由 ComposerSurface 的
     /// ignoresSafeArea 铺满，宫格自身的底色也用 clear，两段之间不留缝。
-    private var panelHeight: CGFloat { 274 }
+    ///
+    /// [T-sticker-rows] 高度按整行算，不按「差不多」算：一格的实测高度是
+    /// 图 72 + 间隔 4 + 标题一行约 13 ≈ 89，格间距 12，格子上下留白 8 / 16，
+    /// 两整行就是 8 + 89 + 12 + 89 + 16 = 214。以前写死 274 减掉顶栏 52 只剩
+    /// 222，比两行多 8 —— 多出来的这 8 刚好把第三行切掉一截，看着像「被面板
+    /// 吃掉了半个贴纸」。现在按整行给，行永远完整，超出靠滚动（开了指示条）。
+    private static let stickerRowHeight: CGFloat = 89
+    private static let stickerGridSpacing: CGFloat = 12
+    private static let stickerGridPadding: CGFloat = 8 + 16
+    private static let visibleStickerRows: CGFloat = 2
 
     /// 顶部选项卡 + 标签栏那一条占的高度。
     private var chromeHeight: CGFloat { 52 }
 
-    /// 宫格自身可滚的那块高度（总高减掉顶部那一条）。
-    private var gridHeight: CGFloat { panelHeight - chromeHeight }
+    /// 宫格自身可滚的那块高度：整行 + 上下留白。
+    private var gridHeight: CGFloat {
+        Self.visibleStickerRows * Self.stickerRowHeight
+            + (Self.visibleStickerRows - 1) * Self.stickerGridSpacing
+            + Self.stickerGridPadding
+    }
+
+    /// 面板总高 = 顶栏 + 整行宫格。
+    private var panelHeight: CGFloat { chromeHeight + gridHeight }
 
     private var displayCategories: [String] {
         // [P-08] 分类标签要跟 store.categories 走。原来写死 ["全部","常用"]，
@@ -7453,7 +7474,9 @@ struct ChatStickerPanel: View {
             }
 
             // 中间上下滑动表情包宫格区 (与加号面板总高度严格一致)
-            ScrollView(.vertical, showsIndicators: false) {
+            // [T-sticker-rows] 指示条开着：行是按整行给的，超出的那部分得让
+            // 她看见「还能往下滚」，不然切边没了、她又不知道该往下滑。
+            ScrollView(.vertical, showsIndicators: true) {
                 LazyVGrid(columns: columns, spacing: 12) {
                     // 第一个格子：微信式「+ 添加/批量」卡片 (非管理模式时显示)
                     if !isManageMode {
