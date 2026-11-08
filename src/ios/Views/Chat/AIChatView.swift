@@ -211,6 +211,10 @@ struct AIChatView: View {
     /// composer has nothing to scroll.
     @State private var inputAtScrollBottom: Bool = true
     @State private var inputBarHeight: CGFloat = 0
+    /// [T-popup-covers-floatbtn] 悬浮键那一摞实测高度（回顶/到底/下载）。
+    /// 它们住在输入栏上面、跟着输入栏一起动，斜杠弹窗的底边要一次让开
+    /// 「输入栏 + 胶囊 + 这摞键」，否则弹窗上沿会盖住回顶/到底。
+    @State private var floatingButtonsHeight: CGFloat = 0
 
     /// 一起听胶囊占的高度：只一处定义，见 TogetherMiniBar.stackHeight（48 胶囊 + 2 间距）。
     private var showTogetherBar: Bool {
@@ -664,6 +668,18 @@ struct AIChatView: View {
                             // 没跟下去。放进同一个容器，布局自己保证它贴着输入栏，
                             // 键盘、托盘、胶囊怎么动都跟得住，不需要任何坐标。
                             floatingComposerButtons
+                                // [T-popup-covers-floatbtn] 量一下这摞悬浮键的真实高度。
+                                // 斜杠/提及弹窗的底边是按 inputBarHeight 算的，而悬浮键
+                                // 就住在输入栏上面、算在同一摞里——不把它加进去，弹窗上沿
+                                // 正好盖住回顶/到底那两颗键，点不着也看不见。
+                                // 零高度时（没有键要画）这里报 0，弹窗位置不受影响。
+                                .onGeometryChange(for: CGFloat.self) { proxy in
+                                    proxy.size.height
+                                } action: { h in
+                                    if abs(floatingButtonsHeight - h) > 0.5 {
+                                        floatingButtonsHeight = h
+                                    }
+                                }
                             if showTogetherBar {
                                 TogetherMiniBar(onOpen: { showTogether = true })
                                     // [T-capsule-retract-to-side] 收起时往侧边缩走再淡出，
@@ -680,7 +696,10 @@ struct AIChatView: View {
                         // 胶囊出现/消失是滑入滑出，不是瞬移：斜杠弹窗跟着它一起平移，不跳变。
                         .animation(.spring(response: 0.44, dampingFraction: 0.88, blendDuration: 0.1), value: showTogetherBar)
                         inputPopupOverlay
-                            .padding(.bottom, inputBarHeight + togetherBarInset)
+                            // [T-popup-covers-floatbtn] 弹窗底边要让开三样：输入栏、
+                            // 一起听胶囊、以及那一摞悬浮键。以前只让了前两样，弹窗
+                            // 一出来上沿就压在回顶/到底上。
+                            .padding(.bottom, inputBarHeight + togetherBarInset + floatingButtonsHeight)
                     }
                 }
                 .overlay {
@@ -4037,7 +4056,11 @@ struct AIChatView: View {
                 .padding(.horizontal, 8)
                 // 输入条永远浮着（离底 6）：它是胶囊，底角是圆的，贴死在托盘
                 // 上反而会跟托盘顶边打架。真正要贴底的是托盘自己。
-                .padding(.bottom, 6)
+                // [T-tray-seam] 托盘在下面时这 6pt 必须收掉：托盘是从输入条
+                // 底下吸出来的，中间留 6pt 就把消息区那条渐变背景露出来，
+                // 看着就是「抽屉和输入条之间有一条缝」。收成 0 之后输入条的
+                // 圆角直接压在托盘的 fill 上（两边同一块 inputBg），接成一整块。
+                .padding(.bottom, (showPlusPanel || showStickerPanel) ? 0 : 6)
 
                 // 底部抽屉：加号清单 / 表情宫格。贴底满宽，底边一路铺到
                 // 屏幕物理底（ComposerSurface 的 .tray 只圆上两角），
