@@ -3524,7 +3524,10 @@ struct AIChatView: View {
     ///   · 语音面板里 → 键盘图标（切回文字）
     /// 图标之间交叉淡入淡出，位置不动，所以不会「一大两小」地跳。
     private var morphButton: some View {
-        let hasContent = canSend || canEnqueue
+        // [T-no-provider-mute] 键的样子跟着「有没有内容」走，不跟着「能不能发」
+        // 走：没配模型时输入了字也该变成发送箭头，点下去给提示，而不是继续
+        // 显示话筒又灰着点不动。
+        let hasContent = hasDraftContent || canEnqueue
         let showingStop = vm.isProcessing && !canEnqueue
         let tint: Color = showingStop
             ? Color.white
@@ -3552,6 +3555,10 @@ struct AIChatView: View {
                 performEnqueue()
             } else if canSend {
                 performSend()
+            } else if hasContent {
+                // [T-no-provider-mute] 有东西要发、但没有能用的模型：说一句人话，
+                // 然后把设置递到她手上。不静默、不装作按了没反应。
+                notifyNoUsableModel()
             } else {
                 vm.voiceUsedInComposition = true
                 VoiceModePreference.shared.enteredFromText = true
@@ -3585,7 +3592,9 @@ struct AIChatView: View {
             .animation(.spring(response: 0.26, dampingFraction: 0.82), value: glyph)
         }
         .buttonStyle(MorphPressStyle())
-        .disabled(!voiceInputActive && !hasContent && !showingStop && !vm.isReady)
+        // [T-no-provider-mute] 只有「真的没什么可点」才灰：空输入点了进语音面板，
+        // 有内容点了就发或给提示，两件都是这件事，跟模型配没配无关。
+        .disabled(!voiceInputActive && !hasContent && !showingStop)
         .accessibilityLabel(Text(voiceInputActive ? "切回文字输入" : (hasContent ? "发送" : (showingStop ? "停止生成" : "语音输入"))))
     }
 
@@ -3961,6 +3970,9 @@ struct AIChatView: View {
         if vm.showSlashMenu && vm.executeSelectedSlashCommand() { return }
         if canEnqueue { performEnqueue() }
         else if canSend { performSend() }
+        // [T-no-provider-mute] 有内容、没模型：回车也要给同一句提示。
+        // 以前这里两条分支都假，回车就这么无声无息地什么也没发生。
+        else if hasDraftContent { notifyNoUsableModel() }
     }
 
     private func handleArrowUp() -> Bool {
@@ -4402,6 +4414,9 @@ struct AIChatView: View {
                                     performEnqueue()
                                 } else if canSend {
                                     performSend()
+                                } else if hasDraftContent {
+                                    // [T-no-provider-mute] 上滑发送同样不能静默。
+                                    notifyNoUsableModel()
                                 }
                             }
                             withAnimation(.easeOut(duration: 0.18)) {
@@ -4956,14 +4971,19 @@ struct AIChatView: View {
     }
 
     private var canSend: Bool {
+        vm.isReady && !vm.hasLoadingAttachments && hasDraftContent
+    }
+
+    /// [T-no-provider-mute] 输入栏里有没有「值得发出去的东西」，**不看**模型
+    /// 配没配。以前这个判断塞在 `canSend` 里，没启用任何 provider 时它恒为
+    /// 假：输入框里明明写着字，形态键还是话筒、还灰着点不动，回车和上滑
+    /// 发送两条路也全静默——新装第一次就撞这堵墙，而且一句提示都没有。
+    /// 现在内容判断独立出来，能不能发由 `canSend` 叠加 readiness，点下去
+    /// 没模型时走提示，不再是死键。
+    private var hasDraftContent: Bool {
         let hasText = !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let ready = vm.isReady
-        // [T-ios-photo-pick-placeholder] Block sending while any picked photo is
-        // still loading. Only count `.ready` attachments as sendable content, so
-        // a composer holding ONLY failed/loading chips (and no text) can't send.
         let hasReadyAttachment = vm.attachments.contains { $0.loadState == .ready }
-        let hasPendingSticker = vm.pendingSticker != nil
-        return ready && !vm.hasLoadingAttachments && (hasText || hasReadyAttachment || hasPendingSticker)
+        return hasText || hasReadyAttachment || vm.pendingSticker != nil
     }
 
     private var canEnqueue: Bool {
@@ -5022,6 +5042,18 @@ struct AIChatView: View {
         if voiceInputActive {
             voiceVM.clearAndRearm()
         }
+    }
+
+    /// [T-no-provider-mute] 一句人话 + 把设置递过去。
+    /// 这里只说「没有能用的模型」，不报错、不说教，也不假装刚才是按键失灵。
+    private func notifyNoUsableModel() {
+        // 已经配了模型却没发出去，不是这件事（那是图片还在加载之类），不抢话。
+        guard !vm.isReady else { return }
+        MinisToast.show(
+            AppLocalized("还没有可用的模型，先去设置里配一个"),
+            systemImage: "exclamationmark.triangle.fill"
+        )
+        DeepLinkCoordinator.shared.pendingSettingsTarget = .providers
     }
 
     /// Dismiss keyboard (commit dictation/marked text) before sending.

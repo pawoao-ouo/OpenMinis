@@ -147436,6 +147436,23 @@
         }
       }
     }
+,
+    "还没有可用的模型，先去设置里配一个": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No model is set up yet — add one in Settings first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有可用的模型，先去设置里配一个"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }
