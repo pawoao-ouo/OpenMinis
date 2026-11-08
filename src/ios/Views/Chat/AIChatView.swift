@@ -96,13 +96,11 @@ enum ChatColors {
     /// 的图和字直接透出来，整条栏看着脏，键也像飘在内容上。
     ///
     /// 成熟产品的输入栏都是实心的：内容滚到它下面就被挡住。所以这里只让主题
-    /// 决定「什么颜色」，不再让它决定「透多少」——最低 0.94，她本来调得更高
-    /// 就照她的来。
-    /// [T-composer-upstream] 醒醒要它跟着 CSS 全局变量走、透明度可调，所以
-    /// 只取主题的 field 色，透明度老老实实交给 surfaceOpacity；底下再加一层
-    /// 材质垫着，调低也不会透出乱七八糟的内容。
+    /// 决定「什么颜色」，不再让它决定「透多少」—— 最低 0.94，她本来调得更高
+    /// 就照她的来（0.94 是还看得出一丝层次、又不透字的极限）。
     static var inputBarSolid: Color {
-        inputBg
+        studio.color(.field, scope: ThemeColorLayer.chat)
+            .opacity(max(studio.surfaceOpacity, 0.94))
     }
     static var inputBorder: Color { studio.color(.border, scope: ThemeColorLayer.chat) }
     static var primaryText: Color { studio.color(.primaryText, scope: ThemeColorLayer.chat) }
