@@ -354,7 +354,8 @@ struct AIChatView: View {
     @ObservedObject private var togetherPlayer = TogetherPlayer.shared
     /// 小胶囊开关跟着 state 走，不然在面板里关掉了主界面不知道。
     @ObservedObject private var togetherHub = TogetherStateHub.shared
-    @State private var showPlusPanel = false
+    /// 加号的原生小抽屉（[T-composer-oneshot]）。
+    @State private var showPlusSheet = false
     @State private var showStickerPanel = false
     /// [K-2] The tile the user tapped, while the drawer is still animating out
     /// and the sheet has not been asked for yet. Non-nil = a tap is in flight,
@@ -662,13 +663,12 @@ struct AIChatView: View {
                                     else if vm.showMentionMenu { vm.dismissMentionMenu() }
                                 }
                         }
-                        if showPlusPanel || showStickerPanel {
+                        if showStickerPanel {
                             Color.clear
                                 .contentShape(Rectangle())
                                 .padding(.bottom, inputBarHeight)
                                 .onTapGesture {
                                     withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
-                                        showPlusPanel = false
                                         showStickerPanel = false
                                     }
                                 }
@@ -990,12 +990,11 @@ struct AIChatView: View {
             showMoveToSheet = true
         }
         .onChange(of: inputFocused) { focused in
-            if focused && (showPlusPanel || showStickerPanel) {
+            if focused && showStickerPanel {
                 // [T-inputbar-stretch] Drawer down while the keyboard rises.
                 // Collapse without animation first so only the keyboard is
                 // moving the bottom inset; the two-driver race is what made
                 // the composer stretch on the way in.
-                showPlusPanel = false
                 showStickerPanel = false
             }
         }
@@ -1005,7 +1004,7 @@ struct AIChatView: View {
         // immediately instead of waiting for a foreground round trip — the
         // previous self-heal only ran on `scenePhase == .active`, which is why
         // a stretched bar survived until the user left the app.
-        .onChange(of: showPlusPanel) { _ in reseedInputBarHeight() }
+        .onChange(of: showPlusSheet) { _ in reseedInputBarHeight() }
         .onChange(of: showStickerPanel) { _ in reseedInputBarHeight() }
         .alert(AppLocalized("Compact Above"), isPresented: Binding(
             get: { compactConfirmMessageId != nil },
@@ -1236,6 +1235,48 @@ struct AIChatView: View {
         }
         .sheet(isPresented: $showVoiceSettingsSheet) {
             ChatVoiceSettingsSheet(vm: vm)
+        }
+        // [T-composer-oneshot] 加号的原生小抽屉：系统 sheet + medium 档，
+        // 跟 thinking 档位那张一模一样的手感（grabber、圆角、下拉关闭、压暗背景）。
+        .sheet(isPresented: $showPlusSheet) {
+            ComposerActionSheet(
+                memoryEnabled: vm.memoryEnabled,
+                sessionId: vm.sessionId,
+                onItemTap: { item in
+                    showPlusSheet = false
+                    // 等 sheet 收完再动作，否则同帧弹另一个 sheet 会被系统丢掉。
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.drawerExitLead) {
+                        performPlusPanelAction(item)
+                    }
+                },
+                onSetMemory: { enabled in vm.setMemoryWrites(enabled) },
+                onToggleSkill: { skillId, enabled in
+                    if let sid = vm.sessionId {
+                        SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
+                    } else {
+                        Task {
+                            let sid = await vm.ensureSessionReturningId()
+                            await MainActor.run {
+                                SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
+                            }
+                        }
+                    }
+                },
+                onToggleConnector: { serverId, enabled in
+                    if let sid = vm.sessionId {
+                        MCPStore.shared.setSessionOverride(serverId: serverId, sessionId: sid, enabled: enabled)
+                    } else {
+                        Task {
+                            let sid = await vm.ensureSessionReturningId()
+                            await MainActor.run {
+                                MCPStore.shared.setSessionOverride(serverId: serverId, sessionId: sid, enabled: enabled)
+                            }
+                        }
+                    }
+                }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showKernelLogs) {
             // [P-05] 内核启动失败时用户要能看到真实报错，不是只有一行红字。
@@ -2105,7 +2146,6 @@ struct AIChatView: View {
 
         if item != .sticker {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                showPlusPanel = false
                 showStickerPanel = false
             }
         }
@@ -2142,7 +2182,6 @@ struct AIChatView: View {
             showDocumentPicker = true
         case .sticker:
             withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
-                showPlusPanel = false
                 showStickerPanel = true
             }
         case .voice:
@@ -3036,7 +3075,7 @@ struct AIChatView: View {
     private var floatingComposerButtons: some View {
         // [T-composer-rebuild] 抽屉/语音面板打开时收起这两颗：成熟产品的
         // 输入栏一旦被下面的托盘顶上来，浮在半空的滚动键只会挡视线。
-        let trayOpen = showPlusPanel || showStickerPanel
+        let trayOpen = showStickerPanel
         let showScroll = !vm.messages.isEmpty && !vm.isNearBottom
             && !trayOpen && !voiceInputActive
         // 没有任何键要画时，这一行必须是零高度——否则它会在胶囊和输入栏
@@ -3386,95 +3425,39 @@ struct AIChatView: View {
         }
     }
 
-    /// 加号展开按钮（收纳所有功能为宫格抽屉，实体可爱图标 + CSS全局变量驱动）
-    /// 加号键：拉开「添加到对话」清单；清单开着时再点是收起。
-    /// 表情宫格开着时点它是「换成清单」，不是一起关掉——用户想换面板，
-    /// 不该先合上再点第二下。
+    /// 加号键：弹一张系统原生的小抽屉（和 thinking 档位那种一样）。
+    ///
+    /// [T-composer-oneshot] 她要的是「+ 点出来是 iOS 手机原生小抽屉」，不是
+    /// 自己从输入栏底下吸一块板子上来。原生 sheet 自带 grabber、圆角、下拉
+    /// 关闭和背景压暗，跟着系统的语言和暗色走，不用我们手动对齐任何一层。
     @ViewBuilder
     private var attachmentMenuButton: some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            if showPlusPanel {
-                closeComposerTray(focusKeyboard: true)
+            // 键盘先降，再弹；同帧开始会让输入栏被拉一下。
+            let wasEditing = inputFocused
+            inputFocused = false
+            let open = { showPlusSheet = true }
+            if wasEditing {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardDismissLead, execute: open)
             } else {
-                // [T-inputbar-stretch] 键盘先降完再抬抽屉：两个都在动底部
-                // 安全区，同帧开始会让输入栏在两种高度之间被拉一下。
-                let wasEditing = inputFocused
-                inputFocused = false
-                let open = {
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
-                        showPlusPanel = true
-                        showStickerPanel = false
-                    }
-                }
-                if wasEditing && !showStickerPanel {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardDismissLead, execute: open)
-                } else {
-                    open()
-                }
+                open()
             }
         } label: {
             Image(systemName: "plus")
-                .font(ChatFont.font(20, weight: .regular))
-                .foregroundStyle(showPlusPanel ? ChatColors.accent : ChatColors.secondaryText)
-                .rotationEffect(.degrees(showPlusPanel ? 45 : 0))
-                .frame(width: 36, height: 36)
+                .font(ChatFont.font(19, weight: .medium))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
+                .frame(width: 38, height: 38)
+                .background(Circle().fill(ChatColors.inputIconBg))
                 .contentShape(Circle())
-                .animation(.spring(response: 0.3, dampingFraction: 0.82), value: showPlusPanel)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(showPlusPanel ? AppLocalized("收起面板并输入") : AppLocalized("添加到对话")))
+        .accessibilityLabel(Text(AppLocalized("添加到对话")))
     }
 
-    /// 底部抽屉面板区域：加号＝「添加到对话」清单，表情键＝表情宫格。
-    /// 两个都从输入栏下面吸出来（转场一致），并且互斥，绝不同时叠两层。
+    /// 底部托盘：只剩表情宫格。加号已改走原生 sheet（[T-composer-oneshot]）。
     private var bottomDrawerSection: AnyView {
-        if showPlusPanel {
-            let panel = ChatPlusPanel(
-                currentModelName: (vm.resolveCurrentEntry()?.model ?? vm.selectedModel).displayName,
-                memoryEnabled: vm.memoryEnabled,
-                sessionId: vm.sessionId,
-                onItemTap: { item in handlePlusPanelAction(item) },
-                onInsertSlash: { token in
-                    closeComposerTray(focusKeyboard: false)
-                    vm.insertSlashToken(token)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.drawerExitLead) {
-                        inputFocused = true
-                    }
-                },
-                onSetMemory: { enabled in
-                    // 和斜杠 /memory 走同一方法：改状态 + 落库 + 留一条系统提示。
-                    vm.setMemoryWrites(enabled)
-                },
-                onToggleSkill: { skillId, enabled in
-                    // draft 会话先落成真会话，再写会话级覆盖（Skills/MCPs 页同一条路）。
-                    if let sid = vm.sessionId {
-                        SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
-                    } else {
-                        Task {
-                            let sid = await vm.ensureSessionReturningId()
-                            await MainActor.run {
-                                SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
-                            }
-                        }
-                    }
-                },
-                onToggleConnector: { serverId, enabled in
-                    if let sid = vm.sessionId {
-                        MCPStore.shared.setSessionOverride(serverId: serverId, sessionId: sid, enabled: enabled)
-                    } else {
-                        Task {
-                            let sid = await vm.ensureSessionReturningId()
-                            await MainActor.run {
-                                MCPStore.shared.setSessionOverride(serverId: serverId, sessionId: sid, enabled: enabled)
-                            }
-                        }
-                    }
-                },
-                onClose: { closeComposerTray(focusKeyboard: true) }
-            )
-            return AnyView(panel)
-        } else if showStickerPanel {
+        if showStickerPanel {
             let panel = ChatStickerPanel(
                 vm: vm,
                 onClose: { closeComposerTray(focusKeyboard: true) },
@@ -3482,7 +3465,6 @@ struct AIChatView: View {
                     vm.pendingSticker = sticker
                     withAnimation(.easeOut(duration: 0.2)) {
                         showStickerPanel = false
-                        showPlusPanel = false
                     }
                     inputFocused = true
                 }
@@ -3496,35 +3478,20 @@ struct AIChatView: View {
     /// [Single-Line WeChat Style] 微信式单行聊天输入条：左加号、中输入框、右语音与发送
     /// AnyView-erased 防止输入条复杂组件加深 inputBar 泛型深度导致栈溢出 (crash 2026-04-17 / 2026-10-12)
     private var singleLineInputRow: AnyView {
-        // [T-composer-upstream] 抄上游 OpenMinis 的骨架：文字在上面独占整宽，
-        // 键在下面一行左右分家。
+        // [T-composer-oneshot] 照她给的稿子：一整条圆角胶囊，四件并排——
+        //   +   输入框自适应   表情   黑色圆键（空=语音 / 有字=发送 / 跑着=停止）
         //
-        //   [ 输入框满宽 ]
-        //   +  表情包                话筒  发送
-        //
-        // 我们原来把四件套（+/输入框/表情/形态键）平铺在一条里，输入框只有
-        // 中间一小段，字一长就被两边挤；而且话筒和发送共用一个键，想发的时候
-        // 得先等它变形状。上游这样一分开，输入区是最宽的那块，两个键各管一件事。
-        let stack = VStack(spacing: 0) {
-            inputFieldOrWaveform
-
-            inputBottomRow
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
-        }
-        return AnyView(stack)
-    }
-
-    /// 底栏按钮：左加号、左二表情，右边话筒和发送。
-    /// 尺寸固定 36，跟输入框上下留白对齐，涨行时只有输入框变高。
-    private var inputBottomRow: some View {
-        HStack(spacing: 12) {
+        // 上一版把文字放上面、键放下面一行，那是上游的骨架，但她要的是这种
+        // 单行胶囊：一条就够，键永远在同一个高度上，打字时只有输入框变高，
+        // 按钮不会跟着上下跳。
+        let row = HStack(alignment: .center, spacing: 6) {
             attachmentMenuButton
+            inputFieldOrWaveform
             stickerTrayButton
-            Spacer(minLength: 8)
-            micButton
-            sendButton
+            voiceSendButton
         }
+        .padding(6)
+        return AnyView(row)
     }
 
     // MARK: - [T-composer-four] 表情键与形态键
@@ -3539,7 +3506,6 @@ struct AIChatView: View {
             } else {
                 inputFocused = false
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
-                    showPlusPanel = false
                     showStickerPanel = true
                 }
             }
@@ -3547,7 +3513,8 @@ struct AIChatView: View {
             Image(systemName: showStickerPanel ? "face.smiling.inverse" : "face.smiling")
                 .font(ChatFont.font(19, weight: .regular))
                 .foregroundStyle(showStickerPanel ? ChatColors.accent : ChatColors.secondaryText)
-                .frame(width: 36, height: 36)
+                .frame(width: 38, height: 38)
+                .background(Circle().fill(ChatColors.inputIconBg))
                 .contentShape(Circle())
                 .scaleEffect(showStickerPanel ? 1.02 : 1)
         }
@@ -3555,57 +3522,26 @@ struct AIChatView: View {
         .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
     }
 
-    /// 话筒键：只做一件事——开语音面板 / 切回文字。
-    /// [T-composer-upstream] 上游把话筒和发送拆开后，这个键的状态机没了，
-    /// 它永远是一颗稳定的话筒（语音面板里变成键盘），点下去不会有「本来是
-    /// 发送怎么突然进语音」的意外。
-    private var micButton: some View {
-        let glyph = voiceInputActive ? "keyboard" : "mic"
-        return Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            if voiceInputActive {
-                voiceVM.reset(clearTranscript: false)
-                withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = false }
-            } else {
-                // [T-voice-closes-drawer] 进语音前先把抽屉收掉：抽屉是从输入条
-                // 底下吸出来的，语音面板一换上去它俩会叠在一起。
-                if showPlusPanel || showStickerPanel {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                        showPlusPanel = false
-                        showStickerPanel = false
-                    }
-                }
-                vm.voiceUsedInComposition = true
-                VoiceModePreference.shared.enteredFromText = true
-                withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
-            }
-        } label: {
-            Image(systemName: glyph)
-                .font(ChatFont.font(voiceInputActive ? 16 : 18, weight: .medium))
-                .foregroundStyle(ChatColors.secondaryText)
-                .frame(width: 36, height: 36)
-                .background(ChatColors.inputIconBg)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(voiceInputActive ? AppLocalized("切回文字输入") : AppLocalized("语音输入")))
-    }
-
-    /// 发送键：空输入是灰底、不可点；有内容是实心强调色箭头；跑着时是停止。
-    /// [T-composer-upstream] 上游的发送键永远在同一个位置、同一个形状，只有
-    /// 底色和图标变——用户不用等它「变形」才敢按。
-    private var sendButton: some View {
+    /// 黑色圆键：一颗键管三件事，跟稿子一致。
+    ///   · 空输入 → 声波（进语音面板）
+    ///   · 有字   → 箭头（发送）
+    ///   · 跑着   → 方块（停止）
+    /// [T-composer-oneshot] 她给的稿子里右侧是一颗黑色实心圆，不是两个键并排。
+    /// 一颗键的三种状态各有各的图标和颜色，点下去永远有回应；位置永远不动，
+    /// 所以不存在「按钮飞出去」。
+    private var voiceSendButton: some View {
         let hasContent = hasDraftContent || canEnqueue
         let showingStop = vm.isProcessing && !canEnqueue
-        let fill: Color = showingStop
+        let recording = speechManager.state == .recording
+        // 跑着是红、录音是红、平时是黑。黑色圆键是这颗键的常态。
+        // 常态是主题的主文字色当底（稿子里那颗黑圆就是这么来的），
+        // 前景用背景色反白：主题换成浅色底也不会糊成一片。
+        let fill: Color = (showingStop || recording)
             ? ChatColors.destructive
-            : (hasContent ? ChatColors.sendButton : ChatColors.sendButtonDisabled)
-        let tint: Color = showingStop
-            ? Color.white
-            : (hasContent ? CSSThemeVariables.accentFg() : Color.white)
-        let glyph = showingStop ? "stop.fill" : "arrow.up"
+            : CSSThemeVariables.textMain(scope: ThemeColorLayer.chat)
+        let glyph: String? = showingStop
+            ? "stop.fill"
+            : (hasContent ? "arrow.up" : nil)
 
         return Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -3617,32 +3553,50 @@ struct AIChatView: View {
                 performSend()
             } else if hasContent {
                 notifyNoUsableModel()
+            } else {
+                // 空输入：进语音面板。先收抽屉，别让两层叠在一起。
+                if showStickerPanel {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        showStickerPanel = false
+                    }
+                }
+                vm.voiceUsedInComposition = true
+                VoiceModePreference.shared.enteredFromText = true
+                withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
             }
         } label: {
             ZStack {
                 Circle().fill(fill)
-                // [T-morph-flyaway] 只换图标，不加任何符号替换特效：那层由系统
-                // 单独绘制、落点是创建时的窗口坐标，发送瞬间键盘下沉就把它留在
-                // 半空——「键飞出去」就是这么来的。
-                Image(systemName: glyph)
-                    .font(ChatFont.font(17, weight: .semibold))
-                    .foregroundStyle(tint)
+                if let glyph {
+                    // [T-morph-flyaway] 只换图标，不加符号替换特效：那层由系统
+                    // 单独绘制、落点在创建时的窗口坐标，键盘一沉就留在半空。
+                    Image(systemName: glyph)
+                        .font(ChatFont.font(17, weight: .semibold))
+                        .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                } else {
+                    // 声波：五根竖条，跟稿子一样手画，不依赖 SF Symbol 的版本。
+                    HStack(spacing: 2.6) {
+                        ForEach(Array([6.0, 12.0, 17.0, 10.0, 5.0].enumerated()), id: \.offset) { _, h in
+                            Capsule()
+                                .fill(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                                .frame(width: 2.6, height: h)
+                        }
+                    }
+                }
             }
-            .frame(width: 36, height: 36)
+            .frame(width: 40, height: 40)
             .contentShape(Circle())
         }
         .buttonStyle(MorphPressStyle())
-        // 空输入时不可点，但没有内容就没有损失；有内容一定可点，哪怕没模型
-        // 也会给一句人话（[T-no-provider-mute]）。
-        .disabled(!hasContent && !showingStop)
-        .accessibilityLabel(Text(showingStop ? AppLocalized("停止生成") : AppLocalized("发送")))
+        .accessibilityLabel(Text(showingStop
+            ? AppLocalized("停止生成")
+            : (hasContent ? AppLocalized("发送") : AppLocalized("语音输入"))))
     }
 
     /// 收起底部托盘；`focusKeyboard` 为真时把键盘叫回来。
     private func closeComposerTray(focusKeyboard: Bool) {
         withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
             showStickerPanel = false
-            showPlusPanel = false
         }
         guard focusKeyboard else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardDismissLead) {
@@ -3794,7 +3748,7 @@ struct AIChatView: View {
     private var inputFieldOrWaveform: AnyView {
         // [T-composer-upstream] 单行 52 高（16 上 + 20 字 + 8 下 + 键行），
         // 跟上游一致：输入区在上面独占整宽，键在下面一行。
-        let topPadding: CGFloat = (vm.attachments.isEmpty && vm.loadingVideoCount == 0) ? 12 : 8
+        let topPadding: CGFloat = (vm.attachments.isEmpty && vm.loadingVideoCount == 0) ? 4 : 6
         if voiceInputActive {
             return AnyView(
                 // [voice-correction §6] Recent conversation turns, straight from the
@@ -3912,9 +3866,11 @@ struct AIChatView: View {
                 field.fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, topPadding)
-        .padding(.bottom, 8)
+        // [T-composer-oneshot] 单行胶囊里，文字上下不再各留 12/8：那一圈
+        // 由外层 6pt 的 padding 统一给，输入框只留左右 4，文字才落在胶囊
+        // 的垂直中线上（不然一行字看着比两边的键高半格）。
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
         // [T-composer-rebuild] 输入框本体不再嵌第二颗胶囊。以前外面是输入条、
         // 里面再套一颗 18 圆角的小胶囊，两层半透明叠在一起：底色加深一道，
         // 消息内容从两层里各透一次，看着又脏又挤，像「方框套方框」。
@@ -4075,13 +4031,13 @@ struct AIChatView: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             guard !voiceInputActive, speechManager.state != .recording else { return }
-                            if showPlusPanel || showStickerPanel { return }
+                            if showStickerPanel { return }
                             inputFocused = true
                         }
                 }
                 // 输入条本身是一颗胖胶囊：四角全圆，左右留 8、离底留 6，
                 // 浮在消息上面。托盘出现时它还是浮着，托盘从它下面滑出来。
-                .modifier(ComposerSurface(style: (showPlusPanel || showStickerPanel) ? .barAttached : .bar))
+                .modifier(ComposerSurface(style: showStickerPanel ? .barAttached : .bar))
                 // [T-composer-upstream] 左右 12、离底 8，跟上游一致。原来左右 8
                 // 让整条栏贴到屏幕边上，键看着要「掉出去」；12 是上游定的呼吸量。
                 .padding(.horizontal, 12)
@@ -4091,12 +4047,14 @@ struct AIChatView: View {
                 // 底下吸出来的，中间留 6pt 就把消息区那条渐变背景露出来，
                 // 看着就是「抽屉和输入条之间有一条缝」。收成 0 之后输入条的
                 // 圆角直接压在托盘的 fill 上（两边同一块 inputBg），接成一整块。
-                .padding(.bottom, (showPlusPanel || showStickerPanel) ? 0 : 8)
+                .padding(.bottom, showStickerPanel ? 0 : 8)
 
                 // 底部抽屉：加号清单 / 表情宫格。贴底满宽，底边一路铺到
                 // 屏幕物理底（ComposerSurface 的 .tray 只圆上两角），
                 // 所以不管开哪一个，下面都不会漏出一条壁纸。
-                if showPlusPanel || showStickerPanel {
+                // [T-composer-oneshot] 加号改走原生 sheet（见 .sheet 挂载处），
+                // 输入条下面只剩表情宫格这一块托盘。
+                if showStickerPanel {
                     bottomDrawerSection
                         .modifier(ComposerSurface(style: .tray))
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -4308,7 +4266,7 @@ struct AIChatView: View {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 20, coordinateSpace: .local)
                     .onChanged { value in
-                        guard !showPlusPanel && !showStickerPanel else {
+                        guard !showStickerPanel else {
                             sendSwipeAnchor = nil
                             return
                         }
@@ -4369,7 +4327,7 @@ struct AIChatView: View {
                         sendSwipeLocation = value.location
                     }
                     .onEnded { value in
-                        guard !showPlusPanel && !showStickerPanel else {
+                        guard !showStickerPanel else {
                             sendSwipeProgress = 0
                             return
                         }
@@ -5034,9 +4992,8 @@ struct AIChatView: View {
 
     private func performEnqueue() {
         // 托盘开着就一起收：入队之后键盘要降，抽屉挂在上面只会挡住刚出现的那条。
-        if showPlusPanel || showStickerPanel {
+        if showStickerPanel {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                showPlusPanel = false
                 showStickerPanel = false
             }
         }
@@ -5093,9 +5050,8 @@ struct AIChatView: View {
         // composer, so there is no mixed state to arbitrate).
         let isVoiceOrigin = voiceInputActive && vm.inputText == voiceVM.transcript
         // 托盘开着时先收，再走原来的发/入队判定。
-        if showPlusPanel || showStickerPanel {
+        if showStickerPanel {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                showPlusPanel = false
                 showStickerPanel = false
             }
         }
