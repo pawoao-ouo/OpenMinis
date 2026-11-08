@@ -89,6 +89,19 @@ enum ChatColors {
     static var inputBg: Color {
         studio.color(.field, scope: ThemeColorLayer.chat).opacity(studio.surfaceOpacity)
     }
+    /// [T-composer-rebuild] 输入栏实底。
+    ///
+    /// 输入栏是唯一一块「永远压着内容」的皮：消息、贴纸、头像都从它下面滚过去。
+    /// 以前它跟别的卡面一样吃 `surfaceOpacity`，她调低之后这层就变半透，底下
+    /// 的图和字直接透出来，整条栏看着脏，键也像飘在内容上。
+    ///
+    /// 成熟产品的输入栏都是实心的：内容滚到它下面就被挡住。所以这里只让主题
+    /// 决定「什么颜色」，不再让它决定「透多少」——最低 0.94，她本来调得更高
+    /// 就照她的来。
+    static var inputBarSolid: Color {
+        studio.color(.field, scope: ThemeColorLayer.chat)
+            .opacity(min(max(studio.surfaceOpacity, 0.94), 1))
+    }
     static var inputBorder: Color { studio.color(.border, scope: ThemeColorLayer.chat) }
     static var primaryText: Color { studio.color(.primaryText, scope: ThemeColorLayer.chat) }
     /// [bubble-grouping] My-bubble text only. Unset, it follows
@@ -211,10 +224,12 @@ struct AIChatView: View {
     /// composer has nothing to scroll.
     @State private var inputAtScrollBottom: Bool = true
     @State private var inputBarHeight: CGFloat = 0
+    /// [T-composer-single-anchor] 输入栏那一摞（浮窗键 + 一起听胶囊 + 输入栏）的实测高度。
+    /// 斜杠/提及弹窗只认这一个数字，不再三段相加。
+    @State private var composerStackHeight: CGFloat = 0
     /// [T-popup-covers-floatbtn] 悬浮键那一摞实测高度（回顶/到底/下载）。
     /// 它们住在输入栏上面、跟着输入栏一起动，斜杠弹窗的底边要一次让开
     /// 「输入栏 + 胶囊 + 这摞键」，否则弹窗上沿会盖住回顶/到底。
-    @State private var floatingButtonsHeight: CGFloat = 0
 
     /// 一起听胶囊占的高度：只一处定义，见 TogetherMiniBar.stackHeight（48 胶囊 + 2 间距）。
     private var showTogetherBar: Bool {
@@ -668,18 +683,6 @@ struct AIChatView: View {
                             // 没跟下去。放进同一个容器，布局自己保证它贴着输入栏，
                             // 键盘、托盘、胶囊怎么动都跟得住，不需要任何坐标。
                             floatingComposerButtons
-                                // [T-popup-covers-floatbtn] 量一下这摞悬浮键的真实高度。
-                                // 斜杠/提及弹窗的底边是按 inputBarHeight 算的，而悬浮键
-                                // 就住在输入栏上面、算在同一摞里——不把它加进去，弹窗上沿
-                                // 正好盖住回顶/到底那两颗键，点不着也看不见。
-                                // 零高度时（没有键要画）这里报 0，弹窗位置不受影响。
-                                .onGeometryChange(for: CGFloat.self) { proxy in
-                                    proxy.size.height
-                                } action: { h in
-                                    if abs(floatingButtonsHeight - h) > 0.5 {
-                                        floatingButtonsHeight = h
-                                    }
-                                }
                             if showTogetherBar {
                                 TogetherMiniBar(onOpen: { showTogether = true })
                                     // [T-capsule-retract-to-side] 收起时往侧边缩走再淡出，
@@ -693,13 +696,27 @@ struct AIChatView: View {
                             }
                             inputBar
                         }
+                        // [T-composer-single-anchor] 整摞只量一个高度。
+                        //
+                        // 原先弹窗底边是「输入栏 + 胶囊 + 悬浮键」三段 @State 加
+                        // 起来算出来的，三段各自测量、各自去抖，还各有自己的
+                        // 瞬态 0 —— 键盘一收、胶囊一收，三个数字不同步的那几帧，
+                        // 弹窗就落在中间悬着（她截到的「按钮飞出去」）。
+                        //
+                        // 现在只认这一摞的实际高度：一个数字、一次测量，任何
+                        // 成员变高变矮它自己就跟着变，不存在对不齐。
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.size.height
+                        } action: { h in
+                            guard h > 1 else { return }
+                            if abs(composerStackHeight - h) > 0.5 {
+                                composerStackHeight = h
+                            }
+                        }
                         // 胶囊出现/消失是滑入滑出，不是瞬移：斜杠弹窗跟着它一起平移，不跳变。
                         .animation(.spring(response: 0.44, dampingFraction: 0.88, blendDuration: 0.1), value: showTogetherBar)
                         inputPopupOverlay
-                            // [T-popup-covers-floatbtn] 弹窗底边要让开三样：输入栏、
-                            // 一起听胶囊、以及那一摞悬浮键。以前只让了前两样，弹窗
-                            // 一出来上沿就压在回顶/到底上。
-                            .padding(.bottom, inputBarHeight + togetherBarInset + floatingButtonsHeight)
+                            .padding(.bottom, composerStackHeight)
                     }
                 }
                 .overlay {
@@ -3033,14 +3050,14 @@ struct AIChatView: View {
                     } label: {
                         scrollFloatingButtonLabel("arrow.up.to.line")
                     }
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .transition(.opacity)
                 }
                 Button {
                     vm.forceScrollToBottom.send()
                 } label: {
                     scrollFloatingButtonLabel("chevron.down")
                 }
-                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                .transition(.opacity)
             }
         }
         // [T-floatbtn-align] 悬浮键的右缘要跟输入栏胶囊的右缘对齐：胶囊是
@@ -3048,9 +3065,11 @@ struct AIChatView: View {
         // 键往中间缩了一截。现在是 0+8，正好压在同一条线上。
         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
         .padding(.horizontal, 8)
-        .padding(.bottom, showScroll ? 6 : 0)
-        .animation(.easeInOut(duration: 0.2), value: vm.isNearBottom)
-        .animation(.easeInOut(duration: 0.2), value: vm.isAtFirstTurn)
+        // [T-composer-rebuild] 底距固定 6，跟着「有没有键」变会让整摞高度
+        // 跳一下，输入栏跟着上下弹 6pt。有键没键都留这 6pt。
+        .padding(.bottom, 6)
+        .animation(.easeInOut(duration: 0.18), value: vm.isNearBottom)
+        .animation(.easeInOut(duration: 0.18), value: vm.isAtFirstTurn)
     }
 
     /// Shared label style for the floating scroll buttons (up / down), matching
@@ -3394,7 +3413,7 @@ struct AIChatView: View {
                 .font(ChatFont.font(20, weight: .regular))
                 .foregroundStyle(showPlusPanel ? ChatColors.accent : ChatColors.secondaryText)
                 .rotationEffect(.degrees(showPlusPanel ? 45 : 0))
-                .frame(width: 34, height: 34)
+                .frame(width: 36, height: 36)
                 .contentShape(Circle())
                 .animation(.spring(response: 0.3, dampingFraction: 0.82), value: showPlusPanel)
         }
@@ -3476,7 +3495,7 @@ struct AIChatView: View {
         // 语音/发送不再是并排两个圆，合并进 morphButton 同一个位置——那正是
         // 用户给的稿子里「打字时右边自己变成发送键」的意思，也顺带把输入框
         // 让回一个圆键的宽度。
-        let row = HStack(alignment: .center, spacing: 4) {
+        let row = HStack(alignment: .center, spacing: 6) {
             attachmentMenuButton
 
             // 输入框在底栏按钮之间自适应
@@ -3487,7 +3506,10 @@ struct AIChatView: View {
             morphButton
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 7)
+        // [T-composer-rebuild] 单行 48：36 的键 + 上下各 6。四件套等高同宽，
+        // 输入框涨行数时只有它变高，键始终钉在垂直中线——成熟产品都是这个
+        // 骨架，键不会随文字长短左右晃。
+        .padding(.vertical, 6)
         return AnyView(row)
     }
 
@@ -3511,7 +3533,7 @@ struct AIChatView: View {
             Image(systemName: showStickerPanel ? "face.smiling.inverse" : "face.smiling")
                 .font(ChatFont.font(19, weight: .regular))
                 .foregroundStyle(showStickerPanel ? ChatColors.accent : ChatColors.secondaryText)
-                .frame(width: 34, height: 34)
+                .frame(width: 36, height: 36)
                 .contentShape(Circle())
                 .scaleEffect(showStickerPanel ? 1.02 : 1)
         }
@@ -3598,7 +3620,7 @@ struct AIChatView: View {
                     .font(ChatFont.font(glyphSize, weight: .semibold))
                     .foregroundStyle(tint)
             }
-            .frame(width: 34, height: 34)
+            .frame(width: 36, height: 36)
             .contentShape(Circle())
             .animation(.spring(response: 0.26, dampingFraction: 0.82), value: glyph)
         }
@@ -3883,17 +3905,13 @@ struct AIChatView: View {
                 field.fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .frame(minHeight: 34, alignment: .center)
-        // 输入框本体再嵌一颗圆角小胶囊：里面是主题的输入底色，外面一圈是输入条
-        // 的卡面色，两层都是圆的，看起来才不是「一个方框套一个方框」。
-        // 用大圆角矩形而不是 Capsule：多行时 Capsule 会变成跑道形，
-        // 左右两端把字切掉；圆角矩形长高也只是更像一张小卡。
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(CSSThemeVariables.optionBg(scope: ThemeColorLayer.chat).opacity(0.55))
-        )
+        .padding(.horizontal, 4)
+        .padding(.vertical, 8)
+        .frame(minHeight: 36, alignment: .center)
+        // [T-composer-rebuild] 输入框本体不再嵌第二颗胶囊。以前外面是输入条、
+        // 里面再套一颗 18 圆角的小胶囊，两层半透明叠在一起：底色加深一道，
+        // 消息内容从两层里各透一次，看着又脏又挤，像「方框套方框」。
+        // 成熟产品的输入栏只有一层皮——整条就是那颗胶囊，文字直接坐在上面。
         .overlay(alignment: .top) {
             if composerResizeEnabled { composerResizeHandle }
         }
@@ -5219,7 +5237,7 @@ struct ComposerSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         let _ = appearanceStudio.themePackRevision
-        let fill = ChatColors.inputBg
+        let fill = ChatColors.inputBarSolid
         let overlay = Group {
             if let image = appearanceStudio.inputBarImage() {
                 Image(uiImage: image)
