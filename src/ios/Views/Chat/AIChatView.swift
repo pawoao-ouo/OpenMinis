@@ -3596,6 +3596,10 @@ struct AIChatView: View {
             showStickerPanel = false
         }
         guard focusKeyboard else { return }
+        // [T-tray-focus-voice] 语音面板开着的时候，文字输入框根本没挂载：
+        // 这时把 inputFocused 置真只是对着空气发一次请求，焦点不会回来，
+        // 键盘也不会弹。语音态该回到的是语音面板自己的状态，不是文字焦点。
+        guard !voiceInputActive, speechManager.state != .recording else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardDismissLead) {
             inputFocused = true
         }
