@@ -1238,46 +1238,7 @@ struct AIChatView: View {
         }
         // [T-composer-oneshot] 加号的原生小抽屉：系统 sheet + medium 档，
         // 跟 thinking 档位那张一模一样的手感（grabber、圆角、下拉关闭、压暗背景）。
-        .sheet(isPresented: $showPlusSheet) {
-            ComposerActionSheet(
-                memoryEnabled: vm.memoryEnabled,
-                sessionId: vm.sessionId,
-                onItemTap: { item in
-                    showPlusSheet = false
-                    // 等 sheet 收完再动作，否则同帧弹另一个 sheet 会被系统丢掉。
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.drawerExitLead) {
-                        performPlusPanelAction(item)
-                    }
-                },
-                onSetMemory: { enabled in vm.setMemoryWrites(enabled) },
-                onToggleSkill: { skillId, enabled in
-                    if let sid = vm.sessionId {
-                        SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
-                    } else {
-                        Task {
-                            let sid = await vm.ensureSessionReturningId()
-                            await MainActor.run {
-                                SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
-                            }
-                        }
-                    }
-                },
-                onToggleConnector: { serverId, enabled in
-                    if let sid = vm.sessionId {
-                        MCPStore.shared.setSessionOverride(serverId: serverId, sessionId: sid, enabled: enabled)
-                    } else {
-                        Task {
-                            let sid = await vm.ensureSessionReturningId()
-                            await MainActor.run {
-                                MCPStore.shared.setSessionOverride(serverId: serverId, sessionId: sid, enabled: enabled)
-                            }
-                        }
-                    }
-                }
-            )
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-        }
+        .sheet(isPresented: $showPlusSheet) { plusSheet }
         .sheet(isPresented: $showKernelLogs) {
             // [P-05] 内核启动失败时用户要能看到真实报错，不是只有一行红字。
             NavigationStack {
@@ -3971,6 +3932,52 @@ struct AIChatView: View {
 
     private func handleCaretChange(_ caret: Int) {
         vm.inputCaret = caret
+    }
+
+    /// 加号那张原生小抽屉的内容。[T-composer-oneshot]
+    /// 单独拎出来，不让 `body` 那条已经很长的手势/修饰链再长一截——
+    /// 上一版把它内联在里面，编译器直接判「类型检查超时」。
+    @ViewBuilder
+    private var plusSheet: some View {
+
+        ComposerActionSheet(
+            memoryEnabled: vm.memoryEnabled,
+            sessionId: vm.sessionId,
+            onItemTap: { item in
+                showPlusSheet = false
+                // 等 sheet 收完再动作，否则同帧弹另一个 sheet 会被系统丢掉。
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.drawerExitLead) {
+                    performPlusPanelAction(item)
+                }
+            },
+            onSetMemory: { enabled in vm.setMemoryWrites(enabled) },
+            onToggleSkill: { skillId, enabled in
+                if let sid = vm.sessionId {
+                    SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
+                } else {
+                    Task {
+                        let sid = await vm.ensureSessionReturningId()
+                        await MainActor.run {
+                            SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
+                        }
+                    }
+                }
+            },
+            onToggleConnector: { serverId, enabled in
+                if let sid = vm.sessionId {
+                    MCPStore.shared.setSessionOverride(serverId: serverId, sessionId: sid, enabled: enabled)
+                } else {
+                    Task {
+                        let sid = await vm.ensureSessionReturningId()
+                        await MainActor.run {
+                            MCPStore.shared.setSessionOverride(serverId: serverId, sessionId: sid, enabled: enabled)
+                        }
+                    }
+                }
+            }
+        )
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
     }
 
     private var inputBar: some View {
