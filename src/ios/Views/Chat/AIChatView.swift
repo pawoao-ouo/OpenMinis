@@ -227,9 +227,6 @@ struct AIChatView: View {
     /// [T-composer-single-anchor] 输入栏那一摞（浮窗键 + 一起听胶囊 + 输入栏）的实测高度。
     /// 斜杠/提及弹窗只认这一个数字，不再三段相加。
     @State private var composerStackHeight: CGFloat = 0
-    /// [T-popup-covers-floatbtn] 悬浮键那一摞实测高度（回顶/到底/下载）。
-    /// 它们住在输入栏上面、跟着输入栏一起动，斜杠弹窗的底边要一次让开
-    /// 「输入栏 + 胶囊 + 这摞键」，否则弹窗上沿会盖住回顶/到底。
 
     /// 一起听胶囊占的高度：只一处定义，见 TogetherMiniBar.stackHeight（48 胶囊 + 2 间距）。
     private var showTogetherBar: Bool {
@@ -3035,13 +3032,19 @@ struct AIChatView: View {
     /// 键盘收放、托盘展开、胶囊出现，整摞一起动，不存在"没跟住"。
     @ViewBuilder
     private var floatingComposerButtons: some View {
+        // [T-composer-rebuild] 抽屉/语音面板打开时收起这两颗：成熟产品的
+        // 输入栏一旦被下面的托盘顶上来，浮在半空的滚动键只会挡视线。
+        let trayOpen = showPlusPanel || showStickerPanel
         let showScroll = !vm.messages.isEmpty && !vm.isNearBottom
+            && !trayOpen && !voiceInputActive
         // 没有任何键要画时，这一行必须是零高度——否则它会在胶囊和输入栏
         // 之间凭空垫出一段空白。有内容时才留那 6pt 呼吸。
         VStack(spacing: 10) {
             // 下载键自己知道有没有记录（没有就什么都不画），跟滚动键同住一列。
-            BrowserDownloadFloatingButton(sessionId: vm.sessionId ?? "") {
-                showDownloadsPanel = true
+            if !trayOpen && !voiceInputActive {
+                BrowserDownloadFloatingButton(sessionId: vm.sessionId ?? "") {
+                    showDownloadsPanel = true
+                }
             }
             if showScroll {
                 if !vm.isAtFirstTurn {
