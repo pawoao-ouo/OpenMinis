@@ -3397,7 +3397,7 @@ struct AIChatView: View {
                 .animation(.spring(response: 0.3, dampingFraction: 0.82), value: showPlusPanel)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(showPlusPanel ? "收起面板并输入" : "添加到对话"))
+        .accessibilityLabel(Text(showPlusPanel ? AppLocalized("收起面板并输入") : AppLocalized("添加到对话")))
     }
 
     /// 底部抽屉面板区域：加号＝「添加到对话」清单，表情键＝表情宫格。
@@ -3514,7 +3514,7 @@ struct AIChatView: View {
                 .scaleEffect(showStickerPanel ? 1.02 : 1)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(showStickerPanel ? "收起表情" : "表情包"))
+        .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
     }
 
     /// 形态键：一个圆顶三态。
@@ -3595,7 +3595,7 @@ struct AIChatView: View {
         // [T-no-provider-mute] 只有「真的没什么可点」才灰：空输入点了进语音面板，
         // 有内容点了就发或给提示，两件都是这件事，跟模型配没配无关。
         .disabled(!voiceInputActive && !hasContent && !showingStop)
-        .accessibilityLabel(Text(voiceInputActive ? "切回文字输入" : (hasContent ? "发送" : (showingStop ? "停止生成" : "语音输入"))))
+        .accessibilityLabel(Text(voiceInputActive ? AppLocalized("切回文字输入") : (hasContent ? AppLocalized("发送") : (showingStop ? AppLocalized("停止生成") : AppLocalized("语音输入")))))
     }
 
     /// 收起底部托盘；`focusKeyboard` 为真时把键盘叫回来。
@@ -6575,7 +6575,7 @@ public struct ChatPlusPanel: View {
 
     private var headerRow: some View {
         ZStack {
-            Text(page == .root ? "添加到对话" : (page == .skills ? "技能" : "连接器"))
+            Text(page == .root ? AppLocalized("添加到对话") : (page == .skills ? AppLocalized("技能") : AppLocalized("连接器")))
                 .font(ChatFont.font(15, weight: .semibold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
             HStack {
@@ -6622,31 +6622,31 @@ public struct ChatPlusPanel: View {
             VStack(spacing: 0) {
                 memoryRow
                 rowDivider
-                navRow(title: "会话记忆", icon: "list.bullet.rectangle", value: nil) {
+                navRow(title: AppLocalized("会话记忆"), icon: "list.bullet.rectangle", value: nil) {
                     onItemTap(.memory)
                 }
                 rowDivider
-                navRow(title: "斜杠指令", icon: "slash.circle", value: nil) {
+                navRow(title: AppLocalized("斜杠指令"), icon: "slash.circle", value: nil) {
                     onItemTap(.slash)
                 }
                 rowDivider
-                navRow(title: "技能", icon: "puzzlepiece.extension", value: skillCountText) {
+                navRow(title: AppLocalized("技能"), icon: "puzzlepiece.extension", value: skillCountText) {
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { page = .skills }
                 }
                 rowDivider
-                navRow(title: "连接器", icon: "wrench.and.screwdriver", value: connectorCountText) {
+                navRow(title: AppLocalized("连接器"), icon: "wrench.and.screwdriver", value: connectorCountText) {
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { page = .connectors }
                 }
                 rowDivider
-                navRow(title: "模型切换", icon: "sparkles", value: currentModelName) {
+                navRow(title: AppLocalized("模型切换"), icon: "sparkles", value: currentModelName) {
                     onItemTap(.sparkles)
                 }
                 rowDivider
-                navRow(title: "一起听", icon: "headphones", value: nil) {
+                navRow(title: AppLocalized("一起听"), icon: "headphones", value: nil) {
                     onItemTap(.together)
                 }
                 rowDivider
-                navRow(title: "新建会话", icon: "square.and.pencil", value: nil) {
+                navRow(title: AppLocalized("新建会话"), icon: "square.and.pencil", value: nil) {
                     onItemTap(.newChat)
                 }
             }
@@ -6658,12 +6658,12 @@ public struct ChatPlusPanel: View {
 
     private var skillCountText: String {
         let n = visibleSkills.count
-        return n == 0 ? "无" : "\(n) 个"
+        return n == 0 ? AppLocalized("无") : AppLocalized("\(n) 个")
     }
 
     private var connectorCountText: String {
         let n = visibleConnectors.count
-        return n == 0 ? "无" : "\(n) 个"
+        return n == 0 ? AppLocalized("无") : AppLocalized("\(n) 个")
     }
 
     /// 已装的技能（会话里被关掉的不隐藏，只是标灰——列表空白比「关掉了」
@@ -6693,10 +6693,10 @@ public struct ChatPlusPanel: View {
     /// 顶上四件：只用小格子，不做大卡片。字 11pt，图标 20pt，高度 62。
     private var tileRow: some View {
         HStack(spacing: 12) {
-            tile(title: "相机", icon: "camera", action: { onItemTap(.camera) })
-            tile(title: "照片", icon: "photo", action: { onItemTap(.photo) })
-            tile(title: "文件", icon: "doc", action: { onItemTap(.doc) })
-            tile(title: "语音设置", icon: "waveform", action: { onItemTap(.voice) })
+            tile(title: AppLocalized("相机"), icon: "camera", action: { onItemTap(.camera) })
+            tile(title: AppLocalized("照片"), icon: "photo", action: { onItemTap(.photo) })
+            tile(title: AppLocalized("文件"), icon: "doc", action: { onItemTap(.doc) })
+            tile(title: AppLocalized("语音设置"), icon: "waveform", action: { onItemTap(.voice) })
         }
     }
 
@@ -6791,7 +6791,7 @@ public struct ChatPlusPanel: View {
                     Text("记忆")
                         .font(ChatFont.font(15, weight: .regular))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
-                    Text(memoryEnabled ? "会写入记忆 · 读取始终开着" : "不写入记忆 · 读取仍然开着")
+                    Text(memoryEnabled ? AppLocalized("会写入记忆 · 读取始终开着") : AppLocalized("不写入记忆 · 读取仍然开着"))
                         .font(ChatFont.font(11.5))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
                 }
@@ -6803,8 +6803,8 @@ public struct ChatPlusPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(DrawerRowStyle())
-        .accessibilityLabel(Text("记忆写入"))
-        .accessibilityValue(Text(memoryEnabled ? "开" : "关"))
+        .accessibilityLabel(Text(AppLocalized("记忆写入")))
+        .accessibilityValue(Text(memoryEnabled ? AppLocalized("开") : AppLocalized("关")))
     }
 
     /// 抽屉里的开关外观。真值由调用方给，点整行就翻，不用去戳那个小圆点。
@@ -6831,13 +6831,13 @@ public struct ChatPlusPanel: View {
             alignment: .leading,
             spacing: 8
         ) {
-            quickChip("压缩上下文", icon: "arrow.down.right.and.arrow.up.left", item: .compactHistory)
-            quickChip("清空对话", icon: "trash", item: .clearChat, destructive: true)
-            quickChip("导出会话", icon: "square.and.arrow.up", item: .share)
-            quickChip("Token 用量", icon: "gauge.with.needle", item: .gauge)
-            quickChip("终端", icon: "terminal", item: .terminal)
-            quickChip("浏览器", icon: "globe", item: .browser)
-            quickChip("会话文件", icon: "folder", item: .files)
+            quickChip(AppLocalized("压缩上下文"), icon: "arrow.down.right.and.arrow.up.left", item: .compactHistory)
+            quickChip(AppLocalized("清空对话"), icon: "trash", item: .clearChat, destructive: true)
+            quickChip(AppLocalized("导出会话"), icon: "square.and.arrow.up", item: .share)
+            quickChip(AppLocalized("Token 用量"), icon: "gauge.with.needle", item: .gauge)
+            quickChip(AppLocalized("终端"), icon: "terminal", item: .terminal)
+            quickChip(AppLocalized("浏览器"), icon: "globe", item: .browser)
+            quickChip(AppLocalized("会话文件"), icon: "folder", item: .files)
         }
     }
 
@@ -6892,7 +6892,7 @@ public struct ChatPlusPanel: View {
         return VStack(spacing: 14) {
             VStack(spacing: 0) {
                 if visibleSkills.isEmpty {
-                    emptyHint("还没有安装技能。装好之后这里会列出来，点一行就把 /名字 放进输入栏。")
+                    emptyHint(AppLocalized("还没有安装技能。装好之后这里会列出来，点一行就把 /名字 放进输入栏。"))
                 } else {
                     ForEach(Array(visibleSkills.enumerated()), id: \.element.id) { index, skill in
                         if index > 0 { rowDivider }
@@ -6909,7 +6909,7 @@ public struct ChatPlusPanel: View {
                 }
             }
             .background(cardFill)
-            navRow(title: "管理技能", icon: "slider.horizontal.3", value: nil) {
+            navRow(title: AppLocalized("管理技能"), icon: "slider.horizontal.3", value: nil) {
                 onItemTap(.skills)
             }
             .background(cardFill)
@@ -6922,7 +6922,7 @@ public struct ChatPlusPanel: View {
         return VStack(spacing: 14) {
             VStack(spacing: 0) {
                 if visibleConnectors.isEmpty {
-                    emptyHint("还没有配置连接器。在 设置 → MCP 里加一台，这里就会列出来。")
+                    emptyHint(AppLocalized("还没有配置连接器。在 设置 → MCP 里加一台，这里就会列出来。"))
                 } else {
                     ForEach(Array(visibleConnectors.enumerated()), id: \.element.id) { index, server in
                         if index > 0 { rowDivider }
@@ -6942,7 +6942,7 @@ public struct ChatPlusPanel: View {
                 }
             }
             .background(cardFill)
-            navRow(title: "管理连接器", icon: "slider.horizontal.3", value: nil) {
+            navRow(title: AppLocalized("管理连接器"), icon: "slider.horizontal.3", value: nil) {
                 onItemTap(.mcps)
             }
             .background(cardFill)
@@ -7019,7 +7019,7 @@ public struct ChatPlusPanel: View {
             }
             .buttonStyle(.plain)
             .padding(.trailing, 14)
-            .accessibilityLabel(Text(isOn ? "在本次对话中关闭 \(title)" : "在本次对话中开启 \(title)"))
+            .accessibilityLabel(Text(isOn ? AppLocalized("在本次对话中关闭 \(title)") : AppLocalized("在本次对话中开启 \(title)")))
         }
     }
 
@@ -7223,7 +7223,7 @@ struct ChatStickerPanel: View {
                             selectedStickerIds = allIds
                         }
                     } label: {
-                        Text(selectedStickerIds.count == currentStickers.count && !currentStickers.isEmpty ? "取消全选" : "全选")
+                        Text(selectedStickerIds.count == currentStickers.count && !currentStickers.isEmpty ? AppLocalized("取消全选") : AppLocalized("全选"))
                             .font(ChatFont.font(12, weight: .medium))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
@@ -7428,7 +7428,7 @@ struct ChatStickerPanel: View {
                                             .font(.system(size: 18, weight: .semibold))
                                             .foregroundStyle(CSSThemeVariables.accent())
                                     )
-                                Text("添加")
+                                Text(AppLocalized("添加"))
                                     .font(ChatFont.font(10.5))
                                     .foregroundStyle(CSSThemeVariables.textDim())
                             }
