@@ -291,16 +291,20 @@ struct InlineVoiceInputView: View {
         // corners in BOTH modes. Leading/trailing insets = 12 to line up with the
         // bottom toolbar's `+` and send buttons (inputBottomRow padding 12).
         .overlay(alignment: .topLeading) {
-            // [T-voice-exit] 两颗键都套 44 的命中框，看的还是 30 的圆：
-            // 左上角是折叠/展开，紧挨着是「回到键盘」。
-            HStack(spacing: 0) {
-                expandCollapseButton
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                exitVoiceButton
-            }
-            .padding(.top, 3)
-            .padding(.leading, 5)
+            expandCollapseButton
+                .padding(.top, 10)
+                .padding(.leading, 12)
+        }
+        // [T-voice-exit] 回键盘的键放在左下角。
+        //
+        // 不放左上：展开态第一行是转写文字，上面再压一颗不透明的圆就等于盖住
+        // 她的第一句话；展开态的高度是算出来的（expandedBaseHeight + 转写带），
+        // 再加一行 44 的头会把这块本来就嫌空的板子撑得更高。左下角两种模式下
+        // 都是空的（麦克风居中、模型片居中），拇指也够得到。
+        .overlay(alignment: .bottomLeading) {
+            exitVoiceButton
+                .padding(.bottom, 8)
+                .padding(.leading, 6)
         }
         .overlay(alignment: .topTrailing) {
             // [voice-correction, experimental] In DEBUG, this corner doubles as the

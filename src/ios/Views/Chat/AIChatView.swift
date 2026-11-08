@@ -3557,13 +3557,19 @@ struct AIChatView: View {
     /// 顺序有讲究：先停录音（不然麦克风还开着、说话继续进转写），再卸掉语音层，
     /// 焦点等文字框重新挂载之后再给 —— 立刻 request focus 会打在还没挂载的
     /// 输入框上，键盘不弹。
+    ///
+    /// 转写**不清**：她刚说出来的字得留在输入框里，让她能接着改再发。转写
+    /// 本来就在逐字镜像进 inputText（InlineVoiceInputView 的 onChange），所以
+    /// 只要不清空，退出来时输入框里就是那些字。
     private func exitVoiceToKeyboard() {
         if speechManager.state == .recording {
             speechManager.stopRecording()
         }
         speechManager.recognizedText = ""
         lastRecognizedLength = 0
-        voiceVM.clearAndRearm()
+        if voiceVM.isEditingTranscript {
+            voiceVM.endEditing(resume: false)
+        }
         withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = false }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             guard !voiceInputActive, !showStickerPanel else { return }
