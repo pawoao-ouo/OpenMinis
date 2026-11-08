@@ -98,9 +98,11 @@ enum ChatColors {
     /// 成熟产品的输入栏都是实心的：内容滚到它下面就被挡住。所以这里只让主题
     /// 决定「什么颜色」，不再让它决定「透多少」——最低 0.94，她本来调得更高
     /// 就照她的来。
+    /// [T-composer-upstream] 醒醒要它跟着 CSS 全局变量走、透明度可调，所以
+    /// 只取主题的 field 色，透明度老老实实交给 surfaceOpacity；底下再加一层
+    /// 材质垫着，调低也不会透出乱七八糟的内容。
     static var inputBarSolid: Color {
-        studio.color(.field, scope: ThemeColorLayer.chat)
-            .opacity(min(max(studio.surfaceOpacity, 0.94), 1))
+        inputBg
     }
     static var inputBorder: Color { studio.color(.border, scope: ThemeColorLayer.chat) }
     static var primaryText: Color { studio.color(.primaryText, scope: ThemeColorLayer.chat) }
@@ -3494,26 +3496,35 @@ struct AIChatView: View {
     /// [Single-Line WeChat Style] 微信式单行聊天输入条：左加号、中输入框、右语音与发送
     /// AnyView-erased 防止输入条复杂组件加深 inputBar 泛型深度导致栈溢出 (crash 2026-04-17 / 2026-10-12)
     private var singleLineInputRow: AnyView {
-        // [T-composer-four] 满宽一条，只留四件：加号、输入框、表情、形态键。
-        // 语音/发送不再是并排两个圆，合并进 morphButton 同一个位置——那正是
-        // 用户给的稿子里「打字时右边自己变成发送键」的意思，也顺带把输入框
-        // 让回一个圆键的宽度。
-        let row = HStack(alignment: .center, spacing: 6) {
-            attachmentMenuButton
-
-            // 输入框在底栏按钮之间自适应
+        // [T-composer-upstream] 抄上游 OpenMinis 的骨架：文字在上面独占整宽，
+        // 键在下面一行左右分家。
+        //
+        //   [ 输入框满宽 ]
+        //   +  表情包                话筒  发送
+        //
+        // 我们原来把四件套（+/输入框/表情/形态键）平铺在一条里，输入框只有
+        // 中间一小段，字一长就被两边挤；而且话筒和发送共用一个键，想发的时候
+        // 得先等它变形状。上游这样一分开，输入区是最宽的那块，两个键各管一件事。
+        let stack = VStack(spacing: 0) {
             inputFieldOrWaveform
 
-            stickerTrayButton
-
-            morphButton
+            inputBottomRow
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
         }
-        .padding(.horizontal, 8)
-        // [T-composer-rebuild] 单行 48：36 的键 + 上下各 6。四件套等高同宽，
-        // 输入框涨行数时只有它变高，键始终钉在垂直中线——成熟产品都是这个
-        // 骨架，键不会随文字长短左右晃。
-        .padding(.vertical, 6)
-        return AnyView(row)
+        return AnyView(stack)
+    }
+
+    /// 底栏按钮：左加号、左二表情，右边话筒和发送。
+    /// 尺寸固定 36，跟输入框上下留白对齐，涨行时只有输入框变高。
+    private var inputBottomRow: some View {
+        HStack(spacing: 12) {
+            attachmentMenuButton
+            stickerTrayButton
+            Spacer(minLength: 8)
+            micButton
+            sendButton
+        }
     }
 
     // MARK: - [T-composer-four] 表情键与形态键
@@ -3544,52 +3555,20 @@ struct AIChatView: View {
         .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
     }
 
-    /// 形态键：一个圆顶三态。
-    ///   · 空输入 → 话筒（进语音面板）
-    ///   · 有内容 → 发送箭头（跑着的时候是入队）
-    ///   · 跑着又没内容 → 停止
-    ///   · 语音面板里 → 键盘图标（切回文字）
-    /// 图标之间交叉淡入淡出，位置不动，所以不会「一大两小」地跳。
-    private var morphButton: some View {
-        // [T-no-provider-mute] 键的样子跟着「有没有内容」走，不跟着「能不能发」
-        // 走：没配模型时输入了字也该变成发送箭头，点下去给提示，而不是继续
-        // 显示话筒又灰着点不动。
-        let hasContent = hasDraftContent || canEnqueue
-        let showingStop = vm.isProcessing && !canEnqueue
-        let tint: Color = showingStop
-            ? Color.white
-            : (voiceInputActive
-               ? ChatColors.secondaryText
-               : (hasContent ? CSSThemeVariables.accentFg() : ChatColors.secondaryText))
-        let fill: Color = showingStop
-            ? ChatColors.destructive
-            : (voiceInputActive
-               ? ChatColors.inputIconBg
-               : (hasContent ? ChatColors.sendButton : ChatColors.inputIconBg))
-        let glyph: String = voiceInputActive
-            ? "keyboard"
-            : (hasContent ? "arrow.up" : (showingStop ? "stop.fill" : "mic"))
-        let glyphSize: CGFloat = voiceInputActive ? 16 : (hasContent || showingStop ? 17 : 18)
-
+    /// 话筒键：只做一件事——开语音面板 / 切回文字。
+    /// [T-composer-upstream] 上游把话筒和发送拆开后，这个键的状态机没了，
+    /// 它永远是一颗稳定的话筒（语音面板里变成键盘），点下去不会有「本来是
+    /// 发送怎么突然进语音」的意外。
+    private var micButton: some View {
+        let glyph = voiceInputActive ? "keyboard" : "mic"
         return Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             if voiceInputActive {
                 voiceVM.reset(clearTranscript: false)
                 withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = false }
-            } else if showingStop {
-                vm.cancel()
-            } else if canEnqueue {
-                performEnqueue()
-            } else if canSend {
-                performSend()
-            } else if hasContent {
-                // [T-no-provider-mute] 有东西要发、但没有能用的模型：说一句人话，
-                // 然后把设置递到她手上。不静默、不装作按了没反应。
-                notifyNoUsableModel()
             } else {
-                // [T-voice-closes-drawer] 进语音面板前先把抽屉收掉：抽屉是从
-                // 输入条底下吸出来的，语音面板一换上去它俩会叠在一起，没人
-                // 按得到抽屉上的关闭键。收得干脆，和加号键开抽屉那边对称。
+                // [T-voice-closes-drawer] 进语音前先把抽屉收掉：抽屉是从输入条
+                // 底下吸出来的，语音面板一换上去它俩会叠在一起。
                 if showPlusPanel || showStickerPanel {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
                         showPlusPanel = false
@@ -3601,39 +3580,62 @@ struct AIChatView: View {
                 withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
             }
         } label: {
+            Image(systemName: glyph)
+                .font(ChatFont.font(voiceInputActive ? 16 : 18, weight: .medium))
+                .foregroundStyle(ChatColors.secondaryText)
+                .frame(width: 36, height: 36)
+                .background(ChatColors.inputIconBg)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(voiceInputActive ? AppLocalized("切回文字输入") : AppLocalized("语音输入")))
+    }
+
+    /// 发送键：空输入是灰底、不可点；有内容是实心强调色箭头；跑着时是停止。
+    /// [T-composer-upstream] 上游的发送键永远在同一个位置、同一个形状，只有
+    /// 底色和图标变——用户不用等它「变形」才敢按。
+    private var sendButton: some View {
+        let hasContent = hasDraftContent || canEnqueue
+        let showingStop = vm.isProcessing && !canEnqueue
+        let fill: Color = showingStop
+            ? ChatColors.destructive
+            : (hasContent ? ChatColors.sendButton : ChatColors.sendButtonDisabled)
+        let tint: Color = showingStop
+            ? Color.white
+            : (hasContent ? CSSThemeVariables.accentFg() : Color.white)
+        let glyph = showingStop ? "stop.fill" : "arrow.up"
+
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            if showingStop {
+                vm.cancel()
+            } else if canEnqueue {
+                performEnqueue()
+            } else if canSend {
+                performSend()
+            } else if hasContent {
+                notifyNoUsableModel()
+            }
+        } label: {
             ZStack {
-                Circle()
-                    .fill(fill)
-                    .overlay(
-                        Circle().strokeBorder(
-                            hasContent || voiceInputActive || showingStop
-                                ? Color.clear
-                                : ChatColors.inputIconBorder,
-                            lineWidth: 0.5
-                        )
-                    )
-                // [T-morph-flyaway] 图标不再用 contentTransition 的符号替换特效。
-                // 那层特效由系统单独开一层绘制，落点是创建时的窗口坐标；而它
-                // 恰好在「发送瞬间」被触发，同一帧键盘又把整条输入栏搬下去，
-                // 于是那半层动画留在旧位置——就是她看到「键飞出去挂在半空、
-                // 过一会儿才落回来」。同一层卡住还会让图标停在旧的那个（发完
-                // 空输入显示红箭头、话筒不回来）。加号和表情是静态图标，没有
-                // 这层，所以从来不飞。直接换图标没有任何动画层，飞不起来。
+                Circle().fill(fill)
+                // [T-morph-flyaway] 只换图标，不加任何符号替换特效：那层由系统
+                // 单独绘制、落点是创建时的窗口坐标，发送瞬间键盘下沉就把它留在
+                // 半空——「键飞出去」就是这么来的。
                 Image(systemName: glyph)
-                    .font(ChatFont.font(glyphSize, weight: .semibold))
+                    .font(ChatFont.font(17, weight: .semibold))
                     .foregroundStyle(tint)
             }
             .frame(width: 36, height: 36)
             .contentShape(Circle())
-            .animation(.spring(response: 0.26, dampingFraction: 0.82), value: glyph)
         }
         .buttonStyle(MorphPressStyle())
-        // [T-no-provider-mute] 这个键永远可点——三种状态各有一件真事：
-        // 空输入进语音面板、有内容发或给提示、跑着时停止。原先那句
-        // `&& !vm.isReady` 是「没配模型就整颗灰掉」，正是新装撞上的死路；
-        // 换成「没什么可点才灰」又会在空输入时把进语音的入口一起灰掉。
-        // 所以干脆不禁用，任何状态点下去都有回应。
-        .accessibilityLabel(Text(voiceInputActive ? AppLocalized("切回文字输入") : (hasContent ? AppLocalized("发送") : (showingStop ? AppLocalized("停止生成") : AppLocalized("语音输入")))))
+        // 空输入时不可点，但没有内容就没有损失；有内容一定可点，哪怕没模型
+        // 也会给一句人话（[T-no-provider-mute]）。
+        .disabled(!hasContent && !showingStop)
+        .accessibilityLabel(Text(showingStop ? AppLocalized("停止生成") : AppLocalized("发送")))
     }
 
     /// 收起底部托盘；`focusKeyboard` 为真时把键盘叫回来。
@@ -3790,7 +3792,9 @@ struct AIChatView: View {
     /// where `AIChatView.inputBar.getter` blew the stack via
     /// `__swift_instantiateConcreteTypeFromMangledNameV2`).
     private var inputFieldOrWaveform: AnyView {
-        let topPadding: CGFloat = (vm.attachments.isEmpty && vm.loadingVideoCount == 0) ? 6 : 4
+        // [T-composer-upstream] 单行 52 高（16 上 + 20 字 + 8 下 + 键行），
+        // 跟上游一致：输入区在上面独占整宽，键在下面一行。
+        let topPadding: CGFloat = (vm.attachments.isEmpty && vm.loadingVideoCount == 0) ? 12 : 8
         if voiceInputActive {
             return AnyView(
                 // [voice-correction §6] Recent conversation turns, straight from the
@@ -3908,9 +3912,9 @@ struct AIChatView: View {
                 field.fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 8)
-        .frame(minHeight: 36, alignment: .center)
+        .padding(.horizontal, 16)
+        .padding(.top, topPadding)
+        .padding(.bottom, 8)
         // [T-composer-rebuild] 输入框本体不再嵌第二颗胶囊。以前外面是输入条、
         // 里面再套一颗 18 圆角的小胶囊，两层半透明叠在一起：底色加深一道，
         // 消息内容从两层里各透一次，看着又脏又挤，像「方框套方框」。
@@ -4078,14 +4082,16 @@ struct AIChatView: View {
                 // 输入条本身是一颗胖胶囊：四角全圆，左右留 8、离底留 6，
                 // 浮在消息上面。托盘出现时它还是浮着，托盘从它下面滑出来。
                 .modifier(ComposerSurface(style: (showPlusPanel || showStickerPanel) ? .barAttached : .bar))
-                .padding(.horizontal, 8)
+                // [T-composer-upstream] 左右 12、离底 8，跟上游一致。原来左右 8
+                // 让整条栏贴到屏幕边上，键看着要「掉出去」；12 是上游定的呼吸量。
+                .padding(.horizontal, 12)
                 // 输入条永远浮着（离底 6）：它是胶囊，底角是圆的，贴死在托盘
                 // 上反而会跟托盘顶边打架。真正要贴底的是托盘自己。
                 // [T-tray-seam] 托盘在下面时这 6pt 必须收掉：托盘是从输入条
                 // 底下吸出来的，中间留 6pt 就把消息区那条渐变背景露出来，
                 // 看着就是「抽屉和输入条之间有一条缝」。收成 0 之后输入条的
                 // 圆角直接压在托盘的 fill 上（两边同一块 inputBg），接成一整块。
-                .padding(.bottom, (showPlusPanel || showStickerPanel) ? 0 : 6)
+                .padding(.bottom, (showPlusPanel || showStickerPanel) ? 0 : 8)
 
                 // 底部抽屉：加号清单 / 表情宫格。贴底满宽，底边一路铺到
                 // 屏幕物理底（ComposerSurface 的 .tray 只圆上两角），
