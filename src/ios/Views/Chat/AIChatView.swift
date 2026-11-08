@@ -3403,12 +3403,16 @@ struct AIChatView: View {
                 open()
             }
         } label: {
+            // [T-key-44] 看的圆还是 38，摸得着的是 44：补 3 撑开命中框，
+            // 再拿 -3 收回布局，行高不变、位置不变。
             Image(systemName: "plus")
                 .font(ChatFont.font(19, weight: .medium))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
                 .frame(width: 38, height: 38)
                 .background(Circle().fill(ChatColors.inputIconBg))
+                .padding(3)
                 .contentShape(Circle())
+                .padding(-3)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(AppLocalized("添加到对话")))
@@ -3469,12 +3473,15 @@ struct AIChatView: View {
                 }
             }
         } label: {
+            // [T-key-44] 同加号键：38 的圆，44 的手感。
             Image(systemName: showStickerPanel ? "face.smiling.inverse" : "face.smiling")
                 .font(ChatFont.font(19, weight: .regular))
                 .foregroundStyle(showStickerPanel ? ChatColors.accent : ChatColors.secondaryText)
                 .frame(width: 38, height: 38)
                 .background(Circle().fill(ChatColors.inputIconBg))
+                .padding(3)
                 .contentShape(Circle())
+                .padding(-3)
                 .scaleEffect(showStickerPanel ? 1.02 : 1)
         }
         .buttonStyle(.plain)
@@ -3546,8 +3553,11 @@ struct AIChatView: View {
                     }
                 }
             }
+            // [T-key-44] 40 的黑圆，44 的命中框。
             .frame(width: 40, height: 40)
+            .padding(2)
             .contentShape(Circle())
+            .padding(-2)
         }
         .buttonStyle(MorphPressStyle())
         .accessibilityLabel(Text(showingStop
