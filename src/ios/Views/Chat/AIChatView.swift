@@ -3550,10 +3550,16 @@ struct AIChatView: View {
                             lineWidth: 0.5
                         )
                     )
+                // [T-morph-flyaway] 图标不再用 contentTransition 的符号替换特效。
+                // 那层特效由系统单独开一层绘制，落点是创建时的窗口坐标；而它
+                // 恰好在「发送瞬间」被触发，同一帧键盘又把整条输入栏搬下去，
+                // 于是那半层动画留在旧位置——就是她看到「键飞出去挂在半空、
+                // 过一会儿才落回来」。同一层卡住还会让图标停在旧的那个（发完
+                // 空输入显示红箭头、话筒不回来）。加号和表情是静态图标，没有
+                // 这层，所以从来不飞。直接换图标没有任何动画层，飞不起来。
                 Image(systemName: glyph)
                     .font(ChatFont.font(glyphSize, weight: .semibold))
                     .foregroundStyle(tint)
-                    .contentTransition(.symbolEffect(.replace))
             }
             .frame(width: 34, height: 34)
             .contentShape(Circle())
