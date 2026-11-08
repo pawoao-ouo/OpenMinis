@@ -3554,6 +3554,25 @@ struct AIChatView: View {
             : (hasContent ? AppLocalized("发送") : AppLocalized("语音输入"))))
     }
 
+    /// [T-voice-exit] 从语音模式回到文字输入。
+    ///
+    /// 顺序有讲究：先停录音（不然麦克风还开着、说话继续进转写），再卸掉语音层，
+    /// 焦点等文字框重新挂载之后再给 —— 立刻 request focus 会打在还没挂载的
+    /// 输入框上，键盘不弹。
+    private func exitVoiceToKeyboard() {
+        if speechManager.state == .recording {
+            speechManager.stopRecording()
+        }
+        speechManager.recognizedText = ""
+        lastRecognizedLength = 0
+        voiceVM.clearAndRearm()
+        withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            guard !voiceInputActive, !showStickerPanel else { return }
+            inputFocused = true
+        }
+    }
+
     /// 收起底部托盘；`focusKeyboard` 为真时把键盘叫回来。
     private func closeComposerTray(focusKeyboard: Bool) {
         withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
@@ -3720,7 +3739,8 @@ struct AIChatView: View {
                     inputText: inputTextBinding,
                     onPasteImage: { image in vm.addImageAttachment(image) },
                     onPasteFile: { url in vm.addFileAttachment(from: url) },
-                    conversationContext: { voiceCorrectionContext(from: vm.messages) }
+                    conversationContext: { voiceCorrectionContext(from: vm.messages) },
+                    onExitToKeyboard: { exitVoiceToKeyboard() }
                 )
             )
         }

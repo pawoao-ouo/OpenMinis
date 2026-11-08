@@ -24,7 +24,13 @@ struct InlineVoiceInputView: View {
     /// "张山说食堂今天关门" comes back unchanged; with context, "石塘"→"食堂" is caught
     /// immediately. Context is what makes the feature work on day one.
     var conversationContext: (() -> ConversationContext)?
-    /// Tear down voice mode (X button / done).
+    /// [T-voice-exit] 退出语音模式、回到文字输入。
+    ///
+    /// 这个口子以前只剩一行注释（"Tear down voice mode (X button / done)"），
+    /// 按钮和回调一起被删了 —— 结果是有路进没路出：进了语音以后全仓没有任何
+    /// 一处把 isVoiceActive 写回 false，只能杀 App。焦点交给文字框这一步由
+    /// AIChatView 做（文字框要等这一层卸掉才挂载）。
+    var onExitToKeyboard: (() -> Void)?
 
     @FocusState private var editFocused: Bool
     /// [T-voice-bg-fg-gap] Last global frame this panel reported — read by the
@@ -285,9 +291,16 @@ struct InlineVoiceInputView: View {
         // corners in BOTH modes. Leading/trailing insets = 12 to line up with the
         // bottom toolbar's `+` and send buttons (inputBottomRow padding 12).
         .overlay(alignment: .topLeading) {
-            expandCollapseButton
-                .padding(.top, 10)
-                .padding(.leading, 12)
+            // [T-voice-exit] 两颗键都套 44 的命中框，看的还是 30 的圆：
+            // 左上角是折叠/展开，紧挨着是「回到键盘」。
+            HStack(spacing: 0) {
+                expandCollapseButton
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                exitVoiceButton
+            }
+            .padding(.top, 3)
+            .padding(.leading, 5)
         }
         .overlay(alignment: .topTrailing) {
             // [voice-correction, experimental] In DEBUG, this corner doubles as the
@@ -741,6 +754,30 @@ struct InlineVoiceInputView: View {
             modelChip
         }
         .padding(.top, 6)
+    }
+
+    /// [T-voice-exit] 键盘键：离开语音、回到打字。
+    ///
+    /// 图和字号跟旁边的折叠键一致（30 的正圆），外面套 44 的命中框
+    /// —— 看得见的是 30，摸得着的是 44，跟她指出的「键不能比 44 小」对齐。
+    private var exitVoiceButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            VoiceLog.log("exit voice → keyboard")
+            if viewModel.isEditingTranscript { viewModel.endEditing(resume: false) }
+            onExitToKeyboard?()
+        } label: {
+            Image(systemName: "keyboard")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(ChatColors.secondaryText)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(ChatColors.inputIconBg))
+                .overlay(Circle().strokeBorder(ChatColors.inputIconBorder, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+        .accessibilityLabel(Text("回到键盘输入", comment: "Exit voice input back to typing"))
     }
 
     /// Compact↔expand toggle. Mirrors the globe's pill styling.
