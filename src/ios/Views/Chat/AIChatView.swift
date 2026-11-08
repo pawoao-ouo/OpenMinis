@@ -4000,7 +4000,10 @@ struct AIChatView: View {
                 }
             }
         )
-        .presentationDetents([.medium])
+        // [T-plus-sheet-detents] 跟 thinking 那张卡同一套档位：默认 2/3，能拖到全屏。
+        // 只给 medium 一档的话，卡里两个二级页（技能 / 连接器）列表长了也拖不大，
+        // 只能在半张卡里滚，看着就是「跟 thinking 不是一套东西」。
+        .presentationDetents([.fraction(2 / 3), .large])
         .presentationDragIndicator(.visible)
     }
 
