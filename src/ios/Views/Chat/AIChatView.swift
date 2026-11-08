@@ -3492,10 +3492,13 @@ struct AIChatView: View {
         let hasContent = hasDraftContent || canEnqueue
         let showingStop = vm.isProcessing && !canEnqueue
         let recording = speechManager.state == .recording
-        // 跑着是红、录音是红、平时是黑。黑色圆键是这颗键的常态。
-        // 常态是主题的主文字色当底（稿子里那颗黑圆就是这么来的），
-        // 前景用背景色反白：主题换成浅色底也不会糊成一片。
-        let fill: Color = (showingStop || recording)
+        // [T-send-key-color] 底色只有一种，红只留在「正在录」这个真状态上。
+        //
+        // 以前停止态也刷成红色，于是同一颗键空着是黑、打字是黑、AI 一回话
+        // 变红、回完又变黑 —— 位置和形状都没动，颜色自己在那跳，看着像坏了。
+        // 现在：跑着只换图标（方块），底色不动；只有她真的在录音时才是红的，
+        // 那是要她注意的状态。
+        let fill: Color = recording
             ? ChatColors.destructive
             : CSSThemeVariables.textMain(scope: ThemeColorLayer.chat)
         let glyph: String? = showingStop
