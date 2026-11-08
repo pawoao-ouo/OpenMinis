@@ -5164,8 +5164,12 @@ struct ComposerSurface: ViewModifier {
     ///              胶囊的下圆角会把消息区那圈背景从角里漏出来，跟托盘之间
     ///              看起来就是「有两道缺口」。取直之后胶囊直接坐进托盘，
     ///              两块同色接成一整片（[T-tray-seam]）。
-    ///   `.tray` —— 加号抽屉 / 表情宫格。只圆上两角，底边一路铺到屏幕物理底
+    ///   `.tray` —— 加号抽屉 / 表情宫格。四角取直，底边一路铺到屏幕物理底
     ///              （home indicator 那条也铺），所以托盘永远不会「底部悬空」。
+    ///              上两角也必须是直的：托盘永远紧贴在输入条下面，输入条那边
+    ///              的下圆角已经取直，这边再圆一次就会在接缝两侧各漏出一小块
+    ///              消息区背景——像素模拟验证过，两个圆角叠在一起是一道月牙缺口
+    ///              （[T-tray-seam]）。
     enum Style: Equatable { case bar, barAttached, tray }
 
     var style: Style = .bar
@@ -5203,7 +5207,7 @@ struct ComposerSurface: ViewModifier {
             // 坐在托盘上：下两角取直，跟托盘的顶边严丝合缝。
             corners = RectangleCornerRadii(topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r)
         case .tray:
-            corners = RectangleCornerRadii(topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r)
+            corners = RectangleCornerRadii(topLeading: 0, bottomLeading: 0, bottomTrailing: 0, topTrailing: 0)
         }
         return MinisBubbleShape(
             style: continuousCorners ? .squircle : .rounded,
@@ -5242,15 +5246,8 @@ struct ComposerSurface: ViewModifier {
                 // 「底部悬空」。形状自己带圆角，用不着再裁一次。
                 .ignoresSafeArea(.container, edges: style == .tray ? .bottom : [])
             }
-            .overlay(alignment: .top) {
-                // 贴底那条靠发丝线跟消息区分，不靠阴影；悬浮胶囊不需要。
-                if style == .tray {
-                    Rectangle()
-                        .fill(CSSThemeVariables.divider(scope: ThemeColorLayer.chat))
-                        .frame(height: 0.5)
-                        .allowsHitTesting(false)
-                }
-            }
+            // 接缝处不再画发丝线：托盘跟输入条现在是同一块面（同色、接缝两
+            // 侧都取直），一条线只会在胶囊两侧各露一小截，看着像脏点。
     }
 }
 
