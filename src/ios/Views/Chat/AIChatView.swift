@@ -3043,9 +3043,11 @@ struct AIChatView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.8)))
             }
         }
-        .padding(.trailing, 4)
+        // [T-floatbtn-align] 悬浮键的右缘要跟输入栏胶囊的右缘对齐：胶囊是
+        // padding(.horizontal, 8)（左右各 8），这里原来是 4+12=16，差出 8pt，
+        // 键往中间缩了一截。现在是 0+8，正好压在同一条线上。
         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 8)
         .padding(.bottom, showScroll ? 6 : 0)
         .animation(.easeInOut(duration: 0.2), value: vm.isNearBottom)
         .animation(.easeInOut(duration: 0.2), value: vm.isAtFirstTurn)
@@ -3560,6 +3562,15 @@ struct AIChatView: View {
                 // 然后把设置递到她手上。不静默、不装作按了没反应。
                 notifyNoUsableModel()
             } else {
+                // [T-voice-closes-drawer] 进语音面板前先把抽屉收掉：抽屉是从
+                // 输入条底下吸出来的，语音面板一换上去它俩会叠在一起，没人
+                // 按得到抽屉上的关闭键。收得干脆，和加号键开抽屉那边对称。
+                if showPlusPanel || showStickerPanel {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        showPlusPanel = false
+                        showStickerPanel = false
+                    }
+                }
                 vm.voiceUsedInComposition = true
                 VoiceModePreference.shared.enteredFromText = true
                 withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
@@ -3592,9 +3603,11 @@ struct AIChatView: View {
             .animation(.spring(response: 0.26, dampingFraction: 0.82), value: glyph)
         }
         .buttonStyle(MorphPressStyle())
-        // [T-no-provider-mute] 只有「真的没什么可点」才灰：空输入点了进语音面板，
-        // 有内容点了就发或给提示，两件都是这件事，跟模型配没配无关。
-        .disabled(!voiceInputActive && !hasContent && !showingStop)
+        // [T-no-provider-mute] 这个键永远可点——三种状态各有一件真事：
+        // 空输入进语音面板、有内容发或给提示、跑着时停止。原先那句
+        // `&& !vm.isReady` 是「没配模型就整颗灰掉」，正是新装撞上的死路；
+        // 换成「没什么可点才灰」又会在空输入时把进语音的入口一起灰掉。
+        // 所以干脆不禁用，任何状态点下去都有回应。
         .accessibilityLabel(Text(voiceInputActive ? AppLocalized("切回文字输入") : (hasContent ? AppLocalized("发送") : (showingStop ? AppLocalized("停止生成") : AppLocalized("语音输入")))))
     }
 
@@ -4043,7 +4056,7 @@ struct AIChatView: View {
                 }
                 // 输入条本身是一颗胖胶囊：四角全圆，左右留 8、离底留 6，
                 // 浮在消息上面。托盘出现时它还是浮着，托盘从它下面滑出来。
-                .modifier(ComposerSurface(style: .bar))
+                .modifier(ComposerSurface(style: (showPlusPanel || showStickerPanel) ? .barAttached : .bar))
                 .padding(.horizontal, 8)
                 // 输入条永远浮着（离底 6）：它是胶囊，底角是圆的，贴死在托盘
                 // 上反而会跟托盘顶边打架。真正要贴底的是托盘自己。
@@ -5023,10 +5036,16 @@ struct AIChatView: View {
         }
     }
 
-    /// [T-no-provider-mute] 一句人话 + 把设置递过去。
-    /// 这里只说「没有能用的模型」，不报错、不说教，也不假装刚才是按键失灵。
+    /// [T-no-provider-mute] 发不出去时说一句人话，别静默。
+    /// 两种原因分开讲：图片还在处理 / 压根没有可用的模型。后者顺手把设置递过去。
     private func notifyNoUsableModel() {
-        // 已经配了模型却没发出去，不是这件事（那是图片还在加载之类），不抢话。
+        if vm.hasLoadingAttachments {
+            MinisToast.show(
+                AppLocalized("图片还在处理中，稍等一下"),
+                systemImage: "hourglass"
+            )
+            return
+        }
         guard !vm.isReady else { return }
         MinisToast.show(
             AppLocalized("还没有可用的模型，先去设置里配一个"),
@@ -5141,9 +5160,13 @@ struct ComposerSurface: ViewModifier {
     /// 同一个贴面，两处用：
     ///   `.bar`  —— 输入条本身。四角都圆（跟着主题的输入栏圆角），左右留一点点，
     ///              像一颗胖胶囊浮在消息上面；
+    ///   `.barAttached` —— 同上，但下两角取直。抽屉从它底下吸出来的那一帧用它：
+    ///              胶囊的下圆角会把消息区那圈背景从角里漏出来，跟托盘之间
+    ///              看起来就是「有两道缺口」。取直之后胶囊直接坐进托盘，
+    ///              两块同色接成一整片（[T-tray-seam]）。
     ///   `.tray` —— 加号抽屉 / 表情宫格。只圆上两角，底边一路铺到屏幕物理底
     ///              （home indicator 那条也铺），所以托盘永远不会「底部悬空」。
-    enum Style: Equatable { case bar, tray }
+    enum Style: Equatable { case bar, barAttached, tray }
 
     var style: Style = .bar
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
@@ -5172,9 +5195,16 @@ struct ComposerSurface: ViewModifier {
 
     private var shape: MinisBubbleShape {
         let r = cornerRadius
-        let corners: RectangleCornerRadii = style == .bar
-            ? RectangleCornerRadii(topLeading: r, bottomLeading: r, bottomTrailing: r, topTrailing: r)
-            : RectangleCornerRadii(topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r)
+        let corners: RectangleCornerRadii
+        switch style {
+        case .bar:
+            corners = RectangleCornerRadii(topLeading: r, bottomLeading: r, bottomTrailing: r, topTrailing: r)
+        case .barAttached:
+            // 坐在托盘上：下两角取直，跟托盘的顶边严丝合缝。
+            corners = RectangleCornerRadii(topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r)
+        case .tray:
+            corners = RectangleCornerRadii(topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r)
+        }
         return MinisBubbleShape(
             style: continuousCorners ? .squircle : .rounded,
             radius: r,
