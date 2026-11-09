@@ -4517,6 +4517,17 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         logger.info("✏️ cancelEdit")
     }
 
+    /// [T-composer-edit-clear] 只退编辑状态，不动草稿。
+    ///
+    /// 跟 cancelEdit() 的区别：cancelEdit() 是「放弃这次编辑」，连字带附件
+    /// 一起清；这个是「编辑时把字删空了」——她定的：字删了就回到语音键，
+    /// 附件留着当新草稿继续挂着。只清 editingMessageIndex，inputText 本来
+    /// 就是空的才调到这里，attachments 一根不动。
+    func exitEditKeepingDraft() {
+        editingMessageIndex = nil
+        logger.info("✏️ exitEditKeepingDraft (attachments kept)")
+    }
+
     func cancel() {
         let lastBlocks = (messages.last?.role == .assistant) ? messages.last!.blocks.count : -1
         let lastRole = messages.last.map { $0.role == .assistant ? "assistant" : "user" } ?? "nil"

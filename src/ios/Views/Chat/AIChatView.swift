@@ -3486,13 +3486,12 @@ struct AIChatView: View {
         .padding(6)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showStop)
         .onChange(of: vm.inputText) { _, newText in
-            // [T-composer-edit-clear] 编辑中把字删空了就是退出编辑，别留在
-            // 编辑里，更别掉进语音。有附件时不自动退——附件还挂着，退了就丢了，
-            // 留给叉号键处理。
+            // [T-composer-edit-clear] 编辑中把字删空了就是退出编辑，回到语音键。
+            // 她定的：字删了就回到语音键，有附件也一样退；附件留着不删，挂在
+            // 草稿里当新草稿。别调 cancelEdit()——它会把附件一起清掉。
             if vm.editingMessageIndex != nil
-                && newText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && vm.attachments.isEmpty {
-                vm.cancelEdit()
+                && newText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                vm.exitEditKeepingDraft()
             }
         }
         return AnyView(row)
@@ -3535,10 +3534,11 @@ struct AIChatView: View {
     ///   · 空输入 → 话筒（进语音面板）
     ///   · 有字   → 箭头（发送；生成中就是排队，停止另有一颗键）
     ///
-    /// [T-composer-split] 这颗键的形态只看草稿空不空，不看生成中不中。
+    /// [T-composer-split] 这颗键的形态只看文字空不空，不看附件、不看生成中不中。
     /// 以前它还兼着停止：生成中一打字，canEnqueue 为真，停止就被顶成发送，
     /// 点下去只是排队，生成根本停不掉。现在停止是行里最右那颗独立的键，
     /// 这颗再怎么打字也抢不走它。
+    /// 有附件没字还是话筒（她定的准表）；附件发不发由 canSend/回车另算。
     ///
     /// [T-key-no-detach] 字形不增删视图：三个字形同时挂着，只切透明度。
     /// 视图增删会让黑色圆那一层在键盘动画期间重新挂载，表现层可能停在旧坐标
@@ -3548,25 +3548,32 @@ struct AIChatView: View {
     /// 父层一动就容易被单独合成，和上面那条同源。
     private var voiceSendButton: some View {
         let editing = vm.editingMessageIndex != nil
-        let hasContent = hasDraftContent
+        let hasText = hasDraftText
         // 三个字形各自一个开关,谁亮谁不亮;全程不增删视图。
-        let showArrow = editing || hasContent
-        let showClose = editing && !hasContent
-        let showMic = !editing && !hasContent
+        // 注意箭头只看 hasText，不写 editing || hasText：编辑中没字时只该亮
+        // 叉（裸叉退出编辑），箭头和叉同时亮会叠在一起。以前 hasContent 含
+        // 附件，编辑纯图消息进场时 hasContent 为真，叉本来就亮不起来，叠字
+        // 的问题藏着；现在形态只看文字，这一行必须改，否则进场编辑纯图消息
+        // 时黑圆里箭头叉一起亮。
+        let showArrow = hasText
+        let showClose = editing && !hasText
+        let showMic = !editing && !hasText
 
         return Button {
             voiceSendTapCount &+= 1
             if editing {
                 // 编辑模式:这颗键只干编辑的事,没字就是退出。
-                if hasContent { performSaveEdit() } else { vm.cancelEdit() }
-            } else if canEnqueue {
+                if hasText { performSaveEdit() } else { vm.cancelEdit() }
+            } else if hasText && canEnqueue {
                 performEnqueue()
-            } else if canSend {
+            } else if hasText && canSend {
                 performSend()
-            } else if hasContent {
+            } else if hasText {
                 notifyNoUsableModel()
             } else {
                 // 空输入：进语音面板。先收抽屉，别让两层叠在一起。
+                // 没字就是语音键，哪怕附件还挂着（编辑退回来的草稿就是这
+                // 样）；附件留着，进语音不删，回来接着挂着。
                 if showStickerPanel {
                     closeComposerTray(focusKeyboard: false)
                 }
@@ -5087,6 +5094,14 @@ struct AIChatView: View {
         let hasText = !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasReadyAttachment = vm.attachments.contains { $0.loadState == .ready }
         return hasText || hasReadyAttachment
+    }
+
+    /// [T-composer-edit-clear] 语音/发送形态只看文字空不空，不看附件。
+    /// 她定的准表：没字就是语音键，有字才变发送键；编辑时把字删空退回语音键
+    /// 后，附件还挂着，键也还是语音键。附件能不能发由 canSend/canEnqueue
+    /// 另算（回车、上滑照样能发纯附件），形态键不管。
+    private var hasDraftText: Bool {
+        !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var canEnqueue: Bool {
