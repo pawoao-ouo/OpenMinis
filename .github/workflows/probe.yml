@@ -2,8 +2,7 @@ name: probe
 on:
   workflow_dispatch:
 jobs:
-  p:
-    runs-on: macos-26
+  probe:
+    runs-on: macos-15
     steps:
-      - name: who
-        run: sw_vers
+      - run: sw_vers && xcodebuild -version && ls /Applications | grep -i xcode
