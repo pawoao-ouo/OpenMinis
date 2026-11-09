@@ -4624,6 +4624,24 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // If there are queued prompts remaining, spawn a new task to continue
         // processing them. The old task is cancelled (stops the current agent
         // loop) but the queue should keep draining.
+        // [T-stop-whole-queue] 停止 = 连排队一起停。
+        //
+        // 以前 cancel() 只杀当前这轮,200 毫秒后又把排队的那几条接着跑 ——
+        // 她那句「点暂停要停的是整队」就是这么来的:点了停,AI 顿一下又自己
+        // 开回去。现在把排队的撤回来:消息从列表里收掉,最后一条的文字和附件
+        // 放回输入框,不让她丢字,然后不再重开 drain。
+        if !isCompacting, !promptQueue.isEmpty {
+            let takenBack = promptQueue
+            promptQueue.removeAll()
+            for queued in takenBack {
+                messages.removeAll { $0.queuedPromptId == queued.id }
+            }
+            if editingMessageIndex == nil, let last = takenBack.last {
+                inputText = last.text
+                attachments = last.attachments
+            }
+            logger.info("⏹️ cancel() — took back \(takenBack.count) queued prompt(s)")
+        }
         if !promptQueue.isEmpty && !isCompacting {
             logger.info("⏹️ cancel() — \(promptQueue.count) queued prompt(s) remain, restarting drain")
             resumeQueueAfterCancel()

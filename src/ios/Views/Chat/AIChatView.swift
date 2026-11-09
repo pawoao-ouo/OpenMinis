@@ -224,6 +224,8 @@ struct AIChatView: View {
     /// text's inner scroll or to swipe-to-send. Starts `true` because an empty
     /// composer has nothing to scroll.
     @State private var inputAtScrollBottom: Bool = true
+    /// 键盘这一次动画的时长曲线。面板开合跟着它走,不收自己的弹簧。
+    @State private var keyboardAnim: Animation = .easeOut(duration: 0.25)
     @State private var inputBarHeight: CGFloat = 0
     /// [T-composer-single-anchor] 输入栏那一摞（浮窗键 + 一起听胶囊 + 输入栏）的实测高度。
     /// 斜杠/提及弹窗只认这一个数字，不再三段相加。
@@ -1044,6 +1046,16 @@ struct AIChatView: View {
         }
         .fullScreenCover(item: $imageGallery) { presentation in
             MessageImageGallery(items: presentation.items, startIndex: presentation.startIndex)
+        }
+        // [T-one-clock] 记下键盘这一次动画的时长和曲线。
+        //
+        // 面板开合要用它,不要再自己起一条弹簧:键盘 0.25 秒、面板弹簧 0.34 秒、
+        // 列表 380 毫秒去抖,三套节拍错开跑,体感就是「点了没什么反应,一秒后
+        // 才定下来」。曲线用 easeInOut 近似系统的键盘曲线(0x7 是私有值,
+        // 没有公开映射,时长才是体感里最要紧的那一半)。
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            let raw = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue
+            keyboardAnim = .easeInOut(duration: max(0.1, min(raw ?? 0.25, 0.6)))
         }
         .onReceive(NotificationCenter.default.publisher(for: MarkdownImageTapRouter.tappedNotification)) { note in
             handleMarkdownImageTap(note)
@@ -3411,9 +3423,8 @@ struct AIChatView: View {
                 .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
                 .frame(width: 38, height: 38)
                 .background(Circle().fill(ChatColors.inputIconBg))
-                .padding(3)
+                .frame(width: 44, height: 44)
                 .contentShape(Circle())
-                .padding(-3)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(AppLocalized("添加到对话")))
@@ -3469,7 +3480,13 @@ struct AIChatView: View {
                 closeComposerTray(focusKeyboard: true)
             } else {
                 inputFocused = false
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                // [T-one-clock] 面板跟键盘用同一个时钟。
+                //
+                // 以前这里是自己一条 0.34 秒的弹簧,系统键盘落下是 0.25 秒,
+                // 列表又等 380 毫秒去抖 —— 三套时钟同时在跑,点一下要一秒才
+                // 全定下来,期间列表还先按动画中间高度跳一次。现在面板这条
+                // 改用键盘通知里的时长和曲线,三件事收成一个节拍。
+                withAnimation(keyboardAnim) {
                     showStickerPanel = true
                 }
             }
@@ -3480,25 +3497,32 @@ struct AIChatView: View {
                 .foregroundStyle(showStickerPanel ? ChatColors.accent : ChatColors.secondaryText)
                 .frame(width: 38, height: 38)
                 .background(Circle().fill(ChatColors.inputIconBg))
-                .padding(3)
+                .frame(width: 44, height: 44)
                 .contentShape(Circle())
-                .padding(-3)
-                .scaleEffect(showStickerPanel ? 1.02 : 1)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
     }
 
-    /// 黑色圆键：一颗键管三件事，跟稿子一致。
-    ///   · 空输入 → 声波（进语音面板）
-    ///   · 有字   → 箭头（发送）
-    ///   · 跑着   → 方块（停止）
-    /// [T-composer-oneshot] 她给的稿子里右侧是一颗黑色实心圆，不是两个键并排。
-    /// 一颗键的三种状态各有各的图标和颜色，点下去永远有回应；位置永远不动，
-    /// 所以不存在「按钮飞出去」。
+    /// 黑色圆键：一颗键管几件事，按状态分派，跟稿子一致。
+    ///   · 编辑中          → 有字：提交这条编辑 / 无字：退出编辑
+    ///   · 生成中（未编辑） → 停止
+    ///   · 空输入          → 声波（进语音面板）
+    ///   · 有字            → 箭头（发送）
+    ///
+    /// [T-stop-pinned] 生成中那颗键永远是停。以前判据是「跑着 && 没在排队」，
+    /// 她一打字 hasContent 和 canEnqueue 同时为真，键立刻变成发送箭头，点下去只是
+    /// 排队 —— 生成中她根本停不掉。现在排队发送挪到键盘回车，键位只留停止。
+    ///
+    /// [T-key-no-detach] 图标不再用 if/else 增删视图：四个字形同时挂着，只切透明度。
+    /// 视图增删会让黑色圆那一层在键盘动画期间重新挂载，表现层可能停在旧坐标
+    /// —— 她看到的就是「黑圆片飞出去、0.25 秒后落回来」。
+    /// [T-key-inbounds] 命中框也从「负 padding 往外画」改成「44 的框装 40 的圆」：
+    /// 内容画在自己边界外面，父层一动就容易被单独合成，和上面那条同源。
     private var voiceSendButton: some View {
-        let hasContent = hasDraftContent || canEnqueue
-        let showingStop = vm.isProcessing && !canEnqueue
+        let editing = vm.editingMessageIndex != nil
+        let hasContent = hasDraftContent
+        let showingStop = vm.isProcessing && !editing
         let recording = speechManager.state == .recording
         // [T-send-key-color] 底色只有一种，红只留在「正在录」这个真状态上。
         //
@@ -3509,16 +3533,19 @@ struct AIChatView: View {
         let fill: Color = recording
             ? ChatColors.destructive
             : CSSThemeVariables.textMain(scope: ThemeColorLayer.chat)
-        let glyph: String? = showingStop
-            ? "stop.fill"
-            : (hasContent ? "arrow.up" : nil)
+        // 四个字形各自一个开关,谁亮谁不亮;全程不增删视图。
+        let showStop = showingStop
+        let showArrow = !showingStop && (editing || hasContent)
+        let showClose = !showingStop && editing && !hasContent
+        let showWave = !showingStop && !editing && !hasContent
 
         return Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             if showingStop {
                 vm.cancel()
-            } else if canEnqueue {
-                performEnqueue()
+            } else if editing {
+                // 编辑模式:这颗键只干编辑的事,没字就是退出。
+                if hasContent { performSend() } else { vm.cancelEdit() }
             } else if canSend {
                 performSend()
             } else if hasContent {
@@ -3526,7 +3553,7 @@ struct AIChatView: View {
             } else {
                 // 空输入：进语音面板。先收抽屉，别让两层叠在一起。
                 if showStickerPanel {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                    withAnimation(keyboardAnim) {
                         showStickerPanel = false
                     }
                 }
@@ -3537,33 +3564,42 @@ struct AIChatView: View {
         } label: {
             ZStack {
                 Circle().fill(fill)
-                if let glyph {
-                    // [T-morph-flyaway] 只换图标，不加符号替换特效：那层由系统
-                    // 单独绘制、落点在创建时的窗口坐标，键盘一沉就留在半空。
-                    Image(systemName: glyph)
-                        .font(ChatFont.font(17, weight: .semibold))
-                        .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
-                } else {
-                    // 声波：五根竖条，跟稿子一样手画，不依赖 SF Symbol 的版本。
-                    HStack(spacing: 2.6) {
-                        ForEach(Array([6.0, 12.0, 17.0, 10.0, 5.0].enumerated()), id: \.offset) { _, h in
-                            Capsule()
-                                .fill(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
-                                .frame(width: 2.6, height: h)
-                        }
+                // 停止。
+                Image(systemName: "stop.fill")
+                    .font(ChatFont.font(17, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                    .opacity(showStop ? 1 : 0)
+                // 发送。
+                Image(systemName: "arrow.up")
+                    .font(ChatFont.font(17, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                    .opacity(showArrow ? 1 : 0)
+                // 退出编辑。
+                Image(systemName: "xmark")
+                    .font(ChatFont.font(15, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                    .opacity(showClose ? 1 : 0)
+                // 声波:五根竖条,跟稿子一样手画,不依赖 SF Symbol 的版本。
+                HStack(spacing: 2.6) {
+                    ForEach(Array([6.0, 12.0, 17.0, 10.0, 5.0].enumerated()), id: \.offset) { _, h in
+                        Capsule()
+                            .fill(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                            .frame(width: 2.6, height: h)
                     }
                 }
+                .opacity(showWave ? 1 : 0)
             }
-            // [T-key-44] 40 的黑圆，44 的命中框。
+            // [T-key-44] 40 的黑圆装进 44 的框:命中框够大,内容不越界。
             .frame(width: 40, height: 40)
-            .padding(2)
+            .frame(width: 44, height: 44)
             .contentShape(Circle())
-            .padding(-2)
         }
         .buttonStyle(MorphPressStyle())
         .accessibilityLabel(Text(showingStop
             ? AppLocalized("停止生成")
-            : (hasContent ? AppLocalized("发送") : AppLocalized("语音输入"))))
+            : (editing
+               ? (hasContent ? AppLocalized("提交编辑") : AppLocalized("退出编辑"))
+               : (hasContent ? AppLocalized("发送") : AppLocalized("语音输入")))))
     }
 
     /// [T-voice-exit] 从语音模式回到文字输入。
@@ -3593,7 +3629,7 @@ struct AIChatView: View {
 
     /// 收起底部托盘；`focusKeyboard` 为真时把键盘叫回来。
     private func closeComposerTray(focusKeyboard: Bool) {
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
+        withAnimation(keyboardAnim) {
             showStickerPanel = false
         }
         guard focusKeyboard else { return }
@@ -3944,6 +3980,12 @@ struct AIChatView: View {
     private func handleReturnKey() {
         if vm.showMentionMenu && vm.executeSelectedMention() { return }
         if vm.showSlashMenu && vm.executeSelectedSlashCommand() { return }
+        // [T-edit-return] 编辑中的回车只干编辑的事:有字提交这条编辑,
+        // 没字不动。以前它和普通草稿共用一套优先级,编辑时会掉进排队。
+        if vm.editingMessageIndex != nil {
+            if hasDraftContent { performSend() }
+            return
+        }
         if canEnqueue { performEnqueue() }
         else if canSend { performSend() }
         // [T-no-provider-mute] 有内容、没模型：回车也要给同一句提示。
