@@ -4525,7 +4525,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// 就是空的才调到这里，attachments 一根不动。
     func exitEditKeepingDraft() {
         editingMessageIndex = nil
-        logger.info("✏️ exitEditKeepingDraft (attachments kept)")
+        logger.info("exitEditKeepingDraft (attachments kept)")
     }
 
     func cancel() {
