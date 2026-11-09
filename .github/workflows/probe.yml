@@ -1,0 +1,12 @@
+name: probe
+on:
+  workflow_dispatch:
+jobs:
+  p14:
+    runs-on: macos-14
+    steps:
+      - run: sw_vers && xcodebuild -version
+  p15:
+    runs-on: macos-15
+    steps:
+      - run: sw_vers && xcodebuild -version
