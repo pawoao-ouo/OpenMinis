@@ -2256,11 +2256,12 @@ extension CollectionViewMessageListV3 {
             vm.scrollToBottomSignal
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] in
-                    // Upstream: the append signal is a plain pin. The smooth
-                    // part comes from composer shrink absorption + the layout's
-                    // own compensation, not from animating this call.
+                    // The smooth part comes from composer shrink absorption +
+                    // the layout's own compensation. What this call must not do
+                    // is pin while the keyboard is still moving — see
+                    // pinAfterKeyboardSettles.
                     guard let self, self.scrollMode == .autoScrolling else { return }
-                    self.scrollToBottomNow()
+                    self.pinAfterKeyboardSettles(animated: false)
                 }
                 .store(in: &subscriptions)
 
@@ -2281,7 +2282,7 @@ extension CollectionViewMessageListV3 {
                     self.composerShrinkAbsorbDeadline = CFAbsoluteTimeGetCurrent() + 2.0
                     // Jumping to the bottom resets the up-button's turn-walk.
                     self.lastJumpedUserId = nil
-                    self.scrollToBottomNow(animated: true)
+                    self.pinAfterKeyboardSettles(animated: true)
                 }
                 .store(in: &subscriptions)
 
@@ -5073,6 +5074,32 @@ extension CollectionViewMessageListV3 {
             glide.duration = 0.25
             glide.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             cv.layer.add(glide, forKey: "composerShrinkGlide")
+        }
+
+        /// [T-send-single-motion] 发送/追加这一下只该有一次运动。
+        ///
+        /// 以前这里当场算一次 maxOff 就滑过去，可那时键盘正收着，视口高度还是
+        /// 半路的——算出来的底是错的，等键盘落定系统再把偏移夹回去，看起来就是
+        /// 她说的「先猛跳一下再滑回来」。`keyboardAnimation` 本来就是为这件事记的
+        /// (见 keyboardWillHide 那段注释)，但一直没人读它。
+        ///
+        /// 所以键盘在动就等它落定，落定后已经在底上就一步都不动。
+        private func pinAfterKeyboardSettles(animated: Bool) {
+            guard let kb = keyboardAnimationInFlight() else {
+                scrollToBottomNow(animated: animated)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + kb.duration) { [weak self] in
+                guard let self, self.scrollMode == .autoScrolling else { return }
+                self.scrollToBottomIfNotThere(animated: animated)
+            }
+        }
+
+        private func scrollToBottomIfNotThere(animated: Bool) {
+            guard let cv = viewController?.collectionView else { return }
+            let maxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
+            guard maxOff > 0, maxOff - cv.contentOffset.y > 1 else { return }
+            scrollToBottomNow(animated: animated)
         }
 
         /// - Parameter smooth: [T-streaming-glide] 出字时用。文字每 0.1s 长一节，

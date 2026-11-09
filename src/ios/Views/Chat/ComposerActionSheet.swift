@@ -86,13 +86,11 @@ struct ComposerActionSheet: View {
             // 入口。她 11-09 发现「终端和浏览器啥的好像没有了」，这里补回来。
             VStack(spacing: 0) {
                 // 文案和图标直接用 PlusPanelItemType 自己那套,别再抄一遍。
-                let tools: [PlusPanelItemType] = [.terminal, .browser, .files,
-                                                  .gauge, .share, .voice]
-                ForEach(Array(tools.enumerated()), id: \.element) { idx, item in
-                    navRow(AppLocalized(item.title), item.systemImageName, value: nil) {
+                ForEach(Array(Self.toolRows.enumerated()), id: \.element) { idx, item in
+                    navRow(AppLocalized(runtimeKey: item.title), item.systemImageName, value: nil) {
                         pick(item)
                     }
-                    if idx < tools.count - 1 { divider }
+                    if idx < Self.toolRows.count - 1 { divider }
                 }
             }
             .background(
@@ -201,6 +199,12 @@ struct ComposerActionSheet: View {
     }
 
     // MARK: 组件
+
+    /// [T-plus-tool-rows] 抽屉里「工具」那张卡的行。摆在这里而不是某个
+    /// ViewBuilder 里,免得那个表达式大到编译器算不动。
+    private static let toolRows: [PlusPanelItemType] = [
+        .terminal, .browser, .files, .gauge, .share, .voice
+    ]
 
     private func pick(_ item: PlusPanelItemType) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()

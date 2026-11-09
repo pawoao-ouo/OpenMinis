@@ -74,6 +74,12 @@ func AppLocalized(_ key: String.LocalizationValue, comment: StaticString? = nil)
     String(localized: key, bundle: AppBundle.current, comment: comment)
 }
 
+/// 键要等运行时才拼出来的地方（枚举里的标题、配置里读出来的文案）用这个。
+/// `AppLocalized` 的两条重载都只认字面量或资源，直接塞 String 编译不过。
+func AppLocalized(runtimeKey key: String) -> String {
+    String(localized: String.LocalizationValue(key), bundle: AppBundle.current)
+}
+
 /// `LocalizedStringResource` overload, for call sites that already hold a
 /// resource (App Intents build these) rather than a literal key.
 func AppLocalized(_ resource: LocalizedStringResource) -> String {
