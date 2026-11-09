@@ -2946,12 +2946,16 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             if self.userDidCancel { self.handleUserCancelledCleanup() }
 
             // [T-stop-with-queue-render-desync] Stop hands ownership to cancel():
-            // it already set isProcessing=false / endBackgroundProcessing(), and
-            // with queued prompts it spawned a fresh drain task that sets
-            // isProcessing=true for the continued run. Running this epilogue from
-            // the superseded task would drain concurrently and force
-            // isProcessing=false mid-run — the chat stops rendering the live tool
-            // loop while the preview bar / Live Activity keep updating.
+            // it already set isProcessing=false / endBackgroundProcessing() and
+            // took the queue back (queued messages removed, last text returned
+            // to the input box). There is no resume path — ff192c4d deleted
+            // resumeQueueAfterCancel, so no fresh drain task is spawned and
+            // nothing restarts the queue. The drainQueuedPrompts() call below is
+            // therefore a no-op after Stop (its loop is gated on !userDidCancel
+            // and the queue is empty); it only drains when this turn finished
+            // normally. The Task.isCancelled guard below still skips the rest of
+            // the epilogue for a superseded task, so a stale task cannot run
+            // post-turn bookkeeping after the user stopped.
             guard !Task.isCancelled else {
                 logger.info("🔄SESSION [vm=\(self.vmInstanceId)] send epilogue skipped (task cancelled) session=\(self.sessionId ?? "nil")")
                 return
