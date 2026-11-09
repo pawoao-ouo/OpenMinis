@@ -2237,9 +2237,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         ProviderConfigStore.shared.instances.contains { $0.isEnabled }
     }
 
-    /// [Stickers 10-12] 待发表情包 (像发图片一样悬挂待发，支持图文混排一并发出)
-    @Published var pendingSticker: StickerItem? = nil
-
     /// [Feedback 10-12] 待注入的系统运行指令与质量反馈 (在醒醒端气泡隐身，醒醒下一次发消息时自动注入给模型，AI不立即回)
     @Published var pendingFeedbackDirectives: [String] = []
 
@@ -2302,20 +2299,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             attachments.removeAll { $0.loadState != .ready }
         }
 
-        // 待发表情包整合 (图文混排一并发出)
         // [T-programmatic-prompt-draft] `overrideText` (a programmatic prompt)
         // wins over the composer; the composer's draft is not the transport.
         var text = (overrideText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
-        // [T-programmatic-prompt-draft] A pending sticker is composer state too:
-        // an override send must not consume the user's staged sticker (nor clear
-        // the draft along with it).
-        if overrideText == nil, let sticker = pendingSticker {
-            let tag = "[贴:\(sticker.id) \(sticker.shortDesc)]"
-            text = text.isEmpty ? tag : "\(text) \(tag)"
-            inputText = ""
-            StickerStore.shared.recordUse(id: sticker.id)
-            pendingSticker = nil
-        }
 
         // [Feedback 10-12] 提取此前积累的静默系统反馈指令
         // [T-feedback-drain-order] Only DRAIN once the send is actually going

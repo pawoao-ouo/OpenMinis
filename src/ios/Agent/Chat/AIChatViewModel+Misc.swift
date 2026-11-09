@@ -86,24 +86,8 @@ extension AIChatViewModel {
         if overrideText == nil {
             attachments.removeAll { $0.loadState != .ready }
         }
-        var text = (overrideText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
-        // [T-queue-sticker] The composer's pending sticker is content too — the
-        // button above counts it, and send() folds it into the text. Without
-        // this branch a sticker-only composer lit the queue button and then
-        // did nothing at all when tapped. Consumed only AFTER the guard, so a
-        // refused enqueue leaves the sticker staged.
-        // An override enqueue never folds the staged sticker in: it is
-        // composer state, and the override text is already complete.
-        let stagedSticker = overrideText == nil ? pendingSticker : nil
-        if let sticker = stagedSticker {
-            let tag = "[贴:\(sticker.id) \(sticker.shortDesc)]"
-            text = text.isEmpty ? tag : "\(text) \(tag)"
-        }
+        let text = (overrideText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty, isProcessing else { return }
-        if let sticker = stagedSticker {
-            StickerStore.shared.recordUse(id: sticker.id)
-            pendingSticker = nil
-        }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let pendingAttachments = overrideText == nil ? attachments : []
         let prompt = QueuedPrompt(text: text, attachments: pendingAttachments)
