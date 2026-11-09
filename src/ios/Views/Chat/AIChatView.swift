@@ -228,6 +228,9 @@ struct AIChatView: View {
     @State private var keyboardAnim: Animation = .easeOut(duration: 0.25)
     /// 同一次的时长数字版:动画用 Animation,延迟要用秒。
     @State private var keyboardAnimDuration: Double = 0.25
+    /// [T-composer-split] 语音/发送键和停止键的点按计数，只给 sensoryFeedback 当触发器用。
+    @State private var voiceSendTapCount = 0
+    @State private var stopTapCount = 0
     @State private var inputBarHeight: CGFloat = 0
     /// [T-composer-single-anchor] 输入栏那一摞（浮窗键 + 一起听胶囊 + 输入栏）的实测高度。
     /// 斜杠/提及弹窗只认这一个数字，不再三段相加。
@@ -3453,8 +3456,12 @@ struct AIChatView: View {
     /// [Single-Line WeChat Style] 微信式单行聊天输入条：左加号、中输入框、右语音与发送
     /// AnyView-erased 防止输入条复杂组件加深 inputBar 泛型深度导致栈溢出 (crash 2026-04-17 / 2026-10-12)
     private var singleLineInputRow: AnyView {
-        // [T-composer-oneshot] 照她给的稿子：一整条圆角胶囊，四件并排——
-        //   +   输入框自适应   表情   黑色圆键（空=语音 / 有字=发送 / 跑着=停止）
+        // [T-composer-oneshot] 照她给的稿子：一整条圆角胶囊，并排——
+        //   +   输入框自适应   表情   语音/发送   停止（生成时才出现，在最右）
+        //
+        // [T-composer-split] 语音/发送和停止是两颗键，不是原来那颗三合一形态键：
+        // 语音/发送只看草稿空不空，停止只看生成中不中，两者互不抢位。
+        // 停止出现时语音/发送向左滑一格，身份不变、不消失；停止消失时再滑回来。
         //
         // 上一版把文字放上面、键放下面一行，那是上游的骨架，但她要的是这种
         // 单行胶囊：一条就够，键永远在同一个高度上，打字时只有输入框变高，
@@ -3464,9 +3471,21 @@ struct AIChatView: View {
             inputFieldOrWaveform
             stickerTrayButton
             voiceSendButton
+            if showStop {
+                stopButton
+            }
         }
         .padding(6)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showStop)
         return AnyView(row)
+    }
+
+    /// [T-composer-split] 停止键该不该露面，只看生成状态：
+    /// 当前轮在跑，或队里还有没跑完的消息。isProcessing 在两轮之间不会闪断
+    /// （drain 是 inline 跑完才落 false），但就算它闪一下，promptQueue 非空
+    /// 这一半也能把键钉住，不会出现 395 号 P1-4 那种黑圆里一张空脸。
+    private var showStop: Bool {
+        vm.isProcessing || !vm.promptQueue.isEmpty
     }
 
     // MARK: - [T-composer-four] 表情键与形态键
@@ -3495,48 +3514,37 @@ struct AIChatView: View {
         .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
     }
 
-    /// 黑色圆键：一颗键管几件事，按状态分派，跟稿子一致。
-    ///   · 编辑中          → 有字：提交这条编辑 / 无字：退出编辑
-    ///   · 生成中（未编辑） → 停止
-    ///   · 空输入          → 声波（进语音面板）
-    ///   · 有字            → 箭头（发送）
+    /// 语音/发送键：只管发，不管停。
+    ///   · 编辑中 → 有字：提交这条编辑 / 无字：退出编辑
+    ///   · 空输入 → 话筒（进语音面板）
+    ///   · 有字   → 箭头（发送；生成中就是排队，停止另有一颗键）
     ///
-    /// [T-stop-pinned] 生成中那颗键永远是停。以前判据是「跑着 && 没在排队」，
-    /// 她一打字 hasContent 和 canEnqueue 同时为真，键立刻变成发送箭头，点下去只是
-    /// 排队 —— 生成中她根本停不掉。现在排队发送挪到键盘回车，键位只留停止。
+    /// [T-composer-split] 这颗键的形态只看草稿空不空，不看生成中不中。
+    /// 以前它还兼着停止：生成中一打字，canEnqueue 为真，停止就被顶成发送，
+    /// 点下去只是排队，生成根本停不掉。现在停止是行里最右那颗独立的键，
+    /// 这颗再怎么打字也抢不走它。
     ///
-    /// [T-key-no-detach] 图标不再用 if/else 增删视图：四个字形同时挂着，只切透明度。
+    /// [T-key-no-detach] 字形不增删视图：三个字形同时挂着，只切透明度。
     /// 视图增删会让黑色圆那一层在键盘动画期间重新挂载，表现层可能停在旧坐标
     /// —— 她看到的就是「黑圆片飞出去、0.25 秒后落回来」。
-    /// [T-key-inbounds] 命中框也从「负 padding 往外画」改成「44 的框装 40 的圆」：
-    /// 内容画在自己边界外面，父层一动就容易被单独合成，和上面那条同源。
+    /// 黑圆底也一样：只在发送态才不透明，语音态是裸话筒，圆底不同时增删。
+    /// [T-key-inbounds] 命中框是「44 的框装 40 的圆」：内容画在自己边界外面，
+    /// 父层一动就容易被单独合成，和上面那条同源。
     private var voiceSendButton: some View {
         let editing = vm.editingMessageIndex != nil
         let hasContent = hasDraftContent
-        let showingStop = vm.isProcessing && !editing
-        let recording = speechManager.state == .recording
-        // [T-send-key-color] 底色只有一种，红只留在「正在录」这个真状态上。
-        //
-        // 以前停止态也刷成红色，于是同一颗键空着是黑、打字是黑、AI 一回话
-        // 变红、回完又变黑 —— 位置和形状都没动，颜色自己在那跳，看着像坏了。
-        // 现在：跑着只换图标（方块），底色不动；只有她真的在录音时才是红的，
-        // 那是要她注意的状态。
-        let fill: Color = recording
-            ? ChatColors.destructive
-            : CSSThemeVariables.textMain(scope: ThemeColorLayer.chat)
-        // 四个字形各自一个开关,谁亮谁不亮;全程不增删视图。
-        let showStop = showingStop
-        let showArrow = !showingStop && (editing || hasContent)
-        let showClose = !showingStop && editing && !hasContent
-        let showWave = !showingStop && !editing && !hasContent
+        // 三个字形各自一个开关,谁亮谁不亮;全程不增删视图。
+        let showArrow = editing || hasContent
+        let showClose = editing && !hasContent
+        let showMic = !editing && !hasContent
 
         return Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            if showingStop {
-                vm.cancel()
-            } else if editing {
+            voiceSendTapCount &+= 1
+            if editing {
                 // 编辑模式:这颗键只干编辑的事,没字就是退出。
-                if hasContent { performSend() } else { vm.cancelEdit() }
+                if hasContent { performSaveEdit() } else { vm.cancelEdit() }
+            } else if canEnqueue {
+                performEnqueue()
             } else if canSend {
                 performSend()
             } else if hasContent {
@@ -3552,13 +3560,10 @@ struct AIChatView: View {
             }
         } label: {
             ZStack {
-                Circle().fill(fill)
-                // 停止。
-                Image(systemName: "stop.fill")
-                    .font(ChatFont.font(17, weight: .semibold))
-                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
-                    .opacity(showStop ? 1 : 0)
-                // 发送。
+                // 只有发送态才有黑圆底；语音是裸话筒，退出编辑是裸叉。
+                Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
+                    .opacity(showArrow ? 1 : 0)
+                // 发送 / 提交编辑。
                 Image(systemName: "arrow.up")
                     .font(ChatFont.font(17, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
@@ -3566,29 +3571,59 @@ struct AIChatView: View {
                 // 退出编辑。
                 Image(systemName: "xmark")
                     .font(ChatFont.font(15, weight: .semibold))
-                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
                     .opacity(showClose ? 1 : 0)
-                // 声波:五根竖条,跟稿子一样手画,不依赖 SF Symbol 的版本。
-                HStack(spacing: 2.6) {
-                    ForEach(Array([6.0, 12.0, 17.0, 10.0, 5.0].enumerated()), id: \.offset) { _, h in
-                        Capsule()
-                            .fill(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
-                            .frame(width: 2.6, height: h)
-                    }
-                }
-                .opacity(showWave ? 1 : 0)
+                // 语音：裸话筒，不套黑圆——跟她对话框里那颗的样子一致。
+                Image(systemName: "mic.fill")
+                    .font(ChatFont.font(19, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
+                    .opacity(showMic ? 1 : 0)
             }
-            // [T-key-44] 40 的黑圆装进 44 的框:命中框够大,内容不越界。
+            // [T-key-44] 40 的圆装进 44 的框:命中框够大,内容不越界。
             .frame(width: 40, height: 40)
             .frame(width: 44, height: 44)
             .contentShape(Circle())
         }
         .buttonStyle(MorphPressStyle())
-        .accessibilityLabel(Text(showingStop
-            ? AppLocalized("停止生成")
-            : (editing
-               ? (hasContent ? AppLocalized("提交编辑") : AppLocalized("退出编辑"))
-               : (hasContent ? AppLocalized("发送") : AppLocalized("语音输入")))))
+        .sensoryFeedback(.impact, trigger: voiceSendTapCount)
+        .accessibilityLabel(Text(editing
+            ? (hasContent ? AppLocalized("提交编辑") : AppLocalized("退出编辑"))
+            : (hasContent ? AppLocalized("发送") : AppLocalized("语音输入"))))
+    }
+
+    /// 停止键：行里最右一格，只在生成时出现，底色永远是黑，不变红。
+    /// 点下去停的是整队（当前轮 + 排队），见 AIChatViewModel.cancel()。
+    private var stopButton: some View {
+        Button {
+            stopTapCount &+= 1
+            vm.cancel()
+        } label: {
+            ZStack {
+                Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
+                Image(systemName: "stop.fill")
+                    .font(ChatFont.font(16, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+            }
+            .frame(width: 40, height: 40)
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+        }
+        .buttonStyle(MorphPressStyle())
+        .sensoryFeedback(.impact, trigger: stopTapCount)
+        .accessibilityLabel(Text(AppLocalized("停止生成")))
+        .transition(.scale(scale: 0.7).combined(with: .opacity))
+    }
+
+    /// 编辑保存：生成中先停掉当前轮再提交。
+    /// 编辑要截断历史，不能和跑着的循环并行；以前这里直接调 performSend，
+    /// send() 的 !isProcessing 守卫会静默拦掉，键按下去什么都不发生。
+    /// cancel() 会把排队的消息一并收掉（停整队的语义），编辑中的草稿不受影响
+    /// （cancel 只在非编辑时才把队尾文字放回输入框）。
+    private func performSaveEdit() {
+        if vm.isProcessing {
+            vm.cancel()
+        }
+        performSend()
     }
 
     /// [T-voice-exit] 从语音模式回到文字输入。
@@ -3985,8 +4020,10 @@ struct AIChatView: View {
         if vm.showSlashMenu && vm.executeSelectedSlashCommand() { return }
         // [T-edit-return] 编辑中的回车只干编辑的事:有字提交这条编辑,
         // 没字不动。以前它和普通草稿共用一套优先级,编辑时会掉进排队。
+        // 生成中也一样走 performSaveEdit（先停再提交），别让 send() 的
+        // !isProcessing 守卫把回车静默吃掉。
         if vm.editingMessageIndex != nil {
-            if hasDraftContent { performSend() }
+            if hasDraftContent { performSaveEdit() }
             return
         }
         if canEnqueue { performEnqueue() }
