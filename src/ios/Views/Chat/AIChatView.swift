@@ -102,6 +102,9 @@ enum ChatColors {
         studio.color(.field, scope: ThemeColorLayer.chat)
             .opacity(max(studio.surfaceOpacity, 0.94))
     }
+    /// ChatInputBar 的输入框色片还在读这两个,别照着 378 号审计当死代码删。
+    static var sendButton: Color { studio.color(.accent, scope: ThemeColorLayer.chat) }
+    static var sendButtonDisabled: Color { studio.color(.secondaryText, scope: ThemeColorLayer.chat).opacity(0.4) }
     static var inputBorder: Color { studio.color(.border, scope: ThemeColorLayer.chat) }
     static var primaryText: Color { studio.color(.primaryText, scope: ThemeColorLayer.chat) }
     /// [bubble-grouping] My-bubble text only. Unset, it follows
@@ -149,8 +152,6 @@ enum ChatColors {
     static var success: Color { studio.color(.success, scope: ThemeColorLayer.chat) }
     static var warning: Color { studio.color(.warning, scope: ThemeColorLayer.chat) }
     static var destructive: Color { studio.color(.destructive, scope: ThemeColorLayer.chat) }
-    static var sendButton: Color { studio.color(.accent, scope: ThemeColorLayer.chat) }
-    static var sendButtonDisabled: Color { studio.color(.secondaryText, scope: ThemeColorLayer.chat).opacity(0.4) }
 }
 
 // MARK: - Main View

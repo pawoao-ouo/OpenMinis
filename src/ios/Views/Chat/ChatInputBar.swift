@@ -1445,8 +1445,13 @@ struct PastableTextView: UIViewRepresentable {
         placeholderLabel.tag = 999
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         tv.addSubview(placeholderLabel)
+        // 正文的 textContainerInset.top 恒为 0,第一行就贴着顶边,所以占位字也钉顶边;
+        // 横向要补上 UITextView 自己的行内留白,否则它比打出来的字左出 5pt。
         NSLayoutConstraint.activate([
-            placeholderLabel.leadingAnchor.constraint(equalTo: tv.leadingAnchor),
+            placeholderLabel.leadingAnchor.constraint(
+                equalTo: tv.leadingAnchor,
+                constant: tv.textContainer.lineFragmentPadding
+            ),
             placeholderLabel.topAnchor.constraint(equalTo: tv.topAnchor),
         ])
         placeholderLabel.isHidden = !text.isEmpty
