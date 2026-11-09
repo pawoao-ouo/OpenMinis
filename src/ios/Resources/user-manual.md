@@ -183,7 +183,7 @@
 - **429（Rate Limit）** — 同模型自动退避重试（首次尊重 Retry-After 头），不是立刻换模型
 - **余额不足**（insufficient balance / 余额不足）— 死错，立刻停不浪费轮次
 - **走完退避还是 429** → 换模型组里下一个
-- **上游挂了** → 自动降级到下一个 Provider 的同模型
+- **上游挂了** → 换模型组里下一个（同一个组里的下一条模型，不是换服务商）
 
 中转预扣费（按 input + max_tokens）是真坑：对话框里 max_output_tokens 填太大，中转预扣你账上没有的钱直接拒。不设 max_output_tokens 字段不发，就不炸。
 
@@ -277,7 +277,7 @@ iOS Files 里的文件夹可以挂进来看（Obsidian vault / Downloads / 别�
 - **同步什么** — 会话记录、设置、技能、记忆。**Provider 密钥也会同步**（base64 编码、非端到端加密；可在上传设置里关掉）
 - **换机** — 新机登同个 Apple ID → 打开 iCloud → 拉下来
 - **推到云端** — 「Force Sync」强制推一次（默认是改动后自动推）
-- **冲突** — 以云端为准覆盖本地（单向，不是双向合并）
+- **冲突** — 有本地更新保护：本地更新的不会被云端旧版本盖掉（不是单向云端赢）
 
 ---
 
@@ -325,7 +325,7 @@ App 里跑了个完整的 Alpine Linux（iSH）。这是整个 App 里上限最�
 ### 里面有什么
 - **现成的**：python3(3.12)、pip、git、curl、wget、ssh、jq、ffmpeg——能写脚本、拉代码、调接口、转音视频格式、连服务器
 - **能装的**：`apk add <包名>` 随时装（装不了的大东西说明 rootfs 空间有限）
-- **文件共享**：终端里的 `/var/minis/` 就是 App 的数据区——`attachments/` 是你发进对话的文件、`workspace/` 是 AI 的工作区、`shared/` 是跨会话存储。**AI 和终端看得到同一份文件**：你在对话里发图，AI 从 attachments 读；AI 写个网页到 workspace，给你一个 `minis://workspace/...` 链接点开就是
+- **文件共享**：终端里的 `/var/minis/` 就是 App 的数据区——`attachments/` 是你发进对话的文件、`workspace/` 是 AI 的工作区、`shared/` 是跨会话存储。**AI 和终端看得到同一份文件**：你在对话里发图，AI 从 attachments 读；AI 写个网页到 workspace，给你一个 `minis-clone://workspace/...` 链接点开就是
 
 ### 能玩什么（举真实的例子）
 - 让 AI 写个 HTML 小工具/看板 → 落在 workspace → 对话里点链接直接用，还能收藏
@@ -336,8 +336,8 @@ App 里跑了个完整的 Alpine Linux（iSH）。这是整个 App 里上限最�
 
 ### 和 AI 配合的正确姿势
 - **要产物**：直接说"帮我做个XX"，AI 写完给链接，点开即用
-- **要交互**：需要输密码/登 SSH 的活，AI 会给你一个 [打开终端](minis://open_terminal) 链接，你自己进去敲
-- **定时活**：iOS 快捷指令 App → 自动化 → 设时间 → "发送 Prompt 给 嘟嘟"，AI 会定时被唤醒干活（比如每天的固定任务）。这是唯一可靠的定时方式，App 挂起时内部定时器会停
+- **要交互**：需要输密码/登 SSH 的活，AI 会给你一个 [打开终端](minis-clone://open_terminal) 链接，你自己进去敲
+- **定时活**：App 里的 Scheduled Prompts（AI 也能自己用 `minis-scheduled` 登记），只在 App 活着时有效；要 App 挂了也照跑，用 iOS 快捷指令 App → 自动化 → 设时间 → "发送 Prompt 给 嘟嘟"，这是唯一可靠的定时方式
 
 ### 注意
 - **rootfs Management** 管终端的磁盘，快满了会提醒
@@ -345,5 +345,5 @@ App 里跑了个完整的 Alpine Linux（iSH）。这是整个 App 里上限最�
 - 环境变量页（Settings → Environment Variables）存 key，终端和 AI 都能用 `$名字` 引用，值不会出现在对话里
 
 ### 深链
-- `minis://open_terminal` — 直接开终端（对话里发这个链接就能点）
-- `minis://settings/...` — 直达某个设置页
+- `minis-clone://open_terminal` — 直接开终端（对话里发这个链接就能点）
+- `minis-clone://settings/...` — 直达某个设置页

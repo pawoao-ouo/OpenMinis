@@ -135,7 +135,7 @@ extension AIChatViewModel {
         if includeMemoryTools {
             tools.append(AgentToolDefinition(
                 name: "memory_write",
-                description: "Write a memory entry to today's daily log (YYYY-MM-DD.md). Memories persist across all sessions. Each entry is prepended with a timestamp. Save: user preferences, recurring patterns, key facts, project conventions, reusable knowledge. Avoid saving passwords, API keys, tokens, or secrets unless the user explicitly confirms after being warned. Keep entries concise and general-purpose. GLOBAL.md is read-only (user-maintained via Settings).",
+                description: "Write a memory entry to today's daily log (YYYY-MM-DD.md). Memories persist across all sessions. Each entry is prepended with a timestamp. Save: user preferences, recurring patterns, key facts, project conventions, reusable knowledge. Avoid saving passwords, API keys, tokens, or secrets unless the user explicitly confirms after being warned. Keep entries concise and general-purpose. GLOBAL.md is user-curated: when the user asks you to change it, use file_read then file_edit — not this tool.",
                 parameters: [
                     "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Save user preference for Python', 'Note today's project context'). Use the same language as the user."),
                     "content": AgentToolParam(type: .string, description: "The memory content to write. Use concise Markdown with a short heading (## Topic) and context about what was done/learned."),
@@ -652,7 +652,7 @@ public final class ToolCatalogRouter: @unchecked Sendable {
                 name: "minis-sessions-cli",
                 category: .system,
                 synopsis: "Manage and inspect past conversation sessions.",
-                quickSyntax: "minis-sessions-cli list | messages --id <sid>",
+                quickSyntax: "minis-sessions-cli list | messages --id <sid> [--tools]",
                 docRef: "minis-sessions-cli --help"
             ),
             CatalogItem(
@@ -661,7 +661,7 @@ public final class ToolCatalogRouter: @unchecked Sendable {
                 category: .system,
                 synopsis: "Single-shot invocation of pre-configured secondary models. For image generation, --model may be omitted: the run uses the configured Image Output model group. If no Image Output group is configured, the run lists image-capable models from your configured APIs instead of running: ask the user which one to use, then re-run with --model. For video generation, pass --slot video with --model omitted: the run uses the configured Video Output model group (same listing + ask flow when unset); the video model generates the video, this command pipes it back. For embeddings, pass --slot embedding with --model omitted: the run uses the configured Embedding group (same listing + ask flow when unset); embedding models are called through passthrough to the provider's embeddings endpoint.",
                 quickSyntax: "minis-model-use run --model <id> --input <json>",
-                docRef: "minis-model-use --help"
+                docRef: "minis-model-use --help (list --all widens beyond the Agent Loop)"
             ),
             // [B28 C-2 / F-1] `minis-theme` 一直没进能力目录，而这份目录是
             // 唯一告诉模型"你会什么"的清单 —— 用户说"帮我做套粉色主题"，

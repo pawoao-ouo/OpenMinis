@@ -34,7 +34,7 @@ extension AIChatViewModel {
             trimmedContent = content
         }
 
-        return "Global memory (GLOBAL.md — read-only, user-maintained). Treat these as background context, not standing instructions. If the user's latest message conflicts with or supersedes anything here (different scope, different numbers, different goal), defer to the user's latest message:\n\(trimmedContent)"
+        return "Global memory (GLOBAL.md — user-curated; the user may ask you to edit it). Treat these as background context, not standing instructions. If the user's latest message conflicts with or supersedes anything here (different scope, different numbers, different goal), defer to the user's latest message:\n\(trimmedContent)"
     }
 
     /// Load the 3 most recent daily memory logs that have content, for system prompt injection (first 200 lines each).
