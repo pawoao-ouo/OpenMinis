@@ -627,8 +627,8 @@ struct UserBubbleSurface: ViewModifier {
 /// [10-20 醒醒] 排队消息的状态点，叠在气泡右上角。
 ///
 /// 用 overlay 而不是塞进 HStack：塞进去会改气泡的可用宽度，
-/// 撤回按钮那 28pt 是量高代码（`withdrawButtonWidth`）里算过的，
-/// 再多一个元素就得同步改测量，容易漏。overlay 不参与布局，零风险。
+/// 再多一个元素就得同步改量高代码，容易漏。overlay 不参与布局，零风险。
+/// 撤回不在气泡边挂按钮了，只走长按菜单（红叉长得像第二个停止键）。
 ///
 /// 灰 = 还在队列里等注入；蓝 = 正在送进上下文；isQueued 翻 false 就整颗消失。
 private struct QueuedStatusDot: ViewModifier {
@@ -943,16 +943,6 @@ struct ChatMessageRow: View {
                                         .modifier(QueuedStatusDot(isQueued: message.isQueued,
                                                                   isDelivering: message.isDelivering))
                                         .id(appearanceStudio.themePackRevision)
-
-                                    if message.isQueued, let onWithdraw {
-                                        Button {
-                                            onWithdraw()
-                                        } label: {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .font(.system(size: 22))
-                                                .foregroundStyle(ChatColors.destructive)
-                                        }
-                                    }
                                 }
                             }
                             StickerThumbnailView(sticker: sticker)
@@ -972,16 +962,6 @@ struct ChatMessageRow: View {
                                         .modifier(QueuedStatusDot(isQueued: message.isQueued,
                                                                   isDelivering: message.isDelivering))
                                         .id(appearanceStudio.themePackRevision)
-
-                                    if message.isQueued, let onWithdraw {
-                                        Button {
-                                            onWithdraw()
-                                        } label: {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .font(.system(size: 22))
-                                                .foregroundStyle(ChatColors.destructive)
-                                        }
-                                    }
                                 }
                             }
                             StickerDeletedPlaceholderView()
@@ -993,18 +973,6 @@ struct ChatMessageRow: View {
                                             isQueued: message.isQueued,
                                             isDelivering: message.isDelivering,
                                             messageId: message.id)
-
-                            if message.isQueued {
-                                if let onWithdraw {
-                                    Button {
-                                        onWithdraw()
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 22))
-                                            .foregroundStyle(ChatColors.destructive)
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -1056,6 +1024,16 @@ struct ChatMessageRow: View {
                         onRetry()
                     } label: {
                         Label("Retry", systemImage: "arrow.counterclockwise")
+                    }
+                }
+                // [T-composer-queue-withdraw] 排队消息的撤回只在这里：气泡边
+                // 不再挂红叉（长得像第二个停止键）。状态只看气泡右上角那颗
+                // 6pt 小圆点（灰=等注入/蓝=送达中）。
+                if message.isQueued, let onWithdraw {
+                    Button(role: .destructive) {
+                        onWithdraw()
+                    } label: {
+                        Label(AppLocalized("撤回排队消息"), systemImage: "arrow.uturn.backward")
                     }
                 }
                 if onDeleteFrom != nil || onCompact != nil {

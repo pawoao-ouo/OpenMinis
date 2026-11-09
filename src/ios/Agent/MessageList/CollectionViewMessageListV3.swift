@@ -4129,29 +4129,11 @@ extension CollectionViewMessageListV3 {
             // disagreement near width boundaries. `70` appeared nowhere in the
             // rendering code; it was estimator-only drift.
             let fontSize = FontSettings.shared.scaledMessage(16.5)
-            // [T-ios-queued-bubble-withdraw-width] A QUEUED message renders a
-            // withdraw button beside the bubble:
-            //
-            //     HStack(spacing: 6) { Text(...).padding(.horizontal, 14)
-            //                          if isQueued { Button(xmark, size 22) } }
-            //
-            // (ChatMessageViews.swift userRow). That button and its spacing eat
-            // ~28pt of the row, so the text actually wraps 28pt NARROWER than
-            // this estimate assumed — the estimate counted fewer lines than the
-            // render produces, the cell was laid out too short, and SwiftUI
-            // truncated the Text to fit (one line + ellipsis, with the
-            // attachment tiles spilling over neighbouring rows).
-            //
-            // This is why the bug looked intermittent and "self-healed": the
-            // button exists ONLY while the message is queued. Once the send
-            // queue drains, `isQueued` flips false, the button disappears, and
-            // any later re-measure lands on the correct height — so scrolling
-            // or re-entering the session appeared to fix it, while every newly
-            // sent message reproduced it.
-            //
-            // Under-estimates are the harmful direction (over-estimates merely
-            // leave a gap); subtract the button when it is actually rendered.
-            let withdrawButtonWidth: CGFloat = message.isQueued ? (22 /*icon*/ + 6 /*HStack spacing*/) : 0
+            // [T-composer-queue-withdraw] 排队消息的气泡边不再挂撤回按钮
+            // （红叉长得像第二个停止键，撤回只走长按菜单），所以这里不用再
+            // 给它预留 28pt：以前那颗 22pt 红叉 + 6pt 间距是量高里单独减掉
+            // 的，按钮没了，宽度要还给文字，不然排队气泡会按窄了量、多换行。
+            let withdrawButtonWidth: CGFloat = 0
             let usableTextWidth = max(cvWidth - 32 /*cell*/ - 60 /*Spacer*/ - 28 /*bubble pad*/ - withdrawButtonWidth, 80)
 
             let attachH = UserAttachmentTileMetrics.blockHeight(
