@@ -316,19 +316,26 @@ extension AIChatViewModel {
         // post-compact context. Logs every message's role + part summary +
         // token estimate; lets us tell whether bloat comes from the injected
         // summary, pre-anchor warm-up turns, or post-anchor tool results.
+        // [T-send-hitch-log] 明细只在 Debug 里攒：Release 里这些字符串一个
+        // 都不该被拼出来，拼它们的地方正好在她点发送的那一帧上。
+        #if DEBUG
         var perMsg: [String] = []
         var biggest: [(kind: String, tokens: Int, msgIdx: Int)] = []
+        #endif
         for (idx, msg) in slice.enumerated() {
+            #if DEBUG
             var msgTok = 0
             var partTags: [String] = []
+            #endif
             for part in msg.parts {
                 // [batch4 / W2C-01] Per-part BPE count (includes its image tokens).
                 let partTok = BPETokenizer.shared.countPartTokens(part)
-                var partKind = ""
+                partTokens += partTok
+                #if DEBUG
+                let partKind: String
                 switch part {
                 case .text(let t):
-                    let isSummary = t.contains("<context-summary>")
-                    partKind = isSummary ? "SUMMARY" : "text"
+                    partKind = t.contains("<context-summary>") ? "SUMMARY" : "text"
                 case .toolUse(_, let name, _):
                     partKind = "tu:\(name)"
                 case .toolResult:
@@ -337,23 +344,31 @@ extension AIChatViewModel {
                     partKind = "img"
                 }
                 msgTok += partTok
-                partTokens += partTok
                 partTags.append("\(partKind)=\(partTok)t")
                 if partTok >= 500 {
                     biggest.append((partKind, partTok, idx))
                 }
+                #endif
             }
+            #if DEBUG
             let dbId = msg.dbMessageId?.prefix(8) ?? "----"
             perMsg.append("[\(idx) \(msg.role.rawValue) db=\(dbId) ~\(msgTok)tok | \(partTags.joined(separator: ","))]")
+            #endif
         }
         // [batch4 / W2C-01] Fixed per-request overhead (system prompt + tool
         // definitions), refreshed each turn by the request builder — worth
         // thousands of tokens on its own and previously never counted.
         let totalTokens = partTokens + lastRequestFixedTokens
+        // [T-send-hitch-log] 这两行日志以前是 INFO：每次发送前把整段历史的
+        // 逐条明细拼成字符串，再写进 NSLog 和崩溃日志文件。长会话里光拼这个
+        // 字符串就是几百 KB，全在点发送的那一帧里做。明细降到 DEBUG（Release
+        // 里连字符串都不拼），只留一行汇总。
+        logger.info("[CompactDiag] estimate caller=\(caller) slice=\(slice.count) total=\(totalTokens)tok (history=\(partTokens)+fixed=\(lastRequestFixedTokens))")
+        #if DEBUG
         biggest.sort { $0.tokens > $1.tokens }
         let top = biggest.prefix(5).map { "[\($0.msgIdx)\($0.kind)=\($0.tokens)t]" }.joined(separator: " ")
-        logger.info("[CompactDiag] estimate caller=\(caller) slice=\(slice.count) total=\(totalTokens)tok (history=\(partTokens)+fixed=\(lastRequestFixedTokens)) bigParts(≥500t): \(top)")
-        logger.info("[CompactDiag] estimate perMsg: \(perMsg.joined(separator: " "))")
+        logger.debug("[CompactDiag] estimate perMsg bigParts(≥500t): \(top) | \(perMsg.joined(separator: " "))")
+        #endif
         return totalTokens
     }
 

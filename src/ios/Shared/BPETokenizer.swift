@@ -22,12 +22,50 @@ final class BPETokenizer: @unchecked Sendable {
 
     // MARK: - Public API
 
+    /// [T-send-hitch-bpe] 计数缓存。
+    ///
+    /// 每次发送前都要拿整段历史算一遍 token，而历史里绝大多数消息一个字都
+    /// 没变——上一轮的 assistant 回复、几十条工具结果，全都是原样。可 BPE
+    /// 每次都从头再跑一遍，长会话里这一下就卡在主线程上（她点的发送，等
+    /// 的就是这一下）。
+    ///
+    /// 文本内容的计数是确定的，所以按内容哈希缓存即可：没变过的段落直接命中，
+    /// 只有新来的那一条真算。用独立的锁，别和 ensureLoaded 那把搅在一起
+    /// （那个锁里会调 encode，同锁重入会死锁）。
+    private let countLock = NSLock()
+    private var countCache: [UInt64: Int] = [:]
+    private static let countCacheLimit = 4096
+
+    /// FNV-1a，够快也够散；撞了只会让计数偏掉极小的概率，不会崩。
+    private static func cacheKey(_ text: String) -> UInt64 {
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325
+        for b in text.utf8 {
+            h ^= UInt64(b)
+            h = h &* 0x0000_0100_0000_01B3
+        }
+        return h
+    }
+
     /// Count tokens in a text string using BPE encoding.
     /// First call lazy-loads the vocabulary from bundle (~100ms).
     func countTokens(_ text: String) -> Int {
+        guard !text.isEmpty else { return 0 }
+        let key = Self.cacheKey(text)
+        countLock.lock()
+        if let hit = countCache[key] {
+            countLock.unlock()
+            return hit
+        }
+        countLock.unlock()
+
         ensureLoaded()
-        let tokens = encode(text)
-        return tokens.count
+        let n = encode(text).count
+
+        countLock.lock()
+        if countCache.count >= Self.countCacheLimit { countCache.removeAll(keepingCapacity: true) }
+        countCache[key] = n
+        countLock.unlock()
+        return n
     }
 
     /// Count tokens for an AgentContentPart.
