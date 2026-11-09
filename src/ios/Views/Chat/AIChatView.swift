@@ -89,6 +89,17 @@ enum ChatColors {
     static var inputBg: Color {
         studio.color(.field, scope: ThemeColorLayer.chat).opacity(studio.surfaceOpacity)
     }
+    /// [T-composer-glass 11-10] 玻璃路的底色：field 色 × surfaceOpacity × 玻璃系数 0.35。
+    ///
+    /// 默认 0.88 × 0.35 ≈ 0.31：奶粉壁纸底框能透出来，16% 暗膜 + 玻璃模糊
+    /// 兜着占位字。装扮页那颗全局滑杆还管着它（单调：滑杆 0.35→0.12，
+    /// 1.0→0.35），但玻璃永远不回实底——要实底走无障碍回落的 inputBarSolid。
+    /// inputBg 本身不动：它是主题 field 色的直读值；surfaceOpacity 默认
+    /// 0.88 也不动，别的面都靠它。压透只走玻璃这一处。
+    static var inputGlassBg: Color {
+        studio.color(.field, scope: ThemeColorLayer.chat)
+            .opacity(studio.surfaceOpacity * 0.35)
+    }
     /// [T-composer-glass 11-10] 输入栏实底——现在只是无障碍回落。
     ///
     /// 2026-11-10 之前它是真栏的底：输入栏是唯一一块「永远压着内容」的皮，
@@ -5353,11 +5364,12 @@ struct ComposerSurface: ViewModifier {
             #if compiler(>=6.2)
             if #available(iOS 26.0, *) {
                 ZStack {
-                    // 底色就是主题 field 色 × surfaceOpacity（装扮页那颗全局
-                    // 滑杆，默认 0.88）：滑杆现在真管透多少——玻璃 tint 的
-                    // alpha 只改亮度不改覆盖（气泡那边的教训），透多少必须
-                    // 由这层底色的 alpha 定。没为玻璃新加全局变量。
-                    shape.fill(ChatColors.inputBg)
+                    // 底色是主题 field 色 × surfaceOpacity × 玻璃系数 0.35
+                    //（inputGlassBg，默认 ≈0.31）：装扮页那颗全局滑杆还管
+                    // 着它，壁纸底框能透出来；玻璃 tint 的 alpha 只改亮度
+                    // 不改覆盖（气泡那边的教训），透多少必须由这层底色的
+                    // alpha 定。没为玻璃新加全局变量。
+                    shape.fill(ChatColors.inputGlassBg)
                     if needsScrim {
                         shape.fill(.black.opacity(0.16))
                     }
@@ -5378,12 +5390,13 @@ struct ComposerSurface: ViewModifier {
         }
     }
 
-    /// 旧工具链回落：同一套底色 + 暗膜，ultraThinMaterial 当玻璃替身。
+    /// 旧工具链回落：同一套压过 alpha 的玻璃底色（inputGlassBg，默认 ≈0.31）
+    /// + 暗膜，ultraThinMaterial 当玻璃替身。
     /// 阴影留着（材质本身没影，栏得从消息区浮起来）。样张图照旧。
     private var materialBackground: some View {
         ZStack {
             shape.fill(.ultraThinMaterial)
-            shape.fill(ChatColors.inputBg)
+            shape.fill(ChatColors.inputGlassBg)
             if needsScrim {
                 shape.fill(.black.opacity(0.16))
             }
