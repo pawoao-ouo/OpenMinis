@@ -188,7 +188,13 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
                     AppLogger(category: "ScrollDiag").info("[ScrollDiag][baseInsetShrink] \(String(format: "%.2f", previousBase))→\(String(format: "%.2f", bottomPad)) inputBar=\(String(format: "%.2f", inputBarHeight)) offset=\(String(format: "%.1f", cv.contentOffset.y)) — re-pinning to hide the UIKit clamp")
                 }
                 coord.scrollMode = .autoScrolling
-                coord.scrollToBottomNow(animated: false)
+                if coord.keyboardAnimationInFlight() != nil {
+                    // 键盘还在动的时候视口高度是半路的，按这个高度算出来的
+                    // 底会冲过头，落地后还得再回来。等它落地再钉一次。
+                    coord.pinAfterKeyboardSettles(animated: false)
+                } else {
+                    coord.scrollToBottomNow(animated: false, smooth: coord.glideSmallStep(in: cv))
+                }
                 // [T-send-composer-shrink-absorb] A shrink no appended row
                 // absorbed (composer collapsed with nothing new below it):
                 // the content still has to come down to the composer, but as a
@@ -904,7 +910,7 @@ extension CollectionViewMessageListV3 {
 
         /// Keyboard animation params if a keyboard show/hide animation is
         /// currently in flight (per the last WillShow/WillHide notification).
-        private func keyboardAnimationInFlight() -> (duration: TimeInterval, curve: UIView.AnimationCurve)? {
+        func keyboardAnimationInFlight() -> (duration: TimeInterval, curve: UIView.AnimationCurve)? {
             guard let kb = keyboardAnimation, Date() < kb.endsAt else { return nil }
             return (duration: kb.duration, curve: kb.curve)
         }
@@ -1261,11 +1267,19 @@ extension CollectionViewMessageListV3 {
                     } else {
                         let maxOff = newH - cv.bounds.height + cv.adjustedContentInset.bottom
                         if maxOff > 0 {
-                            // [DIAG-3] If tracking/decel, auto-scroll mode is fighting user gesture
+                            // [T-streaming-glide] 这里以前是硬写 contentOffset:
+                            // 出字时内容每长一节就把列表拽一下,屏幕上看是文字
+                            // 一格一格往下蹦。走同一条滑动就顺了。
+                            //
+                            // 更要紧的是手指正按在屏幕上那种情况:此时写坐标是在
+                            // 跟手势抢,内容错位、上滑发卡就是这条(旧代码只打了
+                            // 一行提醒,然后照样写)。现在让开,模式退回浏览态,
+                            // 松手后由 settles 收尾。
                             if cv.isTracking || cv.isDecelerating {
-                                AppLogger(category: "StreamDiag").info("[KVO] ⚠️ PIN-WHILE-SCROLLING contentSize grew +\(String(format: "%.0f", delta)) offset \(String(format: "%.0f", cv.contentOffset.y))→\(String(format: "%.0f", maxOff)) tracking=\(cv.isTracking) decel=\(cv.isDecelerating) — MODE SHOULD BE userBrowsing")
+                                scrollMode = .userBrowsing
+                            } else {
+                                glideOffset(to: max(cv.contentOffset.y, maxOff), in: cv)
                             }
-                            cv.contentOffset.y = max(cv.contentOffset.y, maxOff)
                         }
                     }
                 } else if delta > 0 && self.scrollMode == .userBrowsing {
@@ -5053,7 +5067,7 @@ extension CollectionViewMessageListV3 {
             baseBottomInset += give
             if wasPlain { cv.contentInset.bottom = baseBottomInset }
             AppLogger(category: "ScrollDiag").info("[ScrollDiag][composerShrinkRelease] gave=\(String(format: "%.1f", give)) live=\(String(format: "%.1f", live)) committed=\(String(format: "%.1f", composerShrink.committed)) absorbed=\(String(format: "%.1f", composerShrink.absorbed)) base=\(String(format: "%.1f", baseBottomInset))")
-            if scrollMode == .autoScrolling { scrollToBottomNow(animated: false) }
+            if scrollMode == .autoScrolling { scrollToBottomNow(animated: false, smooth: glideSmallStep(in: cv)) }
         }
 
         /// A pinned list just followed a composer shrink: `contentOffset` is
@@ -5084,7 +5098,7 @@ extension CollectionViewMessageListV3 {
         /// (见 keyboardWillHide 那段注释)，但一直没人读它。
         ///
         /// 所以键盘在动就等它落定，落定后已经在底上就一步都不动。
-        private func pinAfterKeyboardSettles(animated: Bool) {
+        func pinAfterKeyboardSettles(animated: Bool) {
             guard let kb = keyboardAnimationInFlight() else {
                 scrollToBottomNow(animated: animated)
                 return
@@ -5122,23 +5136,48 @@ extension CollectionViewMessageListV3 {
                 cv.setContentOffset(target, animated: true)
                 DispatchQueue.main.async { [weak self] in self?.syncScrollFlags() }
             } else {
-                let oldY = cv.contentOffset.y
-                cv.contentOffset = target
-                if smooth, !cv.isTracking, !cv.isDecelerating {
-                    let dy = target.y - oldY
-                    // 太小不值得动，太大是内容被换掉（切会话/回底），都走硬跳。
-                    if dy > 2, dy < 120, !UIAccessibility.isReduceMotionEnabled {
-                        let glide = CABasicAnimation(keyPath: "bounds.origin")
-                        glide.isAdditive = true
-                        glide.fromValue = NSValue(cgPoint: CGPoint(x: 0, y: -dy))
-                        glide.toValue = NSValue(cgPoint: .zero)
-                        glide.duration = 0.14
-                        glide.timingFunction = CAMediaTimingFunction(name: .linear)
-                        cv.layer.add(glide, forKey: "streamingGlide")
-                    }
+                if smooth {
+                    glideOffset(to: maxOff, in: cv)
+                } else {
+                    cv.contentOffset = target
                 }
                 syncScrollFlags()
             }
+        }
+
+        /// [T-streaming-glide] 把一次程序化位移走成 0.14s 线性滑动。
+        ///
+        /// 出字时文字每 0.1s 长一节，直接写 contentOffset 就是硬位移——屏幕上
+        /// 看是文字一格一格往下蹦（她反复提的那条）。用 additive 动画只是改
+        /// 表现层，模型值已经落位，所以中途再来一次 pin 不会互相打架。
+        ///
+        /// 起点取 `presentation()`：上一段滑动还没走完就来了下一段，从「屏幕上
+        /// 现在停在哪」接着走，不然每 0.1s 会重新起跳一次。
+        /// 只有「一小步」的跟随才走滑动:输入栏长高、流式文字长高都是几十点,
+        /// 一帧硬跳看着就是一格一格蹦。键盘收放是几百点,滑动反而会明显
+        /// 落在键盘后面,那种一律一帧到位。
+        func glideSmallStep(in cv: UICollectionView) -> Bool {
+            let bottomLimit = cv.contentSize.height + cv.adjustedContentInset.bottom - cv.bounds.height
+            let maxOff = max(-cv.adjustedContentInset.top, bottomLimit)
+            return maxOff - cv.contentOffset.y <= 80
+        }
+
+        fileprivate func glideOffset(to newY: CGFloat, in cv: UICollectionView) {
+            let oldY = cv.contentOffset.y
+            cv.contentOffset = CGPoint(x: 0, y: newY)
+            guard !cv.isTracking, !cv.isDecelerating,
+                  !UIAccessibility.isReduceMotionEnabled else { return }
+            let shownY = cv.layer.presentation()?.bounds.origin.y ?? oldY
+            let dy = newY - shownY
+            // 太小不值得动；太大是内容被换掉（切会话/回底），那必须一帧到位。
+            guard abs(dy) > 2, abs(dy) < 160 else { return }
+            let glide = CABasicAnimation(keyPath: "bounds.origin")
+            glide.isAdditive = true
+            glide.fromValue = NSValue(cgPoint: CGPoint(x: 0, y: -dy))
+            glide.toValue = NSValue(cgPoint: .zero)
+            glide.duration = 0.14
+            glide.timingFunction = CAMediaTimingFunction(name: .linear)
+            cv.layer.add(glide, forKey: "streamingGlide")
         }
 
         /// Push the current near-bottom / far-from-top readings to the view

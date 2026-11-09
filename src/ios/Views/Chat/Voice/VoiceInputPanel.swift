@@ -3,6 +3,12 @@ import UIKit
 import AVFoundation
 import Speech
 
+// 文件名会骗人:这里没有任何叫 VoiceInputPanel 的视图。里面装的是语音输入
+// 的状态机(VoiceInputViewModel)、语言表(VoiceLanguages)和失败原因
+// (VoiceInputFailure),真正的界面在 InlineVoiceInputView.swift。
+// [T-voice-file-name] 378 号审计按文件名判它是死文件,差点被整份删掉——删掉
+// 之前先确认这三个类型有没有调用点,全仓有。
+
 // MARK: - VoiceInputViewModel
 //
 // Shared VAD + ASR state machine. Drives the inline voice input
