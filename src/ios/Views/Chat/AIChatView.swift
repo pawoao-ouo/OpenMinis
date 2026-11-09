@@ -5183,16 +5183,11 @@ private struct MorphPressStyle: ButtonStyle {
 /// `.clear`, so the snapshot is already rounded. `clipShape` is still applied so
 /// child views (text view, attachment grid) are clipped to the same rect.
 ///
-/// `glassEffect(in:)` composites the material into the shape it is given, for
-/// the same reason: it does not set a rectangular layer background, so it
-/// preserves the invariant rather than reintroducing the bug. Verified on device
-/// by long-pressing composer text to raise the edit menu — see the task notes.
-///
-/// The two hand-rolled shadows are dropped on the glass path (Liquid Glass
-/// renders its own edge and shadow; stacking the old ones reads as a dark halo —
-/// the same finding as the FAB conversion). The sub-26 branch keeps the original
-/// fill and BOTH shadows byte-for-byte, including the dark-mode-only top shadow
-/// that lifts the bar off the message list.
+/// [T-comment-truth 11-09] 这里曾经写着 `glassEffect(in:)` 那条路和「两条阴影
+/// 照旧」—— 代码里都没有。现在只有一条路：形状自己填色，上面叠主题的输入栏
+/// 样张图，一道阴影（暗色更重，往上偏 2，让栏从消息区浮起来）。
+/// 不改成玻璃，是因为输入栏要的是实底（[T-composer-rebuild]）：玻璃会把她
+/// 换的任何壁纸都透回来。
 /// [B28 R7 醒醒分类] 输入栏样张要用真皮肤，不能复刻一份假的。
 /// 从 private 放开到 internal：装扮页的气泡页样张直接复用这一份。
 struct ComposerSurface: ViewModifier {
