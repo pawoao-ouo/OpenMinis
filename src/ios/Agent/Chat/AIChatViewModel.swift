@@ -2250,12 +2250,22 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
     // MARK: - Send Message
 
+    /// [T-composer-sticker-direct] 点一下表情包就直接发出去，不挂预览卡。
+    /// 只发这张贴纸本身：输入框里正在打的字留着当新草稿，不跟着一起发出去。
+    /// 编辑中点贴纸也不是提交编辑：先把编辑目标摘掉（字还留在框里当新草稿），
+    /// 再当一条新消息发——不然 send() 会把贴纸当成改好的旧消息去截断历史。
+    /// 生成中点贴纸就排队，不等当前轮跑完。
     func sendSticker(_ sticker: StickerItem) {
         let tag = "[贴:\(sticker.id) \(sticker.shortDesc)]"
-        let current = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        inputText = current.isEmpty ? tag : "\(current) \(tag)"
         StickerStore.shared.recordUse(id: sticker.id)
-        send()
+        if editingMessageIndex != nil {
+            editingMessageIndex = nil
+        }
+        if isProcessing {
+            enqueuePrompt(overrideText: tag)
+        } else {
+            send(overrideText: tag)
+        }
     }
 
     /// - Parameter overrideText: when non-nil, this text is sent INSTEAD of the

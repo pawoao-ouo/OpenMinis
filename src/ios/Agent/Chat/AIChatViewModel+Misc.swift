@@ -69,20 +69,32 @@ extension AIChatViewModel {
 
     /// Queue the current input text as a prompt to be injected into the running agent loop.
     /// The message immediately appears in the chat with a dashed border (isQueued=true).
-    func enqueuePrompt() {
+    ///
+    /// - Parameter overrideText: when non-nil, this text is queued INSTEAD of the
+    ///   composer's `inputText`, and the composer draft is left untouched — the
+    ///   same split `send(overrideText:)` makes for programmatic prompts.
+    ///   Used by `sendSticker` so a sticker tap while generating queues just
+    ///   the sticker without eating a half-written draft.
+    func enqueuePrompt(overrideText: String? = nil) {
         // [T-ios-photo-pick-placeholder] Drop any non-ready attachments before
         // snapshotting: a still-loading placeholder's bytes would be discarded
         // once it leaves `attachments` (finalize*Placeholder only looks there)
         // and a failed chip has no file at all, so only fully-loaded files may
         // enter the queue. Mirrors the pruning send() applies at entry.
-        attachments.removeAll { $0.loadState != .ready }
-        var text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An override enqueue carries no attachments: the composer's staged
+        // chips belong to the user, not to the queued text.
+        if overrideText == nil {
+            attachments.removeAll { $0.loadState != .ready }
+        }
+        var text = (overrideText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
         // [T-queue-sticker] The composer's pending sticker is content too — the
         // button above counts it, and send() folds it into the text. Without
         // this branch a sticker-only composer lit the queue button and then
         // did nothing at all when tapped. Consumed only AFTER the guard, so a
         // refused enqueue leaves the sticker staged.
-        let stagedSticker = pendingSticker
+        // An override enqueue never folds the staged sticker in: it is
+        // composer state, and the override text is already complete.
+        let stagedSticker = overrideText == nil ? pendingSticker : nil
         if let sticker = stagedSticker {
             let tag = "[贴:\(sticker.id) \(sticker.shortDesc)]"
             text = text.isEmpty ? tag : "\(text) \(tag)"
@@ -93,7 +105,7 @@ extension AIChatViewModel {
             pendingSticker = nil
         }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        let pendingAttachments = attachments
+        let pendingAttachments = overrideText == nil ? attachments : []
         let prompt = QueuedPrompt(text: text, attachments: pendingAttachments)
         promptQueue.append(prompt)
         // Show in chat immediately with queued styling
@@ -102,8 +114,11 @@ extension AIChatViewModel {
         chatMsg.inputAttachments = pendingAttachments
         messages.append(chatMsg)
         scrollToBottomSignal.send()
-        inputText = ""
-        attachments = []
+        // [S1-fix] An override enqueue leaves the composer entirely alone.
+        if overrideText == nil {
+            inputText = ""
+            attachments = []
+        }
         logger.info("Enqueued prompt (\(text.count)ch, \(pendingAttachments.count) attachments), queue size=\(self.promptQueue.count)")
         // [T-ios-queued-candidate-not-onscreen] Log the queued candidate text
         // (prefix 100) + a queue/messages snapshot so we can later correlate a
