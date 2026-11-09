@@ -1131,6 +1131,9 @@ extension CollectionViewMessageListV3 {
         private var dataSource: UICollectionViewDiffableDataSource<Section, MessageListItem>!
         private var subscriptions = Set<AnyCancellable>()
         private var contentSizeObservation: NSKeyValueObservation?
+        /// [T-list-follow-keyboard] 视口高度跟着键盘变时,偏移要同一拍补上。
+        /// 否则底部内容先钉在原地,等键盘落定再一帧跳过去。
+        private var boundsFollowObservation: NSKeyValueObservation?
 
         // MARK: - Setup
 
@@ -1169,6 +1172,35 @@ extension CollectionViewMessageListV3 {
                         self.keyboardAnimation = (duration: duration, curve: curve, endsAt: Date().addingTimeInterval(duration))
                     }
                     .store(in: &keyboardObservationCancellables)
+            }
+            // [T-list-follow-keyboard] 键盘升降时列表跟着一起滑,别等落定再一帧跳。
+            // 用实测的视口高度差,不拿键盘 frame 估 —— 那个差值会被底部安全区
+            // 吃掉几十点,估出来的底是错的。只在贴底时跟,用户翻旧消息不打扰。
+            boundsFollowObservation = collectionView.observe(\.bounds, options: [.new, .old]) {
+                [weak self] cv, change in
+                guard let self, !self.isFlushing,
+                      let oldH = change.oldValue?.height,
+                      let newH = change.newValue?.height,
+                      abs(newH - oldH) > 0.5,
+                      self.scrollMode == .autoScrolling,
+                      let kb = self.keyboardAnimationInFlight() else { return }
+                let maxOff = cv.contentSize.height - newH + cv.adjustedContentInset.bottom
+                guard maxOff > 0 else { return }
+                // 视口矮了多少,底部就往上走多少(变高则回落)。
+                let floorOff = -cv.adjustedContentInset.top
+                let target = min(max(floorOff, cv.contentOffset.y - (newH - oldH)), maxOff)
+                guard abs(target - cv.contentOffset.y) > 0.5 else { return }
+                UIView.animate(
+                    withDuration: kb.duration,
+                    delay: 0,
+                    options: [
+                        UIView.AnimationOptions(rawValue: UInt(kb.curve.rawValue) << 16),
+                        .beginFromCurrentState,
+                        .allowUserInteraction
+                    ]
+                ) {
+                    cv.contentOffset = CGPoint(x: cv.contentOffset.x, y: target)
+                }
             }
 
             let wholeReg = UICollectionView.CellRegistration<WholeMessageCellV3, MessageListItem> {
