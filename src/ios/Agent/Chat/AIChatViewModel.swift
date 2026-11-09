@@ -2178,14 +2178,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// Set by cancel() so the task's error handler knows this was a user stop.
     /// Internal-access so concurrent tool extensions can read it. [T-concurrent-tools]
     var userDidCancel = false
-    /// Reentrancy guard for `drainQueuedPrompts()`. After a Stop with queued
-    /// prompts, `cancel()` hands off to a fresh Task via `resumeQueueAfterCancel()`,
-    /// but the original (superseded) send/retry/resume Task ALSO reaches its own
-    /// post-loop `drainQueuedPrompts()` call. Without a guard both Tasks could run
-    /// the queued turn, firing the next LLM request — and thus every tool call +
-    /// reply — TWICE. Set/cleared only on @MainActor, so the check-and-set is
-    /// atomic and spans the `await runAgentLoop()` suspension where the second
-    /// drainer would otherwise slip in. [T-ios-concurrent-stop-double-request]
+    /// Reentrancy guard for `drainQueuedPrompts()`. The superseded original
+    /// send/retry/resume Task reaches its own post-loop `drainQueuedPrompts()`
+    /// call, and a fresh drain can start from retry/resume at the same time.
+    /// Without a guard both Tasks could run the queued turn, firing the next
+    /// LLM request — and thus every tool call + reply — TWICE. Set/cleared only
+    /// on @MainActor, so the check-and-set is atomic and spans the
+    /// `await runAgentLoop()` suspension where the second drainer would
+    /// otherwise slip in. [T-ios-concurrent-stop-double-request]
     private var isDrainingQueue = false
     /// [T-compact-queued-drain] True while a post-compact queue drain has been
     /// scheduled (task created) but not finished. Dedup guard so the two
@@ -4617,9 +4617,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
         endBackgroundProcessing()
 
-        // If there are queued prompts remaining, spawn a new task to continue
-        // processing them. The old task is cancelled (stops the current agent
-        // loop) but the queue should keep draining.
         // [T-stop-whole-queue] 停止 = 连排队一起停。
         //
         // 以前 cancel() 只杀当前这轮,200 毫秒后又把排队的那几条接着跑 ——
@@ -4638,63 +4635,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
             logger.info("⏹️ cancel() — took back \(takenBack.count) queued prompt(s)")
         }
-        if !promptQueue.isEmpty && !isCompacting {
-            logger.info("⏹️ cancel() — \(promptQueue.count) queued prompt(s) remain, restarting drain")
-            resumeQueueAfterCancel()
-        }
-    }
-
-    /// Resume queue processing after the user stopped the current task.
-    /// Spawns a fresh Task (not cancelled) so the drain loop can call runAgentLoop().
-    private func resumeQueueAfterCancel() {
-        // Small delay to let the cancelled task's error handler finish cleanup.
-        currentTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Wait briefly for the previous task to complete cleanup
-            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
-            self.handleUserCancelledCleanup()
-            self.userDidCancel = false
-            // [T-stop-with-queue-render-desync] handleUserCancelledCleanup (run
-            // here or by the cancelled task's own catch) set canResume=true —
-            // correct for a plain Stop, but this drain immediately continues the
-            // conversation with the queued prompt, so the "Interrupted — tap
-            // Resume" banner / ⏸ badge must not stay up over a live run. Clearing
-            // it also lets the didSet replay any sync reload it deferred.
-            self.canResume = false
-            self.isProcessing = true
-            self.beginBackgroundProcessing()
-            logger.info("📨[DRAIN] Resuming queue in new task — \(self.promptQueue.count) prompt(s)")
-            await self.drainQueuedPrompts()
-
-            // [T-stop-with-queue-render-desync] A second Stop during this drained
-            // run cancels THIS task and may spawn yet another drain task — same
-            // handover as send()'s epilogue, so don't clobber its state either.
-            guard !Task.isCancelled else {
-                logger.info("📨[DRAIN] queue-resume epilogue skipped (task cancelled) session=\(self.sessionId ?? "nil")")
-                return
-            }
-
-            if let sid = self.sessionId {
-                let dbMessages = await ChatStore.shared.loadMessages(sessionId: sid)
-                self.lastKnownDbSortOrder = dbMessages.last?.sortOrder ?? self.lastKnownDbSortOrder
-                self.lastKnownDbCount = dbMessages.count
-                // T-baseline-hash-drift: see send DONE path for why hash
-                // must be refreshed alongside count/sortOrder.
-                self.lastKnownDbOrderHash = Self.computeOrderHash(of: dbMessages)
-            }
-            self.isProcessing = false
-            self.endBackgroundProcessing()
-        }
     }
 
     /// Drain any queued prompts after an agent loop finishes.
     /// Called from send(), retry(), resume(), and retryFromMessage() before setting isProcessing=false.
     /// Uses a while loop + final yield to catch prompts queued during the last streaming response.
     /// Reentrancy-guarded entry point. Only ONE drain may be active at a time:
-    /// a Stop with queued prompts spawns a fresh resume Task whose drain races
-    /// the superseded original Task's post-loop drain, and without this guard
-    /// both would run the queued turn and double-fire the next request (every
-    /// tool call + reply twice). The guard is set/cleared only on @MainActor so
+    /// the superseded original Task's post-loop drain can race a drain started
+    /// by retry/resume, and without this guard both would run the queued turn
+    /// and double-fire the next request (every tool call + reply twice). The guard is set/cleared only on @MainActor so
     /// check-and-set is atomic and held across the inner `await runAgentLoop()`.
     /// [T-ios-concurrent-stop-double-request]
     /// `internal` (not `private`) so `compactAndSend` in the +Compaction
@@ -4715,8 +4664,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     private func drainQueuedPromptsInner() async {
         while !self.userDidCancel && !self.promptQueue.isEmpty {
             // If the Task itself is cancelled (e.g. user tapped stop), don't
-            // consume queue items — resumeQueueAfterCancel() handles them
-            // in a fresh Task.
+            // consume queue items — cancel() already took the queue back
+            // (messages removed, last text returned to the input box).
             guard !Task.isCancelled else {
                 logger.info("📨[DRAIN] Task cancelled — leaving \(self.promptQueue.count) prompt(s) in queue")
                 break
@@ -4744,8 +4693,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             } catch is CancellationError {
                 logger.info("Agent loop (queued-drain) cancelled")
                 self.handleUserCancelledCleanup()
-                // Don't consume remaining queue items — resumeQueueAfterCancel()
-                // will pick them up in a fresh Task.
+                // Don't consume remaining queue items — cancel() already took
+                // the queue back (messages removed, last text returned).
                 break
             } catch {
                 let rawDesc = String(describing: error)
@@ -5331,7 +5280,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// Number of assistant turns in `agentHistory` at the moment we LAST marked
     /// this session unread. `endBackgroundProcessing()` is called from ~15 sites
     /// (normal completions, kernel-failure early-returns, cancel cleanup, the
-    /// bgTask-expiration handler, resumeQueueAfterCancel, …), and it used to
+    /// bgTask-expiration handler, …), and it used to
     /// push `.unread` unconditionally on every one of them. That made a late or
     /// duplicate call — e.g. a background keep-alive bgTask expiring after the
     /// user already read and left the session — re-add the red dot with NO new
