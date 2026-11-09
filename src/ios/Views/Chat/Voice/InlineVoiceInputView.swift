@@ -1008,6 +1008,9 @@ struct InlineVoiceInputView: View {
                 .background(Circle().fill(ChatColors.inputIconBg))
                 .overlay(Circle().strokeBorder(ChatColors.inputIconBorder, lineWidth: 0.5))
         }
+        // 视觉还是 30 圆,但命中框撑到 44:指针大小的圆片手指够不着。
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
         .accessibilityLabel(Text("Recognition language: \(VoiceLanguages.option(for: viewModel.language).label)", comment: "Inline voice language switch"))
     }
 
@@ -1067,6 +1070,9 @@ struct InlineVoiceInputView: View {
             .background(Circle().fill(ChatColors.inputIconBg))
             .overlay(Circle().strokeBorder(ChatColors.inputIconBorder, lineWidth: 0.5))
         }
+        // 同地球键:30 圆,44 命中框。
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
         .disabled(isCorrecting)
         .accessibilityLabel(Text("Correct transcript with AI", comment: "Voice manual-correction button"))
         .alert(AppLocalized("Improve voice corrections?",
