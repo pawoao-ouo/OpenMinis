@@ -6635,6 +6635,10 @@ struct ChatStickerPanel: View {
     /// 以前写死 89(图 72 + 间隔 4 + 标题一行 13),字号一调、字体一换就对不上,
     /// 面板定下来之后第三行被底边切掉一截。现在量第一格再乘行数。
     @State private var measuredCellHeight: CGFloat = 89
+    /// [P-07-cache] `currentStickers` 以前是现算的:面板盯着整个 vm,AI 流式
+    /// 每跳一帧 body 就重跑一次筛选排序,格子再重比一次。缓存下来,只在真变了
+    /// (曲库 / 分类)才重算。
+    @State private var cachedStickers: [StickerItem] = []
 
 
     /// [T-composer-four] 宫格像输入法一样从输入栏下面吸出来：高度固定一档，
@@ -6671,14 +6675,17 @@ struct ChatStickerPanel: View {
         ["全部", "常用"] + store.categories
     }
 
-    private var currentStickers: [StickerItem] {
+    private var currentStickers: [StickerItem] { cachedStickers }
+
+    /// 重算缓存。只在分类变了、曲库变了、面板刚打开时调。
+    private func rebuildStickerCache() {
         if selectedCategory == "常用" {
             let used = store.stickers.filter { $0.useCount > 0 }.sorted(by: { $0.useCount > $1.useCount })
-            return used.isEmpty ? store.stickers : used
+            cachedStickers = used.isEmpty ? store.stickers : used
         } else if selectedCategory == "全部" {
-            return store.stickers
+            cachedStickers = store.stickers
         } else {
-            return store.stickers.filter { $0.category == selectedCategory }
+            cachedStickers = store.stickers.filter { $0.category == selectedCategory }
         }
     }
 
@@ -7140,6 +7147,10 @@ struct ChatStickerPanel: View {
             activeSheet = nil
             selectedPhotoItems = []
         }
+        .onAppear { rebuildStickerCache() }
+        .onChange(of: selectedCategory) { _ in rebuildStickerCache() }
+        // 曲库真变了才重算;AI 回话不会碰这里。
+        .onChange(of: store.stickers) { _ in rebuildStickerCache() }
         .photosPicker(isPresented: $showPhotosPicker, selection: $selectedPhotoItems, maxSelectionCount: 50, matching: .images)
         .onChange(of: selectedPhotoItems) { items in
             guard !items.isEmpty else { return }
