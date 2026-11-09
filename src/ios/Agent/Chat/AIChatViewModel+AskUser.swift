@@ -33,10 +33,24 @@ extension AIChatViewModel {
         var questions: [AskQuestion] = []
         for obj in raw.prefix(Self.askUserMaxQuestions) {
             guard let qid = (obj["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !qid.isEmpty,
-                  let question = (obj["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !question.isEmpty,
-                  let options = obj["options"] as? [String], !options.isEmpty
+                  let question = (obj["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !question.isEmpty
             else { continue }
             let typeRaw = (obj["type"] as? String)?.lowercased()
+            // [T-manual-phase2-3a] confirm 不需要 options：卡片自己给
+            // 批准/拒绝两颗键。别的类型仍然必须有非空 options。
+            if typeRaw == "confirm" {
+                let riskRaw = (obj["risk"] as? String)?.lowercased()
+                questions.append(AskQuestion(
+                    id: qid,
+                    question: question,
+                    type: "confirm",
+                    options: ["Approve", "Deny"],
+                    impact: (obj["impact"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    risk: (riskRaw == "high" || riskRaw == "medium") ? riskRaw : nil
+                ))
+                continue
+            }
+            guard let options = obj["options"] as? [String], !options.isEmpty else { continue }
             questions.append(AskQuestion(
                 id: qid,
                 question: question,
@@ -45,7 +59,7 @@ extension AIChatViewModel {
             ))
         }
         guard !questions.isEmpty else {
-            let msg = "Error: no valid question in 'questions' (each needs id, question, and a non-empty options array). Please call \(Self.askUserToolName) again."
+            let msg = "Error: no valid question in 'questions' (each needs id and question; type=options needs a non-empty options array, type=confirm needs neither). Please call \(Self.askUserToolName) again."
             return (msg, false, msg)
         }
         // id 是 AI 生成的，可能重复；下游多处用 id 做字典 key（重复会 fatalError），
@@ -233,7 +247,13 @@ extension AIChatViewModel {
             if let arr = answers[q.id] as? [String], !arr.isEmpty {
                 text = arr.joined(separator: "、")
             } else if let s = answers[q.id] as? String, !s.isEmpty {
-                text = s
+                // [T-manual-phase2-3a] confirm 的答案是 approved/denied，
+                // 摘要里说人话，别把英文键名怼到她眼前。
+                if q.isConfirm {
+                    text = (s == "approved") ? "批准" : (s == "denied" ? "拒绝" : s)
+                } else {
+                    text = s
+                }
             } else {
                 text = "跳过"
             }

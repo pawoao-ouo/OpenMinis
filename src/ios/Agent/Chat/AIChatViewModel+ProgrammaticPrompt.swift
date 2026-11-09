@@ -233,7 +233,14 @@ extension AIChatViewModel {
         return status
     }
 
-    static let helperMaxMinutes: Int = 10
+    /// 不传 max_minutes 时的默认预算。
+    static let helperDefaultMinutes: Int = 10
+    /// [T-manual-phase2-2a] 模型显式要的预算是钳到这里，不是钳到
+    /// helperDefaultMinutes——那个是"没说就用它"，这个是"最多能给多少"。
+    static let helperAbsoluteMaxMinutes: Int = 60
+    /// 卡死看门狗的基准：给到绝对上限，否则一个合法的 60 分钟任务会被
+    /// `looksStuck` 判死，把输入栏从 Stop 状态里硬拽出来。
+    static let helperMaxMinutes: Int = helperAbsoluteMaxMinutes
     static let helperWrapUpGraceSeconds: TimeInterval = 30.0
     /// What the parent is told when a sub agent produced no final text.
     ///
@@ -713,11 +720,22 @@ extension AIChatViewModel {
     /// same callback channel as a fresh run.
     @MainActor
     func resumeSubAgentTask(args: [String: Any]) async -> (output: String, success: Bool) {
-        let jobId = Self.argString(args, "job_id")
+        // [T-manual-phase2-2a] 两种指认方式：给 job_id，或者只给
+        // child_session_id（会话被系统重启打断后，父对话手里通常只剩这个）。
+        var jobId = Self.argString(args, "job_id")
+        let childSessionHint = Self.argString(args, "child_session_id")
+        if jobId.isEmpty && !childSessionHint.isEmpty {
+            let hits = AgentJobRegistry.shared.jobs.values.filter {
+                $0.target.isChildOfCurrent && $0.runSessionId == childSessionHint
+            }
+            if hits.count == 1 { jobId = hits[0].id }
+        }
         guard !jobId.isEmpty else {
             return (Self.delegateJSON([
                 "ok": false, "status": "rejected", "reason": "missing_job_id",
-                "detail": "action=resume needs `job_id` — use action=status to list this conversation's delegations.",
+                "detail": childSessionHint.isEmpty
+                    ? "action=resume needs `job_id` (or `child_session_id`) — use action=status to list this conversation's delegations."
+                    : "No delegation of this conversation ran in child session \(childSessionHint). Use action=status to list them.",
             ]), false)
         }
         guard !isSubAgentChild else {
@@ -814,7 +832,8 @@ extension AIChatViewModel {
         } else {
             parentToolUseId = ""
         }
-        let budgetMinutes = AIChatViewModel.helperMaxMinutes
+        // resume 不带 args，用默认预算，不吃绝对上限。
+        let budgetMinutes = AIChatViewModel.helperDefaultMinutes
         let newJob = registry.register(title: job.title,
                                        origin: .tool,
                                        trigger: .immediate,
@@ -883,6 +902,15 @@ extension AIChatViewModel {
         let task = Self.argString(args, "task")
         let requestedAgentName = (args["agent"] as? String)
         let wait = (args["wait"] as? Bool) ?? false
+        // [T-manual-phase2-2a] `context` 和 `max_minutes` 之前在 schema 里没有、
+        // 这里也不解析：模型给了也进不来。补上解析，钳到 1...60。
+        let contextMaterial = Self.argString(args, "context")
+        let budgetMinutes: Int = {
+            let requested = (args["max_minutes"] as? Int)
+                ?? (args["max_minutes"] as? Double).map(Int.init)
+                ?? AIChatViewModel.helperDefaultMinutes
+            return max(1, min(AIChatViewModel.helperAbsoluteMaxMinutes, requested))
+        }()
 
         func reject(_ reason: String, _ detail: String) -> (output: String, success: Bool) {
             let json = Self.delegateJSON(["ok": false, "status": "rejected", "reason": reason, "detail": detail])
@@ -977,7 +1005,6 @@ extension AIChatViewModel {
             }
         }
 
-        let budgetMinutes = AIChatViewModel.helperMaxMinutes
         let childTitle = AgentJobRegistry.childSessionTitle(
             title.isEmpty ? String(task.prefix(40)) : title,
             subAgentName: subAgent.isBuiltIn ? nil : subAgent.name)
@@ -994,7 +1021,8 @@ extension AIChatViewModel {
             for: session.id)
         applySubAgentThinkingLevel(subAgent: subAgent, childSessionId: session.id, parentSessionId: parentSid, entry: resolution.entry)
 
-        let promptText = Self.delegationPrompt(task: task, title: title, subAgent: subAgent)
+        let promptText = Self.delegationPrompt(task: task, title: title, subAgent: subAgent,
+                                               context: contextMaterial)
         let job = registry.register(title: childTitle,
                                     origin: .tool,
                                     trigger: .immediate,
@@ -1177,9 +1205,15 @@ extension AIChatViewModel {
     /// behaviour, not a message), so the task text stays exactly what the
     /// parent wrote — it is what ends up in the transcript and in the model's
     /// context for the child's whole run.
-    static func delegationPrompt(task: String, title: String, subAgent: SubAgentDefinition) -> String {
-        guard !title.isEmpty else { return task }
-        return "# \(title)\n\n\(task)"
+    static func delegationPrompt(task: String, title: String, subAgent: SubAgentDefinition,
+                                 context: String = "") -> String {
+        var body = task
+        if !context.isEmpty {
+            // 原文照传，不加解读：模型给的是原始材料，解释它反而是丢信息。
+            body += "\n\n--- Context provided by the caller (verbatim) ---\n\(context)"
+        }
+        guard !title.isEmpty else { return body }
+        return "# \(title)\n\n\(body)"
     }
 
     /// Give the child session a thinking level, from where its MODEL came from.
@@ -1310,7 +1344,7 @@ extension AIChatViewModel {
                                             jobId: job.id,
                                             title: title,
                                             instructions: subAgent.instructions,
-                                            budgetMinutes: AIChatViewModel.helperMaxMinutes)
+                                            budgetMinutes: AIChatViewModel.helperDefaultMinutes)
         ProviderConfigStore.shared.setBinding(
             SessionModelBinding(sessionId: childId, primarySource: resolution.source), for: childId)
         // A resumed run re-resolves its model, so it re-seeds the thinking
@@ -1344,9 +1378,9 @@ extension AIChatViewModel {
         registry.markRunning(job.id, sessionId: childId)
         // Budget restarts: the original one died with the process.
         job.task = Task { @MainActor [weak child] in
-            try? await Task.sleep(nanoseconds: UInt64(AIChatViewModel.helperMaxMinutes) * 60 * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(AIChatViewModel.helperDefaultMinutes) * 60 * 1_000_000_000)
             guard !Task.isCancelled, let child, child.isProcessing else { return }
-            logger.warning("[subagent_task] budget \(AIChatViewModel.helperMaxMinutes)min elapsed — stopping resumed child \(childId.prefix(8))")
+            logger.warning("[subagent_task] budget \(AIChatViewModel.helperDefaultMinutes)min elapsed — stopping resumed child \(childId.prefix(8))")
             child.cancel()
         }
         if let missing = namedAgentMissing {

@@ -202,18 +202,20 @@ extension AIChatViewModel {
             ))
         }
 
-        // [s2-askuser] 让 AI 中途停下来问她问题再继续：一次最多 4 道题，单选/多选；
-        // 界面自动给每题补"其他（自填）/跳过"，AI 不用自己加。答案以 JSON 回 AI，
-        // 跳过的题是 null。只在用户正聊着的时候用，别拿它问你自己能定的事。
+        // [s2-askuser] 让 AI 中途停下来问她问题再继续：一次最多 4 道题。
+        // [T-manual-phase2-3a] 加了 confirm 类型：批准一件具体动作，不是在一堆
+        // 选项里挑一个。带 impact（会失去什么）和 risk（卡片描红）。也给
+        // timeout_seconds：不填就一直等，填了到点按超时处理。
         tools.append(AgentToolDefinition(
             name: "ask_user_input_v0",
-            description: "Ask the user questions and wait for their answers before continuing. Use this when you need the user to make a choice or provide information only they know (e.g. which option to pick, a missing detail, confirmation of an ambiguous request). At most 4 questions per call — keep it to the minimum you truly need. Each question has an id, the question text, a type ('single' for single-choice, 'multi' for multiple-choice), and a list of candidate options. The UI automatically adds 'Other (type your own)' and 'Skip' to every question — do NOT include them in options yourself. Answers come back as JSON mapping question id to the chosen option string, an array of option strings for multi-choice, a custom string for 'Other', or null when skipped. A skipped question means the user didn't answer — proceed with your best judgment for those. Only call this when the user is actively in the conversation; never use it to ask something you could reasonably decide yourself.",
+            description: "Ask the user questions and wait for their answers before continuing. Use this when you need the user to make a choice, provide information only they know, or approve one specific action. At most 4 questions per call — keep it to the minimum you truly need.\n\nEach question has an id, the question text, and a type:\n- type 'single': single-choice. Needs a non-empty options array. The UI adds 'Other (type your own)' and 'Skip' automatically — do NOT include them yourself.\n- type 'multi': multiple-choice. Same options rules.\n- type 'confirm': approval for ONE specific action, before you do it — when it is irreversible, destructive, affects others or shared systems, spends money, or goes beyond what was asked. No options array: the card shows Approve/Deny. Put the exact action in `question`, what can be lost and whether it can be undone in `impact`, and 'high' in `risk` when the loss is irreversible (it colours the card red).\n\nDo not ask: facts you can check yourself; choices with an obvious default (pick it and state the assumption); 'OK?' or 'continue?'; options that are not genuinely different.\n\nAnswers come back as JSON mapping question id to: the chosen option string; an array of strings for 'multi'; a custom string for 'Other'; \"approved\" / \"denied\" for confirm; or null when skipped or unanswered. A null means no answer — proceed with your best judgment and say what you assumed. Only 'approved' authorises a confirm; on anything else do not perform the action, and do not retry it reworded. After a denial, don't ask the same thing again; if the user's next message answers it, take that as the answer.",
             parameters: [
                 "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what you're asking about, shown to the user (e.g. 'Confirm deployment target'). Use the same language as the user."),
-                "questions": AgentToolParam(type: .string, description: "JSON array of question objects, at most 4. Each object: {\"id\": \"q1\", \"question\": \"...\", \"type\": \"single\"|\"multi\", \"options\": [\"option A\", \"option B\"]}. Keep options short (a few words each). The UI adds 'Other' and 'Skip' automatically."),
+                "questions": AgentToolParam(type: .string, description: "JSON array of question objects, at most 4. Each object: {\"id\": \"q1\", \"question\": \"...\", \"type\": \"single\"|\"multi\", \"options\": [\"option A\", \"option B\"]}. For type 'confirm': {\"id\": \"q1\", \"question\": \"the exact action\", \"type\": \"confirm\", \"impact\": \"what can be lost, and whether it can be undone\", \"risk\": \"high\"|\"medium\"} with no options. Keep option labels short (a few words each). The UI adds 'Other' and 'Skip' automatically to choice questions."),
+                "timeout_seconds": AgentToolParam(type: .integer, description: "Optional. How long to wait for an answer before giving up (default: wait indefinitely). On timeout nothing was applied — decide yourself and say the question timed out. Use it only when the turn must not hang, e.g. an unattended run."),
             ],
             required: ["tool_title", "questions"],
-            propertyOrdering: ["tool_title", "questions"]
+            propertyOrdering: ["tool_title", "questions", "timeout_seconds"]
         ))
 
         // [s2-search] 第 18 条联网搜索：AI 查资料的成品工具。只在当前选中
@@ -293,6 +295,11 @@ extension AIChatViewModel {
             "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user on the block in the tool bar."),
             "action": AgentToolParam(type: .string, description: "The subagent action to perform: delegate (default), status, steer, cancel or resume."),
             "task": AgentToolParam(type: .string, description: "action=delegate only, required. The complete, self-contained brief: goal, constraints, and return format."),
+            // [T-manual-phase2-2a] 这三个参数实现层（HelperRunner）早就在解析，
+            // 只是 schema 里一直没露出来，模型看不见也就用不了。
+            "context": AgentToolParam(type: .string, description: "action=delegate only. Optional raw material to hand over verbatim (file excerpts, error output, a list of paths). Appended to the task."),
+            "max_minutes": AgentToolParam(type: .integer, description: "action=delegate only. Wall-clock budget in minutes (default 10, maximum 60). The sub agent is stopped when it runs out and whatever it produced so far is returned with status=timeout."),
+            "child_session_id": AgentToolParam(type: .string, description: "action=resume only, optional. The child_session_id of one interrupted sub agent to restart. Omit to resume every interrupted sub agent in this conversation."),
             // [T-sub-agents-v1] enumValues are the enabled sub agent names,
             // rebuilt every turn (the schema is not cached), so a rename takes
             // effect on the next request and the model cannot invent a name.
@@ -301,7 +308,7 @@ extension AIChatViewModel {
             "job_id": AgentToolParam(type: .string, description: "action=status/steer/cancel/resume. The job_id returned when the task started. status may omit it to list every delegation of this conversation."),
             "message": AgentToolParam(type: .string, description: "action=steer only, required. The correction instruction to the running sub agent.")
         ]
-        var subagentOrdering = ["tool_title", "action", "task", "agent", "wait", "job_id", "message"]
+        var subagentOrdering = ["tool_title", "action", "task", "agent", "context", "max_minutes", "wait", "job_id", "message", "child_session_id"]
         if showModelChoice {
             subagentParams["model_choice"] = AgentToolParam(
                 type: .string,
@@ -547,6 +554,17 @@ extension AIChatViewModel {
             if !toolWhitelist.contains("healthSummary") {
                 tools.removeAll { $0.name == "healthSummary" }
             }
+            // [T-manual-phase2-5a/6a] 三个新工具同样受人设白名单管：
+            // 人设勾掉就不给它看见，和别的本地工具一个规矩。
+            if !toolWhitelist.contains("setEnvVar") {
+                tools.removeAll { $0.name == "set_env_var" }
+            }
+            if !toolWhitelist.contains("switchPersona") {
+                tools.removeAll { $0.name == "switch_persona" }
+            }
+            if !toolWhitelist.contains("setTTSDefaultGroup") {
+                tools.removeAll { $0.name == "set_tts_default_group" }
+            }
         }
 
         // 表情包抽屉浏览工具：支持模型翻看特定抽屉的完整表情包目录
@@ -558,6 +576,49 @@ extension AIChatViewModel {
             ],
             required: ["drawer"],
             propertyOrdering: ["drawer"]
+        ))
+
+        // [T-manual-phase2-5a] set_env_var — 把用户在对话里给的密钥存进
+        // Keychain。不走 minis-config：EnvVarsCollection.add() 是故意抛
+        // permissionDenied 的（值只走 Keychain 和用户界面），所以这里直接
+        // 调 EnvVarStore.add()。工具返回里绝不回显值。
+        tools.append(AgentToolDefinition(
+            name: "set_env_var",
+            description: "Store one environment variable the user gave you in this conversation. Only call it when the user told you the value in chat, or explicitly asked you to store one. The value goes straight into the Keychain and is never echoed back in the result, the log, or any file. If the user has not given you a value, do not invent one — send them the deep link instead.",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user (e.g. 'Store API key for service X'). Never include the value itself."),
+                "key": AgentToolParam(type: .string, description: "The variable name, e.g. OPENAI_API_KEY. Letters, digits and underscore, must start with a letter."),
+                "value": AgentToolParam(type: .string, description: "The value the user gave you in this conversation. If they did not give one, do not call this tool."),
+                "note": AgentToolParam(type: .string, description: "Optional one-line note about what this variable is for. Must not contain the value."),
+            ],
+            required: ["tool_title", "key", "value"],
+            propertyOrdering: ["tool_title", "key", "value", "note"]
+        ))
+
+        // [T-manual-phase2-6a] switch_persona — 换全局当前人设。只换默认，
+        // 当前这轮对话的人设在建会话时定死了，不改（实现在执行函数里核对）。
+        tools.append(AgentToolDefinition(
+            name: "switch_persona",
+            description: "Switch the app's current persona (the default identity for NEW conversations). This does NOT change the persona of the conversation you are in right now — that one was fixed when the session was created. Use it when the user says 'switch to <name>' or '以后都用 <name>'. If the name does not match exactly one persona, the result lists the available ones — ask the user which, do not guess.",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user (e.g. 'Switch persona to 小梦')."),
+                "persona": AgentToolParam(type: .string, description: "The persona name or id. Must match exactly one entry in the persona list."),
+            ],
+            required: ["tool_title", "persona"],
+            propertyOrdering: ["tool_title", "persona"]
+        ))
+
+        // [T-manual-phase2-6a] set_tts_default_group — 换默认 TTS 分组。
+        // 单次换声音用 send_voice 的 voice/group 参数，不用这个。
+        tools.append(AgentToolDefinition(
+            name: "set_tts_default_group",
+            description: "Change the DEFAULT TTS group — the voice used from now on when send_voice does not name one. This does not change the voice of any single message: for a one-off voice, pass voice= or group= to send_voice instead. Use this only when the user says something like '以后都用这个声音'. If the name does not match exactly one group, the result lists the groups — ask, do not guess.",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user (e.g. 'Set default TTS group to 温柔')."),
+                "group": AgentToolParam(type: .string, description: "The TTS group name or id. Must match exactly one configured group."),
+            ],
+            required: ["tool_title", "group"],
+            propertyOrdering: ["tool_title", "group"]
         ))
 
         // [batch1] Global tool switches (AgentToolSwitch): OFF means removed,

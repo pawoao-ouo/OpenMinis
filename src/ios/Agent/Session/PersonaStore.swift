@@ -347,6 +347,11 @@ enum LocalToolRegistry {
         LocalToolItem(id: "clipboard", title: "剪切板", subtitle: "在明确需要时读取或写入设备剪切板中的纯文本。", icon: "doc.on.clipboard"),
         LocalToolItem(id: "textToSpeech", title: "文字转语音", subtitle: "允许助手使用已配置的语音播放朗读文本。", icon: "speaker.wave.2"),
         LocalToolItem(id: "askUser", title: "询问用户", subtitle: "允许助手提出简短问题，并在你回答后继续生成。", icon: "questionmark.circle"),
+        // [T-manual-phase2-5a/6a] 三个新工具也要能在人设里单独关掉，
+        // 不然白名单门控写的 id 在界面上找不到，等于永远关不掉。
+        LocalToolItem(id: "setEnvVar", title: "保存环境变量", subtitle: "允许助手把你在对话里给的密钥存进钥匙串（值不回显）。", icon: "key"),
+        LocalToolItem(id: "switchPersona", title: "切换人设", subtitle: "允许助手切换全局当前人设，只影响新对话。", icon: "person.2"),
+        LocalToolItem(id: "setTTSDefaultGroup", title: "切换默认语音分组", subtitle: "允许助手更改默认 TTS 分组，单条语音的音色不受影响。", icon: "waveform"),
         LocalToolItem(id: "calculate", title: "计算器", subtitle: "计算数学表达式，支持加减乘除幂运算 sqrt sin cos 等。", icon: "function"),
         LocalToolItem(id: "calendarQuery", title: "查询日历", subtitle: "读取本设备上的日历日程，需要授予日历权限。", icon: "calendar"),
         LocalToolItem(id: "calendarCreate", title: "创建日程", subtitle: "在你确认后于本设备创建日历日程，需要授予日历权限。", icon: "calendar.badge.plus"),

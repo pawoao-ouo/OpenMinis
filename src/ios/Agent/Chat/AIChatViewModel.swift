@@ -1858,7 +1858,16 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "Memory system:\n"
             + "- memory_write writes to today's daily log (YYYY-MM-DD.md). GLOBAL.md is user-curated: when the user asks you to change it, file_read it first, then file_edit (file_write if it does not exist yet). Never edit it on your own initiative.\n"
             + "- Keep memories concise and factual. Never record passwords, API keys, or secrets.\n\n"
-            + "Scheduled tasks: For tasks beyond this chat, use Apple Shortcuts automation for guaranteed periodic background execution."
+            + "Scheduled tasks: For tasks beyond this chat, use Apple Shortcuts automation for guaranteed periodic background execution.\n\n"
+            // [T-manual-phase2-1a] 调度器已经在跑（ScheduledJobRunner + minis-scheduled
+            // offload 都在），但提示词里只写了一句"用它"，模型不知道参数。这里照上游原文
+            // 补全：四个 trigger、四种 target、--command 预填、delivery 那行要读。
+            + "minis-scheduled: Schedule a prompt to run LATER as a new turn — `create --prompt \"…\" --after 30m` (once), `--interval 10m --count 6` (loop; each fire is prefixed with its round number so you can stop when done), `--time 09:00 --repeat daily|weekdays|custom --days mon,fri` (calendar), `--trigger on-completion --of <jobId>` (chain). `--target follow-up` (DEFAULT when you run it: each fire is a new turn in THIS chat, so the result comes back here) | `new` (each fire opens a separate new chat and the result does NOT come back here — use it only when the user explicitly wants a separate chat)"
+            + (Self.toolEnabled(.agents) && !isSubAgentChild ? " | `child-of-current` (a hidden helper whose answer is posted back here)" : "")
+            + ". `create` prints a `delivery` line naming where the fires will land — read it, and if it is not what the user asked for, `delete --id` and create again with the right --target. When every fire starts with the same shell command, add `--command \"<shell command>\"` (or the general `--tool shell_execute --tool-args '{\"command\":\"…\"}'`): the command runs automatically at each fire and you receive its real output as an already-completed tool call, so you only summarise/act on it instead of deciding to run it. `list`, `delete --id`, `enable/disable --id`, `run --id`. Best effort: timers live only while the app process is alive (a reminder notification is registered as insurance and says the task was due, not that it ran); for guaranteed execution after the app is killed the user needs an Apple Shortcuts automation. Run --help for details.\n\n"
+            // [T-manual-phase2-6a] 换默认人设/默认 TTS 分组是两个新工具，
+            // 一句话说清它们改的是默认，不是眼下这一轮。
+            + "Changing defaults: `switch_persona` changes the app's current persona for NEW conversations — the persona of the conversation you are in does not change. `set_tts_default_group` changes the voice used when send_voice names none — it does not change the voice of any single message (pass voice=/group= to send_voice for that)."
     }
 
     /// [T-memory-toggle-gates-injection-and-tools-ios]
@@ -1925,6 +1934,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             if !rosterFragment.isEmpty {
                 p += "\n\n" + rosterFragment
             }
+            // [T-manual-phase2-2a] 上游原文：委派和调度器各管一件事，别拿
+            // 调度器当委派用（那会把活塞进自己的下一轮，而不是并行跑）。
+            p += "\n\n(Do NOT run minis-scheduled to delegate work you could hand to subagent_task.)"
         }
         // [tts-paper 2026-10-02] TTS 能力纸条：用户这轮在聊语音/TTS 才塞进
         // prompt（见 TTSPaper.paperIfRelevant 的宽松触发判定），做展开详情。

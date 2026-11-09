@@ -383,7 +383,14 @@ private struct AskUserDrawerOverlay: View {
                         let isMulti = q.type == "multi"
                         let currentState = states[activeQuestionIndex]
 
-                        if q.options.count <= 4 {
+                        if q.isConfirm {
+                            // [T-manual-phase2-3a] confirm 不是"挑一个"，是
+                            // "批不批"。题面下面写清会失去什么，然后两颗键。
+                            confirmBody(q: q, currentState: currentState)
+                                .padding(.horizontal, 18)
+                                .padding(.top, 6)
+                                .padding(.bottom, 8)
+                        } else if q.options.count <= 4 {
                             // 选项少时紧贴内容高度渲染，高度由内容自然撑开
                             optionsList(q: q, currentState: currentState, isMulti: isMulti)
                                 .padding(.horizontal, 18)
@@ -466,6 +473,58 @@ private struct AskUserDrawerOverlay: View {
     }
 
     // MARK: - 胶囊选项与自填行
+
+    /// [T-manual-phase2-3a] confirm 类型的题面：impact 写在下面，
+    /// 然后是批准/拒绝两颗键。颜色只用 ChatColors / CSSThemeVariables，
+    /// 字号走 ChatFont，和卡片其余部分同一套。
+    @ViewBuilder
+    private func confirmBody(q: AskQuestion, currentState: QuestionAnswerState) -> some View {
+        let isHighRisk = (q.risk ?? "").lowercased() == "high"
+        VStack(alignment: .leading, spacing: 10) {
+            if let impact = q.impact, !impact.isEmpty {
+                Text(impact)
+                    .font(ChatFont.font(13))
+                    .foregroundColor(isHighRisk ? CSSThemeVariables.warning() : CSSThemeVariables.textDim())
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 10) {
+                confirmKey(title: "批准", approved: true, selected: currentState.selected.contains(0),
+                           isHighRisk: isHighRisk)
+                confirmKey(title: "拒绝", approved: false, selected: currentState.selected.contains(1),
+                           isHighRisk: isHighRisk)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func confirmKey(title: String, approved: Bool, selected: Bool, isHighRisk: Bool) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: approved ? .medium : .light).impactOccurred()
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                // 单选语义：点哪颗就只选哪颗。
+                states[activeQuestionIndex].selected = [approved ? 0 : 1]
+            }
+        } label: {
+            Text(title)
+                .font(ChatFont.font(15, weight: .semibold))
+                .foregroundColor(selected ? CSSThemeVariables.accentFg() : CSSThemeVariables.textMain())
+                .frame(maxWidth: .infinity, minHeight: 46)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(selected
+                              ? (approved ? CSSThemeVariables.accent()
+                                          : (isHighRisk ? CSSThemeVariables.warning() : CSSThemeVariables.optionBorder()))
+                              : CSSThemeVariables.optionBg())
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(selected ? Color.clear : CSSThemeVariables.optionBorder(), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
 
     @ViewBuilder
     private func optionsList(q: AskQuestion, currentState: QuestionAnswerState, isMulti: Bool) -> some View {
@@ -602,6 +661,16 @@ private struct AskUserDrawerOverlay: View {
                 continue
             }
             let otherText = st.otherText.trimmingCharacters(in: .whitespacesAndNewlines)
+            // [T-manual-phase2-3a] confirm 回 "approved"/"denied"/null，
+            // 不是选项文字。模型那边只有 approved 才算授权。
+            if q.isConfirm {
+                if let first = st.selected.sorted().first {
+                    answers[q.id] = (first == 0) ? "approved" : "denied"
+                } else {
+                    answers[q.id] = NSNull()
+                }
+                continue
+            }
             if isMulti {
                 var picked = st.selected.sorted().compactMap { i in
                     i < q.options.count ? q.options[i] : nil

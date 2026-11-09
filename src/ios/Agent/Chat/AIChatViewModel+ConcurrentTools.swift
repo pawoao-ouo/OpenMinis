@@ -924,7 +924,17 @@ extension AIChatViewModel {
             toolSuccess = memResult.success
 
         case "ask_user_input_v0":
-            let askResult = await handleAskUser(toolArgs: toolArgs, toolId: tu.id, deferredAssistantRaw: deferredAssistantRaw)
+            // [T-manual-phase2-3a] 模型可以给 timeout_seconds；不给就一直等。
+            let askTimeout: TimeInterval? = {
+                if let n = toolArgs["timeout_seconds"] as? Int, n > 0 { return TimeInterval(n) }
+                if let d = toolArgs["timeout_seconds"] as? Double, d > 0 { return d }
+                if let s = toolArgs["timeout_seconds"] as? String,
+                   let d = Double(s.trimmingCharacters(in: .whitespaces)), d > 0 { return d }
+                return nil
+            }()
+            let askResult = await handleAskUser(toolArgs: toolArgs, toolId: tu.id,
+                                                deferredAssistantRaw: deferredAssistantRaw,
+                                                timeoutSeconds: askTimeout)
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
                 messages[msgIdx].blocks[blockIdx].content = askResult.summary
             }
@@ -1069,6 +1079,32 @@ extension AIChatViewModel {
                 toolOutput = currentClip.isEmpty ? "(System clipboard is empty)" : currentClip
                 toolSuccess = true
             }
+            if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                messages[msgIdx].blocks[blockIdx].content = toolOutput
+            }
+
+        // [T-manual-phase2-5a/6a] 手册第二阶段新增的三个工具。都同步、都不带
+        // 界面，执行完只把结果写回块里。
+        case "set_env_var":
+            let envResult = executeSetEnvVar(args: toolArgs)
+            toolOutput = envResult.output
+            toolSuccess = envResult.success
+            if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                messages[msgIdx].blocks[blockIdx].content = toolOutput
+            }
+
+        case "switch_persona":
+            let personaResult = executeSwitchPersona(args: toolArgs)
+            toolOutput = personaResult.output
+            toolSuccess = personaResult.success
+            if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                messages[msgIdx].blocks[blockIdx].content = toolOutput
+            }
+
+        case "set_tts_default_group":
+            let ttsResult = executeSetTTSDefaultGroup(args: toolArgs)
+            toolOutput = ttsResult.output
+            toolSuccess = ttsResult.success
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
                 messages[msgIdx].blocks[blockIdx].content = toolOutput
             }

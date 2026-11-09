@@ -48,11 +48,19 @@ struct ApprovalPayload: Sendable {
 struct AskQuestion: Codable, Sendable, Hashable {
     let id: String
     let question: String
-    /// "single" 单选 / "multi" 多选。
+    /// "single" 单选 / "multi" 多选 / "confirm" 批不批准。
+    /// [T-manual-phase2-3a] confirm 是这次新加的：批准一件具体动作，
+    /// 而不是在一堆选项里挑一个。卡片只给"批准/拒绝"两颗键，
+    /// impact 写在题面下面告诉用户会失去什么。
     let type: String
     let options: [String]
+    /// confirm 专用：这个动作会失去什么、能不能撤回。
+    var impact: String? = nil
+    /// confirm 专用：high = 卡片描红。只是视觉权重，不改变语义。
+    var risk: String? = nil
 
     var isMulti: Bool { type.lowercased() == "multi" }
+    var isConfirm: Bool { type.lowercased() == "confirm" }
 }
 
 /// 问用户类挂起的载荷。
