@@ -3419,15 +3419,13 @@ struct AIChatView: View {
                 open()
             }
         } label: {
-            // [T-key-44] 看的圆还是 38，摸得着的是 44：补 3 撑开命中框，
-            // 再拿 -3 收回布局，行高不变、位置不变。
+            // [T-composer-one-piece] 裸字形，不套圆片底：键是条里的一行字形，
+            // 不是粘上去的圆片。44 的框就是命中框，内容不越界。
             Image(systemName: "plus")
                 .font(ChatFont.font(19, weight: .medium))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
-                .frame(width: 38, height: 38)
-                .background(Circle().fill(ChatColors.inputIconBg))
                 .frame(width: 44, height: 44)
-                .contentShape(Circle())
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(AppLocalized("添加到对话")))
@@ -3501,14 +3499,12 @@ struct AIChatView: View {
                 openComposerTray()
             }
         } label: {
-            // [T-key-44] 同加号键：38 的圆，44 的手感。
+            // [T-composer-one-piece] 同加号键：裸字形，不套圆片底。
             Image(systemName: showStickerPanel ? "face.smiling.inverse" : "face.smiling")
                 .font(ChatFont.font(19, weight: .regular))
                 .foregroundStyle(showStickerPanel ? ChatColors.accent : ChatColors.secondaryText)
-                .frame(width: 38, height: 38)
-                .background(Circle().fill(ChatColors.inputIconBg))
                 .frame(width: 44, height: 44)
-                .contentShape(Circle())
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
@@ -4126,7 +4122,7 @@ struct AIChatView: View {
                 }
                 // 输入条本身是一颗胖胶囊：四角全圆，左右留 8、离底留 6，
                 // 浮在消息上面。托盘出现时它还是浮着，托盘从它下面滑出来。
-                .modifier(ComposerSurface(style: showStickerPanel ? .barAttached : .bar))
+                .modifier(ComposerSurface(style: showStickerPanel ? .barAttached : .bar, showsSampleImage: false))
                 // [T-composer-upstream] 左右 12、离底 8，跟上游一致。原来左右 8
                 // 让整条栏贴到屏幕边上，键看着要「掉出去」；12 是上游定的呼吸量。
                 //
@@ -4150,7 +4146,7 @@ struct AIChatView: View {
                 // 输入条下面只剩表情宫格这一块托盘。
                 if showStickerPanel {
                     bottomDrawerSection
-                        .modifier(ComposerSurface(style: .tray))
+                        .modifier(ComposerSurface(style: .tray, showsSampleImage: false))
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -5234,8 +5230,9 @@ private struct MorphPressStyle: ButtonStyle {
 /// child views (text view, attachment grid) are clipped to the same rect.
 ///
 /// [T-comment-truth 11-09] 这里曾经写着 `glassEffect(in:)` 那条路和「两条阴影
-/// 照旧」—— 代码里都没有。现在只有一条路：形状自己填色，上面叠主题的输入栏
-/// 样张图，一道阴影（暗色更重，往上偏 2，让栏从消息区浮起来）。
+/// 照旧」—— 代码里都没有。现在只有一条路：形状自己填色，上面按
+/// showsSampleImage 决定叠不叠主题的输入栏样张图（聊天页不叠，装扮页预览
+/// 才叠），一道阴影（暗色更重，往上偏 2，让栏从消息区浮起来）。
 /// 不改成玻璃，是因为输入栏要的是实底（[T-composer-rebuild]）：玻璃会把她
 /// 换的任何壁纸都透回来。
 /// [B28 R7 醒醒分类] 输入栏样张要用真皮肤，不能复刻一份假的。
@@ -5257,6 +5254,10 @@ struct ComposerSurface: ViewModifier {
     enum Style: Equatable { case bar, barAttached, tray }
 
     var style: Style = .bar
+    /// 聊天页的真输入条不画主题样张图：样张是装扮页预览用的，画在真输入条里
+    /// 会以 28% 叠在实底上，占位字糊掉（395 号 P2-7）。装扮页复用这份时
+    /// 保持默认 true。
+    var showsSampleImage: Bool = true
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
     /// 连续圆角还是直角圆角，跟着主题包那三项走；半径沿用设置页对 pill 的既有规矩。
@@ -5305,7 +5306,7 @@ struct ComposerSurface: ViewModifier {
         let _ = appearanceStudio.themePackRevision
         let fill = ChatColors.inputBarSolid
         let overlay = Group {
-            if let image = appearanceStudio.inputBarImage() {
+            if showsSampleImage, let image = appearanceStudio.inputBarImage() {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
