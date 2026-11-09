@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 // MARK: - [s2-askuser] 问用户工具
 //
@@ -81,12 +82,16 @@ extension AIChatViewModel {
             lastKnownDbSortOrder += 1
             lastKnownDbCount += 1
         }
+        // [T-manual-phase2-3a] 这一轮没人在看就别等：卡片留在那儿，
+        // 调用立刻返回，答案当下一条消息回来。
+        let isDeferred = UIApplication.shared.applicationState != .active
         let decision = await ToolSuspensionService.shared.suspendAsk(
             payload: payload,
             toolName: Self.askUserToolName,
             toolCallId: toolId,
             sessionId: sessionId,
-            timeoutSeconds: timeoutSeconds
+            timeoutSeconds: timeoutSeconds,
+            deferred: isDeferred
         )
 
         // —— 决策 → toolOutput ——
@@ -106,6 +111,9 @@ extension AIChatViewModel {
             // 只有调用方传了 timeoutSeconds 才会走到这里；超时按调用方的
             // fallback 处理（Q3：退回默认并在结果顶部注明）。
             return ("{\"error\":\"question timed out without an answer\"}", false, "提问超时未回答。")
+        case .deferred(let askId):
+            // 卡片已经挂上去了，她在 App 里能看到并回答；这一轮不等。
+            return ("{\"status\":\"deferred\",\"ask_id\":\"\(askId)\",\"detail\":\"The question card is on screen. This turn does not wait for it — the answer arrives as the user's next message. Tell the user you asked and carry on with what you can do without the answer.\"}", true, "已提问，等她的回答。")
         case .approved, .denied:
             return ("{\"error\":\"question dismissed\"}", false, "提问被关闭。")
         }

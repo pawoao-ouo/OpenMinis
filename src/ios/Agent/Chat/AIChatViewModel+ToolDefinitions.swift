@@ -318,7 +318,7 @@ extension AIChatViewModel {
         }
         tools.append(AgentToolDefinition(
             name: "subagent_task",
-            description: "Delegate a self-contained task to a sub agent — its own isolated context and tool loop, in a hidden child session running concurrently with you — and inspect, steer, stop or restart the ones you started. action defaults to 'delegate'. Available actions: delegate, status, steer, cancel, resume. If the chosen sub agent's definition pins a model group, that group runs and model_choice is ignored (Q7: the result states this in plain words at the top).",
+            description: "Delegate a self-contained task to a sub agent — its own isolated context and tool loop, in a hidden child session running concurrently with you — and inspect or stop the ones you started. `action` defaults to `delegate`.\n\nDELEGATE work needing many rounds of exploration (reading lots of files or pages, trial-and-error), producing bulk output you only need a conclusion from, or splitting into independent sub-problems you can run in parallel (several calls in one turn). DO NOT delegate what you can finish in one or two tool calls, what needs the user's confirmation mid-way, or work depending on nuances of this conversation you cannot restate. A sub agent cannot see this conversation and has no memory: write `task` as a complete brief for a capable colleague who just walked in — goal, constraints, where things are, what exactly to return. It costs a full model run, so nothing trivial. Only \(AgentJobRegistry.maxConcurrentChildJobs) of this conversation's sub agents run at once, but delegate everything you need anyway: extras return status=queued and start as slots free, so never re-delegate a queued task or wait for a slot.\n\nwait=false (default) returns at once with status=running and a job_id; the result arrives later as a NEW MESSAGE prefixed [Background task finished …] (also on cancel/timeout/failure). End your turn when you have nothing else to do — never poll in a loop, never promise to report back. You do NOT need action=status to receive results. If the chosen sub agent's definition pins a model group, that group runs and model_choice is ignored (the result states this in plain words at the top).",
             parameters: subagentParams,
             required: ["tool_title"],
             propertyOrdering: subagentOrdering
@@ -620,6 +620,13 @@ extension AIChatViewModel {
             required: ["tool_title", "group"],
             propertyOrdering: ["tool_title", "group"]
         ))
+
+        // [T-manual-phase2-3a] 子代理不能问用户：它跑在隐藏子会话里，
+        // 没有人能回答，问了就是干等到超时。这和上游 user_ask 的
+        // computeUserAskExposure 是同一条规矩（sub agent → 不给）。
+        if isSubAgentChild {
+            tools.removeAll { $0.name == "ask_user_input_v0" || $0.name == "askUser" || $0.name == "user_ask" }
+        }
 
         // [batch1] Global tool switches (AgentToolSwitch): OFF means removed,
         // not refused — the model never sees a switched-off tool in the schema.

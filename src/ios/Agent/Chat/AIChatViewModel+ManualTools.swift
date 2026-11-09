@@ -22,7 +22,49 @@ extension AIChatViewModel {
 
     /// 存一个环境变量。值只在内存里过一遍，返回文本里只有 key 和长度级别的
     /// 描述，绝不回显值本身。
-    func executeSetEnvVar(args: [String: Any]) -> (output: String, success: Bool) {
+    /// [T-manual-phase2-5a] 简报要求：值进 Keychain 之前先让她点一下。
+    /// 用现有的问答卡片（confirm 类型），批准了才写。卡片上的值打码显示，
+    /// 只露前后各 2 位，中间用点盖住。
+    func executeSetEnvVar(args: [String: Any], toolId: String,
+                          deferredAssistantRaw: RawMessage?) async -> (output: String, success: Bool) {
+        let rawKey = (args["key"] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawValue = args["value"] as? String ?? ""
+        guard !rawKey.isEmpty, !rawValue.isEmpty else {
+            // 参数不全时交给下面那条同步实现报错，免得两处各写一套校验。
+            return executeSetEnvVarSync(args: args)
+        }
+        let key = rawKey.uppercased()
+        guard EnvVarStore.isValidKey(key) else {
+            return executeSetEnvVarSync(args: args)
+        }
+        guard !EnvVarStore.shared.entries.contains(where: { $0.key == key }) else {
+            return executeSetEnvVarSync(args: args)
+        }
+
+        // 值打码：只露首尾各两位，短值全盖。
+        let masked: String = {
+            guard rawValue.count > 6 else { return String(repeating: "•", count: max(4, rawValue.count)) }
+            return rawValue.prefix(2) + String(repeating: "•", count: max(4, rawValue.count - 4)) + rawValue.suffix(2)
+        }()
+        let askJSON = """
+        [{"id":"confirm_env","question":"存环境变量 \(key)（值 \(masked)）进钥匙串？","type":"confirm","impact":"值会存进本机 Keychain，对话和日志里都不会再出现。存了以后可以在终端里用 $\(key) 引用。","risk":"medium"}]
+        """
+        let decision = await handleAskUser(
+            toolArgs: ["tool_title": "确认存环境变量 \(key)", "questions": askJSON],
+            toolId: toolId + ":confirm",
+            deferredAssistantRaw: deferredAssistantRaw,
+            timeoutSeconds: 120)
+        guard decision.success else {
+            return ("Not stored: the confirmation was not answered (\(decision.summary)). Tell the user the value was not saved and ask again if they still want it.", false)
+        }
+        guard decision.output.contains("\"approved\"") else {
+            return ("Not stored: the user did not approve saving \(key). Do not store it and do not ask again in this conversation unless they bring it up.", false)
+        }
+        return executeSetEnvVarSync(args: args)
+    }
+
+    func executeSetEnvVarSync(args: [String: Any]) -> (output: String, success: Bool) {
         let rawKey = (args["key"] as? String ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let rawValue = args["value"] as? String ?? ""

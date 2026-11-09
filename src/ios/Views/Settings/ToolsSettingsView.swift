@@ -31,6 +31,9 @@ import SwiftUI
 enum AgentToolSwitch: String, CaseIterable {
     case browser = "agent.tools.browser.enabled"
     case agents = "agent.tools.agents.enabled"
+    /// [T-manual-phase2-3a] 问用户工具的开关。关掉 = 从 schema 里消失，
+    /// 模型连"可以问她"这件事都不知道，不是问了被拒。
+    case userInteraction = "agent.tools.userInteraction.enabled"
 
     var key: String { rawValue }
 
@@ -55,6 +58,7 @@ enum AgentToolSwitch: String, CaseIterable {
         switch self {
         case .browser: return true
         case .agents: return true
+        case .userInteraction: return true
         }
     }
 
@@ -74,6 +78,8 @@ enum AgentToolSwitch: String, CaseIterable {
         switch toolName {
         case "browser_use": return .browser
         case SubAgentDefinition.toolName: return .agents
+        // 三个名字同一套实现，一个开关管全部。
+        case "ask_user_input_v0", "askUser", "user_ask": return .userInteraction
         default: return nil
         }
     }
@@ -119,6 +125,7 @@ struct ToolsSettingsView: View {
     @ObservedObject private var fontSettings = FontSettings.shared
     @AppStorage(AgentToolSwitch.browser.key) private var browserEnabled: Bool = AgentToolSwitch.browser.defaultValue
     @AppStorage(AgentToolSwitch.agents.key) private var agentsEnabled: Bool = AgentToolSwitch.agents.defaultValue
+    @AppStorage(AgentToolSwitch.userInteraction.key) private var userInteractionEnabled: Bool = AgentToolSwitch.userInteraction.defaultValue
 
     var body: some View {
         Form {
@@ -134,6 +141,13 @@ struct ToolsSettingsView: View {
                 toolRow(AppLocalized("Sub Agents"), tool: SubAgentDefinition.toolName, icon: "person.2.fill", isOn: $agentsEnabled)
             } footer: {
                 Text(AppLocalized("Let the assistant delegate work to background sub-agents. Each one spends real tokens while it runs. When off, the tool is removed from every conversation — the model does not see it at all."))
+            }
+            // [T-manual-phase2-3a] 问用户的开关：关掉后模型连"可以问她"
+            // 都不知道，只能自己决定或者干等。
+            Section {
+                toolRow(AppLocalized("User Interaction"), tool: AIChatViewModel.askUserToolName, icon: "questionmark.bubble", isOn: $userInteractionEnabled)
+            } footer: {
+                Text(AppLocalized("Let the assistant stop and ask you a question or ask you to approve one specific action before doing it. When off, the tool is removed from every conversation — the model does not see it at all."))
             }
         }
         .navigationTitle(AppLocalized("Agent Tools"))

@@ -1086,7 +1086,9 @@ extension AIChatViewModel {
         // [T-manual-phase2-5a/6a] 手册第二阶段新增的三个工具。都同步、都不带
         // 界面，执行完只把结果写回块里。
         case "set_env_var":
-            let envResult = executeSetEnvVar(args: toolArgs)
+            // [T-manual-phase2-5a] 写 Keychain 前先让她点一下确认。
+            let envResult = await executeSetEnvVar(args: toolArgs, toolId: tu.id,
+                                                   deferredAssistantRaw: deferredAssistantRaw)
             toolOutput = envResult.output
             toolSuccess = envResult.success
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {

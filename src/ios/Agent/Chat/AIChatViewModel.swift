@@ -1817,7 +1817,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "- Need to write file contents → file_write. Need to change a file → file_read first, then file_edit. Never echo/printf/heredoc to write files.\n"
             + "- Need to run a command or a script → shell_execute. That is its only job.\n"
             + "- Need to call a third-party HTTP API with a key → shell_execute with curl. Read the key from an environment variable; never paste a key into the command.\n"
-            + "- Need one single answer from another configured model → minis-model-use. One shot, no tools. Multi-round work that needs tools → do it yourself with your tools.\n"
+            + "- Need one single answer from another configured model → minis-model-use. This is a single, tool-less request to one specific model. Do not chain minis-model-use calls as a substitute for doing the work; anything multi-round or needing tools, do it yourself with your tools.\n"
             + "- Need to read a picture → read_image. Only apple-vision does what read_image cannot (zoom into UI details, pixel diff, measure alignment).\n"
             + "- Do not know → search first (rg / web_search / the manual index). Never guess.\n\n"
             + "After any API call: check the HTTP status first — a non-2xx status is a failure, not an answer. Read warnings and applied_extras before deciding it worked. Never report success you have not verified: if it failed, look at the output, retry once, try a different way, and say what actually happened.\n\n"
@@ -1930,6 +1930,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // itself: none for a child session, none while Sub Agents are off;
         // an empty roster returns "" and changes nothing.
         if !isSubAgentChild, Self.toolEnabled(.agents) {
+            // [T-manual-phase2-2a] 上游原文：两条 schema 说不出来的事——
+            // 结果和进度消息是系统写的、不是用户打的；子代理跑的时候
+            // 用户在工具栏里能看见、也能停。
+            p += "\n\n- subagent_task: Delegate a self-contained task to a sub agent that runs its own tool loop in an isolated hidden session, and inspect or stop the ones you started. Full contract in the tool schema. Two things it does not say: the `<agent_callback>` result and progress messages are written by the system, not typed by the user; and while a sub agent runs the user sees it in the tool bar and can watch or stop it."
             let rosterFragment = Self.subAgentRosterSection()
             if !rosterFragment.isEmpty {
                 p += "\n\n" + rosterFragment

@@ -19,6 +19,9 @@ enum SuspensionDecision: Sendable {
     case skipped
     /// 超时未点按。
     case timedOut
+    /// [T-manual-phase2-3a] 卡片挂上去了但这一轮不等：答案会作为
+    /// 用户的下一条消息回到会话里。带上问询 id，方便上层记下来。
+    case deferred(String)
 }
 
 /// 一行展示用的键值对（审批弹窗里的参数行）。
@@ -197,8 +200,12 @@ final class ToolSuspensionService: ObservableObject {
     /// timeout — a run nobody answers must fall back (Q4) instead of
     /// holding the parent turn forever. The clock starts when the request
     /// is activated (see activate()).
+    /// [T-manual-phase2-3a] deferred：这一轮没人在看（App 在后台），
+    /// 卡片照常挂上去、留在那儿，调用立刻返回，答案当下一条用户消息回来。
+    /// 不这样的话后台跑起来的轮次会一直卡在这里等一个没人看的卡片。
     func suspendAsk(payload: AskPayload, toolName: String, toolCallId: String, sessionId: String?,
-                    timeoutSeconds: TimeInterval? = nil) async -> SuspensionDecision {
+                    timeoutSeconds: TimeInterval? = nil,
+                    deferred: Bool = false) async -> SuspensionDecision {
         let ask = PersistedAsk(
             id: UUID().uuidString,
             sessionId: sessionId ?? "",
@@ -216,6 +223,28 @@ final class ToolSuspensionService: ObservableObject {
             createdAt: ask.createdAt,
             timeoutSeconds: timeoutSeconds
         )
+        if deferred {
+            // [T-manual-phase2-3a] 这一轮不等，但答案不能丢：必须走"恢复问询"
+            // 那条路（tag=ask-user-restored → respond 里投回原会话 →
+            // continueAfterRestoredAsk 补一轮）。走实时通道的话答案是 resume
+            // 一个不存在的 continuation，会被静默丢掉。
+            queue.append(SuspendedRequest(
+                id: ask.id,
+                tag: "ask-user-restored",
+                kind: .askUser(payload),
+                sessionId: sessionId,
+                createdAt: ask.createdAt,
+                timeoutSeconds: nil
+            ))
+            // queue 不是 @Published，光入队不会让卡片刷新出来。deferred
+            // 只发生在 App 不在前台时，所以要等回到前台再呈现；这里用
+            // current 抖一下（置 nil 再放回）触发一次 @Published 通知，
+            // 让 AskUserDialogModifier 重新算 askRequestForSession。
+            let held = current
+            current = nil
+            current = held
+            return .deferred(ask.id)
+        }
         return await wait(for: request)
     }
 
