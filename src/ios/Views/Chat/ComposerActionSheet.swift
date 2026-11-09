@@ -8,8 +8,9 @@
 //  一样的。不要那个模型名字。」
 //
 //  所以这里不画 grabber、不画圆角、不画背景——全部交给系统 sheet 自己做，
-//  只排内容：四个常用动作摆成一行方卡，下面是一串设置行。模型那一行直接
-//  不出现（要换模型在设置里换，输入栏旁边不再挂一个会变的标签）。
+//  只排内容:四个常用动作摆成一行方卡,下面两张卡——工具入口(终端/浏览器/
+//  会话文件/Token 用量/导出/语音)和会话设置。模型那一行直接不出现(要换模型
+//  在设置里换,输入栏旁边不再挂一个会变的标签)。
 //
 
 import SwiftUI
@@ -78,6 +79,26 @@ struct ComposerActionSheet: View {
                 tile(AppLocalized("文件"), "doc.fill") { pick(.doc) }
                 tile(AppLocalized("表情包"), "face.smiling.inverse") { pick(.sticker) }
             }
+
+            // [T-plus-tool-rows] 11-07 把老的下拉面板换成这个原生小抽屉时，老面板
+            // 底座上那排快捷键(终端/浏览器/会话文件/Token 用量/导出/语音)跟着一起
+            // 下掉了，动作本身一直还在(performPlusPanelAction 那套没动)，缺的只是
+            // 入口。她 11-09 发现「终端和浏览器啥的好像没有了」，这里补回来。
+            VStack(spacing: 0) {
+                // 文案和图标直接用 PlusPanelItemType 自己那套,别再抄一遍。
+                let tools: [PlusPanelItemType] = [.terminal, .browser, .files,
+                                                  .gauge, .share, .voice]
+                ForEach(Array(tools.enumerated()), id: \.element) { idx, item in
+                    navRow(AppLocalized(item.title), item.systemImageName, value: nil) {
+                        pick(item)
+                    }
+                    if idx < tools.count - 1 { divider }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
+            )
 
             VStack(spacing: 0) {
                 toggleRow(AppLocalized("记忆"),
