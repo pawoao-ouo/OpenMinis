@@ -1810,16 +1810,27 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 + userProfilePromptSection)
             // [T-routing-table] 路由表放常驻层最前面：模型每轮先看到"这件事用哪个工具"，
             // 而不是从工具目录里自己猜。这是审计 P0-2 的病根——工具全给了、分工一字没写。
+            // [T-routing-conditional] 这几行原来写死了工具名，可它们有的会消失：
+            // web_search 没配搜索服务就不进 schema，browser_use 能被开关关掉，
+            // read_image 在模型既没有原生视觉、又没配视觉分组时也不进。
+            // 硬写着名字 = 让模型去调一个不存在的工具，然后自己编个理由说用不了。
+            // 现在按真实状态生成：不在了就换一条它真能做到的路。
             + "Routing — pick the tool by the task, not by habit:\n"
-            + "- Need a current fact, price, news, docs, or anything past your knowledge cutoff → web_search. Never open a browser for this, never curl a search engine.\n"
-            + "- Need to interact with a page (click, log in, run JavaScript, read a rendered page) → browser_use. For batch work inside scripts, use minis-browser-use.\n"
+            + (WebSearchService.isConfigured(WebSearchService.selectedProviderId)
+                ? "- Need a current fact, price, news, docs, or anything past your knowledge cutoff → web_search. Never curl a search engine.\n"
+                : "- Need a current fact, price, news, docs, or anything past your knowledge cutoff → there is no web_search tool in this session (no search provider is configured); tell the user that and say what would enable it, rather than guessing.\n")
+            + (Self.toolEnabled(.browser)
+                ? "- Need to interact with a page (click, log in, run JavaScript, read a rendered page) → browser_use. For batch work inside scripts, use minis-browser-use.\n"
+                : "- Browser tools are turned off in Settings for this session. If a task truly needs one, say so instead of faking a result.\n")
             + "- Need to find a file, search code, or scan logs → rg. Never use grep/awk/sed/find for this.\n"
             + "- Need to write file contents → file_write. Need to change a file → file_read first, then file_edit. Never echo/printf/heredoc to write files.\n"
             + "- Need to run a command or a script → shell_execute. That is its only job.\n"
             + "- Need to call a third-party HTTP API with a key → shell_execute with curl. Read the key from an environment variable; never paste a key into the command.\n"
             + "- Need one single answer from another configured model → minis-model-use. This is a single, tool-less request to one specific model. Do not chain minis-model-use calls as a substitute for doing the work; anything multi-round or needing tools, do it yourself with your tools.\n"
-            + "- Need to read a picture → read_image. Only apple-vision does what read_image cannot (zoom into UI details, pixel diff, measure alignment).\n"
-            + "- Do not know → search first (rg / web_search / the manual index). Never guess.\n\n"
+            + ((activeModelHasNativeVision || VisionGroupResolver.isConfigured)
+                ? "- Need to read a picture → read_image. Only apple-vision does what read_image cannot (zoom into UI details, pixel diff, measure alignment).\n"
+                : "- You cannot see images in this session (no vision-capable model, no Vision Group configured) and there is no read_image tool; say so rather than guessing what a picture shows.\n")
+            + "- Do not know → search first (rg / web_search / the user manual below). Never guess.\n\n"
             + "After any API call: check the HTTP status first — a non-2xx status is a failure, not an answer. Read warnings and applied_extras before deciding it worked. Never report success you have not verified: if it failed, look at the output, retry once, try a different way, and say what actually happened.\n\n"
             + "File search & text scanning: use ripgrep (`rg`) for EVERY scan of files — finding names, keyword/regex search, field extraction, log analysis — on one file or a whole tree. Never use grep/awk/sed/find here, rg is far faster.\n"
             + "- Contents: `rg -n 'pattern' <dir>` (`-i` ignore case, `-w` whole word, `-F` literal, `-l` file names only, `-t py` or `-g '*.md'` to filter files).\n"
@@ -1843,6 +1854,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "  /var/minis/offloads/    — Auto-saved large outputs (read with file_read)\n"
             + "  /var/minis/browser/     — Browser screenshots and extracts\n"
             + "  /var/minis/shared/      — Cross-session shared storage (artifacts, projects)\n"
+            + "  /var/minis/shared/user-manual.md — This app's own user manual (full text; the index is below)\n"
             + "  /var/minis/memory/personas/\(sessionPersonaId ?? PersonaStore.currentID())/GLOBAL.md — Per-persona persistent memory (read with file_read; edit with file_edit when the user asks)\n"
             + "  /var/minis/memory/personas/\(sessionPersonaId ?? PersonaStore.currentID())/YYYY-MM-DD.md — Daily memory log\n"
             + "  /var/minis/mounts/<name>/ — User-mounted external iOS Files folders\n\n"
@@ -1852,6 +1864,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "Alpine Linux (aarch64): default shell is ash; bashisms run under bash; install packages with apk add.\n\n"
             + "Tool call style & tone: Be concise and direct. Prefer action over explanation. Reply in the language matching the user's input.\n\n"
             + ToolCatalogRouter.shared.renderCatalogFragment() + "\n\n"
+            // [T-manual-index] 手册索引常驻。以前提示词里连手册路径都没有，
+            // AI 永远不知道有这个文件（审计 P0-4）。索引约 400 token，全文
+            // 4000+，所以常驻索引、正文按需 file_read。
+            + (UserManualMirror.indexFragment().map { $0 + "\n\n" } ?? "")
             + "Environment variables:\n"
             + "- Reference by name ($VAR) inside scripts. NEVER echo, cat, or output secret values to stdout/stderr.\n"
             + "- Missing variable link: [Set ENV_NAME](minis-clone://settings/environments?create_key=ENV_NAME&create_value=&create_note=...)\n\n"
@@ -2134,6 +2150,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
     /// Unified conversation history used by both Anthropic and Gemini agent loops.
     var agentHistory: [AgentMessage] = []
+
+    /// [T-longctx-persona-reminder] 上次注入人格提醒时的上下文大小。
+    /// nil = 这个会话还没提醒过。重启后靠历史里那条提醒认回来
+    /// （见 personaReminderIsDue）。
+    var lastPersonaReminderContextTokens: Int? = nil
 
     #if DEBUG
     /// [T-ios-log-noise-reduction] High-water mark of how many agentHistory
@@ -5964,6 +5985,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // 目标条数，再向后推到最近一条 user 消息之前，保证 user 开头、
             // 工具配对完整。
             contextHistory = applyPersonaContextLimit(contextHistory)
+            // [T-longctx-persona-reminder] 过 100k 就补一条"SOUL.md / GLOBAL.md
+            // 还在顶上，那些规矩还作数"。必须在这里（每轮组装之后、发请求
+            // 之前）：早一步 turnUsage 还是上一轮的值，晚一步就已经发出去了。
+            // 追加进 agentHistory 会持久化，所以 nextContextHistory 要重取。
+            if personaReminderIsDue(contextTokens: turnUsage.latestContextTokens) {
+                appendPersonaReminderToHistory(contextTokens: turnUsage.latestContextTokens)
+                contextHistory = applyPersonaContextLimit(applyRequestImageBudget(effectiveAgentHistory()))
+                logger.info("[PersonaReminder] appended at ~\(turnUsage.latestContextTokens) ctx tokens (agentHistory.count=\(self.agentHistory.count))")
+            }
             // [T-msgidx-oob] Re-resync before subscripting. The loop-top resync
             // (~line 4698) is not sufficient for this site: the in-loop
             // compaction guard above runs `await compactBefore(...)` in between,

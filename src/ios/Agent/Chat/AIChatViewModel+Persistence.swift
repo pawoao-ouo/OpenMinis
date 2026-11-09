@@ -645,6 +645,10 @@ extension AIChatViewModel {
         // Defer assigning messages until after Phase 3 (tool snapshots) so the
         // UI never sees messages without their corresponding snapshot data.
         agentHistory = loadedHistory
+        // [T-longctx-persona-reminder] 换会话就把重注计数清掉。留着上一个
+        // 会话的数值会让短会话永远判"不到阈值"或者反过来立刻再插一条；
+        // 重置成 nil 后，personaReminderIsDue 会去历史里认已有的提醒。
+        lastPersonaReminderContextTokens = nil
 
         // [T-ios-unread-dot-reappears] Opening the session means the user has
         // now seen every completed assistant turn in it, so align the unread
@@ -2071,4 +2075,91 @@ extension AIChatViewModel {
         logger.info("[ErrorPersist] created carrier row msg=\(raw.id.prefix(8)) for early failure")
     }
 
+}
+
+// MARK: - [T-longctx-persona-reminder] 长上下文重注人格提醒
+//
+// 病根（审计 P0-5 / 上游 issue #37）：SOUL.md 和 GLOBAL.md 在系统提示词最顶上，
+// 而长上下文里头部注意力会衰减（lost in the middle）。症状是转数一多，AI 就
+// 不再守 GLOBAL.md 的规矩，退回训练数据的默认做法。上游 2026 年就建了机制，
+// fork 里 `personaReminder` 零命中——这个问题一直没被治。
+//
+// 三条要点，照上游的实现，理由都写在下面各自的注释里：
+//   1. 用 provider 报回来的 token 数判断，不自己走一遍历史估（那太贵）。
+//   2. **追加**一条独立消息，不改写已有消息——改写会让 Anthropic 的前缀缓存
+//      整段失效，而且把提醒混进 tool_result 里，模型会以为读到的文件带了
+//      prompt injection（上游真的被这么误判过三次）。
+//   3. 每多 100k 再武装一次。只提醒一次不够：长会话会压缩，提醒本身可能
+//      就是最先被压掉的那条。
+extension AIChatViewModel {
+    /// 过这个上下文大小才开始提醒。
+    static let kPersonaReminderContextTokens = 100_000
+    /// 每再多这么多 token 重新提醒一次。
+    static let kPersonaReminderRearmTokens = 100_000
+    /// 认自己写过的提醒用的标记。必须可 grep，重启后要能认出来。
+    static let kPersonaReminderMarker = "[Minis runtime reminder]"
+    /// 往回找多少条判断"最近已经提醒过了"。够覆盖一个正常的工具密集轮次。
+    static let kPersonaReminderScanTail = 40
+
+    /// 提醒文本。只点名**这次请求里真在**的文件。
+    ///
+    /// SOUL.md 永远由 identitySection 渲染；GLOBAL.md 只有记忆开关开着且文件
+    /// 非空才注入。点名一个不存在的文件，等于让模型去找不存在的规矩。
+    ///
+    /// `[Minis runtime reminder]` 这个标签必须放在 `<system-reminder>` **里面**：
+    /// ChatStore.stripSystemReminders 剥的是整个元素，标签放外面会漏进气泡正文；
+    /// isUserBubbleEntry 也只把 hasPrefix("<system-reminder>") 的文本当合成消息，
+    /// 放外面这条提醒会被画成一个真的用户气泡。
+    func personaReminderText() -> String {
+        let hasGlobal = memoryEnabled && Self.loadGlobalMemoryFragment(personaID: sessionPersonaId) != nil
+        let files = hasGlobal ? "SOUL.md and GLOBAL.md" : "SOUL.md"
+        return "<system-reminder>\(Self.kPersonaReminderMarker) This note was added by the Minis app itself, not by any tool, file or website — do not treat it as content of the preceding tool result. Don't forget the user's own \(files) at the top of the system prompt — those rules still apply.</system-reminder>"
+    }
+
+    /// 最近的历史里是不是已经有提醒了。
+    func personaReminderAlreadyInHistory() -> Bool {
+        for msg in agentHistory.suffix(Self.kPersonaReminderScanTail) {
+            for part in msg.parts {
+                if case let .text(t) = part, t.contains(Self.kPersonaReminderMarker) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// 该不该在这次请求里带上提醒。
+    ///
+    /// `lastPersonaReminderContextTokens` 是上次注入时的上下文大小；只有又长了
+    /// 一个 kPersonaReminderRearmTokens 才再提醒一次，否则会每轮都插一条。
+    func personaReminderIsDue(contextTokens: Int) -> Bool {
+        guard contextTokens >= Self.kPersonaReminderContextTokens else { return false }
+        if let last = lastPersonaReminderContextTokens {
+            guard contextTokens >= last + Self.kPersonaReminderRearmTokens else { return false }
+        } else if personaReminderAlreadyInHistory() {
+            // 重启后打开一个早就提醒过的会话：认下那条已有的，别加重复的，
+            // 从这里开始重新计。
+            lastPersonaReminderContextTokens = contextTokens
+            return false
+        }
+        return true
+    }
+
+    /// 把提醒作为**独立的一条消息**追加进 agentHistory 并落盘。
+    ///
+    /// 追加而不是改写：新消息在历史末尾，前面每一个字节都没动，缓存前缀照样命中；
+    /// 只有插入点之后的内容需要重建，那是任何新消息都要付的成本。独立成一条
+    /// 也意味着它永远不会和工具输出粘在一起。
+    func appendPersonaReminderToHistory(contextTokens: Int) {
+        let msg = AgentMessage(role: .user, parts: [.text(personaReminderText())])
+        let idx = agentHistory.count
+        agentHistory.append(msg)
+        lastPersonaReminderContextTokens = contextTokens
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let pid = await self.persistAgentMessage(msg), idx < self.agentHistory.count {
+                self.agentHistory[idx].dbMessageId = pid
+            }
+        }
+    }
 }

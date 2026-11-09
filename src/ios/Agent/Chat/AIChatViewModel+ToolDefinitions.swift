@@ -762,210 +762,25 @@ public final class ToolCatalogRouter: @unchecked Sendable {
                 docRef: "together --help"
             ),
 
-            // Apple Native Frameworks
-            CatalogItem(
-                id: "apple-vision",
-                name: "apple-vision",
-                category: .apple,
-                synopsis: "Image analysis (OCR, barcodes, faces, similarity, overlap).",
-                quickSyntax: "apple-vision ocr|classify|similarity|overlap <img...>",
-                docRef: "apple-vision --help"
-            ),
-            CatalogItem(
-                id: "apple-healthkit",
-                name: "apple-healthkit",
-                category: .apple,
-                synopsis: "Query or record Apple Health data (vitals, sleep, workouts).",
-                quickSyntax: "apple-healthkit batch --types <t1,t2> --days N",
-                docRef: "apple-healthkit --help | apple-healthkit types"
-            ),
-            CatalogItem(
-                id: "apple-homekit",
-                name: "apple-homekit",
-                category: .apple,
-                synopsis: "Control HomeKit smart home accessories and scenes.",
-                quickSyntax: "apple-homekit list | set --name ... --characteristic ... --value ...",
-                docRef: "apple-homekit --help"
-            ),
-            CatalogItem(
-                id: "apple-maps",
-                name: "apple-maps",
-                category: .apple,
-                synopsis: "POI search, route navigation, and travel ETA.",
-                quickSyntax: "apple-maps search --query <text> --lat <lat> --lon <lon> | route --from ... --to ... | eta --from ... --to ...",
-                docRef: "apple-maps --help"
-            ),
-            CatalogItem(
-                id: "apple-player",
-                name: "apple-player",
-                category: .apple,
-                synopsis: "Media playback control for audio and video files.",
-                quickSyntax: "apple-player play <file> | pause|resume|status|stop <session_id>",
-                docRef: "apple-player --help (play returns a session_id; the rest need it)"
-            ),
-            CatalogItem(
-                id: "apple-alarm",
-                name: "apple-alarm",
-                category: .apple,
-                synopsis: "Manage iOS system alarms and countdown timers.",
-                quickSyntax: "apple-alarm list | set --time HH:mm",
-                docRef: "apple-alarm --help (view at minis-clone://views/alarm)"
-            ),
-            CatalogItem(
-                id: "apple-open",
-                name: "apple-open",
-                category: .apple,
-                synopsis: "Open system URI schemes via iOS system handler (tel:, maps://, settings:).",
-                quickSyntax: "apple-open <url>",
-                docRef: "apple-open --help"
-            ),
-            CatalogItem(
-                id: "apple-device",
-                name: "apple-device",
-                category: .apple,
-                synopsis: "Device facts and battery state (model, OS, CPU, disk, network).",
-                quickSyntax: "apple-device info | battery",
-                docRef: "apple-device --help"
-            ),
-            CatalogItem(
-                id: "apple-clipboard",
-                name: "apple-clipboard",
-                category: .apple,
-                synopsis: "Read, write, or clear the device clipboard.",
-                quickSyntax: "apple-clipboard get | set --text \"...\" | clear | status",
-                docRef: "apple-clipboard --help (privacy: needs the user's permission)"
-            ),
-            CatalogItem(
-                id: "apple-location",
-                name: "apple-location",
-                category: .apple,
-                synopsis: "Current GPS position, reverse geocode, and forward geocode.",
-                quickSyntax: "apple-location current | geocode --lat ... --lng ... | forward --address \"...\"",
-                docRef: "apple-location --help (privacy: needs the user's permission)"
-            ),
-            CatalogItem(
-                id: "apple-photos",
-                name: "apple-photos",
-                category: .apple,
-                synopsis: "Photo library: list, albums, stats, export to /var/minis/offloads/.",
-                quickSyntax: "apple-photos list --limit N | albums | album --name ... | export --id <asset-id>",
-                docRef: "apple-photos --help (privacy: needs the user's permission)"
-            ),
-            CatalogItem(
-                id: "apple-calendar",
-                name: "apple-calendar",
-                category: .apple,
-                synopsis: "Calendar events and reminders (list, create, update, delete).",
-                quickSyntax: "apple-calendar list --start <ISO> --end <ISO> | create --title ... --start ... --end ...",
-                docRef: "apple-calendar --help (privacy: reads need permission, writes always ask)"
-            ),
-            CatalogItem(
-                id: "apple-reminders",
-                name: "apple-reminders",
-                category: .apple,
-                synopsis: "Reminders: list, lists, create, update, complete, delete.",
-                quickSyntax: "apple-reminders list | lists | create --title ... | complete --id <id>",
-                docRef: "apple-reminders --help (complete/update/delete need --id, not --title)"
-            ),
-            CatalogItem(
-                id: "apple-weather",
-                name: "apple-weather",
-                category: .apple,
-                synopsis: "WeatherKit forecasts: current, hourly, daily, alerts, report.",
-                quickSyntax: "apple-weather current | hourly | daily | report [--lat N --lng N]",
-                docRef: "apple-weather --help"
-            ),
-            CatalogItem(
-                id: "apple-media",
-                name: "apple-media",
-                category: .apple,
-                synopsis: "Now-playing info and Music playback transport control.",
-                quickSyntax: "apple-media now-playing | play | pause | toggle | next | prev | volume",
-                docRef: "apple-media --help"
-            ),
-            CatalogItem(
-                id: "apple-notification",
-                name: "apple-notification",
-                category: .apple,
-                synopsis: "Inspect local notifications (pending, delivered) and auth status.",
-                quickSyntax: "apple-notification pending | delivered | settings",
-                docRef: "apple-notification --help"
-            ),
-            CatalogItem(
-                id: "apple-bluetooth",
-                name: "apple-bluetooth",
-                category: .apple,
-                synopsis: "BLE scan, connect, and read/write characteristics.",
-                quickSyntax: "apple-bluetooth status | scan | connect --uuid ... | read --uuid ... --service ... --characteristic ...",
-                docRef: "apple-bluetooth --help (privacy: needs the user's permission)"
-            ),
-            CatalogItem(
-                id: "apple-nfc",
-                name: "apple-nfc",
-                category: .apple,
-                synopsis: "NFC tag reading and NDEF writing (iOS 26+, device dependent).",
-                quickSyntax: "apple-nfc status | scan | write --type text --payload \"...\"",
-                docRef: "apple-nfc --help"
-            ),
-            CatalogItem(
-                id: "apple-nlp",
-                name: "apple-nlp",
-                category: .apple,
-                synopsis: "On-device NLP: language detection, tokenize, POS, NER, sentiment.",
-                quickSyntax: "apple-nlp language --text \"...\" | tokenize | pos | sentiment",
-                docRef: "apple-nlp --help"
-            ),
-            CatalogItem(
-                id: "apple-speech",
-                name: "apple-speech",
-                category: .apple,
-                synopsis: "Speech-to-text on an audio file (SFSpeechRecognizer).",
-                quickSyntax: "apple-speech transcribe --source mic --duration 5 | transcribe --source <audio-file>",
-                docRef: "apple-speech --help"
-            ),
-            CatalogItem(
-                id: "apple-speak",
-                name: "apple-speak",
-                category: .apple,
-                synopsis: "Quick one-off spoken announcements (does not record in chat).",
-                quickSyntax: "apple-speak speak --text \"...\" --voice zh-CN",
-                docRef: "apple-speak --help"
-            ),
+            // [T-catalog-compact] Apple 原生工具不再走 CatalogItem，见
+            // renderCatalogFragment 里 appleCompactSection 的拼接点。
+            // 22 条完整条目每轮约 2268 token，而这批工具绝大多数轮次用不到；
+            // 压成「名字 — 干什么 | 怎么调」省下约 500 token，名字和语法都还在，
+            // 少掉的是 docRef 那一列（都是 `<cmd> --help`，说了等于没说）。
+            // 不删条目：名字留着，模型才知道自己有这么些工具。
 
-            // Web & Communication
-            CatalogItem(
-                id: "browser_use",
-                name: "browser_use",
-                category: .webMedia,
-                synopsis: "WebKit browser automation (navigate, screenshot, click, type, scroll, cookies).",
-                quickSyntax: "tool call: browser_use(action: \"navigate\", url: \"...\")",
-                docRef: "Tool schema | minis-browser-use --help"
-            ),
-            CatalogItem(
-                id: "send_voice",
-                name: "send_voice / textToSpeech",
-                category: .webMedia,
-                synopsis: "Send WeChat-style voice message bubbles via configured TTS service.",
-                quickSyntax: "tool call: send_voice(text: \"...\")",
-                docRef: "Tool schema (voice bubble in chat)"
-            ),
-            CatalogItem(
-                id: "web_search",
-                name: "web_search",
-                category: .webMedia,
-                synopsis: "Search live web information (news, facts, documentation).",
-                quickSyntax: "tool call: web_search(query: \"...\")",
-                docRef: "Tool schema (cite sources with [cite:id])"
-            ),
-            CatalogItem(
-                id: "minis-open",
-                name: "minis-open",
-                category: .webMedia,
-                synopsis: "In-app preview for web URLs or files in /var/minis/ without leaving chat.",
-                quickSyntax: "minis-open <url-or-path>",
-                docRef: "minis-open --help"
-            ),
 
+            // [T-catalog-compact] 这一条是**工具**不是 CLI，保留完整条目——
+            // 它不是薄封装，参数形态（calendarCreate / healthSummary 等）
+            // 只有这里写得出，压掉就等于让模型猜。
+            CatalogItem(
+                id: "device_data_tools",
+                name: "weather / currentLocation / calendar* / reminders* / healthSummary",
+                category: .system,
+                synopsis: "Structured wrappers over Apple frameworks: weather (location is geocoded to lat/lng first), location, calendar query+create, reminders query+create+complete, health summary.",
+                quickSyntax: "tool calls: weather(location), currentLocation, calendarQuery(range), calendarCreate(title,start_time,end_time), remindersQuery(list_name), remindersCreate(title,due_date), remindersComplete(reminder_id), healthSummary",
+                docRef: "Tool schemas (the apple-* CLI entries below are the raw equivalents)"
+            ),
             // Memory & Extensions
             CatalogItem(
                 id: "memory_tools",
@@ -1006,14 +821,6 @@ public final class ToolCatalogRouter: @unchecked Sendable {
                 synopsis: "Built-in device utilities: math evaluation, local date-time, clipboard read/write, image inspection.",
                 quickSyntax: "tool calls: calculate(expression), timeInfo, clipboard(action: read|write), read_image(path)",
                 docRef: "Tool schemas"
-            ),
-            CatalogItem(
-                id: "device_data_tools",
-                name: "weather / currentLocation / calendar* / reminders* / healthSummary",
-                category: .apple,
-                synopsis: "Structured wrappers over Apple frameworks: weather (location is geocoded to lat/lng first), location, calendar query+create, reminders query+create+complete, health summary.",
-                quickSyntax: "tool calls: weather(location), currentLocation, calendarQuery(range), calendarCreate(title,start_time,end_time), remindersQuery(list_name), remindersCreate(title,due_date), remindersComplete(reminder_id), healthSummary",
-                docRef: "Tool schemas (the apple-* CLI entries below are the raw equivalents)"
             ),
             CatalogItem(
                 id: "browse_stickers",
@@ -1057,7 +864,44 @@ public final class ToolCatalogRouter: @unchecked Sendable {
             }
             out += "\n"
         }
+        // [T-catalog-compact] Apple 原生 CLI 单独一段，一行一条。这 22 个是
+        // 系统框架的薄封装，绝大多数轮次用不到，但名字必须留着——模型不知道
+        // 有 apple-alarm 就会编个 crontab 出来。语法留、docRef 去掉（都是
+        // `<cmd> --help`）。见 renderAppleCompactSection。
+        if let compact = ToolCatalogRouter.appleCompactSection(), !compact.isEmpty {
+            out += "### Apple Native Frameworks\n" + compact + "\n\n"
+        }
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Apple 原生 CLI 的压缩目录。名字 + 一句话 + 语法，一行一条。
+    static func appleCompactSection() -> String? {
+        let rows: [(String, String, String)] = [
+            ("apple-vision", "Image analysis (OCR, barcodes, faces, similarity, overlap)", "apple-vision ocr|classify|similarity|overlap <img...>"),
+            ("apple-healthkit", "Query or record Apple Health data (vitals, sleep, workouts)", "apple-healthkit batch --types <t1,t2> --days N"),
+            ("apple-homekit", "Control HomeKit accessories and scenes", "apple-homekit list | search | set --name ... --characteristic ... --value ..."),
+            ("apple-maps", "POI search, route navigation, travel ETA", "apple-maps search|route|eta ..."),
+            ("apple-player", "Media playback control (play returns a session_id)", "apple-player play|pause|resume|seek|status|stop"),
+            ("apple-alarm", "iOS system alarms and countdown timers", "apple-alarm ... (view at minis-clone://views/alarm)"),
+            ("apple-open", "Open system URI schemes via the iOS handler", "apple-open <url>"),
+            ("apple-device", "Device facts and battery state", "apple-device ..."),
+            ("apple-clipboard", "Read, write, or clear the clipboard (needs permission)", "apple-clipboard get|set|clear"),
+            ("apple-location", "GPS position, reverse/forward geocode", "apple-location ..."),
+            ("apple-photos", "Photo library: list, albums, stats, export to /var/minis/", "apple-photos ..."),
+            ("apple-calendar", "Calendar events: list, create, update, delete", "apple-calendar ..."),
+            ("apple-reminders", "Reminders: list, lists, create, update, complete, delete", "apple-reminders ..."),
+            ("apple-weather", "WeatherKit forecasts: current, hourly, daily, alerts", "apple-weather ..."),
+            ("apple-media", "Now-playing info and Music transport control", "apple-media ..."),
+            ("apple-notification", "Local notifications: pending, delivered, auth status", "apple-notification ..."),
+            ("apple-bluetooth", "BLE scan, connect, read/write characteristics", "apple-bluetooth ..."),
+            ("apple-nfc", "NFC tag reading and NDEF writing (iOS 26+, device dependent)", "apple-nfc ..."),
+            ("apple-nlp", "On-device NLP: language detect, tokenize, POS, NER, sentiment", "apple-nlp ..."),
+            ("apple-speech", "Speech-to-text on an audio file", "apple-speech <file>"),
+            ("apple-speak", "One-off spoken announcement (not recorded in chat)", "apple-speak <text>"),
+            ("weather/currentLocation/calendar*/reminders*/healthSummary", "Structured wrappers over the same frameworks", "tool call: weather(...) | calendarEvents(...)"),
+        ]
+        guard !rows.isEmpty else { return nil }
+        return rows.map { "- `\($0.0)` — \($0.1) | `\($0.2)`" }.joined(separator: "\n")
     }
 }
 
