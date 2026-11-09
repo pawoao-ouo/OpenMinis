@@ -3475,6 +3475,16 @@ struct AIChatView: View {
         }
         .padding(6)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showStop)
+        .onChange(of: vm.inputText) { _, newText in
+            // [T-composer-edit-clear] 编辑中把字删空了就是退出编辑，别留在
+            // 编辑里，更别掉进语音。有附件时不自动退——附件还挂着，退了就丢了，
+            // 留给叉号键处理。
+            if vm.editingMessageIndex != nil
+                && newText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && vm.attachments.isEmpty {
+                vm.cancelEdit()
+            }
+        }
         return AnyView(row)
     }
 
