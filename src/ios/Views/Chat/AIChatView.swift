@@ -3610,8 +3610,8 @@ struct AIChatView: View {
         .buttonStyle(MorphPressStyle())
         .sensoryFeedback(.impact, trigger: voiceSendTapCount)
         .accessibilityLabel(Text(editing
-            ? (hasContent ? AppLocalized("提交编辑") : AppLocalized("退出编辑"))
-            : (hasContent ? AppLocalized("发送") : AppLocalized("语音输入"))))
+            ? (hasText ? AppLocalized("提交编辑") : AppLocalized("退出编辑"))
+            : (hasText ? AppLocalized("发送") : AppLocalized("语音输入"))))
     }
 
     /// 停止键：行里最右一格，只在生成时出现，底色永远是黑，不变红。
