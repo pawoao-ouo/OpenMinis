@@ -4257,6 +4257,22 @@ struct AIChatView: View {
                 }
                 inputBarHeightDebounce?.cancel()
                 let voiceAtCapture = voiceInputActive
+                // [T-inputbar-follow-now] 纯文字模式下输入栏的高度变化不是动画
+                // 出来的：打一行字换行了、挂上附件了，布局已经落定才回调。以前
+                // 这里也统一压 380ms 去抖，结果是「输入栏已经长高了，列表还停在
+                // 老位置」——她说的「列表要过半天才跟上」。
+                //
+                // 文字模式就当场提交，下面那段去抖任务留着当校正（值不一致才写），
+                // 所以就算哪一帧采到了过渡值也不会留错。语音/托盘那两条路照旧去抖：
+                // 它们的高度是真动画。
+                // 只对「长高」即时提交。变矮（发完消息清空输入框）不能走这条路：
+                // 那条路归下面的收缩吸收管（她说的「发完先猛跳一下再滑回来」），
+                // 提前提交会把吸收垫掉、反而多跳一次。
+                let plainTextMode = !voiceInputActive && !showStickerPanel
+                if plainTextMode, newH > inputBarHeight + 0.5 {
+                    inputBarHeight = newH
+                    AppLogger(category: "InputBarLayout").info("inputBarHeight immediate=\(newH) (text mode)")
+                }
                 inputBarHeightDebounce = Task { @MainActor in
                     // [T-voice-inputbar-anim-tail] 380ms, not 300ms. The panel's
                     // expand/collapse and transcript-band animations are
