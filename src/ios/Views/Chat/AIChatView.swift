@@ -226,6 +226,8 @@ struct AIChatView: View {
     @State private var inputAtScrollBottom: Bool = true
     /// 键盘这一次动画的时长曲线。面板开合跟着它走,不收自己的弹簧。
     @State private var keyboardAnim: Animation = .easeOut(duration: 0.25)
+    /// 同一次的时长数字版:动画用 Animation,延迟要用秒。
+    @State private var keyboardAnimDuration: Double = 0.25
     @State private var inputBarHeight: CGFloat = 0
     /// [T-composer-single-anchor] 输入栏那一摞（浮窗键 + 一起听胶囊 + 输入栏）的实测高度。
     /// 斜杠/提及弹窗只认这一个数字，不再三段相加。
@@ -669,9 +671,9 @@ struct AIChatView: View {
                                 .contentShape(Rectangle())
                                 .padding(.bottom, inputBarHeight)
                                 .onTapGesture {
-                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
-                                        showStickerPanel = false
-                                    }
+                                    // [T-tray-one-path] 从列表关也走同一条路,
+                                    // 不再自带一条 0.28 秒的弹簧。
+                                    closeComposerTray(focusKeyboard: false)
                                 }
                         }
                         // 一起听微控条：跟输入栏同一个 VStack，
@@ -1055,7 +1057,9 @@ struct AIChatView: View {
         // 没有公开映射,时长才是体感里最要紧的那一半)。
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             let raw = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue
-            keyboardAnim = .easeInOut(duration: max(0.1, min(raw ?? 0.25, 0.6)))
+            let d = max(0.1, min(raw ?? 0.25, 0.6))
+            keyboardAnimDuration = d
+            keyboardAnim = .easeInOut(duration: d)
         }
         .onReceive(NotificationCenter.default.publisher(for: MarkdownImageTapRouter.tappedNotification)) { note in
             handleMarkdownImageTap(note)
@@ -2117,9 +2121,7 @@ struct AIChatView: View {
         pendingPanelAction = item
 
         if item != .sticker {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                showStickerPanel = false
-            }
+            closeComposerTray(focusKeyboard: false)
         }
         // [batch7-fix] The drawer is conditionally rendered, so removing it and
         // presenting a sheet in the SAME update transaction made SwiftUI drop
@@ -2153,9 +2155,7 @@ struct AIChatView: View {
         case .doc:
             showDocumentPicker = true
         case .sticker:
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
-                showStickerPanel = true
-            }
+            openComposerTray()
         case .voice:
             showVoiceSettingsSheet = true
         case .sparkles:
@@ -3438,10 +3438,10 @@ struct AIChatView: View {
                 onClose: { closeComposerTray(focusKeyboard: true) },
                 onSelectSticker: { sticker in
                     vm.pendingSticker = sticker
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        showStickerPanel = false
-                    }
-                    inputFocused = true
+                    // [T-tray-one-path] 收面板 + 叫回键盘,和别的关闭手势
+                    // 用同一个时钟;以前这里是一条 0.2 秒的 easeOut,面板还在
+                    // 往上走键盘已经起来了,看着是两块在打架。
+                    closeComposerTray(focusKeyboard: true)
                 }
             )
             return AnyView(panel)
@@ -3479,16 +3479,7 @@ struct AIChatView: View {
             if showStickerPanel {
                 closeComposerTray(focusKeyboard: true)
             } else {
-                inputFocused = false
-                // [T-one-clock] 面板跟键盘用同一个时钟。
-                //
-                // 以前这里是自己一条 0.34 秒的弹簧,系统键盘落下是 0.25 秒,
-                // 列表又等 380 毫秒去抖 —— 三套时钟同时在跑,点一下要一秒才
-                // 全定下来,期间列表还先按动画中间高度跳一次。现在面板这条
-                // 改用键盘通知里的时长和曲线,三件事收成一个节拍。
-                withAnimation(keyboardAnim) {
-                    showStickerPanel = true
-                }
+                openComposerTray()
             }
         } label: {
             // [T-key-44] 同加号键：38 的圆，44 的手感。
@@ -3553,9 +3544,7 @@ struct AIChatView: View {
             } else {
                 // 空输入：进语音面板。先收抽屉，别让两层叠在一起。
                 if showStickerPanel {
-                    withAnimation(keyboardAnim) {
-                        showStickerPanel = false
-                    }
+                    closeComposerTray(focusKeyboard: false)
                 }
                 vm.voiceUsedInComposition = true
                 VoiceModePreference.shared.enteredFromText = true
@@ -3627,8 +3616,22 @@ struct AIChatView: View {
         }
     }
 
-    /// 收起底部托盘；`focusKeyboard` 为真时把键盘叫回来。
+    /// 打开底部托盘：唯一的入口。
+    ///
+    /// [T-tray-one-path] 以前开合散在八九处，各带各的弹簧（0.28 / 0.25 / 0.30 /
+    /// 0.2 秒），还有两处根本不动画。同一个面板，从表情键关、从输入框关、从
+    /// 消息列表关，速度和键盘衔接都不一样 —— 这就是「怎么关都别扭」。
+    /// 现在全部走这里：时钟取键盘那一次的，高度当帧重新量，缩略图先喂前两行。
+    private func openComposerTray() {
+        guard !voiceInputActive, speechManager.state != .recording else { return }
+        inputFocused = false
+        reseedInputBarHeight()
+        StickerStore.shared.prefetchThumbnails(StickerStore.shared.stickers, maxPixelSize: 216)
+        withAnimation(keyboardAnim) { showStickerPanel = true }
+    }
+
     private func closeComposerTray(focusKeyboard: Bool) {
+        reseedInputBarHeight()
         withAnimation(keyboardAnim) {
             showStickerPanel = false
         }
@@ -3637,7 +3640,7 @@ struct AIChatView: View {
         // 这时把 inputFocused 置真只是对着空气发一次请求，焦点不会回来，
         // 键盘也不会弹。语音态该回到的是语音面板自己的状态，不是文字焦点。
         guard !voiceInputActive, speechManager.state != .recording else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardDismissLead) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + keyboardAnimDuration) {
             inputFocused = true
         }
     }
@@ -5108,9 +5111,7 @@ struct AIChatView: View {
     private func performEnqueue() {
         // 托盘开着就一起收：入队之后键盘要降，抽屉挂在上面只会挡住刚出现的那条。
         if showStickerPanel {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                showStickerPanel = false
-            }
+            closeComposerTray(focusKeyboard: false)
         }
         // Dismiss the software keyboard on enqueue. With a hardware keyboard,
         // keep focus so the user can continue typing the next candidate.
@@ -5166,9 +5167,7 @@ struct AIChatView: View {
         let isVoiceOrigin = voiceInputActive && vm.inputText == voiceVM.transcript
         // 托盘开着时先收，再走原来的发/入队判定。
         if showStickerPanel {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                showStickerPanel = false
-            }
+            closeComposerTray(focusKeyboard: false)
         }
         if !isVoiceOrigin, vm.tryExecuteInputAsSlashCommand() { return }
 
@@ -6631,6 +6630,11 @@ struct ChatStickerPanel: View {
     @State private var activeSheet: ActivePanelSheet?
     @State private var isManageMode: Bool = false
     @State private var selectedStickerIds: Set<String> = []
+    /// [T-sticker-measure] 一格的真实高度,当场量出来的。
+    ///
+    /// 以前写死 89(图 72 + 间隔 4 + 标题一行 13),字号一调、字体一换就对不上,
+    /// 面板定下来之后第三行被底边切掉一截。现在量第一格再乘行数。
+    @State private var measuredCellHeight: CGFloat = 89
 
 
     /// [T-composer-four] 宫格像输入法一样从输入栏下面吸出来：高度固定一档，
@@ -6653,7 +6657,7 @@ struct ChatStickerPanel: View {
 
     /// 宫格自身可滚的那块高度：整行 + 上下留白。
     private var gridHeight: CGFloat {
-        Self.visibleStickerRows * Self.stickerRowHeight
+        Self.visibleStickerRows * measuredCellHeight
             + (Self.visibleStickerRows - 1) * Self.stickerGridSpacing
             + Self.stickerGridPadding
     }
@@ -7028,7 +7032,7 @@ struct ChatStickerPanel: View {
                         } label: {
                             VStack(spacing: 4) {
                                 ZStack(alignment: .topTrailing) {
-                                    if let img = store.image(for: sticker) {
+                                    if let img = store.thumbnail(for: sticker, maxPixelSize: 216) {
                                         StickerAnimatedImageView(image: img)
                                             .frame(height: 72)
                                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -7072,6 +7076,13 @@ struct ChatStickerPanel: View {
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
                                     .foregroundStyle(CSSThemeVariables.textDim())
+                            }
+                            // [T-sticker-measure] 量自己,再乘行数。写死 89 碰上
+                            // 字号/字体变化就偏,偏出来的那点正好切第三行。
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                                if h > 40, abs(h - measuredCellHeight) > 0.5 {
+                                    measuredCellHeight = h
+                                }
                             }
                         }
                         .buttonStyle(.plain)
@@ -7710,6 +7721,10 @@ public final class StickerStore: ObservableObject {
     }
 
     @Published public var stickers: [StickerItem] = []
+    /// 缩略图解好一张就加一,宫格靠它重画(不靠 @Published 图片本身)。
+    @Published public var thumbRevision: Int = 0
+    private let thumbCache = NSCache<NSString, UIImage>()
+    private var thumbInFlight: Set<String> = []
     @Published public var categories: [String] = [
         "开心", "难过", "生气", "撒娇", "无语", "委屈", "问号", "嘲讽", "日常", "其他"
     ]
@@ -8086,6 +8101,19 @@ public final class StickerStore: ObservableObject {
         deletedIds.contains(id)
     }
 
+    /// 文件路径(不读盘)。后台预取要用它,免得在主线程做 Data(contentsOf:)。
+    public func imagePath(for sticker: StickerItem) -> URL? {
+        let primary = stickersDir.appendingPathComponent(sticker.imageFilename)
+        if FileManager.default.fileExists(atPath: primary.path) { return primary }
+        let fm = FileManager.default
+        let backups = [
+            fm.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("stickers/\(sticker.imageFilename)"),
+            fm.urls(for: .libraryDirectory, in: .userDomainMask).first?.appendingPathComponent("stickers/\(sticker.imageFilename)")
+        ].compactMap { $0 }
+        for b in backups where FileManager.default.fileExists(atPath: b.path) { return b }
+        return nil
+    }
+
     public func imageData(for sticker: StickerItem) -> Data? {
         let fileURL = stickersDir.appendingPathComponent(sticker.imageFilename)
         if let data = try? Data(contentsOf: fileURL) {
@@ -8113,6 +8141,57 @@ public final class StickerStore: ObservableObject {
             return img
         }
         return nil
+    }
+
+    /// 宫格用的缩略图。还没解好时返回 nil。
+    ///
+    /// [T-sticker-thumb] 以前格子里直接调 image(for:):读全尺寸、全帧解码,而且
+    /// 就在主线程上。第一次打开面板时十来张图同时现读现解,正好和面板那条弹簧
+    /// 抢主线程 —— 她体感最沉的就是这一下;第二次有缓存才轻,内存一紧缓存被
+    /// 清掉又沉回去。
+    ///
+    /// 现在只解到格子需要的像素(72pt @3x = 216),放后台队列,取静态首帧;
+    /// 解好之后 bump thumbRevision,宫格自己重画。动图留给发出去的那条气泡。
+    public func thumbnail(for sticker: StickerItem, maxPixelSize: CGFloat) -> UIImage? {
+        let px = Int(max(48, maxPixelSize))
+        let key = "\(sticker.id)@\(px)"
+        if let hit = thumbCache.object(forKey: key as NSString) { return hit }
+        guard !thumbInFlight.contains(key) else { return nil }
+        thumbInFlight.insert(key)
+        let url = imagePath(for: sticker)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            // 读盘和解码都放后台:以前 Data(contentsOf:) 在主线程做,面板一开
+            // 就是十几个文件现读,GIF 还要再解一遍,和弹簧动画抢主线程。
+            let data = url.flatMap { try? Data(contentsOf: $0) }
+            let img = data.flatMap { StickerStore.makeThumbnail(from: $0, maxPixelSize: px) }
+            await MainActor.run {
+                guard let self else { return }
+                self.thumbInFlight.remove(key)
+                if let img { self.thumbCache.setObject(img, forKey: key as NSString) }
+                self.thumbRevision &+= 1
+            }
+        }
+        return nil
+    }
+
+    /// 面板一开先把前两行喂进去,滚到那儿不需要等。
+    public func prefetchThumbnails(_ items: [StickerItem], maxPixelSize: CGFloat, limit: Int = 24) {
+        for item in items.prefix(limit) {
+            _ = thumbnail(for: item, maxPixelSize: maxPixelSize)
+        }
+    }
+
+    /// 只解第一帧、只解到指定像素。必须 nonisolated:跑在后台队列上。
+    nonisolated static func makeThumbnail(from data: Data, maxPixelSize: Int) -> UIImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg)
     }
 
     public func image(forId id: String) -> UIImage? {
