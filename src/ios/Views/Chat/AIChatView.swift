@@ -3440,11 +3440,11 @@ struct AIChatView: View {
                 vm: vm,
                 onClose: { closeComposerTray(focusKeyboard: true) },
                 onSelectSticker: { sticker in
-                    vm.pendingSticker = sticker
-                    // [T-tray-one-path] 收面板 + 叫回键盘,和别的关闭手势
-                    // 用同一个时钟;以前这里是一条 0.2 秒的 easeOut,面板还在
-                    // 往上走键盘已经起来了,看着是两块在打架。
-                    closeComposerTray(focusKeyboard: true)
+                    // [T-composer-sticker-direct] 点一下就直接发，面板留着
+                    // 接着点下一张；关面板只走表情键 / onClose 那条路。
+                    // 以前这里是挂预览卡 + 收面板 + 叫回键盘，21 秒里开了
+                    // 四次面板，一张都没发出去。
+                    vm.sendSticker(sticker)
                 }
             )
             return AnyView(panel)
@@ -3694,48 +3694,6 @@ struct AIChatView: View {
             editExitButton
         }
         .padding(.horizontal, 12)
-        .padding(.top, 4)
-        .padding(.bottom, 2)
-        return AnyView(view)
-    }
-
-    /// [Stickers 10-12] 待发表情包缩略卡片 (和发图片一样，可配文字一并发)
-    /// AnyView-erased 避免 inline stroke / ZStack / conditional content 膨胀 inputBar 泛型深度导致闪退
-    private var pendingStickerPreview: AnyView {
-        guard let sticker = vm.pendingSticker, let img = StickerStore.shared.image(for: sticker) else {
-            return AnyView(EmptyView())
-        }
-        let view = HStack(spacing: 8) {
-            ZStack(alignment: .topTrailing) {
-                StickerAnimatedImageView(image: img)
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(CSSThemeVariables.accent().opacity(0.35), lineWidth: 1)
-                    )
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    vm.pendingSticker = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(ChatFont.font(16))
-                        .foregroundStyle(Color.white, Color.black.opacity(0.6))
-                }
-                .offset(x: 5, y: -5)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(sticker.shortDesc.isEmpty ? sticker.title : sticker.shortDesc)
-                    .font(ChatFont.font(12, weight: .medium))
-                    .foregroundStyle(CSSThemeVariables.textDim())
-                    .lineLimit(1)
-                Text("将随消息一同发送")
-                    .font(ChatFont.font(10))
-                    .foregroundStyle(CSSThemeVariables.textDim().opacity(0.7))
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 14)
         .padding(.top, 4)
         .padding(.bottom, 2)
         return AnyView(view)
@@ -4137,9 +4095,6 @@ struct AIChatView: View {
                         .onPreferenceChange(AttachmentGridHeightKey.self) { attachmentGridHeight = $0 }
                         .padding(.top, 4)
                     }
-
-                    // 待发表情包缩略卡片 (AnyView 类型擦除，杜绝深层泛型栈溢出)
-                    pendingStickerPreview
 
                     // 编辑已有消息模式提示与右上退出按钮 (不挤占单行输入条宽度)
                     if vm.editingMessageIndex != nil {
@@ -5115,7 +5070,7 @@ struct AIChatView: View {
     private var hasDraftContent: Bool {
         let hasText = !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasReadyAttachment = vm.attachments.contains { $0.loadState == .ready }
-        return hasText || hasReadyAttachment || vm.pendingSticker != nil
+        return hasText || hasReadyAttachment
     }
 
     private var canEnqueue: Bool {
@@ -5131,8 +5086,7 @@ struct AIChatView: View {
         guard vm.isProcessing, !vm.hasLoadingAttachments else { return false }
         let hasText = !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasReadyAttachment = vm.attachments.contains { $0.loadState == .ready }
-        let hasPendingSticker = vm.pendingSticker != nil
-        return hasText || hasReadyAttachment || hasPendingSticker
+        return hasText || hasReadyAttachment
     }
 
     /// Whether the composer actually holds something worth moving to another
@@ -7065,12 +7019,11 @@ struct ChatStickerPanel: View {
                                     selectedStickerIds.insert(sticker.id)
                                 }
                             } else {
-                                // 挂载到待发区，顺滑收起面板并聚焦输入框，支持单独发送或图文混排一并发
+                                // 点一下就直接发，面板留着接着点下一张。
                                 if let onSelectSticker {
                                     onSelectSticker(sticker)
                                 } else {
-                                    vm.pendingSticker = sticker
-                                    onClose()
+                                    vm.sendSticker(sticker)
                                 }
                             }
                         } label: {
