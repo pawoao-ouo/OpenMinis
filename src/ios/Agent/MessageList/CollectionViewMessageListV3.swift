@@ -2873,14 +2873,16 @@ extension CollectionViewMessageListV3 {
             layout.invalidateLayout()
 
             if scrollMode == .autoScrolling {
-                scheduleCoalescedScroll()
+                scheduleCoalescedScroll(smooth: true)
             }
         }
 
         /// Coalesce rapid scroll signals into a single scroll action.
         /// Uses a short 80ms delay — just enough to batch multiple near-simultaneous
         /// signals without noticeable visual lag during streaming.
-        private func scheduleCoalescedScroll() {
+        /// - Parameter smooth: 见 `scrollToBottomNow(smooth:)`。只有流式出字那条路
+        ///   传 true；append / 快照那种整条进来的位移必须一帧到位。
+        private func scheduleCoalescedScroll(smooth: Bool = false) {
             pendingScrollWork?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
@@ -2894,13 +2896,15 @@ extension CollectionViewMessageListV3 {
                 // practice: every glide clears its flag on completion or via
                 // its duration safety net (see scrollToBottomNow).
                 if self.isAnimatingScrollToBottom {
-                    self.scheduleCoalescedScroll()
+                    self.scheduleCoalescedScroll(smooth: smooth)
                     return
                 }
-                self.scrollToBottomNow()
+                self.scrollToBottomNow(smooth: smooth)
             }
             pendingScrollWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
+            // 流式那条路等不起 80ms：文字已经长出来了，列表还压在旧坐标上，
+            // 这一小段延迟本身就是「蹦」的一半。两帧就够把同批信号并掉了。
+            DispatchQueue.main.asyncAfter(deadline: .now() + (smooth ? 0.033 : 0.08), execute: work)
         }
 
         /// Re-pin to bottom after a keyboard show/hide focus flip. The 0.3s
@@ -5071,7 +5075,12 @@ extension CollectionViewMessageListV3 {
             cv.layer.add(glide, forKey: "composerShrinkGlide")
         }
 
-        func scrollToBottomNow(animated: Bool = false) {
+        /// - Parameter smooth: [T-streaming-glide] 出字时用。文字每 0.1s 长一节，
+        ///   旧的「写坐标」是硬位移，屏幕上看就是文字一格一格往下蹦。带上这个
+        ///   参数就把这一段位移走成一次 0.14s 的线性滑动，下一次增长正好接在
+        ///   上一次滑完的位置，看起来是连续的。只给流式刷新那条路用；真正的
+        ///   跳转（回底、切会话）必须一帧到位，不能滑。
+        func scrollToBottomNow(animated: Bool = false, smooth: Bool = false) {
             guard let cv = viewController?.collectionView else { return }
             absorbPendingComposerShrink(caller: "scrollToBottom")
             // Sub-viewport overflow path: re-evaluate compensation, then pin.
@@ -5086,7 +5095,21 @@ extension CollectionViewMessageListV3 {
                 cv.setContentOffset(target, animated: true)
                 DispatchQueue.main.async { [weak self] in self?.syncScrollFlags() }
             } else {
+                let oldY = cv.contentOffset.y
                 cv.contentOffset = target
+                if smooth, !cv.isTracking, !cv.isDecelerating {
+                    let dy = target.y - oldY
+                    // 太小不值得动，太大是内容被换掉（切会话/回底），都走硬跳。
+                    if dy > 2, dy < 120, !UIAccessibility.isReduceMotionEnabled {
+                        let glide = CABasicAnimation(keyPath: "bounds.origin")
+                        glide.isAdditive = true
+                        glide.fromValue = NSValue(cgPoint: CGPoint(x: 0, y: -dy))
+                        glide.toValue = NSValue(cgPoint: .zero)
+                        glide.duration = 0.14
+                        glide.timingFunction = CAMediaTimingFunction(name: .linear)
+                        cv.layer.add(glide, forKey: "streamingGlide")
+                    }
+                }
                 syncScrollFlags()
             }
         }
