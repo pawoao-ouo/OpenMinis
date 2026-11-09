@@ -5118,12 +5118,11 @@ struct AIChatView: View {
         speechManager.recognizedText = ""
         lastRecognizedLength = 0
         vm.enqueuePrompt()
-        // [inline-voice] Enqueue consumed the text — clear the voice transcript
-        // too, otherwise it lingers in the panel (the "residual after swipe-send"
-        // bug). performSend already does this; the enqueue path (taken while the
-        // agent is processing) was missing it.
+        // [T-voice-send-exit] 入队也是发：转写清掉、麦克风停掉，回打字。
+        // 不然入队完还留在语音里，下一句又得自己点键盘键才能回来。
         if voiceInputActive {
             voiceVM.clearAndRearm()
+            exitVoiceToKeyboard()
         }
     }
 
@@ -5194,10 +5193,12 @@ struct AIChatView: View {
         // → "send() GUARD FAILED" and nothing was sent. send() consumes and clears
         // inputText itself; we re-arm voice listening only AFTER it has run.
         vm.send()
-        // [inline-voice] Stay in voice mode after sending — clear the recognized
-        // text and re-arm listening for the next utterance (close with ✕).
+        // [T-voice-send-exit] 发完回打字，不赖在语音里：清掉转写、停掉麦克风，
+        // 卸掉语音层，焦点回文字框。以前这里故意留在语音里等下一句，
+        // 她每次发完都得自己点键盘键才能回来。
         if voiceInputActive {
             voiceVM.clearAndRearm()
+            exitVoiceToKeyboard()
         }
     }
 
