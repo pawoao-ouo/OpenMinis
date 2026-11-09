@@ -1,0 +1,9 @@
+name: probe
+on:
+  workflow_dispatch:
+jobs:
+  p:
+    runs-on: macos-26
+    steps:
+      - name: who
+        run: sw_vers
