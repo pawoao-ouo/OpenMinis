@@ -38,6 +38,13 @@ struct TogetherRoomView: View {
     let sessionPersonaId: String?
     var onClose: () -> Void = {}
 
+    // 显式写一个:里面有 private @State,合成出来的初始化器是 private,
+    // 胶囊和加号抽屉都在别的文件里造它,靠合成那个编不过。
+    init(sessionPersonaId: String?, onClose: @escaping () -> Void = {}) {
+        self.sessionPersonaId = sessionPersonaId
+        self.onClose = onClose
+    }
+
     @ObservedObject private var player = TogetherPlayer.shared
     @ObservedObject private var hub = TogetherStateHub.shared
 

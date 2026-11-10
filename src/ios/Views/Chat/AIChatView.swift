@@ -426,6 +426,9 @@ struct AIChatView: View {
     @State private var forcePullToast: String?
     @State private var compactConfirmMessageId: UUID?
     @State private var showModelPicker = false
+    /// [T-together-room-entry 11-11] 加号抽屉里「一起听」的整页入口。
+    /// 小胶囊只在有歌在放时出现,她不点歌就找不到地方进,所以这里留一个常驻入口。
+    @State private var showTogetherRoom = false
     @State private var showThinkingLevelSheet = false
     @State private var showSessionSkills = false
     @State private var showSessionMCPs = false
@@ -1334,6 +1337,14 @@ struct AIChatView: View {
             }
         }
 
+        // [T-together-room-entry 11-11] 从加号抽屉进来。人设照会话传,和胶囊同一份。
+        .fullScreenCover(isPresented: $showTogetherRoom) {
+            // 它的收起键调 onClose,不给闭包就按下去没反应。
+            TogetherRoomView(sessionPersonaId: vm.sessionPersonaId) {
+                showTogetherRoom = false
+            }
+        }
+
         .fullScreenCover(isPresented: $showTerminal) {
             terminalInitCommand = nil
         } content: {
@@ -2134,30 +2145,25 @@ struct AIChatView: View {
         }
         pendingPanelAction = item
 
-        if item != .sticker {
-            closeComposerTray(focusKeyboard: false)
-        }
+        closeComposerTray(focusKeyboard: false)
         // [batch7-fix] The drawer is conditionally rendered, so removing it and
         // presenting a sheet in the SAME update transaction made SwiftUI drop
-        // the presentation: every tile that opened a sheet went dead while the
-        // sticker branch (which keeps the drawer mounted) kept working.
+        // the presentation: every tile that opened a sheet went dead.
         //
         // [K-2] One runloop turn (~16ms) was not enough: the drawer's own
         // exit animation is 250ms, so the presentation request still landed
         // while the drawer was in the tree. Wait for the drawer to leave.
-        if item != .sticker {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.drawerExitLead) {
-                // Read the CURRENT value, not the captured `item`: a second tap
-                // during the lead window replaces it, and firing the stale one
-                // would open the tile the user already changed their mind about.
-                guard let target = pendingPanelAction else { return }
-                pendingPanelAction = nil
-                performPlusPanelAction(target)
-            }
-            return
+        //
+        // [T-plus-model 11-11] 抽屉里表情包那颗方卡换成「切换模型」之后,
+        // 已经没有「保持抽屉挂着」的分支了,原来那两处 `!= .sticker` 判断一起收掉。
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.drawerExitLead) {
+            // Read the CURRENT value, not the captured `item`: a second tap
+            // during the lead window replaces it, and firing the stale one
+            // would open the tile the user already changed their mind about.
+            guard let target = pendingPanelAction else { return }
+            pendingPanelAction = nil
+            performPlusPanelAction(target)
         }
-        pendingPanelAction = nil
-        performPlusPanelAction(item)
     }
 
     private func performPlusPanelAction(_ item: PlusPanelItemType) {
@@ -2168,8 +2174,6 @@ struct AIChatView: View {
             showCamera = true
         case .doc:
             showDocumentPicker = true
-        case .sticker:
-            openComposerTray()
         case .voice:
             showVoiceSettingsSheet = true
         case .sparkles:
@@ -3168,6 +3172,7 @@ struct AIChatView: View {
         if fullBrowserURL != nil { fullBrowserURL = nil }
         if showTerminal { showTerminal = false }
         if showCamera { showCamera = false }
+        if showTogetherRoom { showTogetherRoom = false }
     }
 
     private func handleMarkdownImageTap(_ note: Notification) {
@@ -4482,6 +4487,12 @@ struct AIChatView: View {
                             : AppLocalized("小胶囊已关:不再出现"),
                     systemImage: enabled ? "capsule.fill" : "capsule"
                 )
+            },
+            onOpenTogetherRoom: {
+                // 抽屉正在收,同帧弹全屏会被系统吞掉,等它收干净再上。
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.drawerExitLead) {
+                    showTogetherRoom = true
+                }
             },
             onToggleSkill: { skillId, enabled in
                 if let sid = vm.sessionId {
@@ -6555,7 +6566,6 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
     case photo = "photo"         // 照片与视频
     case camera = "camera"       // 拍照
     case doc = "doc"             // 发送文件
-    case sticker = "sticker"     // 表情包 (醒醒专属)
     case voice = "voice"         // 语音设置 (醒醒专属)
     case sparkles = "sparkles"   // 模型切换
     case newChat = "newChat"     // 新建对话
@@ -6585,7 +6595,6 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
         case .photo: return "照片与视频"
         case .camera: return "拍照"
         case .doc: return "发送文件"
-        case .sticker: return "表情包"
         case .voice: return "语音设置"
         case .sparkles: return "模型切换"
         case .newChat: return "新建会话"
@@ -6610,7 +6619,6 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
         case .photo: return "photo.fill"
         case .camera: return "camera.fill"
         case .doc: return "doc.fill"
-        case .sticker: return "face.smiling.inverse"
         case .voice: return "waveform.circle.fill"
         case .sparkles: return "sparkles"
         case .newChat: return "square.and.pencil"

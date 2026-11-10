@@ -24,6 +24,9 @@ struct ComposerActionSheet: View {
     /// 面板整块删了,开关搬到这儿;存的是同一个 TogetherState.showMiniBar。
     let miniBarOn: Bool
     let onSetMiniBar: (Bool) -> Void
+    /// [T-together-room-entry 11-11] 整页「一起听」的常驻入口。小胶囊只在放歌时出现,
+    /// 不点歌就没有门,她说「我怎么找不到入口」。这里补一扇门。
+    let onOpenTogetherRoom: () -> Void
     let onToggleSkill: (String, Bool) -> Void
     let onToggleConnector: (String, Bool) -> Void
 
@@ -86,7 +89,9 @@ struct ComposerActionSheet: View {
                 tile(AppLocalized("相机"), "camera.fill") { pick(.camera) }
                 tile(AppLocalized("照片"), "photo.fill") { pick(.photo) }
                 tile(AppLocalized("文件"), "doc.fill") { pick(.doc) }
-                tile(AppLocalized("表情包"), "face.smiling.inverse") { pick(.sticker) }
+                // [T-plus-model 11-11] 她原话「只删➕号里面的表情包按钮,替换成模型更换」。
+                // 输入栏那颗表情键还在,托盘入口没断。
+                tile(AppLocalized("切换模型"), "sparkles") { pick(.sparkles) }
             }
 
             // [T-plus-tool-rows] 11-07 把老的下拉面板换成这个原生小抽屉时，老面板
@@ -108,13 +113,20 @@ struct ComposerActionSheet: View {
             )
 
             VStack(spacing: 0) {
+                navRow(AppLocalized("一起听"), "music.note.list", value: nil) {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    dismiss()
+                    onOpenTogetherRoom()
+                }
+                divider
                 toggleRow(AppLocalized("记忆"),
                           subtitle: AppLocalized("这一句起，小梦会不会把这次对话记下来"),
                           isOn: memoryEnabled) { onSetMemory($0) }
                 divider
-                // [T-together-capsule-only 11-10] 一起听那套前端(在听/歌单/一起听/
-                // 喜欢、曲库、歌单编辑、同步页)整块删了,只剩聊天里那个小胶囊。
-                // 原本挂面板顶栏的开关搬到这儿,不然关掉之后就没地方再打开。
+                // [T-together-capsule-only 11-10] 一起听那套旧前端整块删了,
+                // 只剩聊天里那个小胶囊;开关原本挂面板顶栏,搬到这儿,
+                // 不然关掉之后就没地方再打开。整页在 11-11 重做完,
+                // 入口是上面那行「一起听」——它一直在,不跟着歌走。
                 toggleRow(AppLocalized("音乐小胶囊"),
                           subtitle: AppLocalized("放歌时出现在输入栏上面,点它展开播放器"),
                           isOn: miniBarLocal) { next in
