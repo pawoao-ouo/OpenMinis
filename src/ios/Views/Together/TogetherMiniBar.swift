@@ -1228,10 +1228,9 @@ struct TogetherDeckView: View {
                         .shadow(color: .black.opacity(0.16), radius: 9, x: 0, y: 6)
                     Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
                         .font(.system(size: 17))
-                        // [T-room-contrast 11-11] 底色是 charcoal(= textMain),
-                        // 深色主题下它变成近白,再压一颗纯白图标就看不见了。
-                        // 跟房间那颗播放键一样取 surface。
-                        .foregroundStyle(TogetherSpec.capsuleSurface)
+                        // 底色是 charcoal(= textMain),深色主题下它是近白,
+                        // 所以字取卡片面 —— 两套主题都跟变量走,不再压纯白。
+                        .foregroundStyle(TogetherSpec.glass(0.98))
                 }
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
@@ -1595,6 +1594,13 @@ enum TogetherSpec {
     /// 胶囊的瓷白玻璃面。玻璃层保留：底色取全局 surface，透明度还是 0.85
     /// —— 这一层是"玻璃"，不是纯色填充，所以不跟壁纸、也不跟强调色。
     static var capsuleSurface: Color { CSSThemeVariables.surfaceFill(scope: .chat).opacity(0.85) }
+    /// [T-room-cssvars 11-11] 页底:全局 canvas。没壁纸的时候它就是这一页的底
+    /// ——日间白、夜间黑，跟着主题走，不自己定颜色。
+    static var pageCanvas: Color { CSSThemeVariables.bg(scope: .chat) }
+    /// 卡片面:全局 card 角色(有壁纸时带 surfaceOpacity)。和装扮设置里
+    /// 那张"卡片"取的是同一个变量,不再写死 0.55 这种数。
+    static var cardSurface: Color { CSSThemeVariables.card(scope: .chat) }
+
     /// 玻璃边：保留原来的白边观感，但跟着 surface 的明暗走。
     static var capsuleBorder: Color { CSSThemeVariables.surfaceFill(scope: .chat).opacity(0.95) }
     /// 外投影：接全局主文字，深色模式下才不会变成一块灰斑。

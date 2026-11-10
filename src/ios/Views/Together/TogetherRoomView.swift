@@ -150,51 +150,25 @@ struct TogetherRoomView: View {
     // MARK: - 底板
 
     private var page: some View {
-        TogetherSpec.capsuleSurface
+        // 没壁纸的日子:全局 canvas(日间白/夜间黑),不是自己调的浅色。
+        TogetherSpec.pageCanvas
             .ignoresSafeArea()
     }
 
-    /// 壁纸是这页真正的底子,不是顶上一条糊掉的装饰。
+    /// 壁纸这一层照抄装扮那套的画法(和聊天页 `AppearanceBackdrop` 同一个逻辑):
+    /// 图铺满整页(`scaledToFill`)、纱走全局 `wallpaperShade`、小图先垫一层
+    /// 模糊放大再盖原图居中,免得拉糊。
     ///
-    /// [T-room-wallpaper 11-11] 她原话「壁纸,功能,各方面都存在问题」——旧版把这层
-    /// 缩成 330 高、模糊 30、透明度 0.34 的一条,等于换了壁纸也看不出来。
-    /// 现在整页铺满:顶上留一层薄纱托住顶栏的小字,中间露出清晰的图,
-    /// 再往下渐隐回纸面 —— 卡片一律落在纸面上,不跟照片抢字。
-    /// 压多厚的纱不自己拍脑袋:图的明暗交给 TogetherTone 判
-    /// (它读的就是同一张图,判完带缓存)。
+    /// [T-room-cssvars 11-11] 她原话:「css 全局变量。UI 语言统一,与装扮设置里,
+    /// 更换壁纸的逻辑一样,把壁纸整个展示出来。没放壁纸,日间模式白,夜间模式黑。」
+    /// 所以她换个思路:不再自己定义这一页用多少透明度的纸色,全部取
+    /// ChatColors / CSSThemeVariables 那几个全局角色,换主题房间跟着换。
+    ///
+    /// 图的来源还是房间自己的槽位(`wallpaper-now`,右上那颗键选的),
+    /// 和聊天页的壁纸各管各——她选了「保持独立」。
     private var wallpaper: some View {
-        GeometryReader { geo in
-            if let url = TogetherImages.url(for: TogetherImages.wallpaperNow),
-               let image = TogetherImages.cachedImage(for: url) {
-                // 纱的底子按位置给:顶栏压得住、中间让图透、下面回到纸面。
-                // 图本身读不出字时(TogetherTone 判的,带缓存),上半区整片加码
-                // —— 不给它加,深色照片上那几行字就贴着脸糊在一起。
-                let tone = TogetherTone.decision(for: TogetherImages.wallpaperNow)
-                let veil = tone.scrimAlpha
-                ZStack {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                    LinearGradient(
-                        stops: [
-                            .init(color: TogetherSpec.capsuleSurface.opacity(min(0.95, 0.62 + veil)), location: 0),
-                            .init(color: TogetherSpec.capsuleSurface.opacity(min(0.92, 0.34 + veil * 0.8)), location: 0.12),
-                            .init(color: TogetherSpec.capsuleSurface.opacity(min(0.90, 0.26 + veil * 0.6)), location: 0.32),
-                            .init(color: TogetherSpec.capsuleSurface.opacity(0.88), location: 0.56),
-                            .init(color: TogetherSpec.capsuleSurface, location: 0.72),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
-            }
-        }
-        .id(imageRev)
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
+        TogetherWallpaperLayer()
+            .id(imageRev)
     }
 
     // MARK: - 文件不见了(开页面时才算得出来的那种)
@@ -254,6 +228,9 @@ struct TogetherRoomView: View {
     // MARK: - 顶栏
 
     private var topBar: some View {
+        // [T-room-cssvars 11-11] 壁纸铺满之后,顶栏这几颗键和那行小字是直接
+        // 压在照片上的。不去给整页加纱(她要看整张图),给顶栏自己一条卡面
+        // ——和小胶囊、和下面那些卡同一套语言,图在四周照旧露着。
         HStack(spacing: 10) {
             roomKey("chevron.down", label: TogetherCopy.a11yCollapse) { onClose() }
             Text(TogetherCopy.title.uppercased())
@@ -269,8 +246,18 @@ struct TogetherRoomView: View {
             }
             .accessibilityLabel(TogetherCopy.changeWallpaper)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            TogetherSpec.cardSurface,
+            in: Capsule(style: .continuous)
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(TogetherSpec.ink(0.07), lineWidth: 0.7)
+        )
         .padding(.horizontal, 20)
-        .padding(.top, 12)
+        .padding(.top, 8)
         .padding(.bottom, 10)
         .frame(maxWidth: 600)
         .frame(maxWidth: .infinity)
@@ -329,6 +316,17 @@ struct TogetherRoomView: View {
     private var hero: some View {
         VStack(spacing: 16) {
             presenceRow
+            // [T-room-cssvars 11-11] 图不再被纸色渐隐盖住之后,"此刻"这一整块
+            // 也得有个落脚的地方——不然歌名、歌词、进度全直接压在照片上,
+            // 亮图暗图各瞎一半。收进一张卡:和小胶囊那张 deck 是同一套语言
+            // (卡片面走全局 card 角色),照片在卡片四周整个露出来。
+            nowPlayingCard
+        }
+        .padding(.top, 4)
+    }
+
+    private var nowPlayingCard: some View {
+        VStack(spacing: 16) {
             art
             titleBlock
             lyricPeek
@@ -336,7 +334,17 @@ struct TogetherRoomView: View {
             transportRow
             modeRow
         }
-        .padding(.top, 4)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity)
+        .background(
+            TogetherSpec.cardSurface,
+            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(TogetherSpec.ink(0.08), lineWidth: 0.7)
+        )
     }
 
     // 谁在听、现在谁在按
@@ -365,7 +373,7 @@ struct TogetherRoomView: View {
         .padding(.vertical, 18)
         .padding(.horizontal, 16)
         .background(
-            TogetherSpec.glass(0.94),
+            TogetherSpec.cardSurface,
             in: RoundedRectangle(cornerRadius: 26, style: .continuous)
         )
         .overlay(
@@ -616,7 +624,9 @@ struct TogetherRoomView: View {
             } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(TogetherSpec.capsuleSurface)
+                    // 底色 charcoal = 主文字色,字取卡片面 —— 两套主题都跟变量走,
+                    // 深色主题下不会出现"近白底压白字"。
+                    .foregroundStyle(TogetherSpec.cardSurface)
                     .frame(width: 62, height: 62)
                     .background(TogetherSpec.charcoal, in: Circle())
             }
@@ -1039,24 +1049,26 @@ struct TogetherRoomView: View {
     // MARK: - 回声:它为什么放了这一首
 
     private var echoes: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionTitle(TogetherCopy.historyEchoes)
-            if echoItems.isEmpty {
-                // [T-room-copy 11-11] 这里原来挂的是「还没有喜欢的歌」——回声墙的空态
-                // 说喜欢的话,她看一眼就知道那行字是从别处抄来的。
-                Text(TogetherCopy.noEchoes)
-                    .font(ChatFont.font(11.5, design: .serif))
-                    .foregroundStyle(TogetherSpec.muted)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(echoItems.enumerated()), id: \.element.id) { index, item in
-                        if index > 0 { divider }
-                        echoRow(item)
+        roomCard {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionTitle(TogetherCopy.historyEchoes)
+                if echoItems.isEmpty {
+                    // [T-room-copy 11-11] 这里原来挂的是「还没有喜欢的歌」——回声墙的空态
+                    // 说喜欢的话,她看一眼就知道那行字是从别处抄来的。
+                    Text(TogetherCopy.noEchoes)
+                        .font(ChatFont.font(11.5, design: .serif))
+                        .foregroundStyle(TogetherSpec.muted)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(echoItems.enumerated()), id: \.element.id) { index, item in
+                            if index > 0 { divider }
+                            echoRow(item)
+                        }
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var echoItems: [TogetherHistoryItem] {
@@ -1102,28 +1114,30 @@ struct TogetherRoomView: View {
     // MARK: - 刻字:在这个秒上留一句
 
     private var stamps: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionTitle(TogetherCopy.leaveALine)
-            if track == nil {
-                Text(TogetherCopy.nothingPlaying)
-                    .font(ChatFont.font(11.5, design: .serif))
-                    .foregroundStyle(TogetherSpec.muted)
-            } else if stampAllowed {
-                stampEditor
-            } else {
-                Text(TogetherCopy.oneLineOnly)
-                    .font(ChatFont.font(11.5, design: .serif))
-                    .foregroundStyle(TogetherSpec.muted)
-            }
-            if !myNotes.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(myNotes, id: \.id) { note in
-                        noteRow(note)
+        roomCard {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionTitle(TogetherCopy.leaveALine)
+                if track == nil {
+                    Text(TogetherCopy.nothingPlaying)
+                        .font(ChatFont.font(11.5, design: .serif))
+                        .foregroundStyle(TogetherSpec.muted)
+                } else if stampAllowed {
+                    stampEditor
+                } else {
+                    Text(TogetherCopy.oneLineOnly)
+                        .font(ChatFont.font(11.5, design: .serif))
+                        .foregroundStyle(TogetherSpec.muted)
+                }
+                if !myNotes.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(myNotes, id: \.id) { note in
+                            noteRow(note)
+                        }
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var myNotes: [TogetherNote] {
@@ -1209,15 +1223,17 @@ struct TogetherRoomView: View {
     }
 
     private var remote: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionTitle(TogetherCopy.handoff)
-            switch stage {
-            case .idle:    idleRemote
-            case .lost:    waitingRemote
-            case .offered: offeredRemote
+        roomCard {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionTitle(TogetherCopy.handoff)
+                switch stage {
+                case .idle:    idleRemote
+                case .lost:    waitingRemote
+                case .offered: offeredRemote
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// AI 正握着遥控且没有待接的递交时,这颗键就不是"递出去",而是"我接回来"。
@@ -1297,7 +1313,8 @@ struct TogetherRoomView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(TogetherSpec.glass(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            // 卡片面走全局 card 角色(有壁纸时带 surfaceOpacity),和装扮里那张卡同一个变量
+            .background(TogetherSpec.cardSurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .strokeBorder(TogetherSpec.ink(0.06), lineWidth: 0.8)
@@ -1562,7 +1579,8 @@ struct TogetherRoomQueueSheet: View {
         }
         // [T-room-sheet 11-11] 这一页原来没有底:弹出来是系统那张白纸/黑板,
         // 和房间的纸面不是一套。曲库那页有底,这页漏了。
-        .background(TogetherSpec.capsuleSurface.ignoresSafeArea())
+        // 底走全局 canvas:日间白、夜间黑,和房间里其它页同一套。
+        .background(TogetherSpec.pageCanvas.ignoresSafeArea())
     }
 
     // 队列为空时别甩一页白纸:告诉他确实空,以及下一步去哪
@@ -1731,7 +1749,7 @@ struct TogetherRoomSongsSheet: View {
             searchField
             songList
         }
-        .background(TogetherSpec.capsuleSurface.ignoresSafeArea())
+        .background(TogetherSpec.pageCanvas.ignoresSafeArea())
     }
 }
 
@@ -1761,7 +1779,7 @@ extension TogetherRoomSongsSheet {
 
     private var headerTitle: String {
         if isLiked { return AppLocalized("Liked songs", comment: "一起听 · 喜欢的歌") }
-        if isLibraryBrowse { return TogetherCopy.browseSongs }
+        if isLibraryBrowse { return TogetherCopy.libraryTitle }
         return TogetherCopy.addSongs
     }
 
@@ -1915,9 +1933,12 @@ struct TogetherRoomLyrics: View {
         ZStack {
             // [T-room-lyrics-contrast 11-11] 这一层原来铺 TogetherSpec.charcoal,
             // 可 charcoal 就是 textMain —— 背景和字取的是同一个颜色,浅色主题下
-            // 整页黑底黑字,一行都读不出来。纸张那套(surface 底 + ink 字)
-            // 才是这页的底色语言,和房间里其它页一致。
-            TogetherSpec.capsuleSurface.ignoresSafeArea()
+            // 整页黑底黑字,一行都读不出来。
+            // 现在和房间一个语言:底下是全局主题底色(没有壁纸时日间白、
+            // 夜间黑),有壁纸就把那张图整张铺出来,再压一层主题色的纱保证
+            // 字压得住 —— 不裁成一条,也不自己造一套颜色。
+            TogetherSpec.pageCanvas.ignoresSafeArea()
+            stageWallpaper
             VStack(spacing: 0) {
                 header
                 if lines.isEmpty {
@@ -1927,7 +1948,61 @@ struct TogetherRoomLyrics: View {
                 }
             }
         }
-        .presentationBackground(TogetherSpec.capsuleSurface)
+        .presentationBackground(TogetherSpec.pageCanvas)
+    }
+
+    /// 歌词整页的底:和房间同一张壁纸、同一套画法(见 TogetherWallpaperLayer)。
+    private var stageWallpaper: some View {
+        TogetherWallpaperLayer(minShade: 0.55)
+    }
+}
+
+// MARK: - 一起听的壁纸层
+
+/// 一起听的壁纸。画法和装扮设置里那套完全一致(`AppearanceBackdrop`):
+/// 图铺满整页、纱是全局 `wallpaperShade`(装扮里能调)、小图先垫一层
+/// 模糊放大再盖原图居中,免得拉糊。
+///
+/// [T-room-cssvars 11-11] 她原话:「css全局变量。UI语言统一,与装扮设置里,
+/// 更换壁纸的逻辑一样,把壁纸整个展示出来。没放壁纸,日间模式白,夜间模式黑。」
+/// ——所以这一页不再自己定义「上 0.74 中 0.26 下实底」那种纱,那些等于
+/// 把壁纸裁成一条。图的来源还是房间自己的槽位(`wallpaper-now`),和聊天页
+/// 那张各管各(她选了「保持独立」)。
+struct TogetherWallpaperLayer: View {
+    /// 纱的最小厚度。房间用全局值(图片当主角);歌词整页要压一行行字,
+    /// 默认那 0.08 压不住,给它一个下限——只压底,不动图的比例。
+    var minShade: Double = 0
+
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    var body: some View {
+        GeometryReader { geo in
+            if let url = TogetherImages.url(for: TogetherImages.wallpaperNow),
+               let image = TogetherImages.cachedImage(for: url) {
+                ZStack {
+                    if AppearanceBackdrop.needsDoubleLayer(image) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .blur(radius: 28, opaque: true)
+                            .clipped()
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .clipped()
+                    }
+                    TogetherSpec.pageCanvas.opacity(max(studio.wallpaperShade, minShade))
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 }
 
