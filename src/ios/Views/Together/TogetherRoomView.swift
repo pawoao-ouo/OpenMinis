@@ -123,11 +123,12 @@ struct TogetherRoomView: View {
                     }
                 )
             case .queue:
-                TogetherRoomQueueSheet(sessionPersonaId: sessionPersonaId)
+                TogetherRoomQueueSheet()
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             case .songs:
-                TogetherRoomSongsSheet(playlistId: songsFor ?? togetherRoomLikedId)
+                TogetherRoomSongsSheet(playlistId: songsFor ?? togetherRoomLikedId,
+                                       sessionPersonaId: sessionPersonaId)
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }
@@ -1285,8 +1286,6 @@ struct TogetherRoomView: View {
 // MARK: - 队列:这一刻往后要放的
 
 struct TogetherRoomQueueSheet: View {
-    let sessionPersonaId: String?
-
     @ObservedObject private var player = TogetherPlayer.shared
     @ObservedObject private var hub = TogetherStateHub.shared
     @Environment(\.dismiss) private var dismiss
@@ -1430,6 +1429,7 @@ let togetherRoomLikedId = "__liked__"
 
 struct TogetherRoomSongsSheet: View {
     let playlistId: String
+    let sessionPersonaId: String?
 
     @ObservedObject private var hub = TogetherStateHub.shared
     @Environment(\.dismiss) private var dismiss
