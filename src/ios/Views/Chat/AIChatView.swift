@@ -3603,25 +3603,27 @@ struct AIChatView: View {
         .padding(.bottom, 10)
     }
 
-    /// 34 的圆、44 的命中框——上游两颗键就是这个尺寸,别按我们老版画 40。
-    private func composerRoundKey(_ symbol: String, action: @escaping () -> Void) -> some View {
+    /// 34 的圆、18 的字形——上游那颗键的尺寸,照着画。
+    /// [T-composer-rebuild 11-10] 配色走主题变量(CSSThemeVariables / ChatColors),
+    /// 不写死色值,换皮肤时它跟着走。
+    private func composerRoundKey(_ symbol: String, active: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(ChatColors.primaryText)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(active ? ChatColors.primaryText : ChatColors.secondaryText)
                 .frame(width: 34, height: 34)
-                .background(Circle().fill(ChatColors.inputIconBg))
-                .overlay(Circle().strokeBorder(ChatColors.inputIconBorder, lineWidth: 0.5))
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
+                .background(ChatColors.inputIconBg)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
     }
 
-    /// 加号:开小抽屉卡片。卡片里功能全在(相机/照片/文件/表情包/语音输入/…)。
+    /// 加号:开小抽屉卡片(照片/文件/表情包/语音输入/记忆/技能/连接器…)。
+    /// 功能一个不少,搬的是原来那颗加号键的整套动作,只是外壳换成上游的圆。
     private var plusKey: some View {
         composerRoundKey("plus") {
-            // 键盘和抽屉不同时站着,不然卡片会被顶上去、还多弹一次键盘。
+            // 键盘和抽屉不同时站着,否则卡片会被顶上去。
             if inputFocused { inputFocused = false }
             if showStickerPanel { closeComposerTray(focusKeyboard: false) }
             showPlusSheet = true
@@ -3631,44 +3633,79 @@ struct AIChatView: View {
 
     /// 表情包键:吸出托盘,托盘里是她自己的表情包。
     private var stickerKey: some View {
-        composerRoundKey(showStickerPanel ? "face.smiling.fill" : "face.smiling") {
+        composerRoundKey("face.smiling", active: showStickerPanel) {
             if showStickerPanel { closeComposerTray(focusKeyboard: true) }
             else { openComposerTray() }
         }
-        .accessibilityLabel(Text(AppLocalized("表情包")))
+        .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
     }
 
-    /// 发送 / 暂停同一颗,她要的「一颗键切换」,不是两颗并排。
-    /// 空闲:实心箭头;生成中:暂停;编辑态无字:叉;没字:灰箭头禁用。
+    /// 发送 / 暂停:同一颗键,按状态换字形,不占两个位置(她要的「一颗键切换」)。
+    ///   · 生成中 → 暂停(点下去停整队,见 AIChatViewModel.cancel())
+    ///   · 编辑中 → 有字提交 / 没字退出编辑
+    ///   · 有字   → 箭头发送(排得上队就排队)
+    ///   · 空输入 → 灰箭头,看得见点不动;语音入口在加号抽屉里
+    ///
+    /// [T-key-no-detach] 字形不增删视图,几个字形同时挂着只切透明度:
+    /// 增删视图会让黑圆那层在键盘动画期间重新挂载,表现层停在旧坐标,
+    /// 看着就是「黑圆片飞出去又落回来」。
     private var sendPauseKey: some View {
-        let generating = vm.isProcessing
         let editing = vm.editingMessageIndex != nil
+        let generating = vm.isProcessing
         let hasText = hasDraftText
-        let active = generating || hasText || editing
+        let showArrow = hasText && !generating
+        let showPause = generating
+        let showClose = editing && !hasText && !generating
+        let showIdle = !editing && !hasText && !generating
+
         return Button {
-            if generating { vm.cancel(); return }
-            if editing {
-                if hasText { performSaveEdit() } else { vm.cancelEdit() }
+            if generating {
+                stopTapCount &+= 1
+                vm.cancel()
                 return
             }
-            if hasText && canEnqueue { performEnqueue(); return }
-            if hasText && canSend { performSend(); return }
-            if hasText { notifyNoUsableModel() }
+            voiceSendTapCount &+= 1
+            if editing {
+                if hasText { performSaveEdit() } else { vm.cancelEdit() }
+            } else if hasText && canEnqueue {
+                performEnqueue()
+            } else if hasText && canSend {
+                performSend()
+            } else if hasText {
+                notifyNoUsableModel()
+            }
         } label: {
             ZStack {
-                Circle().fill(active ? ChatColors.sendButton : ChatColors.sendButtonDisabled)
-                Image(systemName: generating ? "pause.fill" : (editing && !hasText ? "xmark" : "arrow.up"))
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(ChatColors.inputBg)
+                // 只有发送/暂停态才有实圆底;编辑和空输入都没有。
+                Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
+                    .opacity(showArrow || showPause ? 1 : 0)
+                Image(systemName: "arrow.up")
+                    .font(ChatFont.font(17, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                    .opacity(showArrow ? 1 : 0)
+                Image(systemName: "pause.fill")
+                    .font(ChatFont.font(15, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                    .opacity(showPause ? 1 : 0)
+                Image(systemName: "xmark")
+                    .font(ChatFont.font(15, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
+                    .opacity(showClose ? 1 : 0)
+                Image(systemName: "arrow.up")
+                    .font(ChatFont.font(17, weight: .semibold))
+                    .foregroundStyle(ChatColors.secondaryText.opacity(0.45))
+                    .opacity(showIdle ? 1 : 0)
             }
             .frame(width: 34, height: 34)
-            .frame(width: 44, height: 44)
             .contentShape(Circle())
         }
         .buttonStyle(MorphPressStyle())
-        .sensoryFeedback(.impact(weight: .light), trigger: voiceSendTapCount)
-        .disabled(!active)
-        .accessibilityLabel(Text(generating ? AppLocalized("停止") : AppLocalized("发送")))
+        .sensoryFeedback(.impact, trigger: voiceSendTapCount)
+        .sensoryFeedback(.impact, trigger: stopTapCount)
+        .disabled(!generating && !editing && !hasText)
+        .accessibilityLabel(Text(generating
+            ? AppLocalized("停止生成")
+            : (editing ? (hasText ? AppLocalized("提交编辑") : AppLocalized("退出编辑")) : AppLocalized("发送"))))
     }
 
     /// [Edit Header] 编辑模式提示栏（贴在输入框右上方，AnyView-erased 不增加泛型深度，不挤占单行输入条宽度）
