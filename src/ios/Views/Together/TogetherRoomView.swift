@@ -207,21 +207,29 @@ struct TogetherRoomView: View {
     private func importWallpaper(_ item: PhotosPickerItem) {
         Task {
             defer { pickerItem = nil }
-            guard let data = try? await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data),
-                  let jpeg = image.jpegData(compressionQuality: 0.92),
-                  let target = TogetherImages.url(for: TogetherImages.wallpaperNow) else {
+            // 原图字节直接落临时文件:解不解得开、是什么格式,setImage 自己验。
+            // url(for:) 只返回"已经存在的那张图",拿它当写入目标的话首次换壁纸必失败。
+            guard let data = try? await item.loadTransferable(type: Data.self) else {
                 await MainActor.run {
                     MinisToast.show(AppLocalized("Couldn't prepare the picture", comment: "一起听 · 壁纸导入失败"), systemImage: "exclamationmark.circle.fill")
                 }
                 return
             }
             let tmp = FileManager.default.temporaryDirectory
-                .appendingPathComponent("together-wallpaper-\(UUID().uuidString).jpg")
-            try? jpeg.write(to: tmp)
-            _ = TogetherStore.shared.setImage(slot: TogetherImages.wallpaperNow, from: tmp)
+                .appendingPathComponent("together-wallpaper-\(UUID().uuidString).img")
+            guard (try? data.write(to: tmp)) != nil else {
+                await MainActor.run {
+                    MinisToast.show(AppLocalized("Couldn't prepare the picture", comment: "一起听 · 壁纸导入失败"), systemImage: "exclamationmark.circle.fill")
+                }
+                return
+            }
+            let saved = TogetherStore.shared.setImage(slot: TogetherImages.wallpaperNow, from: tmp)
             try? FileManager.default.removeItem(at: tmp)
             await MainActor.run {
+                guard saved != nil else {
+                    MinisToast.show(AppLocalized("Couldn't prepare the picture", comment: "一起听 · 壁纸导入失败"), systemImage: "exclamationmark.circle.fill")
+                    return
+                }
                 hub.refreshNow()
                 imageRev &+= 1
                 TogetherHaptics.select()
@@ -525,36 +533,41 @@ struct TogetherRoomView: View {
 
     private var modeRow: some View {
         HStack(spacing: 8) {
-            modeKey("shuffle", active: state.playback.shuffle) {
+            modeKey("shuffle", label: TogetherCopy.a11yShuffle, active: state.playback.shuffle) {
                 TogetherStore.shared.setShuffle(!state.playback.shuffle)
                 hub.refreshNow()
                 TogetherHaptics.select()
             }
             modeKey(state.playback.repeatOne ? "repeat.1" : "repeat",
-                    active: state.playback.repeatOne || state.playback.repeatAll) {
+                    label: TogetherCopy.a11yRepeat, active: state.playback.repeatOne || state.playback.repeatAll) {
                 cycleRepeat()
             }
             Spacer(minLength: 0)
-            modeKey("text.alignleft", active: sheet == .lyrics) { sheet = .lyrics }
-            modeKey(likedCurrent ? "heart.fill" : "heart", active: likedCurrent) {
+            modeKey("text.alignleft", label: TogetherCopy.a11yOpenLyrics, active: sheet == .lyrics) { sheet = .lyrics }
+            modeKey(likedCurrent ? "heart.fill" : "heart",
+                    label: likedCurrent ? TogetherCopy.a11yUnlike : TogetherCopy.a11yLike, active: likedCurrent) {
                 toggleLike()
             }
         }
         .padding(.top, 2)
     }
 
-    private func modeKey(_ symbol: String, active: Bool, action: @escaping () -> Void) -> some View {
+    private func modeKey(_ symbol: String, label: String, active: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(active ? TogetherSpec.charcoal : TogetherSpec.muted)
-                .frame(width: 32, height: 28)
+                .frame(width: 34, height: 30)
                 .background(
                     active ? TogetherSpec.ink(0.07) : Color.clear,
                     in: RoundedRectangle(cornerRadius: 9, style: .continuous)
                 )
+                // 看见的尺寸不动,命中区补到 44:四颗小键挨在一起,32x28 点不准
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(TogetherPressStyle())
+        .accessibilityLabel(label)
     }
 
     private func cycleRepeat() {
@@ -768,8 +781,8 @@ struct TogetherRoomView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
             } else {
-                ForEach(Array(list.tracks.enumerated()), id: \.offset) { index, trackId in
-                    trackLine(trackId, index: index, playlistId: list.id)
+                ForEach(list.tracks, id: \.self) { trackId in
+                    trackLine(trackId, index: list.tracks.firstIndex(of: trackId) ?? 0, playlistId: list.id)
                 }
             }
             Button { songsFor = list.id; sheet = .songs } label: {
@@ -1287,13 +1300,21 @@ struct TogetherRoomQueueSheet: View {
         return list.filter { lib.track(id: $0) != nil }
     }
 
+    // 这一页只说真队列;没有队列就是没有,不拿曲库顺序顶上
+    private var queuedIds: [String] {
+        hub.state.playback.queue.filter { lib.track(id: $0) != nil }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            sheetHeader(title: TogetherCopy.queueTitle, count: ids.count)
+            sheetHeader(title: TogetherCopy.queueTitle, count: queuedIds.count)
+            if queuedIds.isEmpty {
+                queueEmpty
+            } else {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
-                        ForEach(Array(ids.enumerated()), id: \.offset) { index, id in
+                        ForEach(Array(queuedIds.enumerated()), id: \.offset) { index, id in
                             row(id: id, index: index)
                                 .id(index)
                         }
@@ -1308,12 +1329,29 @@ struct TogetherRoomQueueSheet: View {
                 }
                 .onAppear {
                     // 一进来停在正在放的那首上,不从头开始翻
-                    if let at = ids.firstIndex(where: { $0 == player.track?.id }) {
+                    if let at = queuedIds.firstIndex(where: { $0 == player.track?.id }) {
                         proxy.scrollTo(at, anchor: .center)
                     }
                 }
             }
+            }
         }
+    }
+
+    // 队列为空时别甩一页白纸:告诉他确实空,以及下一步去哪
+    private var queueEmpty: some View {
+        VStack(spacing: 8) {
+            Text(TogetherCopy.queueEmptyTitle)
+                .font(ChatFont.font(13, weight: .medium, design: .serif))
+                .foregroundStyle(TogetherSpec.charcoal)
+            Text(TogetherCopy.queueEmptyHint)
+                .font(ChatFont.font(10.5, design: .monospaced))
+                .foregroundStyle(TogetherSpec.muted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 34)
+        .padding(.vertical, 46)
     }
 
     private func row(id: String, index: Int) -> some View {
@@ -1469,6 +1507,17 @@ extension TogetherRoomSongsSheet {
         .padding(.bottom, 6)
     }
 
+    private var isLibraryEmpty: Bool {
+        !isLiked && lib.tracks.isEmpty
+    }
+
+    // 三种空:喜欢的里没有、搜不到、曲库本身是空的
+    private var emptyLine: String {
+        if isLiked { return TogetherCopy.likedEmpty }
+        if isLibraryEmpty { return TogetherCopy.emptyTitle(ChatAddressing.assistant(sessionPersonaId: sessionPersonaId)) }
+        return TogetherCopy.noSongsYet
+    }
+
     private var songList: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
@@ -1476,12 +1525,20 @@ extension TogetherRoomSongsSheet {
                     row(t)
                 }
                 if pool.isEmpty {
-                    Text(isLiked ? TogetherCopy.likedEmpty : TogetherCopy.queueEmptyHint)
-                        .font(ChatFont.font(11))
-                        .foregroundStyle(TogetherSpec.muted)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 26)
+                    VStack(spacing: 6) {
+                        Text(emptyLine)
+                            .font(ChatFont.font(12, design: .serif))
+                            .foregroundStyle(TogetherSpec.charcoal)
+                        if isLibraryEmpty {
+                            Text(TogetherCopy.emptyHint(ChatAddressing.assistant(sessionPersonaId: sessionPersonaId)))
+                                .font(ChatFont.font(10.5, design: .monospaced))
+                                .foregroundStyle(TogetherSpec.muted)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 26)
                 }
             }
             .padding(.horizontal, 20)

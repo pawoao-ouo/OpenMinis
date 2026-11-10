@@ -81,8 +81,6 @@ enum TogetherCopy {
     static var deletePlaylist: String { AppLocalized("Delete this playlist", comment: "一起听 · 删歌单") }
     static var playlistName: String { AppLocalized("Playlist name", comment: "一起听 · 歌单名") }
     static var addSongs: String { AppLocalized("Add songs", comment: "一起听 · 加歌") }
-    static var editedTogether: String { AppLocalized("edited this together", comment: "一起听 · 共同编辑") }
-    static var importDone: String { AppLocalized("added", comment: "一起听 · 导入成功") }
     /// 播不了：点了哪首、为什么、接下来怎么办，三样全说。
     /// 标题空的（元数据没扫出来）就用占位标题，不报一个空名字。
     /// 不标 @MainActor：只做 AppLocalized + String(format:)，都是非隔离的；
@@ -95,30 +93,14 @@ enum TogetherCopy {
     }
     static var handoff: String { AppLocalized("Hand the remote to", comment: "一起听 · 递遥控器") }
     static var noSongsYet: String { AppLocalized("Nothing here yet", comment: "一起听 · 空列表") }
-    static var allSongs: String { AppLocalized("All songs", comment: "一起听 · 全部歌曲（目录直读）") }
     static var noLyrics: String { AppLocalized("No lyrics for this one", comment: "一起听 · 没有歌词") }
     static var noLyricsHint: String { AppLocalized("Leave a line and it will loop here", comment: "一起听 · 没歌词时的提示") }
-    static var changeCover: String { AppLocalized("Change cover", comment: "一起听 · 换封面") }
-    static var resetCover: String { AppLocalized("Reset cover", comment: "一起听 · 恢复默认封面") }
     static var oneLineOnly: String { AppLocalized("One line per listen — you've already left one", comment: "一起听 · 本轮已经刻过一句") }
-    static var playlistInfo: String { AppLocalized("Playlist Info", comment: "一起听 · 歌单信息") }
-    static var changeCoverTitle: String { AppLocalized("Change cover", comment: "一起听 · 更换封面") }
     /// 壁纸槽的按钮：换的是壁纸，不是封面，文案不许混。
     static var changeWallpaper: String { AppLocalized("Change wallpaper", comment: "一起听 · 更换壁纸") }
-    static var tags: String { AppLocalized("Tags", comment: "一起听 · 标签") }
-    static var noTags: String { AppLocalized("None", comment: "一起听 · 暂无") }
-    static var descTitle: String { AppLocalized("Description", comment: "一起听 · 简介") }
-    static var descPlaceholder: String { AppLocalized("Write a brief introduction...", comment: "一起听 · 简介占位") }
     static var removeFromPlaylist: String { AppLocalized("Remove from playlist", comment: "一起听 · 从歌单移除") }
-    static var deletePermanently: String { AppLocalized("Delete file permanently", comment: "一起听 · 彻底删除") }
     /// 删歌不可逆，确认框必须把后果说清楚。
-    static var deleteTrackMessage: String { AppLocalized("This permanently deletes the audio file and can't be undone.", comment: "一起听 · 删歌确认说明") }
     static var searchSongOrArtist: String { AppLocalized("Search title or artist", comment: "一起听 · 搜索歌名或歌手") }
-    static var themeCenter: String { AppLocalized("Theme Center", comment: "一起听 · 装扮中心") }
-    static var nowPlayingWallpaper: String { AppLocalized("Now Playing Wallpaper", comment: "一起听 · 播放页壁纸") }
-    static var libraryWallpaper: String { AppLocalized("Playlist Library Wallpaper", comment: "一起听 · 歌单库壁纸") }
-    static var syncWallpaper: String { AppLocalized("Together Wallpaper", comment: "一起听 · 伴听页壁纸") }
-    static var likedWallpaper: String { AppLocalized("Liked Songs Wallpaper", comment: "一起听 · 喜欢页壁纸") }
     static var queueTitle: String { AppLocalized("Playing Queue", comment: "一起听 · 播放队列") }
     static var historyEchoes: String { AppLocalized("Echo Wall", comment: "一起听 · 历史回声墙") }
     // MARK: - 重建新增文案（全部走本地化，不许在视图里写死）
@@ -129,19 +111,9 @@ enum TogetherCopy {
     static var deletedPlaylists: String { AppLocalized("Deleted playlists", comment: "一起听 · 已删除的歌单") }
     static var browseSongs: String { AppLocalized("Browse songs", comment: "一起听 · 去曲库看看") }
     static var nothingPlaying: String { AppLocalized("Nothing playing", comment: "一起听 · 什么都没在放") }
-    static var onlineStatus: String { AppLocalized("Online", comment: "一起听 · 在线状态") }
-    static var awayStatus: String { AppLocalized("Away", comment: "一起听 · 不在状态") }
     static var fileMissing: String { AppLocalized("This song's file is missing", comment: "一起听 · 文件不见了") }
     static var queueEmptyTitle: String { AppLocalized("Queue is empty", comment: "一起听 · 队列空态") }
     static var queueEmptyHint: String { AppLocalized("Play something from a list and it will show up here.", comment: "一起听 · 队列空态说明") }
-    static var libraryOrderTitle: String { AppLocalized("Library order", comment: "一起听 · 曲库顺序") }
-    static var playedSection: String { AppLocalized("Played", comment: "一起听 · 已播分组") }
-    static var upNextSection: String { AppLocalized("Up next", comment: "一起听 · 接下来分组") }
-    static var shuffleEcho: String { AppLocalized("Shuffle", comment: "一起听 · 随机模式") }
-    static var repeatAllEcho: String { AppLocalized("Repeat all", comment: "一起听 · 全部循环") }
-    static var repeatOneEcho: String { AppLocalized("Repeat one", comment: "一起听 · 单曲循环") }
-    static var inOrderEcho: String { AppLocalized("In order", comment: "一起听 · 顺序播放") }
-    static var backToCurrent: String { AppLocalized("Back to the current line", comment: "一起听 · 回到当前歌词") }
     @MainActor static func driving(_ name: String) -> String {
         String(format: AppLocalized("%@ is driving", comment: "一起听 · 谁在掌控"), name)
     }
@@ -152,9 +124,6 @@ enum TogetherCopy {
     @MainActor static func remoteOffered(_ name: String) -> String {
         String(format: AppLocalized("Remote offered to %@", comment: "一起听 · 遥控器已递出"), name)
     }
-    @MainActor static func importFailedCount(_ count: Int) -> String {
-        String(format: AppLocalized("%d file(s) couldn't be added", comment: "一起听 · 导入部分失败"), count)
-    }
     // 无障碍标签：图标按钮不能只有图形。
     static var a11yPlay: String { AppLocalized("Play", comment: "一起听 · 无障碍：播放") }
     static var a11yPause: String { AppLocalized("Pause", comment: "一起听 · 无障碍：暂停") }
@@ -164,13 +133,9 @@ enum TogetherCopy {
     static var a11yRepeat: String { AppLocalized("Repeat", comment: "一起听 · 无障碍：循环") }
     static var a11yQueue: String { AppLocalized("Queue", comment: "一起听 · 无障碍：队列") }
     static var a11yCollapse: String { AppLocalized("Collapse", comment: "一起听 · 无障碍：收起胶囊") }
-    static var a11yMinimize: String { AppLocalized("Minimize", comment: "一起听 · 无障碍：贴边最小化") }
     static var a11yOpenLyrics: String { AppLocalized("Open lyrics", comment: "一起听 · 无障碍：展开歌词") }
     static var a11yCloseLyrics: String { AppLocalized("Close lyrics", comment: "一起听 · 无障碍：关闭歌词") }
     static var a11yOpenPlayer: String { AppLocalized("Open full player", comment: "一起听 · 无障碍：打开完整播放页") }
-    static var a11yExpandCapsule: String { AppLocalized("Expand player", comment: "一起听 · 无障碍：展开播放器") }
-    static var a11yExpanded: String { AppLocalized("Expanded", comment: "一起听 · 无障碍：已展开状态") }
-    static var a11yCollapsed: String { AppLocalized("Collapsed", comment: "一起听 · 无障碍：已收起状态") }
     static var a11yLike: String { AppLocalized("Like", comment: "一起听 · 无障碍：喜欢") }
     static var a11yUnlike: String { AppLocalized("Unlike", comment: "一起听 · 无障碍：取消喜欢") }
     static var leaveALine: String { AppLocalized("Leave a line at this second", comment: "一起听 · 无障碍：留一句话") }
