@@ -193,7 +193,9 @@ struct UserMessageText: View {
     /// 只有**她自己写了围栏**（``` 或 ~~~）才当代码块。
     /// 没有围栏就一律纯文本——不再猜。autoFenced 那套打分制再准也是猜，
     /// 而猜错的代价是把她的话排版搞乱。
-    private var hasCode: Bool { UserCodeFencing.hasFence(text) }
+    /// 列表预计算和视图必须用**同一个**判据，所以它是 static 的。
+    static func containsFencedCode(_ text: String) -> Bool { UserCodeFencing.hasFence(text) }
+    private var hasCode: Bool { Self.containsFencedCode(text) }
     private var fenced: String { text }
 
     var body: some View {

@@ -4069,9 +4069,9 @@ extension CollectionViewMessageListV3 {
 
             // [T-user-bubble-plain 11-10] 用户气泡不再折叠、不再自动判代码块，
             // 所以这两条预计算分支一起退役：全文按全文量，代码只认她自己写的围栏。
-            // 视图和预计算仍然是同一套判据（UserMessageText.hasCode），
+            // 视图和预计算仍然是同一套判据（UserMessageText.containsFencedCode），
             // 只改一边的话格子会先按错的高度占位、滚动时再被纠正——就是那一跳。
-            let hasCode = UserMessageText.hasCode(text)
+            let hasCode = UserMessageText.containsFencedCode(text)
             let rowChrome: CGFloat = 7
 
             let attachCount = message.attachments.isEmpty
