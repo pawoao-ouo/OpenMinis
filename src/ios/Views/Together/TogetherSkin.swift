@@ -174,6 +174,8 @@ enum TogetherCopy {
     static var a11yLike: String { AppLocalized("Like", comment: "一起听 · 无障碍：喜欢") }
     static var a11yUnlike: String { AppLocalized("Unlike", comment: "一起听 · 无障碍：取消喜欢") }
     static var leaveALine: String { AppLocalized("Leave a line at this second", comment: "一起听 · 无障碍：留一句话") }
+    static var engravedMark: String { AppLocalized("Engraved", comment: "一起听 · 这句是你刻下的") }
+    static var followNow: String { AppLocalized("Back to the line", comment: "一起听 · 歌词幕:回到正在唱的那句") }
     static var progressLabel: String { AppLocalized("Playback progress", comment: "一起听 · 无障碍：播放进度") }
 }
 

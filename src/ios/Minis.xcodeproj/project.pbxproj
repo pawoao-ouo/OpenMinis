@@ -25,6 +25,7 @@
 		E5AJR0002 /* HelperRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AJR0012 /* HelperRunner.swift */; };
 		E5AJR0003 /* ModelTierResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AJR0013 /* ModelTierResolver.swift */; };
 		E5AMI0001 /* HelperModelIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AMI0011 /* HelperModelIdentity.swift */; };
+		E5TG0008 /* TogetherRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0018 /* TogetherRoomView.swift */; };
 		E5PPR0001 /* AIChatViewModel+ProgrammaticPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5PPR0011 /* AIChatViewModel+ProgrammaticPrompt.swift */; };
 		E5TG000A /* TogetherImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG001A /* TogetherImporter.swift */; };
 		E5TG0007 /* TogetherSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0017 /* TogetherSkin.swift */; };
@@ -778,6 +779,7 @@
 		E5AJR0012 /* HelperRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "HelperRunner.swift"; path = "Agent/Jobs/HelperRunner.swift"; sourceTree = SOURCE_ROOT; };
 		E5AJR0013 /* ModelTierResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ModelTierResolver.swift"; path = "Agent/Jobs/ModelTierResolver.swift"; sourceTree = SOURCE_ROOT; };
 		E5AMI0011 /* HelperModelIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "HelperModelIdentity.swift"; path = "Agent/Jobs/HelperModelIdentity.swift"; sourceTree = SOURCE_ROOT; };
+		E5TG0018 /* TogetherRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherRoomView.swift"; path = "Views/Together/TogetherRoomView.swift"; sourceTree = SOURCE_ROOT; };
 		E5PPR0011 /* AIChatViewModel+ProgrammaticPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AIChatViewModel+ProgrammaticPrompt.swift"; path = "Agent/Chat/AIChatViewModel+ProgrammaticPrompt.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG001A /* TogetherImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherImporter.swift"; path = "Agent/Together/TogetherImporter.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG0017 /* TogetherSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherSkin.swift"; path = "Views/Together/TogetherSkin.swift"; sourceTree = SOURCE_ROOT; };
@@ -2652,6 +2654,7 @@
 				E5AJR0012 /* HelperRunner.swift */,
 				E5AJR0013 /* ModelTierResolver.swift */,
 				E5AMI0011 /* HelperModelIdentity.swift */,
+				E5TG0018 /* TogetherRoomView.swift */,
 				E5PPR0011 /* AIChatViewModel+ProgrammaticPrompt.swift */,
 				E5TG001A /* TogetherImporter.swift */,
 				E5TG0017 /* TogetherSkin.swift */,
@@ -3193,6 +3196,7 @@
 				E5ACB0002 /* AgentCallbackCellView.swift in Sources */,
 				E5AJR0001 /* AgentJobRegistry.swift in Sources */,
 				E5AJN0001 /* AgentJobCompletionNotice.swift in Sources */,
+				E5TG0008 /* TogetherRoomView.swift in Sources */,
 				E5PPR0001 /* AIChatViewModel+ProgrammaticPrompt.swift in Sources */,
 				E5TG000A /* TogetherImporter.swift in Sources */,
 				E5TG0007 /* TogetherSkin.swift in Sources */,

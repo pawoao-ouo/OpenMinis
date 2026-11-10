@@ -40,6 +40,8 @@ struct TogetherMiniBar: View {
     @ObservedObject private var hub = TogetherStateHub.shared
 
     @State private var deckShown = false
+    /// 整页一起听。浮卡右上那颗展开键点这里开,关了回浮卡。
+    @State private var roomShown = false
     @State private var lyrics: TogetherLyrics?
     @State private var dockSide: TogetherCapsuleDockSide? = nil
     @State private var dockYOffset: CGFloat = 0
@@ -82,11 +84,18 @@ struct TogetherMiniBar: View {
         .padding(.bottom, 2)
         .fullScreenCover(isPresented: $deckShown) {
             TogetherDeckOverlay(
-                sessionPersonaId: sessionPersonaId ?? envPersonaId
+                sessionPersonaId: sessionPersonaId ?? envPersonaId,
+                onOpenRoom: { roomShown = true }
             ) {
                 deckShown = false
             }
             .presentationBackground(.clear)
+        }
+        .fullScreenCover(isPresented: $roomShown) {
+            // 整页是自己一层的 cover:关掉它就是回浮卡,不回聊天
+            TogetherRoomView(sessionPersonaId: sessionPersonaId ?? envPersonaId) {
+                roomShown = false
+            }
         }
         .onAppear { loadLyrics() }
         .onChange(of: player.track?.id) { _ in loadLyrics() }
@@ -708,6 +717,7 @@ struct TogetherRefinedVinylView: View {
 struct TogetherDeckOverlay: View {
 
     let sessionPersonaId: String?
+    var onOpenRoom: () -> Void = {}
     var onClose: () -> Void = {}
 
     @State private var curtainShown = false
@@ -734,6 +744,7 @@ struct TogetherDeckOverlay: View {
                         onOpenCurtain: {
                             withAnimation(TogetherCurve.springPhysics) { curtainShown = true }
                         },
+                        onOpenRoom: { onOpenRoom() },
                         onCollapse: { onClose() }
                     )
                     Spacer(minLength: 0)
@@ -756,6 +767,7 @@ struct TogetherDeckView: View {
 
     let sessionPersonaId: String?
     var onOpenCurtain: () -> Void = {}
+    var onOpenRoom: () -> Void = {}
     var onCollapse: () -> Void = {}
 
     @ObservedObject private var player = TogetherPlayer.shared
@@ -846,6 +858,10 @@ struct TogetherDeckView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 6) {
+                deckGlyphButton(symbol: "arrow.up.left.and.arrow.down.right",
+                                label: TogetherCopy.a11yOpenPlayer) {
+                    onOpenRoom()
+                }
                 deckIconButton(lines: 3, label: TogetherCopy.a11yOpenLyrics) {
                     onOpenCurtain()
                 }
@@ -887,6 +903,28 @@ struct TogetherDeckView: View {
         .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dotPulse)
         .onAppear { dotPulse = true }
         .accessibilityHidden(true)
+    }
+
+    /// 和线条键同规格的一颗,给需要字形表达的入口用(展开整页)
+    private func deckGlyphButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button {
+            TogetherHaptics.select()
+            action()
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(TogetherSpec.ink(0.04))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(TogetherSpec.ink(0.06), lineWidth: 1)
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(TogetherSpec.sub)
+            }
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     /// .icon-btn 28×28 / r8 / 1px 描边 / 13pt 线稿
