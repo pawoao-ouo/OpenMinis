@@ -709,8 +709,8 @@ struct AIChatView: View {
                                         removal: .move(edge: .trailing).combined(with: .opacity)
                                     ))
                             }
-                            // [T-composer-reset 11-10] 输入栏整块删了(她要按上游重做)。
-                            // 这一摞只剩悬浮键和一起听胶囊,等新输入栏回来再挂进去。
+                            // [T-composer-rebuild 11-10] 新的两行输入栏回到这一摞里。
+                            inputBar
                         }
                         // [T-composer-single-anchor] 整摞只量一个高度。
                         //
@@ -3578,6 +3578,848 @@ struct AIChatView: View {
     /// 单独拎出来，不让 `body` 那条已经很长的手势/修饰链再长一截——
     /// 上一版把它内联在里面，编译器直接判「类型检查超时」。
     @ViewBuilder
+    // MARK: - 输入栏(上游皮)· 11-10 重做
+
+    /// [T-composer-rebuild 11-10] 两行骨架,照上游:输入框独占上排,键在下排。
+    /// 她要的「输入栏 UI 做成上游那样一模一样」——尺寸、间距、圆角全按上游抄。
+    private var composerRows: AnyView {
+        let rows = VStack(spacing: 5) {
+            inputFieldOrWaveform
+            inputBottomRow
+        }
+        return AnyView(rows)
+    }
+
+    /// 下排键。上游那排是 [+ 退出编辑 话筒 发送];我们要的是 [+ 表情 …… 发送/暂停]。
+    /// 话筒、语音转文字全搬进加号抽屉([T-composer-nomic]),这是她点的名。
+    private var inputBottomRow: some View {
+        HStack(spacing: 12) {
+            plusKey
+            stickerKey
+            Spacer(minLength: 0)
+            sendPauseKey
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+    }
+
+    /// 34 的圆、44 的命中框——上游两颗键就是这个尺寸,别按我们老版画 40。
+    private func composerRoundKey(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(ChatColors.primaryText)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(ChatColors.inputIconBg))
+                .overlay(Circle().strokeBorder(ChatColors.inputIconBorder, lineWidth: 0.5))
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 加号:开小抽屉卡片。卡片里功能全在(相机/照片/文件/表情包/语音输入/…)。
+    private var plusKey: some View {
+        composerRoundKey("plus") {
+            // 键盘和抽屉不同时站着,不然卡片会被顶上去、还多弹一次键盘。
+            if inputFocused { inputFocused = false }
+            if showStickerPanel { closeComposerTray(focusKeyboard: false) }
+            showPlusSheet = true
+        }
+        .accessibilityLabel(Text(AppLocalized("更多")))
+    }
+
+    /// 表情包键:吸出托盘,托盘里是她自己的表情包。
+    private var stickerKey: some View {
+        composerRoundKey(showStickerPanel ? "face.smiling.fill" : "face.smiling") {
+            if showStickerPanel { closeComposerTray(focusKeyboard: true) }
+            else { openComposerTray() }
+        }
+        .accessibilityLabel(Text(AppLocalized("表情包")))
+    }
+
+    /// 发送 / 暂停同一颗,她要的「一颗键切换」,不是两颗并排。
+    /// 空闲:实心箭头;生成中:暂停;编辑态无字:叉;没字:灰箭头禁用。
+    private var sendPauseKey: some View {
+        let generating = vm.isProcessing
+        let editing = vm.editingMessageIndex != nil
+        let hasText = hasDraftText
+        let active = generating || hasText || editing
+        return Button {
+            if generating { vm.cancel(); return }
+            if editing {
+                if hasText { performSaveEdit() } else { vm.cancelEdit() }
+                return
+            }
+            if hasText && canEnqueue { performEnqueue(); return }
+            if hasText && canSend { performSend(); return }
+            if hasText { notifyNoUsableModel() }
+        } label: {
+            ZStack {
+                Circle().fill(active ? ChatColors.sendButton : ChatColors.sendButtonDisabled)
+                Image(systemName: generating ? "pause.fill" : (editing && !hasText ? "xmark" : "arrow.up"))
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(ChatColors.inputBg)
+            }
+            .frame(width: 34, height: 34)
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+        }
+        .buttonStyle(MorphPressStyle())
+        .sensoryFeedback(.impact(weight: .light), trigger: voiceSendTapCount)
+        .disabled(!active)
+        .accessibilityLabel(Text(generating ? AppLocalized("停止") : AppLocalized("发送")))
+    }
+
+    /// [Edit Header] 编辑模式提示栏（贴在输入框右上方，AnyView-erased 不增加泛型深度，不挤占单行输入条宽度）
+    private var editingModeHeader: AnyView {
+        let view = HStack {
+            HStack(spacing: 4) {
+                Image(systemName: "pencil.line")
+                    .font(ChatFont.font(11, weight: .semibold))
+                Text("正在编辑已有消息")
+                    .font(ChatFont.font(11, weight: .medium))
+            }
+            .foregroundStyle(CSSThemeVariables.accent())
+            Spacer()
+            editExitButton
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 2)
+        return AnyView(view)
+    }
+
+    /// "Exit Edit Mode" capsule shown while editing a past message.
+    private var editExitButton: some View {
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            vm.cancelEdit()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "xmark")
+                    .font(ChatFont.font(10, weight: .bold))
+                Text("退出编辑")
+                    .font(ChatFont.font(11, weight: .medium))
+            }
+            .foregroundStyle(CSSThemeVariables.textDim())
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(CSSThemeVariables.optionBg())
+            .clipShape(Capsule())
+            .overlay(
+                Capsule().strokeBorder(CSSThemeVariables.optionBorder(), lineWidth: 1.0)
+            )
+        }
+    }
+
+    /// Speech language badge, mounted on the recording waveform.
+    ///
+    /// [K-5] This button existed but nothing ever mounted it, and
+    /// `showLanguagePicker` had no sheet attached — so the language was
+    /// effectively unchangeable. A `Menu` rather than a sheet on purpose:
+    /// AIChatView already carries 39 presentation modifiers, and a menu needs
+    /// none, so this adds no presentation pressure to an 8400-line body.
+    ///
+    /// [K-5b] Two things were wrong with the first cut, both fixed here.
+    ///
+    /// 1. It listed `speechManager.availableLocales` — a SECOND language list
+    ///    (own order, own labels) next to `VoiceLanguages.options`, which is
+    ///    what the inline voice panel's globe menu uses. Same underlying
+    ///    recognizer locales, different presentation, so the two entry points
+    ///    disagreed. Both now read `VoiceLanguages.options`.
+    /// 2. It only ever appears on the legacy `speechManager` recording path,
+    ///    which normal users never reach: tapping the mic switches to the
+    ///    inline voice panel, and the panel's own globe menu is the real
+    ///    language switch. This badge covers the Shortcuts `.startVoice` path,
+    ///    which is the one place `speechManager` still starts a recording.
+    private var languageBadgeButton: some View {
+        Menu {
+            ForEach(VoiceLanguages.options) { opt in
+                Button {
+                    speechManager.setLanguage(Locale(identifier: opt.code))
+                    // The recogniser cannot be restarted while the menu is
+                    // still dismissing; wait for it to leave the screen.
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 350_000_000)
+                        speechManager.restartRecordingIfPending()
+                    }
+                } label: {
+                    if opt.code == speechManager.locale.identifier {
+                        Label(opt.label, systemImage: "checkmark")
+                    } else {
+                        Text(opt.label)
+                    }
+                }
+            }
+        } label: {
+            Text(speechManager.languageLabel)
+                .font(ChatFont.font(12, weight: .semibold))
+                .foregroundStyle(ChatColors.secondaryText)
+                .frame(width: 34, height: 34)
+                .background(ChatColors.inputIconBg)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
+        }
+        .accessibilityLabel(AppLocalized("识别语言"))
+    }
+
+    /// Either the multi-line text field or the audio waveform, depending on
+    /// whether speech recording is active. Returning `AnyView` erases the
+    /// nested `PastableTextView` generic so SwiftUI's runtime type metadata
+    /// decoder doesn't recurse past its stack limit (see crash 2026-04-17
+    /// where `AIChatView.inputBar.getter` blew the stack via
+    /// `__swift_instantiateConcreteTypeFromMangledNameV2`).
+    private var inputFieldOrWaveform: AnyView {
+        // [T-composer-upstream] 单行 52 高（16 上 + 20 字 + 8 下 + 键行），
+        // 跟上游一致：输入区在上面独占整宽，键在下面一行。
+        // [T-composer-upstream 11-10] 16/11 跟上游一致:空栏时文字上方留够
+        // 呼吸量,挂了附件预览时收窄到 11,不然上下两块挤成一块。
+        let topPadding: CGFloat = (vm.attachments.isEmpty && vm.loadingVideoCount == 0) ? 16 : 11
+        if voiceInputActive {
+            return AnyView(
+                // [voice-correction §6] Recent conversation turns, straight from the
+                // already-loaded in-memory list (§12.1 forbids a DB query on this path),
+                // budgeted by CorrectionContextBuilder.
+                InlineVoiceInputView(
+                    viewModel: voiceVM,
+                    inputText: inputTextBinding,
+                    onPasteImage: { image in vm.addImageAttachment(image) },
+                    onPasteFile: { url in vm.addFileAttachment(from: url) },
+                    conversationContext: { voiceCorrectionContext(from: vm.messages) },
+                    onExitToKeyboard: { exitVoiceToKeyboard() }
+                )
+            )
+        }
+        if speechManager.state == .recording {
+            // Transcript area grows with content up to a cap (~5 lines),
+            // then scrolls internally. ScrollView is greedy in its scroll
+            // axis, so we measure the Text's intrinsic height via a
+            // GeometryReader preference and clamp the ScrollView frame to
+            // min(measured, cap).
+            let transcriptMaxHeight: CGFloat = 100
+            let waveform = VStack(spacing: 6) {
+                // [K-5] Mount the language badge here — this is the only state
+                // in which it means anything (a recording is in progress), and
+                // it is the one place the recogniser's language can matter.
+                HStack(spacing: 8) {
+                    languageBadgeButton
+                    AudioWaveformView(levels: speechManager.audioLevels)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(.horizontal, 8)
+                if !speechManager.recognizedText.isEmpty {
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: true) {
+                            Text(speechManager.recognizedText)
+                                .font(.subheadline)
+                                .foregroundStyle(ChatColors.secondaryText)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                                .background(GeometryReader { geo in
+                                    Color.clear.preference(key: TranscriptHeightKey.self, value: geo.size.height)
+                                })
+                                .id("transcriptTail")
+                        }
+                        .frame(height: min(max(transcriptHeight, 22), transcriptMaxHeight))
+                        .onPreferenceChange(TranscriptHeightKey.self) { transcriptHeight = $0 }
+                        .onReceive(speechManager.$recognizedText) { _ in
+                            withAnimation(.linear(duration: 0.1)) {
+                                proxy.scrollTo("transcriptTail", anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, topPadding)
+            .padding(.bottom, 10)
+            return AnyView(waveform)
+        }
+        let field = PastableTextView(
+            text: inputTextBinding,
+            isFocused: $inputFocused,
+            hasSelection: $inputHasSelection,
+            isScrollable: $inputIsScrollable,
+            isAtScrollBottom: $inputAtScrollBottom,
+            // `String(localized:)` with an interpolation extracts the
+            // `%@` form ("Message %@ (@ to mention files)") as the lookup
+            // key in Localizable.xcstrings, so translators get one
+            // parameterized entry per locale instead of one per soul name.
+            placeholder: AppLocalized("Message \(soulName) (@ to mention files)"),
+            onPasteImage: { image in vm.addImageAttachment(image) },
+            onPasteFile: { url in vm.addFileAttachment(from: url) },
+            onReturnKey: handleReturnKey,
+            onArrowUp: handleArrowUp,
+            onArrowDown: handleArrowDown,
+            onTab: handleTabKey,
+            onCaretChange: handleCaretChange,
+            onSelectionReplace: { before, after in
+                // [T-text-input-correction-source] Feed composer select-and-
+                // replace edits into the SAME correction learner as voice
+                // transcript fixes, tagged source=text_input. Fire-and-forget
+                // off the keystroke path (design §12.2). The recorder applies
+                // the phonetic-admission + consent gate, so a plain reword is
+                // dropped and nothing is stored without opt-in. locale "zh" is
+                // the only phonetic normalizer currently active; the composer
+                // has no ASR language context, and a non-normalizable locale
+                // would just be discarded downstream.
+                Task.detached(priority: .utility) {
+                    await VoiceCorrectionRecorder.shared.recordEdit(
+                        before: before, after: after,
+                        locale: "zh", source: "text_input")
+                }
+            },
+            desiredCaret: vm.pendingCaret,
+            // [T-ipad-composer-resize] Raise the text view's growth cap in
+            // lockstep with the dragged frame, otherwise text would scroll at
+            // 120pt inside a taller box and the extra space would be dead.
+            maxHeightOverride: composerTextHeight
+        )
+        return AnyView(composerBody(field: field, topPadding: topPadding))
+    }
+
+    /// [T-ipad-composer-resize] Wraps the text field with its (optional) fixed
+    /// height and the iPad drag handle.
+    ///
+    /// `.fixedSize(vertical:)` and an explicit `.frame(height:)` are mutually
+    /// exclusive: fixedSize asks the view for its intrinsic height, which is
+    /// exactly what we're overriding once the user has resized. So the two
+    /// modes are separate branches rather than modifiers stacked on one view.
+    private func composerBody(field: PastableTextView, topPadding: CGFloat) -> some View {
+        Group {
+            if let height = composerTextHeight {
+                field.frame(height: height)
+            } else {
+                field.fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        // [T-composer-upstream 11-10] 内边距照上游:左右 16、上 topPadding、
+        // 下 10。单行胶囊时代那套 4/4 是给外层 6pt 让位用的,两行骨架下
+        // 那颗外层 padding 已经没了,再留 4 文字会贴着栏边。
+        .padding(.horizontal, 16)
+        .padding(.top, topPadding)
+        .padding(.bottom, 10)
+        // [T-composer-rebuild] 输入框本体不再嵌第二颗胶囊。以前外面是输入条、
+        // 里面再套一颗 18 圆角的小胶囊，两层半透明叠在一起：底色加深一道，
+        // 消息内容从两层里各透一次，看着又脏又挤，像「方框套方框」。
+        // 成熟产品的输入栏只有一层皮——整条就是那颗胶囊，文字直接坐在上面。
+        .overlay(alignment: .top) {
+            if composerResizeEnabled { composerResizeHandle }
+        }
+    }
+
+    /// The grab affordance. Dragging UP makes the composer taller, so the drag
+    /// translation is negated. Double-tapping toggles between the two extremes.
+    private var composerResizeHandle: some View {
+        Capsule()
+            .fill(ChatColors.secondaryText.opacity(0.35))
+            .frame(width: 36, height: 5)
+            .padding(.top, 4)
+            .contentShape(Rectangle().inset(by: -12))  // enlarge the hit area
+            // Order matters: the double-tap must be registered BEFORE the drag,
+            // otherwise the drag (minimumDistance 2) claims the touch sequence
+            // first and the second tap never forms.
+            .onTapGesture(count: 2) { toggleComposerHeight() }
+            .gesture(
+                DragGesture(minimumDistance: 2)
+                    .onChanged { value in composerDragOffset = -value.translation.height }
+                    .onEnded { value in
+                        let resolved = min(
+                            max(currentComposerHeight - value.translation.height,
+                                Self.composerDefaultHeight),
+                            composerMaxHeight)
+                        composerDragOffset = 0
+                        persistComposerHeight(resolved)
+                    }
+            )
+            .accessibilityLabel(AppLocalized("Resize input box"))
+            .accessibilityHint(AppLocalized("Drag to resize, double tap to toggle"))
+    }
+
+
+    private var inputBar: some View {
+        VStack(spacing: 0) {
+            if vm.isSuspended {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .tint(ChatColors.warning)
+                    Text("Waiting for other tasks to complete...")
+                        .font(ChatFont.font(13))
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(ChatColors.warning.opacity(0.08))
+            }
+
+            VStack(spacing: 0) {
+                // 输入区域 (单行紧凑微信风格)
+                VStack(spacing: 2) {
+                    // Attachment preview chips — 3 per row
+                    if !vm.attachments.isEmpty || vm.loadingVideoCount > 0 {
+                        ScrollView(.vertical, showsIndicators: true) {
+                            inputAttachmentGrid
+                                .background(GeometryReader { geo in
+                                    Color.clear.preference(key: AttachmentGridHeightKey.self, value: geo.size.height)
+                                })
+                        }
+                        .frame(height: min(attachmentGridHeight, 160))
+                        .onPreferenceChange(AttachmentGridHeightKey.self) { attachmentGridHeight = $0 }
+                        .padding(.top, 4)
+                    }
+
+                    // 编辑已有消息模式提示与右上退出按钮 (不挤占单行输入条宽度)
+                    if vm.editingMessageIndex != nil {
+                        editingModeHeader
+                    }
+
+                    // [T-ios-moveto-overlaps-send] 「移动到…」不挂在输入区上。
+                    // 它原来是 overlay，打字时胶囊正好压在发送键上把发送键盖掉。
+                    // 现在入口是斜杠命令 /move（见 AIChatViewModel+SlashCommands），
+                    // 输入条上不再有任何浮层。
+
+                    // 微信式单行聊天输入条 (AnyView 类型擦除，杜绝深层泛型栈溢出)
+                    composerRows
+                }
+                // [T-composer-tap-to-focus] 整条都能点着聚焦。这是**底层**的
+                // 点击接收器，不是祖先手势：祖先手势会在子按钮被点时也触发，
+                // 那正好会在发送后重新聚焦、或者在抽屉打开时把键盘拉上来。
+                // 它必须声明在 ComposerSurface 之前 —— 后加的 background 排在
+                // 更底下，于是它压在底色上面、内容下面，只有没打中按钮和输入框
+                // 的点击才落到它这里。
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard !voiceInputActive, speechManager.state != .recording else { return }
+                            if showStickerPanel { return }
+                            inputFocused = true
+                        }
+                }
+                // 输入条本身是一颗胖胶囊：四角全圆，左右留 8、离底留 6，
+                // 浮在消息上面。托盘出现时它还是浮着，托盘从它下面滑出来。
+                .modifier(GlassComposerSurface(attached: showStickerPanel))
+                // [T-composer-upstream] 左右 12、离底 8，跟上游一致。原来左右 8
+                // 让整条栏贴到屏幕边上，键看着要「掉出去」；12 是上游定的呼吸量。
+                //
+                // [T-tray-seam] 托盘在下面时这 12 要收掉：托盘是满宽的，胶囊
+                // 缩进 12 就会在接缝两侧各留一道 12 的台阶——看着是「一条胶囊
+                // 摞在一块平板上」，不是一整块。收成 0 之后两块同宽同色，圆角
+                // 又都取直，才接得严。
+                .padding(.horizontal, showStickerPanel ? 0 : 12)
+                // 输入条永远浮着（离底 6）：它是胶囊，底角是圆的，贴死在托盘
+                // 上反而会跟托盘顶边打架。真正要贴底的是托盘自己。
+                // [T-tray-seam] 托盘在下面时这 6pt 必须收掉：托盘是从输入条
+                // 底下吸出来的，中间留 6pt 就把消息区那条渐变背景露出来，
+                // 看着就是「抽屉和输入条之间有一条缝」。收成 0 之后输入条的
+                // 圆角直接压在托盘的 fill 上（两边同一块 inputBg），接成一整块。
+                .padding(.bottom, showStickerPanel ? 0 : 8)
+
+                // 底部抽屉：加号清单 / 表情宫格。贴底满宽，底边一路铺到
+                // 屏幕物理底（ComposerSurface 的 .tray 只圆上两角），
+                // 所以不管开哪一个，下面都不会漏出一条壁纸。
+                // [T-composer-oneshot] 加号改走原生 sheet（见 .sheet 挂载处），
+                // 输入条下面只剩表情宫格这一块托盘。
+                if showStickerPanel {
+                    bottomDrawerSection
+                        .modifier(GlassComposerSurface(topOnly: true))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .onReceive(speechManager.$recognizedText) { text in
+                guard speechManager.state == .recording || !text.isEmpty else { return }
+                // Append only the new delta to preserve existing input text
+                let newLength = text.count
+                if newLength > lastRecognizedLength {
+                    let delta = String(text.dropFirst(lastRecognizedLength))
+                    vm.inputText += delta
+                }
+                lastRecognizedLength = newLength
+            }
+            // [T-composer-tap-to-focus] The whole pill focuses on tap.
+            //
+            // The only hit target used to be the one-line UITextView itself, so
+            // tapping the pill's padding (or anywhere around the text) did
+            // nothing. This is a BACKGROUND tap-catcher, not an ancestor
+            // .onTapGesture on the container: an ancestor gesture also fires
+            // when a child Button is tapped, which here would re-focus right
+            // after Send dismisses the keyboard, and would summon the keyboard
+            // over the plus/sticker drawer (whose taps must stay independent —
+            // see the bottomDrawerSection note below). A catcher behind the
+            // content only receives taps that miss everything above it, so the
+            // send / mic / + buttons and the drawer keep winning hit-testing —
+            // the same pattern the empty-chat tap-to-dismiss overlay (:2955)
+            // and the popup tap-outside catcher (:635) already rely on.
+            //
+            // Gated to plain text mode only: in voice / recording mode the
+            // composer is a voice panel, not a text field — focusing there
+            // would pop the keyboard over it.
+            .frame(maxWidth: maxContentWidth)
+            // [T-ios-geometry-observer-crash] onGeometryChange replaces the
+            // GeometryReader scaffold (async-renderer SIGTRAP — see the
+            // floating-bar site). Fires with the initial value too, so the
+            // old onAppear seeding AND its diagnostic log are preserved as
+            // a single unified line.
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .global)
+            } action: { frame in
+                let newH = frame.size.height
+                // [voice-inputbar-padding-zero] Guard against transient 0.
+                guard newH > 0 else { return }
+
+                // [T-voice-inputbar-cross-session-bleed] During session
+                // transition animations, SwiftUI fires onGeometryChange for
+                // BOTH the outgoing and incoming AIChatView. The outgoing
+                // view's frame slides offscreen. Discard measurements from
+                // offscreen views to prevent a stale cross-session height from
+                // overwriting the correct one.
+                //
+                // [T-ipad-inputbar-height-zero] The test is "is this frame
+                // horizontally inside the WINDOW", not "is its minX near zero".
+                // The original form compared minX against ±25% of
+                // UIScreen.main.bounds.width, which silently assumed the chat
+                // pane starts at global x≈0 — true only on iPhone. In a split
+                // view (iPad / Mac Catalyst with the sidebar open) the pane is
+                // inset by the sidebar width, so minX is legitimately large,
+                // EVERY measurement failed the guard, the leading-edge seed
+                // never fired, and inputBarHeight stayed 0 forever. Since it is
+                // the message list's bottom inset, the list reserved no space
+                // and the last message was permanently stuck under the composer
+                // — unable to scroll into view. Compare against the host
+                // window's bounds (falling back to the screen) and accept any
+                // frame that overlaps it horizontally: an outgoing view mid-
+                // slide is pushed a full pane-width out and still fails, which
+                // is the behaviour the guard was actually written for.
+                // Measure the slide RELATIVE TO THE PANE, not to the screen. The
+                // outgoing view is pushed by ~a full pane width, so its offset
+                // from the settled x is huge; a genuine mid-animation frame of
+                // the incoming view is only tens of points off. Keeping the same
+                // ±25% ratio the original used reproduces the iPhone behaviour
+                // exactly (there, pane == screen), while a sidebar-inset pane on
+                // iPad / Mac now compares against its OWN left edge instead of
+                // global x≈0 — which is what made every frame look "offscreen".
+                let hostWindow = inputBarWindowBounds()
+                let paneW = frame.width > 1 ? frame.width : hostWindow.width
+                let tolerance = paneW * 0.25
+                let onscreen = frame.minX >= hostWindow.minX - tolerance
+                    && frame.maxX <= hostWindow.maxX + tolerance
+
+                // [T-voice-inputbar-stale-height] Leading-edge first write,
+                // trailing-edge thereafter. The FIRST non-zero height (session
+                // open / initial composer layout) is applied synchronously so the
+                // message list's bottom inset is correct on its first pass and it
+                // snaps straight to the bottom — the pure-trailing debounce made
+                // the list scroll once to a "fake bottom" (small/old height), then
+                // again 300ms later when the real height landed ("scroll, pause,
+                // scroll" on session open).
+                // [T-voice-inputbar-anim-tail] Record the freshest ON-SCREEN
+                // height BEFORE either commit path runs — both the seed's and the
+                // debounce's settle-confirm read this, so it must already reflect
+                // the current callback (writing it after the seed's `return`
+                // would leave the confirm reading a stale/zero value).
+                if onscreen {
+                    latestInputBarFrameH = newH
+                    composerLiveHeight.report(newH)
+                }
+                // [T-voice-inputbar-collapse-selfheal] Liveness, recorded for
+                // EVERY callback — an off-screen sample is still proof the host
+                // is laying out, which is exactly what the health probe asks.
+                inputBarGeometryTick &+= 1
+                inputBarLastGeometryAt = CFAbsoluteTimeGetCurrent()
+
+                if !didSeedInputBarHeight, onscreen {
+                    didSeedInputBarHeight = true
+                    inputBarHeightDebounce?.cancel()
+                    inputBarHeight = newH
+                    AppLogger(category: "InputBarLayout").info("inputBarHeight seeded=\(newH) x=\(Int(frame.minX))")
+                    // [T-inputbar-stale-across-reentry] The seed is applied
+                    // SYNCHRONOUSLY (the message list needs a bottom inset on its
+                    // very first pass, else it scrolls to a fake bottom). That
+                    // means it can capture a mid-animation frame — the exact
+                    // hazard the old code avoided by never re-arming the seed,
+                    // at the cost of letting a stale height live forever. Keep
+                    // the synchronous seed AND make it self-correcting: confirm
+                    // against the freshest reported geometry once the panel's
+                    // 280ms animation has provably finished. No new measurement
+                    // is taken; we only re-read what onGeometryChange reported.
+                    let voiceAtSeed = voiceInputActive
+                    inputBarHeightDebounce = Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(380))
+                        guard !Task.isCancelled, voiceAtSeed == voiceInputActive else { return }
+                        let settled = latestInputBarFrameH
+                        if settled > 0, abs(settled - newH) > 0.5 {
+                            inputBarHeight = settled
+                            AppLogger(category: "InputBarLayout").info("inputBarHeight SEED-CORRECTED \(newH)→\(settled) — seed had caught an animation frame")
+                        }
+                    }
+                    return
+                }
+                // Subsequent changes debounce: onGeometryChange fires during
+                // SwiftUI layout animation frames, sampling mid-transition
+                // heights. If the height then stabilizes (e.g. compact voice
+                // mode = fixed size), no further callback fires to correct it —
+                // inputBarHeight gets stuck at the animation mid-frame value.
+                // Wait 300ms (> animation duration 200ms) to capture the settled
+                // post-animation value.
+                guard onscreen else {
+                    AppLogger(category: "InputBarLayout").info("inputBarHeight discarded=\(newH) offscreen x=\(Int(frame.minX))…\(Int(frame.maxX)) win=\(Int(hostWindow.minX))…\(Int(hostWindow.maxX))")
+                    return
+                }
+                inputBarHeightDebounce?.cancel()
+                let voiceAtCapture = voiceInputActive
+                // [T-inputbar-follow-now] 纯文字模式下输入栏的高度变化不是动画
+                // 出来的：打一行字换行了、挂上附件了，布局已经落定才回调。以前
+                // 这里也统一压 380ms 去抖，结果是「输入栏已经长高了，列表还停在
+                // 老位置」——她说的「列表要过半天才跟上」。
+                //
+                // 文字模式就当场提交，下面那段去抖任务留着当校正（值不一致才写），
+                // 所以就算哪一帧采到了过渡值也不会留错。语音/托盘那两条路照旧去抖：
+                // 它们的高度是真动画。
+                // 只对「长高」即时提交。变矮（发完消息清空输入框）不能走这条路：
+                // 那条路归下面的收缩吸收管（她说的「发完先猛跳一下再滑回来」），
+                // 提前提交会把吸收垫掉、反而多跳一次。
+                let plainTextMode = !voiceInputActive && !showStickerPanel
+                if plainTextMode, newH > inputBarHeight + 0.5 {
+                    inputBarHeight = newH
+                    AppLogger(category: "InputBarLayout").info("inputBarHeight immediate=\(newH) (text mode)")
+                }
+                inputBarHeightDebounce = Task { @MainActor in
+                    // [T-voice-inputbar-anim-tail] 380ms, not 300ms. The panel's
+                    // expand/collapse and transcript-band animations are
+                    // .easeInOut(duration: 0.28) — the old 300ms window left only
+                    // 20ms of margin (its comment claimed the animation was
+                    // 200ms, which is stale), so the timer routinely expired
+                    // while the panel was still moving and SwiftUI's final
+                    // geometry callback had not landed yet.
+                    try? await Task.sleep(for: .milliseconds(380))
+                    guard !Task.isCancelled else { return }
+                    // [T-voice-inputbar-branch-swap] During rapid streaming
+                    // re-renders, voiceInputActive can glitch for one frame,
+                    // swapping the AnyView branch from InlineVoiceInputView
+                    // to PastableTextView. The text view's height (~115pt)
+                    // is wrong for the voice panel (~161pt compact). Discard
+                    // if the branch flipped back by the time debounce fires.
+                    if voiceAtCapture != voiceInputActive {
+                        AppLogger(category: "InputBarLayout").info("inputBarHeight discarded=\(newH) branchSwap voice=\(voiceAtCapture)→\(voiceInputActive)")
+                        return
+                    }
+                    // Commit the LATEST height, not the one that armed the timer.
+                    let committed = latestInputBarFrameH > 0 ? latestInputBarFrameH : newH
+                    inputBarHeight = committed
+                    let armed = newH
+                    AppLogger(category: "InputBarLayout").info("inputBarHeight settled=\(committed) x=\(Int(frame.minX))\(abs(committed - armed) > 0.5 ? " (armedWith=\(armed), used latest)" : "")")
+
+                    // [T-voice-inputbar-anim-tail] Settle-confirm. Even the
+                    // latest recorded frame can be a tail sample if the final
+                    // callback lands after this task wakes. Re-check once more
+                    // after another animation-length beat and correct if the
+                    // panel moved — this is the backstop that guarantees the
+                    // bottom inset can never stay frozen on a transitional
+                    // height, which is the bottom-gap symptom. No new
+                    // measurement is taken: we only re-read what
+                    // onGeometryChange already reported.
+                    try? await Task.sleep(for: .milliseconds(320))
+                    guard !Task.isCancelled else { return }
+                    guard voiceAtCapture == voiceInputActive else { return }
+                    let settled = latestInputBarFrameH
+                    if settled > 0, abs(settled - committed) > 0.5 {
+                        inputBarHeight = settled
+                        AppLogger(category: "InputBarLayout").info("inputBarHeight CORRECTED \(committed)→\(settled) — commit had caught an animation-tail frame")
+                    }
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                // Extracted into a named struct + AnyView-erased so the
+                // overlay does not deepen `inputBar`'s already-fragile
+                // generic chain. See crash 2026-04-17 (line ~1981): SwiftUI's
+                // runtime type-metadata decoder recurses into every nested
+                // modifier, and an inline `.overlay { HStack { Image...; Text
+                // .padding.frame.background(Capsule).shadow.opacity } ...}`
+                // blew the stack on `inputBottomRow.getter` during a swipe.
+                SwipeToSendHint(progress: sendSwipeProgress,
+                                armFraction: Self.kSendSwipeArmFraction,
+                                location: sendSwipeLocation,
+                                // While the agent is mid-stream the gesture
+                                // queues the prompt instead of sending it,
+                                // so the capsule advertises that — matches
+                                // the send-button's send/enqueue toggle.
+                                isEnqueue: vm.isProcessing && !canSend)
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20, coordinateSpace: .local)
+                    .onChanged { value in
+                        guard !showStickerPanel else {
+                            sendSwipeAnchor = nil
+                            return
+                        }
+                        // [T-ios-composer-swipe-send-at-bottom] While the inner
+                        // scroll still owns the drag, keep the anchor cleared so
+                        // that the instant it hands off (user reaches the bottom
+                        // mid-drag) progress re-anchors HERE instead of counting
+                        // the scrolling that came before.
+                        guard !inputHasSelection, swipeToSendAllowed else {
+                            sendSwipeAnchor = nil
+                            return
+                        }
+                        // Priority in voice mode: component gestures > collapse/
+                        // expand > swipe-to-send. The panel's own drags (collapse/
+                        // expand, delete control) are handled inside the panel; the
+                        // swipe-to-send only engages once the finger has been
+                        // dragged ABOVE the input container (location.y < 0), i.e.
+                        // out toward the message area — making it the lowest
+                        // priority and never colliding with in-panel drags.
+                        if voiceInputActive && value.location.y >= 0 {
+                            if sendSwipeProgress != 0 { sendSwipeProgress = 0 }
+                            return
+                        }
+                        let isVertical = abs(value.translation.height) > abs(value.translation.width)
+                        guard isVertical, value.translation.height < 0 else {
+                            if sendSwipeProgress != 0 { sendSwipeProgress = 0 }
+                            return
+                        }
+                        // Empty input: no swipe-to-send hint. Keyboard
+                        // activation (if collapsed) is handled in onEnded so
+                        // we don't pop the keyboard during scroll-like drags.
+                        let hasText = !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        guard hasText else {
+                            if sendSwipeProgress != 0 { sendSwipeProgress = 0 }
+                            return
+                        }
+                        // [T-ios-composer-swipe-send-at-bottom] Anchor progress
+                        // at the hand-off point. For a plain short-text drag
+                        // this is the drag origin (0) and behaves exactly as
+                        // before; for a drag that first scrolled a long value to
+                        // its end, it discards the scrolling part so only the
+                        // EXTRA pull past the bottom counts toward sending.
+                        if sendSwipeAnchor == nil { sendSwipeAnchor = value.translation.height }
+                        let dragUp = -(value.translation.height - (sendSwipeAnchor ?? 0))
+                        guard dragUp > 0 else {
+                            if sendSwipeProgress != 0 { sendSwipeProgress = 0 }
+                            return
+                        }
+                        let newProgress = max(0, min(1, dragUp / Self.kSendSwipeThreshold))
+                        // Haptic tick the first time we cross the arming
+                        // fraction (0.8) — matches the capsule's full-opacity
+                        // point so the cue and the release zone agree.
+                        let arm = Self.kSendSwipeArmFraction
+                        if newProgress >= arm && sendSwipeProgress < arm {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        }
+                        sendSwipeProgress = newProgress
+                        sendSwipeLocation = value.location
+                    }
+                    .onEnded { value in
+                        guard !showStickerPanel else {
+                            sendSwipeProgress = 0
+                            return
+                        }
+                        // [T-ios-composer-swipe-send-at-bottom] Consume the
+                        // hand-off anchor: whatever happens below, the next
+                        // gesture must re-anchor from scratch.
+                        let anchor = sendSwipeAnchor ?? 0
+                        sendSwipeAnchor = nil
+                        guard !inputHasSelection, swipeToSendAllowed else {
+                            sendSwipeProgress = 0
+                            return
+                        }
+                        // Voice mode: only a release dragged OUT of the input
+                        // container (toward the message area) sends — in-panel
+                        // drags belong to collapse/expand and the delete control.
+                        //
+                        // [T-voice-scroll-gesture-priority] This location test is
+                        // also what already satisfies "scroll must win over
+                        // swipe-to-send" inside the voice panel's transcript, in
+                        // BOTH the editing and read-only modes: any drag whose
+                        // release lands inside the input container (y >= 0) —
+                        // which is every drag that stays within the transcript
+                        // ScrollView — is rejected here before it can send. So a
+                        // scroll gesture can never be reinterpreted as a send,
+                        // and no separate isScrollable/at-bottom channel needs to
+                        // be plumbed from the panel to this gesture. Send only
+                        // engages once the finger has genuinely left the panel and
+                        // moved up toward the message list, which is exactly the
+                        // required behaviour.
+                        if voiceInputActive && value.location.y >= 0 {
+                            if sendSwipeProgress != 0 { sendSwipeProgress = 0 }
+                            return
+                        }
+                        let isVertical = abs(value.translation.height) > abs(value.translation.width)
+                        let endY = value.location.y
+                        let hasText = !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        // Measure the send-relevant travel from the hand-off
+                        // anchor, not the drag origin, so the scrolling portion
+                        // of a scroll-then-pull drag doesn't read as a swipe-up.
+                        let anchoredHeight = value.translation.height - anchor
+                        let swipedUp = isVertical && anchoredHeight < 0
+                        if swipedUp && hasText {
+                            // Swipe-up release with text: send if past
+                            // arming fraction (0.8). When the agent is
+                            // mid-stream the request is queued instead —
+                            // mirrors the send-button which falls back to
+                            // performEnqueue while `vm.isProcessing` makes
+                            // `canSend` false. Without this branch a long
+                            // run blocked the swipe gesture entirely.
+                            if sendSwipeProgress >= Self.kSendSwipeArmFraction {
+                                // Match the tap/return-key precedence:
+                                // when the agent is busy AND a queue slot
+                                // is available, ENQUEUE first. Previously
+                                // this branch checked `canSend` first —
+                                // and `canSend = vm.isReady && hasText`
+                                // doesn't consult `isProcessing`, so a
+                                // busy run with text in the composer
+                                // bypassed enqueue and started a fresh
+                                // send that got dropped (T-drag-send-queue).
+                                if canEnqueue {
+                                    performEnqueue()
+                                } else if canSend {
+                                    performSend()
+                                } else if hasDraftContent {
+                                    // [T-no-provider-mute] 上滑发送同样不能静默。
+                                    notifyNoUsableModel()
+                                }
+                            }
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                sendSwipeProgress = 0
+                            }
+                        } else if swipedUp && !hasText && !inputFocused {
+                            // Swipe-up release with empty input + collapsed
+                            // keyboard -> activate the keyboard (enter input
+                            // mode). If the keyboard is already up, do
+                            // nothing so the gesture isn't misinterpreted.
+                            inputFocused = true
+                            sendSwipeProgress = 0
+                        } else if isVertical && inputFocused && (endY > inputBarHeight || endY < 0) {
+                            // Swipe-down (or out of bounds) while focused
+                            // still dismisses the keyboard — unchanged.
+                            inputFocused = false
+                            sendSwipeProgress = 0
+                        } else {
+                            sendSwipeProgress = 0
+                        }
+                    }
+            )
+        }
+        // [T-composer-glass 11-10] 底下那层「上透明下实底」的渐变撤了。
+        // 她要的是真透明:消息从玻璃下面过两道没问题,别自己垫一层实底。
+    }
+
+
+    /// Attachment grid extracted to help the Swift type-checker.
+    @ViewBuilder
+    private var inputAttachmentGrid: some View {
+        InputAttachmentGridView(
+            attachments: vm.attachments,
+            loadingVideoCount: vm.loadingVideoCount,
+            onRemove: { attachment in vm.removeAttachment(attachment) },
+            onMove: { fromID, toID in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    vm.moveAttachment(fromID: fromID, toID: toID)
+                }
+            }
+        )
+    }
+
     private var plusSheet: some View {
 
         ComposerActionSheet(
@@ -8024,5 +8866,46 @@ struct StickerEditSheet: View {
             )
         }
         dismiss()
+    }
+}
+
+/// [T-composer-glass 11-10] 上游那块皮:iOS 26 真玻璃,老系统退回薄材质。
+/// 她原话「输入栏 UI 做成上游那样一模一样的。透明的」——所以不再用实底 inputBarSolid。
+private struct GlassComposerSurface: ViewModifier {
+    var attached: Bool = false
+    var topOnly: Bool = false
+
+    private var shape: AnyShape {
+        if topOnly {
+            return AnyShape(UnevenRoundedRectangle(
+                topLeadingRadius: 22, bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0, topTrailingRadius: 22,
+                style: .continuous))
+        }
+        if attached {
+            return AnyShape(UnevenRoundedRectangle(
+                topLeadingRadius: 20, bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0, topTrailingRadius: 20,
+                style: .continuous))
+        }
+        return AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            if topOnly {
+                // 托盘要一路铺到屏幕物理底,不然底边和屏幕之间漏一条壁纸
+                //(「底部悬空」那个老毛病,ComposerSurface 的 .tray 也这么处理)。
+                content
+                    .glassEffect(.regular, in: shape)
+                    .ignoresSafeArea(.container, edges: .bottom)
+            } else {
+                content.glassEffect(.regular, in: shape)
+            }
+        } else {
+            content
+                .background(.ultraThinMaterial, in: shape)
+                .overlay(shape.strokeBorder(ChatColors.inputIconBorder.opacity(0.6), lineWidth: 0.5))
+        }
     }
 }
