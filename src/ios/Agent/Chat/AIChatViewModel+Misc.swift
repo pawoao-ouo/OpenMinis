@@ -274,10 +274,23 @@ extension AIChatViewModel {
     /// the stale mirror until the user re-picked the model. One live lookup
     /// (binding + group) per capacity check is cheap and always current.
     func effectiveContextWindow(for model: LLMModel) -> Int {
+        resolvedContextWindow(for: model).window
+    }
+
+    /// [T-user-cap] 窗口 + 这个窗口是不是用户设的。
+    ///
+    /// 两件事必须一起返回：算阈值的要用 `isUserCap` 走百分比，算余量的要
+    /// `window`。分开成两个函数就会出现"阈值按用户上限算、余量按模型原生
+    /// 算"这种自相矛盾的组合。
+    ///
+    /// isUserCap 只在用户设的上限**真的小于**模型原生窗口时为真：给 128K
+    /// 模型设 200K 不是限制，是写错了，按原生窗口算。
+    func resolvedContextWindow(for model: LLMModel) -> (window: Int, isUserCap: Bool) {
+        let native = model.contextWindowTokens
         if let override = activeGroupContextLimit(), override < Int.max {
-            return override
+            return (override, override < native)
         }
-        return model.contextWindowTokens
+        return (native, false)
     }
 
     /// The bound group's context-limit override for the current session, or nil

@@ -376,8 +376,9 @@ extension AIChatViewModel {
     ///   regardless of current context usage. Used after compaction to unconditionally slim down
     ///   the kept messages.
     func offloadContextIfNeeded(model: LLMModel, lastContextTokens: Int, force: Bool = false) {
-        let contextWindow = effectiveContextWindow(for: model)
-        let policy = ContextPolicy(contextWindow: contextWindow)
+        let resolved = resolvedContextWindow(for: model)
+        let contextWindow = resolved.window
+        let policy = ContextPolicy(contextWindow: contextWindow, isUserCap: resolved.isUserCap)
 
         // Policy disables offloading for this context window tier
         if !force && policy.offloadThreshold == 0 {

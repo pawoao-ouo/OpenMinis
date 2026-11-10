@@ -20,7 +20,25 @@ struct ContextPolicy {
     /// Whether user-initiated manual compact is allowed.
     let manualCompactAllowed: Bool
 
-    init(contextWindow: Int) {
+    /// [T-user-cap] 用户给分组设的上下文上限，和模型原生窗口是两回事。
+    ///
+    /// 阈值那套固定减法（10K/20K/40K）和"64K 以下不自动压缩"是为**小模型**
+    /// 设计的——它真没钱跑一次压缩调用，也塞不下摘要加热身轮。但用户把 1M
+    /// 的模型手动限制到 32K 时，这些理由一条都不成立：模型有的是地方跑压缩，
+    /// "我要这组不超过 32K"本身就是**要求压缩**，不是不要压缩的理由。
+    ///
+    /// 所以用户设的上限走百分比：70% offload、85% compact、压完回到 55%。
+    /// 百分比（而不是固定减法）在 32K…1M 整条滑杆上都合理——32K 减 20K 会
+    /// 掉到地板以下，1M 减 20K 等于没减。
+    init(contextWindow: Int, isUserCap: Bool = false) {
+        if isUserCap {
+            offloadThreshold = Int(Double(contextWindow) * 0.70)
+            offloadTarget = Int(Double(contextWindow) * 0.55)
+            compactThreshold = Int(Double(contextWindow) * 0.85)
+            exhaustedOnly = false
+            manualCompactAllowed = true
+            return
+        }
         if contextWindow < 32_000 {
             // < 32K: no offload, no compact
             offloadThreshold = 0

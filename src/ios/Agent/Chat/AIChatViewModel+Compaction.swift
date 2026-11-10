@@ -19,10 +19,13 @@ extension AIChatViewModel {
     /// (e.g. iCloud-synced) skipped capacity checks entirely.
     func checkContextBeforeSend(estimatedTokens: Int? = nil) -> ContextPolicy.CheckResult {
         guard let entry = resolveCurrentEntry() else { return .ok }
-        let contextWindow = effectiveContextWindow(for: entry.model)
+        let resolved = resolvedContextWindow(for: entry.model)
+        let contextWindow = resolved.window
         guard contextWindow > 0 else { return .ok }
 
-        let policy = ContextPolicy(contextWindow: contextWindow)
+        // [T-user-cap] 传 isUserCap：用户给分组设的上限走百分比阈值，
+        // 不按"小模型"那套固定减法判死。见 ContextPolicy.init。
+        let policy = ContextPolicy(contextWindow: contextWindow, isUserCap: resolved.isUserCap)
         // [T-composer-send-hitch] send() already paid for the BPE estimate and
         // passes it in, so the tap path doesn't estimate the same history twice.
         // Callers without one (needsCompactBeforeSend) estimate here as before.
