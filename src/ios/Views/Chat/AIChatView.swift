@@ -8942,7 +8942,7 @@ private struct GlassComposerSurface: ViewModifier {
         } else {
             content
                 .background(.ultraThinMaterial, in: shape)
-                .overlay(shape.strokeBorder(ChatColors.inputIconBorder.opacity(0.6), lineWidth: 0.5))
+                .overlay(shape.stroke(ChatColors.inputIconBorder.opacity(0.6), lineWidth: 0.5))
         }
     }
 }
