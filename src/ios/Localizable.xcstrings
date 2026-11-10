@@ -146919,6 +146919,23 @@
           }
         }
       }
+    },
+    "No playlists yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No playlists yet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没建过歌单"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

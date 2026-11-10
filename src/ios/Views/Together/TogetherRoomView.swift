@@ -817,7 +817,7 @@ struct TogetherRoomView: View {
                 }
                 if creating { newPlaylistField }
                 if livePlaylists.isEmpty && !creating {
-                    Text(TogetherCopy.noSongsYet)
+                    Text(TogetherCopy.noPlaylists)
                         .font(ChatFont.font(11.5, design: .serif))
                         .foregroundStyle(TogetherSpec.muted)
                 }
@@ -1560,6 +1560,9 @@ struct TogetherRoomQueueSheet: View {
             }
             }
         }
+        // [T-room-sheet 11-11] 这一页原来没有底:弹出来是系统那张白纸/黑板,
+        // 和房间的纸面不是一套。曲库那页有底,这页漏了。
+        .background(TogetherSpec.capsuleSurface.ignoresSafeArea())
     }
 
     // 队列为空时别甩一页白纸:告诉他确实空,以及下一步去哪
@@ -1910,7 +1913,11 @@ struct TogetherRoomLyrics: View {
 
     var body: some View {
         ZStack {
-            TogetherSpec.charcoal.ignoresSafeArea()
+            // [T-room-lyrics-contrast 11-11] 这一层原来铺 TogetherSpec.charcoal,
+            // 可 charcoal 就是 textMain —— 背景和字取的是同一个颜色,浅色主题下
+            // 整页黑底黑字,一行都读不出来。纸张那套(surface 底 + ink 字)
+            // 才是这页的底色语言,和房间里其它页一致。
+            TogetherSpec.capsuleSurface.ignoresSafeArea()
             VStack(spacing: 0) {
                 header
                 if lines.isEmpty {
@@ -1920,7 +1927,7 @@ struct TogetherRoomLyrics: View {
                 }
             }
         }
-        .presentationBackground(TogetherSpec.charcoal)
+        .presentationBackground(TogetherSpec.capsuleSurface)
     }
 }
 

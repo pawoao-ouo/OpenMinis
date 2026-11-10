@@ -75,6 +75,8 @@ enum TogetherCopy {
     static var untitledPlaylist: String { AppLocalized("Untitled", comment: "一起听 · 新歌单默认名") }
     static var newPlaylist: String { AppLocalized("New playlist", comment: "一起听 · 新建") }
     static var myPlaylists: String { AppLocalized("My playlists", comment: "一起听 · 歌单库标题") }
+    /// 一张歌单都还没有。和"曲库空"不是一回事,不能共用 noSongsYet。
+    static var noPlaylists: String { AppLocalized("No playlists yet", comment: "一起听 · 歌单空态") }
     static var playAll: String { AppLocalized("Play all", comment: "一起听 · 播放全部") }
     static var edit: String { AppLocalized("Edit", comment: "一起听 · 编辑") }
     static var done: String { AppLocalized("Done", comment: "一起听 · 完成") }

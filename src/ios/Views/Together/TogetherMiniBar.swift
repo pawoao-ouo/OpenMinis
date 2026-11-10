@@ -1228,7 +1228,10 @@ struct TogetherDeckView: View {
                         .shadow(color: .black.opacity(0.16), radius: 9, x: 0, y: 6)
                     Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
                         .font(.system(size: 17))
-                        .foregroundStyle(.white)
+                        // [T-room-contrast 11-11] 底色是 charcoal(= textMain),
+                        // 深色主题下它变成近白,再压一颗纯白图标就看不见了。
+                        // 跟房间那颗播放键一样取 surface。
+                        .foregroundStyle(TogetherSpec.capsuleSurface)
                 }
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
@@ -1327,7 +1330,8 @@ struct TogetherDeckView: View {
                     Circle().fill(TogetherSpec.charcoal)
                     Text(String(aiName.prefix(1)))
                         .font(.system(size: fontSettings.scaledApp(10), weight: .bold))
-                        .foregroundStyle(.white)
+                        // 同上:charcoal 底上的字取 surface,深色主题才不会白压白
+                        .foregroundStyle(TogetherSpec.capsuleSurface)
                 }
             }
         }
