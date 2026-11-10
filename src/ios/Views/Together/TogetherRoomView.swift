@@ -1746,7 +1746,9 @@ extension TogetherRoomLyrics {
             .onChange(of: currentIndex) { _, _ in follow(proxy, animated: true) }
         }
     }
-}extension TogetherRoomLyrics {
+}
+
+extension TogetherRoomLyrics {
 
     /// 当前唱到哪一句。没有时间戳就当作没有当前句,不硬编。
     private var currentIndex: Int {
