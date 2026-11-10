@@ -28,6 +28,12 @@ import SwiftUI
 import UIKit
 import PhotosUI
 
+// 弹层只有一个入口,同一层挂三张 sheet 时后两张会被静默吞掉
+private enum RoomSheet: String, Identifiable {
+    case lyrics, queue, songs
+    var id: String { rawValue }
+}
+
 struct TogetherRoomView: View {
     let sessionPersonaId: String?
     var onClose: () -> Void = {}
@@ -38,9 +44,9 @@ struct TogetherRoomView: View {
     // 壁纸换过要重画一次：图片缓存按 URL 复用，同名文件不会自己通知界面
     @State private var imageRev = 0
     @State private var lyrics: TogetherLyrics?
-    @State private var lyricsShown = false
+    // 三张弹层只留一个入口,SwiftUI 同层挂多个 sheet 会吞掉后面那些
+    @State private var sheet: RoomSheet?
     @State private var scrub: Double?
-    @State private var queueShown = false
     @State private var expanded: String?
     @State private var songsFor: String?
     @State private var stampDraft = ""
@@ -88,23 +94,6 @@ struct TogetherRoomView: View {
             loopDraft = ""
             stampDraft = ""
         }
-        .sheet(isPresented: $lyricsShown) {
-            TogetherRoomLyrics(
-                track: track,
-                lyrics: lyrics,
-                position: shownPosition,
-                engraved: state.loopLines[track?.id ?? ""],
-                engrave: { line in
-                    guard let id = track?.id else { return }
-                    TogetherStore.shared.setLoopLine(trackId: id, text: line, by: .user)
-                },
-                seekTo: { at in
-                    _ = TogetherStore.shared.seek(to: at, by: .user)
-                    player.seek(to: at)
-                    lyricsShown = false
-                }
-            )
-        }
         .onAppear(perform: bootstrap)
         .onReceive(NotificationCenter.default.publisher(for: TogetherImages.didSetNotification)) { _ in
             // 槽位里的图被换掉时清一次渲染，不然壁纸还是旧那张
@@ -115,17 +104,30 @@ struct TogetherRoomView: View {
             guard let item else { return }
             importWallpaper(item)
         }
-        .sheet(isPresented: $queueShown) {
-            TogetherRoomQueueSheet(sessionPersonaId: sessionPersonaId)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: Binding(
-            get: { songsFor != nil },
-            set: { if !$0 { songsFor = nil } }
-        )) {
-            if let id = songsFor {
-                TogetherRoomSongsSheet(playlistId: id)
+        .sheet(item: $sheet) { which in
+            switch which {
+            case .lyrics:
+                TogetherRoomLyrics(
+                    track: track,
+                    lyrics: lyrics,
+                    position: shownPosition,
+                    engraved: state.loopLines[track?.id ?? ""],
+                    engrave: { line in
+                        guard let id = track?.id else { return }
+                        TogetherStore.shared.setLoopLine(trackId: id, text: line, by: .user)
+                    },
+                    seekTo: { at in
+                        _ = TogetherStore.shared.seek(to: at, by: .user)
+                        player.seek(to: at)
+                        sheet = nil
+                    }
+                )
+            case .queue:
+                TogetherRoomQueueSheet(sessionPersonaId: sessionPersonaId)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            case .songs:
+                TogetherRoomSongsSheet(playlistId: songsFor ?? togetherRoomLikedId)
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }
@@ -173,8 +175,8 @@ struct TogetherRoomView: View {
                 .tracking(2.2)
                 .foregroundStyle(TogetherSpec.muted)
             Spacer(minLength: 8)
-            roomKey("list.bullet", label: TogetherCopy.a11yQueue, active: queueShown) {
-                queueShown = true
+            roomKey("list.bullet", label: TogetherCopy.a11yQueue, active: sheet == .queue) {
+                sheet = .queue
             }
             PhotosPicker(selection: $pickerItem, matching: .images) {
                 roomKeyLabel("photo.on.rectangle")
@@ -340,7 +342,7 @@ struct TogetherRoomView: View {
             if let t = track {
                 if let lines = lyrics?.lines, !lines.isEmpty {
                     Button {
-                        withAnimation(TogetherCurve.springPhysics) { lyricsShown = true }
+                        withAnimation(TogetherCurve.springPhysics) { sheet = .lyrics }
                     } label: {
                         VStack(spacing: 4) {
                             Text(currentLyricText)
@@ -410,19 +412,16 @@ struct TogetherRoomView: View {
         return text.isEmpty ? nil : text
     }
 
+    // 取句只走 TogetherLyrics.line(at:),它自己扣 offset 也管 timed;
+    // 这里再手写一遍比较的话,校准过歌词就会和小胶囊显示的不是同一句
     private var currentLyricText: String {
-        guard let lines = lyrics?.lines, !lines.isEmpty else { return "" }
-        let at = player.currentTime
-        var line = lines[0]
-        for item in lines where item.at <= at + 0.2 { line = item }
-        return line.text
+        lyrics?.line(at: player.currentTime)?.text ?? ""
     }
 
     private var nextLyricText: String {
-        guard let lines = lyrics?.lines, !lines.isEmpty else { return "" }
-        let at = player.currentTime
-        if let next = lines.first(where: { $0.at > at + 0.2 }) { return next.text }
-        return ""
+        guard let lyr = lyrics, lyr.timed, !lyr.lines.isEmpty else { return "" }
+        let t = player.currentTime - lyr.offset
+        return lyr.lines.first(where: { $0.at > t + 0.2 })?.text ?? ""
     }
 
     // 进度:拖的时候本地显示,松手才写回 state 和播放器
@@ -536,7 +535,7 @@ struct TogetherRoomView: View {
                 cycleRepeat()
             }
             Spacer(minLength: 0)
-            modeKey("text.alignleft", active: lyricsShown) { lyricsShown = true }
+            modeKey("text.alignleft", active: sheet == .lyrics) { sheet = .lyrics }
             modeKey(likedCurrent ? "heart.fill" : "heart", active: likedCurrent) {
                 toggleLike()
             }
@@ -715,7 +714,7 @@ struct TogetherRoomView: View {
             Button { takeQueue(list) } label: {
                 Label(TogetherCopy.playAll, systemImage: "play.fill")
             }
-            Button { songsFor = list.id } label: {
+            Button { songsFor = list.id; sheet = .songs } label: {
                 Label(TogetherCopy.addSongs, systemImage: "plus.circle")
             }
             Button {
@@ -773,7 +772,7 @@ struct TogetherRoomView: View {
                     trackLine(trackId, index: index, playlistId: list.id)
                 }
             }
-            Button { songsFor = list.id } label: {
+            Button { songsFor = list.id; sheet = .songs } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "plus")
                         .font(.system(size: 9.5, weight: .semibold))
@@ -1206,6 +1205,7 @@ struct TogetherRoomView: View {
             return
         }
         songsFor = togetherRoomLikedId
+        sheet = .songs
     }
 
     private func commitCreate() {
@@ -1693,9 +1693,10 @@ extension TogetherRoomLyrics {
 
     /// 当前唱到哪一句。没有时间戳就当作没有当前句,不硬编。
     private var currentIndex: Int {
-        guard !lines.isEmpty else { return -1 }
+        guard lyrics?.timed == true, !lines.isEmpty else { return -1 }
         var hit = -1
-        for (i, line) in lines.enumerated() where line.at <= position + 0.15 {
+        let t = position - (lyrics?.offset ?? 0)
+        for (i, line) in lines.enumerated() where line.at <= t + 0.15 {
             hit = i
         }
         return hit
