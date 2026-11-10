@@ -166,21 +166,22 @@ struct TogetherRoomView: View {
         GeometryReader { geo in
             if let url = TogetherImages.url(for: TogetherImages.wallpaperNow),
                let image = TogetherImages.cachedImage(for: url) {
-                // 顶栏那行小字是压在图上的,图越花越压不住。厚薄交给 TogetherTone 判,
-                // 只在头顶那一截加码,中间不动——不然整张图都糊成一片。
+                // 纱的底子按位置给:顶栏压得住、中间让图透、下面回到纸面。
+                // 图本身读不出字时(TogetherTone 判的,带缓存),上半区整片加码
+                // —— 不给它加,深色照片上那几行字就贴着脸糊在一起。
                 let tone = TogetherTone.decision(for: TogetherImages.wallpaperNow)
+                let veil = tone.scrimAlpha
                 ZStack {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
-                    // 上薄下厚的纸色渐隐:顶栏压得住,中间看得见图,下面就是纸
                     LinearGradient(
                         stops: [
-                            .init(color: TogetherSpec.capsuleSurface.opacity(min(0.94, 0.62 + tone.scrimAlpha)), location: 0),
-                            .init(color: TogetherSpec.capsuleSurface.opacity(min(0.80, 0.34 + tone.scrimAlpha * 0.5)), location: 0.12),
-                            .init(color: TogetherSpec.capsuleSurface.opacity(0.26), location: 0.32),
+                            .init(color: TogetherSpec.capsuleSurface.opacity(min(0.95, 0.62 + veil)), location: 0),
+                            .init(color: TogetherSpec.capsuleSurface.opacity(min(0.92, 0.34 + veil * 0.8)), location: 0.12),
+                            .init(color: TogetherSpec.capsuleSurface.opacity(min(0.90, 0.26 + veil * 0.6)), location: 0.32),
                             .init(color: TogetherSpec.capsuleSurface.opacity(0.88), location: 0.56),
                             .init(color: TogetherSpec.capsuleSurface, location: 0.72),
                         ],
@@ -1069,7 +1070,7 @@ struct TogetherRoomView: View {
                 // 切下一首直接到头。带上曲库顺序,和从曲库点歌一致。
                 player.start(
                     song, by: .user,
-                    queue: hub.library.map(\.id),
+                    queue: hub.library.tracks.map(\.id),
                     queueSource: "all-songs"
                 )
                 hub.refreshNow()
@@ -1400,12 +1401,12 @@ struct TogetherRoomView: View {
         case .some(togetherRoomLikedId):
             return likedIds
         case .some("all-songs"):
-            return hub.library.map(\.id)
+            return hub.library.tracks.map(\.id)
         case let .some(id):
             let list = livePlaylists.first { $0.id == id }?.tracks ?? []
-            return list.isEmpty ? hub.library.map(\.id) : list
+            return list.isEmpty ? hub.library.tracks.map(\.id) : list
         case .none:
-            return hub.library.map(\.id)
+            return hub.library.tracks.map(\.id)
         }
     }
 
