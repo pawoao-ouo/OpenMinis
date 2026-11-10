@@ -1,6 +1,74 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "音乐小胶囊" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Music capsule"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音乐小胶囊"
+          }
+        }
+      }
+    },
+    "放歌时出现在输入栏上面,点它展开播放器" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appears above the input bar while music plays; tap to expand the player"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "放歌时出现在输入栏上面,点它展开播放器"
+          }
+        }
+      }
+    },
+    "小胶囊已开:放歌时会出现" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capsule on: it shows while music plays"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小胶囊已开:放歌时会出现"
+          }
+        }
+      }
+    },
+    "小胶囊已关:不再出现" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capsule off: it will not show again"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小胶囊已关:不再出现"
+          }
+        }
+      }
+    },
     "停止生成" : {
       "extractionState" : "manual",
       "localizations" : {

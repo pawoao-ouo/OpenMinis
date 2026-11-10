@@ -33,8 +33,6 @@ struct TogetherMiniBar: View {
     /// The full stack height (48pt capsule + 2pt gap to the input bar).
     static let stackHeight: CGFloat = 50
 
-    /// Open full Together panel.
-    var onOpen: () -> Void = {}
     var sessionPersonaId: String? = nil
 
     @Environment(\.togetherPersonaId) private var envPersonaId
@@ -84,8 +82,7 @@ struct TogetherMiniBar: View {
         .padding(.bottom, 2)
         .fullScreenCover(isPresented: $deckShown) {
             TogetherDeckOverlay(
-                sessionPersonaId: sessionPersonaId ?? envPersonaId,
-                onOpenPanel: onOpen
+                sessionPersonaId: sessionPersonaId ?? envPersonaId
             ) {
                 deckShown = false
             }
@@ -711,7 +708,6 @@ struct TogetherRefinedVinylView: View {
 struct TogetherDeckOverlay: View {
 
     let sessionPersonaId: String?
-    var onOpenPanel: () -> Void = {}
     var onClose: () -> Void = {}
 
     @State private var curtainShown = false
@@ -735,10 +731,6 @@ struct TogetherDeckOverlay: View {
                     Spacer(minLength: 0)
                     TogetherDeckView(
                         sessionPersonaId: sessionPersonaId,
-                        onOpenPanel: {
-                            onClose()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onOpenPanel() }
-                        },
                         onOpenCurtain: {
                             withAnimation(TogetherCurve.springPhysics) { curtainShown = true }
                         },
@@ -763,7 +755,6 @@ struct TogetherDeckOverlay: View {
 struct TogetherDeckView: View {
 
     let sessionPersonaId: String?
-    var onOpenPanel: () -> Void = {}
     var onOpenCurtain: () -> Void = {}
     var onCollapse: () -> Void = {}
 

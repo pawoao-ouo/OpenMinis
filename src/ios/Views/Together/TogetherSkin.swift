@@ -20,8 +20,8 @@ import UIKit
 // 头像引用只在这里取一次。AI 走通讯录当前人设（SOUL.icon 只是镜像），
 // 用户走「我自己」档案。别的地方不许再各写一套取法。
 
-// 会话人设注入：AIChatView 打开一起听时把当前会话绑的人设带进来，
-// 没带（或别处直接摞 TogetherRootView）就回落全局当前人设，行为不变。
+// 会话人设注入:AIChatView 把当前会话绑的人设带进来,
+// 没带就回落全局当前人设,行为不变。
 private struct TogetherPersonaIDKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }

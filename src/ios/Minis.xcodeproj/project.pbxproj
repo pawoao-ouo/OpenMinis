@@ -27,12 +27,9 @@
 		E5AMI0001 /* HelperModelIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AMI0011 /* HelperModelIdentity.swift */; };
 		E5PPR0001 /* AIChatViewModel+ProgrammaticPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5PPR0011 /* AIChatViewModel+ProgrammaticPrompt.swift */; };
 		E5TG000A /* TogetherImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG001A /* TogetherImporter.swift */; };
-		E5TG0008 /* TogetherRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0018 /* TogetherRootView.swift */; };
-		E5TG0009 /* TogetherScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0019 /* TogetherScreens.swift */; };
 		E5TG0007 /* TogetherSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0017 /* TogetherSkin.swift */; };
 		E5TG0006 /* FakefsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0016 /* FakefsBridge.swift */; };
 		E5TG0003 /* TogetherPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0013 /* TogetherPlayer.swift */; };
-		E5TG0004 /* TogetherPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0014 /* TogetherPanelView.swift */; };
 		E5TG0005 /* TogetherMiniBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0015 /* TogetherMiniBar.swift */; };
 		E5TG000C /* TogetherControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG001C /* TogetherControls.swift */; };
 		E5TG0001 /* TogetherState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TG0011 /* TogetherState.swift */; };
@@ -783,12 +780,9 @@
 		E5AMI0011 /* HelperModelIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "HelperModelIdentity.swift"; path = "Agent/Jobs/HelperModelIdentity.swift"; sourceTree = SOURCE_ROOT; };
 		E5PPR0011 /* AIChatViewModel+ProgrammaticPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AIChatViewModel+ProgrammaticPrompt.swift"; path = "Agent/Chat/AIChatViewModel+ProgrammaticPrompt.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG001A /* TogetherImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherImporter.swift"; path = "Agent/Together/TogetherImporter.swift"; sourceTree = SOURCE_ROOT; };
-		E5TG0018 /* TogetherRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherRootView.swift"; path = "Views/Together/TogetherRootView.swift"; sourceTree = SOURCE_ROOT; };
-		E5TG0019 /* TogetherScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherScreens.swift"; path = "Views/Together/TogetherScreens.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG0017 /* TogetherSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherSkin.swift"; path = "Views/Together/TogetherSkin.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG0016 /* FakefsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "FakefsBridge.swift"; path = "Agent/Together/FakefsBridge.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG0013 /* TogetherPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherPlayer.swift"; path = "Agent/Together/TogetherPlayer.swift"; sourceTree = SOURCE_ROOT; };
-		E5TG0014 /* TogetherPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherPanelView.swift"; path = "Views/Together/TogetherPanelView.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG0015 /* TogetherMiniBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherMiniBar.swift"; path = "Views/Together/TogetherMiniBar.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG001C /* TogetherControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherControls.swift"; path = "Views/Together/TogetherControls.swift"; sourceTree = SOURCE_ROOT; };
 		E5TG0011 /* TogetherState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "TogetherState.swift"; path = "Agent/Together/TogetherState.swift"; sourceTree = SOURCE_ROOT; };
@@ -2660,12 +2654,9 @@
 				E5AMI0011 /* HelperModelIdentity.swift */,
 				E5PPR0011 /* AIChatViewModel+ProgrammaticPrompt.swift */,
 				E5TG001A /* TogetherImporter.swift */,
-				E5TG0018 /* TogetherRootView.swift */,
-				E5TG0019 /* TogetherScreens.swift */,
 				E5TG0017 /* TogetherSkin.swift */,
 				E5TG0016 /* FakefsBridge.swift */,
 				E5TG0013 /* TogetherPlayer.swift */,
-				E5TG0014 /* TogetherPanelView.swift */,
 				E5TG0015 /* TogetherMiniBar.swift */,
 				E5TG001C /* TogetherControls.swift */,
 				E5TG0011 /* TogetherState.swift */,
@@ -3204,12 +3195,9 @@
 				E5AJN0001 /* AgentJobCompletionNotice.swift in Sources */,
 				E5PPR0001 /* AIChatViewModel+ProgrammaticPrompt.swift in Sources */,
 				E5TG000A /* TogetherImporter.swift in Sources */,
-				E5TG0008 /* TogetherRootView.swift in Sources */,
-				E5TG0009 /* TogetherScreens.swift in Sources */,
 				E5TG0007 /* TogetherSkin.swift in Sources */,
 				E5TG0006 /* FakefsBridge.swift in Sources */,
 				E5TG0003 /* TogetherPlayer.swift in Sources */,
-				E5TG0004 /* TogetherPanelView.swift in Sources */,
 				E5TG0005 /* TogetherMiniBar.swift in Sources */,
 				E5TG000C /* TogetherControls.swift in Sources */,
 				E5TG0001 /* TogetherState.swift in Sources */,

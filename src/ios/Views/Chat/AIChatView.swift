@@ -248,11 +248,12 @@ struct AIChatView: View {
 
     /// 一起听胶囊占的高度：只一处定义，见 TogetherMiniBar.stackHeight（48 胶囊 + 2 间距）。
     private var showTogetherBar: Bool {
-        // 常驻小胶囊开关由 TogetherState.showMiniBar 控制（在面板里设置）。
+        // [T-together-capsule-only 11-10] 常驻小胶囊开关由 TogetherState.showMiniBar 控制。
+        // 开关原来挂在「一起听」面板顶栏,面板整块删了,现在搬进加号小抽屉。
         // 开启时只在播放时显示（暂停不显示）；关闭时永远不显示。
         // 以前是"有歌就留着"，现在改成交互需求。
         guard togetherHub.state.showMiniBar else { return false }
-        return togetherPlayer.isPlaying && !showTogether
+        return togetherPlayer.isPlaying
     }
 
     private var togetherBarInset: CGFloat {
@@ -365,10 +366,8 @@ struct AIChatView: View {
     @State private var showTerminal = false
     @State private var terminalInitCommand: String?
     @State private var showAttachmentMenu = false
-    // [R24] 一起听：全屏空间。叉掉之后不是关掉，是缩成悬浮卡继续放。
-    @State private var showTogether = false
     @ObservedObject private var togetherPlayer = TogetherPlayer.shared
-    /// 小胶囊开关跟着 state 走，不然在面板里关掉了主界面不知道。
+    /// 小胶囊开关跟着 state 走，不然在抽屉里关掉了主界面不知道。
     @ObservedObject private var togetherHub = TogetherStateHub.shared
     /// 加号的原生小抽屉（[T-composer-oneshot]）。
     @State private var showPlusSheet = false
@@ -699,7 +698,12 @@ struct AIChatView: View {
                             // 键盘、托盘、胶囊怎么动都跟得住，不需要任何坐标。
                             floatingComposerButtons
                             if showTogetherBar {
-                                TogetherMiniBar(onOpen: { showTogether = true })
+                                // [T-together-capsule-only 11-10] onOpen 原本通向那块
+                                // 全屏「一起听」页,页面整块删了,这一跳也撤掉。
+                                // 会话人设改为直接带进去:以前是打开全屏页时才注进环境,
+                                // 现在胶囊自己就是唯一入口,少这一句 deck 里的人和头像
+                                // 会回落全局人设,和这个会话对不上。
+                                TogetherMiniBar(sessionPersonaId: vm.sessionPersonaId)
                                     // [T-capsule-retract-to-side] 收起时往侧边缩走再淡出，
                                     // 不是从底部整条掉下去：她说"日常乖乖呆在侧边藏着，
                                     // 收回侧边的动画要丝滑柔和"。进来时也从侧边滑出来，
@@ -1328,10 +1332,6 @@ struct AIChatView: View {
                     )
                 }
             }
-        }
-        .fullScreenCover(isPresented: $showTogether) {
-            // 会话人设跟进来：回答的人的名字和头像按这个会话绑定的人设走。
-            TogetherRootView(togetherPersonaId: vm.sessionPersonaId)
         }
 
         .fullScreenCover(isPresented: $showTerminal) {
@@ -2199,8 +2199,6 @@ struct AIChatView: View {
             vm.compactAll()
         case .clearChat:
             vm.clearChatConfirmRequested = true
-        case .together:
-            showTogether = true
         case .voiceInput:
             // [T-composer-nomic 11-10] 话筒搬进加号后,这里是唯一的语音入口。
             // 和原来那颗键做的事一样:先收抽屉,再进语音面板。
@@ -4470,6 +4468,21 @@ struct AIChatView: View {
                 }
             },
             onSetMemory: { enabled in vm.setMemoryWrites(enabled) },
+            miniBarOn: togetherHub.state.showMiniBar,
+            onSetMiniBar: { enabled in
+                // [T-together-capsule-only 11-10] 常驻小胶囊开关从「一起听」面板搬
+                // 到加号抽屉。写入路径和原来那颗键一模一样,状态仍然只存一处。
+                TogetherHaptics.select()
+                TogetherStore.shared.mutate(by: .user, event: "setMiniBar") { state in
+                    state.showMiniBar = enabled
+                }
+                // 图标从实心到空心太不明显,她点完看不出发生过什么,补一句话。
+                MinisToast.show(
+                    enabled ? AppLocalized("小胶囊已开:放歌时会出现")
+                            : AppLocalized("小胶囊已关:不再出现"),
+                    systemImage: enabled ? "capsule.fill" : "capsule"
+                )
+            },
             onToggleSkill: { skillId, enabled in
                 if let sid = vm.sessionId {
                     SkillStore.shared.setSessionOverride(skillId: skillId, sessionId: sid, enabled: enabled)
@@ -6562,9 +6575,6 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
     case compactHistory = "compactHistory" // 压缩上下文
     case clearChat = "clearChat"           // 清空当前对话
 
-    // [R24] 一起听：两个人的音乐空间
-    case together = "together"
-
     // [T-composer-nomic 11-10] 语音输入:从输入栏那颗话筒搬进加号抽屉。
     case voiceInput = "voiceInput"
 
@@ -6590,7 +6600,6 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
         case .share: return "导出会话"
         case .compactHistory: return "压缩上下文"
         case .clearChat: return "清空当前对话"
-        case .together: return "一起听"
         case .voiceInput: return "语音输入"
         }
     }
@@ -6616,7 +6625,6 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
         case .share: return "square.and.arrow.up.fill"
         case .compactHistory: return "arrow.down.right.and.arrow.up.left"
         case .clearChat: return "trash"
-        case .together: return "headphones"
         case .voiceInput: return "mic.fill"
         }
     }

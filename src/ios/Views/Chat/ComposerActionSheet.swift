@@ -20,12 +20,18 @@ struct ComposerActionSheet: View {
     let sessionId: String?
     let onItemTap: (PlusPanelItemType) -> Void
     let onSetMemory: (Bool) -> Void
+    /// [T-together-capsule-only 11-10] 常驻小胶囊开关。原来挂在「一起听」面板顶栏,
+    /// 面板整块删了,开关搬到这儿;存的是同一个 TogetherState.showMiniBar。
+    let miniBarOn: Bool
+    let onSetMiniBar: (Bool) -> Void
     let onToggleSkill: (String, Bool) -> Void
     let onToggleConnector: (String, Bool) -> Void
 
     @ObservedObject private var skillStore = SkillStore.shared
     @ObservedObject private var mcpStore = MCPStore.shared
     @State private var page: Page = .root
+    /// 开关的本地镜像:点完立刻反映到界面,不等磁盘回读(和原面板同一套写法)。
+    @State private var miniBarLocal = true
     @Environment(\.dismiss) private var dismiss
 
     private enum Page: Hashable { case root, skills, connectors }
@@ -46,6 +52,9 @@ struct ComposerActionSheet: View {
             }
             .scrollIndicators(.hidden)
             .background(CSSThemeVariables.bg(scope: ThemeColorLayer.sheet))
+            // 开关初值来自外层传进来的真实状态,抽屉打开时同步一次。
+            .onAppear { miniBarLocal = miniBarOn }
+            .onChange(of: miniBarOn) { _, next in miniBarLocal = next }
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -103,6 +112,16 @@ struct ComposerActionSheet: View {
                           subtitle: AppLocalized("这一句起，小梦会不会把这次对话记下来"),
                           isOn: memoryEnabled) { onSetMemory($0) }
                 divider
+                // [T-together-capsule-only 11-10] 一起听那套前端(在听/歌单/一起听/
+                // 喜欢、曲库、歌单编辑、同步页)整块删了,只剩聊天里那个小胶囊。
+                // 原本挂面板顶栏的开关搬到这儿,不然关掉之后就没地方再打开。
+                toggleRow(AppLocalized("音乐小胶囊"),
+                          subtitle: AppLocalized("放歌时出现在输入栏上面,点它展开播放器"),
+                          isOn: miniBarLocal) { next in
+                    onSetMiniBar(next)
+                    miniBarLocal = next
+                }
+                divider
                 navRow(AppLocalized("技能"), "puzzlepiece.extension",
                        value: skillCountText) {
                     withAnimation(.snappy) { page = .skills }
@@ -116,8 +135,6 @@ struct ComposerActionSheet: View {
                 // [T-composer-nomic 11-10] 输入栏那颗话筒搬到这儿来了。
                 // 她原话「把输入栏里面的小话筒藏到 + 里面」。
                 navRow(AppLocalized("语音输入"), "mic.fill", value: nil) { pick(.voiceInput) }
-                divider
-                navRow(AppLocalized("一起听"), "headphones", value: nil) { pick(.together) }
                 divider
                 navRow(AppLocalized("新建会话"), "square.and.pencil", value: nil) { pick(.newChat) }
                 divider
