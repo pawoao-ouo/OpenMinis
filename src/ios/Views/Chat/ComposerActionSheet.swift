@@ -113,6 +113,10 @@ struct ComposerActionSheet: View {
                     withAnimation(.snappy) { page = .connectors }
                 }
                 divider
+                // [T-composer-nomic 11-10] 输入栏那颗话筒搬到这儿来了。
+                // 她原话「把输入栏里面的小话筒藏到 + 里面」。
+                navRow(AppLocalized("语音输入"), "mic.fill", value: nil) { pick(.voiceInput) }
+                divider
                 navRow(AppLocalized("一起听"), "headphones", value: nil) { pick(.together) }
                 divider
                 navRow(AppLocalized("新建会话"), "square.and.pencil", value: nil) { pick(.newChat) }

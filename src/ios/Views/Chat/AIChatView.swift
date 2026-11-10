@@ -2200,6 +2200,15 @@ struct AIChatView: View {
             vm.clearChatConfirmRequested = true
         case .together:
             showTogether = true
+        case .voiceInput:
+            // [T-composer-nomic 11-10] 话筒搬进加号后,这里是唯一的语音入口。
+            // 和原来那颗键做的事一样:先收抽屉,再进语音面板。
+            if showStickerPanel {
+                closeComposerTray(focusKeyboard: false)
+            }
+            vm.voiceUsedInComposition = true
+            VoiceModePreference.shared.enteredFromText = true
+            withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
         }
     }
 
@@ -3461,40 +3470,42 @@ struct AIChatView: View {
         }
     }
 
-    /// [Single-Line WeChat Style] 微信式单行聊天输入条：左加号、中输入框、右语音与发送
+    /// [T-composer-upstream 11-10] 输入栏排版照上游:输入框独占上面一行,键排下面
+    /// 一横排。按键和功能没照抄上游(她要的是"UI 复刻、按键不复刻"),只换骨架。
     /// AnyView-erased 防止输入条复杂组件加深 inputBar 泛型深度导致栈溢出 (crash 2026-04-17 / 2026-10-12)
-    private var singleLineInputRow: AnyView {
-        // [T-composer-oneshot] 照她给的稿子：一整条圆角胶囊，并排——
-        //   +   输入框自适应   表情   语音/发送   停止（生成时才出现，在最右）
-        //
-        // [T-composer-split] 语音/发送和停止是两颗键，不是原来那颗三合一形态键：
-        // 语音/发送只看草稿空不空，停止只看生成中不中，两者互不抢位。
-        // 停止出现时语音/发送向左滑一格，身份不变、不消失；停止消失时再滑回来。
-        //
-        // 上一版把文字放上面、键放下面一行，那是上游的骨架，但她要的是这种
-        // 单行胶囊：一条就够，键永远在同一个高度上，打字时只有输入框变高，
-        // 按钮不会跟着上下跳。
-        let row = HStack(alignment: .center, spacing: 6) {
-            attachmentMenuButton
+    private var composerRows: AnyView {
+        let rows = VStack(spacing: 5) {
             inputFieldOrWaveform
-            stickerTrayButton
-            voiceSendButton
-            if showStop {
-                stopButton
-            }
+            inputBottomRow
         }
-        .padding(6)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showStop)
         .onChange(of: vm.inputText) { _, newText in
-            // [T-composer-edit-clear] 编辑中把字删空了就是退出编辑，回到语音键。
-            // 她定的：字删了就回到语音键，有附件也一样退；附件留着不删，挂在
+            // [T-composer-edit-clear] 编辑中把字删空了就是退出编辑,回到空输入态。
+            // 她定的:字删了就退出编辑,有附件也一样退;附件留着不删,挂在
             // 草稿里当新草稿。别调 cancelEdit()——它会把附件一起清掉。
             if vm.editingMessageIndex != nil
                 && newText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 vm.exitEditKeepingDraft()
             }
         }
-        return AnyView(row)
+        return AnyView(rows)
+    }
+
+    /// [T-composer-upstream 11-10] 下面那排键。上游是「+ / 编辑退出 / 话筒 / 发送」,
+    /// 我们只留「+ 表情 …… 发送 停止」——话筒已经搬进加号抽屉
+    /// ([T-composer-nomic]),按键组合不动。
+    private var inputBottomRow: some View {
+        HStack(spacing: 12) {
+            attachmentMenuButton
+            stickerTrayButton
+            Spacer(minLength: 0)
+            voiceSendButton
+            if showStop {
+                stopButton
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showStop)
     }
 
     /// [T-composer-split] 停止键该不该露面，只看生成状态：
@@ -3529,35 +3540,38 @@ struct AIChatView: View {
         .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
     }
 
-    /// 语音/发送键：只管发，不管停。
-    ///   · 编辑中 → 有字：提交这条编辑 / 无字：退出编辑
-    ///   · 空输入 → 话筒（进语音面板）
-    ///   · 有字   → 箭头（发送；生成中就是排队，停止另有一颗键）
+    /// 发送键:只管发,不管停。
+    ///   · 编辑中 → 有字:提交这条编辑 / 无字:退出编辑
+    ///   · 空输入 → 灰箭头,看得见点不动
+    ///   · 有字   → 黑圆箭头(发送;生成中就是排队,停止另有一颗键)
     ///
-    /// [T-composer-split] 这颗键的形态只看文字空不空，不看附件、不看生成中不中。
-    /// 以前它还兼着停止：生成中一打字，canEnqueue 为真，停止就被顶成发送，
-    /// 点下去只是排队，生成根本停不掉。现在停止是行里最右那颗独立的键，
+    /// [T-composer-nomic 11-10] 话筒搬进加号抽屉了,输入栏不再有语音入口:
+    /// 空输入时这颗键只画一颗灰箭头并禁用,不再兼做语音键。她原话「把小话筒
+    /// 藏到 + 里面」——要的是栏里看不见它,不是把语音删掉。
+    ///
+    /// [T-composer-split] 这颗键的形态只看文字空不空,不看附件、不看生成中不中。
+    /// 以前它还兼着停止:生成中一打字,canEnqueue 为真,停止就被顶成发送,
+    /// 点下去只是排队,生成根本停不掉。现在停止是行里最右边那颗独立的键,
     /// 这颗再怎么打字也抢不走它。
-    /// 有附件没字还是话筒（她定的准表）；附件发不发由 canSend/回车另算。
     ///
-    /// [T-key-no-detach] 字形不增删视图：三个字形同时挂着，只切透明度。
-    /// 视图增删会让黑色圆那一层在键盘动画期间重新挂载，表现层可能停在旧坐标
+    /// [T-key-no-detach] 字形不增删视图:几个字形同时挂着,只切透明度。
+    /// 视图增删会让黑色圆那一层在键盘动画期间重新挂载,表现层可能停在旧坐标
     /// —— 她看到的就是「黑圆片飞出去、0.25 秒后落回来」。
-    /// 黑圆底也一样：只在发送态才不透明，语音态是裸话筒，圆底不同时增删。
-    /// [T-key-inbounds] 命中框是「44 的框装 40 的圆」：内容画在自己边界外面，
-    /// 父层一动就容易被单独合成，和上面那条同源。
+    /// [T-key-inbounds] 命中框是「44 的框装 40 的圆」:内容画在自己边界外面,
+    /// 父层一动就容易被单独合成,和上面那条同源。
     private var voiceSendButton: some View {
         let editing = vm.editingMessageIndex != nil
         let hasText = hasDraftText
-        // 三个字形各自一个开关,谁亮谁不亮;全程不增删视图。
-        // 注意箭头只看 hasText，不写 editing || hasText：编辑中没字时只该亮
-        // 叉（裸叉退出编辑），箭头和叉同时亮会叠在一起。以前 hasContent 含
-        // 附件，编辑纯图消息进场时 hasContent 为真，叉本来就亮不起来，叠字
-        // 的问题藏着；现在形态只看文字，这一行必须改，否则进场编辑纯图消息
+        // 几个字形各自一个开关,谁亮谁不亮;全程不增删视图。
+        // 注意箭头只看 hasText,不写 editing || hasText:编辑中没字时只该亮
+        // 叉(裸叉退出编辑),箭头和叉同时亮会叠在一起。以前 hasContent 含
+        // 附件,编辑纯图消息进场时 hasContent 为真,叉本来就亮不起来,叠字
+        // 的问题藏着;现在形态只看文字,这一行必须改,否则进场编辑纯图消息
         // 时黑圆里箭头叉一起亮。
         let showArrow = hasText
         let showClose = editing && !hasText
-        let showMic = !editing && !hasText
+        // 空输入:灰箭头。只有这一种情况点不动。
+        let showIdleArrow = !editing && !hasText
 
         return Button {
             voiceSendTapCount &+= 1
@@ -3570,20 +3584,10 @@ struct AIChatView: View {
                 performSend()
             } else if hasText {
                 notifyNoUsableModel()
-            } else {
-                // 空输入：进语音面板。先收抽屉，别让两层叠在一起。
-                // 没字就是语音键，哪怕附件还挂着（编辑退回来的草稿就是这
-                // 样）；附件留着，进语音不删，回来接着挂着。
-                if showStickerPanel {
-                    closeComposerTray(focusKeyboard: false)
-                }
-                vm.voiceUsedInComposition = true
-                VoiceModePreference.shared.enteredFromText = true
-                withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
             }
         } label: {
             ZStack {
-                // 只有发送态才有黑圆底；语音是裸话筒，退出编辑是裸叉。
+                // 只有发送态才有黑圆底。
                 Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
                     .opacity(showArrow ? 1 : 0)
                 // 发送 / 提交编辑。
@@ -3596,11 +3600,11 @@ struct AIChatView: View {
                     .font(ChatFont.font(15, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
                     .opacity(showClose ? 1 : 0)
-                // 语音：裸话筒，不套黑圆——跟她对话框里那颗的样子一致。
-                Image(systemName: "mic.fill")
-                    .font(ChatFont.font(19, weight: .semibold))
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
-                    .opacity(showMic ? 1 : 0)
+                // 空输入的灰箭头:没字就没什么可发,画灰表示禁用。
+                Image(systemName: "arrow.up")
+                    .font(ChatFont.font(17, weight: .semibold))
+                    .foregroundStyle(ChatColors.secondaryText.opacity(0.45))
+                    .opacity(showIdleArrow ? 1 : 0)
             }
             // [T-key-44] 40 的圆装进 44 的框:命中框够大,内容不越界。
             .frame(width: 40, height: 40)
@@ -3609,9 +3613,11 @@ struct AIChatView: View {
         }
         .buttonStyle(MorphPressStyle())
         .sensoryFeedback(.impact, trigger: voiceSendTapCount)
+        // 空输入时点不动:没有字,也没有语音这条路了。
+        .disabled(!editing && !hasText)
         .accessibilityLabel(Text(editing
             ? (hasText ? AppLocalized("提交编辑") : AppLocalized("退出编辑"))
-            : (hasText ? AppLocalized("发送") : AppLocalized("语音输入"))))
+            : AppLocalized("发送")))
     }
 
     /// 停止键：行里最右一格，只在生成时出现，底色永远是黑，不变红。
@@ -3805,7 +3811,9 @@ struct AIChatView: View {
     private var inputFieldOrWaveform: AnyView {
         // [T-composer-upstream] 单行 52 高（16 上 + 20 字 + 8 下 + 键行），
         // 跟上游一致：输入区在上面独占整宽，键在下面一行。
-        let topPadding: CGFloat = (vm.attachments.isEmpty && vm.loadingVideoCount == 0) ? 4 : 6
+        // [T-composer-upstream 11-10] 16/11 跟上游一致:空栏时文字上方留够
+        // 呼吸量,挂了附件预览时收窄到 11,不然上下两块挤成一块。
+        let topPadding: CGFloat = (vm.attachments.isEmpty && vm.loadingVideoCount == 0) ? 16 : 11
         if voiceInputActive {
             return AnyView(
                 // [voice-correction §6] Recent conversation turns, straight from the
@@ -3924,11 +3932,12 @@ struct AIChatView: View {
                 field.fixedSize(horizontal: false, vertical: true)
             }
         }
-        // [T-composer-oneshot] 单行胶囊里，文字上下不再各留 12/8：那一圈
-        // 由外层 6pt 的 padding 统一给，输入框只留左右 4，文字才落在胶囊
-        // 的垂直中线上（不然一行字看着比两边的键高半格）。
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
+        // [T-composer-upstream 11-10] 内边距照上游:左右 16、上 topPadding、
+        // 下 10。单行胶囊时代那套 4/4 是给外层 6pt 让位用的,两行骨架下
+        // 那颗外层 padding 已经没了,再留 4 文字会贴着栏边。
+        .padding(.horizontal, 16)
+        .padding(.top, topPadding)
+        .padding(.bottom, 10)
         // [T-composer-rebuild] 输入框本体不再嵌第二颗胶囊。以前外面是输入条、
         // 里面再套一颗 18 圆角的小胶囊，两层半透明叠在一起：底色加深一道，
         // 消息内容从两层里各透一次，看着又脏又挤，像「方框套方框」。
@@ -4130,7 +4139,7 @@ struct AIChatView: View {
                     // 输入条上不再有任何浮层。
 
                     // 微信式单行聊天输入条 (AnyView 类型擦除，杜绝深层泛型栈溢出)
-                    singleLineInputRow
+                    composerRows
                 }
                 // [T-composer-tap-to-focus] 整条都能点着聚焦。这是**底层**的
                 // 点击接收器，不是祖先手势：祖先手势会在子按钮被点时也触发，
@@ -6643,6 +6652,9 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
     // [R24] 一起听：两个人的音乐空间
     case together = "together"
 
+    // [T-composer-nomic 11-10] 语音输入:从输入栏那颗话筒搬进加号抽屉。
+    case voiceInput = "voiceInput"
+
     public var id: String { rawValue }
 
     public var title: String {
@@ -6666,6 +6678,7 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
         case .compactHistory: return "压缩上下文"
         case .clearChat: return "清空当前对话"
         case .together: return "一起听"
+        case .voiceInput: return "语音输入"
         }
     }
 
@@ -6691,6 +6704,7 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
         case .compactHistory: return "arrow.down.right.and.arrow.up.left"
         case .clearChat: return "trash"
         case .together: return "headphones"
+        case .voiceInput: return "mic.fill"
         }
     }
 }
