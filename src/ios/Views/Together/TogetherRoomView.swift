@@ -92,7 +92,7 @@ struct TogetherRoomView: View {
             TogetherRoomLyrics(
                 track: track,
                 lyrics: lyrics,
-                position: player.currentTime,
+                position: shownPosition,
                 engraved: state.loopLines[track?.id ?? ""],
                 engrave: { line in
                     guard let id = track?.id else { return }
@@ -443,7 +443,7 @@ struct TogetherRoomView: View {
     }
 
     private func scrubBar(width: CGFloat) -> some View {
-        let total = max(player.duration, 0.001)
+        let total = max(shownDuration, 0.001)
         let pct = min(max(shownPosition / total, 0), 1)
         return ZStack(alignment: .leading) {
             Capsule()
@@ -463,15 +463,15 @@ struct TogetherRoomView: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    guard player.duration > 0 else { return }
-                    scrub = min(max(value.location.x / max(width, 1), 0), 1) * player.duration
+                    guard shownDuration > 0 else { return }
+                    scrub = min(max(value.location.x / max(width, 1), 0), 1) * shownDuration
                 }
                 .onEnded { value in
-                    guard player.duration > 0 else {
+                    guard shownDuration > 0 else {
                         scrub = nil
                         return
                     }
-                    let target = min(max(value.location.x / max(width, 1), 0), 1) * player.duration
+                    let target = min(max(value.location.x / max(width, 1), 0), 1) * shownDuration
                     commitSeek(target)
                 }
         )
@@ -494,8 +494,7 @@ struct TogetherRoomView: View {
                 TogetherHaptics.tap()
             }
             Button {
-                player.userToggle()
-                hub.refreshNow()
+                playPause()
             } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 20, weight: .semibold))
@@ -593,8 +592,15 @@ struct TogetherRoomView: View {
         guard let id = track?.id else { return false }
         return likedIds.contains(id)
     }
-    private var shownPosition: Double { scrub ?? player.currentTime }
-    private var remaining: Double { max(player.duration - shownPosition, 0) }
+    // 本机播放器没加载时仍按状态里的位置和曲目时长显示,不然刚进页面就像在放一首 0:00 的歌
+    private var shownPosition: Double {
+        if let scrub { return scrub }
+        return player.track == nil ? state.playback.position : player.currentTime
+    }
+    private var shownDuration: Double {
+        player.duration > 0 ? player.duration : (track?.duration ?? 0)
+    }
+    private var remaining: Double { max(shownDuration - shownPosition, 0) }
     // MARK: - 仓:喜欢的歌、歌单
 
     private var shelf: some View {
@@ -961,7 +967,7 @@ struct TogetherRoomView: View {
 
     private var stampEditor: some View {
         HStack(spacing: 8) {
-            Text(timeText(player.currentTime))
+            Text(timeText(shownPosition))
                 .font(ChatFont.font(10, design: .monospaced))
                 .foregroundStyle(TogetherSpec.muted)
                 .frame(width: 40, alignment: .leading)
@@ -1167,6 +1173,24 @@ struct TogetherRoomView: View {
         TogetherHaptics.select()
     }
 
+    // 本机播放器还没加载曲目时,play/pause 直接起播,不然刚进页面这颗键是死的
+    private func playPause() {
+        if player.track == nil, let now = track {
+            let queue = state.playback.queue.isEmpty
+                ? queueIds(of: state.playback.queueSource ?? "")
+                : state.playback.queue
+            if !player.start(now, from: state.playback.position, by: .user,
+                             queue: queue, queueSource: state.playback.queueSource) {
+                MinisToast.show(TogetherCopy.unplayableTrack, systemImage: "exclamationmark.triangle")
+            }
+            hub.refreshNow()
+            TogetherHaptics.select()
+            return
+        }
+        player.userToggle()
+        hub.refreshNow()
+    }
+
     private func queueIds(of playlistId: String) -> [String] {
         livePlaylists.first { $0.id == playlistId }?.tracks ?? []
     }
@@ -1181,7 +1205,7 @@ struct TogetherRoomView: View {
             MinisToast.show(TogetherCopy.likedEmpty, systemImage: "heart")
             return
         }
-        songsFor = "__liked__"
+        songsFor = togetherRoomLikedId
     }
 
     private func commitCreate() {
@@ -1210,7 +1234,7 @@ struct TogetherRoomView: View {
         guard let t = track else { return }
         let text = stampDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        if TogetherStore.shared.addNote(at: player.currentTime, text: text, by: .user, trackId: t.id) {
+        if TogetherStore.shared.addNote(at: shownPosition, text: text, by: .user, trackId: t.id) {
             stampDraft = ""
             stampFocused = false
             hub.refreshNow()
@@ -1671,7 +1695,7 @@ extension TogetherRoomLyrics {
     private var currentIndex: Int {
         guard !lines.isEmpty else { return -1 }
         var hit = -1
-        for (i, line) in lines.enumerated() where line.time <= position + 0.15 {
+        for (i, line) in lines.enumerated() where line.at <= position + 0.15 {
             hit = i
         }
         return hit
@@ -1695,7 +1719,7 @@ extension TogetherRoomLyrics {
         .contentShape(Rectangle())
         .onTapGesture {
             TogetherHaptics.tap()
-            seekTo(line.time)
+            seekTo(line.at)
         }
         .onLongPressGesture(minimumDuration: 0.45) {
             TogetherHaptics.select()
