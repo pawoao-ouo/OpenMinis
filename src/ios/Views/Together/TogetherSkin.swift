@@ -110,8 +110,17 @@ enum TogetherCopy {
     static var restore: String { AppLocalized("Restore", comment: "一起听 · 恢复") }
     static var deletedPlaylists: String { AppLocalized("Deleted playlists", comment: "一起听 · 已删除的歌单") }
     static var browseSongs: String { AppLocalized("Browse songs", comment: "一起听 · 去曲库看看") }
+    /// 曲库那张入口卡的标题。是个名词(和"喜欢的音乐"并列),不是一句"去看看"。
+    static var libraryTitle: String { AppLocalized("Library", comment: "一起听 · 曲库") }
     static var nothingPlaying: String { AppLocalized("Nothing playing", comment: "一起听 · 什么都没在放") }
     static var fileMissing: String { AppLocalized("This song's file is missing", comment: "一起听 · 文件不见了") }
+    /// 刻字那一栏的输入框占位。不能和分区标题同一句(同一个词干两件事,看着像没做完)。
+    static var leaveALineHint: String { AppLocalized("Write a line at this second", comment: "一起听 · 刻字输入框占位") }
+    // [T-room-copy 11-11] 这三条是补断线的:空态说了别处的字、失败一声不吭。
+    static var noEchoes: String { AppLocalized("Nothing echoing yet", comment: "一起听 · 回声墙空态") }
+    static var saveFailed: String { AppLocalized("Could not save, try again", comment: "一起听 · 没存上") }
+    static var takeBack: String { AppLocalized("Take it back", comment: "一起听 · 遥控自己接回来") }
+    static var handoffFailed: String { AppLocalized("Could not reach her, try again", comment: "一起听 · 遥控没递出去") }
     static var queueEmptyTitle: String { AppLocalized("Queue is empty", comment: "一起听 · 队列空态") }
     static var queueEmptyHint: String { AppLocalized("Play something from a list and it will show up here.", comment: "一起听 · 队列空态说明") }
     @MainActor static func driving(_ name: String) -> String {

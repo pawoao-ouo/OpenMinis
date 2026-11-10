@@ -76,12 +76,13 @@ struct TogetherRoomView: View {
     var body: some View {
         ZStack {
             page
-            backdrop
+            wallpaper
             VStack(spacing: 0) {
                 topBar
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 22) {
                         hero
+                        if restoreFailed { fileGoneNotice }
                         shelf
                         echoes
                         stamps
@@ -110,6 +111,10 @@ struct TogetherRoomView: View {
         .onChange(of: pickerItem) { item in
             guard let item else { return }
             importWallpaper(item)
+        }
+        .onChange(of: player.track?.id) { id in
+            // 真放上歌了,"文件不见了"这句话就不该还挂着
+            if id != nil { restoreFailed = false }
         }
         .sheet(item: $sheet) { which in
             switch which {
@@ -149,28 +154,100 @@ struct TogetherRoomView: View {
             .ignoresSafeArea()
     }
 
-    private var backdrop: some View {
-        Group {
+    /// 壁纸是这页真正的底子,不是顶上一条糊掉的装饰。
+    ///
+    /// [T-room-wallpaper 11-11] 她原话「壁纸,功能,各方面都存在问题」——旧版把这层
+    /// 缩成 330 高、模糊 30、透明度 0.34 的一条,等于换了壁纸也看不出来。
+    /// 现在整页铺满:顶上留一层薄纱托住顶栏的小字,中间露出清晰的图,
+    /// 再往下渐隐回纸面 —— 卡片一律落在纸面上,不跟照片抢字。
+    /// 压多厚的纱不自己拍脑袋:图的明暗交给 TogetherTone 判
+    /// (它读的就是同一张图,判完带缓存)。
+    private var wallpaper: some View {
+        GeometryReader { geo in
             if let url = TogetherImages.url(for: TogetherImages.wallpaperNow),
                let image = TogetherImages.cachedImage(for: url) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(height: 330)
-                    .blur(radius: 30)
-                    .opacity(0.34)
-                    .mask(
-                        LinearGradient(
-                            colors: [.white, .white.opacity(0.35), .clear],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
+                // 顶栏那行小字是压在图上的,图越花越压不住。厚薄交给 TogetherTone 判,
+                // 只在头顶那一截加码,中间不动——不然整张图都糊成一片。
+                let tone = TogetherTone.decision(for: TogetherImages.wallpaperNow)
+                ZStack {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                    // 上薄下厚的纸色渐隐:顶栏压得住,中间看得见图,下面就是纸
+                    LinearGradient(
+                        stops: [
+                            .init(color: TogetherSpec.capsuleSurface.opacity(min(0.94, 0.62 + tone.scrimAlpha)), location: 0),
+                            .init(color: TogetherSpec.capsuleSurface.opacity(min(0.80, 0.34 + tone.scrimAlpha * 0.5)), location: 0.12),
+                            .init(color: TogetherSpec.capsuleSurface.opacity(0.26), location: 0.32),
+                            .init(color: TogetherSpec.capsuleSurface.opacity(0.88), location: 0.56),
+                            .init(color: TogetherSpec.capsuleSurface, location: 0.72),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
-                    .ignoresSafeArea(edges: .top)
-                    .allowsHitTesting(false)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
             }
         }
         .id(imageRev)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    // MARK: - 文件不见了(开页面时才算得出来的那种)
+
+    // [T-room-restore 11-11] bootstrap 里算出来的 restoreFailed 以前只是被赋值,
+    // 从来没画出来过——曲子在、文件没了的时候这一页看着跟没事一样,按播放也不响。
+    // 这是最典型的信息断层:后端知道,界面不说。
+    private var fileGoneNotice: some View {
+        roomCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(TogetherSpec.sub)
+                        .frame(width: 28, height: 28)
+                        .background(TogetherSpec.ink(0.05), in: Circle())
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(TogetherCopy.fileMissing)
+                            .font(ChatFont.font(13, weight: .medium, design: .serif))
+                            .foregroundStyle(TogetherSpec.charcoal)
+                            .lineLimit(2)
+                        Text(TogetherCopy.emptyHint(aiName))
+                            .font(ChatFont.font(10.5, design: .monospaced))
+                            .foregroundStyle(TogetherSpec.muted)
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 6)
+                    Button {
+                        restoreFailed = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(TogetherSpec.muted)
+                            .frame(width: 26, height: 26)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(TogetherPressStyle())
+                    .accessibilityLabel(TogetherCopy.cancel)
+                }
+                Button {
+                    TogetherHaptics.tap()
+                    openLibrary()
+                } label: {
+                    Text(TogetherCopy.browseSongs)
+                        .font(ChatFont.font(11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(TogetherSpec.sub)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(TogetherSpec.ink(0.05), in: Capsule(style: .continuous))
+                        .contentShape(Capsule(style: .continuous))
+                }
+                .buttonStyle(TogetherPressStyle())
+            }
+        }
     }
 
     // MARK: - 顶栏
@@ -245,7 +322,8 @@ struct TogetherRoomView: View {
             }
         }
     }
-// MARK: - 此刻
+
+    // MARK: - 此刻
 
     private var hero: some View {
         VStack(spacing: 16) {
@@ -280,6 +358,20 @@ struct TogetherRoomView: View {
             .foregroundStyle(TogetherSpec.muted)
             .lineLimit(1)
         }
+        // [T-room-wallpaper 11-11] 定了壁纸之后,上半区就是那张照片的舞台,
+        // 字直接压在照片上会糊。给她一张瓷面卡托着——和小胶囊同一套语言
+        // (glass + 发丝描边 + 连续圆角),不是新造的风格。
+        .padding(.vertical, 18)
+        .padding(.horizontal, 16)
+        .background(
+            TogetherSpec.glass(0.94),
+            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(TogetherSpec.ink(0.08), lineWidth: 0.7)
+        )
+        .padding(.horizontal, 12)
     }
 
     private var hairline: some View {
@@ -381,9 +473,19 @@ struct TogetherRoomView: View {
                     loopLinePanel(t)
                 }
             } else {
-                Text(TogetherCopy.browseSongs)
-                    .font(ChatFont.font(12, design: .serif))
-                    .foregroundStyle(TogetherSpec.muted)
+                // [T-room-library 11-11] 这儿原来只是把"去曲库看看"当纯文字画出来,
+                // 点它没反应——看着像个入口,其实是一句死话。
+                Button {
+                    TogetherHaptics.tap()
+                    openLibrary()
+                } label: {
+                    Text(TogetherCopy.browseSongs)
+                        .font(ChatFont.font(12, design: .serif))
+                        .foregroundStyle(TogetherSpec.sub)
+                        .underline(true, color: TogetherSpec.ink(0.18))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(TogetherPressStyle())
             }
         }
         .frame(minHeight: 38)
@@ -625,8 +727,41 @@ struct TogetherRoomView: View {
 
     private var shelf: some View {
         VStack(alignment: .leading, spacing: 16) {
+            libraryCard
             likedCard
             playlistsCard
+        }
+    }
+
+    // [T-room-library 11-11] 整页原来没有一处能看全曲库——歌单里的歌是别人挑的,
+    // "去曲库看看"点下去也只能落到喜欢那页。补一张和喜欢同款的入口卡。
+    private var libraryCard: some View {
+        roomCard {
+            Button { openLibrary() } label: {
+                HStack(spacing: 12) {
+                    rowGlyph("music.note.list")
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(TogetherCopy.libraryTitle)
+                            .font(ChatFont.font(14.5, weight: .medium, design: .serif))
+                            .foregroundStyle(TogetherSpec.charcoal)
+                        // 这张卡是"点开看",不是"播放全部"——副标题写播放全部是骗人的。
+                        // 只在空的时候给一句说明,不空就留白。
+                        if lib.tracks.isEmpty {
+                            Text(TogetherCopy.noSongsYet)
+                                .font(ChatFont.font(10, design: .monospaced))
+                                .tracking(1.1)
+                                .foregroundStyle(TogetherSpec.muted)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Text("\(lib.tracks.count)")
+                        .font(ChatFont.font(11, design: .monospaced))
+                        .foregroundStyle(TogetherSpec.muted)
+                    chevronGlyph
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(TogetherPressStyle())
         }
     }
 
@@ -639,10 +774,12 @@ struct TogetherRoomView: View {
                         Text(AppLocalized("Liked songs", comment: "一起听 · 喜欢的歌"))
                             .font(ChatFont.font(14.5, weight: .medium, design: .serif))
                             .foregroundStyle(TogetherSpec.charcoal)
-                        Text(likedIds.isEmpty ? TogetherCopy.likedEmpty : TogetherCopy.playAll)
-                            .font(ChatFont.font(10, design: .monospaced))
-                            .tracking(1.1)
-                            .foregroundStyle(TogetherSpec.muted)
+                        if likedIds.isEmpty {
+                            Text(TogetherCopy.likedEmpty)
+                                .font(ChatFont.font(10, design: .monospaced))
+                                .tracking(1.1)
+                                .foregroundStyle(TogetherSpec.muted)
+                        }
                     }
                     Spacer(minLength: 8)
                     Text("\(likedIds.count)")
@@ -816,7 +953,7 @@ struct TogetherRoomView: View {
         let isCurrent = track?.id == trackId
         return Button {
             if let item {
-                player.start(item, by: .user, queue: queueIds(of: playlistId), queueSource: playlistId)
+                player.start(item, by: .user, queue: resolvedQueue(of: playlistId), queueSource: playlistId)
                 hub.refreshNow()
                 TogetherHaptics.tap()
             } else {
@@ -904,7 +1041,9 @@ struct TogetherRoomView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle(TogetherCopy.historyEchoes)
             if echoItems.isEmpty {
-                Text(TogetherCopy.likedEmpty)
+                // [T-room-copy 11-11] 这里原来挂的是「还没有喜欢的歌」——回声墙的空态
+                // 说喜欢的话,她看一眼就知道那行字是从别处抄来的。
+                Text(TogetherCopy.noEchoes)
                     .font(ChatFont.font(11.5, design: .serif))
                     .foregroundStyle(TogetherSpec.muted)
             } else {
@@ -926,7 +1065,13 @@ struct TogetherRoomView: View {
     private func echoRow(_ item: TogetherHistoryItem) -> some View {
         Button {
             if let song = lib.track(id: item.trackId) {
-                player.start(song, by: .user)
+                // [T-room-queue 11-11] 原来不带队列,起播一句就把播放队列写成空,
+                // 切下一首直接到头。带上曲库顺序,和从曲库点歌一致。
+                player.start(
+                    song, by: .user,
+                    queue: hub.library.map(\.id),
+                    queueSource: "all-songs"
+                )
                 hub.refreshNow()
                 TogetherHaptics.tap()
             } else {
@@ -981,8 +1126,13 @@ struct TogetherRoomView: View {
     }
 
     private var myNotes: [TogetherNote] {
-        guard let id = track?.id else { return [] }
-        return state.notes.filter { $0.trackId == id }.sorted { $0.at < $1.at }
+        // [T-room-note-song 11-11] 原来只列当前这首的,别的歌上的刻字就永远看不见,
+        // 换了歌等于丢了。现在当前这首排前面,别的歌排后面并标出歌名;
+        // 什么都没在放的时候也一样列得出来(以前这里直接返回空)。
+        let now = track?.id
+        let mine = state.notes.filter { $0.trackId == now }.sorted { $0.at < $1.at }
+        let others = state.notes.filter { $0.trackId != now }.sorted { $0.at < $1.at }
+        return mine + others
     }
 
     private var stampEditor: some View {
@@ -991,7 +1141,7 @@ struct TogetherRoomView: View {
                 .font(ChatFont.font(10, design: .monospaced))
                 .foregroundStyle(TogetherSpec.muted)
                 .frame(width: 40, alignment: .leading)
-            TextField(TogetherCopy.leaveALine, text: $stampDraft)
+            TextField(TogetherCopy.leaveALineHint, text: $stampDraft)
                 .textFieldStyle(.plain)
                 .focused($stampFocused)
                 .font(ChatFont.font(12.5, design: .serif))
@@ -1016,11 +1166,37 @@ struct TogetherRoomView: View {
                 .foregroundStyle(TogetherSpec.sub)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)
-            Text(note.from == TogetherActor.ai.rawValue ? aiName : userName)
-                .font(ChatFont.font(9.5, design: .monospaced))
-                .foregroundStyle(TogetherSpec.muted)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(note.from == TogetherActor.ai.rawValue ? aiName : userName)
+                    .font(ChatFont.font(9.5, design: .monospaced))
+                    .foregroundStyle(TogetherSpec.muted)
+                // [T-room-note-song 11-11] 以前刻字只显示时间,跨了歌就不知道这句
+                // 是从哪首里刻的,点下去还跳到当前曲的同一秒上。
+                if note.trackId != track?.id, let title = lib.track(id: note.trackId)?.title {
+                    Text(title)
+                        .font(ChatFont.font(9.5, design: .serif))
+                        .italic()
+                        .foregroundStyle(TogetherSpec.muted)
+                        .lineLimit(1)
+                }
+            }
         }
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        // [T-room-note-tap 11-11] 刻下的字原来只能看,点了没动静。点它就该
+        // 回到那一秒——和歌词幕点行是一个意思。
+        .onTapGesture {
+            TogetherHaptics.tap()
+            // [T-room-note-song 11-11] 刻字属于另一首歌时要先切歌再落点,
+            // 否则会跳到当前曲的同一秒,人听到的完全是另一句。
+            if note.trackId != track?.id, let t = lib.track(id: note.trackId) {
+                let src = "all-songs"
+                _ = player.start(t, from: note.at, by: .user,
+                                queue: resolvedQueue(of: src), queueSource: src)
+            } else {
+                commitSeek(note.at)
+            }
+        }
     }
     // MARK: - 遥控:这台在放,谁都能按
 
@@ -1043,12 +1219,17 @@ struct TogetherRoomView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// AI 正握着遥控且没有待接的递交时,这颗键就不是"递出去",而是"我接回来"。
+    private var aiHoldsRemote: Bool {
+        state.pendingHandoff == nil && state.playback.by == TogetherActor.ai.rawValue
+    }
+
     private var idleRemote: some View {
-        Button { askRemote() } label: {
+        Button { aiHoldsRemote ? seizeRemote() : askRemote() } label: {
             HStack(spacing: 10) {
-                Image(systemName: "hand.raised")
+                Image(systemName: aiHoldsRemote ? "hand.raised.fill" : "hand.raised")
                     .font(.system(size: 12, weight: .medium))
-                Text(TogetherCopy.handoff)
+                Text(aiHoldsRemote ? TogetherCopy.takeBack : TogetherCopy.handoff)
                     .font(ChatFont.font(12, weight: .medium, design: .monospaced))
                     .tracking(1.2)
                 Spacer(minLength: 8)
@@ -1197,7 +1378,7 @@ struct TogetherRoomView: View {
     private func playPause() {
         if player.track == nil, let now = track {
             let queue = state.playback.queue.isEmpty
-                ? queueIds(of: state.playback.queueSource ?? "")
+                ? resolvedQueue(of: state.playback.queueSource)
                 : state.playback.queue
             if !player.start(now, from: state.playback.position, by: .user,
                              queue: queue, queueSource: state.playback.queueSource) {
@@ -1211,8 +1392,21 @@ struct TogetherRoomView: View {
         hub.refreshNow()
     }
 
-    private func queueIds(of playlistId: String) -> [String] {
-        livePlaylists.first { $0.id == playlistId }?.tracks ?? []
+    /// 一个来源名字 → 一串歌。整页只在这里翻这一道。
+    /// 以前只有「歌单 id」一种,`"liked"`/`"all-songs"` 这种约定名字
+    /// 进来的话解析出来是空,按播放就变成「没有队列」。
+    private func resolvedQueue(of source: String?) -> [String] {
+        switch source {
+        case .some(togetherRoomLikedId):
+            return likedIds
+        case .some("all-songs"):
+            return hub.library.map(\.id)
+        case let .some(id):
+            let list = livePlaylists.first { $0.id == id }?.tracks ?? []
+            return list.isEmpty ? hub.library.map(\.id) : list
+        case .none:
+            return hub.library.map(\.id)
+        }
     }
 
     private func collapsedIfNeeded(_ id: String) {
@@ -1229,10 +1423,25 @@ struct TogetherRoomView: View {
         sheet = .songs
     }
 
+    // [T-room-library 11-11] 曲库是空的就明说,别弹一个空壳让人以为坏了。
+    private func openLibrary() {
+        guard !lib.tracks.isEmpty else {
+            MinisToast.show(TogetherCopy.noSongsYet, systemImage: "music.note")
+            return
+        }
+        songsFor = togetherRoomLibraryId
+        sheet = .songs
+    }
+
     private func commitCreate() {
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        guard let id = TogetherStore.shared.createPlaylist(name: name, by: .user) else { return }
+        // [T-room-silent 11-11] 存不下的时候原来一声不吭:字没了,歌单也没出来,
+        // 她只会觉得这个键坏了。
+        guard let id = TogetherStore.shared.createPlaylist(name: name, by: .user) else {
+            MinisToast.show(TogetherCopy.saveFailed, systemImage: "exclamationmark.triangle")
+            return
+        }
         newName = ""
         creating = false
         expanded = id
@@ -1245,6 +1454,12 @@ struct TogetherRoomView: View {
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         TogetherStore.shared.renamePlaylist(id: id, to: name, by: .user)
+        hub.refreshNow()
+        // renamePlaylist 自己不给回执,只能改完回头查一眼:名字没变就是没存上
+        if hub.state.playlists.first(where: { $0.id == id })?.name != name {
+            MinisToast.show(TogetherCopy.saveFailed, systemImage: "exclamationmark.triangle")
+            return
+        }
         newName = ""
         renaming = nil
         hub.refreshNow()
@@ -1266,13 +1481,21 @@ struct TogetherRoomView: View {
         }
     }
 
+    private func seizeRemote() {
+        guard let t = state.track else { askRemote(); return }
+        let src = state.playback.queueSource
+        _ = player.start(t, from: state.playback.position, by: .user,
+                        queue: resolvedQueue(of: src), queueSource: src)
+        TogetherHaptics.select()
+    }
+
     private func askRemote() {
         if TogetherStore.shared.requestHandoff(to: TogetherActor.ai.rawValue, by: .user) {
             hub.refreshNow()
             TogetherHaptics.select()
             MinisToast.show(TogetherCopy.handoff, systemImage: "hand.raised")
         } else {
-            MinisToast.show(TogetherCopy.fileMissing, systemImage: "exclamationmark.triangle")
+            MinisToast.show(TogetherCopy.handoffFailed, systemImage: "exclamationmark.triangle")
         }
     }
 
@@ -1299,14 +1522,8 @@ struct TogetherRoomQueueSheet: View {
 
     private var lib: TogetherLibrary { hub.library }
 
-    // 队列来源只有一处:playback.queue 非空就用它,空就按曲库顺序
-    private var ids: [String] {
-        let queued = hub.state.playback.queue
-        let list = queued.isEmpty ? lib.tracks.map { $0.id } : queued
-        return list.filter { lib.track(id: $0) != nil }
-    }
-
-    // 这一页只说真队列;没有队列就是没有,不拿曲库顺序顶上
+    /// 队列就是队列。原来空了就拿整库顶上去,点一首等于把全库塞进队列,
+    /// 「播放队列」这四个字就对不上——空就老实显示空态。
     private var queuedIds: [String] {
         hub.state.playback.queue.filter { lib.track(id: $0) != nil }
     }
@@ -1365,7 +1582,7 @@ struct TogetherRoomQueueSheet: View {
         let playing = player.track?.id == id
         return Button {
             guard let item else { return }
-            _ = player.start(item, by: .user, queue: ids, queueSource: hub.state.playback.queueSource)
+            _ = player.start(item, by: .user, queue: queuedIds, queueSource: hub.state.playback.queueSource)
             hub.refreshNow()
             TogetherHaptics.select()
         } label: {
@@ -1432,7 +1649,14 @@ struct TogetherRoomQueueSheet: View {
 // MARK: - 歌单里放什么
 
 // 喜欢不是一个能往里塞的歌单,它只是曲库的一个过滤面
-let togetherRoomLikedId = "__liked__"
+// 喜欢不是真歌单,给它一个约定的名字。store 那边(queueSource 的注释)写的
+// 就是 "liked",两边说同一个词,别自成一套。
+let togetherRoomLikedId = "liked"
+
+// [T-room-library 11-11] 整库也是一个"面":曲库那页既能看全部,也能点着放。
+// 和 store 的 queueSource 约定同名(见 TogetherPlayback.queueSource 注释),
+// 歌单 id 是 "p_<uuid>" 生成的,永远不会撞上这两个词。
+let togetherRoomLibraryId = "all-songs"
 
 struct TogetherRoomSongsSheet: View {
     let playlistId: String
@@ -1444,6 +1668,10 @@ struct TogetherRoomSongsSheet: View {
 
     private var lib: TogetherLibrary { hub.library }
     private var isLiked: Bool { playlistId == togetherRoomLikedId }
+
+    // [T-room-library 11-11] 曲库面:只看、只放,不增删(增删要有个去处,
+    // 这页没有)。它和"喜欢"一样是过滤面,不是真歌单。
+    private var isLibraryBrowse: Bool { playlistId == togetherRoomLibraryId }
 
     // 已在歌单里的曲目 id,加过的显示减号
     private var chosen: Set<String> {
@@ -1463,10 +1691,19 @@ struct TogetherRoomSongsSheet: View {
         }
     }
 
+    // 点一行时给它排的队。搜索只影响"看什么",不该把队列缩成搜出来的那几首。
+    private var playOrder: [String] {
+        if isLiked {
+            let ids = Set(hub.state.liked)
+            return lib.tracks.filter { ids.contains($0.id) }.map(\.id)
+        }
+        return lib.tracks.map(\.id)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text(isLiked ? AppLocalized("Liked songs", comment: "一起听 · 喜欢的歌") : TogetherCopy.addSongs)
+                Text(headerTitle)
                     .font(ChatFont.font(13, weight: .semibold, design: .serif))
                     .foregroundStyle(TogetherSpec.charcoal)
                 Text("\(pool.count)")
@@ -1518,6 +1755,12 @@ extension TogetherRoomSongsSheet {
         !isLiked && lib.tracks.isEmpty
     }
 
+    private var headerTitle: String {
+        if isLiked { return AppLocalized("Liked songs", comment: "一起听 · 喜欢的歌") }
+        if isLibraryBrowse { return TogetherCopy.browseSongs }
+        return TogetherCopy.addSongs
+    }
+
     // 三种空:喜欢的里没有、搜不到、曲库本身是空的
     private var emptyLine: String {
         if isLiked { return TogetherCopy.likedEmpty }
@@ -1559,8 +1802,21 @@ extension TogetherRoomSongsSheet {
     private func row(_ t: TogetherTrack) -> some View {
         let chosen = chosen.contains(t.id)
         return Button {
-            // 喜欢是过滤面,不是容器,这里只读
-            guard !isLiked else { return }
+            // [T-room-liked-play 11-11] 喜欢是过滤面,不是容器,原来这一页
+            // 点了完全没反应——行看着明明能点。现在点一下放这首,队列给喜欢的顺序。
+            if isLiked || isLibraryBrowse {
+                // 搜索只决定"看什么",队列还是整个面的顺序——不然搜一首放一首,
+                // 队列里就只剩那一首,下一首没了。
+                let order = playOrder
+                _ = TogetherPlayer.shared.start(
+                    t, by: .user,
+                    queue: order.isEmpty ? [t.id] : order,
+                    queueSource: isLiked ? togetherRoomLikedId : togetherRoomLibraryId
+                )
+                TogetherHaptics.tap()
+                dismiss()
+                return
+            }
             if chosen {
                 TogetherStore.shared.removeTrack(t.id, from: playlistId)
             } else {
@@ -1583,7 +1839,7 @@ extension TogetherRoomSongsSheet {
                     }
                 }
                 Spacer(minLength: 8)
-                if !isLiked {
+                if !isLiked && !isLibraryBrowse {
                     Image(systemName: chosen ? "minus.circle" : "plus.circle")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(chosen ? TogetherSpec.charcoal.opacity(0.55) : TogetherSpec.sub)
@@ -1786,7 +2042,10 @@ extension TogetherRoomLyrics {
         .contentShape(Rectangle())
         .onTapGesture {
             TogetherHaptics.tap()
-            seekTo(line.at)
+            // [T-room-lyric-offset 11-11] line.at 是「歌词时间轴」上的时刻,
+            // 播放器要的是「歌曲时间轴」。她自己校准过歌词(offset != 0)时两条轴
+            // 差着 offset,直接拿 line.at 去 seek 会偏那么多秒——点第 10 句跳到第 8 句。
+            seekTo(line.at + (lyrics?.offset ?? 0))
         }
         .onLongPressGesture(minimumDuration: 0.45) {
             TogetherHaptics.select()
