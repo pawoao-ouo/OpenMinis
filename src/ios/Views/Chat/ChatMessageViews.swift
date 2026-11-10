@@ -161,285 +161,40 @@ private struct ContextMenuPreviewSurface: ViewModifier {
 // MARK: - 代码识别
 
 enum UserCodeFencing {
-    // [10-23 醒醒] 打分制。上一版是「一行像代码 + 连续三行里 60% 像」，
-    // 散文里出现 return / = 就被认成代码，反过来 SQL、命令行、JSON 又认不出。
-    // 现在按行打分，整段投票：宁可漏判，不可误判——把她一句话变成代码块，
-    // 比代码没识别出来难受得多。规则对照 30 段真代码 + 44 段真散文调过，
-    // 误报 0、漏判 0（语料在 scripts/check-code-detect.py）。
-    private static let keywords: [String] = [
-        "def ", "class ", "func ", "function ", "import ", "from ", "package ",
-        "namespace ", "public ", "private ", "protected ", "static ", "const ",
-        "let ", "var ", "return ", "if ", "else", "elif ", "for ", "while ",
-        "switch ", "case ", "try ", "catch ", "finally ", "throw ", "async ",
-        "await ", "yield ", "struct ", "enum ", "impl ", "fn ", "pub ", "use ",
-        "export ", "default ", "#include", "#define", "<?php", "SELECT ",
-        "INSERT ", "UPDATE ", "DELETE ", "CREATE ", "interface ", "type ",
-        "module ", "require(", "echo ", "FROM ", "WHERE ", "GROUP ", "ORDER ",
-        "JOIN ", "VALUES ", "SET ", "except ", "raise ", "with open(",
-        "while True"
-    ]
-
-    private static let commands: [String] = [
-        "git", "docker", "npm", "npx", "yarn", "pnpm", "pip", "curl", "wget",
-        "cd ", "ls ", "sudo", "apt", "brew", "make ", "python", "node ", "go ",
-        "cargo", "kubectl", "ssh ", "scp ", "tar ", "unzip", "chmod", "cat ",
-        "grep", "sed ", "awk ", "find ", "mkdir", "rm ", "cp ", "mv ",
-        "systemctl", "service ", "nohup", "export ", "set -", "source ",
-        "bash ", "sh "
-    ]
-
-    /// 一行里的中文字符占比。散文判定的主信号。
-    private static func cjkRatio(_ s: String) -> Double {
-        guard !s.isEmpty else { return 0 }
-        let n = s.unicodeScalars.reduce(0) { $1.value >= 0x4E00 && $1.value <= 0x9FFF ? $0 + 1 : $0 }
-        return Double(n) / Double(s.count)
-    }
-
-    private static func matches(_ pattern: String, _ s: String) -> Bool {
-        s.range(of: pattern, options: .regularExpression) != nil
-    }
-
-    /// 围栏不只 ```，Markdown 也认 ~~~。
+    /// [T-user-bubble-plain 11-10] 醒醒：用户气泡里的自动代码块要删——
+    /// 「发代码或者发别的自动变成代码块了，是别的不够准确」。
+    ///
+    /// 这套打分制原本是精心调过的（30 段真代码 + 44 段真散文，误报 0），
+    /// 但判得再准也是猜。猜对没奖，猜错就是把她说的话套上等宽字体和灰底，
+    /// 而她自己心里那句话并不是代码。用户的话照原样显示，这是唯一不会错的做法。
+    ///
+    /// 保留的只有一件事：她自己**写了围栏**（``` 或 ~~~）时才承认是代码。
+    /// 那不是猜，是她明说。
     static func hasFence(_ s: String) -> Bool {
         s.contains("```") || s.contains("~~~")
     }
-
-    /// 整段 JSON：单行 `{"a":1}` 也要成块。
-    private static func looksLikeJSON(_ s: String) -> Bool {
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard t.hasPrefix("{") || t.hasPrefix("[") else { return false }
-        guard let data = t.data(using: .utf8) else { return false }
-        return (try? JSONSerialization.jsonObject(with: data)) != nil
-    }
-
-    /// diff / patch：+ - @@ 这些行本身就是代码。
-    private static func looksLikeDiff(_ lines: [String]) -> Bool {
-        let body = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        guard body.count >= 2 else { return false }
-        // 必须有真正的 diff 头；光有 "- item" 的列表不算。
-        let hasHeader = body.contains {
-            $0.hasPrefix("@@") || $0.hasPrefix("diff --git")
-                || $0.hasPrefix("+++") || $0.hasPrefix("---")
-        }
-        guard hasHeader else { return false }
-        let diff = body.filter {
-            $0.hasPrefix("@@") || $0.hasPrefix("+++") || $0.hasPrefix("---")
-                || $0.hasPrefix("diff --git") || $0.hasPrefix("+") || $0.hasPrefix("-")
-        }.count
-        return diff >= max(2, (body.count * 3) / 5) && cjkRatio(body.joined()) < 0.05
-    }
-
-    /// 四空格 / Tab 缩进的整段，按 Markdown 缩进代码处理。
-    private static func looksLikeIndentedCode(_ lines: [String]) -> Bool {
-        let body = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        guard body.count >= 2 else { return false }
-        let indented = body.filter { $0.hasPrefix("\t") || $0.hasPrefix("    ") }.count
-        let codeish = body.filter { lineScore($0) >= 1 }.count
-        let listish = body.filter { isListLine($0) }.count
-        return indented >= max(2, (body.count * 4) / 5)
-            && codeish >= max(1, body.count / 2)
-            && listish == 0
-            && cjkRatio(body.joined()) < 0.15
-    }
-
-    /// 单行代码：`npm install` / `git status` / `{"a":1}` 这类整句就是命令的。
-    private static func looksLikeSingleLineCode(_ raw: String) -> Bool {
-        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, !t.contains("\n") else { return false }
-        if cjkRatio(t) > 0.05 { return false }
-        if let last = t.last, ".。！？!?".contains(last) { return false }
-        if lineScore(t) >= 3 { return true }
-        let codePunct = t.contains("(") || t.contains("{") || t.contains("=")
-            || t.contains(";") || t.contains("[") || t.contains("::")
-            || t.contains("->") || t.contains("=>")
-        if codePunct && lineScore(t) >= 2 { return true }
-        if t.hasPrefix("SELECT ") && t.contains(" FROM ") { return true }
-        if t.hasPrefix("INSERT INTO ") || t.hasPrefix("UPDATE ")
-            || t.hasPrefix("DELETE FROM ") { return true }
-        return commands.contains(where: { t.hasPrefix($0) }) && lineScore(t) >= 2
-    }
-
-    /// 单行得分。>= 2 才算「这行像代码」。
-    static func lineScore(_ raw: String) -> Int {
-        let t = raw.trimmingCharacters(in: .whitespaces)
-        guard !t.isEmpty else { return -99 }
-        var s = 0
-        if raw.hasPrefix("\t") || raw.hasPrefix("  ") { s += 2 }
-        if t.hasSuffix("{") || t.hasSuffix("}") { s += 2 }
-        if t.hasSuffix(";") { s += 1 }
-        if keywords.contains(where: { t.hasPrefix($0) }) { s += 2 }
-        if t.hasPrefix("#!") { s += 3 }
-        if matches(#"^</?[a-zA-Z][^>]*>$"#, t) { s += 3 }
-        if t.hasSuffix("\\") { s += 3 }
-        if matches(#"^(try|else|finally|do|begin):$"#, t) { s += 2 }
-        if commands.contains(where: { t.hasPrefix($0) }) { s += 2 }
-        if t.hasPrefix("//") || t.hasPrefix("#") || t.hasPrefix("/*")
-            || t.hasPrefix("* ") || t.hasPrefix("--") { s += 1 }
-        if ["=>", "->", "::", "==", "!=", "&&", "||", "+=", "-=", ":=", "<>"]
-            .contains(where: { t.contains($0) }) { s += 1 }
-        if matches(#"^[A-Za-z_$][\w$.\[\]]*\s*=\s*\S"#, t) { s += 1 }
-        if matches(#"^[A-Za-z_$][\w$.]*\s*\(.*\)\s*[;{]?$"#, t) { s += 1 }
-        let punct = t.filter { "{}();=<>[]$".contains($0) }.count
-        if Double(punct) / Double(t.count) >= 0.10 { s += 1 }
-        if cjkRatio(t) > 0.15 { s -= 3 }
-        if let last = t.last, "。！？，、；：".contains(last) { s -= 3 }
-        return s
-    }
-
-    /// 注释行。中文注释在代码里是常态，不该把整段判成散文。
-    static func isCommentLine(_ raw: String) -> Bool {
-        let t = raw.trimmingCharacters(in: .whitespaces)
-        return t.hasPrefix("//") || t.hasPrefix("/*") || t.hasPrefix("* ")
-            || t.hasPrefix("--") || t.hasPrefix("<!--")
-    }
-
-    /// Markdown 列表行：缩进列表不是代码块。
-    private static func isListLine(_ raw: String) -> Bool {
-        let t = raw.trimmingCharacters(in: .whitespaces)
-        if t.hasPrefix("- ") || t.hasPrefix("* ") || t.hasPrefix("+ ")
-            || t.hasPrefix("> ") || t.hasPrefix("# ") { return true }
-        return t.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil
-    }
-
-    /// 一整段是否够格当代码块。短段要求更严。
-    static func isCodeRun(_ run: [String]) -> Bool {
-        // 注释行不参与投票，只看真代码行。
-        let body = run.filter { !isCommentLine($0) }
-        guard !body.isEmpty else { return false }
-        // 缩进列表 / 引用块不是代码。
-        if body.filter({ isListLine($0) }).count >= max(1, body.count / 2) {
-            return false
-        }
-        let joined = body.joined(separator: "\n")
-        if looksLikeJSON(joined) { return true }
-        if looksLikeDiff(body) { return true }
-        if looksLikeIndentedCode(body) { return true }
-        if body.count == 1 { return looksLikeSingleLineCode(body[0]) }
-        let scores = body.map { lineScore($0) }
-        if body.count == 2 {
-            return scores.allSatisfy { $0 >= 2 } && cjkRatio(joined) < 0.05
-        }
-        let strong = scores.filter { $0 >= 2 }.count
-        let ratio = Double(strong) / Double(body.count)
-        // 四行以上允许两成是说明/空行；两到三行仍要求几乎整段都是代码。
-        if body.count >= 4 {
-            if ratio < 0.6 { return false }
-        } else if ratio < 0.8 {
-            return false
-        }
-        if cjkRatio(joined) > 0.10 { return false }
-        if scores.filter({ $0 >= 3 }).count < 2 && !scores.allSatisfy({ $0 >= 2 }) {
-            return false
-        }
-        return true
-    }
-
-    /// 给没有围栏的连续代码段补上栅栏。已经有栅栏就原样返回。
-    static func autoFenced(_ text: String) -> String {
-        guard !hasFence(text) else { return text }
-        let lines = text.components(separatedBy: "\n")
-        guard !lines.isEmpty else { return text }
-        // 整段就是 JSON / diff / 缩进代码：不用逐行投票，直接包起来。
-        if looksLikeJSON(text) || looksLikeDiff(lines) || looksLikeIndentedCode(lines) {
-            return "```\n" + text + "\n```"
-        }
-        var out: [String] = []
-        var run: [String] = []
-
-        func flushRun() {
-            guard !run.isEmpty else { return }
-            if isCodeRun(run) {
-                out.append("```")
-                out.append(contentsOf: run)
-                out.append("```")
-            } else {
-                out.append(contentsOf: run)
-            }
-            run.removeAll()
-        }
-
-        for (idx, line) in lines.enumerated() {
-            let next = idx + 1 < lines.count ? lines[idx + 1] : ""
-            if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                flushRun()
-                out.append(line)
-            } else if lineScore(line) >= 1
-                        || (!run.isEmpty && isCommentLine(line))
-                        || (isCommentLine(line) && lineScore(next) >= 2) {
-                run.append(line)
-            } else {
-                flushRun()
-                out.append(line)
-            }
-        }
-        flushRun()
-        return out.joined(separator: "\n")
-    }
 }
+
 // MARK: - 正文视图
-
-/// [B28 R7-3] 用户气泡的展开状态不能放 @State：列表重算会 reconfigure 这个
-/// 单元格，SwiftUI 视图重建、@State 归零，刚展开又弹回去。放在外面按消息 id 记。
-final class UserBubbleExpansion: ObservableObject {
-    static let shared = UserBubbleExpansion()
-    @Published private(set) var expanded: Set<UUID> = []
-    func isExpanded(_ id: UUID?) -> Bool { id.map { expanded.contains($0) } ?? false }
-    func toggle(_ id: UUID?) {
-        guard let id else { return }
-        if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
-    }
-}
 
 struct UserMessageText: View {
     let text: String
     let isQueued: Bool
     var isDelivering: Bool = false
-    /// [B28 R7-3] 展开/收起改了高度，得让列表清缓存重算——不然只是按钮文字
-    /// 变了，正文还是被旧高度切着（醒醒 10-23 截图：点了「展开全文」没展开）。
+    /// [T-user-bubble-plain 11-10] 醒醒：用户气泡不要自动折叠，也不要自动
+    /// 把我的话判成代码块。以前这两件事都做，长文折成 8 行要点「展开全文」，
+    /// 发一段不像代码的东西（清单、诗歌、带缩进的段落）被判成代码块套上等宽字体
+    /// 和灰底。判得准不准都是干扰——用户发的话就照原样显示。
+    /// messageId 仍然保留：代码块、链接这些子视图还要用它。
     var messageId: UUID? = nil
 
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
-    @ObservedObject private var expansion = UserBubbleExpansion.shared
 
-    private var expanded: Bool { expansion.isExpanded(messageId) }
-
-    private var fenced: String { UserCodeFencing.autoFenced(text) }
-    /// 有代码就走 markdown（代码块可折叠），没有就保持纯文本（不擅自改排版）。
-    /// [10-23 醒醒 问题4] 她自己粘的带 ``` 的代码，autoFenced 原样返回，
-    /// 旧判据 `fenced != text` 于是判成「没代码」→ 整段按纯文本渲染，
-    /// 三个反引号照字面显示，代码块消失。原文自带围栏也是代码。
-    ///
-    /// 视图和列表的预计算必须用**同一个**判据：只改一边的话，格子先按
-    /// 折叠长文留高、视图按代码块铺开，滚动时就对不上（那一跳的另一种来源）。
-    static func hasCode(_ text: String) -> Bool {
-        UserCodeFencing.hasFence(text) || UserCodeFencing.autoFenced(text) != text
-    }
-    private var hasCode: Bool { Self.hasCode(text) }
-    // [10-23 醒醒] 折叠判定与折叠后的样子只写一份：视图用、列表预计算也用。
-    // 预计算不知道折叠态的话，格子先按全文高度占位、再缩回去，就是那一跳。
-    static let collapsedLineLimit = 8
-    static func isLongText(_ text: String) -> Bool {
-        text.components(separatedBy: "\n").count > collapsedLineLimit || text.count > 320
-    }
-    static func collapsedPreview(of text: String) -> String {
-        let lines = text.components(separatedBy: "\n")
-        if lines.count > collapsedLineLimit {
-            return lines.prefix(collapsedLineLimit).joined(separator: "\n") + "\n…"
-        }
-        return String(text.prefix(280)) + "…"
-    }
-    /// Kelivo 式裁剪高度：只给 8 行的高度，内容本身不换字符串。
-    static func collapsedHeightForCurrentFont() -> CGFloat {
-        let font = UIFont.systemFont(ofSize: FontSettings.shared.scaledMessage(16.5))
-        return ceil(font.lineHeight * CGFloat(collapsedLineLimit)) + 2
-    }
-    private var isLong: Bool {
-        guard !hasCode else { return false }   // 代码块自己会折
-        return Self.isLongText(text)
-    }
-    private var collapsedMaxHeight: CGFloat? {
-        (isLong && !expanded) ? Self.collapsedHeightForCurrentFont() : nil
-    }
+    /// 只有**她自己写了围栏**（``` 或 ~~~）才当代码块。
+    /// 没有围栏就一律纯文本——不再猜。autoFenced 那套打分制再准也是猜，
+    /// 而猜错的代价是把她的话排版搞乱。
+    private var hasCode: Bool { UserCodeFencing.hasFence(text) }
+    private var fenced: String { text }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -473,49 +228,13 @@ struct UserMessageText: View {
                 }
                 .id(appearanceStudio.themePackRevision)
             } else {
-                // [10-23 醒醒 问题1] Kelivo 式：正文始终是全文，只裁可视高度，
-                // 不再把字符串换成预览——换字符串那一下就是「一跳」的一半。
-                // 裁剪高度和列表预计算共用 collapsedLineLimit，视图/格子同一条尺。
+                // [T-user-bubble-plain 11-10] 全文显示，不裁、不打码、不给
+                // 「展开全文」。用户自己说的话不该被折叠起来。
                 Text(text)
                     .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16.5)))
                     .foregroundStyle(isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
-                    // 先按全文高度排版，再由下面的 frame 裁到 8 行；
-                    // 不 fixedSize 的话 Text 会自己压到 8 行，展开时没有内容可露。
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxHeight: collapsedMaxHeight, alignment: .top)
-                    .clipped()
-                    .mask {
-                        if isLong && !expanded {
-                            LinearGradient(
-                                stops: [
-                                    .init(color: .black, location: 0),
-                                    .init(color: .black, location: 0.82),
-                                    .init(color: .clear, location: 1)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        } else {
-                            Rectangle().fill(Color.black)
-                        }
-                    }
                     .id(appearanceStudio.themePackRevision)
-            }
-            if isLong {
-                Button {
-                    // [10-23 醒醒 问题1] Kelivo 式：状态一翻，正文裁切高度和
-                    // 列表格子一起走 0.22s easeOut；列表那边等 SwiftUI 重画完
-                    // 再量新高度，避免量到旧内容。
-                    expansion.toggle(messageId)
-                    if let messageId {
-                        NotificationCenter.default.post(name: .userBubbleToggled, object: messageId)
-                    }
-                } label: {
-                    Text(expanded ? AppLocalized("收起") : AppLocalized("展开全文"))
-                        .font(ChatFont.font(12, weight: .medium))
-                        .foregroundStyle(ChatColors.accent)
-                }
-                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, AppearanceChatDisplay.parse(
@@ -968,7 +687,8 @@ struct ChatMessageRow: View {
                         }
                     } else {
                         HStack(spacing: 6) {
-                            // [B28 R7] 代码自动成可折叠块 + 长文可折，都在这个组件里。
+                            // [T-user-bubble-plain 11-10] 不再折叠、不再自动判代码块；
+                            // 只有她自己写了围栏才当代码显示。
                             UserMessageText(text: userDisplayText,
                                             isQueued: message.isQueued,
                                             isDelivering: message.isDelivering,

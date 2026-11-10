@@ -983,8 +983,6 @@ extension CollectionViewMessageListV3 {
 
         // === Thinking Block Toggle ===
         private var thinkingToggleSub: AnyCancellable?
-        /// [B28 R7-3] 用户气泡展开/收起 → 清缓存重算高度。
-        private var userBubbleToggleSub: AnyCancellable?
         // === [chat-ui] Tool Group Card Toggle ===
         private var toolGroupToggleSub: AnyCancellable?
 
@@ -3133,46 +3131,6 @@ extension CollectionViewMessageListV3 {
                     }
             }
 
-            // [B28 R7-3 醒醒 10-23] 用户气泡「展开全文 / 收起」：整条消息是一个
-            // wholeMessage 单元格，高度靠 SelfSizingCell 缓存。不清缓存的话
-            // 按钮文字变了、正文还按旧高度切着——看着就是「点了没展开」。
-            if userBubbleToggleSub == nil {
-                userBubbleToggleSub = NotificationCenter.default.publisher(for: .userBubbleToggled)
-                    .receive(on: DispatchQueue.main)
-                    .sink { [weak self] notification in
-                        guard let self,
-                              let messageId = notification.object as? UUID,
-                              let cv = self.viewController?.collectionView,
-                              let layout = cv.collectionViewLayout as? MessageListLayout,
-                              let snapshot = self.dataSource?.snapshot() else { return }
-                        for (i, item) in snapshot.itemIdentifiers.enumerated() {
-                            guard case .wholeMessage(let mid) = item, mid == messageId else { continue }
-                            let ip = IndexPath(item: i, section: 0)
-                            // [10-23 醒醒 问题1] 先记住被点这条在屏幕里的位置。
-                            // 高度改完后按它反推 offset，被点那条原地不动，
-                            // 多出来的高度全推给下面。
-                            let anchorScreenY = cv.cellForItem(at: ip)
-                                .map { $0.frame.minY - cv.contentOffset.y } ?? 0
-                            // @Published 的展开态要等 SwiftUI 下一次更新才落进
-                            // cell；同步量会量到旧内容（点了没反应）。隔一拍再量，
-                            // 这时 cell 里已经是新内容，动画才有意义。
-                            DispatchQueue.main.async { [weak self] in
-                                guard let self,
-                                      let live = self.dataSource?.snapshot(),
-                                      ip.item < live.itemIdentifiers.count,
-                                      case .wholeMessage(let mid) = live.itemIdentifiers[ip.item],
-                                      mid == messageId else { return }
-                                // 显式 reconfigure：不赌 SwiftUI 在下一拍已经
-                                // 把新展开态画进 cell；这里强制换成新内容再量。
-                                var snap = live
-                                snap.reconfigureItems([live.itemIdentifiers[ip.item]])
-                                self.dataSource?.apply(snap, animatingDifferences: false)
-                                self.animateCellResize(at: ip, anchorScreenY: anchorScreenY)
-                            }
-                            break
-                        }
-                    }
-            }
 
             // [chat-ui] Tool-group card header tap → re-measure that cell.
             // Same shape as the thinking toggle above: the card's expanded
@@ -4109,12 +4067,11 @@ extension CollectionViewMessageListV3 {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
-            // [10-23 醒醒 问题1/4] 折叠态和代码态都参与预计算，且视图/列表同一条尺：
-            // 长文按 8 行裁剪量，代码走 Markdown 渲染链量。只改一边 = 高度对不上。
+            // [T-user-bubble-plain 11-10] 用户气泡不再折叠、不再自动判代码块，
+            // 所以这两条预计算分支一起退役：全文按全文量，代码只认她自己写的围栏。
+            // 视图和预计算仍然是同一套判据（UserMessageText.hasCode），
+            // 只改一边的话格子会先按错的高度占位、滚动时再被纠正——就是那一跳。
             let hasCode = UserMessageText.hasCode(text)
-            let isCollapsedLong = !hasCode
-                && UserMessageText.isLongText(text)
-                && !UserBubbleExpansion.shared.isExpanded(message.id)
             let rowChrome: CGFloat = 7
 
             let attachCount = message.attachments.isEmpty
@@ -4151,13 +4108,13 @@ extension CollectionViewMessageListV3 {
             // (which differ by the withdraw button's 28pt) can't share a cached
             // measurement — the entry is invalidated implicitly when the queue
             // drains. Stated here because that is load-bearing, not incidental.
-            let key = "\(text.count)|\(Int(usableTextWidth))|\(Int(fontSize))|\(attachCount)|\(text.hashValue)|c\(isCollapsedLong ? 1 : 0)|h\(hasCode ? 1 : 0)"
+            let key = "\(text.count)|\(Int(usableTextWidth))|\(Int(fontSize))|\(attachCount)|\(text.hashValue)|h\(hasCode ? 1 : 0)"
             if let cached = cache[key] {
                 return cached
             }
 
             if hasCode {
-                let fenced = UserCodeFencing.autoFenced(text)
+                let fenced = text
                 // [B28 R9] 代码块已经是独立 SwiftUI 视图，不能再拿
                 // SelectableMarkdownView 的 TextKit 附件高度来预计算——
                 // 两套渲染的 header/padding 不一样，预计算会先给错高度，
@@ -4205,25 +4162,13 @@ extension CollectionViewMessageListV3 {
             // being investigated separately. Keep the measurement cheap.
             let font = UIFont.systemFont(ofSize: fontSize)
             let attr = NSAttributedString(string: text, attributes: [.font: font])
-            let textH: CGFloat
-            if isCollapsedLong {
-                // Kelivo 式：全文不动，只按 8 行裁。UILabel 的 numberOfLines
-                // 给出和 SwiftUI Text 裁剪后一致的 8 行高度。
-                let label = UILabel()
-                label.font = font
-                label.numberOfLines = UserMessageText.collapsedLineLimit
-                label.lineBreakMode = .byTruncatingTail
-                label.attributedText = attr
-                textH = ceil(label.sizeThatFits(
-                    CGSize(width: usableTextWidth, height: .greatestFiniteMagnitude)).height)
-            } else {
-                let bounds = attr.boundingRect(
-                    with: CGSize(width: usableTextWidth, height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    context: nil
-                )
-                textH = ceil(bounds.height)
-            }
+            // [T-user-bubble-plain 11-10] 不再有折叠态，正文一律按全文量。
+            let bounds = attr.boundingRect(
+                with: CGSize(width: usableTextWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
+            let textH = ceil(bounds.height)
             // [T-ios-decel-inv-estimate-calibration → superseded] There used to
             // be a CJK-gated flat +7 here, calibrated from CJK samples that
             // measured +6.3–7.0 taller than this estimate and attributed to
@@ -4410,12 +4355,9 @@ extension CollectionViewMessageListV3 {
                 // height with a phantom blank line — and the snapshot
                 // compare sees "no change" and never re-measures.
                 let q = msg(id)?.isQueued == true ? 1 : 0
-                // [10-23 醒醒] 展开/收起必须进键。高度按内容键记忆，而展开
-                // 不改内容长度——键不变就命中旧高度，格子被旧高度钉死，
-                // 正文裁着不动：她看到的「假的展开」「收起无效」就是这个。
-                // 工具卡早就这么干了（g:…:x/c），这里是同一个病同一个方子。
-                let x = UserBubbleExpansion.shared.isExpanded(id) ? 1 : 0
-                return "w:\(id.uuidString):\(n):\(a):\(q):\(x)"
+                // [T-user-bubble-plain 11-10] 用户气泡不再折叠，展开态
+                // 不再是高度的一部分，键里去掉了那一维。
+                return "w:\(id.uuidString):\(n):\(a):\(q)"
             case .assistantHeader(let id):
                 return "h:\(id.uuidString)"
             case .assistantFooter(let id):

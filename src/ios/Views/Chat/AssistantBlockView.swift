@@ -1580,9 +1580,6 @@ struct ToolCallGroupCard: View {
 
 extension Notification.Name {
     static let thinkingBlockToggled = Notification.Name("thinkingBlockToggled")
-    /// [B28 R7-3 醒醒 10-23] 用户气泡「展开全文 / 收起」变了高度，
-    /// 列表要清缓存重算——object 是 ChatMessage.id。
-    static let userBubbleToggled = Notification.Name("userBubbleToggled")
     /// [chat-ui] Posted when a tool-call group card's header is tapped.
     /// object is the card's state key ("<messageId>:<firstBlockId>").
     /// The message list clears that cell's cached height and reconfigures it
