@@ -286,7 +286,7 @@ enum AppearanceColorRoleGroup: String, CaseIterable, Identifiable {
         case .controls: return AppLocalized("控件")
         case .accentGroup: return AppLocalized("强调")
         case .chat: return AppLocalized("聊天")
-        case .status: return AppLocalized("Status")
+        case .status: return AppLocalized("状态")
         }
     }
 
