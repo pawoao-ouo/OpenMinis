@@ -187,7 +187,7 @@ extension DressingShopView {
 
                 Spacer()
 
-                // 快捷操作胶囊：摇一摇 🎲 与 撤销 ↩
+                // 撤销胶囊
                 HStack(spacing: 6) {
                     if studio.canUndoThemeReset {
                         Button {
@@ -203,26 +203,6 @@ extension DressingShopView {
                                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Circle())
                         }
-                    }
-
-                    Button {
-                        haptic()
-                        _ = withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            studio.shuffleTheme()
-                        }
-                        showToast(AppLocalized("已随机一套全新配色"))
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "dice.fill")
-                                .font(.system(size: 11))
-                            Text(AppLocalized("摇一摇"))
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(CSSThemeVariables.accent(scope: .settings))
-                        .foregroundStyle(CSSThemeVariables.card(scope: .settings))
-                        .clipShape(Capsule())
                     }
                 }
             }
