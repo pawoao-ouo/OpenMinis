@@ -127,6 +127,10 @@ struct DressingShopView: View {
     @State private var fontToastIsWarning = false
     /// [T-49] 刚删掉的那套,给店里一个撤销位。
     @State private var lastDeletedTheme: AppearanceSavedTheme?
+    /// 恢复默认配色之前整张配色覆盖的快照,给店里一个撤销位。
+    /// 内存里,不存盘;撤销时原样写回,逐页调过的颜色也在快照里,
+    /// 所以恢复不会丢它们。
+    @State private var lastResetColorOverrides: [String: String]?
     /// Which variable set the colour panel is editing. Independent
     /// of the mode picker: with "跟随系统" on a light phone she can
     /// still edit (and preview, by flipping the mode) the dark set.
@@ -348,8 +352,11 @@ struct DressingShopView: View {
                             .font(ChatFont.font(12, weight: .semibold))
                             .lineLimit(2)
                         // [T-49] 删套之后这里多一个「撤销」，不用再跑别处。
-                        if lastDeletedTheme != nil {
-                            Button(AppLocalized("撤销")) { undoDeleteTheme() }
+                        // 恢复默认配色之后也一样。同一时间最多一个可撤销
+                        // 动作：新动作会清掉旧的，撤销只认当前这条提示
+                        // 对应的那件，由 undoToastAction 分派。
+                        if lastDeletedTheme != nil || lastResetColorOverrides != nil {
+                            Button(AppLocalized("撤销")) { undoToastAction() }
                                 .font(ChatFont.font(12, weight: .bold))
                                 .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
                                 .padding(.leading, 6)
@@ -1600,6 +1607,9 @@ struct DressingShopView: View {
         if studio.deleteSavedTheme(id: item.id) {
             // [T-49] 删完只有一条一闪而过的提示条,撤销 API 却只死在旧页里。
             // 现在删掉的那套先留一份,店里直接给"撤销"。
+            // 新动作顶掉旧的：这条提示只认删套，配色重置的撤销位
+            // 让出来，免得点撤销恢复了另一件。
+            lastResetColorOverrides = nil
             lastDeletedTheme = item
             showFontToast(String(format: AppLocalized("已删除「%@」，可撤销"), item.name))
             closeThemeDetail()
@@ -1650,6 +1660,24 @@ struct DressingShopView: View {
         } else {
             showFontToast(AppLocalized("没恢复成功，可能已经超过回收期限"))
         }
+    }
+
+    /// 撤销当前提示条对应的那件。同一时间最多一个撤销位被占，
+    /// 所以这里只看哪个不为空，不用比新旧。
+    private func undoToastAction() {
+        if lastResetColorOverrides != nil {
+            undoResetColors()
+        } else {
+            undoDeleteTheme()
+        }
+    }
+
+    /// 把恢复默认配色之前那张配色覆盖原样写回。
+    private func undoResetColors() {
+        guard let snapshot = lastResetColorOverrides else { return }
+        studio.restoreColorOverrides(snapshot)
+        lastResetColorOverrides = nil
+        showFontToast(AppLocalized("已恢复之前的配色"))
     }
 
     private func themeDetailView(_ item: AppearanceSavedTheme) -> some View {
@@ -4343,6 +4371,11 @@ struct DressingShopView: View {
 
             Button {
                 fontTapHaptic()
+                // 新动作顶掉旧的：这条提示只认配色重置，删套的撤销
+                // 位让出来，免得点撤销恢复了另一件。
+                lastDeletedTheme = nil
+                // 先快照再清:快照是整张原始覆盖表,撤销时原样写回。
+                lastResetColorOverrides = studio.exportColorOverrides()
                 studio.resetGlobalColors()
                 showFontToast(AppLocalized("已恢复默认配色"))
             } label: {
