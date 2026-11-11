@@ -2074,6 +2074,7 @@ struct DressingThemeLibrarySheet: View {
 struct DressingDetailsIconsSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
+    @State private var expandedCategoryKey: String?
 
     var body: some View {
         NavigationStack {
@@ -2090,6 +2091,9 @@ struct DressingDetailsIconsSheet: View {
 
                         // 界面静音图标 Slots
                         iconSlotsSection
+
+                        // 标签符号
+                        categorySymbolsSection
                     }
                     .padding(16)
                 }
@@ -2182,6 +2186,138 @@ struct DressingDetailsIconsSheet: View {
                         .padding(.vertical, 3)
                         .background(CSSThemeVariables.surfaceFill(scope: .settings))
                         .clipShape(Capsule())
+                }
+            }
+        }
+        .padding(8)
+        .background(CSSThemeVariables.surfaceFill(scope: .settings).opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    // MARK: - 标签符号：每个分类挑一个 SF Symbol，后端是 pack.categoryIcons
+
+    /// 候选符号：16 个内置默认符号，取自 sessionCategoryIconBuiltin 的
+    /// 单一事实来源 —— 每个都在生产环境的会话行里真实渲染过
+    /// (Image(systemName:))，所以选出来的每一个都一定能画出来；
+    /// 不给自由输入，写错名字会在会话行上留一个空白图标。
+    private var candidateSymbols: [String] {
+        AppearanceThemePack.categoryKeys.map { sessionCategoryIconBuiltin(for: $0).systemName }
+    }
+
+    private func categorySymbolTitle(_ key: String) -> String {
+        switch key {
+        case "code": return AppLocalized("代码")
+        case "writing": return AppLocalized("写作")
+        case "research": return AppLocalized("研究")
+        case "analysis": return AppLocalized("分析")
+        case "creative": return AppLocalized("创意")
+        case "chat": return AppLocalized("聊天")
+        case "math": return AppLocalized("数学")
+        case "translation": return AppLocalized("翻译")
+        case "health": return AppLocalized("健康")
+        case "finance": return AppLocalized("金融")
+        case "travel": return AppLocalized("旅行")
+        case "education": return AppLocalized("教育")
+        case "design": return AppLocalized("设计")
+        case "productivity": return AppLocalized("生产力")
+        case "support": return AppLocalized("支持")
+        default: return AppLocalized("其他")
+        }
+    }
+
+    /// 当前生效的符号：改过用改的，没改过用内置默认。
+    private func currentSymbolName(for key: String) -> String {
+        studio.currentThemePack().categoryIcons[key] ?? sessionCategoryIconBuiltin(for: key).systemName
+    }
+
+    private var categorySymbolsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(AppLocalized("标签符号"))
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+            ForEach(AppearanceThemePack.categoryKeys, id: \.self) { key in
+                categorySymbolRow(key)
+            }
+        }
+        .padding(12)
+        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+        )
+    }
+
+    private func categorySymbolRow(_ key: String) -> some View {
+        let isCustomized = studio.currentThemePack().categoryIcons[key] != nil
+        let isExpanded = expandedCategoryKey == key
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    expandedCategoryKey = isExpanded ? nil : key
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: currentSymbolName(for: key))
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
+                            .frame(width: 28, height: 28)
+
+                        Text(categorySymbolTitle(key))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if isCustomized {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        studio.setCategorySymbol("", for: key)
+                        onNotify(AppLocalized("已恢复默认符号"))
+                    } label: {
+                        Text(AppLocalized("重置"))
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(CSSThemeVariables.surfaceFill(scope: .settings))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if isExpanded {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                    ForEach(candidateSymbols, id: \.self) { name in
+                        let isCurrent = currentSymbolName(for: key) == name
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            if name == sessionCategoryIconBuiltin(for: key).systemName {
+                                studio.setCategorySymbol("", for: key)
+                            } else {
+                                studio.setCategorySymbol(name, for: key)
+                            }
+                            expandedCategoryKey = nil
+                        } label: {
+                            Image(systemName: name)
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundStyle(isCurrent ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                                .frame(width: 44, height: 44)
+                                .background(isCurrent ? CSSThemeVariables.accent(scope: .settings).opacity(0.18) : CSSThemeVariables.surfaceFill(scope: .settings).opacity(0.4))
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
         }

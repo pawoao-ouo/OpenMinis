@@ -125213,6 +125213,23 @@
         }
       }
     },
+    "研究": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "研究"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Research"
+          }
+        }
+      }
+    },
     "分别缩放聊天输入框、消息正文、以及其余界面文字。改完立刻生效。": {
       "extractionState": "manual",
       "localizations": {
@@ -125327,6 +125344,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "分析"
+          }
+        }
+      }
+    },
+    "创意": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创意"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creative"
           }
         }
       }
@@ -143565,6 +143599,40 @@
         }
       }
     },
+    "生产力": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生产力"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Productivity"
+          }
+        }
+      }
+    },
+    "支持": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支持"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Support"
+          }
+        }
+      }
+    },
     "识别语言": {
       "extractionState": "manual",
       "localizations": {
@@ -148739,6 +148807,23 @@
         }
       }
     },
+    "重置": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        }
+      }
+    },
     "主题名称": {
       "extractionState": "manual",
       "localizations": {
@@ -149364,6 +149449,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "细节与图标"
+          }
+        }
+      }
+    },
+    "标签符号": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签符号"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label Symbols"
+          }
+        }
+      }
+    },
+    "已恢复默认符号": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢复默认符号"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored default symbol"
           }
         }
       }
