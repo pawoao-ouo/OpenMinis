@@ -3622,6 +3622,22 @@ struct AIChatView: View {
         .buttonStyle(.plain)
     }
 
+    /// 图片版圆键:和 composerRoundKey 同一套外壳(34pt 圆、主题底、描边),
+    /// 只是里面放一张图而不是系统符号。图是黑底不透明,盖满圆内,
+    /// 所以不用再套前景色;active 态不染色,托盘开着本身就是状态。
+    private func composerRoundImage(_ name: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(name)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 34, height: 34)
+                .background(ChatColors.inputIconBg)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+
     /// 加号:开小抽屉卡片(照片/文件/表情包/语音输入/记忆/技能/连接器…)。
     /// 功能一个不少,搬的是原来那颗加号键的整套动作,只是外壳换成上游的圆。
     private var plusKey: some View {
@@ -3634,9 +3650,9 @@ struct AIChatView: View {
         .accessibilityLabel(Text(AppLocalized("更多")))
     }
 
-    /// 表情包键:吸出托盘,托盘里是她自己的表情包。
+    /// 表情包键:吸出托盘,托盘里是她自己的表情包。图标是戴皇冠小猫脸那张图。
     private var stickerKey: some View {
-        composerRoundKey("face.smiling", active: showStickerPanel) {
+        composerRoundImage("ComposerEmojiCat") {
             if showStickerPanel { closeComposerTray(focusKeyboard: true) }
             else { openComposerTray() }
         }
@@ -3680,15 +3696,23 @@ struct AIChatView: View {
         } label: {
             ZStack {
                 // 只有发送/暂停态才有实圆底;编辑和空输入都没有。
+                // 实圆底仍挂着(不增删视图,见 [T-key-no-detach]):金色图本身
+                // 是不透明黑底圆,会把它盖住;万一资源丢了,实圆底还能兜住形状。
                 Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
                     .opacity(showArrow || showPause ? 1 : 0)
-                Image(systemName: "arrow.up")
-                    .font(ChatFont.font(17, weight: .semibold))
-                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                // 发送态:金色箭头图,和实圆底同框、同透明度切换。
+                Image("ComposerSendGold")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 34, height: 34)
+                    .clipShape(Circle())
                     .opacity(showArrow ? 1 : 0)
-                Image(systemName: "pause.fill")
-                    .font(ChatFont.font(15, weight: .semibold))
-                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                // 暂停态:金色双竖线图,和实圆底同框、同透明度切换。
+                Image("ComposerPauseGold")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 34, height: 34)
+                    .clipShape(Circle())
                     .opacity(showPause ? 1 : 0)
                 Image(systemName: "xmark")
                     .font(ChatFont.font(15, weight: .semibold))

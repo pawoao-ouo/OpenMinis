@@ -146,7 +146,7 @@ struct ComposerActionSheet: View {
                 divider
                 // [T-composer-nomic 11-10] 输入栏那颗话筒搬到这儿来了。
                 // 她原话「把输入栏里面的小话筒藏到 + 里面」。
-                navRow(AppLocalized("语音输入"), "mic.fill", value: nil) { pick(.voiceInput) }
+                navRow(AppLocalized("语音输入"), "mic.fill", image: "ComposerMicGold", value: nil) { pick(.voiceInput) }
                 divider
                 navRow(AppLocalized("新建会话"), "square.and.pencil", value: nil) { pick(.newChat) }
                 divider
@@ -271,16 +271,26 @@ struct ComposerActionSheet: View {
         .buttonStyle(.plain)
     }
 
-    private func navRow(_ title: String, _ icon: String, value: String?, action: @escaping () -> Void) -> some View {
+    /// 行图标缺省是系统符号;传 image 就改放一张资源图(24pt 圆,和符号同宽)。
+    /// 只有语音输入那行传图(金色话筒),其余行一个没动。
+    private func navRow(_ title: String, _ icon: String, image: String? = nil, value: String?, action: @escaping () -> Void) -> some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             action()
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(ChatFont.font(16))
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
-                    .frame(width: 24)
+                if let image {
+                    Image(image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 24, height: 24)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: icon)
+                        .font(ChatFont.font(16))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                        .frame(width: 24)
+                }
                 Text(title)
                     .font(ChatFont.font(15))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
