@@ -9044,8 +9044,9 @@ private struct GlassComposerSurface: ViewModifier {
     }
 
     /// 实底衬（只在玻璃关了、有图时挂）：实底 → 图 → 浅色档暗膜。
-    /// 顺序跟玻璃底衬 glassBackdrop 一致（图在底、膜在图上保字），
-    /// 只把玻璃底色换成实底 inputBarSolid；图的不透明度走同一条滑杆。
+    /// 前两层跟玻璃底衬 glassBackdrop 是反的：那份是图在底、玻璃底色在图上；
+    /// 这份必须实底在底、图在上——实底 inputBarSolid 不透明度最低 0.94，图放
+    /// 底下会被全盖住。只有暗膜压在最上保字这一点两边一样。图的不透明度走同一条滑杆。
     private func solidBackdrop(_ image: UIImage) -> some View {
         ZStack {
             shape.fill(ChatColors.inputBarSolid)
