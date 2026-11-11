@@ -4067,11 +4067,10 @@ extension CollectionViewMessageListV3 {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
-            // [T-user-bubble-plain 11-10] 用户气泡不再折叠、不再自动判代码块，
-            // 所以这两条预计算分支一起退役：全文按全文量，代码只认她自己写的围栏。
-            // 视图和预计算仍然是同一套判据（UserMessageText.containsFencedCode），
-            // 只改一边的话格子会先按错的高度占位、滚动时再被纠正——就是那一跳。
-            let hasCode = UserMessageText.containsFencedCode(text)
+            // [T-user-bubble-plain 11-11] 用户气泡里彻底没有代码块了(自动判和
+            // 她自己写围栏都不认),所以这里只剩纯文本一条量法——不留 hasCode
+            // 分支,免得哪天视图和预计算又分家(那会先按错高度占位、滚动时再纠正,
+            // 就是那一跳)。
             let rowChrome: CGFloat = 7
 
             let attachCount = message.attachments.isEmpty
@@ -4108,40 +4107,9 @@ extension CollectionViewMessageListV3 {
             // (which differ by the withdraw button's 28pt) can't share a cached
             // measurement — the entry is invalidated implicitly when the queue
             // drains. Stated here because that is load-bearing, not incidental.
-            let key = "\(text.count)|\(Int(usableTextWidth))|\(Int(fontSize))|\(attachCount)|\(text.hashValue)|h\(hasCode ? 1 : 0)"
+            let key = "\(text.count)|\(Int(usableTextWidth))|\(Int(fontSize))|\(attachCount)|\(text.hashValue)"
             if let cached = cache[key] {
                 return cached
-            }
-
-            if hasCode {
-                let fenced = text
-                // [B28 R9] 代码块已经是独立 SwiftUI 视图，不能再拿
-                // SelectableMarkdownView 的 TextKit 附件高度来预计算——
-                // 两套渲染的 header/padding 不一样，预计算会先给错高度，
-                // 滚动时再被真实高度纠正，就是那一跳。
-                // 这里按同一份分段、同一个 ChatCodeBlockView 去量。
-                let contentH: CGFloat = MainActor.assumeIsolated {
-                    var total: CGFloat = 0
-                    var count = 0
-                    for segment in ChatMarkdownSegmenter.segments(from: fenced) {
-                        switch segment {
-                        case .prose(let prose):
-                            guard !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-                            total += SelectableMarkdownView.measureMarkdownHeight(prose, width: usableTextWidth) + 16
-                            count += 1
-                        case .code:
-                            total += ChatCodeBlockView.cardHeight + 4
-                            count += 1
-                        }
-                    }
-                    if count > 1 {
-                        total += CGFloat(count - 1) * 10
-                    }
-                    return total
-                }
-                let total = contentH + 20 + rowChrome + attachH + 1
-                cache[key] = total
-                return total
             }
 
             // [T-ios-user-msg-estimate-tail-jitter] Measure with UILabel, NOT raw

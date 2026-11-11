@@ -158,23 +158,6 @@ private struct ContextMenuPreviewSurface: ViewModifier {
 /// disappear (the FAB regression).
 // [B28 R5] internal（原 private）：装扮页样张复用真气泡皮肤本体 ——
 // 平铺/气泡/文稿三形态和 Liquid Glass 判定全在这里，复制=双维护=撒谎。
-// MARK: - 代码识别
-
-enum UserCodeFencing {
-    /// [T-user-bubble-plain 11-10] 醒醒：用户气泡里的自动代码块要删——
-    /// 「发代码或者发别的自动变成代码块了，是别的不够准确」。
-    ///
-    /// 这套打分制原本是精心调过的（30 段真代码 + 44 段真散文，误报 0），
-    /// 但判得再准也是猜。猜对没奖，猜错就是把她说的话套上等宽字体和灰底，
-    /// 而她自己心里那句话并不是代码。用户的话照原样显示，这是唯一不会错的做法。
-    ///
-    /// 保留的只有一件事：她自己**写了围栏**（``` 或 ~~~）时才承认是代码。
-    /// 那不是猜，是她明说。
-    static func hasFence(_ s: String) -> Bool {
-        s.contains("```") || s.contains("~~~")
-    }
-}
-
 // MARK: - 正文视图
 
 struct UserMessageText: View {
@@ -190,54 +173,18 @@ struct UserMessageText: View {
 
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
-    /// 只有**她自己写了围栏**（``` 或 ~~~）才当代码块。
-    /// 没有围栏就一律纯文本——不再猜。autoFenced 那套打分制再准也是猜，
-    /// 而猜错的代价是把她的话排版搞乱。
-    /// 列表预计算和视图必须用**同一个**判据，所以它是 static 的。
-    static func containsFencedCode(_ text: String) -> Bool { UserCodeFencing.hasFence(text) }
-    private var hasCode: Bool { Self.containsFencedCode(text) }
-    private var fenced: String { text }
-
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            if hasCode {
-                // [B28 R9] 用户代码也走独立代码块视图。这里不再把整段交给
-                // SelectableMarkdownView 的 NSTextAttachment；正文和代码拆开，
-                // 代码块高度自己定，气泡和列表按普通 SwiftUI 子视图测量。
-                let codeSegments = ChatMarkdownSegmenter.segments(from: fenced)
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(codeSegments.enumerated()), id: \.offset) { _, segment in
-                        switch segment {
-                        case .prose(let prose):
-                            if !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                SelectableMarkdownView(markdown: prose, messageId: messageId)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .modifier(MinisOpenURLHandler())
-                            }
-                        case .code(let language, let code, let codeIndex):
-                            ChatCodeBlockView(
-                                code: code,
-                                language: language,
-                                sourceMarkdown: fenced,
-                                codeIndex: codeIndex,
-                                messageId: messageId,
-                                blockId: nil
-                            )
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
+            // [T-user-bubble-plain 11-10 / 11-11] 用户气泡里不认代码块:
+            // 不自动判、也不因为她自己写了 ``` 就套成代码卡。
+            // 她的话一律照原样全文显示,不折叠、不打码、不换字体。
+            // (2026-11-11 她点名:「用户气泡里代码块也不要」——
+            //  之前还留着"自己写围栏才当代码"的口子,那条也删了。)
+            Text(text)
+                .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16.5)))
+                .foregroundStyle(isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
+                .fixedSize(horizontal: false, vertical: true)
                 .id(appearanceStudio.themePackRevision)
-            } else {
-                // [T-user-bubble-plain 11-10] 全文显示，不裁、不打码、不给
-                // 「展开全文」。用户自己说的话不该被折叠起来。
-                Text(text)
-                    .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16.5)))
-                    .foregroundStyle(isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .id(appearanceStudio.themePackRevision)
-            }
         }
         .padding(.horizontal, AppearanceChatDisplay.parse(
             AppearanceStudio.shared.currentThemePack().chatDisplay) == .bubbles
