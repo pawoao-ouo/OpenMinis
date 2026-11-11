@@ -1152,8 +1152,9 @@ struct DressingShopView: View {
                 ? AppLocalized("分类图已换上。")
                 : AppLocalized("选中的图读不出来。")
         case .userAvatar:
-            studio.setUserAvatar(image)
-            decalMessage = AppLocalized("我的头像已换上。")
+            decalMessage = studio.setUserAvatar(image)
+                ? AppLocalized("我的头像已换上。")
+                : AppLocalized("选中的图读不出来。")
         case .assistantAvatar:
             do {
                 try studio.setAssistantAvatar(image)

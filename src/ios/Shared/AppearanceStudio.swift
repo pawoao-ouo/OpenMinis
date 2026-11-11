@@ -1574,11 +1574,14 @@ final class AppearanceStudio: ObservableObject {
         }
     }
 
-    func setUserAvatar(_ image: UIImage) {
-        if case .success(let path) = SoulIconImage.store(image, named: "user") {
-            userAvatar = path
-            UserDefaults.standard.set(path, forKey: Keys.userAvatar)
-        }
+    /// Returns whether the avatar was actually stored. A failed store
+    /// used to be swallowed here and the shop reported success anyway.
+    @discardableResult
+    func setUserAvatar(_ image: UIImage) -> Bool {
+        guard case .success(let path) = SoulIconImage.store(image, named: "user") else { return false }
+        userAvatar = path
+        UserDefaults.standard.set(path, forKey: Keys.userAvatar)
+        return true
     }
 
     func removeUserAvatar() {
@@ -1599,7 +1602,9 @@ final class AppearanceStudio: ObservableObject {
 
     func setAssistantAvatar(_ image: UIImage) throws {
         let name = SoulIconImage.storedName(prefix: "soul", id: PersonaStore.currentID())
-        guard case .success(let path) = SoulIconImage.store(image, named: name) else { return }
+        // A failed store used to return silently as success; throw the
+        // store's own error so the caller can report it instead.
+        let path = try SoulIconImage.store(image, named: name).get()
         var soul = SoulStore.load() ?? SoulFile(metadata: .default, body: "")
         soul.metadata.icon = path
         try SoulStore.save(soul)
