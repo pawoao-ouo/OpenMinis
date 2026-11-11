@@ -34,6 +34,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var inputBarImageOpacity: Double
     var thinkingTitleSize: Double
     var thinkingBodySize: Double
+    /// 全局字号（消息字号，10–15pt）。nil = 这个包没记字号（旧包）：
+    /// 换上时不动字号，绝不回落到 13。存主题时记下当时的字号。
+    var fontPointSize: Double? = nil
     var fontFamily: String
     /// Legacy message-part font family override. Fonts are
     /// ONE global choice now: `unifiedFonts` folds a set
@@ -430,6 +433,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         if let listRowFillHex { obj["listRowFillHex"] = listRowFillHex }
         if let wallpaperShade { obj["wallpaperShade"] = wallpaperShade }
         if let surfaceOpacity { obj["surfaceOpacity"] = surfaceOpacity }
+        if let fontPointSize { obj["fontPointSize"] = fontPointSize }
         if let wallpaperJPEGBase64 { obj["wallpaperJPEGBase64"] = wallpaperJPEGBase64 }
         // [T-54 r2] 第二档只在真有两份时才写。老包没有这个键，
         // 读的时候当"只有一份"处理，不会多出半张图。
@@ -566,6 +570,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         "chatDisplay", "novelMode", "codeBlockCollapseLines",
         // Ambiguous between font size and layout: rejected, see above.
         "fontFamily", "messageFontFamily", "messageCustomFont", "uiCustomFont",
+        // Message font size: the AI path copies thinking sizes only
+        // and never changes the message size (see applySavedThemeAI).
+        "fontPointSize",
         // Icons / symbols and the standee image: not colours, wallpaper,
         // font sizes, or avatar shape.
         "categoryIcons", "categoryImages", "characterArtBase64",
@@ -733,6 +740,7 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             inputBarImageOpacity: min(1, max(0.05, num("inputBarImageOpacity", fallback: base.inputBarImageOpacity))),
             thinkingTitleSize: min(22, max(10, num("thinkingTitleSize", fallback: base.thinkingTitleSize))),
             thinkingBodySize: min(22, max(10, num("thinkingBodySize", fallback: base.thinkingBodySize))),
+            fontPointSize: raw["fontPointSize"] == nil ? nil : min(15, max(10, num("fontPointSize", fallback: 13))),
             fontFamily: AppearanceFontFamily.parse(str("fontFamily", fallback: base.fontFamily)).rawValue,
             messageFontFamily: str("messageFontFamily", fallback: base.messageFontFamily),
             messageCustomFont: (raw["messageCustomFont"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? base.messageCustomFont,
@@ -1296,6 +1304,11 @@ extension AppearanceStudio {
         else if replace { warnings.append("surfaceOpacityKept") }
         if let shade = pack.wallpaperShade { wallpaperShade = shade }
         else if replace { warnings.append("wallpaperShadeKept") }
+        // 全局字号只在整套替换时才跟包走：包里没写就是"不关我的事"，
+        // 绝不拉回 13；merge 模式（AI 路）永远不动字号。
+        if replace, let size = pack.fontPointSize {
+            FontSettings.shared.messagePointSize = CGFloat(min(15, max(10, size)))
+        }
         // A saved pack never carries bubbleOpacity, so in replace mode it
         // used to revert to 1.0. Same rule as above: keep hers.
         if replace { warnings.append("bubbleOpacityKept") }
@@ -1387,6 +1400,10 @@ extension AppearanceStudio {
         pack.pageColorsDark = exportPageColors(variant: .dark)
         pack.surfaceOpacity = surfaceOpacity
         pack.wallpaperShade = wallpaperShade
+        // 全局字号跟颜色、透明度一样，每次导出都记当时 live 的值：
+        // 存主题走这里记；semantic-match 拿这里的值跟存的包比，
+        // 用户后来改字号才能把"在用"打掉。
+        pack.fontPointSize = Double(FontSettings.shared.messagePointSize)
         // [B28 B-3] 三个字段以前被硬写成 accent 的副本 —— 导出一次，用户
         // 自己设的 thinking 颜色就被抹平，而且导出/应用来回一趟就把「跟 accent
         // 走」永久钉死成当时那个 hex。现在不写：空串就是「跟 accent 走」，
