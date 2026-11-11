@@ -1638,6 +1638,7 @@ extension AppearanceStudio {
         if FileManager.default.fileExists(atPath: dir.appendingPathComponent("colors-only").path) {
             guard let colors = try? Data(contentsOf: dir.appendingPathComponent("colors.json")),
                   let decoded = try? JSONDecoder().decode([String: String].self, from: colors) else {
+                try? FileManager.default.removeItem(at: dir)
                 return false
             }
             restoreColorOverrides(decoded)
@@ -1652,6 +1653,7 @@ extension AppearanceStudio {
         guard let data = try? Data(contentsOf: packURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let restored = try? AppearanceThemePack.decode(obj) else {
+            try? FileManager.default.removeItem(at: dir)
             return false
         }
         UserDefaults.standard.set(data, forKey: Self.packKey)
