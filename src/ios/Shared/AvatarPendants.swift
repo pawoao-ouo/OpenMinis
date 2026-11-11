@@ -278,6 +278,13 @@ final class AvatarPendantStore: ObservableObject {
         saveApplied()
     }
 
+    /// Clear pendant on ONE side.
+    func clear(for side: DressingSide) {
+        if side.isUser { appliedUserNumber = nil }
+        else { appliedAssistantNumber = nil }
+        saveApplied()
+    }
+
     /// Apply to BOTH sides (the old single-apply behaviour, kept
     /// for callers that mean "both sides, same ring" — e.g. a
     /// full-set apply. It writes two per-side records, not one

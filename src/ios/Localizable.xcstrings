@@ -146940,15 +146940,2500 @@
     "装扮界面正在重做": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Dressing is being redesigned" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "装扮界面正在重做" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dressing is being redesigned"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "装扮界面正在重做"
+          }
+        }
       }
     },
     "主题、壁纸、气泡、字体等功能和数据都还在；新界面等你决定样子。": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "All themes, wallpapers, bubbles and fonts remain saved; new UI awaits your design." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "主题、壁纸、气泡、字体等功能和数据都还在；新界面等你决定样子。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All themes, wallpapers, bubbles and fonts remain saved; new UI awaits your design."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题、壁纸、气泡、字体等功能和数据都还在；新界面等你决定样子。"
+          }
+        }
+      }
+    },
+    "已保存主题：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存主题："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存主题："
+          }
+        }
+      }
+    },
+    "已清除当前页面的自定义覆盖": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已清除当前页面的自定义覆盖"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已清除当前页面的自定义覆盖"
+          }
+        }
+      }
+    },
+    "气泡形状款式 · 头像轮廓 · 柔光发光圈": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡形状款式 · 头像轮廓 · 柔光发光圈"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡形状款式 · 头像轮廓 · 柔光发光圈"
+          }
+        }
+      }
+    },
+    "界面图标自定义 · 代码块折叠 · 渲染细项": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "界面图标自定义 · 代码块折叠 · 渲染细项"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "界面图标自定义 · 代码块折叠 · 渲染细项"
+          }
+        }
+      }
+    },
+    "该页面独立壁纸": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该页面独立壁纸"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该页面独立壁纸"
+          }
+        }
+      }
+    },
+    "气泡形状微调": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡形状微调"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡形状微调"
+          }
+        }
+      }
+    },
+    "确认删除": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认删除"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认删除"
+          }
+        }
+      }
+    },
+    "壁纸格式不支持或已损坏": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸格式不支持或已损坏"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸格式不支持或已损坏"
+          }
+        }
+      }
+    },
+    "已全部应用 \\(pack.title)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已全部应用 \\(pack.title)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已全部应用 \\(pack.title)"
+          }
+        }
+      }
+    },
+    "我的已存主题 (\\(studio.savedThemes().count))": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的已存主题 (\\(studio.savedThemes().count))"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的已存主题 (\\(studio.savedThemes().count))"
+          }
+        }
+      }
+    },
+    "调色板已重置为默认值（可撤销）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调色板已重置为默认值（可撤销）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调色板已重置为默认值（可撤销）"
+          }
+        }
+      }
+    },
+    "已撤销上一次重置": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已撤销上一次重置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已撤销上一次重置"
+          }
+        }
+      }
+    },
+    "从相册选择": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从相册选择"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从相册选择"
+          }
+        }
+      }
+    },
+    "色彩模式": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色彩模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色彩模式"
+          }
+        }
+      }
+    },
+    "恢复默认调色板": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复默认调色板"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复默认调色板"
+          }
+        }
+      }
+    },
+    "解析并换上": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解析并换上"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解析并换上"
+          }
+        }
+      }
+    },
+    "壁纸与特色装饰": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸与特色装饰"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸与特色装饰"
+          }
+        }
+      }
+    },
+    "默认气泡": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认气泡"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认气泡"
+          }
+        }
+      }
+    },
+    "正在调节：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在调节："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在调节："
+          }
+        }
+      }
+    },
+    "导出主题失败": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出主题失败"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出主题失败"
+          }
+        }
+      }
+    },
+    "复位": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复位"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复位"
+          }
+        }
+      }
+    },
+    "主题档案库": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题档案库"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题档案库"
+          }
+        }
+      }
+    },
+    "消息字号": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息字号"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息字号"
+          }
+        }
+      }
+    },
+    "已给 \\(editingSide.displayName) 换上 \\(pack.title)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已给 \\(editingSide.displayName) 换上 \\(pack.title)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已给 \\(editingSide.displayName) 换上 \\(pack.title)"
+          }
+        }
+      }
+    },
+    "字体与版面排版": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体与版面排版"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体与版面排版"
+          }
+        }
+      }
+    },
+    "复制主题 JSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制主题 JSON"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制主题 JSON"
+          }
+        }
+      }
+    },
+    "你好，醒醒。今天想怎么打扮我？": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你好，醒醒。今天想怎么打扮我？"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你好，醒醒。今天想怎么打扮我？"
+          }
+        }
+      }
+    },
+    "上传立绘": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上传立绘"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上传立绘"
+          }
+        }
+      }
+    },
+    "双方都用": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双方都用"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双方都用"
+          }
+        }
+      }
+    },
+    "记录当前调色、气泡、壁纸与字体": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记录当前调色、气泡、壁纸与字体"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记录当前调色、气泡、壁纸与字体"
+          }
+        }
+      }
+    },
+    "气泡与头像挂件": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡与头像挂件"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡与头像挂件"
+          }
+        }
+      }
+    },
+    "导入 / 导出": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入 / 导出"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入 / 导出"
+          }
+        }
+      }
+    },
+    "正文行高倍率": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正文行高倍率"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正文行高倍率"
+          }
+        }
+      }
+    },
+    "已粘贴剪贴板内容": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已粘贴剪贴板内容"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已粘贴剪贴板内容"
+          }
+        }
+      }
+    },
+    "未单独设置（遵循主题底色或全局壁纸）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未单独设置（遵循主题底色或全局壁纸）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未单独设置（遵循主题底色或全局壁纸）"
+          }
+        }
+      }
+    },
+    "已卸下我的挂件": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已卸下我的挂件"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已卸下我的挂件"
+          }
+        }
+      }
+    },
+    "已成功换上：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已成功换上："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已成功换上："
+          }
+        }
+      }
+    },
+    "将当前主题生成为 JSON 字符串并写入系统剪贴板。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将当前主题生成为 JSON 字符串并写入系统剪贴板。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将当前主题生成为 JSON 字符串并写入系统剪贴板。"
+          }
+        }
+      }
+    },
+    "导入字体": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入字体"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入字体"
+          }
+        }
+      }
+    },
+    "主题解析失败：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题解析失败："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题解析失败："
+          }
+        }
+      }
+    },
+    "思考过程卡片背景": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考过程卡片背景"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考过程卡片背景"
+          }
+        }
+      }
+    },
+    "AI已佩戴": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI已佩戴"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI已佩戴"
+          }
+        }
+      }
+    },
+    "常用界面图标": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常用界面图标"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常用界面图标"
+          }
+        }
+      }
+    },
+    "已移除输入栏装饰图": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除输入栏装饰图"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除输入栏装饰图"
+          }
+        }
+      }
+    },
+    "主题导入与导出": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题导入与导出"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题导入与导出"
+          }
+        }
+      }
+    },
+    "已切换字体：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切换字体："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切换字体："
+          }
+        }
+      }
+    },
+    "戴在我头上": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戴在我头上"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戴在我头上"
+          }
+        }
+      }
+    },
+    "自定义导入字体 (.ttf / .otf)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义导入字体 (.ttf / .otf)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义导入字体 (.ttf / .otf)"
+          }
+        }
+      }
+    },
+    "已删除主题：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除主题："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除主题："
+          }
+        }
+      }
+    },
+    "气泡表面透光": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡表面透光"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡表面透光"
+          }
+        }
+      }
+    },
+    "壁纸遮罩浓度": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸遮罩浓度"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸遮罩浓度"
+          }
+        }
+      }
+    },
+    "助手立绘已设置": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手立绘已设置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手立绘已设置"
+          }
+        }
+      }
+    },
+    "字体大小与留白": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体大小与留白"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体大小与留白"
+          }
+        }
+      }
+    },
+    "分页面 · 分日夜模式 · 16角色精细上色": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分页面 · 分日夜模式 · 16角色精细上色"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分页面 · 分日夜模式 · 16角色精细上色"
+          }
+        }
+      }
+    },
+    "一键切换整体色调与氛围": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一键切换整体色调与氛围"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一键切换整体色调与氛围"
+          }
+        }
+      }
+    },
+    "确认删除此主题存档？": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认删除此主题存档？"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认删除此主题存档？"
+          }
+        }
+      }
+    },
+    "旋钮已复位": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旋钮已复位"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旋钮已复位"
+          }
+        }
+      }
+    },
+    "头像挂件与形状": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "头像挂件与形状"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "头像挂件与形状"
+          }
+        }
+      }
+    },
+    "助手专属立绘 (Character Art)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手专属立绘 (Character Art)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手专属立绘 (Character Art)"
+          }
+        }
+      }
+    },
+    "气泡与挂件": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡与挂件"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡与挂件"
+          }
+        }
+      }
+    },
+    "移除": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        }
+      }
+    },
+    "壁纸已更新": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸已更新"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸已更新"
+          }
+        }
+      }
+    },
+    "分页面壁纸设置": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分页面壁纸设置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分页面壁纸设置"
+          }
+        }
+      }
+    },
+    "字号、行距与小说模式": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字号、行距与小说模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字号、行距与小说模式"
+          }
+        }
+      }
+    },
+    "字体导入失败，请确保格式正确": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体导入失败，请确保格式正确"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体导入失败，请确保格式正确"
+          }
+        }
+      }
+    },
+    "保存搭配 · 历史存档 · 导入与导出": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存搭配 · 历史存档 · 导入与导出"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存搭配 · 历史存档 · 导入与导出"
+          }
+        }
+      }
+    },
+    "文字间距 (字距)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字间距 (字距)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字间距 (字距)"
+          }
+        }
+      }
+    },
+    "你已佩戴": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已佩戴"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已佩戴"
+          }
+        }
+      }
+    },
+    "保存为新主题": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存为新主题"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存为新主题"
+          }
+        }
+      }
+    },
+    "全局透光与材质": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局透光与材质"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局透光与材质"
+          }
+        }
+      }
+    },
+    "16色分页面分深浅": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16色分页面分深浅"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16色分页面分深浅"
+          }
+        }
+      }
+    },
+    "摇一摇": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "摇一摇"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "摇一摇"
+          }
+        }
+      }
+    },
+    "已复制主题包 JSON 到剪贴板": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制主题包 JSON 到剪贴板"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制主题包 JSON 到剪贴板"
+          }
+        }
+      }
+    },
+    "保存当前主题": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存当前主题"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存当前主题"
+          }
+        }
+      }
+    },
+    "已卸下AI的挂件": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已卸下AI的挂件"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已卸下AI的挂件"
+          }
+        }
+      }
+    },
+    "还没有保存任何主题，点击上方“保存当前主题”即可存入": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有保存任何主题，点击上方“保存当前主题”即可存入"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有保存任何主题，点击上方“保存当前主题”即可存入"
+          }
+        }
+      }
+    },
+    "已移除思考卡装饰图": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除思考卡装饰图"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除思考卡装饰图"
+          }
+        }
+      }
+    },
+    "成功导入字体：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功导入字体："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功导入字体："
+          }
+        }
+      }
+    },
+    "气泡款式与圆角": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡款式与圆角"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "气泡款式与圆角"
+          }
+        }
+      }
+    },
+    "静音图标与标签符号": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静音图标与标签符号"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静音图标与标签符号"
+          }
+        }
+      }
+    },
+    "装扮中心": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "装扮中心"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "装扮中心"
+          }
+        }
+      }
+    },
+    "发光柔光圆环挂件": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发光柔光圆环挂件"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发光柔光圆环挂件"
+          }
+        }
+      }
+    },
+    "主题存档库": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题存档库"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题存档库"
+          }
+        }
+      }
+    },
+    "不折叠": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不折叠"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不折叠"
+          }
+        }
+      }
+    },
+    "聊天输入栏背景": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天输入栏背景"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天输入栏背景"
+          }
+        }
+      }
+    },
+    "从剪贴板或文本导入": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从剪贴板或文本导入"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从剪贴板或文本导入"
+          }
+        }
+      }
+    },
+    "预设气泡款式库": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预设气泡款式库"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预设气泡款式库"
+          }
+        }
+      }
+    },
+    "已应用自定义字体": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已应用自定义字体"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已应用自定义字体"
+          }
+        }
+      }
+    },
+    "清除本页覆盖": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除本页覆盖"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除本页覆盖"
+          }
+        }
+      }
+    },
+    "视觉小说模式": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视觉小说模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视觉小说模式"
+          }
+        }
+      }
+    },
+    "更换图片": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更换图片"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更换图片"
+          }
+        }
+      }
+    },
+    "已停用自定义字体": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停用自定义字体"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停用自定义字体"
+          }
+        }
+      }
+    },
+    "换上": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "换上"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "换上"
+          }
+        }
+      }
+    },
+    "主题名称": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题名称"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题名称"
+          }
+        }
+      }
+    },
+    "思考卡背景已更新": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考卡背景已更新"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考卡背景已更新"
+          }
+        }
+      }
+    },
+    "导出当前主题": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出当前主题"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出当前主题"
+          }
+        }
+      }
+    },
+    "自动折叠行数": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动折叠行数"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动折叠行数"
+          }
+        }
+      }
+    },
+    "字体与排版": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体与排版"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体与排版"
+          }
+        }
+      }
+    },
+    "自动": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        }
+      }
+    },
+    "色彩调控": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色彩调控"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色彩调控"
+          }
+        }
+      }
+    },
+    "立即保存": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即保存"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即保存"
+          }
+        }
+      }
+    },
+    "日间": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日间"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日间"
+          }
+        }
+      }
+    },
+    "色彩调控台": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色彩调控台"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色彩调控台"
+          }
+        }
+      }
+    },
+    "页面专属壁纸 · 助手立绘 · 思考与输入栏贴图": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "页面专属壁纸 · 助手立绘 · 思考与输入栏贴图"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "页面专属壁纸 · 助手立绘 · 思考与输入栏贴图"
+          }
+        }
+      }
+    },
+    "暂无已导入的自定义字体": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无已导入的自定义字体"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无已导入的自定义字体"
+          }
+        }
+      }
+    },
+    "已删除字体": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除字体"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除字体"
+          }
+        }
+      }
+    },
+    "已自定义壁纸": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已自定义壁纸"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已自定义壁纸"
+          }
+        }
+      }
+    },
+    "应用": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用"
+          }
+        }
+      }
+    },
+    "圆角半径": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆角半径"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆角半径"
+          }
+        }
+      }
+    },
+    "保存、分享与导入导出": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存、分享与导入导出"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存、分享与导入导出"
+          }
+        }
+      }
+    },
+    "卡片表面透光": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片表面透光"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片表面透光"
+          }
+        }
+      }
+    },
+    "头像大小": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "头像大小"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "头像大小"
+          }
+        }
+      }
+    },
+    "已清除该页面壁纸并恢复默认": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已清除该页面壁纸并恢复默认"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已清除该页面壁纸并恢复默认"
+          }
+        }
+      }
+    },
+    "主题应用失败": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题应用失败"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题应用失败"
+          }
+        }
+      }
+    },
+    "已成功导入并换上主题：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已成功导入并换上主题："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已成功导入并换上主题："
+          }
+        }
+      }
+    },
+    "款式、圆角与头像圈": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "款式、圆角与头像圈"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "款式、圆角与头像圈"
+          }
+        }
+      }
+    },
+    "输入栏背景已更新": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入栏背景已更新"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入栏背景已更新"
+          }
+        }
+      }
+    },
+    "已清除立绘": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已清除立绘"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已清除立绘"
+          }
+        }
+      }
+    },
+    "消息气泡排布": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息气泡排布"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息气泡排布"
+          }
+        }
+      }
+    },
+    "已佩戴在AI头像上": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已佩戴在AI头像上"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已佩戴在AI头像上"
+          }
+        }
+      }
+    },
+    "做简单、精致、iOS 26 质感～": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "做简单、精致、iOS 26 质感～"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "做简单、精致、iOS 26 质感～"
+          }
+        }
+      }
+    },
+    "部件背景装饰图": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部件背景装饰图"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部件背景装饰图"
+          }
+        }
+      }
+    },
+    "全局与独立壁纸立绘": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局与独立壁纸立绘"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局与独立壁纸立绘"
+          }
+        }
+      }
+    },
+    "输入的 JSON 格式无效": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入的 JSON 格式无效"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入的 JSON 格式无效"
+          }
+        }
+      }
+    },
+    "全局通用壁纸": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局通用壁纸"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局通用壁纸"
+          }
+        }
+      }
+    },
+    "尚未设置立绘": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未设置立绘"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未设置立绘"
+          }
+        }
+      }
+    },
+    "添加图片": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加图片"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加图片"
+          }
+        }
+      }
+    },
+    "戴在AI上": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戴在AI上"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戴在AI上"
+          }
+        }
+      }
+    },
+    "字体族 · 自定义字体 · 字号行距 · 小说模式": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体族 · 自定义字体 · 字号行距 · 小说模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体族 · 自定义字体 · 字号行距 · 小说模式"
+          }
+        }
+      }
+    },
+    "细节与图标": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细节与图标"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细节与图标"
+          }
+        }
+      }
+    },
+    "给这款主题起个名字...": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给这款主题起个名字..."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给这款主题起个名字..."
+          }
+        }
+      }
+    },
+    "代码块折叠设置": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码块折叠设置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码块折叠设置"
+          }
+        }
+      }
+    },
+    "内置字体风格": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内置字体风格"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内置字体风格"
+          }
+        }
+      }
+    },
+    "已随机一套全新配色": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已随机一套全新配色"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已随机一套全新配色"
+          }
+        }
+      }
+    },
+    "壁纸与立绘": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸与立绘"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸与立绘"
+          }
+        }
+      }
+    },
+    "粘贴": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴"
+          }
+        }
+      }
+    },
+    "点击换上": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击换上"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击换上"
+          }
+        }
+      }
+    },
+    "沉浸阅读与消息形态": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沉浸阅读与消息形态"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沉浸阅读与消息形态"
+          }
+        }
+      }
+    },
+    "夜间": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "夜间"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "夜间"
+          }
+        }
+      }
+    },
+    "已应用预设：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已应用预设："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已应用预设："
+          }
+        }
+      }
+    },
+    "立绘已就绪（将在特定模式下展示）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立绘已就绪（将在特定模式下展示）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立绘已就绪（将在特定模式下展示）"
+          }
+        }
+      }
+    },
+    "已佩戴在我的头像上": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已佩戴在我的头像上"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已佩戴在我的头像上"
+          }
+        }
+      }
+    },
+    "支持标准 JSON 主题包": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支持标准 JSON 主题包"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支持标准 JSON 主题包"
+          }
+        }
+      }
+    },
+    "头像形状与尺寸": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "头像形状与尺寸"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "头像形状与尺寸"
+          }
+        }
+      }
+    },
+    "经典预设库": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典预设库"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典预设库"
+          }
+        }
       }
     }
   },
