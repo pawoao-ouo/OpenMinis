@@ -130841,6 +130841,23 @@
         }
       }
     },
+    "存档库已满（40 套），删一套再存": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存档库已满（40 套），删一套再存"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存档库已满（40 套），删一套再存"
+          }
+        }
+      }
+    },
     "存进主题库": {
       "extractionState": "manual",
       "localizations": {
@@ -147630,6 +147647,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "已成功换上："
+          }
+        }
+      }
+    },
+    "已换上，但没换上：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已换上，但没换上："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已换上，但没换上："
+          }
+        }
+      }
+    },
+    "已换上，但部分内容没换过来": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已换上，但部分内容没换过来"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已换上，但部分内容没换过来"
+          }
+        }
+      }
+    },
+    "AI 挂件": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 挂件"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 挂件"
+          }
+        }
+      }
+    },
+    "AI 气泡": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 气泡"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 气泡"
+          }
+        }
+      }
+    },
+    "我的挂件": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的挂件"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的挂件"
+          }
+        }
+      }
+    },
+    "我的气泡": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的气泡"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的气泡"
           }
         }
       }

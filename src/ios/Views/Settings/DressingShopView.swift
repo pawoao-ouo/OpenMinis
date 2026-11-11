@@ -490,7 +490,7 @@ extension DressingShopView {
             DressingSaveThemeSheet(onSaved: { name in
                 showToast(AppLocalized("已保存主题：") + name)
                 activeSheet = .themeLibrary
-            })
+            }, onNotify: { showToast($0) })
         case .importExport:
             DressingImportExportSheet(onNotify: { showToast($0) })
         }
@@ -1968,6 +1968,23 @@ struct DressingThemeLibrarySheet: View {
         }
     }
 
+    /// applyThemePack 警告里真正"没换过来"的那些。带 Kept 的三个
+    /// （surfaceOpacityKept / wallpaperShadeKept / bubbleOpacityKept）
+    /// 是 T-46 定好的常规保留——包里没写旋钮就留着她的值，不是失败。
+    private static let applyFailureWarningCodes: Set<String> = [
+        "pack", "characterArt", "wallpaper", "thinkingCard", "inputBar"
+    ]
+
+    private func failedPieceLabel(_ code: String) -> String {
+        switch code {
+        case "userBubble": return AppLocalized("我的气泡")
+        case "assistantBubble": return AppLocalized("AI 气泡")
+        case "userPendant": return AppLocalized("我的挂件")
+        case "assistantPendant": return AppLocalized("AI 挂件")
+        default: return code
+        }
+    }
+
     private func savedThemeCard(_ theme: AppearanceSavedTheme) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
@@ -1984,8 +2001,15 @@ struct DressingThemeLibrarySheet: View {
 
             Button {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                if let _ = studio.applySavedThemeSet(id: theme.id) {
-                    onNotify(AppLocalized("已成功换上：") + theme.name)
+                if let result = studio.applySavedThemeSet(id: theme.id) {
+                    if result.failedPieces.isEmpty,
+                       !result.packWarnings.contains(where: { Self.applyFailureWarningCodes.contains($0) }) {
+                        onNotify(AppLocalized("已成功换上：") + theme.name)
+                    } else if !result.failedPieces.isEmpty {
+                        onNotify(AppLocalized("已换上，但没换上：") + result.failedPieces.map({ failedPieceLabel($0) }).joined(separator: "、"))
+                    } else {
+                        onNotify(AppLocalized("已换上，但部分内容没换过来"))
+                    }
                 } else {
                     onNotify(AppLocalized("主题应用失败"))
                 }
@@ -2147,6 +2171,7 @@ struct DressingDetailsIconsSheet: View {
 @MainActor
 struct DressingSaveThemeSheet: View {
     let onSaved: (String) -> Void
+    let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
     @State private var themeName: String = ""
     @Environment(\.dismiss) private var dismiss
@@ -2176,9 +2201,13 @@ struct DressingSaveThemeSheet: View {
                     let trimmed = themeName.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { return }
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    _ = studio.saveCurrentTheme(name: trimmed)
-                    onSaved(trimmed)
-                    dismiss()
+                    if studio.saveCurrentTheme(name: trimmed) != nil {
+                        onSaved(trimmed)
+                        dismiss()
+                    } else {
+                        // 存档库满 40 套时 saveCurrentTheme 返回 nil：如实报，不关弹窗。
+                        onNotify(AppLocalized("存档库已满（40 套），删一套再存"))
+                    }
                 } label: {
                     Text(AppLocalized("立即保存"))
                         .font(.system(size: 14, weight: .bold))
