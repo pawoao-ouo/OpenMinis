@@ -2465,7 +2465,7 @@ enum MinisThemeShape {
         let radius = CGFloat(user ? pack.userBubbleRadius : pack.assistantBubbleRadius)
         let r = min(max(radius, 4), 32)
         // Outer corner = the side the bubble sits on: user = trailing
-        // bottom, assistant = leading bottom. Matches BubblePackSampleShape.
+        // bottom, assistant = leading bottom. The sample draws the same side.
         if user {
             return RectangleCornerRadii(topLeading: r, bottomLeading: r, bottomTrailing: 4, topTrailing: r)
         }

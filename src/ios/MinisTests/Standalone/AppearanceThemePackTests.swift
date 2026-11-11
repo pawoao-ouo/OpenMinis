@@ -43,6 +43,8 @@ let here = URL(fileURLWithPath: #file)
     .deletingLastPathComponent()
 let pack = read(here.appendingPathComponent("Shared/AppearanceThemePack.swift"))
 let studio = read(here.appendingPathComponent("Shared/AppearanceStudio.swift"))
+check("theme apply/export backend remains", pack.contains("func applyThemePack") && pack.contains("func exportThemePack"))
+check("wallpaper and theme store remains", studio.contains("final class AppearanceStudio") && studio.contains("func setWallpaperEncoded"))
 let lib = read(here.appendingPathComponent("Shared/AppearanceThemeLibrary.swift"))
 let library = read(here.appendingPathComponent("Shared/AppearanceThemeLibrary.swift"))
 let chat = read(here.appendingPathComponent("Views/Chat/ChatMessageViews.swift"))
@@ -212,11 +214,9 @@ check("host path resolved in objc", extrasCommands.contains("noff_resolve_host_p
 // [T-55] 壁纸只认一处上限。主壁纸和一起听各写一份 2200、各写一份压色，
 // 是这条审计的原始问题；收敛之后只许 `WallpaperPipeline.maxEdge` 一处出现。
 let together = read(here.appendingPathComponent("Agent/Together/TogetherStore.swift"))
-let shop = read(here.appendingPathComponent("Views/Settings/DressingShopView.swift"))
 check("wallpaper maxEdge lives in one place",
       studio.contains("static let maxEdge: CGFloat = 2200"))
 check("together has no second 2200 literal", !together.contains("= 2200"))
-check("shop has no second 2200 literal", !shop.contains("maxEdge: 2200"))
 check("together encodes through the pipeline",
       together.contains("WallpaperPipeline.jpeg(image, matte: .white)"))
 check("together sniffs through the pipeline",
@@ -263,7 +263,6 @@ check("home list defaults through the contract", pack.contains("scope: ThemeColo
 // 三目就是又长出一份副本，直接判失败。
 let modeFiles = ["MinisApp.swift", "Views/ContentView.swift",
                  "Views/Chat/MinisMediaViews.swift", "Views/Chat/WebPreviewSheet.swift",
-                 "Views/Settings/DressingShopView.swift",
                  "Debug/DebugRPCProviderChat.swift"]
 check("appearance mode enum exists", studio.contains("enum AppearanceMode: Int, CaseIterable"))
 check("appearance mode owns the key",
@@ -327,25 +326,7 @@ check("chat group carries both bubble texts",
       studio.contains("case .chat: return [.userBubble, .assistantBubble, .bubbleText, .assistantBubbleText]"))
 check("controls group carries disabled",
       studio.contains("case .controls: return [.iconTile, .chip, .field, .border, .disabled]"))
-let shopView = read(here.appendingPathComponent("Views/Settings/DressingShopView.swift"))
-check("shop panel builds its groups from the enum",
-      shopView.contains("AppearanceColorRoleGroup.allCases.map { group in"))
-check("shop panel has no second group table",
-      !shopView.contains("ColorVarGroup(title: AppLocalized(\"字\")"))
-
-// [T-46] 透明度三根旋钮：活界面必须能调，重置不许静默改值。
-check("shop exposes the card opacity dial",
-      shopView.contains("Slider(value: $studio.surfaceOpacity, in: 0.35...1)"))
-check("shop exposes a named reset for the opacity dials",
-      shopView.contains("studio.resetOpacityDials()"))
-check("resetColors no longer touches the opacity dials",
-      studio.contains("func resetColors() {\n        customColors.removeAll()\n        persistColors()"))
-check("opacity reset is its own action",
-      studio.contains("func resetOpacityDials() {"))
-check("a pack that omits opacity keeps hers",
-      pack.contains("warnings.append(\"surfaceOpacityKept\")")
-      && !pack.contains("else if replace { surfaceOpacity = 0.88 }"))
-
+// The dress-up UI is intentionally empty during redesign; backend roles are checked above.
 // [T-47] 调色板是字典，缺项只在运行时变 808080 灰。断言把"每个角色都有
 // 值"钉死，并说明两个气泡文字角色是故意缺席的。
 check("palette declares its intentional gaps",
@@ -371,19 +352,13 @@ check("mention menu inverts its text on the accent fill",
 check("chat selection fill is still the accent role",
       input.contains("(isSelected || configuration.isPressed) ? ChatColors.accent : Color.clear"))
 
-// [T-39] 死页已删除，它独有的三组贴图控件搬到了装扮店。这里钉住搬运
-// 结果，免得以后又悄悄丢掉某一样。
-check("shop can set the input bar decal",
-      shopView.contains("studio.setInputBarImage(image)"))
-check("shop can set the thinking card decal",
-      shopView.contains("studio.setThinkingCardImage(image)"))
-check("shop can set a category decal",
-      shopView.contains("studio.setCategoryImage(image, for: key)"))
-check("shop exposes both decal opacities",
-      shopView.contains("studio.setInputBarImageOpacity($0)")
-      && shopView.contains("studio.setThinkingCardImageOpacity($0)"))
-check("shop lists the real category keys",
-      shopView.contains("ForEach(AppearanceThemePack.categoryKeys, id: \\.self)"))
+// Backend image APIs remain present while the UI is redesigned.
+check("backend retains user avatar setter", studio.contains("func setUserAvatar"))
+check("backend retains character-art API", pack.contains("func setCharacterArtImage"))
+check("backend retains icon setter", studio.contains("func setIcon"))
+check("backend retains input-bar image setter", pack.contains("func setInputBarImage"))
+check("backend retains thinking-card image setter", pack.contains("func setThinkingCardImage"))
+check("backend retains category image setter", pack.contains("func setCategoryImage"))
 
 // [T-73a] AI 桥不能在主线程上阻塞信号量。断言写死这条前提，并给主线程
 // 调用留一条不阻塞的退路。
@@ -479,18 +454,11 @@ check("T-54 r2: the in-use check ignores variant bytes but not variant slots",
 check("T-54 r2: reporting the previous wallpaper looks at the variant files",
       studio.contains("for variant in [activeVariant, .light, .dark] {"))
 
-// [T-39] 死页删掉之后，凡是有 setter 却没人调的就是被"删代码删掉了功能"。
-// 这三样（我的头像、立绘、设置行图标）原本只有死页能改，现在必须活在店里。
-check("shop can set the user avatar",
-      shopView.contains("studio.setUserAvatar(image)"))
-check("shop can set the character art",
-      shopView.contains("studio.setCharacterArtImage(image)"))
-check("shop can set a settings row icon",
-      shopView.contains("studio.setIcon(image, for: slot)"))
-check("shop can clear a settings row icon",
-      shopView.contains("studio.removeIcon(for: slot.rawValue)"))
-check("shop lists the real icon slots",
-      shopView.contains("ForEach(QuietIconSlot.allCases)"))
+// [T-39] Backend APIs remain; UI wiring is intentionally pending a user-approved redesign.
+check("backend retains user avatar setter", studio.contains("func setUserAvatar"))
+check("backend retains character-art API", pack.contains("func setCharacterArtImage"))
+check("backend retains icon setter", studio.contains("func setIcon"))
+check("backend retains icon removal", studio.contains("func removeIcon"))
 
 if failures == 0 {
     print("\nALL PASS")

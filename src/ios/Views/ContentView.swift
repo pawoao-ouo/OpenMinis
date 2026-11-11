@@ -6803,72 +6803,18 @@ private struct SpinningRing: View {
 /// A custom stepped slider that supports both drag and tap-to-snap.
 /// Uses local gesture state to avoid layout feedback loops from SwiftUI's Slider.
 
-// [10-18 醒醒] 「把它装进我们的"装扮"里面，外观点进去，直接就是装扮页的效果，
-// 什么功能都在里面配置，然后把装扮语言统一，不分那么多页面了，死掉的就删掉。」
-//
-// 这里原来是一个 12 分区的独立页（行为类设置）。现在全部搬进
-// `AppearanceStudioView` 的「行为」页，这一层只留一个入口。
-//
-// 搬走的东西：启动会话 / 自动分组 / 回车键 / 屏幕常亮 / 回复后自动聚焦 /
-// 流式展开思考 / 字号三条滑杆 / App 图标 / 语言 / 明暗。
-//
-// 删掉的东西：
-// - 「Theme 跟随系统/浅色/深色」—— 跟装扮页那份重复，只留装扮页的
-// - 「工具预览窗口」`toolPreviewEnabled` —— 全仓零消费的死开关
+// [2026-11-11] 醒醒要求先清空装扮前端，由她确定新 UI；主题数据、壁纸、
+// 气泡、字体等 Shared/Agent 后端不动。这个入口暂时只展示一个原生空状态，
+// 新界面确认后再把对应控件接回，不在这里偷偷沿用旧外观页。
 private struct AppearanceSettingsView: View {
-    // [dressing-shop-merge] Tapping 外观 opens the dressing shop
-    // directly — there is no intermediate appearance list anymore.
-    // The six rows that used to live on that list (配色 / 气泡与
-    // 文字 / 背景 / 图标 / 主题库 / 行为) are retired as navigation:
-    // their dressing contents map to exactly one shop category each
-    // (palette colours + wallpaper + theme library -> 主题; bubble
-    // shape -> 聊天气泡, already in the shop, so the old bubble row
-    // was a duplicate and is gone; font sizes -> 字体), and the
-    // shop shows those categories as honest next-batch panels until
-    // their visual cards exist — never as fake cards or text rows.
-    // Residue that is NOT dressing and cannot honestly live in a
-    // shop category (language, input behaviour, launch session,
-    // keep-awake, app icon) now has its own entry: the shop's
-    // first tab, 其他设置, placed before 推荐 by user order. It
-    // holds exactly those controls, in the shop's own style and
-    // language — never misfiled into a dressing category, and
-    // never a second bubble/theme apply path.
+    // 设置里的「装扮」入口保留，里面目前是临时空壳。
+    // 旧控制项和视觉面板都已从 UI 层移除，后端与数据没有改动。
     var body: some View {
-        DressingShopView()
+        AppearanceStudioView()
     }
 }
 
-/// Disables the navigation controller's interactive pop gesture on the hosting page
-/// to prevent conflict with horizontal Slider drag.
-private struct InteractivePopGestureDisabler: UIViewRepresentable {
-    func makeUIView(context: Context) -> UIView {
-        let view = GestureDisablerView()
-        return view
-    }
-    func updateUIView(_ uiView: UIView, context: Context) {}
-
-    private class GestureDisablerView: UIView {
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            setPopGesture(enabled: false)
-        }
-        override func willMove(toWindow newWindow: UIWindow?) {
-            super.willMove(toWindow: newWindow)
-            if newWindow == nil { setPopGesture(enabled: true) }
-        }
-        private func setPopGesture(enabled: Bool) {
-            // Walk the responder chain to find the UINavigationController
-            var responder: UIResponder? = self
-            while let r = responder {
-                if let nav = r as? UINavigationController {
-                    nav.interactivePopGestureRecognizer?.isEnabled = enabled
-                    return
-                }
-                responder = r.next
-            }
-        }
-    }
-}
+// Appearance page no longer disables edge-pop: the native shell has no sliders or horizontal gallery.
 
 // MARK: - Settings Sheet
 

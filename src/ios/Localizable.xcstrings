@@ -146936,6 +146936,20 @@
           }
         }
       }
+    },
+    "装扮界面正在重做": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Dressing is being redesigned" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "装扮界面正在重做" } }
+      }
+    },
+    "主题、壁纸、气泡、字体等功能和数据都还在；新界面等你决定样子。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All themes, wallpapers, bubbles and fonts remain saved; new UI awaits your design." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "主题、壁纸、气泡、字体等功能和数据都还在；新界面等你决定样子。" } }
+      }
     }
   },
   "version": "1.0"
