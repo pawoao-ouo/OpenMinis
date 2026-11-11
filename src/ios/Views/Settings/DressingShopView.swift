@@ -4485,10 +4485,8 @@ struct DressingShopView: View {
     }
 
     /// Follow-state tags: bubble-text rows say they follow the main
-    /// text while unset; the faintest text says editing it does
-    /// not move chat. A set row shows no tag — it paints itself.
+    /// text while unset. A set row shows no tag — it paints itself.
     private func colorVarFollowTag(_ role: AppearanceColorRole) -> String? {
-        if role == .tertiaryText { return AppLocalized("聊天里不动") }
         if (role == .bubbleText || role == .assistantBubbleText)
             && !studio.hasOverride(role, scope: editingScope, variant: editingVariant) {
             return AppLocalized("跟着大标题的字走")
