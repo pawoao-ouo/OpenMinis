@@ -1729,6 +1729,7 @@ struct DressingShopView: View {
             }
             .padding(.horizontal, 16)
             bubbleStyleCard
+            novelModeCard
         }
     }
 
@@ -1797,7 +1798,7 @@ struct DressingShopView: View {
     /// 圆角、列表图标、头像形状、消息形态、行高、字距。绑定和
     /// 范围与死页一字不差，写同一份 live 状态。气泡颜色不在
     /// 这里，颜色变量页已经有了；正文字体在字体页；代码块折叠
-    /// 和视觉小说模式这次没搬，不在气泡页的范围里。
+    /// 这次没搬。视觉小说模式在下面单独一张卡。
     private var bubbleStyleCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader(AppLocalized("气泡样式"), jumpTo: .bubble)
@@ -1859,6 +1860,96 @@ struct DressingShopView: View {
                                display: String(format: "%.1fx", lineHeightBinding.wrappedValue))
                 styleSliderRow(AppLocalized("字距"), value: letterSpacingBinding, range: -1...3,
                                display: "\(Int(letterSpacingBinding.wrappedValue)) pt")
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(studio.color(.surface))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(studio.color(.border), lineWidth: 1))
+            .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
+            .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
+            .padding(.horizontal, 16)
+        }
+    }
+
+    // MARK: - 视觉小说卡（从死页搬过来）
+
+    /// Binding copied verbatim from `AppearanceStudioView`'s
+    /// novelModeCard: same getter, same studio setter, so this
+    /// control writes the same live state the dead page's did.
+    private var novelModeBinding: Binding<AppearanceNovelMode> {
+        Binding(get: { AppearanceNovelMode.parse(studio.currentThemePack().novelMode) },
+                set: { studio.setNovelMode($0) })
+    }
+
+    /// [10-19 醒醒] 视觉小说模式卡，从死页 `AppearanceStudioView`
+    /// 的气泡页搬过来，放在气泡样式卡下面。立绘是照 ST 的
+    /// `waifuMode` 做的：全屏角色图 + 聊天窗压底部。对话框是
+    /// Galgame 那种：底部半透明框，一次一句，点一下往下推。
+    /// 选立绘走店里已有的贴图 PhotosPicker（`pickedDecalTarget`
+    /// = .characterArt），不另起一套。
+    private var novelModeCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(AppLocalized("视觉小说"), jumpTo: .bubble)
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("", selection: novelModeBinding) {
+                    ForEach(AppearanceNovelMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel(AppLocalized("视觉小说"))
+                Text(AppearanceNovelMode.parse(studio.currentThemePack().novelMode).hint)
+                    .font(.system(size: fsCaption))
+                    .lineSpacing(1.5)
+                    .foregroundStyle(studio.color(.secondaryText))
+                // 只有立绘和对话框模式才用得上角色图
+                if novelModeBinding.wrappedValue != .off {
+                    Divider().padding(.vertical, fontSettings.density(4))
+                    HStack(spacing: 12) {
+                        if let img = studio.characterArtImage() {
+                            Image(uiImage: img)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 52, height: 72)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        } else {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(studio.color(.mutedSurface))
+                                .frame(width: 52, height: 72)
+                                .overlay {
+                                    Image(systemName: "person.crop.rectangle")
+                                        .font(.system(size: 20))
+                                        .foregroundStyle(studio.color(.secondaryText).opacity(0.6))
+                                }
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(AppLocalized("人设立绘"))
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(studio.color(.primaryText))
+                            Text(AppLocalized("竖图最好，底部对齐铺满。不传就用头像放大。"))
+                                .font(.system(size: fsCaption))
+                                .foregroundStyle(studio.color(.secondaryText))
+                        }
+                        Spacer()
+                        Button {
+                            pickedDecalTarget = .characterArt
+                            wallpaperPickerPresented = true
+                        } label: {
+                            Text(studio.hasCharacterArt ? AppLocalized("Change") : AppLocalized("Select"))
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    if studio.hasCharacterArt {
+                        Button(role: .destructive) {
+                            studio.removeCharacterArt()
+                        } label: {
+                            Text(AppLocalized("移除立绘"))
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2461,6 +2552,8 @@ struct DressingShopView: View {
                 .padding(.top, fontSettings.density(18))
             fontSizeSection
                 .padding(.top, fontSettings.density(FontSkin.sectionGap))
+            thinkingFontCard
+                .padding(.top, fontSettings.density(FontSkin.sectionGap))
             fontListSection
                 .padding(.top, fontSettings.density(FontSkin.sectionGap))
         }
@@ -2916,6 +3009,44 @@ struct DressingShopView: View {
             }
             .padding(.horizontal, FontSkin.horizontal)
             .padding(.top, fontSettings.density(12))
+        }
+    }
+
+    // MARK: - thinking 字号卡（从死页搬过来）
+
+    /// Bindings copied verbatim from `AppearanceStudioView`'s
+    /// thinkingFontCard: same getters, same studio setters, so
+    /// these sliders write the same live state the dead page's did.
+    private var thinkingTitleSizeBinding: Binding<Double> {
+        Binding(get: { studio.currentThemePack().thinkingTitleSize },
+                set: { studio.setThinkingFont(title: $0) })
+    }
+    private var thinkingBodySizeBinding: Binding<Double> {
+        Binding(get: { studio.currentThemePack().thinkingBodySize },
+                set: { studio.setThinkingFont(body: $0) })
+    }
+
+    /// [B28 R7 醒醒分类] thinking 字号原来挂在死页「图标」页——
+    /// 字号归字号。现在跟着正文/全局字号一起住在字体页，
+    /// 在全局字号区下面。滑杆样式用店里现成的 styleSliderRow。
+    private var thinkingFontCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(AppLocalized("thinking 字号"), jumpTo: .font)
+            VStack(alignment: .leading, spacing: 12) {
+                styleSliderRow(AppLocalized("标题字"), value: thinkingTitleSizeBinding, range: 10...22,
+                               display: "\(Int(thinkingTitleSizeBinding.wrappedValue))")
+                styleSliderRow(AppLocalized("正文字"), value: thinkingBodySizeBinding, range: 10...22,
+                               display: "\(Int(thinkingBodySizeBinding.wrappedValue))")
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(studio.color(.surface))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(studio.color(.border), lineWidth: 1))
+            .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
+            .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
+            .padding(.horizontal, 16)
         }
     }
 
