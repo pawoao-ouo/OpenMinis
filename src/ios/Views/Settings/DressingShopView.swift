@@ -154,6 +154,10 @@ struct DressingShopView: View {
 
     @State private var category: DressingCategory = .recommend
     @State private var tag: DressingTag = .all
+    /// Store search text: one field at the top of the shop, shared
+    /// by every category. Empty means "not searching" and changes
+    /// nothing below.
+    @State private var searchText = ""
     // Which side the shop is currently editing. One shared
     // selection for the whole shop: picking a card or opening a
     // detail always edits this side, and only this side. The
@@ -241,8 +245,105 @@ struct DressingShopView: View {
     @State private var sideLabelTick = 0
 
     private var visiblePacks: [BubbleStylePack] {
-        guard let wanted = tag.packTag else { return bubblePackStore.packs }
-        return bubblePackStore.packs.filter { $0.tag == wanted }
+        let tagged: [BubbleStylePack]
+        if let wanted = tag.packTag {
+            tagged = bubblePackStore.packs.filter { $0.tag == wanted }
+        } else {
+            tagged = bubblePackStore.packs
+        }
+        // Search composes with the tag filter: a pack shows only
+        // if it passes both.
+        return tagged.filter { matchesSearch($0.title, $0.tag) }
+    }
+
+    /// Trimmed search text; empty means "not searching".
+    private var trimmedSearch: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    private var isSearching: Bool { !trimmedSearch.isEmpty }
+
+    /// True when the current search passes the given texts: an
+    /// empty search passes everything, otherwise at least one
+    /// text must contain the search text as a substring,
+    /// case-insensitive. Chinese matches by literal substring
+    /// (lowercasing leaves it unchanged).
+    private func matchesSearch(_ texts: String...) -> Bool {
+        guard isSearching else { return true }
+        let needle = trimmedSearch.lowercased()
+        return texts.contains { $0.lowercased().contains(needle) }
+    }
+
+    /// Every other item list in the shop, filtered by the same
+    /// search. Searchable text is the item name, plus the tag
+    /// where the item has one (bubble packs only).
+    private var visiblePendants: [AvatarPendant] {
+        pendantStore.pendants.filter { matchesSearch($0.title) }
+    }
+    private var visibleThemes: [AppearanceSavedTheme] {
+        studio.savedThemes().filter { matchesSearch($0.name) }
+    }
+    private var visiblePresets: [AppearancePreset] {
+        AppearancePreset.allCases.filter { matchesSearch($0.title) }
+    }
+    private var visibleOutfits: [DressingOutfit] {
+        outfitStore.outfits.filter { matchesSearch($0.title) }
+    }
+    private var visibleBuiltInFonts: [(number: String, family: AppearanceFontFamily)] {
+        UploadedFontStore.builtIns.filter { matchesSearch($0.family.title) }
+    }
+    private var visibleUploadedFonts: [UploadedFont] {
+        uploadedFontStore.fonts.filter { matchesSearch($0.title) }
+    }
+
+    /// One-line empty state shown in place of a list that has
+    /// zero matches under the current search (or search + tag).
+    /// Every filtered list uses this same line, so a search that
+    /// matches nothing anywhere still leaves each list with its
+    /// own line instead of a blank page.
+    private var searchEmptyLine: some View {
+        Text(AppLocalized("没找到这样的。"))
+            .font(.system(size: fsSub))
+            .foregroundStyle(studio.color(.secondaryText))
+            .padding(.horizontal, DressingTokens.pad16)
+            .padding(.vertical, DressingTokens.pad10)
+    }
+
+    // MARK: - Search field (one field for the whole store)
+    //
+    // In-flow text field, same field colour / radius / 44pt
+    // height as the theme save-name field below. `.searchable`
+    // is not used: this view hides the navigation bar and draws
+    // its own top bar, so there is no navigation-bar drawer for
+    // a searchable field to live in.
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(studio.color(.secondaryText))
+            TextField(AppLocalized("搜名字或标签"), text: $searchText)
+                .font(.system(size: fsSub))
+                .foregroundStyle(studio.color(.primaryText))
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .submitLabel(.search)
+            if !searchText.isEmpty {
+                Button { searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(studio.color(.secondaryText))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(FontPressStyle(scale: 0.92))
+                .accessibilityLabel(AppLocalized("清除搜索"))
+            }
+        }
+        .padding(.horizontal, DressingTokens.pad14)
+        .frame(minHeight: 44)
+        .background(studio.color(.field))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusTile, style: .continuous))
+        .padding(.horizontal, DressingTokens.pad16)
+        .padding(.top, DressingTokens.pad10)
     }
 
     private func appliedPack(for side: DressingSide) -> BubbleStylePack? {
@@ -322,6 +423,7 @@ struct DressingShopView: View {
             VStack(spacing: 0) {
                 topBar
                 tabRail
+                searchField
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         switch category {
@@ -605,12 +707,20 @@ struct DressingShopView: View {
             sidePicker
             bubbleTagRail
             sectionHeader(AppLocalized("聊天气泡"), jumpTo: .bubble)
-            cardRow {
-                ForEach(visiblePacks) { pack in bubbleCard(pack) }
+            if isSearching && visiblePacks.isEmpty {
+                searchEmptyLine
+            } else {
+                cardRow {
+                    ForEach(visiblePacks) { pack in bubbleCard(pack) }
+                }
             }
             sectionHeader(AppLocalized("头像挂件"), jumpTo: .pendant)
-            cardRow {
-                ForEach(pendantStore.pendants) { pendant in pendantCard(pendant) }
+            if isSearching && visiblePendants.isEmpty {
+                searchEmptyLine
+            } else {
+                cardRow {
+                    ForEach(visiblePendants) { pendant in pendantCard(pendant) }
+                }
             }
             Text(AppLocalized("点卡片进入详情预览，确认后再换上；标签条按心情筛选当前页的卡片。"))
                 .font(.system(size: globalPointSize * 13 / 13))
@@ -717,13 +827,15 @@ struct DressingShopView: View {
             }
             .padding(.horizontal, DressingTokens.pad16)
             .padding(.bottom, DressingTokens.pad12)
-            if studio.savedThemes().isEmpty {
+            if isSearching && visibleThemes.isEmpty {
+                searchEmptyLine
+            } else if studio.savedThemes().isEmpty {
                 Text(AppLocalized("还没有存下来的整套。上面起个名，把现在这套存下来，它就会出现在这里。"))
                     .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
                     .padding(.horizontal, DressingTokens.pad16)
             } else {
-                ForEach(studio.savedThemes()) { item in themeCard(item) }
+                ForEach(visibleThemes) { item in themeCard(item) }
             }
             Text(AppLocalized("换主题、重置都不会清掉这里；删只能按套删。"))
                 .font(.system(size: fsCaption))
@@ -767,8 +879,11 @@ struct DressingShopView: View {
             Text(AppLocalized("预设"))
                 .font(DressingTokens.sectionTitleFont(size: fsTitle))
                 .foregroundStyle(studio.color(.primaryText))
-            HStack(spacing: 12) {
-                ForEach(AppearancePreset.allCases) { preset in
+            if isSearching && visiblePresets.isEmpty {
+                searchEmptyLine
+            } else {
+                HStack(spacing: 12) {
+                    ForEach(visiblePresets) { preset in
                     Button {
                         studio.applyPreset(preset)
                         showFontToast(String(format: AppLocalized("已换上「%@」"), preset.title))
@@ -796,6 +911,7 @@ struct DressingShopView: View {
                     }
                     .buttonStyle(FontPressStyle(scale: 0.98))
                 }
+            }
             }
         }
         .padding(.horizontal, DressingTokens.pad16)
@@ -2040,16 +2156,24 @@ struct DressingShopView: View {
         VStack(alignment: .leading, spacing: 0) {
             sidePicker
             sectionHeader(AppLocalized("聊天气泡"), jumpTo: .bubble)
-            cardRow {
-                ForEach(visiblePacks) { pack in bubbleCard(pack) }
+            if isSearching && visiblePacks.isEmpty {
+                searchEmptyLine
+            } else {
+                cardRow {
+                    ForEach(visiblePacks) { pack in bubbleCard(pack) }
+                }
             }
             bubbleTagRail
             sectionHeader(AppLocalized("全部气泡"), jumpTo: .bubble)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
-                      spacing: 12) {
-                ForEach(visiblePacks) { pack in bubbleCard(pack, fixedWidth: false) }
+            if isSearching && visiblePacks.isEmpty {
+                searchEmptyLine
+            } else {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
+                          spacing: 12) {
+                    ForEach(visiblePacks) { pack in bubbleCard(pack, fixedWidth: false) }
+                }
+                .padding(.horizontal, DressingTokens.pad16)
             }
-            .padding(.horizontal, DressingTokens.pad16)
             bubbleStyleCard
             novelModeCard
         }
@@ -2432,15 +2556,23 @@ struct DressingShopView: View {
                 wornPendantRows
             }
             sectionHeader(AppLocalized("头像挂件"), jumpTo: .pendant)
-            cardRow {
-                ForEach(pendantStore.pendants) { pendant in pendantCard(pendant) }
+            if isSearching && visiblePendants.isEmpty {
+                searchEmptyLine
+            } else {
+                cardRow {
+                    ForEach(visiblePendants) { pendant in pendantCard(pendant) }
+                }
             }
             sectionHeader(AppLocalized("全部挂件"), jumpTo: .pendant)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
-                      spacing: 12) {
-                ForEach(pendantStore.pendants) { pendant in pendantCard(pendant, fixedWidth: false) }
+            if isSearching && visiblePendants.isEmpty {
+                searchEmptyLine
+            } else {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
+                          spacing: 12) {
+                    ForEach(visiblePendants) { pendant in pendantCard(pendant, fixedWidth: false) }
+                }
+                .padding(.horizontal, DressingTokens.pad16)
             }
-            .padding(.horizontal, DressingTokens.pad16)
             sectionHeader(AppLocalized("自建挂件"), jumpTo: .pendant)
             createPendantCard
         }
@@ -2795,13 +2927,15 @@ struct DressingShopView: View {
     private var outfitView: some View {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader(AppLocalized("我的搭配"), jumpTo: .outfit)
-            if outfitStore.outfits.isEmpty {
+            if isSearching && visibleOutfits.isEmpty {
+                searchEmptyLine
+            } else if outfitStore.outfits.isEmpty {
                 Text(AppLocalized("还没有保存的搭配。在气泡详情里点“保存成搭配”，就会出现在这里。"))
                     .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
                     .padding(.horizontal, DressingTokens.pad16)
             } else {
-                ForEach(outfitStore.outfits) { outfit in
+                ForEach(visibleOutfits) { outfit in
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(outfit.title)
@@ -3688,12 +3822,16 @@ struct DressingShopView: View {
             }
             .padding(.trailing, FontSkin.horizontal)
             VStack(spacing: fontSettings.density(FontSkin.listGap)) {
-                ForEach(UploadedFontStore.builtIns, id: \.number) { item in
-                    fontFamilyCard(number: item.number, title: item.family.title,
-                                   font: item.family.font(size: globalPointSize))
-                }
-                ForEach(uploadedFontStore.fonts) { font in
-                    uploadedFontCard(font)
+                if isSearching && visibleBuiltInFonts.isEmpty && visibleUploadedFonts.isEmpty {
+                    searchEmptyLine
+                } else {
+                    ForEach(visibleBuiltInFonts, id: \.number) { item in
+                        fontFamilyCard(number: item.number, title: item.family.title,
+                                       font: item.family.font(size: globalPointSize))
+                    }
+                    ForEach(visibleUploadedFonts) { font in
+                        uploadedFontCard(font)
+                    }
                 }
             }
             .padding(.horizontal, FontSkin.horizontal)
