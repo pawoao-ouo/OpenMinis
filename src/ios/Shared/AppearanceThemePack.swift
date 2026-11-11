@@ -1577,22 +1577,60 @@ extension AppearanceStudio {
         return dir
     }
 
+    /// Undo snapshots live one day. No established expiry convention
+    /// exists for undo snapshots (the only TTL in the tree is
+    /// ShareCoordinator's 300s buffer TTL, a different thing), so this
+    /// follows that file's shape — a named TTL constant plus an age
+    /// check — with a 24-hour window: an undo is for the reset you
+    /// just did, and a day-old snapshot restoring over today's theme
+    /// is worse than no undo at all.
+    private static let undoSnapshotTTL: TimeInterval = 24 * 3600
+
+    /// Age of the live undo snapshot, from the snapshot directory's
+    /// modification date. Every capture path builds in a scratch
+    /// directory and swaps the whole directory in at capture time, so
+    /// the directory date is the capture date — for full-pack and
+    /// colours-only snapshots alike, whichever capture function wrote
+    /// it. Nil when there is no snapshot directory to date.
+    private var undoSnapshotAge: TimeInterval? {
+        let dir = themeUndoDirectory
+        guard let date = try? FileManager.default.attributesOfItem(atPath: dir.path)[.modificationDate] as? Date else {
+            return nil
+        }
+        return Date().timeIntervalSince(date)
+    }
+
+    /// True when a snapshot exists but is older than undoSnapshotTTL.
+    private var isUndoSnapshotExpired: Bool {
+        guard let age = undoSnapshotAge else { return false }
+        return age > Self.undoSnapshotTTL
+    }
+
     /// True when a reset snapshot is on disk and can be restored.
     /// A colours-only snapshot (clear-all page overrides) counts too:
     /// it carries a `colors-only` marker plus `colors.json`, and undo
     /// restores exactly those colours, never a pack.
+    /// An expired snapshot does not count: the arrow hides once the
+    /// snapshot is older than undoSnapshotTTL.
     var canUndoThemeReset: Bool {
         let dir = themeUndoDirectory
         let hasPack = FileManager.default.fileExists(atPath: dir.appendingPathComponent("pack.json").path)
         let hasColorsOnly = FileManager.default.fileExists(atPath: dir.appendingPathComponent("colors-only").path)
             && FileManager.default.fileExists(atPath: dir.appendingPathComponent("colors.json").path)
-        return hasPack || hasColorsOnly
+        guard hasPack || hasColorsOnly else { return false }
+        return !isUndoSnapshotExpired
     }
 
     /// Restores the pack and images captured by the last `resetThemePack`.
     @discardableResult
     func undoThemeReset() -> Bool {
         let dir = themeUndoDirectory
+        // Expired snapshot: never restore it, and drop it so no path
+        // (settings arrow or `minis-theme undo`) can retry it later.
+        if isUndoSnapshotExpired {
+            try? FileManager.default.removeItem(at: dir)
+            return false
+        }
         // [F1] Colours-only snapshot from clear-all page overrides:
         // restore exactly the colour map it captured, and nothing else.
         // In particular, never restore a pack, image, opacity, or
@@ -1604,6 +1642,10 @@ extension AppearanceStudio {
             }
             restoreColorOverrides(decoded)
             objectWillChange.send()
+            // Undo is single-use: drop the snapshot so the arrow
+            // disappears and the same snapshot cannot be re-applied
+            // over newer changes.
+            try? FileManager.default.removeItem(at: dir)
             return true
         }
         let packURL = dir.appendingPathComponent("pack.json")
@@ -1655,6 +1697,10 @@ extension AppearanceStudio {
         // and the cleared-fallback list exactly.
         restoreWallpapers(from: dir)
         objectWillChange.send()
+        // Undo is single-use: drop the snapshot so the arrow
+        // disappears and the same snapshot cannot be re-applied
+        // over newer changes.
+        try? FileManager.default.removeItem(at: dir)
         return true
     }
 
