@@ -2187,8 +2187,9 @@ public extension View {
 // MARK: - Dressing tokens (装扮页统一数值)
 //
 // One named home for every literal the dressing UI used to repeat:
-// hex fallbacks, corner radii, padding steps, the section-title
-// font, and the black shadow recipes. Values are exactly the old
+// hex fallbacks, corner radii, padding steps, the three title
+// fonts (section, bold-serif detail, bold default), and the black
+// shadow recipes. Values are exactly the old
 // literals, only named — nothing here changes a pixel. Role colours
 // still live in AppearancePaletteBook / lightDefaults / darkDefaults;
 // the hex below is only the fallback grey/white and the two HIG
@@ -2239,7 +2240,6 @@ enum DressingTokens {
     static let pad18: CGFloat = 18
     static let pad20: CGFloat = 20
     static let pad24: CGFloat = 24
-    static let pad28: CGFloat = 28
     static let pad32: CGFloat = 32
     /// Negative bleed for the wallpaper title backing (T-62).
     static let padNeg2: CGFloat = -2
@@ -2247,7 +2247,6 @@ enum DressingTokens {
 
     // MARK: Padding bases the font section already named
     static let horizontal: CGFloat = 16
-    static let cardPadding: CGFloat = 16
     static let sectionGap: CGFloat = 28
     static let listGap: CGFloat = 10
     static let gridGap: CGFloat = 8
@@ -2255,6 +2254,14 @@ enum DressingTokens {
     // MARK: Section titles — the one title font for the shop
     static func sectionTitleFont(size: CGFloat) -> Font {
         .system(size: size, weight: .semibold, design: .serif)
+    }
+    /// Detail-page headers and sheet titles: bold serif, as before tokens.
+    static func detailTitleFont(size: CGFloat) -> Font {
+        .system(size: size, weight: .bold, design: .serif)
+    }
+    /// Bold default-design title (separators, decal / other section titles).
+    static func boldTitleFont(size: CGFloat) -> Font {
+        .system(size: size, weight: .bold)
     }
 }
 

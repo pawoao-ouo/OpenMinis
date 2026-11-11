@@ -1696,7 +1696,7 @@ struct DressingShopView: View {
         VStack(spacing: 0) {
             ZStack {
                 Text(AppLocalized("主题"))
-                    .font(DressingTokens.sectionTitleFont(size: fsTitle))
+                    .font(DressingTokens.detailTitleFont(size: fsTitle))
                     .foregroundStyle(studio.color(.primaryText))
                 HStack(spacing: 0) {
                     Button { closeThemeDetail() } label: {
@@ -1779,10 +1779,10 @@ struct DressingShopView: View {
                     }
                     HStack(spacing: 6) {
                         Text(item.name)
-                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
+                            .font(DressingTokens.detailTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.primaryText))
                         Text("·")
-                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
+                            .font(DressingTokens.boldTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.secondaryText))
                         Text(item.savedAt.formatted(date: .abbreviated, time: .omitted))
                             .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
@@ -2627,7 +2627,7 @@ struct DressingShopView: View {
         VStack(spacing: 0) {
             ZStack {
                 Text(AppLocalized("头像挂件"))
-                    .font(DressingTokens.sectionTitleFont(size: fsTitle))
+                    .font(DressingTokens.detailTitleFont(size: fsTitle))
                     .foregroundStyle(studio.color(.primaryText))
                 HStack(spacing: 0) {
                     Button { closePendantDetail() } label: {
@@ -2695,10 +2695,10 @@ struct DressingShopView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
                         Text(pendant.title)
-                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
+                            .font(DressingTokens.detailTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.primaryText))
                         Text("·")
-                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
+                            .font(DressingTokens.boldTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.secondaryText))
                         Text(pendant.number)
                             .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
@@ -3248,7 +3248,7 @@ struct DressingShopView: View {
     /// 这一份用本类型的 `fsTitle`，和店里别处的小节标题同字号。
     private func decalSectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(DressingTokens.sectionTitleFont(size: fsTitle))
+            .font(DressingTokens.boldTitleFont(size: fsTitle))
             .foregroundStyle(studio.color(.primaryText))
             .padding(.top, fontSettings.density(22))
             .padding(.bottom, fontSettings.density(8))
@@ -4807,7 +4807,7 @@ struct DressingShopView: View {
         VStack(spacing: 0) {
             ZStack {
                 Text(AppLocalized("聊天气泡"))
-                    .font(DressingTokens.sectionTitleFont(size: fsTitle))
+                    .font(DressingTokens.detailTitleFont(size: fsTitle))
                     .foregroundStyle(studio.color(.primaryText))
                 HStack(spacing: 0) {
                     Button { closeDetail() } label: {
@@ -4859,10 +4859,10 @@ struct DressingShopView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
                         Text(pack.title)
-                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
+                            .font(DressingTokens.detailTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.primaryText))
                         Text("·")
-                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
+                            .font(DressingTokens.boldTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.secondaryText))
                         Text(pack.number)
                             .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
@@ -5171,7 +5171,7 @@ private struct OtherSettingsContentView: View {
 
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(DressingTokens.sectionTitleFont(size: fsTitle))
+            .font(DressingTokens.boldTitleFont(size: fsTitle))
             .foregroundStyle(studio.color(.primaryText))
             .padding(.horizontal, DressingTokens.pad16)
             .padding(.top, fontSettings.density(22))
