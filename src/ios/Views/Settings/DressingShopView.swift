@@ -121,6 +121,10 @@ struct DressingShopView: View {
     /// the scrolling font section, so it always sits at the
     /// bottom of the screen like the HTML toast.
     @State private var fontToastMessage: String?
+    /// Whether the current toast is a warning (missing pieces on
+    /// outfit apply): warning toasts show a warning icon instead
+    /// of the success checkmark. Set by showFontToast(_:warning:).
+    @State private var fontToastIsWarning = false
     /// [T-49] 刚删掉的那套,给店里一个撤销位。
     @State private var lastDeletedTheme: AppearanceSavedTheme?
     /// Which variable set the colour panel is editing. Independent
@@ -298,15 +302,16 @@ struct DressingShopView: View {
             }
             .background(AppearanceBackdrop(scope: .global))
 
-            // v2 toast pill: black pill, white text, check icon,
-            // 10/18 padding, 0 8 24 rgba(0,0,0,0.18) shadow, spring
-            // in/out, gone after 2.2s. Sits above the page but
-            // below the slide-in detail pages.
+            // v2 toast pill: black pill, white text, check icon
+            // (warning icon when fontToastIsWarning), 10/18 padding,
+            // 0 8 24 rgba(0,0,0,0.18) shadow, spring in/out, gone
+            // after 2.2s. Sits above the page but below the slide-in
+            // detail pages.
             if let toast = fontToastMessage {
                 VStack {
                     Spacer(minLength: 0)
                     HStack(spacing: 6) {
-                        Image(systemName: "checkmark")
+                        Image(systemName: fontToastIsWarning ? "exclamationmark.triangle.fill" : "checkmark")
                             .font(.system(size: 14, weight: .semibold))
                         Text(toast)
                             .font(ChatFont.font(12, weight: .semibold))
@@ -2139,7 +2144,7 @@ struct DressingShopView: View {
                         Button(AppLocalized("换上")) {
                             let outcome = outfitStore.apply(outfit)
                             if !outcome.missing.isEmpty {
-                                showFontToast(outfitMissingMessage(outcome.missing))
+                                showFontToast(outfitMissingMessage(outcome.missing), warning: true)
                             }
                         }
                         .font(.system(size: fsCaption, weight: .semibold))
@@ -3125,11 +3130,13 @@ struct DressingShopView: View {
 
     /// Show a v2-style toast for 2.2s, replacing any toast already
     /// up (v2 clears its timer on every new toast, so rapid taps
-    /// never stack pills).
-    private func showFontToast(_ message: String) {
+    /// never stack pills). Pass warning: true and the pill shows
+    /// a warning icon instead of the success checkmark.
+    private func showFontToast(_ message: String, warning: Bool = false) {
         // [T-67] 提示条的进出也走同一个开关。
         withAnimation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.28)) {
             fontToastMessage = message
+            fontToastIsWarning = warning
         }
         // [T-63] 主动播报。视觉上是一闪而过的黑条，读屏用户等不到它 ——
         // 操作结果必须能听见，所以这里直接发通告。
