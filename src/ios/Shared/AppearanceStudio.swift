@@ -406,6 +406,11 @@ final class AppearanceStudio: ObservableObject {
 
     private enum Keys {
         static let colors = "appearanceStudio.colors.v1"
+        /// [P1-8] 预设“正在用”标记的落盘：最后一次应用的预设、应用那一刻
+        /// 整张颜色表的快照、当时的壁纸版本号。三者缺一不可，见 `isPresetActive`。
+        static let activePreset = "appearanceStudio.activePreset.v1"
+        static let activePresetColors = "appearanceStudio.activePresetColors.v1"
+        static let activePresetWallpaperRevision = "appearanceStudio.activePresetWallpaperRevision.v1"
         static let userAvatar = "appearanceStudio.userAvatar.v1"
         /// [B28 R10] 用户自定义称呼。界面/提示里要提到"说话的人"时用它，
         /// 不写死任何具体名字——没填就回落到中性称呼。
@@ -451,6 +456,22 @@ final class AppearanceStudio: ObservableObject {
         }
     }
     @Published private(set) var wallpaperRevision = 0
+    /// [P1-8] 预设“正在用”标记的内存态。只在 `applyPreset` 里写（见
+    /// `recordActivePreset`），启动时从 UserDefaults 读回。`activePresetColors`
+    /// 是应用那一刻整张 `customColors` 的快照——任何一处改色（全局或分页）、
+    /// 换一套预设、摇色、恢复默认、应用存档、撤销，都会让 live 的表和快照
+    /// 对不上，标记随即消失；壁纸只看版本号，任何一张壁纸写坏/换掉/清掉
+    /// 都会让版本号前进，标记同样消失。所以标记不靠“上次点了哪个”，
+    /// 靠“现在的状态是不是就是那次应用留下的状态”，重启后也一样准。
+    /// 颜色落盘有 0.4 秒合并延迟，万一在那 0.4 秒内被系统杀掉，盘上的色
+    /// 表是旧的、快照是新的，对不上——标记消失，不撒谎，只少标一次。
+    private var activePresetRaw: String? = UserDefaults.standard.string(forKey: Keys.activePreset)
+    private var activePresetColors: [String: String]? = {
+        guard let data = UserDefaults.standard.data(forKey: Keys.activePresetColors),
+              let value = try? JSONDecoder().decode([String: String].self, from: data) else { return nil }
+        return value
+    }()
+    private var activePresetWallpaperRevision: Int = UserDefaults.standard.object(forKey: Keys.activePresetWallpaperRevision) as? Int ?? -1
     @Published private(set) var iconRevision = 0
     @Published private(set) var userAvatar: String
     /// [B28 R10] 她自己填的称呼。空 = 没设置，调用方自己回落到中性词。
@@ -941,6 +962,35 @@ final class AppearanceStudio: ObservableObject {
         configureUIKitSurfaces()
     }
 
+    /// [P1-8] 记下“刚应用了哪套预设、应用完颜色表长什么样、壁纸版本号
+    /// 是多少”。只在这里写，所以 `isPresetActive` 的三项条件不会被
+    /// 别的路悄悄改掉；任何一处改色、改壁纸，都会让 live 状态和这份
+    /// 记录对不上，标记随即消失。
+    private func recordActivePreset(_ preset: AppearancePreset) {
+        activePresetRaw = preset.rawValue
+        activePresetColors = customColors
+        activePresetWallpaperRevision = wallpaperRevision
+        UserDefaults.standard.set(preset.rawValue, forKey: Keys.activePreset)
+        if let data = try? JSONEncoder().encode(customColors) {
+            UserDefaults.standard.set(data, forKey: Keys.activePresetColors)
+        }
+        UserDefaults.standard.set(wallpaperRevision, forKey: Keys.activePresetWallpaperRevision)
+    }
+
+    /// 这套预设现在是不是还正在用：三项全中才算——（1）它是最后一次
+    /// 应用的预设；（2）整张颜色表和应用那一刻一模一样（任何一处改色，
+    /// 哪怕只改某一页的一个角色，表都会变）；（3）壁纸版本号没前进过
+    /// （任何一张壁纸写/换/清都会让它前进）。纯靠 live 状态算，不存
+    /// “正在用”这个结论本身，所以改色、改壁纸、重启，都不会留下一个
+    /// 过期的标记。
+    func isPresetActive(_ preset: AppearancePreset) -> Bool {
+        guard preset.rawValue == activePresetRaw,
+              let snapshot = activePresetColors,
+              snapshot == customColors,
+              activePresetWallpaperRevision == wallpaperRevision else { return false }
+        return true
+    }
+
     /// [P0-4] 只清这一页 + 这一深浅的覆盖，带纯颜色撤销快照——和
     /// `clearNonGlobalColorOverridesWithUndo` 同一套机制（先抓整张颜色
     /// 表快照再清，撤销时原样恢复）。不能直接走那个 variant：它清的是
@@ -1058,6 +1108,7 @@ final class AppearanceStudio: ObservableObject {
             }
         }
         persistColors()
+        recordActivePreset(preset)
         configureUIKitSurfaces()
     }
 

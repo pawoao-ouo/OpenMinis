@@ -148722,6 +148722,23 @@
         }
       }
     },
+    "正在用": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在用"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在用"
+          }
+        }
+      }
+    },
     "主题名称": {
       "extractionState": "manual",
       "localizations": {

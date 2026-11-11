@@ -590,6 +590,18 @@ struct DressingPresetsSheet: View {
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                     Spacer()
+
+                    // [P1-8] 正在用的那套才标：`isPresetActive` 是 live 算的，
+                    // 任何一处改色、改壁纸都会让它立刻掉下去，不会过期。
+                    if studio.isPresetActive(preset) {
+                        Text(AppLocalized("正在用"))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(CSSThemeVariables.accentSoft(scope: .settings))
+                            .clipShape(Capsule())
+                    }
                 }
 
                 Text(presetSubtitle(preset))
