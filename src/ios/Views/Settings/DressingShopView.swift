@@ -1448,7 +1448,17 @@ struct DressingBubblesPendantsSheet: View {
                     ColorPicker("", selection: Binding(
                         get: { editingTextColor },
                         set: { newColor in
-                            setEditingTextHex(BubbleStyleRecord.normalizedPackHex(UIColor(newColor).hexRGB))
+                            let pickedHex = BubbleStyleRecord.normalizedPackHex(UIColor(newColor).hexRGB)
+                            // 点的就是主题槽自己的色：别把它写回成自定义，
+                            // 否则行里会从「跟随主题」变成一串相同的 hex。
+                            // 主题色走的正是 ColorPicker 显示的同一条回退
+                            // （ChatColors.bubbleText / assistantBubbleText
+                            // 里 studio.color 那半），所以比的和看到的
+                            // 是同一个值，不会跑偏。
+                            let themeHex = BubbleStyleRecord.normalizedPackHex(UIColor(editingSide.isUser
+                                ? studio.color(.bubbleText, scope: ThemeColorLayer.chat)
+                                : studio.color(.assistantBubbleText, scope: ThemeColorLayer.chat)).hexRGB)
+                            setEditingTextHex(pickedHex == themeHex ? nil : pickedHex)
                         }
                     ))
                     .labelsHidden()
@@ -1467,6 +1477,7 @@ struct DressingBubblesPendantsSheet: View {
                                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                 .clipShape(Circle())
                         }
+                        .accessibilityLabel(AppLocalized("重置"))
                     }
                 }
             }
