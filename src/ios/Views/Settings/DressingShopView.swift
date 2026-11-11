@@ -188,9 +188,9 @@ struct DressingShopView: View {
 
     private enum DecalTarget {
         case inputBar, thinkingCard, category(String)
-        /// [T-39] 死页删掉之后这三样在界面上就没有入口了，必须补回来：
-        /// 她的头像、立绘、设置里的行图标。留着不动等于借删代码删功能。
-        case userAvatar, characterArt, icon(String)
+        /// [T-39] 死页删掉之后这几样在界面上就没有入口了，必须补回来：
+        /// 她的头像、AI 的头像、立绘、设置里的行图标。留着不动等于借删代码删功能。
+        case userAvatar, assistantAvatar, characterArt, icon(String)
     }
     @State private var showSTImporter = false
     @State private var stImportReport: [String]?
@@ -945,6 +945,13 @@ struct DressingShopView: View {
         case .userAvatar:
             studio.setUserAvatar(image)
             decalMessage = AppLocalized("我的头像已换上。")
+        case .assistantAvatar:
+            do {
+                try studio.setAssistantAvatar(image)
+                decalMessage = AppLocalized("AI 头像已换上。")
+            } catch {
+                decalMessage = AppLocalized("选中的图读不出来。")
+            }
         case .characterArt:
             studio.setCharacterArtImage(image)
             decalMessage = AppLocalized("立绘已换上。")
@@ -2747,6 +2754,22 @@ struct DressingShopView: View {
                 .font(.system(size: fsCaption, weight: .semibold))
                 .foregroundStyle(studio.color(.accent))
                 .frame(minHeight: 44)
+                if !studio.userAvatar.isEmpty {
+                    Button(AppLocalized("换回默认")) {
+                        studio.removeUserAvatar()
+                        decalMessage = AppLocalized("我的头像已换回默认。")
+                    }
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
+                    .frame(minHeight: 44)
+                }
+                Button(AppLocalized("换 AI 头像")) {
+                    pickedDecalTarget = .assistantAvatar
+                    wallpaperPickerPresented = true
+                }
+                .font(.system(size: fsCaption, weight: .semibold))
+                .foregroundStyle(studio.color(.accent))
+                .frame(minHeight: 44)
                 Button(AppLocalized("换立绘")) {
                     pickedDecalTarget = .characterArt
                     wallpaperPickerPresented = true
@@ -2754,8 +2777,17 @@ struct DressingShopView: View {
                 .font(.system(size: fsCaption, weight: .semibold))
                 .foregroundStyle(studio.color(.accent))
                 .frame(minHeight: 44)
+                if studio.hasCharacterArt {
+                    Button(AppLocalized("换回默认")) {
+                        studio.removeCharacterArt()
+                        decalMessage = AppLocalized("立绘已换回默认。")
+                    }
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
+                    .frame(minHeight: 44)
+                }
             }
-            Text(AppLocalized("立绘用在小说模式的对话框里。AI 那边那头像在推荐页里换。"))
+            Text(AppLocalized("立绘用在小说模式的对话框里。"))
                 .font(.system(size: fsCaption))
                 .foregroundStyle(studio.color(.secondaryText))
 
