@@ -1400,15 +1400,16 @@ struct DressingShopView: View {
         }
     }
 
-    /// Rename the open saved theme. An empty name keeps the old name.
+    /// Rename the open saved theme. An empty name keeps the old name
+    /// and leaves the dialog open so the user can retry in place.
     private func confirmRenameTheme() {
         guard let item = themeRenameItem else { return }
-        themeRenameItem = nil
         let name = themeRenameName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
             showFontToast(AppLocalized("名字不能为空，没改名"))
             return
         }
+        themeRenameItem = nil
         if studio.renameSavedTheme(id: item.id, name: name) {
             // Refresh the open detail sheet's copy so its title shows the new name.
             if let renamed = studio.savedThemes().first(where: { $0.id == item.id }) {
