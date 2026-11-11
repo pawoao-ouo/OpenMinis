@@ -5,7 +5,7 @@ import UIKit
 // MARK: - 装扮中心 (DressingShopView)
 // 统一接入 AppearanceStudio, BubbleStylePackStore, AvatarPendantStore,
 // UploadedFontStore, FontSettings, AppearanceThemePackStore。
-// 按钮做小做精致，iOS 26 胶囊与抽屉交互。
+// 颜色走 CSSThemeVariables 全局变量，按钮做小做精致，iOS 26 胶囊与抽屉交互。
 
 struct DressingShopView: View {
     @AppStorage(AppearanceMode.defaultsKey) private var appearanceModeRaw: Int = 0
