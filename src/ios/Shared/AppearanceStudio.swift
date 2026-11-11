@@ -258,7 +258,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
     }
 }
 
-/// The sixteen colour roles, grouped by what they paint.
+/// The twenty-one colour roles, grouped by what they paint.
 ///
 /// The palette used to be one flat list of sixteen rows. That is why picking a
 /// colour felt like "一选一片都是那个颜色" — with no grouping, the only visible

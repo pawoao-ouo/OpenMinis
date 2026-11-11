@@ -5,7 +5,7 @@ import UIKit
 // MARK: - 装扮中心 (DressingShopView)
 // 统一接入 AppearanceStudio, BubbleStylePackStore, AvatarPendantStore,
 // UploadedFontStore, FontSettings, AppearanceThemePackStore。
-// 遵循 CSSThemeVariables 全局变量，按钮做小做精致，iOS 26 胶囊与抽屉交互。
+// 按钮做小做精致，iOS 26 胶囊与抽屉交互。
 
 struct DressingShopView: View {
     @AppStorage(AppearanceMode.defaultsKey) private var appearanceModeRaw: Int = 0
@@ -359,16 +359,16 @@ extension DressingShopView {
     // 4. 六大核心入口网格 (Bento Grid)
     private var bentoGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            bentoCard(title: AppLocalized("色彩调控"), sub: AppLocalized("16色分页面分深浅"), icon: "paintpalette.fill", badge: "16 Roles", dest: .colorStudio)
-            bentoCard(title: AppLocalized("壁纸与立绘"), sub: AppLocalized("全局与独立壁纸立绘"), icon: "photo.on.rectangle.angled", badge: "Wallpaper", dest: .wallpaperArt)
-            bentoCard(title: AppLocalized("气泡与挂件"), sub: AppLocalized("款式、圆角与头像圈"), icon: "bubble.left.circle.fill", badge: "Bubbles", dest: .bubblesPendants)
-            bentoCard(title: AppLocalized("字体与排版"), sub: AppLocalized("字号、行距与小说模式"), icon: "textformat", badge: "Fonts", dest: .typography)
-            bentoCard(title: AppLocalized("主题存档库"), sub: AppLocalized("保存、分享与导入导出"), icon: "archivebox.fill", badge: "Library", dest: .themeLibrary)
-            bentoCard(title: AppLocalized("细节与图标"), sub: AppLocalized("静音图标与标签符号"), icon: "sparkle.magnifyingglass", badge: "Details", dest: .detailsIcons)
+            bentoCard(title: AppLocalized("色彩调控"), sub: AppLocalized("21色分页面分深浅"), icon: "paintpalette.fill", dest: .colorStudio)
+            bentoCard(title: AppLocalized("壁纸与立绘"), sub: AppLocalized("全局与独立壁纸立绘"), icon: "photo.on.rectangle.angled", dest: .wallpaperArt)
+            bentoCard(title: AppLocalized("气泡与挂件"), sub: AppLocalized("款式、圆角与头像圈"), icon: "bubble.left.circle.fill", dest: .bubblesPendants)
+            bentoCard(title: AppLocalized("字体与排版"), sub: AppLocalized("字号、行距与小说模式"), icon: "textformat", dest: .typography)
+            bentoCard(title: AppLocalized("主题存档库"), sub: AppLocalized("保存、分享与导入导出"), icon: "archivebox.fill", dest: .themeLibrary)
+            bentoCard(title: AppLocalized("细节与图标"), sub: AppLocalized("静音图标与标签符号"), icon: "sparkle.magnifyingglass", dest: .detailsIcons)
         }
     }
 
-    private func bentoCard(title: String, sub: String, icon: String, badge: String, dest: DressingSheetDestination) -> some View {
+    private func bentoCard(title: String, sub: String, icon: String, dest: DressingSheetDestination) -> some View {
         Button {
             haptic()
             activeSheet = dest
@@ -668,7 +668,7 @@ struct DressingColorStudioSheet: View {
             VStack(spacing: 0) {
                 DressingSheetHeader(
                     title: AppLocalized("色彩调控台"),
-                    subtitle: AppLocalized("分页面 · 分日夜模式 · 16角色精细上色")
+                    subtitle: AppLocalized("分页面 · 分日夜模式 · 21角色精细上色")
                 )
 
                 // 页面与深浅模式胶囊切换行

@@ -148042,19 +148042,19 @@
         }
       }
     },
-    "分页面 · 分日夜模式 · 16角色精细上色": {
+    "分页面 · 分日夜模式 · 21角色精细上色": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "分页面 · 分日夜模式 · 16角色精细上色"
+            "value": "分页面 · 分日夜模式 · 21角色精细上色"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "分页面 · 分日夜模式 · 16角色精细上色"
+            "value": "分页面 · 分日夜模式 · 21角色精细上色"
           }
         }
       }
@@ -148331,19 +148331,19 @@
         }
       }
     },
-    "16色分页面分深浅": {
+    "21色分页面分深浅": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "16色分页面分深浅"
+            "value": "21色分页面分深浅"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "16色分页面分深浅"
+            "value": "21色分页面分深浅"
           }
         }
       }
