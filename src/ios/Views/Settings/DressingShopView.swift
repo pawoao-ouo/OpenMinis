@@ -2666,11 +2666,11 @@ struct DressingImportExportSheet: View {
 // MARK: - 10. 小酒馆主题导入确认 (STImportConfirmSheet)
 //
 // 只做确认，不做换算：颜色是 SillyTavernTheme.parse 已经映射好的
-// 浅色版；正文与强调色在这里再过一遍和 applySillyTavern 一模一样
-// 的对比度 enforcement，所以确认页上看到的颜色就是换上后实际
-// 生效的颜色，不是一张“看起来像”的图。深色版不另画——解析器在
-// 原包是浅色时按反相推导、是深色时直接复用同一套，确认页只
-// 展示浅色版。
+// 两张表（浅色版 + 深色版，解析器在原包是浅色时按反相推导、是
+// 深色时直接复用同一套）；确认页按当前深浅读其中一张，正文与
+// 强调色在这里再过一遍和 applySillyTavern 一模一样的对比度
+// enforcement，所以确认页上看到的颜色就是换上后实际生效的颜色，
+// 不是一张“看起来像”的图。
 // 仿聊天小视窗复用不了：它是读当前主题画的，改它去画一个还没
 // 换上的 Imported 要新加一套参数化管线；这里直接用解析出来的
 // 六个色画两句示例气泡，够确认，不发明新机械。
@@ -2680,6 +2680,8 @@ struct STImportConfirmSheet: View {
     let imported: SillyTavernTheme.Imported
     let onApply: () -> Void
     let onCancel: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationStack {
@@ -2719,7 +2721,7 @@ struct STImportConfirmSheet: View {
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
                                     .background(Color(hex: hex(.assistantBubble)))
-                                    .clipShape(RoundedRectangle(cornerRadius: previewBubbleRadius, style: .continuous))
+                                    .clipShape(RoundedRectangle(cornerRadius: previewBubbleRadius(user: false), style: .continuous))
                                 Spacer(minLength: 20)
                             }
 
@@ -2731,7 +2733,7 @@ struct STImportConfirmSheet: View {
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
                                     .background(Color(hex: hex(.userBubble)))
-                                    .clipShape(RoundedRectangle(cornerRadius: previewBubbleRadius, style: .continuous))
+                                    .clipShape(RoundedRectangle(cornerRadius: previewBubbleRadius(user: true), style: .continuous))
                             }
                         }
                         .padding(12)
@@ -2814,8 +2816,17 @@ struct STImportConfirmSheet: View {
         }
     }
 
+    /// 确认页按当前深浅画哪张表：浅色下读 light、深色下读 dark。
+    /// applySillyTavern 两档都写，暗色下确认浅色预览、换上却是
+    /// 反相推导的深色套，是谎言。enforcement 逻辑不变，只换
+    /// 读哪张表 —— 六个色格和两句示例气泡都走 hex()，一次改
+    /// 全改对。
+    private var previewTable: [AppearanceColorRole: String] {
+        colorScheme == .dark ? imported.dark : imported.light
+    }
+
     private func hex(_ role: AppearanceColorRole) -> String {
-        imported.light[role] ?? "FFFFFF"
+        previewTable[role] ?? "FFFFFF"
     }
 
     /// 和 applySillyTavern 里同一段 enforcement：先底色、再卡片面，
@@ -2833,8 +2844,15 @@ struct STImportConfirmSheet: View {
     }
 
     /// 示例气泡的圆角：和 applySillyTavern 里同一段 clamp（0–32）。
-    private var previewBubbleRadius: CGFloat {
-        CGFloat(min(32, max(0, imported.bubbleRadius ?? 14)))
+    /// 包里没写圆角时换上不动现有圆角，所以预览也画现有圆角 ——
+    /// 不能硬编一个 14pt，否则预览和换上后对不上。用户气泡与 AI
+    /// 气泡各画各的现有圆角。
+    private func previewBubbleRadius(user: Bool) -> CGFloat {
+        if let r = imported.bubbleRadius {
+            return CGFloat(min(32, max(0, r)))
+        }
+        let pack = AppearanceStudio.shared.currentThemePack()
+        return CGFloat(user ? pack.userBubbleRadius : pack.assistantBubbleRadius)
     }
 
     private func swatchCell(label: String, hex: String) -> some View {

@@ -1547,6 +1547,15 @@ extension AppearanceStudio {
         if let data = try? JSONEncoder().encode(opacity) {
             try? data.write(to: scratch.appendingPathComponent("opacity.json"), options: .atomic)
         }
+        // [ST import] 字号是独立的 UserDefaults 键（FontSettings），不在
+        // pack.json 里 —— 快照原来只存 pack/colors/opacity/图片，导入
+        // 换了字号后撤销救不回它。跟 opacity.json 同款，单存一份。
+        let fontSize: [String: Double] = [
+            "messagePointSize": Double(FontSettings.shared.messagePointSize),
+        ]
+        if let data = try? JSONEncoder().encode(fontSize) {
+            try? data.write(to: scratch.appendingPathComponent("font-size.json"), options: .atomic)
+        }
         for key in AppearanceThemePack.categoryKeys {
             let src = categoryImageURL(key)
             if FileManager.default.fileExists(atPath: src.path) {
@@ -1674,6 +1683,16 @@ extension AppearanceStudio {
             if let v = op["surface"] { surfaceOpacity = v }
             if let v = op["bubble"] { bubbleOpacity = v }
             if let v = op["shade"] { wallpaperShade = v }
+        }
+        // [ST import] 配套：快照里有 font-size.json 就如实恢复字号。
+        // 旧快照没这个文件时保持现值。重置流程从不动字号，所以
+        // 恢复快照当时记下的值对它们是空操作 —— 只是把值写回它
+        // 本来就是的那个数（FontSettings 的 didSet 在值不变时
+        // 直接 return，连 UserDefaults 都不写）。
+        if let data = try? Data(contentsOf: dir.appendingPathComponent("font-size.json")),
+           let fs = try? JSONDecoder().decode([String: Double].self, from: data),
+           let v = fs["messagePointSize"] {
+            FontSettings.shared.messagePointSize = CGFloat(v)
         }
         for key in AppearanceThemePack.categoryKeys {
             let src = dir.appendingPathComponent("category-\(key).jpg")
