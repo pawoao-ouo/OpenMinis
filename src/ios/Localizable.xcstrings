@@ -148263,6 +148263,40 @@
         }
       }
     },
+    "已设置图标": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已设置图标"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已设置图标"
+          }
+        }
+      }
+    },
+    "图标设置失败，请换一张图试试": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图标设置失败，请换一张图试试"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图标设置失败，请换一张图试试"
+          }
+        }
+      }
+    },
     "分页面壁纸设置": {
       "extractionState": "manual",
       "localizations": {

@@ -2075,6 +2075,8 @@ struct DressingDetailsIconsSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
     @State private var expandedCategoryKey: String?
+    @State private var pickedIconItem: PhotosPickerItem? = nil
+    @State private var pendingIconSlotId: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -2099,6 +2101,26 @@ struct DressingDetailsIconsSheet: View {
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            .onChange(of: pickedIconItem) { item in
+                guard let item, let slotId = pendingIconSlotId else { return }
+                pickedIconItem = nil
+                Task {
+                    guard let data = try? await item.loadTransferable(type: Data.self),
+                          let uiImage = UIImage(data: data) else {
+                        await MainActor.run {
+                            onNotify(AppLocalized("图标设置失败，请换一张图试试"))
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        if studio.setIcon(uiImage, for: slotId) {
+                            onNotify(AppLocalized("已设置图标"))
+                        } else {
+                            onNotify(AppLocalized("图标设置失败，请换一张图试试"))
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2162,7 +2184,16 @@ struct DressingDetailsIconsSheet: View {
 
     private func iconSlotCard(_ slot: QuietIconSlot) -> some View {
         HStack(spacing: 8) {
-            QuietAppIcon(id: slot.id, systemName: slot.systemName, size: 24)
+            // 点图标换图：和壁纸页一样的 PhotosPicker + onChange 写法，
+            // 点哪格先记哪格（simultaneousGesture 在选图前就已触发，
+            // 选完图的 onChange 读到的就是这次点的格）。
+            PhotosPicker(selection: $pickedIconItem, matching: .images) {
+                QuietAppIcon(id: slot.id, systemName: slot.systemName, size: 24)
+                    .simultaneousGesture(TapGesture().onEnded { _ in
+                        pendingIconSlotId = slot.id
+                    })
+            }
+            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(slot.title)
