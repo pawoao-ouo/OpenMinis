@@ -2019,6 +2019,19 @@ extension AppearanceStudio {
         persistPack(pack)
     }
 
+    /// Thinking card colours, same shape as setThinkingFont: one
+    /// setter for all three, nil = leave unchanged. A hex is
+    /// normalized the same way pack import does it — "" stays "",
+    /// which means "unset, follow the chat accent" (see
+    /// MinisThemeShape.thinkingFill/thinkingStroke/thinkingAccent).
+    func setThinkingColors(fill: String? = nil, stroke: String? = nil, accent: String? = nil) {
+        var pack = currentThemePack()
+        if let fill { pack.thinkingFillHex = normalizeOptionalHex(fill) }
+        if let stroke { pack.thinkingStrokeHex = normalizeOptionalHex(stroke) }
+        if let accent { pack.thinkingAccentHex = normalizeOptionalHex(accent) }
+        persistPack(pack)
+    }
+
     func setCategorySymbol(_ symbol: String, for key: String) {
         guard AppearanceThemePack.categoryKeys.contains(key) else { return }
         var pack = currentThemePack()

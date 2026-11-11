@@ -3314,6 +3314,68 @@ struct DressingShopView: View {
                 set: { studio.setThinkingFont(body: $0) })
     }
 
+    /// Thinking card colours, same empty-hex rule as the pack:
+    /// "" means "unset, follow the chat accent" (see
+    /// MinisThemeShape.thinkingFill/thinkingStroke/thinkingAccent),
+    /// so the picker shows the accent while unset, and the reset
+    /// button writes "" to go back to following it.
+    private var thinkingFillColorBinding: Binding<Color> {
+        Binding(get: {
+            let hex = studio.currentThemePack().thinkingFillHex
+            return hex.isEmpty ? studio.color(.accent, scope: .chat) : Color(hex: hex)
+        }, set: { studio.setThinkingColors(fill: UIColor($0).hexRGB) })
+    }
+    private var thinkingStrokeColorBinding: Binding<Color> {
+        Binding(get: {
+            let hex = studio.currentThemePack().thinkingStrokeHex
+            return hex.isEmpty ? studio.color(.accent, scope: .chat) : Color(hex: hex)
+        }, set: { studio.setThinkingColors(stroke: UIColor($0).hexRGB) })
+    }
+    private var thinkingAccentColorBinding: Binding<Color> {
+        Binding(get: {
+            let hex = studio.currentThemePack().thinkingAccentHex
+            return hex.isEmpty ? studio.color(.accent, scope: .chat) : Color(hex: hex)
+        }, set: { studio.setThinkingColors(accent: UIColor($0).hexRGB) })
+    }
+
+    /// Hex text for a thinking colour row: the stored hex, or the
+    /// chat accent hex while unset — the colour actually rendered.
+    private func thinkingColorHex(_ hex: String) -> String {
+        hex.isEmpty ? UIColor(studio.color(.accent, scope: .chat)).hexRGB : hex
+    }
+
+    /// One thinking colour row: plain name, #hex, a visible 32x32
+    /// ColorPicker, and revert-to-accent when a colour is set —
+    /// the same row shape as the colour-variables page.
+    private func thinkingColorRow(_ title: String, color: Binding<Color>, hex: String,
+                                  onReset: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: fsSub, weight: .medium))
+                .foregroundStyle(studio.color(.primaryText))
+            Spacer(minLength: 6)
+            Text("#\(thinkingColorHex(hex))")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(studio.color(.secondaryText).opacity(0.55))
+            ColorPicker("", selection: color, supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 32, height: 32)
+                .accessibilityLabel(title)
+                .accessibilityHint(AppLocalized("点一下打开取色器"))
+            if !hex.isEmpty {
+                Button { onReset() } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(studio.color(.secondaryText))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(FontPressStyle(scale: 0.92))
+                .accessibilityLabel(AppLocalized("跟随强调色"))
+            }
+        }
+    }
+
     /// [B28 R7 醒醒分类] thinking 字号原来挂在死页「图标」页——
     /// 字号归字号。现在跟着正文/全局字号一起住在字体页，
     /// 在全局字号区下面。滑杆样式用店里现成的 styleSliderRow。
@@ -3325,6 +3387,25 @@ struct DressingShopView: View {
                                display: "\(Int(thinkingTitleSizeBinding.wrappedValue))")
                 styleSliderRow(AppLocalized("正文字"), value: thinkingBodySizeBinding, range: 10...22,
                                display: "\(Int(thinkingBodySizeBinding.wrappedValue))")
+                Divider().padding(.vertical, fontSettings.density(4))
+                Text(AppLocalized("thinking 颜色"))
+                    .font(.system(size: fsSub, weight: .semibold))
+                    .foregroundStyle(studio.color(.primaryText))
+                thinkingColorRow(AppLocalized("底色"), color: thinkingFillColorBinding,
+                                 hex: studio.currentThemePack().thinkingFillHex) {
+                    studio.setThinkingColors(fill: "")
+                }
+                thinkingColorRow(AppLocalized("描边"), color: thinkingStrokeColorBinding,
+                                 hex: studio.currentThemePack().thinkingStrokeHex) {
+                    studio.setThinkingColors(stroke: "")
+                }
+                thinkingColorRow(AppLocalized("强调色"), color: thinkingAccentColorBinding,
+                                 hex: studio.currentThemePack().thinkingAccentHex) {
+                    studio.setThinkingColors(accent: "")
+                }
+                Text(AppLocalized("没单独调过时，三个颜色都跟强调色走。"))
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
