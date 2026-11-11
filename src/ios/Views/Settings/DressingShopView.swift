@@ -2065,7 +2065,7 @@ struct DressingShopView: View {
                     }
                     HStack(spacing: 12) {
                         Button(AppLocalized("保存成搭配")) {
-                            outfitStore.save(pendant: pendant)
+                            outfitStore.save(pendant: pendant, side: detailPendantSide)
                             closePendantDetail()
                         }
                         .font(.callout)
@@ -2137,7 +2137,10 @@ struct DressingShopView: View {
                         }
                         Spacer(minLength: 0)
                         Button(AppLocalized("换上")) {
-                            outfitStore.apply(outfit)
+                            let outcome = outfitStore.apply(outfit)
+                            if !outcome.missing.isEmpty {
+                                showFontToast(outfitMissingMessage(outcome.missing))
+                            }
                         }
                         .font(.system(size: fsCaption, weight: .semibold))
                         .foregroundStyle(studio.color(.surface))
@@ -3104,6 +3107,22 @@ struct DressingShopView: View {
         studio.setGlobalCustomFont(font.postScriptName)
         return true
     }
+    /// Toast text for outfit-apply pieces that no longer exist
+    /// (deleted since the outfit was saved). Names each skipped
+    /// piece in plain words; empty when nothing is missing.
+    private func outfitMissingMessage(_ missing: [String]) -> String {
+        let names = missing.compactMap { key -> String? in
+            switch key {
+            case "theme": return AppLocalized("主题")
+            case "bubble": return AppLocalized("气泡")
+            case "pendant": return AppLocalized("挂件")
+            default: return nil
+            }
+        }
+        guard !names.isEmpty else { return "" }
+        return String(format: AppLocalized("%@找不到了，没换上。"), names.joined(separator: "、"))
+    }
+
     /// Show a v2-style toast for 2.2s, replacing any toast already
     /// up (v2 clears its timer on every new toast, so rapid taps
     /// never stack pills).
@@ -4018,7 +4037,7 @@ struct DressingShopView: View {
                         .foregroundStyle(studio.color(.secondaryText))
                     HStack(spacing: 12) {
                         Button(AppLocalized("保存成搭配")) {
-                            outfitStore.save(bubblePack: pack)
+                            outfitStore.save(bubblePack: pack, side: detailPackSide)
                             closeDetail()
                         }
                         .font(.callout)

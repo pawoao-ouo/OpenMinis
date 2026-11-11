@@ -17,22 +17,34 @@ struct DressingOutfit: Identifiable, Equatable, Codable {
     var bubbleNumber: String?
     var pendantNumber: String?
     var themeNumber: String?
+    /// Which side the bubble piece was saved from, if recorded.
+    /// Nil means "old record, no side was saved" — applying it
+    /// puts the pack on BOTH sides, the old behaviour.
+    var bubbleSide: DressingSide?
+    /// Which side the pendant piece was saved from, if recorded.
+    /// Nil means "old record" — the pendant goes on BOTH sides.
+    var pendantSide: DressingSide?
     var summary: String
 
     var id: String { number }
 
     private enum CodingKeys: String, CodingKey {
-        case number, title, bubbleNumber, pendantNumber, themeNumber, summary
+        case number, title, bubbleNumber, pendantNumber, themeNumber,
+             bubbleSide, pendantSide, summary
     }
 
     init(number: String, title: String, bubbleNumber: String? = nil,
          pendantNumber: String? = nil,
-         themeNumber: String? = nil, summary: String) {
+         themeNumber: String? = nil,
+         bubbleSide: DressingSide? = nil,
+         pendantSide: DressingSide? = nil, summary: String) {
         self.number = number
         self.title = title
         self.bubbleNumber = bubbleNumber
         self.pendantNumber = pendantNumber
         self.themeNumber = themeNumber
+        self.bubbleSide = bubbleSide
+        self.pendantSide = pendantSide
         self.summary = summary
     }
 
@@ -43,7 +55,28 @@ struct DressingOutfit: Identifiable, Equatable, Codable {
         bubbleNumber = try c.decodeIfPresent(String.self, forKey: .bubbleNumber)
         pendantNumber = try c.decodeIfPresent(String.self, forKey: .pendantNumber)
         themeNumber = try c.decodeIfPresent(String.self, forKey: .themeNumber)
+        // Sides are stored as their raw strings (DressingSide is
+        // not Codable). An unknown or absent value reads as nil —
+        // old records decode fine and apply to both sides.
+        if let raw = try c.decodeIfPresent(String.self, forKey: .bubbleSide) {
+            bubbleSide = DressingSide(rawValue: raw)
+        }
+        if let raw = try c.decodeIfPresent(String.self, forKey: .pendantSide) {
+            pendantSide = DressingSide(rawValue: raw)
+        }
         summary = try c.decodeIfPresent(String.self, forKey: .summary) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(number, forKey: .number)
+        try c.encode(title, forKey: .title)
+        try c.encodeIfPresent(bubbleNumber, forKey: .bubbleNumber)
+        try c.encodeIfPresent(pendantNumber, forKey: .pendantNumber)
+        try c.encodeIfPresent(themeNumber, forKey: .themeNumber)
+        try c.encodeIfPresent(bubbleSide?.rawValue, forKey: .bubbleSide)
+        try c.encodeIfPresent(pendantSide?.rawValue, forKey: .pendantSide)
+        try c.encode(summary, forKey: .summary)
     }
 }
 
@@ -131,16 +164,16 @@ final class DressingOutfitStore: ObservableObject {
     /// Put a saved outfit back on, in the same order a saved
     /// theme set applies: theme first, then bubble pack, then
     /// pendant. Every step reuses the existing apply path — the
-    /// user-initiated full-replace theme apply, the both-sides
-    /// pack apply, the both-sides pendant apply — so an outfit
-    /// apply can never do something those paths cannot.
+    /// user-initiated full-replace theme apply, the per-side pack
+    /// apply, the per-side pendant apply — so an outfit apply
+    /// can never do something those paths cannot.
     ///
-    /// The outfit record carries no side, so the pack and the
-    /// pendant go on BOTH sides (the whole-conversation meaning,
-    /// same as a full-set apply with one number). A recorded
-    /// number that no longer resolves is skipped and reported in
-    /// the outcome's `missing`; it never aborts the pieces that
-    /// do resolve.
+    /// A recorded side applies to that side only; the other
+    /// side keeps its own pack / ring. No side recorded (old
+    /// records, saved before sides were stored) means BOTH
+    /// sides, the old behaviour. A recorded number that no
+    /// longer resolves is skipped and reported in the outcome's
+    /// `missing`; it never aborts the pieces that do resolve.
     @discardableResult
     func apply(_ outfit: DressingOutfit) -> DressingOutfitApplyOutcome {
         var outcome = DressingOutfitApplyOutcome()
@@ -153,7 +186,11 @@ final class DressingOutfitStore: ObservableObject {
         }
         if let bubbleNumber = outfit.bubbleNumber {
             if let pack = BubbleStylePackStore.shared.pack(number: bubbleNumber) {
-                BubbleStylePackStore.shared.apply(pack)
+                if let side = outfit.bubbleSide {
+                    BubbleStylePackStore.shared.apply(pack, for: side)
+                } else {
+                    BubbleStylePackStore.shared.apply(pack)
+                }
                 outcome.appliedBubble = true
             } else {
                 outcome.missing.append("bubble")
@@ -161,7 +198,11 @@ final class DressingOutfitStore: ObservableObject {
         }
         if let pendantNumber = outfit.pendantNumber {
             if let pendant = AvatarPendantStore.shared.pendants.first(where: { $0.number == pendantNumber }) {
-                AvatarPendantStore.shared.apply(pendant)
+                if let side = outfit.pendantSide {
+                    AvatarPendantStore.shared.apply(pendant, for: side)
+                } else {
+                    AvatarPendantStore.shared.apply(pendant)
+                }
                 outcome.appliedPendant = true
             } else {
                 outcome.missing.append("pendant")
@@ -173,14 +214,17 @@ final class DressingOutfitStore: ObservableObject {
     /// Save a pendant as one outfit row, same rule as bubbles:
     /// the row names the piece by number, never by name guess.
     /// It also records the currently applied theme's number, so
-    /// the outfit can put the whole look back on later.
+    /// the outfit can put the whole look back on later. The
+    /// side the pendant was previewed on is recorded too, so
+    /// applying it back only changes that side's ring.
     @discardableResult
-    func save(pendant: AvatarPendant) -> DressingOutfit {
+    func save(pendant: AvatarPendant, side: DressingSide) -> DressingOutfit {
         let number = String(format: "COM-%04d", nextSerial)
         nextSerial += 1
         let outfit = DressingOutfit(
             number: number, title: pendant.title, pendantNumber: pendant.number,
             themeNumber: currentThemeNumber,
+            pendantSide: side,
             summary: "\(pendant.title) · \(pendant.number)")
         outfits.append(outfit)
         save()
@@ -192,14 +236,17 @@ final class DressingOutfitStore: ObservableObject {
     /// the row can never describe a different pack than the one
     /// the user just previewed. It also records the currently
     /// applied theme's number, so the outfit can put the whole
-    /// look back on later.
+    /// look back on later. The side the pack was previewed on
+    /// is recorded too, so applying it back only changes that
+    /// side's bubbles.
     @discardableResult
-    func save(bubblePack pack: BubbleStylePack) -> DressingOutfit {
+    func save(bubblePack pack: BubbleStylePack, side: DressingSide) -> DressingOutfit {
         let number = String(format: "COM-%04d", nextSerial)
         nextSerial += 1
         let outfit = DressingOutfit(
             number: number, title: pack.title, bubbleNumber: pack.number,
             themeNumber: currentThemeNumber,
+            bubbleSide: side,
             summary: "\(pack.title) · \(pack.number)")
         outfits.append(outfit)
         save()
