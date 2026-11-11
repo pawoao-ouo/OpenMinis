@@ -4861,17 +4861,6 @@ struct DressingShopView: View {
                 detailMessage(pack: pack, isUser: false,
                               text: AppLocalized("好，那就这款。"))
                 Spacer(minLength: 0)
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .foregroundStyle(studio.color(.secondaryText))
-                    Spacer(minLength: 0)
-                    Image(systemName: "mic")
-                        .foregroundStyle(studio.color(.secondaryText))
-                }
-                .padding(.horizontal, 16)
-                .frame(height: 52)
-                .background(studio.color(.field))
-                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             }
             .padding(16)
             .onTapGesture { sheetUp.toggle() }
