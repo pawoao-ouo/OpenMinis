@@ -45,6 +45,12 @@ enum CSSThemeVariables {
         studio.color(.surface, scope: scope).opacity(studio.surfaceOpacity)
     }
 
+    /// 不透明 surface 色：给字色/图标当前景色用，不跟透光旋钮走。
+    /// 字不是卡片面，旋钮拉到 0 时字不能跟着消失。
+    static func surface(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
+        studio.color(.surface, scope: scope)
+    }
+
     /// --color-bg / var(--dudu-cream)
     /// [4-1 醒醒] 背景底衬接入全局 canvas 角色
     /// 同 card:跟主题角色一起走。

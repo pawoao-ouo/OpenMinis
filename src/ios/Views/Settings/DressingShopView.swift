@@ -81,7 +81,7 @@ struct DressingShopView: View {
                 if let msg = toastMessage {
                     Text(msg)
                         .font(ChatFont.font(13, weight: .medium))
-                        .foregroundStyle(CSSThemeVariables.card(scope: .settings))
+                        .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
                         .padding(.horizontal, DressingTokens.Padding.page)
                         .padding(.vertical, DressingTokens.Padding.cardVertical)
                         .background(CSSThemeVariables.textMain(scope: .settings))
@@ -231,7 +231,7 @@ extension DressingShopView {
                     Spacer(minLength: 20)
                     Text(AppLocalized("做简单、精致、iOS 26 质感～"))
                         .font(ChatFont.font(12))
-                        .foregroundStyle(CSSThemeVariables.card(scope: .chat))
+                        .foregroundStyle(CSSThemeVariables.surface(scope: .chat))
                         .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
                         .padding(.vertical, DressingTokens.Padding.contentVertical)
                         .background(CSSThemeVariables.accent(scope: .chat))
@@ -850,7 +850,7 @@ struct DressingColorStudioSheet: View {
                                 .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
                                 .padding(.vertical, DressingTokens.Padding.pillVertical)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                                .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                                .foregroundStyle(isSelected ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Capsule())
                         }
                     }
@@ -1070,7 +1070,7 @@ struct DressingWallpaperArtSheet: View {
                             .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
                             .padding(.vertical, DressingTokens.Padding.pillVertical)
                             .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                            .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                            .foregroundStyle(isSelected ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                             .clipShape(Capsule())
                     }
                 }
@@ -1114,7 +1114,7 @@ struct DressingWallpaperArtSheet: View {
                             .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
                             .padding(.vertical, DressingTokens.Padding.pillVertical)
                             .background(CSSThemeVariables.accent(scope: .settings))
-                            .foregroundStyle(CSSThemeVariables.card(scope: .settings))
+                            .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
                             .clipShape(Capsule())
                         }
 
@@ -1452,7 +1452,7 @@ struct DressingBubblesPendantsSheet: View {
                             .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
                             .padding(.vertical, DressingTokens.Padding.pillVertical)
                             .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                            .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                            .foregroundStyle(isSelected ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                             .clipShape(Capsule())
                     }
                 }
@@ -2097,7 +2097,7 @@ struct DressingBubblesPendantsSheet: View {
                         .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
                         .padding(.vertical, DressingTokens.Padding.rowVertical)
                         .background(isApplied ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                        .foregroundStyle(isApplied ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                        .foregroundStyle(isApplied ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                         .clipShape(Capsule())
                 }
 
@@ -2142,7 +2142,7 @@ struct DressingBubblesPendantsSheet: View {
                                 .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
                                 .padding(.vertical, DressingTokens.Padding.pillVertical)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                                .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                                .foregroundStyle(isSelected ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Capsule())
                         }
                     }
@@ -2236,7 +2236,7 @@ struct DressingBubblesPendantsSheet: View {
                         .padding(.horizontal, DressingTokens.Padding.itemPillHorizontal)
                         .padding(.vertical, DressingTokens.Padding.smallPillVertical)
                         .background(isUserWearing ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                        .foregroundStyle(isUserWearing ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
+                        .foregroundStyle(isUserWearing ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                         .clipShape(Capsule())
                 }
 
@@ -2255,7 +2255,7 @@ struct DressingBubblesPendantsSheet: View {
                         .padding(.horizontal, DressingTokens.Padding.itemPillHorizontal)
                         .padding(.vertical, DressingTokens.Padding.smallPillVertical)
                         .background(isAIWearing ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                        .foregroundStyle(isAIWearing ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
+                        .foregroundStyle(isAIWearing ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                         .clipShape(Capsule())
                 }
             }
@@ -2344,7 +2344,7 @@ struct DressingTypographySheet: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, DressingTokens.Padding.capsuleButtonVertical)
                             .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                            .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                            .foregroundStyle(isSelected ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                             .clipShape(Capsule())
                     }
                 }
@@ -2417,7 +2417,7 @@ struct DressingTypographySheet: View {
                                     .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
                                     .padding(.vertical, DressingTokens.Padding.rowVertical)
                                     .background(isApplied ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                                    .foregroundStyle(isApplied ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                                    .foregroundStyle(isApplied ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                     .clipShape(Capsule())
                             }
 
@@ -2538,7 +2538,7 @@ struct DressingTypographySheet: View {
                                 .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
                                 .padding(.vertical, DressingTokens.Padding.pillVertical)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                                .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                                .foregroundStyle(isSelected ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Capsule())
                         }
                     }
@@ -2562,7 +2562,7 @@ struct DressingTypographySheet: View {
                                 .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
                                 .padding(.vertical, DressingTokens.Padding.pillVertical)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
-                                .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                                .foregroundStyle(isSelected ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Capsule())
                         }
                     }
@@ -2613,7 +2613,7 @@ struct DressingThemeLibrarySheet: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, DressingTokens.Padding.contentVertical)
                         .background(CSSThemeVariables.accent(scope: .settings))
-                        .foregroundStyle(CSSThemeVariables.card(scope: .settings))
+                        .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
                         .clipShape(Capsule())
                     }
 
@@ -3116,7 +3116,7 @@ struct DressingSaveThemeSheet: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, DressingTokens.Padding.sectionVertical)
                         .background(themeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.surfaceFill(scope: .settings) : CSSThemeVariables.accent(scope: .settings))
-                        .foregroundStyle(themeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.textDim(scope: .settings) : CSSThemeVariables.card(scope: .settings))
+                        .foregroundStyle(themeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.textDim(scope: .settings) : CSSThemeVariables.surface(scope: .settings))
                         .clipShape(Capsule())
                 }
                 .disabled(themeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -3183,7 +3183,7 @@ struct DressingImportExportSheet: View {
                                 .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
                                 .padding(.vertical, DressingTokens.Padding.contentVertical)
                                 .background(CSSThemeVariables.accent(scope: .settings))
-                                .foregroundStyle(CSSThemeVariables.card(scope: .settings))
+                                .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
                                 .clipShape(Capsule())
                             }
                         }
@@ -3235,7 +3235,7 @@ struct DressingImportExportSheet: View {
                                         .padding(.horizontal, DressingTokens.Padding.cardHorizontal)
                                         .padding(.vertical, DressingTokens.Padding.widePillVertical)
                                         .background(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.surfaceFill(scope: .settings) : CSSThemeVariables.accent(scope: .settings))
-                                        .foregroundStyle(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.textDim(scope: .settings) : CSSThemeVariables.card(scope: .settings))
+                                        .foregroundStyle(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.textDim(scope: .settings) : CSSThemeVariables.surface(scope: .settings))
                                         .clipShape(Capsule())
                                 }
                                 .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -3274,7 +3274,7 @@ struct DressingImportExportSheet: View {
                                 .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
                                 .padding(.vertical, DressingTokens.Padding.contentVertical)
                                 .background(CSSThemeVariables.accent(scope: .settings))
-                                .foregroundStyle(CSSThemeVariables.card(scope: .settings))
+                                .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
                                 .clipShape(Capsule())
                             }
                         }
@@ -3507,7 +3507,7 @@ struct STImportConfirmSheet: View {
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, DressingTokens.Padding.cardVertical)
                                     .background(CSSThemeVariables.accent(scope: .settings))
-                                    .foregroundStyle(CSSThemeVariables.card(scope: .settings))
+                                    .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
                                     .clipShape(Capsule())
                             }
                         }
