@@ -2136,6 +2136,16 @@ struct DressingShopView: View {
                             }
                         }
                         Spacer(minLength: 0)
+                        Button(AppLocalized("换上")) {
+                            outfitStore.apply(outfit)
+                        }
+                        .font(.system(size: fsCaption, weight: .semibold))
+                        .foregroundStyle(studio.color(.surface))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .padding(.horizontal, 12)
+                        .background(studio.color(.accent))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .buttonStyle(FontPressStyle(scale: 0.92))
                         Button(AppLocalized("按编号删除")) {
                             outfitStore.delete(number: outfit.number)
                         }

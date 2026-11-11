@@ -47,6 +47,19 @@ struct DressingOutfit: Identifiable, Equatable, Codable {
     }
 }
 
+/// What one outfit apply actually did. A nil recorded number is
+/// skipped, never failed; a recorded number that no longer
+/// resolves (the pack / pendant / theme was deleted since the
+/// save) is reported in `missing` and never aborts the rest.
+struct DressingOutfitApplyOutcome {
+    var appliedTheme = false
+    var appliedBubble = false
+    var appliedPendant = false
+    /// "theme", "bubble", "pendant" — a recorded number that no
+    /// longer resolves to anything.
+    var missing: [String] = []
+}
+
 private struct DressingOutfitStoreData: Codable {
     var outfits: [DressingOutfit]
     var nextSerial: Int
@@ -102,14 +115,72 @@ final class DressingOutfitStore: ObservableObject {
         try? data.write(to: storeURL, options: .atomic)
     }
 
+    /// The saved-theme id of the theme currently applied, if any.
+    /// Same key as AppearanceThemeLibrary's private lastAppliedKey
+    /// ("appearanceStudio.lastAppliedLibraryID"): only
+    /// applySavedTheme sets it. It only counts when it still
+    /// resolves to a saved theme — a stale id (theme deleted
+    /// since) reads as "no theme number", never an invented one.
+    private var currentThemeNumber: String? {
+        let key = "appearanceStudio.lastAppliedLibraryID"
+        guard let id = UserDefaults.standard.string(forKey: key), !id.isEmpty,
+              AppearanceStudio.shared.savedThemes().contains(where: { $0.id == id }) else { return nil }
+        return id
+    }
+
+    /// Put a saved outfit back on, in the same order a saved
+    /// theme set applies: theme first, then bubble pack, then
+    /// pendant. Every step reuses the existing apply path — the
+    /// user-initiated full-replace theme apply, the both-sides
+    /// pack apply, the both-sides pendant apply — so an outfit
+    /// apply can never do something those paths cannot.
+    ///
+    /// The outfit record carries no side, so the pack and the
+    /// pendant go on BOTH sides (the whole-conversation meaning,
+    /// same as a full-set apply with one number). A recorded
+    /// number that no longer resolves is skipped and reported in
+    /// the outcome's `missing`; it never aborts the pieces that
+    /// do resolve.
+    @discardableResult
+    func apply(_ outfit: DressingOutfit) -> DressingOutfitApplyOutcome {
+        var outcome = DressingOutfitApplyOutcome()
+        if let themeNumber = outfit.themeNumber {
+            if AppearanceStudio.shared.applySavedTheme(id: themeNumber) != nil {
+                outcome.appliedTheme = true
+            } else {
+                outcome.missing.append("theme")
+            }
+        }
+        if let bubbleNumber = outfit.bubbleNumber {
+            if let pack = BubbleStylePackStore.shared.pack(number: bubbleNumber) {
+                BubbleStylePackStore.shared.apply(pack)
+                outcome.appliedBubble = true
+            } else {
+                outcome.missing.append("bubble")
+            }
+        }
+        if let pendantNumber = outfit.pendantNumber {
+            if let pendant = AvatarPendantStore.shared.pendants.first(where: { $0.number == pendantNumber }) {
+                AvatarPendantStore.shared.apply(pendant)
+                outcome.appliedPendant = true
+            } else {
+                outcome.missing.append("pendant")
+            }
+        }
+        return outcome
+    }
+
     /// Save a pendant as one outfit row, same rule as bubbles:
     /// the row names the piece by number, never by name guess.
+    /// It also records the currently applied theme's number, so
+    /// the outfit can put the whole look back on later.
     @discardableResult
     func save(pendant: AvatarPendant) -> DressingOutfit {
         let number = String(format: "COM-%04d", nextSerial)
         nextSerial += 1
         let outfit = DressingOutfit(
             number: number, title: pendant.title, pendantNumber: pendant.number,
+            themeNumber: currentThemeNumber,
             summary: "\(pendant.title) · \(pendant.number)")
         outfits.append(outfit)
         save()
@@ -119,13 +190,16 @@ final class DressingOutfitStore: ObservableObject {
     /// Save the currently applied pieces as one outfit row.
     /// The bubble piece comes from the pack record itself, so
     /// the row can never describe a different pack than the one
-    /// the user just previewed.
+    /// the user just previewed. It also records the currently
+    /// applied theme's number, so the outfit can put the whole
+    /// look back on later.
     @discardableResult
     func save(bubblePack pack: BubbleStylePack) -> DressingOutfit {
         let number = String(format: "COM-%04d", nextSerial)
         nextSerial += 1
         let outfit = DressingOutfit(
             number: number, title: pack.title, bubbleNumber: pack.number,
+            themeNumber: currentThemeNumber,
             summary: "\(pack.title) · \(pack.number)")
         outfits.append(outfit)
         save()
