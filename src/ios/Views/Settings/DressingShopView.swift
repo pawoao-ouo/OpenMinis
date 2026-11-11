@@ -956,7 +956,7 @@ struct DressingWallpaperArtSheet: View {
 
             // Scope 切换
             HStack(spacing: 6) {
-                ForEach([AppearanceScope.global, .chat, .home, .settings], id: \.self) { sc in
+                ForEach([AppearanceScope.global, .chat, .home, .settings, .browser, .terminal], id: \.self) { sc in
                     let isSelected = selectedScope == sc
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
