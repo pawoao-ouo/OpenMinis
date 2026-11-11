@@ -312,9 +312,7 @@ extension DressingShopView {
                 Button {
                     haptic()
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        studio.surfaceOpacity = 0.85
-                        studio.bubbleOpacity = 0.95
-                        studio.wallpaperShade = 0.30
+                        studio.resetOpacityDials()
                     }
                     showToast(AppLocalized("旋钮已复位"))
                 } label: {
