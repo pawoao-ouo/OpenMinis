@@ -2077,6 +2077,7 @@ struct DressingDetailsIconsSheet: View {
     @State private var expandedCategoryKey: String?
     @State private var pickedIconItem: PhotosPickerItem? = nil
     @State private var pendingIconSlotId: String? = nil
+    @State private var iconPickerPresented = false
 
     var body: some View {
         NavigationStack {
@@ -2101,6 +2102,11 @@ struct DressingDetailsIconsSheet: View {
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            // 单个选图器由下面各格的 Button 统一打开：Button 的 action 在
+            // VoiceOver / 切换控制激活下也会触发（TapGesture 只认真实触摸，
+            // 以前那路 VoiceOver 选图会丢格、甚至贴错格），所以点哪格先记哪格，
+            // 再打开选图器；onChange 读到的永远是这次点的格。
+            .photosPicker(isPresented: $iconPickerPresented, selection: $pickedIconItem, matching: .images)
             .onChange(of: pickedIconItem) { item in
                 guard let item, let slotId = pendingIconSlotId else { return }
                 pickedIconItem = nil
@@ -2184,16 +2190,18 @@ struct DressingDetailsIconsSheet: View {
 
     private func iconSlotCard(_ slot: QuietIconSlot) -> some View {
         HStack(spacing: 8) {
-            // 点图标换图：和壁纸页一样的 PhotosPicker + onChange 写法，
-            // 点哪格先记哪格（simultaneousGesture 在选图前就已触发，
-            // 选完图的 onChange 读到的就是这次点的格）。
-            PhotosPicker(selection: $pickedIconItem, matching: .images) {
+            // 点图标换图：和 AIChatView / PersonaSettingsView 同一款写法——
+            // Button action 里先记格、再打开选图器，选完图的 onChange 读到的
+            // 就是这次点的格。不能用 TapGesture 记格：它只认真实触摸，
+            // VoiceOver 激活走 Button action，不经过手势系统。
+            Button {
+                pendingIconSlotId = slot.id
+                iconPickerPresented = true
+            } label: {
                 QuietAppIcon(id: slot.id, systemName: slot.systemName, size: 24)
-                    .simultaneousGesture(TapGesture().onEnded { _ in
-                        pendingIconSlotId = slot.id
-                    })
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(slot.title)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(slot.title)
