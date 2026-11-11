@@ -405,7 +405,7 @@ check("deferred path never claims to have written",
 //   做法：opaque=true，且先填 matte 再画图（顺序反了等于没垫）
 //   结果：下面四条断言，代码层全部成立；渲染观感仍待真机
 check("T-54 case: transparent PNG mattes with the scheme canvas",
-      studio.contains("let matte = UIColor(hex: book[.canvas] ?? (dark ? \"000000\" : \"F5F5F7\"))"))
+      studio.contains("let matte = UIColor(hex: book[.canvas] ?? (dark ? DressingTokens.higDarkCanvasHex : DressingTokens.higLightCanvasHex))"))
 check("T-54 case: the pipeline renders opaque, so alpha cannot survive",
       studio.contains("format.opaque = true"))
 if let fillAt = studio.range(of: "matte.setFill()")?.lowerBound,
@@ -417,7 +417,7 @@ if let fillAt = studio.range(of: "matte.setFill()")?.lowerBound,
 check("T-54 case: the matte actually reaches the pipeline",
       studio.contains("return WallpaperPipeline.jpeg(image, matte: matte)"))
 check("T-54 case: dark and light produce different mattes",
-      studio.contains("\"000000\"") && studio.contains("\"F5F5F7\""))
+      studio.contains("static let higDarkCanvasHex = \"000000\"") && studio.contains("static let higLightCanvasHex = \"F5F5F7\""))
 
 // [T-54] 真正的修法：带透明的图按档位各存一份，切档不再沿用旧配色的白边。
 // 原来只在拾取那一刻垫一次底，切档后文件里还是旧档的画布色 —— 这才是审计
