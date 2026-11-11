@@ -411,6 +411,12 @@ final class AppearanceStudio: ObservableObject {
         static let activePreset = "appearanceStudio.activePreset.v1"
         static let activePresetColors = "appearanceStudio.activePresetColors.v1"
         static let activePresetWallpaperRevision = "appearanceStudio.activePresetWallpaperRevision.v1"
+        /// [P1-8-fix] The live wallpaper revision itself, persisted so the
+        /// preset marker can be checked across a relaunch. Absent = the
+        /// revision was never persisted (old build / fresh install):
+        /// `liveWallpaperRevision` stays nil and `isPresetActive` is
+        /// false until a preset is re-applied.
+        static let wallpaperRevision = "appearanceStudio.wallpaperRevision.v1"
         static let userAvatar = "appearanceStudio.userAvatar.v1"
         /// [B28 R10] 用户自定义称呼。界面/提示里要提到"说话的人"时用它，
         /// 不写死任何具体名字——没填就回落到中性称呼。
@@ -472,6 +478,13 @@ final class AppearanceStudio: ObservableObject {
         return value
     }()
     private var activePresetWallpaperRevision: Int = UserDefaults.standard.object(forKey: Keys.activePresetWallpaperRevision) as? Int ?? -1
+    /// [P1-8-fix] The live wallpaper revision, restored from disk. Nil
+    /// means unknown (never persisted): the old build never wrote it, so
+    /// after an update from that build the marker must stay off rather
+    /// than compare against a counter that restarted at 0. `recordActivePreset`
+    /// materializes it (and persists it) at record time; every later bump
+    /// goes through `bumpWallpaperRevision`, which keeps both in step.
+    private var liveWallpaperRevision: Int? = UserDefaults.standard.object(forKey: Keys.wallpaperRevision) as? Int
     @Published private(set) var iconRevision = 0
     @Published private(set) var userAvatar: String
     /// [B28 R10] 她自己填的称呼。空 = 没设置，调用方自己回落到中性词。
@@ -556,6 +569,14 @@ final class AppearanceStudio: ObservableObject {
         bubbleOpacity = storedBubbleOpacity ?? 1.0
         wallpaperShade = storedShade ?? 0.08
         loadWallpaperCleared()
+        // [P1-8-fix] Resume the wallpaper revision from disk so the
+        // counter keeps advancing instead of restarting at 0 after every
+        // launch. When nothing was ever persisted (old build / fresh
+        // install) `liveWallpaperRevision` stays nil and the preset marker
+        // stays off until a preset is re-applied.
+        if let savedRevision = liveWallpaperRevision {
+            wallpaperRevision = savedRevision
+        }
         cachedThemePack = loadStoredPackUnlocked()
         themePackLoaded = true
         // 2026-11-02: move stored old-default yellows to the new
@@ -962,6 +983,18 @@ final class AppearanceStudio: ObservableObject {
         configureUIKitSurfaces()
     }
 
+    /// [P1-8-fix] The only place that advances the wallpaper revision:
+    /// bump the in-memory counter (which drives view refresh via
+    /// `@Published`) and persist the new value, so the revision survives
+    /// a relaunch. A bare `wallpaperRevision += 1` would silently fork
+    /// the persisted timeline and make `isPresetActive` lie after a
+    /// restart — every wallpaper write path must go through here.
+    private func bumpWallpaperRevision() {
+        wallpaperRevision += 1
+        liveWallpaperRevision = wallpaperRevision
+        UserDefaults.standard.set(wallpaperRevision, forKey: Keys.wallpaperRevision)
+    }
+
     /// [P1-8] 记下“刚应用了哪套预设、应用完颜色表长什么样、壁纸版本号
     /// 是多少”。只在这里写，所以 `isPresetActive` 的三项条件不会被
     /// 别的路悄悄改掉；任何一处改色、改壁纸，都会让 live 状态和这份
@@ -970,6 +1003,10 @@ final class AppearanceStudio: ObservableObject {
         activePresetRaw = preset.rawValue
         activePresetColors = customColors
         activePresetWallpaperRevision = wallpaperRevision
+        // [P1-8-fix] Materialize the live side at record time: from here
+        // on both legs of the comparison are known and equal.
+        liveWallpaperRevision = wallpaperRevision
+        UserDefaults.standard.set(wallpaperRevision, forKey: Keys.wallpaperRevision)
         UserDefaults.standard.set(preset.rawValue, forKey: Keys.activePreset)
         if let data = try? JSONEncoder().encode(customColors) {
             UserDefaults.standard.set(data, forKey: Keys.activePresetColors)
@@ -980,14 +1017,15 @@ final class AppearanceStudio: ObservableObject {
     /// 这套预设现在是不是还正在用：三项全中才算——（1）它是最后一次
     /// 应用的预设；（2）整张颜色表和应用那一刻一模一样（任何一处改色，
     /// 哪怕只改某一页的一个角色，表都会变）；（3）壁纸版本号没前进过
-    /// （任何一张壁纸写/换/清都会让它前进）。纯靠 live 状态算，不存
-    /// “正在用”这个结论本身，所以改色、改壁纸、重启，都不会留下一个
-    /// 过期的标记。
+    /// （任何一张壁纸写/换/清都会让它前进）。版本号本身也落盘，重启后
+    /// 接着比；老版本升上来、从没落盘过时这一项是 nil，标记直接消失，
+    /// 不撒谎。纯靠 live 状态算，不存“正在用”这个结论本身，所以改色、
+    /// 改壁纸、重启，都不会留下一个过期的标记。
     func isPresetActive(_ preset: AppearancePreset) -> Bool {
         guard preset.rawValue == activePresetRaw,
               let snapshot = activePresetColors,
               snapshot == customColors,
-              activePresetWallpaperRevision == wallpaperRevision else { return false }
+              liveWallpaperRevision == activePresetWallpaperRevision else { return false }
         return true
     }
 
@@ -1531,7 +1569,7 @@ final class AppearanceStudio: ObservableObject {
         persistWallpaperCleared()
         wallpaperUnreadable.remove(scope)
         wallpaperCache.removeAllObjects()
-        wallpaperRevision += 1
+        bumpWallpaperRevision()
         return true
     }
 
@@ -1550,7 +1588,7 @@ final class AppearanceStudio: ObservableObject {
         persistWallpaperCleared()
         wallpaperUnreadable.removeAll()
         wallpaperCache.removeAllObjects()
-        wallpaperRevision += 1
+        bumpWallpaperRevision()
     }
 
     /// Removes every scope's wallpaper through the proper path, so a
@@ -1610,7 +1648,7 @@ final class AppearanceStudio: ObservableObject {
             }
         }
         wallpaperCache.removeAllObjects()
-        wallpaperRevision += 1
+        bumpWallpaperRevision()
     }
 
     /// [T-wallpaper-clear] "清除当前背景" — drop this page's wallpaper AND
@@ -1628,7 +1666,7 @@ final class AppearanceStudio: ObservableObject {
         persistWallpaperCleared()
         wallpaperUnreadable.removeAll()
         wallpaperCache.removeAllObjects()
-        wallpaperRevision += 1
+        bumpWallpaperRevision()
     }
 
     /// [batch7 用户-P2-11] 恢复对齐：清除标记为准。恢复是 merge 语义（包里
@@ -1647,7 +1685,7 @@ final class AppearanceStudio: ObservableObject {
         }
         if removed {
             wallpaperCache.removeAllObjects()
-            wallpaperRevision += 1
+            bumpWallpaperRevision()
         }
     }
 
@@ -2646,7 +2684,7 @@ extension AppearanceStudio {
         themePackLock.unlock()
         themePackRevision += 1
         wallpaperCache.removeAllObjects()
-        wallpaperRevision += 1
+        bumpWallpaperRevision()
         iconRevision += 1
         configureUIKitSurfaces()
         objectWillChange.send()
