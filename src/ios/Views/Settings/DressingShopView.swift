@@ -3338,8 +3338,9 @@ struct DressingShopView: View {
         }, set: { studio.setThinkingColors(accent: UIColor($0).hexRGB) })
     }
 
-    /// Hex text for a thinking colour row: the stored hex, or the
-    /// chat accent hex while unset — the colour actually rendered.
+    /// Hex text for a thinking colour row: the source colour this row edits
+    /// (stored hex, or chat accent hex while unset). The card renders it at
+    /// low opacity (fill 0.06, stroke 0.15), not as the solid hex shown.
     private func thinkingColorHex(_ hex: String) -> String {
         hex.isEmpty ? UIColor(studio.color(.accent, scope: .chat)).hexRGB : hex
     }
