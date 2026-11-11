@@ -147005,6 +147005,23 @@
         }
       }
     },
+    "清除失败，请重试": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除失败，请重试"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除失败，请重试"
+          }
+        }
+      }
+    },
     "气泡形状款式 · 头像轮廓 · 柔光发光圈": {
       "extractionState": "manual",
       "localizations": {

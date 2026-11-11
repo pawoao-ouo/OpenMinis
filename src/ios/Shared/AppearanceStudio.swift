@@ -941,6 +941,22 @@ final class AppearanceStudio: ObservableObject {
         configureUIKitSurfaces()
     }
 
+    /// [P0-4] 只清这一页 + 这一深浅的覆盖，带纯颜色撤销快照——和
+    /// `clearNonGlobalColorOverridesWithUndo` 同一套机制（先抓整张颜色
+    /// 表快照再清，撤销时原样恢复）。不能直接走那个 variant：它清的是
+    /// 全部非全局覆盖，会把别的页也清掉。快照抓失败时不做任何清除，
+    /// 旧快照作废，调用方必须报清除失败，不能谎称已清除。
+    @discardableResult
+    func clearOverridesWithUndo(scope: AppearanceScope, variant: AppearanceVariant) -> Bool {
+        guard scope != .global else { return false }
+        guard captureColorsUndoSnapshot() else {
+            try? FileManager.default.removeItem(at: themeUndoDirectory)
+            return false
+        }
+        clearOverrides(scope: scope, variant: variant)
+        return true
+    }
+
     func clearOverride(_ role: AppearanceColorRole, scope: AppearanceScope,
                        variant: AppearanceVariant) {
         customColors.removeValue(forKey: key(role, scope: scope, variant: variant))

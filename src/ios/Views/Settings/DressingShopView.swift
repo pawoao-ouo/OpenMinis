@@ -656,6 +656,13 @@ struct DressingColorStudioSheet: View {
     @State private var selectedVariant: AppearanceVariant = .light
     @State private var selectedGroup: AppearanceColorRoleGroup = .text
 
+    /// 清除按钮只在真有东西可清时才给点：默认页没有“本页覆盖”可清，
+    /// 覆盖数为 0 时点它也是空操作。覆盖数跟着 customColors 走，
+    /// studio 是 @ObservedObject，清完会自动变灰。
+    private var canClearPageOverrides: Bool {
+        selectedScope != .global && studio.overrideCount(scope: selectedScope, variant: selectedVariant) > 0
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -681,8 +688,11 @@ struct DressingColorStudioSheet: View {
                         HStack(spacing: 12) {
                             Button {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                studio.clearOverrides(scope: selectedScope, variant: selectedVariant)
-                                onNotify(AppLocalized("已清除当前页面的自定义覆盖"))
+                                if studio.clearOverridesWithUndo(scope: selectedScope, variant: selectedVariant) {
+                                    onNotify(AppLocalized("已清除当前页面的自定义覆盖"))
+                                } else {
+                                    onNotify(AppLocalized("清除失败，请重试"))
+                                }
                             } label: {
                                 HStack(spacing: 4) {
                                     Image(systemName: "arrow.counterclockwise")
@@ -696,6 +706,8 @@ struct DressingColorStudioSheet: View {
                                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                 .clipShape(Capsule())
                             }
+                            .disabled(!canClearPageOverrides)
+                            .opacity(canClearPageOverrides ? 1.0 : 0.5)
 
                             Spacer()
                         }
