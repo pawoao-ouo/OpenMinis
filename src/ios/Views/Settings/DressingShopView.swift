@@ -1968,11 +1968,14 @@ struct DressingThemeLibrarySheet: View {
         }
     }
 
-    /// applyThemePack 警告里真正"没换过来"的那些。带 Kept 的三个
+    /// applyThemePack 警告里只有这三个是良性的。带 Kept 的三个
     /// （surfaceOpacityKept / wallpaperShadeKept / bubbleOpacityKept）
     /// 是 T-46 定好的常规保留——包里没写旋钮就留着她的值，不是失败。
-    private static let applyFailureWarningCodes: Set<String> = [
-        "pack", "characterArt", "wallpaper", "thinkingCard", "inputBar"
+    /// 除此之外的警告一律算失败：分页面壁纸失败是 "wallpaper:<scope>"、
+    /// 分类图解不出来是分类键本身（code / writing / …），还有以后新增的
+    /// 未知警告码——默认判失败比默认放行更诚实。
+    private static let applyBenignWarningCodes: Set<String> = [
+        "surfaceOpacityKept", "wallpaperShadeKept", "bubbleOpacityKept"
     ]
 
     private func failedPieceLabel(_ code: String) -> String {
@@ -2002,11 +2005,21 @@ struct DressingThemeLibrarySheet: View {
             Button {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 if let result = studio.applySavedThemeSet(id: theme.id) {
-                    if result.failedPieces.isEmpty,
-                       !result.packWarnings.contains(where: { Self.applyFailureWarningCodes.contains($0) }) {
+                    // 只有 Kept 三码是良性保留，其余警告一律算失败。
+                    let failureWarnings = result.packWarnings.filter {
+                        !Self.applyBenignWarningCodes.contains($0)
+                    }
+                    if result.packWarnings.contains("pack") {
+                        // 包没落盘就提前返回了，什么都没换上，算彻底失败。
+                        onNotify(AppLocalized("主题应用失败"))
+                    } else if result.failedPieces.isEmpty, failureWarnings.isEmpty {
                         onNotify(AppLocalized("已成功换上：") + theme.name)
                     } else if !result.failedPieces.isEmpty {
-                        onNotify(AppLocalized("已换上，但没换上：") + result.failedPieces.map({ failedPieceLabel($0) }).joined(separator: "、"))
+                        var message = AppLocalized("已换上，但没换上：") + result.failedPieces.map({ failedPieceLabel($0) }).joined(separator: "、")
+                        if !failureWarnings.isEmpty {
+                            message += "、" + AppLocalized("还有部分内容没换过来")
+                        }
+                        onNotify(message)
                     } else {
                         onNotify(AppLocalized("已换上，但部分内容没换过来"))
                     }

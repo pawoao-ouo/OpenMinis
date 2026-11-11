@@ -147685,6 +147685,23 @@
         }
       }
     },
+    "还有部分内容没换过来": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还有部分内容没换过来"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还有部分内容没换过来"
+          }
+        }
+      }
+    },
     "AI 挂件": {
       "extractionState": "manual",
       "localizations": {
