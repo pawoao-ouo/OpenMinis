@@ -978,7 +978,7 @@ struct DressingShopView: View {
             Text(AppLocalized("把壁纸压暗，字更清楚。"))
                 .font(.system(size: fsCaption))
                 .foregroundStyle(studio.color(.secondaryText))
-            Text(AppLocalized("只管全局壁纸；各页自己的壁纸不在这里改，跟着主题整套和主题包走。"))
+            Text(AppLocalized("只管全局壁纸；聊天、首页各页的壁纸在下面的「分页壁纸」里改。"))
                 .font(.system(size: fsCaption))
                 .foregroundStyle(studio.color(.secondaryText))
             if let message = wallpaperMessage {
