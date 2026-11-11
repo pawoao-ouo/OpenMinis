@@ -131,6 +131,10 @@ struct DressingShopView: View {
     /// of the mode picker: with "跟随系统" on a light phone she can
     /// still edit (and preview, by flipping the mode) the dark set.
     @State private var editingVariant: AppearanceVariant = .light
+    /// Which page scope the colour panel is editing. In-memory only,
+    /// never persisted: .global edits the whole app, .chat edits only
+    /// the chat page. Independent of the editing variant above.
+    @State private var editingScope: AppearanceScope = .global
     /// The one mode key the whole app already uses (MinisApp root
     /// `.preferredColorScheme` + AppearanceStudio dynamic colours).
     /// The panel reuses it — it must NOT invent a second mode key.
@@ -4221,7 +4225,9 @@ struct DressingShopView: View {
                 Text(AppLocalized("配色变量"))
                     .font(ChatFont.font(15, weight: .bold))
                     .foregroundStyle(studio.color(.primaryText))
-                Text(AppLocalized("改一处，全 App 一起变。浅色与深色是两套完整变量，切换模式整套换，不是单色反色。"))
+                Text(editingScope == .chat
+                    ? AppLocalized("只改聊天这一页，其他页不动。浅色与深色是两套完整变量，切换模式整套换，不是单色反色。")
+                    : AppLocalized("改一处，全 App 一起变。浅色与深色是两套完整变量，切换模式整套换，不是单色反色。"))
                     .font(ChatFont.font(11))
                     .foregroundStyle(studio.color(.secondaryText))
                 // [T-20] 页级覆盖以前是暗层：这句话对某些页是假的，而唯一能看能清
@@ -4230,11 +4236,10 @@ struct DressingShopView: View {
                 if pageOverrideSummary.isEmpty == false {
                     pageOverrideNotice
                 }
-                // [T-70] 思考卡那三色只有主题包能定，面板里没有对应行。
-                // 不说清楚，用户会以为"我改了强调色，思考卡怎么没变"——
-                // 那是包写了值，把跟随盖住了。本轮不加新面板行（规划定的），
-                // 只把归属写明。
-                Text(AppLocalized("思考卡的颜色只跟主题包走，不在这一页；包没写那三项时才跟强调色。"))
+                // [T-70] 思考卡那三色不在这一页：它们在字体页那张
+                // thinking 卡里改（底色 / 描边 / 强调色），不说清楚，
+                // 用户会以为"我改了强调色，思考卡怎么没变"。
+                Text(AppLocalized("思考卡的颜色在字体页那张 thinking 卡里改，不在这一页。"))
                     .font(ChatFont.font(11))
                     .foregroundStyle(studio.color(.tertiaryText))
             }
@@ -4268,6 +4273,20 @@ struct DressingShopView: View {
                     .pickerStyle(.segmented)
                     .accessibilityLabel(AppLocalized("正在编辑哪一套变量"))
                     Text(AppLocalized("跟上面那档无关：手机是浅色时也能调深色那套，改完切模式就看见。"))
+                        .font(ChatFont.font(11))
+                        .foregroundStyle(studio.color(.secondaryText))
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(AppLocalized("正在编辑哪一页的颜色"))
+                        .font(ChatFont.font(13, weight: .semibold))
+                        .foregroundStyle(studio.color(.primaryText))
+                    Picker("", selection: $editingScope) {
+                        Text(AppLocalized("全局")).tag(AppearanceScope.global)
+                        Text(AppLocalized("聊天")).tag(AppearanceScope.chat)
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityLabel(AppLocalized("正在编辑哪一页的颜色"))
+                    Text(AppLocalized("全局就是全 App 一起变；聊天只改聊天这一页，其他页不动，改完回聊天里看。"))
                         .font(ChatFont.font(11))
                         .foregroundStyle(studio.color(.secondaryText))
                 }
@@ -4380,11 +4399,11 @@ struct DressingShopView: View {
     private func colorContrastWarning(for role: AppearanceColorRole) -> String? {
         let pairs = AppearanceStudio.contrastPairs(for: role)
         guard !pairs.isEmpty else { return nil }
-        let fg = studio.hex(role, scope: .global, variant: editingVariant)
+        let fg = studio.hex(role, scope: editingScope, variant: editingVariant)
         var failing: [String] = []
         var strictest = 0.0
         for (bgRole, threshold) in pairs {
-            let bg = studio.hex(bgRole, scope: .global, variant: editingVariant)
+            let bg = studio.hex(bgRole, scope: editingScope, variant: editingVariant)
             let r = AppearanceContrast.ratio(fg, on: bg)
             strictest = max(strictest, threshold)
             if r < threshold {
@@ -4459,10 +4478,10 @@ struct DressingShopView: View {
     /// so the miniature never shows a colour the app does not use.
     private func colorVarLiveColor(_ role: AppearanceColorRole) -> Color {
         if (role == .bubbleText || role == .assistantBubbleText)
-            && !studio.hasOverride(role, scope: .global, variant: editingVariant) {
-            return Color(hex: studio.hex(.primaryText, scope: .global, variant: editingVariant))
+            && !studio.hasOverride(role, scope: editingScope, variant: editingVariant) {
+            return Color(hex: studio.hex(.primaryText, scope: editingScope, variant: editingVariant))
         }
-        return Color(hex: studio.hex(role, scope: .global, variant: editingVariant))
+        return Color(hex: studio.hex(role, scope: editingScope, variant: editingVariant))
     }
 
     /// Follow-state tags: bubble-text rows say they follow the main
@@ -4471,7 +4490,7 @@ struct DressingShopView: View {
     private func colorVarFollowTag(_ role: AppearanceColorRole) -> String? {
         if role == .tertiaryText { return AppLocalized("聊天里不动") }
         if (role == .bubbleText || role == .assistantBubbleText)
-            && !studio.hasOverride(role, scope: .global, variant: editingVariant) {
+            && !studio.hasOverride(role, scope: editingScope, variant: editingVariant) {
             return AppLocalized("跟着大标题的字走")
         }
         return nil
@@ -4696,7 +4715,7 @@ struct DressingShopView: View {
                 }
             }
             Spacer(minLength: 6)
-            Text("#\(studio.hex(role, scope: .global, variant: editingVariant))")
+            Text("#\(studio.hex(role, scope: editingScope, variant: editingVariant))")
                 .font(.system(size: globalPointSize * 10 / 13, design: .monospaced))
                 .foregroundStyle(studio.color(.secondaryText).opacity(0.55))
                 .allowsHitTesting(false)
@@ -4705,15 +4724,15 @@ struct DressingShopView: View {
             // The old invisible full-row picker in .background never
             // received taps: the name/hint text above it claimed them.
             // Do not move the picker back into .background.
-            ColorPicker("", selection: studio.colorBinding(role, scope: .global, variant: editingVariant),
+            ColorPicker("", selection: studio.colorBinding(role, scope: editingScope, variant: editingVariant),
                         supportsOpacity: false)
                 .labelsHidden()
                 .frame(width: 32, height: 32)
                 .accessibilityLabel(colorVarDisplayName(role))
                 .accessibilityHint(AppLocalized("点一下打开取色器"))
-            if studio.hasOverride(role, scope: .global, variant: editingVariant) {
+            if studio.hasOverride(role, scope: editingScope, variant: editingVariant) {
                 Button {
-                    studio.clearOverride(role, scope: .global, variant: editingVariant)
+                    studio.clearOverride(role, scope: editingScope, variant: editingVariant)
                 } label: {
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 9, weight: .semibold))
