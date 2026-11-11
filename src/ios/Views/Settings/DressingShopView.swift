@@ -184,6 +184,11 @@ struct DressingShopView: View {
     @State private var pickedWallpaperItem: PhotosPickerItem?
     @State private var pickedWallpaperIsDark = false
     @State private var wallpaperMessage: String?
+    /// [分页壁纸] 拾图这次要贴到哪一页。只放内存里：点"选一张"时设，
+    /// 落地后在 applyPickedWallpaper 的 defer 里回到 .global；全局
+    /// 那组按钮自己也先设 .global 再打开拾图，免得上一次的页还留着。
+    @State private var pickedWallpaperScope: AppearanceScope = .global
+    @State private var pageWallpaperMessage: String?
     /// [T-39] 从死页搬来的两组贴图各自要贴到哪。
     @State private var pickedDecalTarget: DecalTarget?
     @State private var decalMessage: String?
@@ -717,6 +722,8 @@ struct DressingShopView: View {
                 .padding(.top, 8)
             globalWallpaperSection
                 .padding(.top, 16)
+            pageWallpaperSection
+                .padding(.top, 16)
             stImportSection
                 .padding(.top, 16)
         }
@@ -892,6 +899,9 @@ struct DressingShopView: View {
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(studio.color(.border), lineWidth: 1))
             Button(studio.hasOwnWallpaper(.global) ? AppLocalized("换这张") : AppLocalized("选一张")) {
+                // 拾图的目标页：全局这组永远写 .global。只设状态不改行为，
+                // 免得上一回分页那边的页还留着、全局这张贴错地方。
+                pickedWallpaperScope = .global
                 pickedWallpaperIsDark = studio.activeVariant == .dark
                 wallpaperPickerPresented = true
             }
@@ -988,6 +998,107 @@ struct DressingShopView: View {
         .padding(.horizontal, 16)
     }
 
+    // MARK: - Page wallpapers (theme category, page-wallpaper batch)
+    //
+    // Global wallpaper lives in globalWallpaperSection above. Page
+    // scopes already exist in the backend (AppearanceScope.chat/.home,
+    // studio.wallpaper / setWallpaper / removeWallpaper /
+    // hasOwnWallpaper), but the shop had no control for them. This
+    // section is the entry, chat + home only. Each row previews that
+    // page's OWN image: wallpaper(for:) would fall back to the global
+    // image, so the preview is only shown when hasOwnWallpaper is
+    // true — otherwise the row says the page follows the global
+    // image. Picking reuses the existing PhotosPicker flow: the row
+    // sets pickedWallpaperScope before presenting, and
+    // applyPickedWallpaper writes to that scope; dark-variant capture
+    // and downsampling are unchanged. Clearing deletes the page's own
+    // files, so the page falls back to the global image again
+    // (removeWallpaper also clears the page's cleared-fallback flag).
+    // Page-scope colours are a separate item and are not touched here.
+    private var pageWallpaperSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(AppLocalized("分页壁纸"))
+                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                .foregroundStyle(studio.color(.primaryText))
+            Text(AppLocalized("聊天和首页可以单独挂一张图；没挂就跟着全局壁纸走。"))
+                .font(.system(size: fsCaption))
+                .foregroundStyle(studio.color(.secondaryText))
+            ForEach([AppearanceScope.chat, .home], id: \.self) { scope in
+                pageWallpaperRow(scope)
+            }
+            if let message = pageWallpaperMessage {
+                Text(message)
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(studio.color(.surface))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(studio.color(.border), lineWidth: 1))
+        .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
+        .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
+        .padding(.horizontal, 16)
+    }
+
+    private func pageWallpaperRow(_ scope: AppearanceScope) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Text(scope.title)
+                    .font(.system(size: fsSub, weight: .semibold))
+                    .foregroundStyle(studio.color(.primaryText))
+                Spacer(minLength: 0)
+                if studio.hasOwnWallpaper(scope) {
+                    Button(AppLocalized("清除")) {
+                        studio.removeWallpaper(scope)
+                        pageWallpaperMessage = String(format: AppLocalized("%@壁纸已清除，跟着全局走"), scope.title)
+                    }
+                    .font(.system(size: fsCaption, weight: .semibold))
+                    .foregroundStyle(studio.color(.destructive))
+                    .frame(minHeight: 44)
+                }
+            }
+            ZStack(alignment: .bottomTrailing) {
+                if studio.hasOwnWallpaper(scope), let image = studio.wallpaper(for: scope) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .clipped()
+                    studio.color(.canvas).opacity(studio.wallpaperShade)
+                } else {
+                    studio.color(.canvas)
+                }
+                Text(studio.hasOwnWallpaper(scope)
+                     ? AppLocalized("壁纸预览") : AppLocalized("没有自己的壁纸，跟着全局走"))
+                    .font(.system(size: fsCaption, weight: .medium))
+                    .foregroundStyle(studio.color(.primaryText))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(studio.color(.raised).opacity(0.85), in: Capsule())
+                    .padding(10)
+            }
+            .id(studio.wallpaperRevision)
+            .frame(height: 96)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(studio.color(.border), lineWidth: 1))
+            Button(studio.hasOwnWallpaper(scope) ? AppLocalized("换这张") : AppLocalized("选一张")) {
+                pickedWallpaperScope = scope
+                pickedWallpaperIsDark = studio.activeVariant == .dark
+                wallpaperPickerPresented = true
+            }
+            .font(.system(size: fsSub, weight: .semibold))
+            .foregroundStyle(studio.color(.surface))
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 44)
+            .background(studio.color(.accent))
+            .clipShape(Capsule())
+            .buttonStyle(FontPressStyle(scale: 0.97))
+        }
+    }
+
     /// [T-39] 贴图落地。和壁纸走同一个解码上限，但落点不同：
     /// 输入栏、思考卡各自一套 setter + 浓度。
     @MainActor
@@ -1031,17 +1142,34 @@ struct DressingShopView: View {
         }
     }
 
+    /// [分页壁纸] 拾图落地。写到 pickedWallpaperScope 那一页，不再写死
+    /// .global：全局按钮点进来时它是 .global，分页行点进来时是 .chat /
+    /// .home。深浅档（pickedWallpaperIsDark 在点按钮时按当前档位记下）
+    /// 和 2200 下采样都和原来一样。落地后目标页回到 .global。
     private func applyPickedWallpaper(_ item: PhotosPickerItem) async {
-        defer { pickedWallpaperItem = nil; pickedDecalTarget = nil }
+        defer { pickedWallpaperItem = nil; pickedDecalTarget = nil; pickedWallpaperScope = .global }
+        let scope = pickedWallpaperScope
         guard let data = try? await item.loadTransferable(type: Data.self),
               let image = ThumbnailCache.downsampledImage(from: data, maxEdge: WallpaperPipeline.maxEdge) else {
-            wallpaperMessage = AppLocalized("选中的图读不出来。")
+            if scope == .global {
+                wallpaperMessage = AppLocalized("选中的图读不出来。")
+            } else {
+                pageWallpaperMessage = AppLocalized("选中的图读不出来。")
+            }
             return
         }
-        if studio.setWallpaper(image, for: .global, dark: pickedWallpaperIsDark) {
-            wallpaperMessage = AppLocalized("全局壁纸已换上")
+        if studio.setWallpaper(image, for: scope, dark: pickedWallpaperIsDark) {
+            if scope == .global {
+                wallpaperMessage = AppLocalized("全局壁纸已换上")
+            } else {
+                pageWallpaperMessage = String(format: AppLocalized("%@壁纸已换上"), scope.title)
+            }
         } else {
-            wallpaperMessage = AppLocalized("选中的图读不出来。")
+            if scope == .global {
+                wallpaperMessage = AppLocalized("选中的图读不出来。")
+            } else {
+                pageWallpaperMessage = AppLocalized("选中的图读不出来。")
+            }
         }
     }
 
