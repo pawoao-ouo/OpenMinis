@@ -2777,15 +2777,6 @@ struct DressingShopView: View {
                 .font(.system(size: fsCaption, weight: .semibold))
                 .foregroundStyle(studio.color(.accent))
                 .frame(minHeight: 44)
-                if studio.hasCharacterArt {
-                    Button(AppLocalized("换回默认")) {
-                        studio.removeCharacterArt()
-                        decalMessage = AppLocalized("立绘已换回默认。")
-                    }
-                    .font(.system(size: fsCaption))
-                    .foregroundStyle(studio.color(.secondaryText))
-                    .frame(minHeight: 44)
-                }
             }
             Text(AppLocalized("立绘用在小说模式的对话框里。"))
                 .font(.system(size: fsCaption))
