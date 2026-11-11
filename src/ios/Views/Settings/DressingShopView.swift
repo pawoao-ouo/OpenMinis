@@ -166,6 +166,8 @@ struct DressingShopView: View {
     @State private var themeSaveMessage: String?
     @State private var themeApplyMessage: String?
     @State private var themeConfirmDelete = false
+    @State private var themeRenameItem: AppearanceSavedTheme?
+    @State private var themeRenameName = ""
     @State private var themeConfirmApply = false
     /// Close tokens: a pending delayed nil is valid only for the
     /// close that scheduled it. Opening a new detail bumps the
@@ -697,6 +699,15 @@ struct DressingShopView: View {
                 .foregroundStyle(studio.color(.secondaryText))
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
+            Button(AppLocalized("清理无主主题包")) { cleanupOrphanedThemePacks() }
+                .font(.system(size: fsSub, weight: .semibold))
+                .foregroundStyle(studio.color(.secondaryText))
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 44)
+                .background(studio.color(.mutedSurface), in: Capsule())
+                .buttonStyle(FontPressStyle(scale: 0.97))
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
             globalWallpaperSection
                 .padding(.top, 16)
             stImportSection
@@ -1389,6 +1400,38 @@ struct DressingShopView: View {
         }
     }
 
+    /// Rename the open saved theme. An empty name keeps the old name.
+    private func confirmRenameTheme() {
+        guard let item = themeRenameItem else { return }
+        themeRenameItem = nil
+        let name = themeRenameName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            showFontToast(AppLocalized("名字不能为空，没改名"))
+            return
+        }
+        if studio.renameSavedTheme(id: item.id, name: name) {
+            // Refresh the open detail sheet's copy so its title shows the new name.
+            if let renamed = studio.savedThemes().first(where: { $0.id == item.id }) {
+                detailTheme = renamed
+            }
+            showFontToast(String(format: AppLocalized("已改名「%@」"), name))
+        } else {
+            themeApplyMessage = AppLocalized("改名没成功，再试一次。")
+        }
+    }
+
+    /// Remove library pack files with no list entry. They can never be
+    /// opened, applied or deleted from the UI, so deleting them loses
+    /// nothing the user could touch.
+    private func cleanupOrphanedThemePacks() {
+        let removed = studio.removeOrphanedLibraryPacks()
+        if removed > 0 {
+            showFontToast(String(format: AppLocalized("清理了 %d 个无主主题包"), removed))
+        } else {
+            showFontToast(AppLocalized("没有无主主题包"))
+        }
+    }
+
     /// [T-49] 撤销上一次删除。失败如实说,不假装成功。
     private func undoDeleteTheme() {
         guard let item = lastDeletedTheme else { return }
@@ -1590,6 +1633,19 @@ struct DressingShopView: View {
                             .foregroundStyle(studio.color(.secondaryText))
                     }
                     HStack(spacing: 12) {
+                        Button(AppLocalized("改名")) {
+                            themeRenameItem = item
+                            themeRenameName = item.name
+                        }
+                        .font(.system(size: globalPointSize * 16 / 13))
+                        .foregroundStyle(studio.color(.primaryText))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .overlay(
+                            Capsule()
+                                .stroke(studio.color(.primaryText), lineWidth: 1)
+                        )
+                        .buttonStyle(FontPressStyle(scale: 0.97))
                         Button(AppLocalized("删除这套")) {
                             themeConfirmDelete = true
                         }
@@ -1635,6 +1691,16 @@ struct DressingShopView: View {
             Button(AppLocalized("取消"), role: .cancel) {}
         } message: {
             Text(AppLocalized("删掉后这套就从列表里消失。"))
+        }
+        .alert(AppLocalized("给这套改个名"), isPresented: Binding(
+            get: { themeRenameItem != nil },
+            set: { if !$0 { themeRenameItem = nil } }
+        )) {
+            TextField(AppLocalized("新名字"), text: $themeRenameName)
+            Button(AppLocalized("取消"), role: .cancel) {}
+            Button(AppLocalized("保存")) {
+                confirmRenameTheme()
+            }
         }
         .alert(AppLocalized("这套有颜色看不清"), isPresented: $themeConfirmApply) {
             Button(AppLocalized("仍要换上")) {
