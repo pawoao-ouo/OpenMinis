@@ -1719,6 +1719,147 @@ struct DressingShopView: View {
                 ForEach(visiblePacks) { pack in bubbleCard(pack, fixedWidth: false) }
             }
             .padding(.horizontal, 16)
+            bubbleStyleCard
+        }
+    }
+
+    // MARK: - 气泡样式卡（从死页搬过来）
+
+    /// Bindings copied verbatim from `AppearanceStudioView`'s
+    /// bubbles page: same getters, same studio setters, so these
+    /// controls write the same live state the dead page's did.
+    private var userStyleBinding: Binding<AppearanceBubbleStyle> {
+        Binding(get: { studio.currentThemePack().userStyle },
+                set: { studio.setBubbleStyle($0, user: true) })
+    }
+    private var assistantStyleBinding: Binding<AppearanceBubbleStyle> {
+        Binding(get: { studio.currentThemePack().assistantStyle },
+                set: { studio.setBubbleStyle($0, user: false) })
+    }
+    private var inputBarStyleBinding: Binding<AppearanceBubbleStyle> {
+        Binding(get: { AppearanceBubbleStyle.parse(studio.currentThemePack().inputBarStyle) },
+                set: { studio.setInputBarStyle($0) })
+    }
+    private var listIconShapeBinding: Binding<AppearanceListIconShape> {
+        Binding(get: { AppearanceListIconShape.parse(studio.currentThemePack().listIconShape) },
+                set: { studio.setListIconShape($0) })
+    }
+    private var inputBarRadiusBinding: Binding<Double> {
+        Binding(get: { studio.currentThemePack().inputBarRadius },
+                set: { studio.setInputBarRadius($0) })
+    }
+    private var avatarShapeBinding: Binding<AppearanceAvatarShape> {
+        Binding(get: { AppearanceAvatarShape.parse(studio.currentThemePack().avatarShape) },
+                set: { studio.setAvatarShape($0) })
+    }
+    private var chatDisplayBinding: Binding<AppearanceChatDisplay> {
+        Binding(get: { AppearanceChatDisplay.parse(studio.currentThemePack().chatDisplay) },
+                set: { studio.setChatDisplay($0) })
+    }
+    private var lineHeightBinding: Binding<Double> {
+        Binding(get: { studio.currentThemePack().lineHeight },
+                set: { studio.setLineHeight($0) })
+    }
+    private var letterSpacingBinding: Binding<Double> {
+        Binding(get: { studio.currentThemePack().letterSpacing },
+                set: { studio.setLetterSpacing($0) })
+    }
+
+    /// Slider row in the shop's wallpaper-section style: label,
+    /// slider, plain value on the right.
+    private func styleSliderRow(_ title: String, value: Binding<Double>,
+                                range: ClosedRange<Double>, display: String) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: fsSub))
+                .foregroundStyle(studio.color(.primaryText))
+            Slider(value: value, in: range)
+                .frame(minHeight: 44)
+                .accessibilityLabel(title)
+            Text(display)
+                .font(.system(size: fsCaption, weight: .medium))
+                .foregroundStyle(studio.color(.secondaryText))
+                .frame(minWidth: 34, alignment: .trailing)
+        }
+    }
+
+    /// [T-46 续] 死页 `AppearanceStudioView` 的气泡页里才有的
+    /// 控件，搬到店里气泡页：透明度、分边气泡形状、输入栏形状 /
+    /// 圆角、列表图标、头像形状、消息形态、行高、字距。绑定和
+    /// 范围与死页一字不差，写同一份 live 状态。气泡颜色不在
+    /// 这里，颜色变量页已经有了；正文字体在字体页；代码块折叠
+    /// 和视觉小说模式这次没搬，不在气泡页的范围里。
+    private var bubbleStyleCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(AppLocalized("气泡样式"), jumpTo: .bubble)
+            VStack(alignment: .leading, spacing: 12) {
+                Text(AppLocalized("形状"))
+                    .font(.system(size: fsSub, weight: .semibold))
+                    .foregroundStyle(studio.color(.primaryText))
+                styleSliderRow(AppLocalized("气泡透明度"), value: $studio.bubbleOpacity, range: 0.15...1,
+                               display: "\(Int(studio.bubbleOpacity * 100))%")
+                Picker(AppLocalized("我的气泡"), selection: userStyleBinding) {
+                    ForEach(AppearanceBubbleStyle.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .tint(studio.color(.accent))
+                .font(.system(size: fsSub))
+                Picker(String(format: AppLocalized("%@气泡"), sidePickerLabel(for: .assistant)), selection: assistantStyleBinding) {
+                    ForEach(AppearanceBubbleStyle.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .tint(studio.color(.accent))
+                .font(.system(size: fsSub))
+                Picker(AppLocalized("输入栏形状"), selection: inputBarStyleBinding) {
+                    ForEach(AppearanceBubbleStyle.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .tint(studio.color(.accent))
+                .font(.system(size: fsSub))
+                Picker(AppLocalized("列表图标"), selection: listIconShapeBinding) {
+                    ForEach(AppearanceListIconShape.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .tint(studio.color(.accent))
+                .font(.system(size: fsSub))
+                styleSliderRow(AppLocalized("输入栏圆角"), value: inputBarRadiusBinding, range: 4...32,
+                               display: "\(Int(inputBarRadiusBinding.wrappedValue))")
+                Picker(AppLocalized("头像形状"), selection: avatarShapeBinding) {
+                    ForEach(AppearanceAvatarShape.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .tint(studio.color(.accent))
+                .font(.system(size: fsSub))
+                Text(AppLocalized("头像形状同时作用于聊天、列表和通讯录。"))
+                    .font(.system(size: fsCaption))
+                    .foregroundStyle(studio.color(.secondaryText))
+                Divider().padding(.vertical, fontSettings.density(4))
+                Text(AppLocalized("消息形态"))
+                    .font(.system(size: fsSub, weight: .semibold))
+                    .foregroundStyle(studio.color(.primaryText))
+                Picker("", selection: chatDisplayBinding) {
+                    ForEach(AppearanceChatDisplay.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel(AppLocalized("消息形态"))
+                Text(chatDisplayBinding.wrappedValue.hint)
+                    .font(.system(size: fsCaption))
+                    .lineSpacing(1.5)
+                    .foregroundStyle(studio.color(.secondaryText))
+                styleSliderRow(AppLocalized("行高"), value: lineHeightBinding, range: 0.9...2.2,
+                               display: String(format: "%.1fx", lineHeightBinding.wrappedValue))
+                styleSliderRow(AppLocalized("字距"), value: letterSpacingBinding, range: -1...3,
+                               display: "\(Int(letterSpacingBinding.wrappedValue)) pt")
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(studio.color(.surface))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(studio.color(.border), lineWidth: 1))
+            .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
+            .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
+            .padding(.horizontal, 16)
         }
     }
 
