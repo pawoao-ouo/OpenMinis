@@ -118,56 +118,98 @@ enum AppearanceThemeShuffle {
         return (light, dark, name(hue: hue, sat: sat, mood: picked))
     }
 
-    /// 摇一摇的配色只从这张小清单里抽（2026-11-06：全圈随机摇出来的
-    /// 太丑，她要浅色系高级感，白底 + 克兰因蓝打头）。
+    /// v5 摇一摇：11 套固定搭配（2026-11-11 醒醒定，11 套她全喜欢）。
     ///
-    /// 每条是一个种子色相/饱和度，走同一条 deriveMaps 推导浅深两套
-    /// （对比度兜底不变），再钉死三处：浅色底与卡片纯白、强调色就是
-    /// 清单上写明的那个色、自己气泡是它的淡底。深色强调色是同一色相
-    /// 的亮版，深底上的按钮字才看得清。白字压浅色强调色 5.8:1 起、
-    /// 深墨字压淡气泡 10:1 起，都是算过的数，不是手感。
+    /// 来源是她发的 11 张参考图（@今日特调色 8 张、@灵感捕梦网bot 3 张），
+    /// 每套只有图上印的 4 个色号，原样用，不调浅、不调深、不加同色系。
+    /// 分法是她亲口给的例子（黄油热可可）：AI 气泡是最跳的那个色、
+    /// 用户气泡是最深的那个色、按钮是剩下两个浅色里深一点的那个、
+    /// 底色是最浅的那个色；输入栏是白色。两个气泡一明一暗形成反差。
+    ///
+    /// 三套例外（杏仁豆花露、芋泥椰冻、莓莓云页奶）：图上最跳的色和
+    /// 最深的色是同一个，用户气泡改用剩下的第 4 个色，不然两个气泡
+    /// 会撞成一个色。
+    ///
+    /// 浅深两套都是写死的色值，**不走 deriveMaps**——单色相推导会把
+    /// 搭配推没。也**不过对比度兜底**：有几套正文就是偏淡（芋泥
+    /// 1.72:1、莓莓 1.37:1），是她看过、认了的原样，写死在下面。
     private struct CuratedShakePalette {
         let name: String
-        let hue: Double
-        let sat: Double
-        let accentLight: String
-        let accentDark: String
-        let bubbleLight: String
+        let light: [AppearanceColorRole: String]
+        let dark: [AppearanceColorRole: String]
     }
 
     private static let curatedShakePalettes: [CuratedShakePalette] = [
-        // 打头：白 + 克兰因蓝 #002FA7。
-        CuratedShakePalette(name: "克兰因蓝", hue: 221, sat: 0.62, accentLight: "002FA7", accentDark: "6E8FFF", bubbleLight: "E9EEFB"),
-        CuratedShakePalette(name: "雾灰蓝", hue: 212, sat: 0.30, accentLight: "35506B", accentDark: "7FA0C4", bubbleLight: "EAF0F5"),
-        CuratedShakePalette(name: "灰绿", hue: 152, sat: 0.28, accentLight: "3F6B58", accentDark: "7FB094", bubbleLight: "EAF2EE"),
-        CuratedShakePalette(name: "暖陶", hue: 28, sat: 0.30, accentLight: "7D5F4B", accentDark: "B99B83", bubbleLight: "F5EFE9"),
-        CuratedShakePalette(name: "墨", hue: 222, sat: 0.10, accentLight: "2B2F36", accentDark: "C9C9D1", bubbleLight: "ECECF0"),
-        CuratedShakePalette(name: "丁香灰", hue: 268, sat: 0.22, accentLight: "6B5B8C", accentDark: "A493C7", bubbleLight: "F0EDF7"),
-        CuratedShakePalette(name: "湖青", hue: 174, sat: 0.28, accentLight: "2F6B66", accentDark: "6FA8A0", bubbleLight: "E9F2F0"),
+        CuratedShakePalette(
+            name: "黄油热可可",
+            light: [.canvas: "FFFEEF", .surface: "FFFFFF", .primaryText: "593334", .secondaryText: "593334", .accent: "F9DB6B", .userBubble: "593334", .assistantBubble: "FEDC01", .bubbleText: "FFFEEF", .assistantBubbleText: "593334", .border: "593334", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "593334", .primaryText: "FFFEEF", .secondaryText: "FFFEEF", .accent: "F9DB6B", .userBubble: "593334", .assistantBubble: "FEDC01", .bubbleText: "FFFEEF", .assistantBubbleText: "593334", .border: "FFFEEF", .field: "FFFFFF"]
+        ),
+        CuratedShakePalette(
+            name: "椰青冰美式",
+            light: [.canvas: "E1EFF4", .surface: "FFFFFF", .primaryText: "512128", .secondaryText: "512128", .accent: "EDDFD4", .userBubble: "512128", .assistantBubble: "9D7C6D", .bubbleText: "E1EFF4", .assistantBubbleText: "101216", .border: "512128", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "512128", .primaryText: "E1EFF4", .secondaryText: "E1EFF4", .accent: "EDDFD4", .userBubble: "512128", .assistantBubble: "9D7C6D", .bubbleText: "E1EFF4", .assistantBubbleText: "101216", .border: "E1EFF4", .field: "FFFFFF"]
+        ),
+        CuratedShakePalette(
+            name: "杏仁豆花露",
+            light: [.canvas: "FAF7F5", .surface: "FFFFFF", .primaryText: "A58F8B", .secondaryText: "A58F8B", .accent: "FAF1E7", .userBubble: "D6C8B9", .assistantBubble: "A58F8B", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "A58F8B", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "A58F8B", .primaryText: "FAF7F5", .secondaryText: "FAF7F5", .accent: "FAF1E7", .userBubble: "D6C8B9", .assistantBubble: "A58F8B", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FAF7F5", .field: "FFFFFF"]
+        ),
+        CuratedShakePalette(
+            name: "椰乳四季春",
+            light: [.canvas: "FBF8EA", .surface: "FFFFFF", .primaryText: "8B736C", .secondaryText: "8B736C", .accent: "FFE7E8", .userBubble: "8B736C", .assistantBubble: "ECC7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "8B736C", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "8B736C", .primaryText: "FBF8EA", .secondaryText: "FBF8EA", .accent: "FFE7E8", .userBubble: "8B736C", .assistantBubble: "ECC7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FBF8EA", .field: "FFFFFF"]
+        ),
+        CuratedShakePalette(
+            name: "香草米布丁",
+            light: [.canvas: "FBF8F7", .surface: "FFFFFF", .primaryText: "594027", .secondaryText: "594027", .accent: "F3EEE9", .userBubble: "594027", .assistantBubble: "C3AB99", .bubbleText: "FBF8F7", .assistantBubbleText: "101216", .border: "594027", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "594027", .primaryText: "FBF8F7", .secondaryText: "FBF8F7", .accent: "F3EEE9", .userBubble: "594027", .assistantBubble: "C3AB99", .bubbleText: "FBF8F7", .assistantBubbleText: "101216", .border: "FBF8F7", .field: "FFFFFF"]
+        ),
+        CuratedShakePalette(
+            name: "雪山香草酪",
+            light: [.canvas: "F9F8F4", .surface: "FFFFFF", .primaryText: "5B3F41", .secondaryText: "5B3F41", .accent: "FEF6DF", .userBubble: "5B3F41", .assistantBubble: "CBB4A7", .bubbleText: "F9F8F4", .assistantBubbleText: "5B3F41", .border: "5B3F41", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "5B3F41", .primaryText: "F9F8F4", .secondaryText: "F9F8F4", .accent: "FEF6DF", .userBubble: "5B3F41", .assistantBubble: "CBB4A7", .bubbleText: "F9F8F4", .assistantBubbleText: "5B3F41", .border: "F9F8F4", .field: "FFFFFF"]
+        ),
+        CuratedShakePalette(
+            name: "飞鼠灵感配色",
+            light: [.canvas: "FFFFFF", .surface: "FFFFFF", .primaryText: "9F8F82", .secondaryText: "9F8F82", .accent: "E5F3FA", .userBubble: "9F8F82", .assistantBubble: "DED4E6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "9F8F82", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "9F8F82", .primaryText: "FFFFFF", .secondaryText: "FFFFFF", .accent: "E5F3FA", .userBubble: "9F8F82", .assistantBubble: "DED4E6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FFFFFF", .field: "FFFFFF"]
+        ),
+        CuratedShakePalette(
+            name: "芋泥椰冻",
+            light: [.canvas: "F8F6FB", .surface: "FFFFFF", .primaryText: "CAB7E3", .secondaryText: "CAB7E3", .accent: "EDECFA", .userBubble: "D5CFEC", .assistantBubble: "CAB7E3", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "CAB7E3", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "CAB7E3", .primaryText: "F8F6FB", .secondaryText: "F8F6FB", .accent: "EDECFA", .userBubble: "D5CFEC", .assistantBubble: "CAB7E3", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "F8F6FB", .field: "FFFFFF"]
+        ),
+        CuratedShakePalette(
+            name: "古本灵感配色",
+            light: [.canvas: "FDF4ED", .surface: "FFFFFF", .primaryText: "9F8F82", .secondaryText: "9F8F82", .accent: "DDE8F6", .userBubble: "9F8F82", .assistantBubble: "F5D7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "9F8F82", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "9F8F82", .primaryText: "FDF4ED", .secondaryText: "FDF4ED", .accent: "DDE8F6", .userBubble: "9F8F82", .assistantBubble: "F5D7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FDF4ED", .field: "FFFFFF"]
+        ),
+        CuratedShakePalette(
+            name: "莓莓云页奶",
+            light: [.canvas: "FFF4F5", .surface: "FFFFFF", .primaryText: "FAC7DA", .secondaryText: "FAC7DA", .accent: "E2F3FF", .userBubble: "D1E3FF", .assistantBubble: "FAC7DA", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FAC7DA", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "FAC7DA", .primaryText: "FFF4F5", .secondaryText: "FFF4F5", .accent: "E2F3FF", .userBubble: "D1E3FF", .assistantBubble: "FAC7DA", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FFF4F5", .field: "FFFFFF"]
+        ),
+        CuratedShakePalette(
+            name: "吉伊灵感配色",
+            light: [.canvas: "FFFFFF", .surface: "FFFFFF", .primaryText: "9F8F82", .secondaryText: "9F8F82", .accent: "F4E2E5", .userBubble: "9F8F82", .assistantBubble: "ECC9CF", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "9F8F82", .field: "FFFFFF"],
+            dark: [.canvas: "101216", .surface: "9F8F82", .primaryText: "FFFFFF", .secondaryText: "FFFFFF", .accent: "F4E2E5", .userBubble: "9F8F82", .assistantBubble: "ECC9CF", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FFFFFF", .field: "FFFFFF"]
+        ),
     ]
 
-    /// 从上面的清单里随机抽一套（2026-11-02 摇色预览批立的规矩不变：
-    /// 只出预览，不直接写进现场配色）。推导与对比度兜底与 shuffle()
-    /// 走同一条 deriveMaps，不另起配色数学。
+    /// 从上面的 11 套固定搭配里随机抽一套（2026-11-02 摇色预览批立的
+    /// 规矩不变：只出预览，不直接写进现场配色）。浅深两套是写死的色值，
+    /// 原样返回，不走 deriveMaps、不过对比度兜底。
     static func shufflePureRandom(seed: UInt64? = nil) -> (light: [AppearanceColorRole: String],
                                                            dark: [AppearanceColorRole: String],
                                                            name: String) {
         var rng = SplitMix64(seed: seed ?? UInt64.random(in: 0...UInt64.max))
         let picked = curatedShakePalettes[Int(rng.next() % UInt64(curatedShakePalettes.count))]
-        var (light, dark) = deriveMaps(hue: picked.hue, sat: picked.sat)
-        // 白底：浅色底与卡片钉死纯白，不再是带色相的米白。
-        light[.canvas] = "FFFFFF"
-        light[.surface] = "FFFFFF"
-        // 强调色就是清单上写明的那个色，不是由种子推导的近似色。
-        light[.accent] = picked.accentLight
-        dark[.accent] = picked.accentDark
-        // 自己气泡是强调色的淡底，里面的深墨字对比度 10:1 起。
-        light[.userBubble] = picked.bubbleLight
-        return (light, dark, picked.name)
+        return (picked.light, picked.dark, picked.name)
     }
 
     /// 从一个主色推导浅深两套色，并过一遍对比度兜底。
-    /// 由 shuffle() 与 shufflePureRandom() 共用：主色定第 9 步
+    /// 由 shuffle() 使用：主色定第 9 步
     /// （Radix 里最纯的那一步），其余 11 步按 Radix 规则推；
     /// 正文 4.5:1、UI 3:1，摇出来的东西一定看得清。
     /// 纯函数，不消耗随机数，所以 shuffle() 的随机序列与抽取前一致。
