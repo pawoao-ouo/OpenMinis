@@ -1943,12 +1943,15 @@ struct DressingBubblesPendantsSheet: View {
         setEditingDecorations(decorations, user: user)
     }
 
-    /// 改第几个装饰的锚点 / 大小 / 偏移（值在 BubbleDecoration 的
-    /// init 里已夹过：大小 12...64，偏移 -40...40）。
+    /// 改第几个装饰的锚点 / 大小 / 偏移：改完用 init 重建一次，
+    /// 让大小 12...64、偏移 -40...40 的夹值真正跑起来
+    ///（原地赋值不经过 init，不重建就夹不到）。
     private func updateEditingDecoration(at index: Int, user: Bool, _ change: (inout BubbleDecoration) -> Void) {
         var decorations = decorations(for: user)
         guard decorations.indices.contains(index) else { return }
         change(&decorations[index])
+        let changed = decorations[index]
+        decorations[index] = BubbleDecoration(imageFile: changed.imageFile, anchor: changed.anchor, size: changed.size, offsetX: changed.offsetX, offsetY: changed.offsetY)
         setEditingDecorations(decorations, user: user)
     }
 
