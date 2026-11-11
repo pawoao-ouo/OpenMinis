@@ -322,6 +322,25 @@ extension DressingShopView {
                     get: { studio.wallpaperShade },
                     set: { studio.wallpaperShade = $0 }
                 ))
+
+                // [glass-switch] 全局玻璃感：跟三颗旋钮同一张卡，开关只管
+                // 玻璃开不开，不管透多少——透多少还是上面三颗旋钮的事。
+                HStack(spacing: 10) {
+                    Image(systemName: "square.stack.3d.up.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                        .frame(width: 16)
+
+                    Text(AppLocalized("全局玻璃感"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+                    Spacer()
+
+                    Toggle(AppLocalized("全局玻璃感"), isOn: $studio.glassEnabled)
+                        .labelsHidden()
+                        .tint(CSSThemeVariables.accent(scope: .settings))
+                }
             }
         }
         .padding(14)

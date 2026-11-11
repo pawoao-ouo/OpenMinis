@@ -8980,7 +8980,24 @@ private struct GlassComposerSurface: ViewModifier {
     func body(content: Content) -> some View {
         // 读一次：图换了、删了、透明度滑了都要重画（persistPack 会 bump 它）。
         let _ = appearanceStudio.themePackRevision
-        if #available(iOS 26.0, *) {
+        if !appearanceStudio.glassEnabled {
+            // [glass-switch] 玻璃关了：实底 inputBarSolid（旧栏/无障碍回落
+            // 同款，0.94 下限保字）+ 图照旧 + 浅色档暗膜；托盘照样铺到物理底。
+            if topOnly {
+                content
+                    .background { shape.fill(ChatColors.inputBarSolid) }
+                    .overlay(shape.stroke(ChatColors.inputIconBorder.opacity(0.6), lineWidth: 0.5))
+                    .ignoresSafeArea(.container, edges: .bottom)
+            } else if let image = appearanceStudio.inputBarImage() {
+                content
+                    .background { solidBackdrop(image) }
+                    .overlay(shape.stroke(ChatColors.inputIconBorder.opacity(0.6), lineWidth: 0.5))
+            } else {
+                content
+                    .background { shape.fill(ChatColors.inputBarSolid) }
+                    .overlay(shape.stroke(ChatColors.inputIconBorder.opacity(0.6), lineWidth: 0.5))
+            }
+        } else if #available(iOS 26.0, *) {
             if topOnly {
                 // 托盘要一路铺到屏幕物理底,不然底边和屏幕之间漏一条壁纸
                 //(「底部悬空」那个老毛病,ComposerSurface 的 .tray 也这么处理)。
@@ -9020,6 +9037,23 @@ private struct GlassComposerSurface: ViewModifier {
                 .opacity(MinisThemeShape.inputBarImageOpacity)
                 .clipShape(shape)
             shape.fill(ChatColors.inputGlassBg)
+            if needsScrim {
+                shape.fill(.black.opacity(0.16))
+            }
+        }
+    }
+
+    /// 实底衬（只在玻璃关了、有图时挂）：实底 → 图 → 浅色档暗膜。
+    /// 顺序跟玻璃底衬 glassBackdrop 一致（图在底、膜在图上保字），
+    /// 只把玻璃底色换成实底 inputBarSolid；图的不透明度走同一条滑杆。
+    private func solidBackdrop(_ image: UIImage) -> some View {
+        ZStack {
+            shape.fill(ChatColors.inputBarSolid)
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .opacity(MinisThemeShape.inputBarImageOpacity)
+                .clipShape(shape)
             if needsScrim {
                 shape.fill(.black.opacity(0.16))
             }

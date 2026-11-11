@@ -387,12 +387,20 @@ final class ImagePreviewContentView: UIView, UIScrollViewDelegate, UIGestureReco
 struct ImagePreviewView: View {
     let image: UIImage
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var studio = AppearanceStudio.shared
     @State private var saveStatus: SaveStatus = .idle
     @State private var copyDone = false
     @State private var showShareSheet = false
 
     private enum SaveStatus {
         case idle, saving, saved, failed
+    }
+
+    /// [glass-switch] 圆形图标键的底：玻璃开 = 材质，关 = 同作用域的实底面色。
+    private var circleFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(AppearanceStudio.shared.color(.surface, scope: .chat))
     }
 
     var body: some View {
@@ -425,7 +433,7 @@ struct ImagePreviewView: View {
                             .foregroundStyle(ChatColors.primaryText)
                             .frame(width: 44, height: 44)
                             .contentShape(Circle())
-                            .background(.ultraThinMaterial, in: Circle())
+                            .background(circleFill, in: Circle())
                     }
 
                     Spacer()
@@ -441,7 +449,7 @@ struct ImagePreviewView: View {
                             .foregroundStyle(copyDone ? ChatColors.success : ChatColors.primaryText)
                             .frame(width: 44, height: 44)
                             .contentShape(Circle())
-                            .background(.ultraThinMaterial, in: Circle())
+                            .background(circleFill, in: Circle())
                     }
                     .disabled(copyDone)
 
@@ -468,7 +476,7 @@ struct ImagePreviewView: View {
                         .foregroundStyle(ChatColors.primaryText)
                         .frame(width: 44, height: 44)
                         .contentShape(Circle())
-                        .background(.ultraThinMaterial, in: Circle())
+                        .background(circleFill, in: Circle())
                     }
                     .disabled(saveStatus == .saving || saveStatus == .saved)
 
@@ -481,7 +489,7 @@ struct ImagePreviewView: View {
                             .foregroundStyle(ChatColors.primaryText)
                             .frame(width: 44, height: 44)
                             .contentShape(Circle())
-                            .background(.ultraThinMaterial, in: Circle())
+                            .background(circleFill, in: Circle())
                     }
 
                     // Share button
@@ -494,7 +502,7 @@ struct ImagePreviewView: View {
                             .foregroundStyle(ChatColors.primaryText)
                             .frame(width: 44, height: 44)
                             .contentShape(Circle())
-                            .background(.ultraThinMaterial, in: Circle())
+                            .background(circleFill, in: Circle())
                     }
                 }
                 .padding(.horizontal)
@@ -545,7 +553,15 @@ struct ImagePreviewView: View {
 struct AsyncImagePreviewView: View {
     let url: URL
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var studio = AppearanceStudio.shared
     @State private var loadedImage: UIImage?
+
+    /// [glass-switch] 圆形图标键的底：玻璃开 = 材质，关 = 同作用域的实底面色。
+    private var circleFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(AppearanceStudio.shared.color(.surface, scope: .chat))
+    }
 
     var body: some View {
         if let image = loadedImage {
@@ -565,7 +581,7 @@ struct AsyncImagePreviewView: View {
                         .foregroundStyle(ChatColors.primaryText)
                         .frame(width: 44, height: 44)
                         .contentShape(Circle())
-                        .background(.ultraThinMaterial, in: Circle())
+                        .background(circleFill, in: Circle())
                 }
                 .padding(.horizontal)
                 .padding(.top, 2)

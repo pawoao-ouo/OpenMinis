@@ -149249,6 +149249,23 @@
         }
       }
     },
+    "全局玻璃感": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局玻璃感"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global Glass Effect"
+          }
+        }
+      }
+    },
     "头像大小": {
       "extractionState": "manual",
       "localizations": {

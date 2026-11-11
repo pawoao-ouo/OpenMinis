@@ -17,6 +17,7 @@ struct MinisAudioPreviewView: View {
     let fileURL: URL
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var player = GlobalAudioPlayer.shared
+    @ObservedObject private var studio = AppearanceStudio.shared
     @State private var showShareSheet = false
     @State private var showSavePicker = false
     @State private var artworkImage: UIImage? = nil
@@ -64,9 +65,16 @@ struct MinisAudioPreviewView: View {
 
     // MARK: - Background
 
+    /// [glass-switch] 圆形图标键的底：玻璃开 = 材质，关 = 同作用域的实底面色。
+    private var circleFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(AppearanceStudio.shared.color(.surface, scope: .chat))
+    }
+
     @ViewBuilder
     private var backgroundLayer: some View {
-        if let img = artworkImage {
+        if let img = artworkImage, studio.glassEnabled {
             ZStack {
                 Image(uiImage: img)
                     .resizable()
@@ -97,7 +105,7 @@ struct MinisAudioPreviewView: View {
                     .foregroundStyle(ChatColors.primaryText)
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
-                    .background(.ultraThinMaterial, in: Circle())
+                    .background(circleFill, in: Circle())
             }
             .buttonStyle(PressableStyle())
 
@@ -112,7 +120,7 @@ struct MinisAudioPreviewView: View {
                     .foregroundStyle(ChatColors.primaryText)
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
-                    .background(.ultraThinMaterial, in: Circle())
+                    .background(circleFill, in: Circle())
             }
             .buttonStyle(PressableStyle())
 
@@ -125,7 +133,7 @@ struct MinisAudioPreviewView: View {
                     .foregroundStyle(ChatColors.primaryText)
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
-                    .background(.ultraThinMaterial, in: Circle())
+                    .background(circleFill, in: Circle())
             }
             .buttonStyle(PressableStyle())
         }

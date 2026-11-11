@@ -424,6 +424,9 @@ final class AppearanceStudio: ObservableObject {
         static let surfaceOpacity = "appearanceStudio.surfaceOpacity"
         static let bubbleOpacity = "appearanceStudio.bubbleOpacity"
         static let wallpaperShade = "appearanceStudio.wallpaperShade"
+        /// [glass-switch] 全局玻璃感开关。开 = 输入栏/预览都走玻璃，
+        /// 关 = 都回实底。默认开——现在本来就是玻璃。
+        static let glassEnabled = "appearanceStudio.glassEnabled.v1"
         static let icons = "appearanceStudio.icons.v1"
         /// [T-07] 明暗模式原来是个裸键，散在五处各读各写。收进来之后只有
         /// `AppearanceStudio.mode` 一处碰它。
@@ -502,6 +505,11 @@ final class AppearanceStudio: ObservableObject {
     @Published var wallpaperShade: Double {
         didSet { UserDefaults.standard.set(wallpaperShade, forKey: Keys.wallpaperShade) }
     }
+    /// [glass-switch] 全局玻璃感：开 = 输入栏/预览都走玻璃，关 = 都回实底。
+    /// 默认开——现在本来就是玻璃，缺省不能把现成的样子换掉。
+    @Published var glassEnabled: Bool {
+        didSet { UserDefaults.standard.set(glassEnabled, forKey: Keys.glassEnabled) }
+    }
     @Published var themePackRevision = 0
 
     /// [T-56] 以前是普通字典,只有写/删操作会清:9 个作用域各背一张
@@ -568,6 +576,7 @@ final class AppearanceStudio: ObservableObject {
         let storedBubbleOpacity = UserDefaults.standard.object(forKey: Keys.bubbleOpacity) as? Double
         bubbleOpacity = storedBubbleOpacity ?? 1.0
         wallpaperShade = storedShade ?? 0.08
+        glassEnabled = (UserDefaults.standard.object(forKey: Keys.glassEnabled) as? Bool) ?? true
         loadWallpaperCleared()
         // [P1-8-fix] Resume the wallpaper revision from disk so the
         // counter keeps advancing instead of restarting at 0 after every
@@ -1202,6 +1211,8 @@ final class AppearanceStudio: ObservableObject {
         surfaceOpacity = 0.88
         bubbleOpacity = 1.0
         wallpaperShade = 0.08
+        // [glass-switch] 同卡里的玻璃开关也回出厂（开），不然“复位”只复一半。
+        glassEnabled = true
     }
 
     /// Clear ONLY the global colour overrides, back to the built-in
