@@ -866,9 +866,9 @@ struct DressingShopView: View {
     // existing PhotosPicker flow (downsampled to 2200, dark variant
     // captured at tap, same as the old backdrop page), and the same
     // preview rendering real chat uses (image scaled to fill plus the
-    // canvas shade overlay). It does not touch page-scope wallpapers:
-    // those are carried by theme packs and theme sets, not controlled
-    // here, and the section says so in its own footnote.
+    // canvas shade overlay). Global wallpaper only: page-scope
+    // wallpapers are controlled by pageWallpaperSection just below
+    // (chat + home); theme packs and theme sets still carry them.
     private var globalWallpaperSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(AppLocalized("全局壁纸"))
@@ -1043,6 +1043,19 @@ struct DressingShopView: View {
         .padding(.horizontal, 16)
     }
 
+    /// Caption for the page-wallpaper preview. Keyed on hasOwnWallpaper,
+    /// not on the image load: a page that owns a wallpaper whose file
+    /// cannot be read says so, instead of claiming a preview or
+    /// claiming it follows the global image.
+    private func pageWallpaperCaption(_ scope: AppearanceScope) -> String {
+        if !studio.hasOwnWallpaper(scope) {
+            return AppLocalized("没有自己的壁纸，跟着全局走")
+        }
+        return studio.wallpaper(for: scope) == nil
+            ? AppLocalized("壁纸读不出来")
+            : AppLocalized("壁纸预览")
+    }
+
     private func pageWallpaperRow(_ scope: AppearanceScope) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
@@ -1070,8 +1083,7 @@ struct DressingShopView: View {
                 } else {
                     studio.color(.canvas)
                 }
-                Text(studio.hasOwnWallpaper(scope)
-                     ? AppLocalized("壁纸预览") : AppLocalized("没有自己的壁纸，跟着全局走"))
+                Text(pageWallpaperCaption(scope))
                     .font(.system(size: fsCaption, weight: .medium))
                     .foregroundStyle(studio.color(.primaryText))
                     .padding(.horizontal, 9)
