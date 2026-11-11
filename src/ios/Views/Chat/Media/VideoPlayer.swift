@@ -168,6 +168,7 @@ struct MinisVideoFullscreenPlayer: View {
     /// When provided, the view skips creating its own player.
     let externalPlayer: AVPlayer?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var player: AVPlayer?
     @State private var showShareSheet = false
     @State private var saveStatus: SaveStatus = .idle
@@ -301,12 +302,18 @@ struct MinisVideoFullscreenPlayer: View {
                             if isPlaying {
                                 player?.pause()
                                 isPlaying = false
+                                // [AUD-P1C] Pausing releases the session;
+                                // pressing play re-begins it below.
+                                AudioSessionCoordinator.shared.end(.mediaAttachment)
                             } else {
                                 // If at end, seek to start
                                 if currentTime >= duration - 0.5 && duration > 0 {
                                     player?.seek(to: .zero)
                                     currentTime = 0
                                 }
+                                // Re-declare the intent (a pause, a natural
+                                // end, or a background end released it).
+                                AudioSessionCoordinator.shared.begin(.mediaAttachment)
                                 player?.play()
                                 isPlaying = true
                             }
@@ -402,8 +409,12 @@ struct MinisVideoFullscreenPlayer: View {
                 }
                 // Detect playback ended
                 if let item = p.currentItem, item.duration.isNumeric,
-                   time.seconds >= item.duration.seconds - 0.1 {
+                   time.seconds >= item.duration.seconds - 0.1, isPlaying {
                     isPlaying = false
+                    // [AUD-P1C] Ended counts as not-playing: release the
+                    // intent (pressing play re-begins it). Guarded by
+                    // isPlaying so the tick does not re-end every 0.25s.
+                    AudioSessionCoordinator.shared.end(.mediaAttachment)
                 }
             }
 
@@ -412,6 +423,13 @@ struct MinisVideoFullscreenPlayer: View {
                 Task { @MainActor in
                     if let newRate = change.newValue {
                         isPlaying = newRate > 0
+                        // [AUD-P1C] The system pauses the player when the app
+                        // backgrounds, usually AFTER the scenePhase handler ran
+                        // while the rate was still > 0. If we are backgrounded
+                        // and the player just stopped, release the intent here.
+                        if newRate == 0, UIApplication.shared.applicationState == .background {
+                            AudioSessionCoordinator.shared.end(.mediaAttachment)
+                        }
                     }
                 }
             }
@@ -430,6 +448,29 @@ struct MinisVideoFullscreenPlayer: View {
             player = nil
             // [T-video-audiosession-owner] Symmetric end with the begin above.
             AudioSessionCoordinator.shared.end(.mediaAttachment)
+        }
+        // [AUD-P1C] Paused video must never hold the session in the
+        // background. Only "playing" vs "paused" matters: a live rate
+        // check, not the @State flag, decides — the system may pause the
+        // player a moment after this handler runs (caught by the rate
+        // observation above), and the @State flag lags the real rate.
+        .onChange(of: scenePhase) { newPhase in
+            switch newPhase {
+            case .background:
+                // Not playing while backgrounding: release. Playing keeps
+                // the intent — background video audio is legitimate.
+                if (player?.rate ?? 0) == 0 {
+                    AudioSessionCoordinator.shared.end(.mediaAttachment)
+                }
+            case .active:
+                // Still playing on return: re-declare the intent (a no-op
+                // if it was never released).
+                if (player?.rate ?? 0) > 0 {
+                    AudioSessionCoordinator.shared.begin(.mediaAttachment)
+                }
+            default:
+                break
+            }
         }
         .sheet(isPresented: $showShareSheet) {
             MinisShareSheet(url: fileURL)

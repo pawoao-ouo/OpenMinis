@@ -177,6 +177,10 @@ class GlobalAudioPlayer: ObservableObject {
             p.pause()
             isPlaying = false
             timer?.invalidate()
+            // [AUD-P1B] Pausing releases the media-attachment intent
+            // (resume re-begins it below). The timer was just invalidated,
+            // so its tick can no longer end the session for us.
+            AudioSessionCoordinator.shared.end(.mediaAttachment)
         } else {
             AudioSessionCoordinator.shared.begin(.mediaAttachment)
             p.play()

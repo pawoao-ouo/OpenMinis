@@ -495,6 +495,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         if let observer = detachedLoopEndObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        // [AUD-P1A] The speech synthesizer dies with this VM, so its delegate
+        // will never fire finishSystemSpeechIfIdle. Release any residual
+        // reply-TTS intent; end() is membership-guarded, so this is a no-op
+        // when speech already ended cleanly. (deinit is nonisolated, so the
+        // end runs as a MainActor task capturing only the coordinator
+        // singleton — never self.)
+        Task { @MainActor in AudioSessionCoordinator.shared.end(.replyTTS) }
     }
 
     /// [T-tool-bg-suspended-hint] On foreground return, mark still-running
