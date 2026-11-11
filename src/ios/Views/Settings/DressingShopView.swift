@@ -2730,7 +2730,7 @@ struct DressingShopView: View {
                             outfitStore.save(pendant: pendant, side: detailPendantSide)
                             closePendantDetail()
                         }
-                        .font(.callout)
+                        .font(ChatFont.font(15, weight: .semibold))
                         .foregroundStyle(studio.color(.accent))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
@@ -2743,7 +2743,7 @@ struct DressingShopView: View {
                             pendantStore.apply(pendant, for: detailPendantSide)
                             closePendantDetail()
                         }
-                        .font(.callout)
+                        .font(ChatFont.font(15, weight: .semibold))
                         .foregroundStyle(studio.color(.surface))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
@@ -4903,7 +4903,7 @@ struct DressingShopView: View {
                             outfitStore.save(bubblePack: pack, side: detailPackSide)
                             closeDetail()
                         }
-                        .font(.callout)
+                        .font(ChatFont.font(15, weight: .semibold))
                         .foregroundStyle(studio.color(.accent))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
@@ -4916,7 +4916,7 @@ struct DressingShopView: View {
                             bubblePackStore.apply(pack, for: detailPackSide)
                             closeDetail()
                         }
-                        .font(.callout)
+                        .font(ChatFont.font(15, weight: .semibold))
                         .foregroundStyle(studio.color(.surface))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
