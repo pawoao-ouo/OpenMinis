@@ -2207,10 +2207,11 @@ struct DressingTypographySheet: View {
                 FontFilePicker(
                     onPick: { url in
                         showFontPicker = false
-                        if let font = fontStore.importFont(from: url) {
+                        switch fontStore.importFont(from: url) {
+                        case .success(let font):
                             onNotify(AppLocalized("成功导入字体：") + font.title)
-                        } else {
-                            onNotify(AppLocalized("字体导入失败，请确保格式正确"))
+                        case .failure(let error):
+                            onNotify(error.userMessage)
                         }
                     },
                     onCancel: { showFontPicker = false }

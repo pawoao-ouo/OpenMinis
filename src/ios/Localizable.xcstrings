@@ -148569,6 +148569,91 @@
         }
       }
     },
+    "没能准备好字体文件夹，请稍后重试": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没能准备好字体文件夹，请稍后重试"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't prepare the fonts folder. Please try again later."
+          }
+        }
+      }
+    },
+    "读不到这个字体文件，换一个试试": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读不到这个字体文件，换一个试试"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read this font file. Try a different one."
+          }
+        }
+      }
+    },
+    "字体文件存不下来，可能是空间不足": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体文件存不下来，可能是空间不足"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save the font file. The device may be out of storage."
+          }
+        }
+      }
+    },
+    "字体注册失败，这个文件可能不是有效的字体": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体注册失败，这个文件可能不是有效的字体"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font registration failed. This file may not be a valid font."
+          }
+        }
+      }
+    },
+    "这个文件不是有效的字体": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个文件不是有效的字体"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file is not a valid font."
+          }
+        }
+      }
+    },
     "气泡款式与圆角": {
       "extractionState": "manual",
       "localizations": {

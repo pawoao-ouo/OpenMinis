@@ -94,6 +94,11 @@ struct BackupFolderPicker: UIViewControllerRepresentable {
     let onPick: (URL) -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        // NOTE: deliberately NOT asCopy. The picked folder is bookmarked as a
+        // live destination (MountedFoldersManager.bookmarkData) and backups are
+        // written into it; a copy would point the bookmark at a tmp snapshot
+        // that iOS may purge. The resigned-build silent-tap issue therefore
+        // remains open here — see the fix report for this change.
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false

@@ -407,6 +407,11 @@ private struct FolderPicker: UIViewControllerRepresentable {
     let onPick: (URL) -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        // NOTE: deliberately NOT asCopy. The picked folder is bookmarked as a
+        // live mount (MountedFoldersManager.add) — a working directory the
+        // agent reads and writes; a copy would mount a tmp snapshot instead of
+        // the real folder. The resigned-build silent-tap issue therefore
+        // remains open here — see the fix report for this change.
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false

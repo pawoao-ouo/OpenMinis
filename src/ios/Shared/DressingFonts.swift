@@ -42,6 +42,32 @@ struct UploadedFont: Identifiable, Equatable, Codable {
     var id: String { number }
 }
 
+/// Why a font import failed, so the UI can say the real reason
+/// instead of one generic "file may be damaged".
+enum FontImportError: Error {
+    case directoryUnavailable
+    case cannotRead
+    case cannotWrite
+    case registrationFailed
+    case invalidFont
+
+    /// Plain-words message shown to the user.
+    var userMessage: String {
+        switch self {
+        case .directoryUnavailable:
+            return AppLocalized("没能准备好字体文件夹，请稍后重试")
+        case .cannotRead:
+            return AppLocalized("读不到这个字体文件，换一个试试")
+        case .cannotWrite:
+            return AppLocalized("字体文件存不下来，可能是空间不足")
+        case .registrationFailed:
+            return AppLocalized("字体注册失败，这个文件可能不是有效的字体")
+        case .invalidFont:
+            return AppLocalized("这个文件不是有效的字体")
+        }
+    }
+}
+
 @MainActor
 final class UploadedFontStore: ObservableObject {
     static let shared = UploadedFontStore()
@@ -94,12 +120,12 @@ final class UploadedFontStore: ObservableObject {
     }
 
     /// Import a user-picked .ttf/.otf file. Returns the new
-    /// record, or nil when the file cannot be copied or
-    /// registered — a failed import adds nothing.
+    /// record, or the specific reason it failed — a failed import
+    /// adds nothing.
     @discardableResult
-    func importFont(from sourceURL: URL) -> UploadedFont? {
-        guard let dir = Self.fontsDirectory() else { return nil }
-        do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) } catch { return nil }
+    func importFont(from sourceURL: URL) -> Result<UploadedFont, FontImportError> {
+        guard let dir = Self.fontsDirectory() else { return .failure(.directoryUnavailable) }
+        do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) } catch { return .failure(.directoryUnavailable) }
         let ext = sourceURL.pathExtension.isEmpty ? "ttf" : sourceURL.pathExtension
         let number = String(format: "FON-%04d", nextSerial)
         let fileName = "\(number).\(ext)"
@@ -110,13 +136,13 @@ final class UploadedFontStore: ObservableObject {
         let scoped = sourceURL.startAccessingSecurityScopedResource()
         defer { if scoped { sourceURL.stopAccessingSecurityScopedResource() } }
         data = try? Data(contentsOf: sourceURL)
-        guard let data else { return nil }
-        do { try data.write(to: dest, options: .atomic) } catch { return nil }
+        guard let data else { return .failure(.cannotRead) }
+        do { try data.write(to: dest, options: .atomic) } catch { return .failure(.cannotWrite) }
         var error: Unmanaged<CFError>?
         guard CTFontManagerRegisterFontsForURL(dest as CFURL, .process, &error),
               error == nil else {
             try? FileManager.default.removeItem(at: dest)
-            return nil
+            return .failure(.registrationFailed)
         }
         // PostScript name from the file itself, not the file name.
         // CoreText path (CGFontCreateWithDataProvider is deprecated
@@ -126,13 +152,13 @@ final class UploadedFontStore: ObservableObject {
         // directly in Swift (no Unmanaged), so cast it to String.
         guard let descriptor = CTFontManagerCreateFontDescriptorFromData(data as CFData) else {
             try? FileManager.default.removeItem(at: dest)
-            return nil
+            return .failure(.invalidFont)
         }
         let ctFont = CTFontCreateWithFontDescriptor(descriptor, 0, nil)
         let psName = CTFontCopyPostScriptName(ctFont) as String
         guard !psName.isEmpty else {
             try? FileManager.default.removeItem(at: dest)
-            return nil
+            return .failure(.invalidFont)
         }
         let title = (sourceURL.deletingPathExtension().lastPathComponent).isEmpty
             ? psName : sourceURL.deletingPathExtension().lastPathComponent
@@ -142,7 +168,7 @@ final class UploadedFontStore: ObservableObject {
         nextSerial += 1
         fonts.append(font)
         save()
-        return font
+        return .success(font)
     }
 
     /// Delete an uploaded font only (built-ins cannot be
@@ -183,7 +209,11 @@ struct FontFilePicker: UIViewControllerRepresentable {
     var onCancel: () -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.font])
+        // [T-sideload-fileimport] asCopy: on resigned / sideloaded builds iOS
+        // silently refuses the security-scoped grant an open-in-place picker
+        // needs, so the pick fires no callback at all. Copy mode hands back a
+        // plain tmp file URL instead (see DocumentCopyPicker).
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.font], asCopy: true)
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false
         return picker
