@@ -503,6 +503,7 @@
 		DOUT00001 /* DressingOutfits.swift in Sources */ = {isa = PBXBuildFile; fileRef = DOUT00101 /* DressingOutfits.swift */; };
 		AVPEND0001 /* AvatarPendants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AVPEND00101 /* AvatarPendants.swift */; };
 		DFONT0001 /* DressingFonts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFONT00101 /* DressingFonts.swift */; };
+		DTOK0001 /* DressingTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = DTOK00101 /* DressingTokens.swift */; };
 		E5SOUL002 /* SoulSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SOUL102 /* SoulSettingsView.swift */; };
 		E5SVP0021 /* ShadowVoiceProviderDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SVP0031 /* ShadowVoiceProviderDetailView.swift */; };
 		E5T000001 /* SessionEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5T000011 /* SessionEntity.swift */; };
@@ -1335,6 +1336,7 @@
 		DOUT00101 /* DressingOutfits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DressingOutfits.swift; sourceTree = "<group>"; };
 		AVPEND00101 /* AvatarPendants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarPendants.swift; sourceTree = "<group>"; };
 		DFONT00101 /* DressingFonts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DressingFonts.swift; sourceTree = "<group>"; };
+		DTOK00101 /* DressingTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DressingTokens.swift; sourceTree = "<group>"; };
 		E5SOUL102 /* SoulSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulSettingsView.swift; sourceTree = "<group>"; };
 		E5SVP0031 /* ShadowVoiceProviderDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShadowVoiceProviderDetailView.swift; sourceTree = "<group>"; };
 		E5T000011 /* SessionEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntity.swift; sourceTree = "<group>"; };
@@ -2197,6 +2199,7 @@
 				DOUT00101 /* DressingOutfits.swift */,
 				AVPEND00101 /* AvatarPendants.swift */,
 				DFONT00101 /* DressingFonts.swift */,
+				DTOK00101 /* DressingTokens.swift */,
 				E5J000022 /* FileHandleSafeWrite.h */,
 				E5J000021 /* FileHandleSafeWrite.m */,
 				E5J000052 /* ObjCExceptionCatcher.h */,
@@ -3568,6 +3571,7 @@
 				DOUT00001 /* DressingOutfits.swift in Sources */,
 				AVPEND0001 /* AvatarPendants.swift in Sources */,
 				DFONT0001 /* DressingFonts.swift in Sources */,
+				DTOK0001 /* DressingTokens.swift in Sources */,
 				XMSTYLE004 /* ThemeOffload.m in Sources */,
 				XMSTYLE005 /* ThemeOffloadBridge.swift in Sources */,
 				XMSTYLE008 /* ThemeOffloadExtras.swift in Sources */,
