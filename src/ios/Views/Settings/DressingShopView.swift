@@ -1353,6 +1353,131 @@ struct DressingBubblesPendantsSheet: View {
                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
             )
 
+            // 气泡底纹与文字色：只写分侧字段，不碰共享字段
+            // （见 AppearanceThemePack 的 per-side 注释：单侧改写共享
+            // 字段会把另一侧的气泡也带走）。
+            VStack(alignment: .leading, spacing: 10) {
+                Text(AppLocalized("气泡底纹与文字色"))
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+                // 实时样例气泡：和 live 聊天同一条渲染链
+                // （BubblePackSurfaceBackground + MinisThemeShape 分侧字段），
+                // 改了图案 / 不透明度 / 文字色当场就能看见。
+                // 底图只读展示：BubblePackImageStore 只有读接口，没有存图的
+                // 公开 API，所以这里不放选图入口，等存图 API 有了再接。
+                BubblePackSurfaceBackground(
+                    shape: editingSide.isUser ? MinisThemeShape.userBubble : MinisThemeShape.assistantBubble,
+                    colour: editingSide.isUser ? ChatColors.userBubble : ChatColors.assistantBubble,
+                    imageFile: MinisThemeShape.packBackgroundImageFile(user: editingSide.isUser),
+                    pattern: editingPattern,
+                    patternOpacity: editingPatternOpacity,
+                    textColour: editingTextColor
+                )
+                .overlay(alignment: .leading) {
+                    Text(AppLocalized("这是一条示例消息"))
+                        .font(.system(size: 13))
+                        .foregroundStyle(editingTextColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // 图案选择
+                HStack(spacing: 6) {
+                    Text(AppLocalized("图案"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                        .frame(width: 72, alignment: .leading)
+
+                    ForEach(BubblePattern.allCases, id: \.self) { pattern in
+                        let isSelected = editingPattern == pattern
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            setEditingPattern(pattern)
+                        } label: {
+                            Text(pattern.title)
+                                .font(.system(size: 11, weight: isSelected ? .bold : .regular))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
+                                .foregroundStyle(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+
+                // 图案不透明度（0...0.6，和 BubbleStyleRecord 的夹值一致；
+                // 没选图案时滑不动，值留着等选了图案再起效）
+                HStack(spacing: 8) {
+                    Text(AppLocalized("图案不透明度"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                        .frame(width: 72, alignment: .leading)
+
+                    Slider(
+                        value: Binding(
+                            get: { editingPatternOpacity },
+                            set: { setEditingPatternOpacity($0) }
+                        ),
+                        in: 0...0.6
+                    )
+                    .tint(CSSThemeVariables.accent(scope: .settings))
+
+                    Text("\(Int(editingPatternOpacity * 100))%")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                        .frame(width: 36, alignment: .trailing)
+                }
+                .disabled(editingPattern == .none)
+                .opacity(editingPattern == .none ? 0.5 : 1)
+
+                // 气泡文字色（nil = 跟随主题色）
+                HStack(spacing: 8) {
+                    Text(AppLocalized("气泡文字色"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                        .frame(width: 72, alignment: .leading)
+
+                    Text(editingTextHex.map { "#" + $0 } ?? AppLocalized("跟随主题"))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+
+                    Spacer()
+
+                    ColorPicker("", selection: Binding(
+                        get: { editingTextColor },
+                        set: { newColor in
+                            setEditingTextHex(BubbleStyleRecord.normalizedPackHex(UIColor(newColor).hexRGB))
+                        }
+                    ))
+                    .labelsHidden()
+                    .scaleEffect(0.9)
+
+                    if editingTextHex != nil {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            setEditingTextHex(nil)
+                            onNotify(AppLocalized("已恢复默认文字色"))
+                        } label: {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                .padding(6)
+                                .background(CSSThemeVariables.surfaceFill(scope: .settings))
+                                .clipShape(Circle())
+                        }
+                    }
+                }
+            }
+            .padding(12)
+            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+            )
+
             // 预设款式列表
             VStack(alignment: .leading, spacing: 8) {
                 Text(AppLocalized("预设气泡款式库"))
@@ -1366,6 +1491,67 @@ struct DressingBubblesPendantsSheet: View {
                 }
             }
         }
+    }
+
+    // MARK: - 气泡底纹与文字色（分侧字段读写，绝不碰共享字段）
+
+    /// 当前调节侧的图案：只读分侧字段 userBubblePattern /
+    /// assistantBubblePattern，绝不读共享 bubblePattern
+    /// （live 读的也是分侧字段，见 MinisThemeShape.packPattern）。
+    private var editingPattern: BubblePattern {
+        BubblePattern.parse(editingSide.isUser
+            ? studio.currentThemePack().userBubblePattern
+            : studio.currentThemePack().assistantBubblePattern)
+    }
+
+    private func setEditingPattern(_ pattern: BubblePattern) {
+        var pack = studio.currentThemePack()
+        if editingSide.isUser {
+            pack.userBubblePattern = pattern.rawValue
+        } else {
+            pack.assistantBubblePattern = pattern.rawValue
+        }
+        studio.persistPack(pack)
+    }
+
+    private var editingPatternOpacity: Double {
+        editingSide.isUser
+            ? studio.currentThemePack().userBubblePatternOpacity
+            : studio.currentThemePack().assistantBubblePatternOpacity
+    }
+
+    private func setEditingPatternOpacity(_ value: Double) {
+        var pack = studio.currentThemePack()
+        let clamped = min(0.6, max(0, value))
+        if editingSide.isUser {
+            pack.userBubblePatternOpacity = clamped
+        } else {
+            pack.assistantBubblePatternOpacity = clamped
+        }
+        studio.persistPack(pack)
+    }
+
+    /// 当前调节侧的文字色 hex：nil = 跟随主题色。
+    private var editingTextHex: String? {
+        editingSide.isUser
+            ? studio.currentThemePack().userBubblePackTextHex
+            : studio.currentThemePack().assistantBubblePackTextHex
+    }
+
+    private func setEditingTextHex(_ hex: String?) {
+        var pack = studio.currentThemePack()
+        if editingSide.isUser {
+            pack.userBubblePackTextHex = hex
+        } else {
+            pack.assistantBubblePackTextHex = hex
+        }
+        studio.persistPack(pack)
+    }
+
+    /// 当前调节侧实际生效的文字色（包里有就用包的，没有就跟主题），
+    /// 和 live 聊天的 ChatColors.bubbleText / assistantBubbleText 同款。
+    private var editingTextColor: Color {
+        editingSide.isUser ? ChatColors.bubbleText : ChatColors.assistantBubbleText
     }
 
     private func bubblePackCard(_ pack: BubbleStylePack) -> some View {
