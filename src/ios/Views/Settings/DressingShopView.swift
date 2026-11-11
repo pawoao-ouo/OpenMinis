@@ -1509,16 +1509,20 @@ struct DressingShopView: View {
         return AppLocalized("不在店里：") + number
     }
 
-    private func themeFailedPieceLine(_ piece: String) -> String {
+    /// refused = the whole set was refused before applying, so the
+    /// piece was not "skipped" while the rest applied — nothing
+    /// moved. Without the flag the line would say 跳过了 and lie.
+    private func themeFailedPieceLine(_ piece: String, refused: Bool = false) -> String {
+        let tail = refused ? "" : AppLocalized("，跳过了")
         switch piece {
         case "userBubble":
-            return sidePickerLabel(for: .user) + AppLocalized("的气泡不在店里，跳过了")
+            return sidePickerLabel(for: .user) + AppLocalized("的气泡不在店里") + tail
         case "assistantBubble":
-            return sidePickerLabel(for: .assistant) + AppLocalized("的气泡不在店里，跳过了")
+            return sidePickerLabel(for: .assistant) + AppLocalized("的气泡不在店里") + tail
         case "userPendant":
-            return sidePickerLabel(for: .user) + AppLocalized("的挂件不在店里，跳过了")
+            return sidePickerLabel(for: .user) + AppLocalized("的挂件不在店里") + tail
         case "assistantPendant":
-            return sidePickerLabel(for: .assistant) + AppLocalized("的挂件不在店里，跳过了")
+            return sidePickerLabel(for: .assistant) + AppLocalized("的挂件不在店里") + tail
         default:
             return piece
         }
@@ -1587,6 +1591,14 @@ struct DressingShopView: View {
     private func applyThemeSetConfirmed(_ item: AppearanceSavedTheme) {
         guard let result = studio.applySavedThemeSet(id: item.id) else {
             themeApplyMessage = AppLocalized("这套没换上：包文件读不出来。")
+            return
+        }
+        if !result.applied {
+            // Refused before applying: a recorded piece is gone from
+            // the catalogue, so nothing moved — not even the pack.
+            // Name the missing pieces; do not claim a partial apply.
+            themeApplyMessage = AppLocalized("这套没换上，什么都没动：")
+                + result.failedPieces.map { themeFailedPieceLine($0, refused: true) }.joined(separator: "；")
             return
         }
         if result.packWarnings.isEmpty && result.failedPieces.isEmpty {

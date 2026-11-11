@@ -250,21 +250,48 @@ extension AppearanceStudio {
         readLibraryPack(id: id)
     }
 
-    /// Shop full-set apply (2026-11-02 theme-set batch): the pack
-    /// goes through the true-replace user path FIRST, then the
-    /// recorded per-side bubble and pendant numbers, in that
-    /// order. Nil = unknown id or unreadable pack (nothing
-    /// applied). A recorded number whose pack/pendant is no
-    /// longer in the catalogue is a failed piece, never a
-    /// fallback to another pack: the caller must report it and
-    /// must not claim the set applied cleanly. A nil recorded
-    /// number is skipped, not failed — precisely: a nil bubble
-    /// side gets no extra per-side pack apply, so its bubbles
-    /// follow the saved pack's own style fields from the
-    /// replace; a nil pendant side is truly untouched, because
-    /// the pack replace never writes the pendant store.
-    func applySavedThemeSet(id: String) -> (packWarnings: [String], failedPieces: [String])? {
+    /// Shop full-set apply (2026-11-02 theme-set batch): the recorded
+    /// per-side bubble and pendant numbers are validated FIRST, then
+    /// the pack goes through the true-replace user path, then the
+    /// recorded pieces are applied, in that order. Nil = unknown id
+    /// or unreadable pack (nothing applied). All or nothing: a
+    /// recorded number whose pack/pendant is no longer in the
+    /// catalogue refuses the WHOLE set (applied: false) instead of
+    /// failing after the pack already replaced the live theme and
+    /// leaving a half-applied set with no rollback. A refused set
+    /// applies nothing and records nothing; the caller must report
+    /// which pieces are missing. A nil recorded number is skipped,
+    /// not failed — precisely: a nil bubble side gets no extra
+    /// per-side pack apply, so its bubbles follow the saved pack's
+    /// own style fields from the replace; a nil pendant side is
+    /// truly untouched, because the pack replace never writes the
+    /// pendant store.
+    func applySavedThemeSet(id: String) -> (applied: Bool, packWarnings: [String], failedPieces: [String])? {
         guard let item = savedThemes().first(where: { $0.id == id }) else { return nil }
+        // Pack readability stays first, so nil still means unknown
+        // id or unreadable pack — same as before this fix.
+        guard readLibraryPack(id: id) != nil else { return nil }
+        // Pre-validate BEFORE any mutation: a missing piece used to
+        // fail only after applySavedTheme had already replaced the
+        // live theme. Refuse the whole set instead.
+        var missing: [String] = []
+        for (side, number) in [(DressingSide.user, item.userBubbleNumber),
+                               (DressingSide.assistant, item.assistantBubbleNumber)] {
+            guard let number else { continue }
+            if BubbleStylePackStore.shared.pack(number: number) == nil {
+                missing.append(side.isUser ? "userBubble" : "assistantBubble")
+            }
+        }
+        for (side, number) in [(DressingSide.user, item.userPendantNumber),
+                               (DressingSide.assistant, item.assistantPendantNumber)] {
+            guard let number else { continue }
+            if AvatarPendantStore.shared.pendants.first(where: { $0.number == number }) == nil {
+                missing.append(side.isUser ? "userPendant" : "assistantPendant")
+            }
+        }
+        if !missing.isEmpty {
+            return (applied: false, packWarnings: [], failedPieces: missing)
+        }
         guard let packWarnings = applySavedTheme(id: id) else { return nil }
         var failed: [String] = []
         for (side, number) in [(DressingSide.user, item.userBubbleNumber),
@@ -285,7 +312,7 @@ extension AppearanceStudio {
                 failed.append(side.isUser ? "userPendant" : "assistantPendant")
             }
         }
-        return (packWarnings, failed)
+        return (applied: true, packWarnings: packWarnings, failedPieces: failed)
     }
 
     private static let lastAppliedKey = "appearanceStudio.lastAppliedLibraryID"
