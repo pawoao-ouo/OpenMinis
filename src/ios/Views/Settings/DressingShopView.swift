@@ -326,7 +326,7 @@ struct DressingShopView: View {
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
                 .submitLabel(.search)
-            if !searchText.isEmpty {
+            if !trimmedSearch.isEmpty {
                 Button { searchText = "" } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 15, weight: .semibold))
@@ -2156,9 +2156,7 @@ struct DressingShopView: View {
         VStack(alignment: .leading, spacing: 0) {
             sidePicker
             sectionHeader(AppLocalized("聊天气泡"), jumpTo: .bubble)
-            if isSearching && visiblePacks.isEmpty {
-                searchEmptyLine
-            } else {
+            if !(isSearching && visiblePacks.isEmpty) {
                 cardRow {
                     ForEach(visiblePacks) { pack in bubbleCard(pack) }
                 }
@@ -2556,9 +2554,7 @@ struct DressingShopView: View {
                 wornPendantRows
             }
             sectionHeader(AppLocalized("头像挂件"), jumpTo: .pendant)
-            if isSearching && visiblePendants.isEmpty {
-                searchEmptyLine
-            } else {
+            if !(isSearching && visiblePendants.isEmpty) {
                 cardRow {
                     ForEach(visiblePendants) { pendant in pendantCard(pendant) }
                 }
