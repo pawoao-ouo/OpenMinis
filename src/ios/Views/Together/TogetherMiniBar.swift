@@ -1230,7 +1230,7 @@ struct TogetherDeckView: View {
                         .font(.system(size: 17))
                         // 底色是 charcoal(= textMain),深色主题下它是近白,
                         // 所以字取卡片面 —— 两套主题都跟变量走,不再压纯白。
-                        .foregroundStyle(TogetherSpec.glass(0.98))
+                        .foregroundStyle(TogetherSpec.cardSurface)
                 }
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())

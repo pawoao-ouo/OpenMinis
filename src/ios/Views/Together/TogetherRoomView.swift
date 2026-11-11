@@ -1146,7 +1146,9 @@ struct TogetherRoomView: View {
         // 什么都没在放的时候也一样列得出来(以前这里直接返回空)。
         let now = track?.id
         let mine = state.notes.filter { $0.trackId == now }.sorted { $0.at < $1.at }
-        let others = state.notes.filter { $0.trackId != now }.sorted { $0.at < $1.at }
+        // 别的歌上的只取最近几条:整库的刻字全铺出来,这一页会变成流水账。
+        let others = Array(state.notes.filter { $0.trackId != now }
+            .sorted { $0.at < $1.at }.suffix(8))
         return mine + others
     }
 
@@ -1349,10 +1351,10 @@ struct TogetherRoomView: View {
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
+    // 标题只有一套规则,走文件级的 togetherRoomTitle —— 这里再写一份,
+    // 两边迟早会分叉(一个是 nil 回落,一个是空串回落)。
     private func trackTitle(_ item: TogetherTrack?) -> String {
-        guard let item else { return TogetherCopy.untitledTrack }
-        let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty ? TogetherCopy.untitledTrack : title
+        togetherRoomTitle(item?.title)
     }
 
     private func roomKey(_ symbol: String, label: String, active: Bool = false, action: @escaping () -> Void) -> some View {
