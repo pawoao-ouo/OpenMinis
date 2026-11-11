@@ -278,6 +278,15 @@ final class AvatarPendantStore: ObservableObject {
         saveApplied()
     }
 
+    /// Take the ring off ONE side only. The pendant record
+    /// stays, so it can be worn again later; only the applied
+    /// mark clears (live avatars simply show no ring).
+    func remove(for side: DressingSide) {
+        if side.isUser { appliedUserNumber = nil }
+        else { appliedAssistantNumber = nil }
+        saveApplied()
+    }
+
     /// Apply to BOTH sides (the old single-apply behaviour, kept
     /// for callers that mean "both sides, same ring" — e.g. a
     /// full-set apply. It writes two per-side records, not one

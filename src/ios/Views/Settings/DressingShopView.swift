@@ -152,6 +152,12 @@ struct DressingShopView: View {
     @State private var detailPackSide: DressingSide = .assistant
     @State private var detailPendant: AvatarPendant?
     @State private var detailPendantSide: DressingSide = .assistant
+    /// New custom pendant draft: name + ring colour, created
+    /// through AvatarPendantStore.create (same list as built-ins).
+    @State private var newPendantName = ""
+    @State private var newPendantColor = Color(hex: "FFF6CC")
+    /// Custom pendant waiting for delete confirmation, if any.
+    @State private var pendantPendingDelete: AvatarPendant?
     @State private var sheetUp = false
     @State private var pendantSheetUp = false
     // Theme-set detail (2026-11-02 theme-set batch): the saved
@@ -2383,6 +2389,7 @@ struct DressingShopView: View {
     private var pendantView: some View {
         VStack(alignment: .leading, spacing: 0) {
             sidePicker
+            wornPendantRows
             sectionHeader(AppLocalized("头像挂件"), jumpTo: .pendant)
             cardRow {
                 ForEach(pendantStore.pendants) { pendant in pendantCard(pendant) }
@@ -2393,7 +2400,97 @@ struct DressingShopView: View {
                 ForEach(pendantStore.pendants) { pendant in pendantCard(pendant, fixedWidth: false) }
             }
             .padding(.horizontal, 16)
+            sectionHeader(AppLocalized("自建挂件"), jumpTo: .pendant)
+            createPendantCard
         }
+    }
+
+    /// What each side is wearing now, with a take-off button
+    /// per side. Removing takes the ring off that side only;
+    /// the pendant record stays and can be worn again later.
+    private var wornPendantRows: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(DressingSide.allCases, id: \.self) { side in
+                if let pendant = pendantStore.applied(for: side) {
+                    HStack(spacing: 10) {
+                        Text(sidePickerLabel(for: side))
+                            .font(.system(size: fsSub))
+                            .foregroundStyle(studio.color(.primaryText))
+                        Text("\(pendant.title) · \(pendant.number)")
+                            .font(.system(size: fsSub))
+                            .foregroundStyle(studio.color(.secondaryText))
+                        Spacer(minLength: 0)
+                        Button(AppLocalized("摘下")) {
+                            pendantStore.remove(for: side)
+                            showFontToast(AppLocalized("已摘下挂件。"))
+                        }
+                        .font(.system(size: fsCaption, weight: .semibold))
+                        .foregroundStyle(studio.color(.accent))
+                        .frame(minHeight: 44)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+    }
+
+    /// Build a custom pendant: a name and a ring colour. Same
+    /// field + accent-button shape as the theme save name row,
+    /// and the same 32x32 ColorPicker as the thinking colour
+    /// rows. The new pendant joins the same list as the
+    /// built-ins, with the next PEN number from the store.
+    private var createPendantCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField(AppLocalized("给新挂件起个名"), text: $newPendantName)
+                .font(.system(size: fsSub))
+                .foregroundStyle(studio.color(.primaryText))
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(studio.color(.field))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            HStack(spacing: 12) {
+                Text(AppLocalized("圆环颜色"))
+                    .font(.system(size: fsSub, weight: .medium))
+                    .foregroundStyle(studio.color(.primaryText))
+                Spacer(minLength: 6)
+                Text("#\(UIColor(newPendantColor).hexRGB)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(studio.color(.secondaryText).opacity(0.55))
+                ColorPicker("", selection: $newPendantColor, supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 32, height: 32)
+                    .accessibilityLabel(AppLocalized("圆环颜色"))
+            }
+            Button(AppLocalized("新建挂件")) { createCustomPendant() }
+                .font(.system(size: fsSub, weight: .semibold))
+                .foregroundStyle(studio.color(.surface))
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 44)
+                .background(studio.color(.accent))
+                .clipShape(Capsule())
+                .buttonStyle(FontPressStyle(scale: 0.97))
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+    }
+
+    /// Create the drafted custom pendant. An empty name is
+    /// refused in the UI, never silently relabelled — same rule
+    /// as saving a theme set.
+    private func createCustomPendant() {
+        let name = newPendantName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            showFontToast(AppLocalized("名字不能为空，没新建挂件"), warning: true)
+            return
+        }
+        let hex = UIColor(newPendantColor).hexRGB
+        let pendant = pendantStore.create(
+            title: name, hex: hex,
+            detail: "自建圆环，#\(hex) 柔光，包住整个圆形头像，细线，柔和发光")
+        newPendantName = ""
+        newPendantColor = Color(hex: "FFF6CC")
+        showFontToast(AppLocalized("已新建挂件「\(pendant.title)」"))
     }
 
     private func pendantCard(_ pendant: AvatarPendant, fixedWidth: Bool = true) -> some View {
@@ -2608,6 +2705,18 @@ struct DressingShopView: View {
                         .buttonStyle(FontPressStyle(scale: 0.97))
                     }
                     .padding(.top, 6)
+                    // Custom pendants only: built-ins have no
+                    // delete path anywhere, and this button is
+                    // not even drawn for them.
+                    if !AvatarPendantStore.builtIns.contains(where: { $0.number == pendant.number }) {
+                        Button(AppLocalized("删除这款挂件")) {
+                            pendantPendingDelete = pendant
+                        }
+                        .font(.system(size: fsSub))
+                        .foregroundStyle(studio.color(.destructive))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .buttonStyle(FontPressStyle(scale: 0.97))
+                    }
                 }
                 .padding(20)
                 .background(
@@ -2622,6 +2731,25 @@ struct DressingShopView: View {
         }
         .background(studio.color(.canvas))
         .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: pendantSheetUp)
+        .alert(AppLocalized("删除自建挂件"), isPresented: Binding(
+            get: { pendantPendingDelete != nil },
+            set: { if !$0 { pendantPendingDelete = nil } }
+        )) {
+            Button(AppLocalized("彻底删除"), role: .destructive) {
+                if let pendant = pendantPendingDelete {
+                    // deleteCustom clears any side wearing it,
+                    // so nothing keeps pointing at a deleted
+                    // pendant; the record itself is gone.
+                    pendantStore.deleteCustom(number: pendant.number)
+                    showFontToast(AppLocalized("已删除挂件：\(pendant.title)"))
+                    closePendantDetail()
+                }
+                pendantPendingDelete = nil
+            }
+            Button(AppLocalized("保留"), role: .cancel) { pendantPendingDelete = nil }
+        } message: {
+            Text(AppLocalized("确认删除挂件「\(pendantPendingDelete?.title ?? "")」？戴着它的一边会摘下来，挂件本身不再回来。"))
+        }
     }
 
     // MARK: - Outfit view
