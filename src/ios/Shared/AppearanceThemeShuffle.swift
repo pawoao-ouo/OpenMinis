@@ -130,6 +130,20 @@ enum AppearanceThemeShuffle {
     /// 最深的色是同一个，用户气泡改用剩下的第 4 个色，不然两个气泡
     /// 会撞成一个色。
     ///
+    /// 补齐的五个面（2026-11-11）：摇完点"留下来"时，map 里没有的角色
+    /// 会留在摇之前那套的样子，整套就混了。所以浮层、浅底、三级文字、
+    /// 图标底、胶囊底也写死进来。成功/警告/危险/不可用/终端字不动——
+    /// 它们是语义色，不是主题色。取值只用本套的 4 个色或黑白，不调色，
+    /// 分法跟色阶槽位走（见 AppearanceColorRole.scaleSlot）：
+    /// - raised（浮层，槽位 2 再亮一档）：浅色白 FFFFFF（卡片已是白，
+    ///   再亮没地方去）；深色近黑 101216（比卡片再暗一档）。
+    /// - mutedSurface（浅底）/ iconTile（图标底，槽位 3）：浅色取底色
+    ///   （最浅色），在卡片白上是一档淡底；深色取按钮色（剩下那个浅色），
+    ///   在暗底上是一块柔和的亮底。
+    /// - tertiaryText（三级文字，槽位 11 再淡一档）：跟主文字走
+    ///   （浅色最深色、深色最浅色），4 色里没有更淡的字色可取。
+    /// - chip（胶囊底，槽位 4）：浅色取按钮色，深色取 AI 气泡色。
+    ///
     /// 浅深两套都是写死的色值，**不走 deriveMaps**——单色相推导会把
     /// 搭配推没。也**不过对比度兜底**：有几套正文就是偏淡（芋泥
     /// 1.72:1、莓莓 1.37:1），是她看过、认了的原样，写死在下面。
@@ -142,58 +156,58 @@ enum AppearanceThemeShuffle {
     private static let curatedShakePalettes: [CuratedShakePalette] = [
         CuratedShakePalette(
             name: "黄油热可可",
-            light: [.canvas: "FFFEEF", .surface: "FFFFFF", .primaryText: "593334", .secondaryText: "593334", .accent: "F9DB6B", .userBubble: "593334", .assistantBubble: "FEDC01", .bubbleText: "FFFEEF", .assistantBubbleText: "593334", .border: "593334", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "593334", .primaryText: "FFFEEF", .secondaryText: "FFFEEF", .accent: "F9DB6B", .userBubble: "593334", .assistantBubble: "FEDC01", .bubbleText: "FFFEEF", .assistantBubbleText: "593334", .border: "FFFEEF", .field: "FFFFFF"]
+            light: [.canvas: "FFFEEF", .surface: "FFFFFF", .primaryText: "593334", .secondaryText: "593334", .accent: "F9DB6B", .userBubble: "593334", .assistantBubble: "FEDC01", .bubbleText: "FFFEEF", .assistantBubbleText: "593334", .border: "593334", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "FFFEEF", .tertiaryText: "593334", .iconTile: "FFFEEF", .chip: "F9DB6B"],
+            dark: [.canvas: "101216", .surface: "593334", .primaryText: "FFFEEF", .secondaryText: "FFFEEF", .accent: "F9DB6B", .userBubble: "593334", .assistantBubble: "FEDC01", .bubbleText: "FFFEEF", .assistantBubbleText: "593334", .border: "FFFEEF", .field: "FFFFFF", .raised: "101216", .mutedSurface: "F9DB6B", .tertiaryText: "FFFEEF", .iconTile: "F9DB6B", .chip: "FEDC01"]
         ),
         CuratedShakePalette(
             name: "椰青冰美式",
-            light: [.canvas: "E1EFF4", .surface: "FFFFFF", .primaryText: "512128", .secondaryText: "512128", .accent: "EDDFD4", .userBubble: "512128", .assistantBubble: "9D7C6D", .bubbleText: "E1EFF4", .assistantBubbleText: "101216", .border: "512128", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "512128", .primaryText: "E1EFF4", .secondaryText: "E1EFF4", .accent: "EDDFD4", .userBubble: "512128", .assistantBubble: "9D7C6D", .bubbleText: "E1EFF4", .assistantBubbleText: "101216", .border: "E1EFF4", .field: "FFFFFF"]
+            light: [.canvas: "E1EFF4", .surface: "FFFFFF", .primaryText: "512128", .secondaryText: "512128", .accent: "EDDFD4", .userBubble: "512128", .assistantBubble: "9D7C6D", .bubbleText: "E1EFF4", .assistantBubbleText: "101216", .border: "512128", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "E1EFF4", .tertiaryText: "512128", .iconTile: "E1EFF4", .chip: "EDDFD4"],
+            dark: [.canvas: "101216", .surface: "512128", .primaryText: "E1EFF4", .secondaryText: "E1EFF4", .accent: "EDDFD4", .userBubble: "512128", .assistantBubble: "9D7C6D", .bubbleText: "E1EFF4", .assistantBubbleText: "101216", .border: "E1EFF4", .field: "FFFFFF", .raised: "101216", .mutedSurface: "EDDFD4", .tertiaryText: "E1EFF4", .iconTile: "EDDFD4", .chip: "9D7C6D"]
         ),
         CuratedShakePalette(
             name: "杏仁豆花露",
-            light: [.canvas: "FAF7F5", .surface: "FFFFFF", .primaryText: "A58F8B", .secondaryText: "A58F8B", .accent: "FAF1E7", .userBubble: "D6C8B9", .assistantBubble: "A58F8B", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "A58F8B", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "A58F8B", .primaryText: "FAF7F5", .secondaryText: "FAF7F5", .accent: "FAF1E7", .userBubble: "D6C8B9", .assistantBubble: "A58F8B", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FAF7F5", .field: "FFFFFF"]
+            light: [.canvas: "FAF7F5", .surface: "FFFFFF", .primaryText: "A58F8B", .secondaryText: "A58F8B", .accent: "FAF1E7", .userBubble: "D6C8B9", .assistantBubble: "A58F8B", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "A58F8B", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "FAF7F5", .tertiaryText: "A58F8B", .iconTile: "FAF7F5", .chip: "FAF1E7"],
+            dark: [.canvas: "101216", .surface: "A58F8B", .primaryText: "FAF7F5", .secondaryText: "FAF7F5", .accent: "FAF1E7", .userBubble: "D6C8B9", .assistantBubble: "A58F8B", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FAF7F5", .field: "FFFFFF", .raised: "101216", .mutedSurface: "FAF1E7", .tertiaryText: "FAF7F5", .iconTile: "FAF1E7", .chip: "A58F8B"]
         ),
         CuratedShakePalette(
             name: "椰乳四季春",
-            light: [.canvas: "FBF8EA", .surface: "FFFFFF", .primaryText: "8B736C", .secondaryText: "8B736C", .accent: "FFE7E8", .userBubble: "8B736C", .assistantBubble: "ECC7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "8B736C", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "8B736C", .primaryText: "FBF8EA", .secondaryText: "FBF8EA", .accent: "FFE7E8", .userBubble: "8B736C", .assistantBubble: "ECC7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FBF8EA", .field: "FFFFFF"]
+            light: [.canvas: "FBF8EA", .surface: "FFFFFF", .primaryText: "8B736C", .secondaryText: "8B736C", .accent: "FFE7E8", .userBubble: "8B736C", .assistantBubble: "ECC7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "8B736C", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "FBF8EA", .tertiaryText: "8B736C", .iconTile: "FBF8EA", .chip: "FFE7E8"],
+            dark: [.canvas: "101216", .surface: "8B736C", .primaryText: "FBF8EA", .secondaryText: "FBF8EA", .accent: "FFE7E8", .userBubble: "8B736C", .assistantBubble: "ECC7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FBF8EA", .field: "FFFFFF", .raised: "101216", .mutedSurface: "FFE7E8", .tertiaryText: "FBF8EA", .iconTile: "FFE7E8", .chip: "ECC7D6"]
         ),
         CuratedShakePalette(
             name: "香草米布丁",
-            light: [.canvas: "FBF8F7", .surface: "FFFFFF", .primaryText: "594027", .secondaryText: "594027", .accent: "F3EEE9", .userBubble: "594027", .assistantBubble: "C3AB99", .bubbleText: "FBF8F7", .assistantBubbleText: "101216", .border: "594027", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "594027", .primaryText: "FBF8F7", .secondaryText: "FBF8F7", .accent: "F3EEE9", .userBubble: "594027", .assistantBubble: "C3AB99", .bubbleText: "FBF8F7", .assistantBubbleText: "101216", .border: "FBF8F7", .field: "FFFFFF"]
+            light: [.canvas: "FBF8F7", .surface: "FFFFFF", .primaryText: "594027", .secondaryText: "594027", .accent: "F3EEE9", .userBubble: "594027", .assistantBubble: "C3AB99", .bubbleText: "FBF8F7", .assistantBubbleText: "101216", .border: "594027", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "FBF8F7", .tertiaryText: "594027", .iconTile: "FBF8F7", .chip: "F3EEE9"],
+            dark: [.canvas: "101216", .surface: "594027", .primaryText: "FBF8F7", .secondaryText: "FBF8F7", .accent: "F3EEE9", .userBubble: "594027", .assistantBubble: "C3AB99", .bubbleText: "FBF8F7", .assistantBubbleText: "101216", .border: "FBF8F7", .field: "FFFFFF", .raised: "101216", .mutedSurface: "F3EEE9", .tertiaryText: "FBF8F7", .iconTile: "F3EEE9", .chip: "C3AB99"]
         ),
         CuratedShakePalette(
             name: "雪山香草酪",
-            light: [.canvas: "F9F8F4", .surface: "FFFFFF", .primaryText: "5B3F41", .secondaryText: "5B3F41", .accent: "FEF6DF", .userBubble: "5B3F41", .assistantBubble: "CBB4A7", .bubbleText: "F9F8F4", .assistantBubbleText: "5B3F41", .border: "5B3F41", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "5B3F41", .primaryText: "F9F8F4", .secondaryText: "F9F8F4", .accent: "FEF6DF", .userBubble: "5B3F41", .assistantBubble: "CBB4A7", .bubbleText: "F9F8F4", .assistantBubbleText: "5B3F41", .border: "F9F8F4", .field: "FFFFFF"]
+            light: [.canvas: "F9F8F4", .surface: "FFFFFF", .primaryText: "5B3F41", .secondaryText: "5B3F41", .accent: "FEF6DF", .userBubble: "5B3F41", .assistantBubble: "CBB4A7", .bubbleText: "F9F8F4", .assistantBubbleText: "5B3F41", .border: "5B3F41", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "F9F8F4", .tertiaryText: "5B3F41", .iconTile: "F9F8F4", .chip: "FEF6DF"],
+            dark: [.canvas: "101216", .surface: "5B3F41", .primaryText: "F9F8F4", .secondaryText: "F9F8F4", .accent: "FEF6DF", .userBubble: "5B3F41", .assistantBubble: "CBB4A7", .bubbleText: "F9F8F4", .assistantBubbleText: "5B3F41", .border: "F9F8F4", .field: "FFFFFF", .raised: "101216", .mutedSurface: "FEF6DF", .tertiaryText: "F9F8F4", .iconTile: "FEF6DF", .chip: "CBB4A7"]
         ),
         CuratedShakePalette(
             name: "飞鼠灵感配色",
-            light: [.canvas: "FFFFFF", .surface: "FFFFFF", .primaryText: "9F8F82", .secondaryText: "9F8F82", .accent: "E5F3FA", .userBubble: "9F8F82", .assistantBubble: "DED4E6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "9F8F82", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "9F8F82", .primaryText: "FFFFFF", .secondaryText: "FFFFFF", .accent: "E5F3FA", .userBubble: "9F8F82", .assistantBubble: "DED4E6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FFFFFF", .field: "FFFFFF"]
+            light: [.canvas: "FFFFFF", .surface: "FFFFFF", .primaryText: "9F8F82", .secondaryText: "9F8F82", .accent: "E5F3FA", .userBubble: "9F8F82", .assistantBubble: "DED4E6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "9F8F82", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "FFFFFF", .tertiaryText: "9F8F82", .iconTile: "FFFFFF", .chip: "E5F3FA"],
+            dark: [.canvas: "101216", .surface: "9F8F82", .primaryText: "FFFFFF", .secondaryText: "FFFFFF", .accent: "E5F3FA", .userBubble: "9F8F82", .assistantBubble: "DED4E6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FFFFFF", .field: "FFFFFF", .raised: "101216", .mutedSurface: "E5F3FA", .tertiaryText: "FFFFFF", .iconTile: "E5F3FA", .chip: "DED4E6"]
         ),
         CuratedShakePalette(
             name: "芋泥椰冻",
-            light: [.canvas: "F8F6FB", .surface: "FFFFFF", .primaryText: "CAB7E3", .secondaryText: "CAB7E3", .accent: "EDECFA", .userBubble: "D5CFEC", .assistantBubble: "CAB7E3", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "CAB7E3", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "CAB7E3", .primaryText: "F8F6FB", .secondaryText: "F8F6FB", .accent: "EDECFA", .userBubble: "D5CFEC", .assistantBubble: "CAB7E3", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "F8F6FB", .field: "FFFFFF"]
+            light: [.canvas: "F8F6FB", .surface: "FFFFFF", .primaryText: "CAB7E3", .secondaryText: "CAB7E3", .accent: "EDECFA", .userBubble: "D5CFEC", .assistantBubble: "CAB7E3", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "CAB7E3", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "F8F6FB", .tertiaryText: "CAB7E3", .iconTile: "F8F6FB", .chip: "EDECFA"],
+            dark: [.canvas: "101216", .surface: "CAB7E3", .primaryText: "F8F6FB", .secondaryText: "F8F6FB", .accent: "EDECFA", .userBubble: "D5CFEC", .assistantBubble: "CAB7E3", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "F8F6FB", .field: "FFFFFF", .raised: "101216", .mutedSurface: "EDECFA", .tertiaryText: "F8F6FB", .iconTile: "EDECFA", .chip: "CAB7E3"]
         ),
         CuratedShakePalette(
             name: "古本灵感配色",
-            light: [.canvas: "FDF4ED", .surface: "FFFFFF", .primaryText: "9F8F82", .secondaryText: "9F8F82", .accent: "DDE8F6", .userBubble: "9F8F82", .assistantBubble: "F5D7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "9F8F82", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "9F8F82", .primaryText: "FDF4ED", .secondaryText: "FDF4ED", .accent: "DDE8F6", .userBubble: "9F8F82", .assistantBubble: "F5D7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FDF4ED", .field: "FFFFFF"]
+            light: [.canvas: "FDF4ED", .surface: "FFFFFF", .primaryText: "9F8F82", .secondaryText: "9F8F82", .accent: "DDE8F6", .userBubble: "9F8F82", .assistantBubble: "F5D7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "9F8F82", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "FDF4ED", .tertiaryText: "9F8F82", .iconTile: "FDF4ED", .chip: "DDE8F6"],
+            dark: [.canvas: "101216", .surface: "9F8F82", .primaryText: "FDF4ED", .secondaryText: "FDF4ED", .accent: "DDE8F6", .userBubble: "9F8F82", .assistantBubble: "F5D7D6", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FDF4ED", .field: "FFFFFF", .raised: "101216", .mutedSurface: "DDE8F6", .tertiaryText: "FDF4ED", .iconTile: "DDE8F6", .chip: "F5D7D6"]
         ),
         CuratedShakePalette(
             name: "莓莓云页奶",
-            light: [.canvas: "FFF4F5", .surface: "FFFFFF", .primaryText: "FAC7DA", .secondaryText: "FAC7DA", .accent: "E2F3FF", .userBubble: "D1E3FF", .assistantBubble: "FAC7DA", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FAC7DA", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "FAC7DA", .primaryText: "FFF4F5", .secondaryText: "FFF4F5", .accent: "E2F3FF", .userBubble: "D1E3FF", .assistantBubble: "FAC7DA", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FFF4F5", .field: "FFFFFF"]
+            light: [.canvas: "FFF4F5", .surface: "FFFFFF", .primaryText: "FAC7DA", .secondaryText: "FAC7DA", .accent: "E2F3FF", .userBubble: "D1E3FF", .assistantBubble: "FAC7DA", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FAC7DA", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "FFF4F5", .tertiaryText: "FAC7DA", .iconTile: "FFF4F5", .chip: "E2F3FF"],
+            dark: [.canvas: "101216", .surface: "FAC7DA", .primaryText: "FFF4F5", .secondaryText: "FFF4F5", .accent: "E2F3FF", .userBubble: "D1E3FF", .assistantBubble: "FAC7DA", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FFF4F5", .field: "FFFFFF", .raised: "101216", .mutedSurface: "E2F3FF", .tertiaryText: "FFF4F5", .iconTile: "E2F3FF", .chip: "FAC7DA"]
         ),
         CuratedShakePalette(
             name: "吉伊灵感配色",
-            light: [.canvas: "FFFFFF", .surface: "FFFFFF", .primaryText: "9F8F82", .secondaryText: "9F8F82", .accent: "F4E2E5", .userBubble: "9F8F82", .assistantBubble: "ECC9CF", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "9F8F82", .field: "FFFFFF"],
-            dark: [.canvas: "101216", .surface: "9F8F82", .primaryText: "FFFFFF", .secondaryText: "FFFFFF", .accent: "F4E2E5", .userBubble: "9F8F82", .assistantBubble: "ECC9CF", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FFFFFF", .field: "FFFFFF"]
+            light: [.canvas: "FFFFFF", .surface: "FFFFFF", .primaryText: "9F8F82", .secondaryText: "9F8F82", .accent: "F4E2E5", .userBubble: "9F8F82", .assistantBubble: "ECC9CF", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "9F8F82", .field: "FFFFFF", .raised: "FFFFFF", .mutedSurface: "FFFFFF", .tertiaryText: "9F8F82", .iconTile: "FFFFFF", .chip: "F4E2E5"],
+            dark: [.canvas: "101216", .surface: "9F8F82", .primaryText: "FFFFFF", .secondaryText: "FFFFFF", .accent: "F4E2E5", .userBubble: "9F8F82", .assistantBubble: "ECC9CF", .bubbleText: "101216", .assistantBubbleText: "101216", .border: "FFFFFF", .field: "FFFFFF", .raised: "101216", .mutedSurface: "F4E2E5", .tertiaryText: "FFFFFF", .iconTile: "F4E2E5", .chip: "ECC9CF"]
         ),
     ]
 
