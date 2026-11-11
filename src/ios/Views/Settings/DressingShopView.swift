@@ -219,7 +219,7 @@ extension DressingShopView {
 
                     Button {
                         haptic()
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        _ = withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                             studio.shuffleTheme()
                         }
                         showToast(AppLocalized("已随机一套全新配色"))
@@ -574,6 +574,7 @@ struct DressingSheetHeader: View {
 
 // MARK: - 1. 经典预设快速拾取 (DressingPresetsSheet)
 
+@MainActor
 struct DressingPresetsSheet: View {
     let onApply: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
@@ -676,6 +677,7 @@ struct DressingPresetsSheet: View {
 
 // MARK: - 2. 色彩调控抽屉 (DressingColorStudioSheet)
 
+@MainActor
 struct DressingColorStudioSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
@@ -814,7 +816,7 @@ struct DressingColorStudioSheet: View {
         let binding = Binding<Color>(
             get: { Color(hex: currentHex) },
             set: { newColor in
-                studio.setColor(newColor, for: role, scope: selectedScope, variant: selectedVariant)
+                studio.setColor(newColor, role: role, scope: selectedScope, variant: selectedVariant)
             }
         )
 
@@ -863,6 +865,7 @@ struct DressingColorStudioSheet: View {
 
 // MARK: - 3. 壁纸与立绘抽屉 (DressingWallpaperArtSheet)
 
+@MainActor
 struct DressingWallpaperArtSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
@@ -1070,7 +1073,7 @@ struct DressingWallpaperArtSheet: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(studio.hasCharacterArt() ? AppLocalized("立绘已就绪（将在特定模式下展示）") : AppLocalized("尚未设置立绘"))
+                    Text(studio.hasCharacterArt ? AppLocalized("立绘已就绪（将在特定模式下展示）") : AppLocalized("尚未设置立绘"))
                         .font(.system(size: 12))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
@@ -1085,7 +1088,7 @@ struct DressingWallpaperArtSheet: View {
                                 .clipShape(Capsule())
                         }
 
-                        if studio.hasCharacterArt() {
+                        if studio.hasCharacterArt {
                             Button {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 studio.removeCharacterArt()
@@ -1206,6 +1209,7 @@ struct DressingWallpaperArtSheet: View {
 
 // MARK: - 4. 气泡与挂件抽屉 (DressingBubblesPendantsSheet)
 
+@MainActor
 struct DressingBubblesPendantsSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
@@ -1577,6 +1581,7 @@ struct DressingBubblesPendantsSheet: View {
 
 // MARK: - 5. 字体与排版抽屉 (DressingTypographySheet)
 
+@MainActor
 struct DressingTypographySheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
@@ -1882,6 +1887,7 @@ struct DressingTypographySheet: View {
 
 // MARK: - 6. 主题存档库抽屉 (DressingThemeLibrarySheet)
 
+@MainActor
 struct DressingThemeLibrarySheet: View {
     let onOpenSave: () -> Void
     let onOpenImportExport: () -> Void
@@ -2032,6 +2038,7 @@ struct DressingThemeLibrarySheet: View {
 
 // MARK: - 7. 细节与图标抽屉 (DressingDetailsIconsSheet)
 
+@MainActor
 struct DressingDetailsIconsSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
@@ -2154,6 +2161,7 @@ struct DressingDetailsIconsSheet: View {
 
 // MARK: - 8. 保存主题弹窗 (DressingSaveThemeSheet)
 
+@MainActor
 struct DressingSaveThemeSheet: View {
     let onSaved: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
@@ -2209,6 +2217,7 @@ struct DressingSaveThemeSheet: View {
 
 // MARK: - 9. 导入导出弹窗 (DressingImportExportSheet)
 
+@MainActor
 struct DressingImportExportSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
