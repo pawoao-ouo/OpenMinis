@@ -14,6 +14,7 @@ struct DressingShopView: View {
     @ObservedObject private var bubbleStore = BubbleStylePackStore.shared
     @ObservedObject private var pendantStore = AvatarPendantStore.shared
     @ObservedObject private var fontStore = UploadedFontStore.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     @State private var activeSheet: DressingSheetDestination? = nil
     @State private var toastMessage: String? = nil
@@ -61,7 +62,7 @@ struct DressingShopView: View {
                             Image(systemName: "sparkles")
                                 .font(.system(size: 12, weight: .semibold))
                             Text(AppLocalized("预设"))
-                                .font(.system(size: 13, weight: .medium))
+                                .font(ChatFont.font(13, weight: .medium))
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -79,7 +80,7 @@ struct DressingShopView: View {
             .overlay(alignment: .bottom) {
                 if let msg = toastMessage {
                     Text(msg)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(ChatFont.font(13, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.card(scope: .settings))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
@@ -122,7 +123,7 @@ extension DressingShopView {
     private var topModeBar: some View {
         HStack(spacing: 8) {
             Text(AppLocalized("色彩模式"))
-                .font(.system(size: 13, weight: .medium))
+                .font(ChatFont.font(13, weight: .medium))
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
             Spacer()
@@ -155,7 +156,7 @@ extension DressingShopView {
             }
         } label: {
             Text(title)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .font(ChatFont.font(12, weight: isSelected ? .semibold : .regular))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(isSelected ? CSSThemeVariables.card(scope: .settings) : Color.clear)
@@ -172,7 +173,7 @@ extension DressingShopView {
                 // 主题标题与状态小标签
                 VStack(alignment: .leading, spacing: 3) {
                     Text(studio.currentThemePack().name)
-                        .font(.system(size: 16, weight: .bold))
+                        .font(ChatFont.font(16, weight: .bold))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                     HStack(spacing: 6) {
@@ -181,7 +182,7 @@ extension DressingShopView {
                             .frame(width: 7, height: 7)
 
                         Text(AppearanceFontFamily.parse(studio.currentThemePack().fontFamily).title + " · " + (bubbleStore.appliedPack(for: .user)?.title ?? AppLocalized("默认气泡")))
-                            .font(.system(size: 11, weight: .medium))
+                            .font(ChatFont.font(11, weight: .medium))
                             .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                     }
                 }
@@ -215,7 +216,7 @@ extension DressingShopView {
                     miniAvatar(isUser: false)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(AppLocalized("你好，醒醒。今天想怎么打扮我？"))
-                            .font(.system(size: 12))
+                            .font(ChatFont.font(12))
                             .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
@@ -229,7 +230,7 @@ extension DressingShopView {
                 HStack(alignment: .top, spacing: 8) {
                     Spacer(minLength: 20)
                     Text(AppLocalized("做简单、精致、iOS 26 质感～"))
-                        .font(.system(size: 12))
+                        .font(ChatFont.font(12))
                         .foregroundStyle(CSSThemeVariables.card(scope: .chat))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
@@ -285,7 +286,7 @@ extension DressingShopView {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
                     Text(AppLocalized("全局透光与材质"))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(ChatFont.font(13, weight: .semibold))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                 }
                 Spacer()
@@ -298,7 +299,7 @@ extension DressingShopView {
                     showToast(AppLocalized("旋钮已复位"))
                 } label: {
                     Text(AppLocalized("复位"))
-                        .font(.system(size: 11, weight: .medium))
+                        .font(ChatFont.font(11, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
@@ -332,7 +333,7 @@ extension DressingShopView {
                         .frame(width: 16)
 
                     Text(AppLocalized("全局玻璃感"))
-                        .font(.system(size: 12))
+                        .font(ChatFont.font(12))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                     Spacer()
@@ -360,7 +361,7 @@ extension DressingShopView {
                 .frame(width: 16)
 
             Text(title)
-                .font(.system(size: 12))
+                .font(ChatFont.font(12))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             Spacer()
@@ -370,7 +371,7 @@ extension DressingShopView {
                 .tint(CSSThemeVariables.accent(scope: .settings))
 
             Text("\(Int(value.wrappedValue * 100))%")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(ChatFont.font(11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                 .frame(width: 38, alignment: .trailing)
         }
@@ -414,11 +415,11 @@ extension DressingShopView {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(ChatFont.font(14, weight: .bold))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                     Text(sub)
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .lineLimit(1)
                 }
@@ -454,7 +455,7 @@ extension DressingShopView {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 12))
                     Text(AppLocalized("恢复默认调色板"))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(ChatFont.font(13, weight: .medium))
                 }
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                 .padding(.vertical, 8)
@@ -531,17 +532,18 @@ struct DressingSheetHeader: View {
     let title: String
     let subtitle: String?
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     var body: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 17, weight: .bold))
+                    .font(ChatFont.font(17, weight: .bold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 if let sub = subtitle {
                     Text(sub)
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                 }
             }
@@ -569,6 +571,7 @@ struct DressingSheetHeader: View {
 struct DressingPresetsSheet: View {
     let onApply: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -607,7 +610,7 @@ struct DressingPresetsSheet: View {
                         .frame(width: 14, height: 14)
 
                     Text(preset.title)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(ChatFont.font(14, weight: .bold))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                     Spacer()
@@ -616,7 +619,7 @@ struct DressingPresetsSheet: View {
                     // 任何一处改色、改壁纸都会让它立刻掉下去，不会过期。
                     if studio.isPresetActive(preset) {
                         Text(AppLocalized("正在用"))
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(ChatFont.font(10, weight: .semibold))
                             .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
@@ -626,7 +629,7 @@ struct DressingPresetsSheet: View {
                 }
 
                 Text(presetSubtitle(preset))
-                    .font(.system(size: 11))
+                    .font(ChatFont.font(11))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                     .lineLimit(2)
                     .frame(height: 28, alignment: .topLeading)
@@ -641,7 +644,7 @@ struct DressingPresetsSheet: View {
                     Image(systemName: "checkmark.circle")
                         .font(.system(size: 10))
                     Text(AppLocalized("换上"))
-                        .font(.system(size: 10, weight: .medium))
+                        .font(ChatFont.font(10, weight: .medium))
                 }
                 .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
                 .padding(.horizontal, 8)
@@ -684,14 +687,14 @@ struct DressingPresetsSheet: View {
                         .frame(width: 14, height: 14)
 
                     Text(set.title)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(ChatFont.font(14, weight: .bold))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                     Spacer()
 
                     if active {
                         Text(AppLocalized("正在用"))
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(ChatFont.font(10, weight: .semibold))
                             .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
@@ -701,7 +704,7 @@ struct DressingPresetsSheet: View {
                 }
 
                 Text(AppLocalized("输入栏四颗键换成金色图片"))
-                    .font(.system(size: 11))
+                    .font(ChatFont.font(11))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                     .lineLimit(2)
                     .frame(height: 28, alignment: .topLeading)
@@ -718,7 +721,7 @@ struct DressingPresetsSheet: View {
                     Image(systemName: "checkmark.circle")
                         .font(.system(size: 10))
                     Text(AppLocalized(active ? "取下" : "换上"))
-                        .font(.system(size: 10, weight: .medium))
+                        .font(ChatFont.font(10, weight: .medium))
                 }
                 .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
                 .padding(.horizontal, 8)
@@ -762,6 +765,7 @@ struct DressingPresetsSheet: View {
 struct DressingColorStudioSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var selectedScope: AppearanceScope = .global
     @State private var selectedVariant: AppearanceVariant = .light
     @State private var selectedGroup: AppearanceColorRoleGroup = .text
@@ -808,7 +812,7 @@ struct DressingColorStudioSheet: View {
                                     Image(systemName: "arrow.counterclockwise")
                                         .font(.system(size: 11))
                                     Text(AppLocalized("清除本页覆盖"))
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(ChatFont.font(12, weight: .medium))
                                 }
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                 .padding(.horizontal, 12)
@@ -842,7 +846,7 @@ struct DressingColorStudioSheet: View {
                             selectedScope = scope
                         } label: {
                             Text(scope.title)
-                                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                                .font(ChatFont.font(12, weight: isSelected ? .semibold : .regular))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -863,7 +867,7 @@ struct DressingColorStudioSheet: View {
                         selectedVariant = variant
                     } label: {
                         Text(variant.title)
-                            .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                            .font(ChatFont.font(12, weight: isSelected ? .semibold : .regular))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 6)
                             .background(isSelected ? CSSThemeVariables.card(scope: .settings) : Color.clear)
@@ -890,7 +894,7 @@ struct DressingColorStudioSheet: View {
                         selectedGroup = grp
                     } label: {
                         Text(grp.title)
-                            .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                            .font(ChatFont.font(11, weight: isSelected ? .bold : .medium))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
                             .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : Color.clear)
@@ -916,11 +920,11 @@ struct DressingColorStudioSheet: View {
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(role.title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(ChatFont.font(13, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 Text("#" + currentHex)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(ChatFont.font(11, design: .monospaced))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
             }
 
@@ -962,6 +966,7 @@ struct DressingColorStudioSheet: View {
 struct DressingWallpaperArtSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var selectedScope: AppearanceScope = .global
 
     // 相册拾取项
@@ -1049,7 +1054,7 @@ struct DressingWallpaperArtSheet: View {
     private var wallpaperSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(AppLocalized("分页面壁纸设置"))
-                .font(.system(size: 13, weight: .bold))
+                .font(ChatFont.font(13, weight: .bold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             // Scope 切换
@@ -1061,7 +1066,7 @@ struct DressingWallpaperArtSheet: View {
                         selectedScope = sc
                     } label: {
                         Text(sc.title)
-                            .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                            .font(ChatFont.font(11, weight: isSelected ? .semibold : .regular))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
                             .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -1091,11 +1096,11 @@ struct DressingWallpaperArtSheet: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(selectedScope == .global ? AppLocalized("全局通用壁纸") : AppLocalized("该页面独立壁纸"))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(ChatFont.font(13, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                     Text(studio.hasOwnWallpaper(selectedScope) ? AppLocalized("已自定义壁纸") : AppLocalized("未单独设置（遵循主题底色或全局壁纸）"))
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                     HStack(spacing: 8) {
@@ -1104,7 +1109,7 @@ struct DressingWallpaperArtSheet: View {
                                 Image(systemName: "photo.badge.plus")
                                     .font(.system(size: 10))
                                 Text(AppLocalized("从相册选择"))
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(ChatFont.font(11, weight: .semibold))
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
@@ -1120,7 +1125,7 @@ struct DressingWallpaperArtSheet: View {
                                 onNotify(AppLocalized("已清除该页面壁纸并恢复默认"))
                             } label: {
                                 Text(AppLocalized("清除壁纸"))
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(ChatFont.font(11, weight: .medium))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 5)
@@ -1145,7 +1150,7 @@ struct DressingWallpaperArtSheet: View {
     private var characterArtSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(AppLocalized("助手专属立绘 (Character Art)"))
-                .font(.system(size: 13, weight: .bold))
+                .font(ChatFont.font(13, weight: .bold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             HStack(spacing: 12) {
@@ -1167,13 +1172,13 @@ struct DressingWallpaperArtSheet: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(studio.hasCharacterArt ? AppLocalized("立绘已就绪（将在特定模式下展示）") : AppLocalized("尚未设置立绘"))
-                        .font(.system(size: 12))
+                        .font(ChatFont.font(12))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                     HStack(spacing: 8) {
                         PhotosPicker(selection: $pickedArtItem, matching: .images) {
                             Text(AppLocalized("上传立绘"))
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(ChatFont.font(11, weight: .semibold))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
                                 .background(CSSThemeVariables.accentSoft(scope: .settings))
@@ -1188,7 +1193,7 @@ struct DressingWallpaperArtSheet: View {
                                 onNotify(AppLocalized("已清除立绘"))
                             } label: {
                                 Text(AppLocalized("移除"))
-                                    .font(.system(size: 11))
+                                    .font(ChatFont.font(11))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 5)
@@ -1212,7 +1217,7 @@ struct DressingWallpaperArtSheet: View {
     private var componentDecorSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(AppLocalized("部件背景装饰图"))
-                .font(.system(size: 13, weight: .bold))
+                .font(ChatFont.font(13, weight: .bold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             // 思考卡装饰
@@ -1251,14 +1256,14 @@ struct DressingWallpaperArtSheet: View {
         VStack(spacing: 8) {
             HStack {
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(ChatFont.font(12, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 Spacer()
 
                 PhotosPicker(selection: pickerItem, matching: .images) {
                     Text(hasImage ? AppLocalized("更换图片") : AppLocalized("添加图片"))
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(ChatFont.font(11, weight: .semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(CSSThemeVariables.accentSoft(scope: .settings))
@@ -1278,14 +1283,14 @@ struct DressingWallpaperArtSheet: View {
             if hasImage {
                 HStack(spacing: 8) {
                     Text(AppLocalized("透明度"))
-                        .font(.system(size: 10))
+                        .font(ChatFont.font(10))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                     Slider(value: opacity, in: 0.05...1.0)
                         .tint(CSSThemeVariables.accent(scope: .settings))
 
                     Text("\(Int(opacity.wrappedValue * 100))%")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(ChatFont.font(10, design: .monospaced))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                 }
             }
@@ -1308,6 +1313,7 @@ struct DressingBubblesPendantsSheet: View {
     @ObservedObject private var studio = AppearanceStudio.shared
     @ObservedObject private var bubbleStore = BubbleStylePackStore.shared
     @ObservedObject private var pendantStore = AvatarPendantStore.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
 
     @State private var selectedTab: Int = 0 // 0: 气泡款式, 1: 头像与挂件
     @State private var editingSide: DressingSide = .user
@@ -1417,7 +1423,7 @@ struct DressingBubblesPendantsSheet: View {
             selectedTab = index
         } label: {
             Text(title)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .font(ChatFont.font(12, weight: isSelected ? .semibold : .regular))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
                 .background(isSelected ? CSSThemeVariables.card(scope: .settings) : Color.clear)
@@ -1432,7 +1438,7 @@ struct DressingBubblesPendantsSheet: View {
             // 侧别切换 (你 / AI)
             HStack(spacing: 8) {
                 Text(AppLocalized("正在调节："))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(ChatFont.font(12, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                 ForEach(DressingSide.allCases, id: \.self) { side in
@@ -1442,7 +1448,7 @@ struct DressingBubblesPendantsSheet: View {
                         editingSide = side
                     } label: {
                         Text(side.displayName)
-                            .font(.system(size: 12, weight: isSelected ? .bold : .medium))
+                            .font(ChatFont.font(12, weight: isSelected ? .bold : .medium))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 5)
                             .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -1457,7 +1463,7 @@ struct DressingBubblesPendantsSheet: View {
             // 气泡圆角滑块与基本风格切换
             VStack(alignment: .leading, spacing: 10) {
                 Text(AppLocalized("气泡形状微调"))
-                    .font(.system(size: 13, weight: .bold))
+                    .font(ChatFont.font(13, weight: .bold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 // 风格选择
@@ -1469,7 +1475,7 @@ struct DressingBubblesPendantsSheet: View {
                             studio.setBubbleStyle(style, user: editingSide.isUser)
                         } label: {
                             Text(style.title)
-                                .font(.system(size: 11, weight: isSelected ? .bold : .regular))
+                                .font(ChatFont.font(11, weight: isSelected ? .bold : .regular))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -1482,7 +1488,7 @@ struct DressingBubblesPendantsSheet: View {
                 // 圆角滑块
                 HStack(spacing: 8) {
                     Text(AppLocalized("圆角半径"))
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                     Slider(
@@ -1503,7 +1509,7 @@ struct DressingBubblesPendantsSheet: View {
                     .tint(CSSThemeVariables.accent(scope: .settings))
 
                     Text("\(Int(editingSide.isUser ? studio.currentThemePack().userBubbleRadius : studio.currentThemePack().assistantBubbleRadius)) pt")
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(ChatFont.font(11, design: .monospaced))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .frame(width: 36, alignment: .trailing)
                 }
@@ -1521,7 +1527,7 @@ struct DressingBubblesPendantsSheet: View {
             // 字段会把另一侧的气泡也带走）。
             VStack(alignment: .leading, spacing: 10) {
                 Text(AppLocalized("气泡底纹与文字色"))
-                    .font(.system(size: 13, weight: .bold))
+                    .font(ChatFont.font(13, weight: .bold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 // 实时样例气泡：和 live 聊天同一条渲染链
@@ -1537,7 +1543,7 @@ struct DressingBubblesPendantsSheet: View {
                 )
                 .overlay(alignment: .leading) {
                     Text(AppLocalized("这是一条示例消息"))
-                        .font(.system(size: 13))
+                        .font(ChatFont.font(13))
                         .foregroundStyle(editingTextColor)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
@@ -1552,7 +1558,7 @@ struct DressingBubblesPendantsSheet: View {
                 // 图案选择
                 HStack(spacing: 6) {
                     Text(AppLocalized("图案"))
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .frame(width: 72, alignment: .leading)
 
@@ -1563,7 +1569,7 @@ struct DressingBubblesPendantsSheet: View {
                             setEditingPattern(pattern)
                         } label: {
                             Text(pattern.title)
-                                .font(.system(size: 11, weight: isSelected ? .bold : .regular))
+                                .font(ChatFont.font(11, weight: isSelected ? .bold : .regular))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -1577,7 +1583,7 @@ struct DressingBubblesPendantsSheet: View {
                 // 没选图案时滑不动，值留着等选了图案再起效）
                 HStack(spacing: 8) {
                     Text(AppLocalized("图案不透明度"))
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .frame(width: 72, alignment: .leading)
 
@@ -1591,7 +1597,7 @@ struct DressingBubblesPendantsSheet: View {
                     .tint(CSSThemeVariables.accent(scope: .settings))
 
                     Text("\(Int(editingPatternOpacity * 100))%")
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(ChatFont.font(11, design: .monospaced))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .frame(width: 36, alignment: .trailing)
                 }
@@ -1601,12 +1607,12 @@ struct DressingBubblesPendantsSheet: View {
                 // 气泡文字色（nil = 跟随主题色）
                 HStack(spacing: 8) {
                     Text(AppLocalized("气泡文字色"))
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .frame(width: 72, alignment: .leading)
 
                     Text(editingTextHex.map { "#" + $0 } ?? AppLocalized("跟随主题"))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(ChatFont.font(11, design: .monospaced))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                     Spacer()
@@ -1652,12 +1658,12 @@ struct DressingBubblesPendantsSheet: View {
                 // 这里存的是这侧自己挑的图，文件名固定为一侧一个。）
                 HStack(spacing: 8) {
                     Text(AppLocalized("气泡底图"))
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .frame(width: 72, alignment: .leading)
 
                     Text(editingBackgroundImageFile == nil ? AppLocalized("未设置") : AppLocalized("已设置"))
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                     Spacer()
@@ -1668,7 +1674,7 @@ struct DressingBubblesPendantsSheet: View {
                         bubblePickerPresented = true
                     } label: {
                         Text(AppLocalized("选择图片"))
-                            .font(.system(size: 11, weight: .medium))
+                            .font(ChatFont.font(11, weight: .medium))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(CSSThemeVariables.surfaceFill(scope: .settings))
@@ -1700,7 +1706,7 @@ struct DressingBubblesPendantsSheet: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
                         Text(AppLocalized("气泡装饰"))
-                            .font(.system(size: 11))
+                            .font(ChatFont.font(11))
                             .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                             .frame(width: 72, alignment: .leading)
 
@@ -1713,7 +1719,7 @@ struct DressingBubblesPendantsSheet: View {
                             decorationPickerPresented = true
                         } label: {
                             Text(AppLocalized("添加装饰"))
-                                .font(.system(size: 11, weight: .medium))
+                                .font(ChatFont.font(11, weight: .medium))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
@@ -1725,7 +1731,7 @@ struct DressingBubblesPendantsSheet: View {
 
                     if editingDecorations.isEmpty {
                         Text(AppLocalized("暂无装饰"))
-                            .font(.system(size: 11))
+                            .font(ChatFont.font(11))
                             .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                     }
 
@@ -1746,7 +1752,7 @@ struct DressingBubblesPendantsSheet: View {
                                 }
 
                                 Text(AppLocalized("装饰") + " \(index + 1)")
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(ChatFont.font(11, weight: .medium))
                                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                                 Spacer()
@@ -1758,7 +1764,7 @@ struct DressingBubblesPendantsSheet: View {
                                     decorationPickerPresented = true
                                 } label: {
                                     Text(AppLocalized("换图"))
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(ChatFont.font(11, weight: .medium))
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
                                         .background(CSSThemeVariables.surfaceFill(scope: .settings))
@@ -1785,7 +1791,7 @@ struct DressingBubblesPendantsSheet: View {
                             // 锚点（四个角）
                             HStack(spacing: 6) {
                                 Text(AppLocalized("位置"))
-                                    .font(.system(size: 11))
+                                    .font(ChatFont.font(11))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                     .frame(width: 72, alignment: .leading)
 
@@ -1796,7 +1802,7 @@ struct DressingBubblesPendantsSheet: View {
                                         updateEditingDecoration(at: index, user: editingSide.isUser) { $0.anchor = anchor }
                                     } label: {
                                         Text(anchor.title)
-                                            .font(.system(size: 11, weight: isSelected ? .bold : .regular))
+                                            .font(ChatFont.font(11, weight: isSelected ? .bold : .regular))
                                             .padding(.horizontal, 8)
                                             .padding(.vertical, 4)
                                             .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -1809,7 +1815,7 @@ struct DressingBubblesPendantsSheet: View {
                             // 大小（12...64，和 BubbleDecoration 的夹值一致）
                             HStack(spacing: 8) {
                                 Text(AppLocalized("大小"))
-                                    .font(.system(size: 11))
+                                    .font(ChatFont.font(11))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                     .frame(width: 72, alignment: .leading)
 
@@ -1825,7 +1831,7 @@ struct DressingBubblesPendantsSheet: View {
                                 .tint(CSSThemeVariables.accent(scope: .settings))
 
                                 Text("\(Int(decoration.size))")
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(ChatFont.font(11, design: .monospaced))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                     .frame(width: 24, alignment: .trailing)
                             }
@@ -1833,7 +1839,7 @@ struct DressingBubblesPendantsSheet: View {
                             // 横向偏移（-40...40，和 BubbleDecoration 的夹值一致）
                             HStack(spacing: 8) {
                                 Text(AppLocalized("横向偏移"))
-                                    .font(.system(size: 11))
+                                    .font(ChatFont.font(11))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                     .frame(width: 72, alignment: .leading)
 
@@ -1849,7 +1855,7 @@ struct DressingBubblesPendantsSheet: View {
                                 .tint(CSSThemeVariables.accent(scope: .settings))
 
                                 Text("\(Int(decoration.offsetX))")
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(ChatFont.font(11, design: .monospaced))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                     .frame(width: 28, alignment: .trailing)
                             }
@@ -1857,7 +1863,7 @@ struct DressingBubblesPendantsSheet: View {
                             // 纵向偏移（-40...40）
                             HStack(spacing: 8) {
                                 Text(AppLocalized("纵向偏移"))
-                                    .font(.system(size: 11))
+                                    .font(ChatFont.font(11))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                     .frame(width: 72, alignment: .leading)
 
@@ -1873,7 +1879,7 @@ struct DressingBubblesPendantsSheet: View {
                                 .tint(CSSThemeVariables.accent(scope: .settings))
 
                                 Text("\(Int(decoration.offsetY))")
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(ChatFont.font(11, design: .monospaced))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                     .frame(width: 28, alignment: .trailing)
                             }
@@ -1895,7 +1901,7 @@ struct DressingBubblesPendantsSheet: View {
             // 预设款式列表
             VStack(alignment: .leading, spacing: 8) {
                 Text(AppLocalized("预设气泡款式库"))
-                    .font(.system(size: 13, weight: .bold))
+                    .font(ChatFont.font(13, weight: .bold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -2064,7 +2070,7 @@ struct DressingBubblesPendantsSheet: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(pack.title)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(ChatFont.font(13, weight: .bold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 Spacer()
@@ -2077,7 +2083,7 @@ struct DressingBubblesPendantsSheet: View {
             }
 
             Text(pack.number)
-                .font(.system(size: 10, design: .monospaced))
+                .font(ChatFont.font(10, design: .monospaced))
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
             HStack(spacing: 6) {
@@ -2087,7 +2093,7 @@ struct DressingBubblesPendantsSheet: View {
                     onNotify(AppLocalized("已给 \(editingSide.displayName) 换上 \(pack.title)"))
                 } label: {
                     Text(AppLocalized("换上"))
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(ChatFont.font(10, weight: .semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(isApplied ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -2101,7 +2107,7 @@ struct DressingBubblesPendantsSheet: View {
                     onNotify(AppLocalized("已全部应用 \(pack.title)"))
                 } label: {
                     Text(AppLocalized("双方都用"))
-                        .font(.system(size: 10))
+                        .font(ChatFont.font(10))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                 }
             }
@@ -2121,7 +2127,7 @@ struct DressingBubblesPendantsSheet: View {
             // 头像轮廓与大小
             VStack(alignment: .leading, spacing: 10) {
                 Text(AppLocalized("头像形状与尺寸"))
-                    .font(.system(size: 13, weight: .bold))
+                    .font(ChatFont.font(13, weight: .bold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 HStack(spacing: 6) {
@@ -2132,7 +2138,7 @@ struct DressingBubblesPendantsSheet: View {
                             studio.setAvatarShape(shape)
                         } label: {
                             Text(shape.title)
-                                .font(.system(size: 12, weight: isSelected ? .bold : .regular))
+                                .font(ChatFont.font(12, weight: isSelected ? .bold : .regular))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -2144,7 +2150,7 @@ struct DressingBubblesPendantsSheet: View {
 
                 HStack(spacing: 8) {
                     Text(AppLocalized("头像大小"))
-                        .font(.system(size: 11))
+                        .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                     Slider(
@@ -2161,7 +2167,7 @@ struct DressingBubblesPendantsSheet: View {
                     .tint(CSSThemeVariables.accent(scope: .settings))
 
                     Text("\(Int(studio.currentThemePack().avatarSize)) pt")
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(ChatFont.font(11, design: .monospaced))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .frame(width: 36, alignment: .trailing)
                 }
@@ -2177,7 +2183,7 @@ struct DressingBubblesPendantsSheet: View {
             // 头像发光圆环挂件
             VStack(alignment: .leading, spacing: 8) {
                 Text(AppLocalized("发光柔光圆环挂件"))
-                    .font(.system(size: 13, weight: .bold))
+                    .font(ChatFont.font(13, weight: .bold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -2205,11 +2211,11 @@ struct DressingBubblesPendantsSheet: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pendant.title)
-                        .font(.system(size: 12, weight: .bold))
+                        .font(ChatFont.font(12, weight: .bold))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                     Text(pendant.number)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(ChatFont.font(10, design: .monospaced))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                 }
             }
@@ -2226,7 +2232,7 @@ struct DressingBubblesPendantsSheet: View {
                     }
                 } label: {
                     Text(isUserWearing ? AppLocalized("你已佩戴") : AppLocalized("戴在我头上"))
-                        .font(.system(size: 9, weight: .medium))
+                        .font(ChatFont.font(10, weight: .medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .background(isUserWearing ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -2245,7 +2251,7 @@ struct DressingBubblesPendantsSheet: View {
                     }
                 } label: {
                     Text(isAIWearing ? AppLocalized("AI已佩戴") : AppLocalized("戴在AI上"))
-                        .font(.system(size: 9, weight: .medium))
+                        .font(ChatFont.font(10, weight: .medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .background(isAIWearing ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -2272,6 +2278,7 @@ struct DressingTypographySheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
     @ObservedObject private var fontStore = UploadedFontStore.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var showFontPicker = false
 
     var body: some View {
@@ -2320,7 +2327,7 @@ struct DressingTypographySheet: View {
     private var systemFontSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(AppLocalized("内置字体风格"))
-                .font(.system(size: 13, weight: .bold))
+                .font(ChatFont.font(13, weight: .bold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             HStack(spacing: 6) {
@@ -2333,7 +2340,7 @@ struct DressingTypographySheet: View {
                         onNotify(AppLocalized("已切换字体：") + family.title)
                     } label: {
                         Text(family.title)
-                            .font(.system(size: 12, weight: isSelected ? .bold : .medium, design: family.design))
+                            .font(ChatFont.font(12, weight: isSelected ? .bold : .medium, design: family.design))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 7)
                             .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -2356,7 +2363,7 @@ struct DressingTypographySheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(AppLocalized("自定义导入字体 (.ttf / .otf)"))
-                    .font(.system(size: 13, weight: .bold))
+                    .font(ChatFont.font(13, weight: .bold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 Spacer()
@@ -2369,7 +2376,7 @@ struct DressingTypographySheet: View {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 11))
                         Text(AppLocalized("导入字体"))
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(ChatFont.font(11, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -2381,7 +2388,7 @@ struct DressingTypographySheet: View {
 
             if fontStore.fonts.isEmpty {
                 Text(AppLocalized("暂无已导入的自定义字体"))
-                    .font(.system(size: 11))
+                    .font(ChatFont.font(11))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                     .padding(.vertical, 4)
             } else {
@@ -2391,10 +2398,10 @@ struct DressingTypographySheet: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(font.title)
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(ChatFont.font(12, weight: .medium))
                                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                                 Text(font.postScriptName)
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(ChatFont.font(10, design: .monospaced))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                             }
 
@@ -2406,7 +2413,7 @@ struct DressingTypographySheet: View {
                                 onNotify(isApplied ? AppLocalized("已停用自定义字体") : AppLocalized("已应用自定义字体"))
                             } label: {
                                 Text(isApplied ? AppLocalized("使用中") : AppLocalized("应用"))
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .font(ChatFont.font(10, weight: .semibold))
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
                                     .background(isApplied ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -2444,7 +2451,7 @@ struct DressingTypographySheet: View {
     private var typographySlidersSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(AppLocalized("字体大小与留白"))
-                .font(.system(size: 13, weight: .bold))
+                .font(ChatFont.font(13, weight: .bold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             // 字号
@@ -2494,7 +2501,7 @@ struct DressingTypographySheet: View {
     private func sliderRow(title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, isDecimal: Bool = false) -> some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 11))
+                .font(ChatFont.font(11))
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                 .frame(width: 95, alignment: .leading)
 
@@ -2502,7 +2509,7 @@ struct DressingTypographySheet: View {
                 .tint(CSSThemeVariables.accent(scope: .settings))
 
             Text(isDecimal ? String(format: "%.2f %@", value.wrappedValue, unit) : "\(Int(value.wrappedValue)) \(unit)")
-                .font(.system(size: 11, design: .monospaced))
+                .font(ChatFont.font(11, design: .monospaced))
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                 .frame(width: 55, alignment: .trailing)
         }
@@ -2511,12 +2518,12 @@ struct DressingTypographySheet: View {
     private var readingModesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(AppLocalized("沉浸阅读与消息形态"))
-                .font(.system(size: 13, weight: .bold))
+                .font(ChatFont.font(13, weight: .bold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(AppLocalized("视觉小说模式"))
-                    .font(.system(size: 11))
+                    .font(ChatFont.font(11))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                 HStack(spacing: 6) {
@@ -2527,7 +2534,7 @@ struct DressingTypographySheet: View {
                             studio.setNovelMode(mode)
                         } label: {
                             Text(mode.title)
-                                .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                                .font(ChatFont.font(11, weight: isSelected ? .bold : .medium))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -2540,7 +2547,7 @@ struct DressingTypographySheet: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(AppLocalized("消息气泡排布"))
-                    .font(.system(size: 11))
+                    .font(ChatFont.font(11))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                 HStack(spacing: 6) {
@@ -2551,7 +2558,7 @@ struct DressingTypographySheet: View {
                             studio.setChatDisplay(disp)
                         } label: {
                             Text(disp.title)
-                                .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                                .font(ChatFont.font(11, weight: isSelected ? .bold : .medium))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
@@ -2580,6 +2587,7 @@ struct DressingThemeLibrarySheet: View {
     let onOpenImportExport: () -> Void
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var deleteConfirmTheme: AppearanceSavedTheme? = nil
 
     var body: some View {
@@ -2600,7 +2608,7 @@ struct DressingThemeLibrarySheet: View {
                             Image(systemName: "square.and.arrow.down.fill")
                                 .font(.system(size: 11))
                             Text(AppLocalized("保存当前主题"))
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(ChatFont.font(12, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
@@ -2617,7 +2625,7 @@ struct DressingThemeLibrarySheet: View {
                             Image(systemName: "arrow.up.arrow.down")
                                 .font(.system(size: 11))
                             Text(AppLocalized("导入 / 导出"))
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(ChatFont.font(12, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
@@ -2632,12 +2640,12 @@ struct DressingThemeLibrarySheet: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(AppLocalized("我的已存主题 (\(studio.savedThemes().count))"))
-                            .font(.system(size: 13, weight: .bold))
+                            .font(ChatFont.font(13, weight: .bold))
                             .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                         if studio.savedThemes().isEmpty {
                             Text(AppLocalized("还没有保存任何主题，点击上方“保存当前主题”即可存入"))
-                                .font(.system(size: 11))
+                                .font(ChatFont.font(11))
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                 .padding(.vertical, 12)
                         } else {
@@ -2696,11 +2704,11 @@ struct DressingThemeLibrarySheet: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(theme.name)
-                    .font(.system(size: 14, weight: .bold))
+                    .font(ChatFont.font(14, weight: .bold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                 Text(theme.savedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.system(size: 10))
+                    .font(ChatFont.font(10))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
             }
 
@@ -2732,7 +2740,7 @@ struct DressingThemeLibrarySheet: View {
                 }
             } label: {
                 Text(AppLocalized("换上"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(ChatFont.font(11, weight: .semibold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(CSSThemeVariables.accentSoft(scope: .settings))
@@ -2766,6 +2774,7 @@ struct DressingThemeLibrarySheet: View {
 struct DressingDetailsIconsSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var expandedCategoryKey: String?
     @State private var pickedIconItem: PhotosPickerItem? = nil
     @State private var pendingIconSlotId: String? = nil
@@ -2825,12 +2834,12 @@ struct DressingDetailsIconsSheet: View {
     private var codeBlockSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(AppLocalized("代码块折叠设置"))
-                .font(.system(size: 13, weight: .bold))
+                .font(ChatFont.font(13, weight: .bold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             HStack(spacing: 8) {
                 Text(AppLocalized("自动折叠行数"))
-                    .font(.system(size: 11))
+                    .font(ChatFont.font(11))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                 Slider(
@@ -2845,7 +2854,7 @@ struct DressingDetailsIconsSheet: View {
 
                 let lines = studio.currentThemePack().codeBlockCollapseLines
                 Text("\(lines) 行")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(ChatFont.font(11, design: .monospaced))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                     .frame(width: 45, alignment: .trailing)
             }
@@ -2862,7 +2871,7 @@ struct DressingDetailsIconsSheet: View {
     private var iconSlotsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(AppLocalized("常用界面图标"))
-                .font(.system(size: 13, weight: .bold))
+                .font(ChatFont.font(13, weight: .bold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -2897,7 +2906,7 @@ struct DressingDetailsIconsSheet: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(slot.title)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(ChatFont.font(11, weight: .medium))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                     .lineLimit(1)
             }
@@ -2911,7 +2920,7 @@ struct DressingDetailsIconsSheet: View {
                     onNotify(AppLocalized("已恢复默认图标"))
                 } label: {
                     Text(AppLocalized("重置"))
-                        .font(.system(size: 9, weight: .medium))
+                        .font(ChatFont.font(10, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
@@ -2964,7 +2973,7 @@ struct DressingDetailsIconsSheet: View {
     private var categorySymbolsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(AppLocalized("标签符号"))
-                .font(.system(size: 13, weight: .bold))
+                .font(ChatFont.font(13, weight: .bold))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             ForEach(AppearanceThemePack.categoryKeys, id: \.self) { key in
@@ -2996,7 +3005,7 @@ struct DressingDetailsIconsSheet: View {
                             .frame(width: 28, height: 28)
 
                         Text(categorySymbolTitle(key))
-                            .font(.system(size: 11, weight: .medium))
+                            .font(ChatFont.font(11, weight: .medium))
                             .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                             .lineLimit(1)
 
@@ -3016,7 +3025,7 @@ struct DressingDetailsIconsSheet: View {
                         onNotify(AppLocalized("已恢复默认符号"))
                     } label: {
                         Text(AppLocalized("重置"))
-                            .font(.system(size: 9, weight: .medium))
+                            .font(ChatFont.font(10, weight: .medium))
                             .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
@@ -3065,6 +3074,7 @@ struct DressingSaveThemeSheet: View {
     let onSaved: (String) -> Void
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var themeName: String = ""
     @Environment(\.dismiss) private var dismiss
 
@@ -3078,7 +3088,7 @@ struct DressingSaveThemeSheet: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text(AppLocalized("主题名称"))
-                        .font(.system(size: 12, weight: .bold))
+                        .font(ChatFont.font(12, weight: .bold))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                     TextField(AppLocalized("给这款主题起个名字..."), text: $themeName)
@@ -3102,7 +3112,7 @@ struct DressingSaveThemeSheet: View {
                     }
                 } label: {
                     Text(AppLocalized("立即保存"))
-                        .font(.system(size: 14, weight: .bold))
+                        .font(ChatFont.font(14, weight: .bold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(themeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.surfaceFill(scope: .settings) : CSSThemeVariables.accent(scope: .settings))
@@ -3125,6 +3135,7 @@ struct DressingSaveThemeSheet: View {
 struct DressingImportExportSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
+    @ObservedObject private var fontSettings = FontSettings.shared
     @State private var importText: String = ""
     @State private var showSTPicker = false
     @State private var pendingST: SillyTavernTheme.Imported? = nil
@@ -3144,11 +3155,11 @@ struct DressingImportExportSheet: View {
                         // 导出卡片
                         VStack(alignment: .leading, spacing: 10) {
                             Text(AppLocalized("导出当前主题"))
-                                .font(.system(size: 13, weight: .bold))
+                                .font(ChatFont.font(13, weight: .bold))
                                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                             Text(AppLocalized("将当前主题生成为 JSON 字符串并写入系统剪贴板。"))
-                                .font(.system(size: 11))
+                                .font(ChatFont.font(11))
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                             Button {
@@ -3167,7 +3178,7 @@ struct DressingImportExportSheet: View {
                                     Image(systemName: "doc.on.doc")
                                         .font(.system(size: 11))
                                     Text(AppLocalized("复制主题 JSON"))
-                                        .font(.system(size: 12, weight: .semibold))
+                                        .font(ChatFont.font(12, weight: .semibold))
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
@@ -3188,7 +3199,7 @@ struct DressingImportExportSheet: View {
                         // 导入卡片
                         VStack(alignment: .leading, spacing: 10) {
                             Text(AppLocalized("从剪贴板或文本导入"))
-                                .font(.system(size: 13, weight: .bold))
+                                .font(ChatFont.font(13, weight: .bold))
                                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                             TextEditor(text: $importText)
@@ -3196,7 +3207,7 @@ struct DressingImportExportSheet: View {
                                 .padding(8)
                                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(ChatFont.font(11, design: .monospaced))
 
                             HStack(spacing: 8) {
                                 Button {
@@ -3206,7 +3217,7 @@ struct DressingImportExportSheet: View {
                                     }
                                 } label: {
                                     Text(AppLocalized("粘贴"))
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(ChatFont.font(11, weight: .medium))
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 6)
                                         .background(CSSThemeVariables.surfaceFill(scope: .settings))
@@ -3220,7 +3231,7 @@ struct DressingImportExportSheet: View {
                                     applyImportedPack()
                                 } label: {
                                     Text(AppLocalized("解析并换上"))
-                                        .font(.system(size: 12, weight: .bold))
+                                        .font(ChatFont.font(12, weight: .bold))
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 6)
                                         .background(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.surfaceFill(scope: .settings) : CSSThemeVariables.accent(scope: .settings))
@@ -3243,11 +3254,11 @@ struct DressingImportExportSheet: View {
                         // 解析走 SillyTavernTheme.parse，换上前先过确认页。
                         VStack(alignment: .leading, spacing: 10) {
                             Text(AppLocalized("导入小酒馆主题"))
-                                .font(.system(size: 13, weight: .bold))
+                                .font(ChatFont.font(13, weight: .bold))
                                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
                             Text(AppLocalized("上传小酒馆主题 JSON 文件，颜色、圆角、行高与字号都会跟着变，换上前先让你确认。"))
-                                .font(.system(size: 11))
+                                .font(ChatFont.font(11))
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                             Button {
@@ -3258,7 +3269,7 @@ struct DressingImportExportSheet: View {
                                     Image(systemName: "square.and.arrow.up")
                                         .font(.system(size: 11))
                                     Text(AppLocalized("选择 JSON 文件"))
-                                        .font(.system(size: 12, weight: .semibold))
+                                        .font(ChatFont.font(12, weight: .semibold))
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
@@ -3372,6 +3383,7 @@ struct STImportConfirmSheet: View {
     let onApply: () -> Void
     let onCancel: () -> Void
 
+    @ObservedObject private var fontSettings = FontSettings.shared
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -3407,7 +3419,7 @@ struct STImportConfirmSheet: View {
                         VStack(spacing: 10) {
                             HStack(alignment: .top, spacing: 8) {
                                 Text(AppLocalized("你好，醒醒。今天想怎么打扮我？"))
-                                    .font(.system(size: 12))
+                                    .font(ChatFont.font(12))
                                     .foregroundStyle(Color(hex: effectiveTextHex))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
@@ -3419,7 +3431,7 @@ struct STImportConfirmSheet: View {
                             HStack(alignment: .top, spacing: 8) {
                                 Spacer(minLength: 20)
                                 Text(AppLocalized("做简单、精致、iOS 26 质感～"))
-                                    .font(.system(size: 12))
+                                    .font(ChatFont.font(12))
                                     .foregroundStyle(Color(hex: effectiveTextHex))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
@@ -3457,7 +3469,7 @@ struct STImportConfirmSheet: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 ForEach(imported.warnings, id: \.self) { warning in
                                     Text(warning)
-                                        .font(.system(size: 11))
+                                        .font(ChatFont.font(11))
                                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                 }
                             }
@@ -3478,7 +3490,7 @@ struct STImportConfirmSheet: View {
                                 onCancel()
                             } label: {
                                 Text(AppLocalized("取消"))
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(ChatFont.font(12, weight: .semibold))
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 10)
                                     .background(CSSThemeVariables.surfaceFill(scope: .settings))
@@ -3491,7 +3503,7 @@ struct STImportConfirmSheet: View {
                                 onApply()
                             } label: {
                                 Text(AppLocalized("换上"))
-                                    .font(.system(size: 12, weight: .bold))
+                                    .font(ChatFont.font(12, weight: .bold))
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 10)
                                     .background(CSSThemeVariables.accent(scope: .settings))
@@ -3556,10 +3568,10 @@ struct STImportConfirmSheet: View {
                         .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
                 )
             Text(label)
-                .font(.system(size: 10, weight: .medium))
+                .font(ChatFont.font(10, weight: .medium))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
             Text("#" + hex)
-                .font(.system(size: 9, design: .monospaced))
+                .font(ChatFont.micro(9, design: .monospaced))
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
         }
     }
@@ -3567,11 +3579,11 @@ struct STImportConfirmSheet: View {
     private func summaryRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: 11))
+                .font(ChatFont.font(11))
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
             Spacer()
             Text(value)
-                .font(.system(size: 11, weight: .medium))
+                .font(ChatFont.font(11, weight: .medium))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
         }
     }
