@@ -2389,7 +2389,9 @@ struct DressingShopView: View {
     private var pendantView: some View {
         VStack(alignment: .leading, spacing: 0) {
             sidePicker
-            wornPendantRows
+            if pendantStore.applied(for: .user) != nil || pendantStore.applied(for: .assistant) != nil {
+                wornPendantRows
+            }
             sectionHeader(AppLocalized("头像挂件"), jumpTo: .pendant)
             cardRow {
                 ForEach(pendantStore.pendants) { pendant in pendantCard(pendant) }
