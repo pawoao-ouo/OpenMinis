@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - 装扮中心 (DressingShopView)
 // 统一接入 AppearanceStudio, BubbleStylePackStore, AvatarPendantStore,
@@ -2434,6 +2435,9 @@ struct DressingImportExportSheet: View {
     let onNotify: (String) -> Void
     @ObservedObject private var studio = AppearanceStudio.shared
     @State private var importText: String = ""
+    @State private var showSTPicker = false
+    @State private var pendingST: SillyTavernTheme.Imported? = nil
+    @State private var showSTConfirm = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -2543,12 +2547,102 @@ struct DressingImportExportSheet: View {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
                         )
+
+                        // 小酒馆主题卡片：上传 ST 主题 JSON 文件（不是粘贴文本）。
+                        // 解析走 SillyTavernTheme.parse，换上前先过确认页。
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(AppLocalized("导入小酒馆主题"))
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+                            Text(AppLocalized("上传小酒馆主题 JSON 文件，颜色、圆角、行高与字号都会跟着变，换上前先让你确认。"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+
+                            Button {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                showSTPicker = true
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.system(size: 11))
+                                    Text(AppLocalized("选择 JSON 文件"))
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(CSSThemeVariables.accent(scope: .settings))
+                                .foregroundStyle(CSSThemeVariables.card(scope: .settings))
+                                .clipShape(Capsule())
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+                        )
                     }
                     .padding(16)
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            .sheet(isPresented: $showSTPicker, onDismiss: {
+                // 选完图的回调先于 onDone 跑：解析成功时 pendingST 已经
+                // 在了，选图器关掉后才弹确认页；取消或解析失败时
+                // pendingST 是 nil，什么都不弹。
+                if pendingST != nil { showSTConfirm = true }
+            }) {
+                DocumentCopyPicker(
+                    contentTypes: [UTType.json],
+                    allowsMultipleSelection: false,
+                    onPick: { urls in handleSTFile(urls) },
+                    onDone: { showSTPicker = false }
+                )
+            }
+            .sheet(isPresented: $showSTConfirm, onDismiss: { pendingST = nil }) {
+                if let imported = pendingST {
+                    STImportConfirmSheet(
+                        imported: imported,
+                        onApply: { applySTImport(imported) },
+                        onCancel: { showSTConfirm = false }
+                    )
+                }
+            }
         }
+    }
+
+    /// 读用户选的 ST 主题 JSON 文件并解析。选图器是 asCopy 模式
+    /// （DocumentCopyPicker），文件拷进 tmp 后的普通地址，
+    /// Data(contentsOf:) 直接就能读，不用安全域授权 —— 自签包上
+    /// 就地打开模式点按会静默死亡（字体上传那次的教训），这里
+    /// 绝不能回到 open-in-place。
+    private func handleSTFile(_ urls: [URL]) {
+        guard let url = urls.first else { return }
+        guard let data = try? Data(contentsOf: url) else {
+            onNotify(AppLocalized("读取文件失败"))
+            return
+        }
+        do {
+            pendingST = try SillyTavernTheme.parse(data)
+        } catch {
+            onNotify(AppLocalized("主题解析失败：") + error.localizedDescription)
+        }
+    }
+
+    /// 先抓撤销快照再换上：和 resetPaletteWithUndo 同一套撤销机制，
+    /// 换上后顶栏的撤销箭头能把旧主题救回来。快照抓不到时导入照常
+    /// 换上，只是不留撤销（快照函数内部已清掉旧快照，箭头不会
+    /// 承诺一次做不到的撤销）。
+    private func applySTImport(_ imported: SillyTavernTheme.Imported) {
+        _ = studio.captureUndoSnapshotBeforeImport()
+        studio.applySillyTavern(imported)
+        showSTConfirm = false
+        pendingST = nil
+        onNotify(AppLocalized("已成功换上：") + imported.name)
+        dismiss()
     }
 
     private func applyImportedPack() {
@@ -2565,6 +2659,211 @@ struct DressingImportExportSheet: View {
             dismiss()
         } catch {
             onNotify(AppLocalized("主题解析失败：") + error.localizedDescription)
+        }
+    }
+}
+
+// MARK: - 10. 小酒馆主题导入确认 (STImportConfirmSheet)
+//
+// 只做确认，不做换算：颜色是 SillyTavernTheme.parse 已经映射好的
+// 浅色版；正文与强调色在这里再过一遍和 applySillyTavern 一模一样
+// 的对比度 enforcement，所以确认页上看到的颜色就是换上后实际
+// 生效的颜色，不是一张“看起来像”的图。深色版不另画——解析器在
+// 原包是浅色时按反相推导、是深色时直接复用同一套，确认页只
+// 展示浅色版。
+// 仿聊天小视窗复用不了：它是读当前主题画的，改它去画一个还没
+// 换上的 Imported 要新加一套参数化管线；这里直接用解析出来的
+// 六个色画两句示例气泡，够确认，不发明新机械。
+
+@MainActor
+struct STImportConfirmSheet: View {
+    let imported: SillyTavernTheme.Imported
+    let onApply: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                DressingSheetHeader(
+                    title: imported.name,
+                    subtitle: AppLocalized("小酒馆主题")
+                )
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 16) {
+                        // 六个主色
+                        VStack(alignment: .leading, spacing: 10) {
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                                swatchCell(label: AppLocalized("底色"), hex: hex(.canvas))
+                                swatchCell(label: AppLocalized("卡片"), hex: hex(.surface))
+                                swatchCell(label: AppLocalized("强调"), hex: effectiveAccentHex)
+                                swatchCell(label: AppLocalized("正文"), hex: effectiveTextHex)
+                                swatchCell(label: AppLocalized("我的气泡"), hex: hex(.userBubble))
+                                swatchCell(label: AppLocalized("AI 气泡"), hex: hex(.assistantBubble))
+                            }
+                        }
+                        .padding(14)
+                        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+                        )
+
+                        // 两句示例气泡：和装扮中心顶栏预览同一句文案
+                        VStack(spacing: 10) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(AppLocalized("你好，醒醒。今天想怎么打扮我？"))
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color(hex: effectiveTextHex))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color(hex: hex(.assistantBubble)))
+                                    .clipShape(RoundedRectangle(cornerRadius: previewBubbleRadius, style: .continuous))
+                                Spacer(minLength: 20)
+                            }
+
+                            HStack(alignment: .top, spacing: 8) {
+                                Spacer(minLength: 20)
+                                Text(AppLocalized("做简单、精致、iOS 26 质感～"))
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color(hex: effectiveTextHex))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color(hex: hex(.userBubble)))
+                                    .clipShape(RoundedRectangle(cornerRadius: previewBubbleRadius, style: .continuous))
+                            }
+                        }
+                        .padding(12)
+                        .background(Color(hex: hex(.canvas)).opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+                        )
+
+                        // 头像 / 消息 / 字号
+                        VStack(alignment: .leading, spacing: 8) {
+                            summaryRow(label: AppLocalized("头像"), value: imported.avatarShape.title)
+                            summaryRow(label: AppLocalized("消息"), value: imported.chatDisplay.title)
+                            if let scale = imported.fontScale {
+                                summaryRow(label: AppLocalized("字号"), value: "\(Int(min(15, max(10, (13 * scale).rounded()))))pt")
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+                        )
+
+                        // 解析时留下的提醒
+                        if !imported.warnings.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(imported.warnings, id: \.self) { warning in
+                                    Text(warning)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                }
+                            }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+                            )
+                        }
+
+                        // 换上 / 取消
+                        HStack(spacing: 12) {
+                            Button {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                onCancel()
+                            } label: {
+                                Text(AppLocalized("取消"))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(CSSThemeVariables.surfaceFill(scope: .settings))
+                                    .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+                                    .clipShape(Capsule())
+                            }
+
+                            Button {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                onApply()
+                            } label: {
+                                Text(AppLocalized("换上"))
+                                    .font(.system(size: 12, weight: .bold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(CSSThemeVariables.accent(scope: .settings))
+                                    .foregroundStyle(CSSThemeVariables.card(scope: .settings))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+        }
+    }
+
+    private func hex(_ role: AppearanceColorRole) -> String {
+        imported.light[role] ?? "FFFFFF"
+    }
+
+    /// 和 applySillyTavern 里同一段 enforcement：先底色、再卡片面，
+    /// 正文用 body 档（4.5），强调色用 ui 档（3.0），只动明度不动色相。
+    private var effectiveTextHex: String {
+        var fg = AppearanceContrast.enforce(hex(.primaryText), on: hex(.canvas), level: .body)
+        fg = AppearanceContrast.enforce(fg, on: hex(.surface), level: .body)
+        return fg
+    }
+
+    private var effectiveAccentHex: String {
+        var accent = AppearanceContrast.enforce(hex(.accent), on: hex(.canvas), level: .ui)
+        accent = AppearanceContrast.enforce(accent, on: hex(.surface), level: .ui)
+        return accent
+    }
+
+    /// 示例气泡的圆角：和 applySillyTavern 里同一段 clamp（0–32）。
+    private var previewBubbleRadius: CGFloat {
+        CGFloat(min(32, max(0, imported.bubbleRadius ?? 14)))
+    }
+
+    private func swatchCell(label: String, hex: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(hex: hex))
+                .frame(height: 44)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+                )
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+            Text("#" + hex)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+        }
+    }
+
+    private func summaryRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+            Spacer()
+            Text(value)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
         }
     }
 }

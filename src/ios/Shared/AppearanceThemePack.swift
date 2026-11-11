@@ -1713,6 +1713,21 @@ extension AppearanceStudio {
         resetColors()
     }
 
+    /// [ST import] 小酒馆主题导入前先抓一份完整撤销快照，和
+    /// `resetPaletteWithUndo` / `resetThemePack` 同一套机制 —— 快照落在
+    /// 同一个 `.undo` 目录，`undoThemeReset` 恢复它，顶栏的撤销箭头读
+    /// `canUndoThemeReset`。抓失败时清掉旧快照（`resetThemePack` 同款
+    /// 失效逻辑），箭头不会承诺一次做不到的撤销；导入照常换上，只
+    /// 是没有撤销。
+    @discardableResult
+    func captureUndoSnapshotBeforeImport() -> Bool {
+        guard captureThemeUndoSnapshot() != nil else {
+            try? FileManager.default.removeItem(at: themeUndoDirectory)
+            return false
+        }
+        return true
+    }
+
     /// [F1] Colours-only undo snapshot for clear-all page overrides.
     /// Unlike `captureThemeUndoSnapshot`, this does NOT depend on a
     /// pack JSON existing: it captures exactly the colour map the clear
