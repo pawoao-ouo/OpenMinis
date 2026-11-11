@@ -245,6 +245,14 @@ enum BubbleDecorationAnchor: String, CaseIterable, Codable {
         guard let raw, let value = BubbleDecorationAnchor(rawValue: raw) else { return .topTrailing }
         return value
     }
+    var title: String {
+        switch self {
+        case .topLeading: return AppLocalized("左上")
+        case .topTrailing: return AppLocalized("右上")
+        case .bottomLeading: return AppLocalized("左下")
+        case .bottomTrailing: return AppLocalized("右下")
+        }
+    }
 }
 
 /// One decorative image element on a pack: a file in the pack
@@ -347,6 +355,43 @@ enum BubblePackImageStore {
     /// Deletes this side's custom image file, if there is one.
     static func removeCustomImage(user: Bool) {
         remove(fileName: customFileName(user: user))
+    }
+
+    /// Decoration image file names: one unique name per decoration.
+    /// Unlike the background image (one fixed name per side), a side
+    /// can hold several decorations, so each stored image gets its
+    /// own "decoration-<uuid>.jpg". The prefix is also the ownership
+    /// mark: only names with this prefix were created by the
+    /// decoration editor, so only those are ever deleted by it —
+    /// a pack record's image never carries the prefix.
+    static func decorationFileName() -> String {
+        "decoration-\(UUID().uuidString).jpg"
+    }
+
+    /// Whether this file name is one of the decoration editor's own
+    /// images rather than a pack record's image.
+    static func isDecorationFileName(_ fileName: String?) -> Bool {
+        guard let fileName else { return false }
+        return fileName.hasPrefix("decoration-") && fileName.hasSuffix(".jpg")
+    }
+
+    /// Stores an image as a new decoration image: same downscale
+    /// (maxEdge 1400), JPEG (0.82) and atomic write as the custom
+    /// background path. Returns the unique file name on success,
+    /// nil on failure (callers report that honestly, never as success).
+    @discardableResult
+    static func storeDecorationImage(_ image: UIImage) -> String? {
+        let name = decorationFileName()
+        guard let url = url(fileName: name),
+              writeDownscaledJPEG(image, to: url, maxEdge: 1400, quality: 0.82) else { return nil }
+        return name
+    }
+
+    /// Deletes a decoration image file, but only one this editor
+    /// created. Pack images are never touched.
+    static func removeDecorationImage(fileName: String?) {
+        guard isDecorationFileName(fileName) else { return }
+        remove(fileName: fileName)
     }
 
     /// Downscale + JPEG + atomic write, mirroring the wallpaper

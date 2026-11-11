@@ -1217,6 +1217,12 @@ struct DressingBubblesPendantsSheet: View {
     @State private var pickedBubbleImageItem: PhotosPickerItem? = nil
     @State private var pendingBubbleSide: DressingSide? = nil
     @State private var bubblePickerPresented = false
+    // 装饰选图器：和底图选图器共用一颗抽屉根，但各走各的 binding。
+    // pendingDecorationIndex 为 nil = 新增装饰，数字 = 给第几个换图。
+    @State private var pickedDecorationItem: PhotosPickerItem? = nil
+    @State private var pendingDecorationSide: DressingSide? = nil
+    @State private var pendingDecorationIndex: Int? = nil
+    @State private var decorationPickerPresented = false
 
     var body: some View {
         NavigationStack {
@@ -1269,6 +1275,37 @@ struct DressingBubblesPendantsSheet: View {
                             onNotify(AppLocalized("已设置气泡底图"))
                         } else {
                             onNotify(AppLocalized("气泡底图设置失败，请换一张图试试"))
+                        }
+                    }
+                }
+            }
+            // 装饰选图器：和底图那套同款写法——Button 里先把侧和第几
+            // 个记下来再开，onChange 里只认这次点的；取消（item 为 nil）
+            // 或无侧直接 return，同一张图再选也照样触发。
+            .photosPicker(isPresented: $decorationPickerPresented, selection: $pickedDecorationItem, matching: .images)
+            .onChange(of: pickedDecorationItem) { item in
+                guard let item, let side = pendingDecorationSide else { return }
+                pickedDecorationItem = nil
+                let index = pendingDecorationIndex
+                Task {
+                    guard let data = try? await item.loadTransferable(type: Data.self),
+                          let uiImage = UIImage(data: data) else {
+                        await MainActor.run {
+                            onNotify(AppLocalized("装饰设置失败，请换一张图试试"))
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        if let name = BubblePackImageStore.storeDecorationImage(uiImage) {
+                            if let index {
+                                replaceEditingDecorationImage(at: index, fileName: name, user: side.isUser)
+                                onNotify(AppLocalized("已更换装饰图片"))
+                            } else {
+                                addEditingDecoration(imageFile: name, user: side.isUser)
+                                onNotify(AppLocalized("已添加装饰"))
+                            }
+                        } else {
+                            onNotify(AppLocalized("装饰设置失败，请换一张图试试"))
                         }
                     }
                 }
@@ -1407,6 +1444,11 @@ struct DressingBubblesPendantsSheet: View {
                         .foregroundStyle(editingTextColor)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
+                }
+                // 装饰就盖在气泡上（和 live 聊天同一层：BubblePackDecorationsView
+                // 盖在气泡容器外，角标能探出气泡轮廓），改了当场就能看见。
+                .overlay {
+                    BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations(user: editingSide.isUser))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1554,6 +1596,196 @@ struct DressingBubblesPendantsSheet: View {
                         .accessibilityLabel(AppLocalized("重置"))
                     }
                 }
+
+                // 气泡装饰（分侧列表：每条一个角标图 + 锚点 + 大小 + 偏移。
+                // 只写分侧 JSON 字段；图文件走 BubblePackImageStore 的
+                // decoration- 唯一名，移除时只删编辑器自己存的图。）
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text(AppLocalized("气泡装饰"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                            .frame(width: 72, alignment: .leading)
+
+                        Spacer()
+
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            pendingDecorationSide = editingSide
+                            pendingDecorationIndex = nil
+                            decorationPickerPresented = true
+                        } label: {
+                            Text(AppLocalized("添加装饰"))
+                                .font(.system(size: 11, weight: .medium))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(CSSThemeVariables.surfaceFill(scope: .settings))
+                                .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+                                .clipShape(Capsule())
+                        }
+                        .accessibilityLabel(AppLocalized("添加装饰"))
+                    }
+
+                    if editingDecorations.isEmpty {
+                        Text(AppLocalized("暂无装饰"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                    }
+
+                    ForEach(Array(editingDecorations.enumerated()), id: \.offset) { index, decoration in
+                        VStack(alignment: .leading, spacing: 8) {
+                            // 标题行：缩略图 + 装饰 N + 换图 + 移除
+                            HStack(spacing: 8) {
+                                if let thumb = BubblePackImageStore.image(fileName: decoration.imageFile) {
+                                    Image(uiImage: thumb)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 28, height: 28)
+                                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                } else {
+                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                        .fill(CSSThemeVariables.surfaceFill(scope: .settings))
+                                        .frame(width: 28, height: 28)
+                                }
+
+                                Text(AppLocalized("装饰") + " \(index + 1)")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+                                Spacer()
+
+                                Button {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    pendingDecorationSide = editingSide
+                                    pendingDecorationIndex = index
+                                    decorationPickerPresented = true
+                                } label: {
+                                    Text(AppLocalized("换图"))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(CSSThemeVariables.surfaceFill(scope: .settings))
+                                        .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+                                        .clipShape(Capsule())
+                                }
+                                .accessibilityLabel(AppLocalized("换图"))
+
+                                Button {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    removeEditingDecoration(at: index, user: editingSide.isUser)
+                                    onNotify(AppLocalized("已移除装饰"))
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                        .padding(6)
+                                        .background(CSSThemeVariables.surfaceFill(scope: .settings))
+                                        .clipShape(Circle())
+                                }
+                                .accessibilityLabel(AppLocalized("移除"))
+                            }
+
+                            // 锚点（四个角）
+                            HStack(spacing: 6) {
+                                Text(AppLocalized("位置"))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                    .frame(width: 72, alignment: .leading)
+
+                                ForEach(BubbleDecorationAnchor.allCases, id: \.self) { anchor in
+                                    let isSelected = decoration.anchor == anchor
+                                    Button {
+                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                        updateEditingDecoration(at: index, user: editingSide.isUser) { $0.anchor = anchor }
+                                    } label: {
+                                        Text(anchor.title)
+                                            .font(.system(size: 11, weight: isSelected ? .bold : .regular))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
+                                            .foregroundStyle(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                            }
+
+                            // 大小（12...64，和 BubbleDecoration 的夹值一致）
+                            HStack(spacing: 8) {
+                                Text(AppLocalized("大小"))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                    .frame(width: 72, alignment: .leading)
+
+                                Slider(
+                                    value: Binding(
+                                        get: { decoration.size },
+                                        set: { newValue in
+                                            updateEditingDecoration(at: index, user: editingSide.isUser) { $0.size = newValue }
+                                        }
+                                    ),
+                                    in: 12...64
+                                )
+                                .tint(CSSThemeVariables.accent(scope: .settings))
+
+                                Text("\(Int(decoration.size))")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                    .frame(width: 24, alignment: .trailing)
+                            }
+
+                            // 横向偏移（-40...40，和 BubbleDecoration 的夹值一致）
+                            HStack(spacing: 8) {
+                                Text(AppLocalized("横向偏移"))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                    .frame(width: 72, alignment: .leading)
+
+                                Slider(
+                                    value: Binding(
+                                        get: { decoration.offsetX },
+                                        set: { newValue in
+                                            updateEditingDecoration(at: index, user: editingSide.isUser) { $0.offsetX = newValue }
+                                        }
+                                    ),
+                                    in: -40...40
+                                )
+                                .tint(CSSThemeVariables.accent(scope: .settings))
+
+                                Text("\(Int(decoration.offsetX))")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                    .frame(width: 28, alignment: .trailing)
+                            }
+
+                            // 纵向偏移（-40...40）
+                            HStack(spacing: 8) {
+                                Text(AppLocalized("纵向偏移"))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                    .frame(width: 72, alignment: .leading)
+
+                                Slider(
+                                    value: Binding(
+                                        get: { decoration.offsetY },
+                                        set: { newValue in
+                                            updateEditingDecoration(at: index, user: editingSide.isUser) { $0.offsetY = newValue }
+                                        }
+                                    ),
+                                    in: -40...40
+                                )
+                                .tint(CSSThemeVariables.accent(scope: .settings))
+
+                                Text("\(Int(decoration.offsetY))")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                    .frame(width: 28, alignment: .trailing)
+                            }
+                        }
+                        .padding(8)
+                        .background(CSSThemeVariables.surfaceFill(scope: .settings).opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
             }
             .padding(12)
             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
@@ -1657,6 +1889,67 @@ struct DressingBubblesPendantsSheet: View {
             BubblePackImageStore.removeCustomImage(user: editingSide.isUser)
         }
         setEditingBackgroundImageFile(nil, user: editingSide.isUser)
+    }
+
+    /// 当前调节侧的装饰列表（分侧 JSON 字段解码），空 = []。
+    private var editingDecorations: [BubbleDecoration] {
+        decorations(for: editingSide.isUser)
+    }
+
+    /// 读一侧的装饰列表（分侧 JSON 字段解码），空 = []。
+    private func decorations(for user: Bool) -> [BubbleDecoration] {
+        BubbleStyleRecord.decodeDecorations(user
+            ? studio.currentThemePack().userBubbleDecorationsJSON
+            : studio.currentThemePack().assistantBubbleDecorationsJSON)
+    }
+
+    /// 写回一侧的装饰列表（JSON 编码后进分侧字段，再 persistPack，
+    /// 样例气泡和 live 聊天都读同一字段，当场刷新）。
+    private func setEditingDecorations(_ decorations: [BubbleDecoration], user: Bool) {
+        var pack = studio.currentThemePack()
+        let json = BubbleStyleRecord.encodeDecorations(decorations)
+        if user {
+            pack.userBubbleDecorationsJSON = json
+        } else {
+            pack.assistantBubbleDecorationsJSON = json
+        }
+        studio.persistPack(pack)
+    }
+
+    /// 新增一个装饰：图刚存好，锚点默认右上、大小 28、偏移 0
+    ///（BubbleDecoration 的默认值）。
+    private func addEditingDecoration(imageFile: String, user: Bool) {
+        var decorations = decorations(for: user)
+        decorations.append(BubbleDecoration(imageFile: imageFile))
+        setEditingDecorations(decorations, user: user)
+    }
+
+    /// 给第几个装饰换图：旧图是编辑器自己存的才删文件
+    /// （款式库带进来的图可能多处共用，绝不删），再写新文件名。
+    private func replaceEditingDecorationImage(at index: Int, fileName: String, user: Bool) {
+        var decorations = decorations(for: user)
+        guard decorations.indices.contains(index) else { return }
+        BubblePackImageStore.removeDecorationImage(fileName: decorations[index].imageFile)
+        decorations[index].imageFile = fileName
+        setEditingDecorations(decorations, user: user)
+    }
+
+    /// 移除第几个装饰：列表里删掉，图文件是编辑器自己存的才删。
+    private func removeEditingDecoration(at index: Int, user: Bool) {
+        var decorations = decorations(for: user)
+        guard decorations.indices.contains(index) else { return }
+        BubblePackImageStore.removeDecorationImage(fileName: decorations[index].imageFile)
+        decorations.remove(at: index)
+        setEditingDecorations(decorations, user: user)
+    }
+
+    /// 改第几个装饰的锚点 / 大小 / 偏移（值在 BubbleDecoration 的
+    /// init 里已夹过：大小 12...64，偏移 -40...40）。
+    private func updateEditingDecoration(at index: Int, user: Bool, _ change: (inout BubbleDecoration) -> Void) {
+        var decorations = decorations(for: user)
+        guard decorations.indices.contains(index) else { return }
+        change(&decorations[index])
+        setEditingDecorations(decorations, user: user)
     }
 
     /// 当前调节侧实际生效的文字色（包里有就用包的，没有就跟主题），
