@@ -18,8 +18,6 @@ struct DressingShopView: View {
     @State private var toastMessage: String? = nil
     @State private var toastTask: Task<Void, Never>? = nil
 
-    @Environment(\.dismiss) private var dismiss
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -53,16 +51,6 @@ struct DressingShopView: View {
             .navigationTitle(AppLocalized("装扮中心"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        haptic()
-                        dismiss()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         haptic()
