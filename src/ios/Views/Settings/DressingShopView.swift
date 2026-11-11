@@ -205,6 +205,11 @@ struct DressingShopView: View {
         var name: String
     }
     @State private var shakePreview: ShakePreviewRoll?
+    /// Shake roll mode: nil = the 11 curated sets (shufflePureRandom),
+    /// a Mood = a random Morandi roll inside that mood's parameter
+    /// range (shuffle(seed:mood:)). Never persisted — the roll button
+    /// reads it, nothing else does.
+    @State private var shakeMood: AppearanceThemeShuffle.Mood?
     @Environment(\.colorScheme) private var themePreviewScheme
     // Bumped on SOUL.md / persona-change notifications so a
     // same-persona rename (which neither PersonaStore nor the
@@ -3608,7 +3613,16 @@ struct DressingShopView: View {
     // never invents a name; Discard only drops the preview state.
 
     private func rollShakePreview() {
-        let rolled = AppearanceThemeShuffle.shufflePureRandom()
+        // Mood picked = a random Morandi roll in that mood's range;
+        // no mood = the 11 curated sets, exactly as before.
+        let rolled: (light: [AppearanceColorRole: String],
+                     dark: [AppearanceColorRole: String],
+                     name: String)
+        if let mood = shakeMood {
+            rolled = AppearanceThemeShuffle.shuffle(mood: mood)
+        } else {
+            rolled = AppearanceThemeShuffle.shufflePureRandom()
+        }
         shakePreview = ShakePreviewRoll(light: rolled.light, dark: rolled.dark, name: rolled.name)
     }
 
@@ -3702,6 +3716,15 @@ struct DressingShopView: View {
             Text(AppLocalized("摇出一套新配色，先预览再决定；预览时现场配色不动。"))
                 .font(.system(size: fsSub))
                 .foregroundStyle(studio.color(.secondaryText))
+            Picker(AppLocalized("摇法"), selection: $shakeMood) {
+                Text(AppLocalized("11 套精选")).tag(AppearanceThemeShuffle.Mood?.none)
+                ForEach(AppearanceThemeShuffle.Mood.allCases) { mood in
+                    Text(mood.title).tag(AppearanceThemeShuffle.Mood?.some(mood))
+                }
+            }
+            .pickerStyle(.menu)
+            .tint(studio.color(.accent))
+            .font(.system(size: fsSub))
             Button {
                 fontTapHaptic()
                 rollShakePreview()
