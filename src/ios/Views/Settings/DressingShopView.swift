@@ -46,8 +46,8 @@ struct DressingShopView: View {
 
                         Spacer(minLength: 40)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                    .padding(.horizontal, DressingTokens.Padding.page)
+                    .padding(.top, DressingTokens.Padding.sectionTop)
                 }
             }
             .navigationTitle(AppLocalized("装扮中心"))
@@ -64,8 +64,8 @@ struct DressingShopView: View {
                             Text(AppLocalized("预设"))
                                 .font(ChatFont.font(13, weight: .medium))
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
+                        .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                        .padding(.vertical, DressingTokens.Padding.pillVertical)
                         .background(CSSThemeVariables.accentSoft(scope: .settings))
                         .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
                         .clipShape(Capsule())
@@ -82,12 +82,12 @@ struct DressingShopView: View {
                     Text(msg)
                         .font(ChatFont.font(13, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.card(scope: .settings))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, DressingTokens.Padding.page)
+                        .padding(.vertical, DressingTokens.Padding.cardVertical)
                         .background(CSSThemeVariables.textMain(scope: .settings))
                         .clipShape(Capsule())
-                        .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
-                        .padding(.bottom, 24)
+                        .shadow(color: DressingTokens.Shadow.floatingColor, radius: DressingTokens.Shadow.floatingRadius, y: DressingTokens.Shadow.floatingY)
+                        .padding(.bottom, DressingTokens.Padding.scrollBottom)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -133,16 +133,16 @@ extension DressingShopView {
                 modePill(title: AppLocalized("日间"), mode: .light)
                 modePill(title: AppLocalized("夜间"), mode: .dark)
             }
-            .padding(3)
+            .padding(DressingTokens.Padding.segment)
             .background(CSSThemeVariables.surfaceFill(scope: .settings))
             .clipShape(Capsule())
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, DressingTokens.Padding.cardHorizontal)
+        .padding(.vertical, DressingTokens.Padding.cardVertical)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -157,12 +157,12 @@ extension DressingShopView {
         } label: {
             Text(title)
                 .font(ChatFont.font(12, weight: isSelected ? .semibold : .regular))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                .padding(.vertical, DressingTokens.Padding.pillVertical)
                 .background(isSelected ? CSSThemeVariables.card(scope: .settings) : Color.clear)
                 .foregroundStyle(isSelected ? CSSThemeVariables.textMain(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                 .clipShape(Capsule())
-                .shadow(color: isSelected ? .black.opacity(0.06) : .clear, radius: 3, y: 1)
+                .shadow(color: DressingTokens.Shadow.selectedColor(isSelected: isSelected), radius: DressingTokens.Shadow.selectedRadius, y: DressingTokens.Shadow.selectedY)
         }
     }
 
@@ -200,7 +200,7 @@ extension DressingShopView {
                         } label: {
                             Image(systemName: "arrow.uturn.backward")
                                 .font(.system(size: 11, weight: .bold))
-                                .padding(8)
+                                .padding(DressingTokens.Padding.inner)
                                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Circle())
@@ -218,8 +218,8 @@ extension DressingShopView {
                         Text(AppLocalized("你好，醒醒。今天想怎么打扮我？"))
                             .font(ChatFont.font(12))
                             .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+                            .padding(.vertical, DressingTokens.Padding.contentVertical)
                             .background(CSSThemeVariables.card(scope: .chat))
                             .clipShape(RoundedRectangle(cornerRadius: CGFloat(studio.currentThemePack().assistantBubbleRadius), style: .continuous))
                     }
@@ -232,26 +232,26 @@ extension DressingShopView {
                     Text(AppLocalized("做简单、精致、iOS 26 质感～"))
                         .font(ChatFont.font(12))
                         .foregroundStyle(CSSThemeVariables.card(scope: .chat))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+                        .padding(.vertical, DressingTokens.Padding.contentVertical)
                         .background(CSSThemeVariables.accent(scope: .chat))
                         .clipShape(RoundedRectangle(cornerRadius: CGFloat(studio.currentThemePack().userBubbleRadius), style: .continuous))
                     miniAvatar(isUser: true)
                 }
             }
-            .padding(12)
+            .padding(DressingTokens.Padding.card)
             .background(CSSThemeVariables.bg(scope: .chat).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
             )
         }
-        .padding(14)
+        .padding(DressingTokens.Padding.section)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.92))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.previewDock, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.previewDock, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -301,8 +301,8 @@ extension DressingShopView {
                     Text(AppLocalized("复位"))
                         .font(ChatFont.font(11, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                        .padding(.vertical, DressingTokens.Padding.smallPillVertical)
                         .background(CSSThemeVariables.surfaceFill(scope: .settings))
                         .clipShape(Capsule())
                 }
@@ -344,11 +344,11 @@ extension DressingShopView {
                 }
             }
         }
-        .padding(14)
+        .padding(DressingTokens.Padding.section)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -424,12 +424,12 @@ extension DressingShopView {
                         .lineLimit(1)
                 }
             }
-            .padding(14)
+            .padding(DressingTokens.Padding.section)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous)
                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
             )
         }
@@ -458,10 +458,10 @@ extension DressingShopView {
                         .font(ChatFont.font(13, weight: .medium))
                 }
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                .padding(.vertical, 8)
+                .padding(.vertical, DressingTokens.Padding.contentVertical)
             }
         }
-        .padding(.top, 8)
+        .padding(.top, DressingTokens.Padding.sectionTop)
     }
 }
 
@@ -558,9 +558,9 @@ struct DressingSheetHeader: View {
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings).opacity(0.6))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 8)
+        .padding(.horizontal, DressingTokens.Padding.page)
+        .padding(.top, DressingTokens.Padding.sheetTop)
+        .padding(.bottom, DressingTokens.Padding.sheetBottom)
     }
 }
 
@@ -589,7 +589,7 @@ struct DressingPresetsSheet: View {
                         }
                         composerIconCard()
                     }
-                    .padding(16)
+                    .padding(DressingTokens.Padding.sheet)
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
@@ -621,8 +621,8 @@ struct DressingPresetsSheet: View {
                         Text(AppLocalized("正在用"))
                             .font(ChatFont.font(10, weight: .semibold))
                             .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, DressingTokens.Padding.headerPillHorizontal)
+                            .padding(.vertical, DressingTokens.Padding.smallPillVertical)
                             .background(CSSThemeVariables.accentSoft(scope: .settings))
                             .clipShape(Capsule())
                     }
@@ -647,16 +647,16 @@ struct DressingPresetsSheet: View {
                         .font(ChatFont.font(10, weight: .medium))
                 }
                 .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                .padding(.vertical, DressingTokens.Padding.rowVertical)
                 .background(CSSThemeVariables.accentSoft(scope: .settings))
                 .clipShape(Capsule())
             }
-            .padding(12)
+            .padding(DressingTokens.Padding.card)
             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
             )
         }
@@ -696,8 +696,8 @@ struct DressingPresetsSheet: View {
                         Text(AppLocalized("正在用"))
                             .font(ChatFont.font(10, weight: .semibold))
                             .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, DressingTokens.Padding.headerPillHorizontal)
+                            .padding(.vertical, DressingTokens.Padding.smallPillVertical)
                             .background(CSSThemeVariables.accentSoft(scope: .settings))
                             .clipShape(Capsule())
                     }
@@ -724,16 +724,16 @@ struct DressingPresetsSheet: View {
                         .font(ChatFont.font(10, weight: .medium))
                 }
                 .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                .padding(.vertical, DressingTokens.Padding.rowVertical)
                 .background(CSSThemeVariables.accentSoft(scope: .settings))
                 .clipShape(Capsule())
             }
-            .padding(12)
+            .padding(DressingTokens.Padding.card)
             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
             )
         }
@@ -815,8 +815,8 @@ struct DressingColorStudioSheet: View {
                                         .font(ChatFont.font(12, weight: .medium))
                                 }
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
+                                .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.contentVertical)
                                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                 .clipShape(Capsule())
                             }
@@ -825,9 +825,9 @@ struct DressingColorStudioSheet: View {
 
                             Spacer()
                         }
-                        .padding(.top, 8)
+                        .padding(.top, DressingTokens.Padding.sectionTop)
                     }
-                    .padding(16)
+                    .padding(DressingTokens.Padding.sheet)
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
@@ -847,15 +847,15 @@ struct DressingColorStudioSheet: View {
                         } label: {
                             Text(scope.title)
                                 .font(ChatFont.font(12, weight: isSelected ? .semibold : .regular))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
+                                .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.pillVertical)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                                 .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Capsule())
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, DressingTokens.Padding.page)
             }
 
             // Variant (浅色/深色)
@@ -869,19 +869,19 @@ struct DressingColorStudioSheet: View {
                         Text(variant.title)
                             .font(ChatFont.font(12, weight: isSelected ? .semibold : .regular))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
+                            .padding(.vertical, DressingTokens.Padding.widePillVertical)
                             .background(isSelected ? CSSThemeVariables.card(scope: .settings) : Color.clear)
                             .foregroundStyle(isSelected ? CSSThemeVariables.textMain(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                             .clipShape(Capsule())
                     }
                 }
             }
-            .padding(3)
+            .padding(DressingTokens.Padding.segment)
             .background(CSSThemeVariables.surfaceFill(scope: .settings))
             .clipShape(Capsule())
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DressingTokens.Padding.page)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, DressingTokens.Padding.widePillVertical)
     }
 
     private var roleGroupPicker: some View {
@@ -895,17 +895,17 @@ struct DressingColorStudioSheet: View {
                     } label: {
                         Text(grp.title)
                             .font(ChatFont.font(11, weight: isSelected ? .bold : .medium))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                            .padding(.vertical, DressingTokens.Padding.rowVertical)
                             .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : Color.clear)
                             .foregroundStyle(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                             .clipShape(Capsule())
                     }
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DressingTokens.Padding.page)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, DressingTokens.Padding.rowVertical)
     }
 
     private func colorRoleRow(_ role: AppearanceColorRole) -> some View {
@@ -943,17 +943,17 @@ struct DressingColorStudioSheet: View {
                 Image(systemName: "arrow.uturn.backward")
                     .font(.system(size: 11))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                    .padding(6)
+                    .padding(DressingTokens.Padding.tiny)
                     .background(CSSThemeVariables.surfaceFill(scope: .settings))
                     .clipShape(Circle())
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+        .padding(.vertical, DressingTokens.Padding.tallRowVertical)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -994,7 +994,7 @@ struct DressingWallpaperArtSheet: View {
                         // 3. 思考卡与输入栏装饰图
                         componentDecorSection
                     }
-                    .padding(16)
+                    .padding(DressingTokens.Padding.sheet)
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
@@ -1067,8 +1067,8 @@ struct DressingWallpaperArtSheet: View {
                     } label: {
                         Text(sc.title)
                             .font(ChatFont.font(11, weight: isSelected ? .semibold : .regular))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
+                            .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                            .padding(.vertical, DressingTokens.Padding.pillVertical)
                             .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                             .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                             .clipShape(Capsule())
@@ -1083,10 +1083,10 @@ struct DressingWallpaperArtSheet: View {
                         .resizable()
                         .scaledToFill()
                         .frame(width: 64, height: 64)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.field, style: .continuous))
                 } else {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        RoundedRectangle(cornerRadius: DressingTokens.Radius.field, style: .continuous)
                             .fill(CSSThemeVariables.surfaceFill(scope: .settings))
                             .frame(width: 64, height: 64)
                         Image(systemName: "photo")
@@ -1111,8 +1111,8 @@ struct DressingWallpaperArtSheet: View {
                                 Text(AppLocalized("从相册选择"))
                                     .font(ChatFont.font(11, weight: .semibold))
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
+                            .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                            .padding(.vertical, DressingTokens.Padding.pillVertical)
                             .background(CSSThemeVariables.accent(scope: .settings))
                             .foregroundStyle(CSSThemeVariables.card(scope: .settings))
                             .clipShape(Capsule())
@@ -1127,21 +1127,21 @@ struct DressingWallpaperArtSheet: View {
                                 Text(AppLocalized("清除壁纸"))
                                     .font(ChatFont.font(11, weight: .medium))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 5)
+                                    .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                                    .padding(.vertical, DressingTokens.Padding.pillVertical)
                                     .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                     .clipShape(Capsule())
                             }
                         }
                     }
-                    .padding(.top, 2)
+                    .padding(.top, DressingTokens.Padding.labelTop)
                 }
             }
-            .padding(12)
+            .padding(DressingTokens.Padding.card)
             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
             )
         }
@@ -1159,10 +1159,10 @@ struct DressingWallpaperArtSheet: View {
                         .resizable()
                         .scaledToFill()
                         .frame(width: 50, height: 64)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.chip, style: .continuous))
                 } else {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        RoundedRectangle(cornerRadius: DressingTokens.Radius.chip, style: .continuous)
                             .fill(CSSThemeVariables.surfaceFill(scope: .settings))
                             .frame(width: 50, height: 64)
                         Image(systemName: "person.crop.artframe")
@@ -1179,8 +1179,8 @@ struct DressingWallpaperArtSheet: View {
                         PhotosPicker(selection: $pickedArtItem, matching: .images) {
                             Text(AppLocalized("上传立绘"))
                                 .font(ChatFont.font(11, weight: .semibold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
+                                .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.pillVertical)
                                 .background(CSSThemeVariables.accentSoft(scope: .settings))
                                 .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
                                 .clipShape(Capsule())
@@ -1195,8 +1195,8 @@ struct DressingWallpaperArtSheet: View {
                                 Text(AppLocalized("移除"))
                                     .font(ChatFont.font(11))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 5)
+                                    .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                                    .padding(.vertical, DressingTokens.Padding.pillVertical)
                                     .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                     .clipShape(Capsule())
                             }
@@ -1204,11 +1204,11 @@ struct DressingWallpaperArtSheet: View {
                     }
                 }
             }
-            .padding(12)
+            .padding(DressingTokens.Padding.card)
             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
             )
         }
@@ -1264,8 +1264,8 @@ struct DressingWallpaperArtSheet: View {
                 PhotosPicker(selection: pickerItem, matching: .images) {
                     Text(hasImage ? AppLocalized("更换图片") : AppLocalized("添加图片"))
                         .font(ChatFont.font(11, weight: .semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                        .padding(.vertical, DressingTokens.Padding.rowVertical)
                         .background(CSSThemeVariables.accentSoft(scope: .settings))
                         .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
                         .clipShape(Capsule())
@@ -1295,11 +1295,11 @@ struct DressingWallpaperArtSheet: View {
                 }
             }
         }
-        .padding(12)
+        .padding(DressingTokens.Padding.card)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -1340,11 +1340,11 @@ struct DressingBubblesPendantsSheet: View {
                     tabPill(title: AppLocalized("气泡款式与圆角"), index: 0)
                     tabPill(title: AppLocalized("头像挂件与形状"), index: 1)
                 }
-                .padding(3)
+                .padding(DressingTokens.Padding.segment)
                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
                 .clipShape(Capsule())
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
+                .padding(.horizontal, DressingTokens.Padding.page)
+                .padding(.vertical, DressingTokens.Padding.widePillVertical)
 
                 ScrollView(.vertical, showsIndicators: false) {
                     if selectedTab == 0 {
@@ -1353,7 +1353,7 @@ struct DressingBubblesPendantsSheet: View {
                         pendantAndAvatarSection
                     }
                 }
-                .padding(16)
+                .padding(DressingTokens.Padding.sheet)
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
             // 单个选图器由下面气泡底图行的 Button 统一打开：Button 的
@@ -1425,7 +1425,7 @@ struct DressingBubblesPendantsSheet: View {
             Text(title)
                 .font(ChatFont.font(12, weight: isSelected ? .semibold : .regular))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+                .padding(.vertical, DressingTokens.Padding.widePillVertical)
                 .background(isSelected ? CSSThemeVariables.card(scope: .settings) : Color.clear)
                 .foregroundStyle(isSelected ? CSSThemeVariables.textMain(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                 .clipShape(Capsule())
@@ -1449,8 +1449,8 @@ struct DressingBubblesPendantsSheet: View {
                     } label: {
                         Text(side.displayName)
                             .font(ChatFont.font(12, weight: isSelected ? .bold : .medium))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 5)
+                            .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+                            .padding(.vertical, DressingTokens.Padding.pillVertical)
                             .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                             .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                             .clipShape(Capsule())
@@ -1476,8 +1476,8 @@ struct DressingBubblesPendantsSheet: View {
                         } label: {
                             Text(style.title)
                                 .font(ChatFont.font(11, weight: isSelected ? .bold : .regular))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
+                                .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.rowVertical)
                                 .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                                 .foregroundStyle(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                                 .clipShape(Capsule())
@@ -1514,11 +1514,11 @@ struct DressingBubblesPendantsSheet: View {
                         .frame(width: 36, alignment: .trailing)
                 }
             }
-            .padding(12)
+            .padding(DressingTokens.Padding.card)
             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
             )
 
@@ -1545,8 +1545,8 @@ struct DressingBubblesPendantsSheet: View {
                     Text(AppLocalized("这是一条示例消息"))
                         .font(ChatFont.font(13))
                         .foregroundStyle(editingTextColor)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+                        .padding(.vertical, DressingTokens.Padding.cardVertical)
                 }
                 // 装饰就盖在气泡上（和 live 聊天同一层：BubblePackDecorationsView
                 // 盖在气泡容器外，角标能探出气泡轮廓），改了当场就能看见。
@@ -1570,8 +1570,8 @@ struct DressingBubblesPendantsSheet: View {
                         } label: {
                             Text(pattern.title)
                                 .font(ChatFont.font(11, weight: isSelected ? .bold : .regular))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
+                                .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.rowVertical)
                                 .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                                 .foregroundStyle(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                                 .clipShape(Capsule())
@@ -1645,7 +1645,7 @@ struct DressingBubblesPendantsSheet: View {
                             Image(systemName: "arrow.uturn.backward")
                                 .font(.system(size: 11))
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                                .padding(6)
+                                .padding(DressingTokens.Padding.tiny)
                                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                 .clipShape(Circle())
                         }
@@ -1675,8 +1675,8 @@ struct DressingBubblesPendantsSheet: View {
                     } label: {
                         Text(AppLocalized("选择图片"))
                             .font(ChatFont.font(11, weight: .medium))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                            .padding(.vertical, DressingTokens.Padding.rowVertical)
                             .background(CSSThemeVariables.surfaceFill(scope: .settings))
                             .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                             .clipShape(Capsule())
@@ -1692,7 +1692,7 @@ struct DressingBubblesPendantsSheet: View {
                             Image(systemName: "arrow.uturn.backward")
                                 .font(.system(size: 11))
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                                .padding(6)
+                                .padding(DressingTokens.Padding.tiny)
                                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                 .clipShape(Circle())
                         }
@@ -1720,8 +1720,8 @@ struct DressingBubblesPendantsSheet: View {
                         } label: {
                             Text(AppLocalized("添加装饰"))
                                 .font(ChatFont.font(11, weight: .medium))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
+                                .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.rowVertical)
                                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Capsule())
@@ -1744,9 +1744,9 @@ struct DressingBubblesPendantsSheet: View {
                                         .resizable()
                                         .scaledToFill()
                                         .frame(width: 28, height: 28)
-                                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.thumbnail, style: .continuous))
                                 } else {
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    RoundedRectangle(cornerRadius: DressingTokens.Radius.thumbnail, style: .continuous)
                                         .fill(CSSThemeVariables.surfaceFill(scope: .settings))
                                         .frame(width: 28, height: 28)
                                 }
@@ -1765,8 +1765,8 @@ struct DressingBubblesPendantsSheet: View {
                                 } label: {
                                     Text(AppLocalized("换图"))
                                         .font(ChatFont.font(11, weight: .medium))
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
+                                        .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                                        .padding(.vertical, DressingTokens.Padding.rowVertical)
                                         .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                                         .clipShape(Capsule())
@@ -1781,7 +1781,7 @@ struct DressingBubblesPendantsSheet: View {
                                     Image(systemName: "trash")
                                         .font(.system(size: 11))
                                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                                        .padding(6)
+                                        .padding(DressingTokens.Padding.tiny)
                                         .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                         .clipShape(Circle())
                                 }
@@ -1803,8 +1803,8 @@ struct DressingBubblesPendantsSheet: View {
                                     } label: {
                                         Text(anchor.title)
                                             .font(ChatFont.font(11, weight: isSelected ? .bold : .regular))
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
+                                            .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                                            .padding(.vertical, DressingTokens.Padding.rowVertical)
                                             .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                                             .foregroundStyle(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                                             .clipShape(Capsule())
@@ -1884,17 +1884,17 @@ struct DressingBubblesPendantsSheet: View {
                                     .frame(width: 28, alignment: .trailing)
                             }
                         }
-                        .padding(8)
+                        .padding(DressingTokens.Padding.inner)
                         .background(CSSThemeVariables.surfaceFill(scope: .settings).opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.chip, style: .continuous))
                     }
                 }
             }
-            .padding(12)
+            .padding(DressingTokens.Padding.card)
             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
             )
 
@@ -2094,8 +2094,8 @@ struct DressingBubblesPendantsSheet: View {
                 } label: {
                     Text(AppLocalized("换上"))
                         .font(ChatFont.font(10, weight: .semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                        .padding(.vertical, DressingTokens.Padding.rowVertical)
                         .background(isApplied ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                         .foregroundStyle(isApplied ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                         .clipShape(Capsule())
@@ -2112,11 +2112,11 @@ struct DressingBubblesPendantsSheet: View {
                 }
             }
         }
-        .padding(12)
+        .padding(DressingTokens.Padding.card)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
                 .stroke(isApplied ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.divider(scope: .settings), lineWidth: isApplied ? 1 : 0.5)
         )
     }
@@ -2139,8 +2139,8 @@ struct DressingBubblesPendantsSheet: View {
                         } label: {
                             Text(shape.title)
                                 .font(ChatFont.font(12, weight: isSelected ? .bold : .regular))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
+                                .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.pillVertical)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                                 .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Capsule())
@@ -2172,11 +2172,11 @@ struct DressingBubblesPendantsSheet: View {
                         .frame(width: 36, alignment: .trailing)
                 }
             }
-            .padding(12)
+            .padding(DressingTokens.Padding.card)
             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
             )
 
@@ -2233,8 +2233,8 @@ struct DressingBubblesPendantsSheet: View {
                 } label: {
                     Text(isUserWearing ? AppLocalized("你已佩戴") : AppLocalized("戴在我头上"))
                         .font(ChatFont.font(10, weight: .medium))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, DressingTokens.Padding.itemPillHorizontal)
+                        .padding(.vertical, DressingTokens.Padding.smallPillVertical)
                         .background(isUserWearing ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                         .foregroundStyle(isUserWearing ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                         .clipShape(Capsule())
@@ -2252,19 +2252,19 @@ struct DressingBubblesPendantsSheet: View {
                 } label: {
                     Text(isAIWearing ? AppLocalized("AI已佩戴") : AppLocalized("戴在AI上"))
                         .font(ChatFont.font(10, weight: .medium))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, DressingTokens.Padding.itemPillHorizontal)
+                        .padding(.vertical, DressingTokens.Padding.smallPillVertical)
                         .background(isAIWearing ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                         .foregroundStyle(isAIWearing ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
                         .clipShape(Capsule())
                 }
             }
         }
-        .padding(10)
+        .padding(DressingTokens.Padding.innerCard)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
                 .stroke((isUserWearing || isAIWearing) ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -2303,7 +2303,7 @@ struct DressingTypographySheet: View {
                         // 4. 阅读模式与布局形态
                         readingModesSection
                     }
-                    .padding(16)
+                    .padding(DressingTokens.Padding.sheet)
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
@@ -2342,7 +2342,7 @@ struct DressingTypographySheet: View {
                         Text(family.title)
                             .font(ChatFont.font(12, weight: isSelected ? .bold : .medium, design: family.design))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
+                            .padding(.vertical, DressingTokens.Padding.capsuleButtonVertical)
                             .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                             .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                             .clipShape(Capsule())
@@ -2350,11 +2350,11 @@ struct DressingTypographySheet: View {
                 }
             }
         }
-        .padding(12)
+        .padding(DressingTokens.Padding.card)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -2378,8 +2378,8 @@ struct DressingTypographySheet: View {
                         Text(AppLocalized("导入字体"))
                             .font(ChatFont.font(11, weight: .semibold))
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                    .padding(.vertical, DressingTokens.Padding.rowVertical)
                     .background(CSSThemeVariables.accentSoft(scope: .settings))
                     .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
                     .clipShape(Capsule())
@@ -2390,7 +2390,7 @@ struct DressingTypographySheet: View {
                 Text(AppLocalized("暂无已导入的自定义字体"))
                     .font(ChatFont.font(11))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                    .padding(.vertical, 4)
+                    .padding(.vertical, DressingTokens.Padding.rowVertical)
             } else {
                 VStack(spacing: 6) {
                     ForEach(fontStore.fonts) { font in
@@ -2414,8 +2414,8 @@ struct DressingTypographySheet: View {
                             } label: {
                                 Text(isApplied ? AppLocalized("使用中") : AppLocalized("应用"))
                                     .font(ChatFont.font(10, weight: .semibold))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                                    .padding(.vertical, DressingTokens.Padding.rowVertical)
                                     .background(isApplied ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                                     .foregroundStyle(isApplied ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                     .clipShape(Capsule())
@@ -2429,21 +2429,21 @@ struct DressingTypographySheet: View {
                                 Image(systemName: "trash")
                                     .font(.system(size: 11))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                                    .padding(4)
+                                    .padding(DressingTokens.Padding.tapTarget)
                             }
                         }
-                        .padding(8)
+                        .padding(DressingTokens.Padding.inner)
                         .background(CSSThemeVariables.surfaceFill(scope: .settings).opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.chip, style: .continuous))
                     }
                 }
             }
         }
-        .padding(12)
+        .padding(DressingTokens.Padding.card)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -2489,11 +2489,11 @@ struct DressingTypographySheet: View {
                 isDecimal: true
             )
         }
-        .padding(12)
+        .padding(DressingTokens.Padding.card)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -2535,8 +2535,8 @@ struct DressingTypographySheet: View {
                         } label: {
                             Text(mode.title)
                                 .font(ChatFont.font(11, weight: isSelected ? .bold : .medium))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
+                                .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.pillVertical)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                                 .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Capsule())
@@ -2559,8 +2559,8 @@ struct DressingTypographySheet: View {
                         } label: {
                             Text(disp.title)
                                 .font(ChatFont.font(11, weight: isSelected ? .bold : .medium))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
+                                .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.pillVertical)
                                 .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
                                 .foregroundStyle(isSelected ? CSSThemeVariables.card(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                 .clipShape(Capsule())
@@ -2569,11 +2569,11 @@ struct DressingTypographySheet: View {
                 }
             }
         }
-        .padding(12)
+        .padding(DressingTokens.Padding.card)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -2611,7 +2611,7 @@ struct DressingThemeLibrarySheet: View {
                                 .font(ChatFont.font(12, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, DressingTokens.Padding.contentVertical)
                         .background(CSSThemeVariables.accent(scope: .settings))
                         .foregroundStyle(CSSThemeVariables.card(scope: .settings))
                         .clipShape(Capsule())
@@ -2628,14 +2628,14 @@ struct DressingThemeLibrarySheet: View {
                                 .font(ChatFont.font(12, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, DressingTokens.Padding.contentVertical)
                         .background(CSSThemeVariables.surfaceFill(scope: .settings))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                         .clipShape(Capsule())
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, DressingTokens.Padding.page)
+                .padding(.vertical, DressingTokens.Padding.contentVertical)
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 10) {
@@ -2647,14 +2647,14 @@ struct DressingThemeLibrarySheet: View {
                             Text(AppLocalized("还没有保存任何主题，点击上方“保存当前主题”即可存入"))
                                 .font(ChatFont.font(11))
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                                .padding(.vertical, 12)
+                                .padding(.vertical, DressingTokens.Padding.sectionVertical)
                         } else {
                             ForEach(studio.savedThemes()) { theme in
                                 savedThemeCard(theme)
                             }
                         }
                     }
-                    .padding(16)
+                    .padding(DressingTokens.Padding.sheet)
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
@@ -2741,8 +2741,8 @@ struct DressingThemeLibrarySheet: View {
             } label: {
                 Text(AppLocalized("换上"))
                     .font(ChatFont.font(11, weight: .semibold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                    .padding(.vertical, DressingTokens.Padding.pillVertical)
                     .background(CSSThemeVariables.accentSoft(scope: .settings))
                     .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
                     .clipShape(Capsule())
@@ -2755,14 +2755,14 @@ struct DressingThemeLibrarySheet: View {
                 Image(systemName: "trash")
                     .font(.system(size: 11))
                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                    .padding(6)
+                    .padding(DressingTokens.Padding.tiny)
             }
         }
-        .padding(12)
+        .padding(DressingTokens.Padding.card)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -2799,7 +2799,7 @@ struct DressingDetailsIconsSheet: View {
                         // 标签符号
                         categorySymbolsSection
                     }
-                    .padding(16)
+                    .padding(DressingTokens.Padding.sheet)
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
@@ -2859,11 +2859,11 @@ struct DressingDetailsIconsSheet: View {
                     .frame(width: 45, alignment: .trailing)
             }
         }
-        .padding(12)
+        .padding(DressingTokens.Padding.card)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -2880,11 +2880,11 @@ struct DressingDetailsIconsSheet: View {
                 }
             }
         }
-        .padding(12)
+        .padding(DressingTokens.Padding.card)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -2922,16 +2922,16 @@ struct DressingDetailsIconsSheet: View {
                     Text(AppLocalized("重置"))
                         .font(ChatFont.font(10, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, DressingTokens.Padding.itemPillHorizontal)
+                        .padding(.vertical, DressingTokens.Padding.smallPillVertical)
                         .background(CSSThemeVariables.surfaceFill(scope: .settings))
                         .clipShape(Capsule())
                 }
             }
         }
-        .padding(8)
+        .padding(DressingTokens.Padding.inner)
         .background(CSSThemeVariables.surfaceFill(scope: .settings).opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.chip, style: .continuous))
     }
 
     // MARK: - 标签符号：每个分类挑一个 SF Symbol，后端是 pack.categoryIcons
@@ -2980,11 +2980,11 @@ struct DressingDetailsIconsSheet: View {
                 categorySymbolRow(key)
             }
         }
-        .padding(12)
+        .padding(DressingTokens.Padding.card)
         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
     }
@@ -3027,8 +3027,8 @@ struct DressingDetailsIconsSheet: View {
                         Text(AppLocalized("重置"))
                             .font(ChatFont.font(10, weight: .medium))
                             .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, DressingTokens.Padding.itemPillHorizontal)
+                            .padding(.vertical, DressingTokens.Padding.smallPillVertical)
                             .background(CSSThemeVariables.surfaceFill(scope: .settings))
                             .clipShape(Capsule())
                     }
@@ -3054,16 +3054,16 @@ struct DressingDetailsIconsSheet: View {
                                 .foregroundStyle(isCurrent ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
                                 .frame(width: 44, height: 44)
                                 .background(isCurrent ? CSSThemeVariables.accent(scope: .settings).opacity(0.18) : CSSThemeVariables.surfaceFill(scope: .settings).opacity(0.4))
-                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.chip, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
                 }
             }
         }
-        .padding(8)
+        .padding(DressingTokens.Padding.inner)
         .background(CSSThemeVariables.surfaceFill(scope: .settings).opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.chip, style: .continuous))
     }
 }
 
@@ -3092,12 +3092,12 @@ struct DressingSaveThemeSheet: View {
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
                     TextField(AppLocalized("给这款主题起个名字..."), text: $themeName)
-                        .padding(12)
+                        .padding(DressingTokens.Padding.card)
                         .background(CSSThemeVariables.surfaceFill(scope: .settings))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.field, style: .continuous))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, DressingTokens.Padding.page)
 
                 Button {
                     let trimmed = themeName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3114,13 +3114,13 @@ struct DressingSaveThemeSheet: View {
                     Text(AppLocalized("立即保存"))
                         .font(ChatFont.font(14, weight: .bold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, DressingTokens.Padding.sectionVertical)
                         .background(themeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.surfaceFill(scope: .settings) : CSSThemeVariables.accent(scope: .settings))
                         .foregroundStyle(themeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.textDim(scope: .settings) : CSSThemeVariables.card(scope: .settings))
                         .clipShape(Capsule())
                 }
                 .disabled(themeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, DressingTokens.Padding.page)
 
                 Spacer()
             }
@@ -3180,19 +3180,19 @@ struct DressingImportExportSheet: View {
                                     Text(AppLocalized("复制主题 JSON"))
                                         .font(ChatFont.font(12, weight: .semibold))
                                 }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
+                                .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.contentVertical)
                                 .background(CSSThemeVariables.accent(scope: .settings))
                                 .foregroundStyle(CSSThemeVariables.card(scope: .settings))
                                 .clipShape(Capsule())
                             }
                         }
-                        .padding(14)
+                        .padding(DressingTokens.Padding.section)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
                         )
 
@@ -3204,9 +3204,9 @@ struct DressingImportExportSheet: View {
 
                             TextEditor(text: $importText)
                                 .frame(height: 120)
-                                .padding(8)
+                                .padding(DressingTokens.Padding.inner)
                                 .background(CSSThemeVariables.surfaceFill(scope: .settings))
-                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.chip, style: .continuous))
                                 .font(ChatFont.font(11, design: .monospaced))
 
                             HStack(spacing: 8) {
@@ -3218,8 +3218,8 @@ struct DressingImportExportSheet: View {
                                 } label: {
                                     Text(AppLocalized("粘贴"))
                                         .font(ChatFont.font(11, weight: .medium))
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
+                                        .padding(.horizontal, DressingTokens.Padding.pillHorizontal)
+                                        .padding(.vertical, DressingTokens.Padding.widePillVertical)
                                         .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                                         .clipShape(Capsule())
@@ -3232,8 +3232,8 @@ struct DressingImportExportSheet: View {
                                 } label: {
                                     Text(AppLocalized("解析并换上"))
                                         .font(ChatFont.font(12, weight: .bold))
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 6)
+                                        .padding(.horizontal, DressingTokens.Padding.cardHorizontal)
+                                        .padding(.vertical, DressingTokens.Padding.widePillVertical)
                                         .background(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.surfaceFill(scope: .settings) : CSSThemeVariables.accent(scope: .settings))
                                         .foregroundStyle(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CSSThemeVariables.textDim(scope: .settings) : CSSThemeVariables.card(scope: .settings))
                                         .clipShape(Capsule())
@@ -3241,12 +3241,12 @@ struct DressingImportExportSheet: View {
                                 .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             }
                         }
-                        .padding(14)
+                        .padding(DressingTokens.Padding.section)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
                         )
 
@@ -3271,23 +3271,23 @@ struct DressingImportExportSheet: View {
                                     Text(AppLocalized("选择 JSON 文件"))
                                         .font(ChatFont.font(12, weight: .semibold))
                                 }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
+                                .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.contentVertical)
                                 .background(CSSThemeVariables.accent(scope: .settings))
                                 .foregroundStyle(CSSThemeVariables.card(scope: .settings))
                                 .clipShape(Capsule())
                             }
                         }
-                        .padding(14)
+                        .padding(DressingTokens.Padding.section)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
                         )
                     }
-                    .padding(16)
+                    .padding(DressingTokens.Padding.sheet)
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
@@ -3407,11 +3407,11 @@ struct STImportConfirmSheet: View {
                                 swatchCell(label: AppLocalized("AI 气泡"), hex: hex(.assistantBubble))
                             }
                         }
-                        .padding(14)
+                        .padding(DressingTokens.Padding.section)
                         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
                         )
 
@@ -3421,8 +3421,8 @@ struct STImportConfirmSheet: View {
                                 Text(AppLocalized("你好，醒醒。今天想怎么打扮我？"))
                                     .font(ChatFont.font(12))
                                     .foregroundStyle(Color(hex: effectiveTextHex))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+                                    .padding(.vertical, DressingTokens.Padding.contentVertical)
                                     .background(Color(hex: hex(.assistantBubble)))
                                     .clipShape(RoundedRectangle(cornerRadius: previewBubbleRadius(user: false), style: .continuous))
                                 Spacer(minLength: 20)
@@ -3433,17 +3433,17 @@ struct STImportConfirmSheet: View {
                                 Text(AppLocalized("做简单、精致、iOS 26 质感～"))
                                     .font(ChatFont.font(12))
                                     .foregroundStyle(Color(hex: effectiveTextHex))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+                                    .padding(.vertical, DressingTokens.Padding.contentVertical)
                                     .background(Color(hex: hex(.userBubble)))
                                     .clipShape(RoundedRectangle(cornerRadius: previewBubbleRadius(user: true), style: .continuous))
                             }
                         }
-                        .padding(12)
+                        .padding(DressingTokens.Padding.card)
                         .background(Color(hex: hex(.canvas)).opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
                                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
                         )
 
@@ -3455,12 +3455,12 @@ struct STImportConfirmSheet: View {
                                 summaryRow(label: AppLocalized("字号"), value: "\(Int(min(15, max(10, (13 * scale).rounded()))))pt")
                             }
                         }
-                        .padding(14)
+                        .padding(DressingTokens.Padding.section)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
                         )
 
@@ -3473,12 +3473,12 @@ struct STImportConfirmSheet: View {
                                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                 }
                             }
-                            .padding(14)
+                            .padding(DressingTokens.Padding.section)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
                                     .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
                             )
                         }
@@ -3492,7 +3492,7 @@ struct STImportConfirmSheet: View {
                                 Text(AppLocalized("取消"))
                                     .font(ChatFont.font(12, weight: .semibold))
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
+                                    .padding(.vertical, DressingTokens.Padding.cardVertical)
                                     .background(CSSThemeVariables.surfaceFill(scope: .settings))
                                     .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                                     .clipShape(Capsule())
@@ -3505,14 +3505,14 @@ struct STImportConfirmSheet: View {
                                 Text(AppLocalized("换上"))
                                     .font(ChatFont.font(12, weight: .bold))
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
+                                    .padding(.vertical, DressingTokens.Padding.cardVertical)
                                     .background(CSSThemeVariables.accent(scope: .settings))
                                     .foregroundStyle(CSSThemeVariables.card(scope: .settings))
                                     .clipShape(Capsule())
                             }
                         }
                     }
-                    .padding(16)
+                    .padding(DressingTokens.Padding.sheet)
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
@@ -3560,11 +3560,11 @@ struct STImportConfirmSheet: View {
 
     private func swatchCell(label: String, hex: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.swatch, style: .continuous)
                 .fill(Color(hex: hex))
                 .frame(height: 44)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: DressingTokens.Radius.swatch, style: .continuous)
                         .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
                 )
             Text(label)
