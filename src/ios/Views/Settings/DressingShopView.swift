@@ -3962,6 +3962,11 @@ struct DressingShopView: View {
             if fontToastMessage == shown {
                 withAnimation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.28)) {
                     fontToastMessage = nil
+                    // 撤销位只活在提示条可见期间：提示一消失，两个
+                    // 撤销位一起过期，否则下一条无关提示会挂着一个
+                    // 撤销按钮，点下去恢复的却是上一件事。
+                    lastDeletedTheme = nil
+                    lastResetColorOverrides = nil
                 }
             }
         }
