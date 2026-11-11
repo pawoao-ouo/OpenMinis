@@ -1118,11 +1118,18 @@ final class AppearanceStudio: ObservableObject {
     /// 清掉的颜色表——包括她的分页微调。抓快照失败时不留下旧快照
     /// （否则撤销会恢复一次根本没抓过的旧状态），重置本身照常跑，
     /// 和现在按钮的行为一致。
-    func resetGlobalColorsWithUndo() {
+    /// Returns true when an undo snapshot was captured; on false the stale
+    /// snapshot (if any) is invalidated and the caller must show the
+    /// no-undo toast instead of promising undo.
+    @discardableResult
+    func resetGlobalColorsWithUndo() -> Bool {
         if !captureColorsUndoSnapshot() {
             try? FileManager.default.removeItem(at: themeUndoDirectory)
+            resetGlobalColors()
+            return false
         }
         resetGlobalColors()
+        return true
     }
 
     /// 纯颜色撤销快照，和 AppearanceThemePack.swift 里

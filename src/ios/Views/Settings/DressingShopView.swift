@@ -440,10 +440,15 @@ extension DressingShopView {
         VStack(spacing: 8) {
             Button {
                 haptic()
+                var undoAvailable = false
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    studio.resetGlobalColorsWithUndo()
+                    undoAvailable = studio.resetGlobalColorsWithUndo()
                 }
-                showToast(AppLocalized("调色板已重置为默认值（可撤销）"))
+                if undoAvailable {
+                    showToast(AppLocalized("调色板已重置为默认值（可撤销）"))
+                } else {
+                    showToast(AppLocalized("调色板已重置为默认值"))
+                }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.counterclockwise")

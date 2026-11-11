@@ -147141,6 +147141,23 @@
         }
       }
     },
+    "调色板已重置为默认值": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调色板已重置为默认值"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调色板已重置为默认值"
+          }
+        }
+      }
+    },
     "调色板已重置为默认值（可撤销）": {
       "extractionState": "manual",
       "localizations": {
