@@ -32,6 +32,7 @@ struct ComposerActionSheet: View {
 
     @ObservedObject private var skillStore = SkillStore.shared
     @ObservedObject private var mcpStore = MCPStore.shared
+    @ObservedObject private var studio = AppearanceStudio.shared
     @State private var page: Page = .root
     /// 开关的本地镜像:点完立刻反映到界面,不等磁盘回读(和原面板同一套写法)。
     @State private var miniBarLocal = true
@@ -146,7 +147,7 @@ struct ComposerActionSheet: View {
                 divider
                 // [T-composer-nomic 11-10] 输入栏那颗话筒搬到这儿来了。
                 // 她原话「把输入栏里面的小话筒藏到 + 里面」。
-                navRow(AppLocalized("语音输入"), "mic.fill", image: "ComposerMicGold", value: nil) { pick(.voiceInput) }
+                navRow(AppLocalized("语音输入"), "mic.fill", image: studio.currentThemePack().composerMicImage, value: nil) { pick(.voiceInput) }
                 divider
                 navRow(AppLocalized("新建会话"), "square.and.pencil", value: nil) { pick(.newChat) }
                 divider
@@ -272,7 +273,7 @@ struct ComposerActionSheet: View {
     }
 
     /// 行图标缺省是系统符号;传 image 就改放一张资源图(24pt 圆,和符号同宽)。
-    /// 只有语音输入那行传图(金色话筒),其余行一个没动。
+    /// 语音输入那行只在卡片选了金色按键时传金话筒图,没选就不传(走系统符号)。
     private func navRow(_ title: String, _ icon: String, image: String? = nil, value: String?, action: @escaping () -> Void) -> some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()

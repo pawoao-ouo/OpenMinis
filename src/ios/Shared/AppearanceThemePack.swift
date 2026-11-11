@@ -183,6 +183,13 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     var userBubbleDecorationsJSON: String?
     var assistantBubbleDecorationsJSON: String?
 
+    // [composer-icons] 输入栏四颗键的图片（资源名）。nil = 没图，走系统符号。
+    // 只由装扮店里的金色按键卡片写；换主题包、AI 合并都按 pack 字段的规矩走。
+    var composerMicImage: String? = nil
+    var composerEmojiImage: String? = nil
+    var composerSendImage: String? = nil
+    var composerPauseImage: String? = nil
+
     static let currentKey = "appearanceStudio.themePack.v1"
     static let schemaVersion = 5
     static let categoryKeys = [
@@ -424,6 +431,10 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         obj["assistantBubbleDecorationsJSON"] = assistantBubbleDecorationsJSON ?? NSNull()
         if let userBubblePackTextHex { obj["userBubblePackTextHex"] = userBubblePackTextHex }
         if let assistantBubblePackTextHex { obj["assistantBubblePackTextHex"] = assistantBubblePackTextHex }
+        if let composerMicImage { obj["composerMicImage"] = composerMicImage }
+        if let composerEmojiImage { obj["composerEmojiImage"] = composerEmojiImage }
+        if let composerSendImage { obj["composerSendImage"] = composerSendImage }
+        if let composerPauseImage { obj["composerPauseImage"] = composerPauseImage }
         if let rowBackgroundHex { obj["rowBackgroundHex"] = rowBackgroundHex }
         obj["novelMode"] = AppearanceNovelMode.parse(novelMode).rawValue
         if let characterArtBase64 { obj["characterArtBase64"] = characterArtBase64 }
@@ -569,6 +580,9 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         // Icons / symbols and the standee image: not colours, wallpaper,
         // font sizes, or avatar shape.
         "categoryIcons", "categoryImages", "characterArtBase64",
+        // Composer key images: user-only, via the dressup card — same
+        // reason as the bubble-pack structure above.
+        "composerMicImage", "composerEmojiImage", "composerSendImage", "composerPauseImage",
         // Page-scope state: the AI may change global colours and
         // the global wallpaper, but never a page's colours or
         // wallpaper — those are the user's per-page tuning.
@@ -797,7 +811,23 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
             userBubblePatternOpacity: min(0.6, max(0, sideNum("userBubblePatternOpacity", "bubblePatternOpacity", fallback: base.userBubblePatternOpacity))),
             assistantBubblePatternOpacity: min(0.6, max(0, sideNum("assistantBubblePatternOpacity", "bubblePatternOpacity", fallback: base.assistantBubblePatternOpacity))),
             userBubbleDecorationsJSON: sideDecorations("userBubbleDecorationsJSON", "bubbleDecorationsJSON", fallback: base.userBubbleDecorationsJSON),
-            assistantBubbleDecorationsJSON: sideDecorations("assistantBubbleDecorationsJSON", "bubbleDecorationsJSON", fallback: base.assistantBubbleDecorationsJSON)
+            assistantBubbleDecorationsJSON: sideDecorations("assistantBubbleDecorationsJSON", "bubbleDecorationsJSON", fallback: base.assistantBubbleDecorationsJSON),
+            // [composer-icons] Partial-merge safe, like the bubble foundation
+            // image fields: an absent key keeps the live value (an AI colour
+            // apply must never silently clear the keys); a present key —
+            // even an empty one — replaces it.
+            composerMicImage: raw["composerMicImage"] == nil
+                ? base.composerMicImage
+                : (raw["composerMicImage"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            composerEmojiImage: raw["composerEmojiImage"] == nil
+                ? base.composerEmojiImage
+                : (raw["composerEmojiImage"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            composerSendImage: raw["composerSendImage"] == nil
+                ? base.composerSendImage
+                : (raw["composerSendImage"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            composerPauseImage: raw["composerPauseImage"] == nil
+                ? base.composerPauseImage
+                : (raw["composerPauseImage"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         )
         if pack.id.isEmpty { pack.id = base.id }
         if pack.name.isEmpty { pack.name = pack.id }

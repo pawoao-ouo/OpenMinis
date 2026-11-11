@@ -584,6 +584,7 @@ struct DressingPresetsSheet: View {
                         ForEach(AppearancePreset.allCases) { preset in
                             presetCard(preset)
                         }
+                        composerIconCard()
                     }
                     .padding(16)
                 }
@@ -640,6 +641,83 @@ struct DressingPresetsSheet: View {
                     Image(systemName: "checkmark.circle")
                         .font(.system(size: 10))
                     Text(AppLocalized("换上"))
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(CSSThemeVariables.accentSoft(scope: .settings))
+                .clipShape(Capsule())
+            }
+            .padding(12)
+            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(DressingPressStyle())
+    }
+
+    /// [composer-icons] 金色按键卡片：和预设卡同一张卡面、同一套“正在用”标记。
+    /// 点一下换上四张图（只换四颗键的图片，不碰颜色、壁纸、气泡、字体）；
+    /// 正在用时再点一下就取下，回到默认干净界面（系统符号）。
+    private func composerIconCard() -> some View {
+        let set = ComposerIconSet.gold
+        let active = studio.isComposerIconSetActive(set)
+        return Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            if active {
+                studio.clearComposerIcons()
+                onApply(AppLocalized("默认按键"))
+            } else {
+                studio.applyComposerIcons(set)
+                onApply(set.title)
+            }
+            dismiss()
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(CSSThemeVariables.accent(scope: .settings))
+                        .frame(width: 14, height: 14)
+
+                    Text(set.title)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+                    Spacer()
+
+                    if active {
+                        Text(AppLocalized("正在用"))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(CSSThemeVariables.accentSoft(scope: .settings))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                Text(AppLocalized("输入栏四颗键换成金色图片"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                    .lineLimit(2)
+                    .frame(height: 28, alignment: .topLeading)
+
+                HStack(spacing: 4) {
+                    ForEach(set.previewImages, id: \.self) { name in
+                        Image(name)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 24, height: 24)
+                            .clipShape(Circle())
+                    }
+                    Spacer()
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 10))
+                    Text(AppLocalized(active ? "取下" : "换上"))
                         .font(.system(size: 10, weight: .medium))
                 }
                 .foregroundStyle(CSSThemeVariables.accent(scope: .settings))

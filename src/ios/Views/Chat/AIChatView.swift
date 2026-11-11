@@ -3650,13 +3650,23 @@ struct AIChatView: View {
         .accessibilityLabel(Text(AppLocalized("更多")))
     }
 
-    /// 表情包键:吸出托盘,托盘里是她自己的表情包。图标是戴皇冠小猫脸那张图。
+    /// 表情包键:吸出托盘,托盘里是她自己的表情包。卡片选了金色按键就
+    /// 显示皇冠猫那张图,没选就走原来的系统符号(默认干净界面)。
     private var stickerKey: some View {
-        composerRoundImage("ComposerEmojiCat") {
-            if showStickerPanel { closeComposerTray(focusKeyboard: true) }
-            else { openComposerTray() }
+        Group {
+            if let icon = appearanceStudio.currentThemePack().composerEmojiImage {
+                composerRoundImage(icon) { toggleStickerTray() }
+            } else {
+                composerRoundKey("face.smiling", active: showStickerPanel) { toggleStickerTray() }
+            }
         }
         .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
+    }
+
+    /// 表情键的动作:开/关托盘。抽出来是免得图片/符号两支各写一遍。
+    private func toggleStickerTray() {
+        if showStickerPanel { closeComposerTray(focusKeyboard: true) }
+        else { openComposerTray() }
     }
 
     /// 发送 / 暂停:同一颗键,按状态换字形,不占两个位置(她要的「一颗键切换」)。
@@ -3676,6 +3686,10 @@ struct AIChatView: View {
         let showPause = generating
         let showClose = editing && !hasText && !generating
         let showIdle = !editing && !hasText && !generating
+
+        // 卡片选的四张图。没选就是 nil,四颗键全走系统符号(默认干净界面)。
+        let sendIcon = appearanceStudio.currentThemePack().composerSendImage
+        let pauseIcon = appearanceStudio.currentThemePack().composerPauseImage
 
         return Button {
             if generating {
@@ -3700,20 +3714,34 @@ struct AIChatView: View {
                 // 是不透明黑底圆,会把它盖住;万一资源丢了,实圆底还能兜住形状。
                 Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
                     .opacity(showArrow || showPause ? 1 : 0)
-                // 发送态:金色箭头图,和实圆底同框、同透明度切换。
-                Image("ComposerSendGold")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 34, height: 34)
-                    .clipShape(Circle())
-                    .opacity(showArrow ? 1 : 0)
-                // 暂停态:金色双竖线图,和实圆底同框、同透明度切换。
-                Image("ComposerPauseGold")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 34, height: 34)
-                    .clipShape(Circle())
-                    .opacity(showPause ? 1 : 0)
+                // 发送态:卡片选了就显示金箭头图,没选就显示原来的箭头符号。
+                // [T-key-no-detach] 图片支只在点卡片时才挂/摘(抽屉弹着,键盘
+                // 不在动画),打字/生成时的态切换仍只切透明度,不增删视图。
+                if let sendIcon {
+                    Image(sendIcon)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 34, height: 34)
+                        .clipShape(Circle())
+                        .opacity(showArrow ? 1 : 0)
+                }
+                Image(systemName: "arrow.up")
+                    .font(ChatFont.font(17, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                    .opacity(showArrow && sendIcon == nil ? 1 : 0)
+                // 暂停态:同上,金双竖线图 / 原来的暂停符号。
+                if let pauseIcon {
+                    Image(pauseIcon)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 34, height: 34)
+                        .clipShape(Circle())
+                        .opacity(showPause ? 1 : 0)
+                }
+                Image(systemName: "pause.fill")
+                    .font(ChatFont.font(15, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                    .opacity(showPause && pauseIcon == nil ? 1 : 0)
                 Image(systemName: "xmark")
                     .font(ChatFont.font(15, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))

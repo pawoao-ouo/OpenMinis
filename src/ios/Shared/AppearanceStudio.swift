@@ -417,6 +417,9 @@ final class AppearanceStudio: ObservableObject {
         /// `liveWallpaperRevision` stays nil and `isPresetActive` is
         /// false until a preset is re-applied.
         static let wallpaperRevision = "appearanceStudio.wallpaperRevision.v1"
+        /// [composer-icons] 金色按键卡片的落盘：最后一次选了哪套（"gold" 或没选）。
+        /// live 校验在 `isComposerIconSetActive` 里。
+        static let composerIconSet = "appearanceStudio.composerIconSet.v1"
         static let userAvatar = "appearanceStudio.userAvatar.v1"
         /// [B28 R10] 用户自定义称呼。界面/提示里要提到"说话的人"时用它，
         /// 不写死任何具体名字——没填就回落到中性称呼。
@@ -1036,6 +1039,49 @@ final class AppearanceStudio: ObservableObject {
               snapshot == customColors,
               liveWallpaperRevision == activePresetWallpaperRevision else { return false }
         return true
+    }
+
+    /// [composer-icons] 金色按键卡片的内存态：最后一次选了哪套。只在
+    /// `applyComposerIcons` / `clearComposerIcons` 里写，启动时从
+    /// UserDefaults 读回。标记本身不存“正在用”这个结论——`isComposerIconSetActive`
+    /// 要记录和 pack 上的四个图字段都对上才算，换主题包清掉图字段时标记自己消失。
+    private var activeComposerIconSetRaw: String? = UserDefaults.standard.string(forKey: Keys.composerIconSet)
+
+    /// [composer-icons] 只写 pack 上的四个图字段，别的字段一行不动；
+    /// 不走 applyThemePack 全量（那条会整包替换）。persistPack 会 bump
+    /// themePackRevision 并发 objectWillChange，输入栏当场重画。
+    func applyComposerIcons(_ set: ComposerIconSet) {
+        var pack = currentThemePack()
+        pack.composerMicImage = set.micImage
+        pack.composerEmojiImage = set.emojiImage
+        pack.composerSendImage = set.sendImage
+        pack.composerPauseImage = set.pauseImage
+        persistPack(pack)
+        activeComposerIconSetRaw = set.rawValue
+        UserDefaults.standard.set(set.rawValue, forKey: Keys.composerIconSet)
+    }
+
+    /// [composer-icons] 只清四个图字段，回到默认干净界面（系统符号）。
+    func clearComposerIcons() {
+        var pack = currentThemePack()
+        pack.composerMicImage = nil
+        pack.composerEmojiImage = nil
+        pack.composerSendImage = nil
+        pack.composerPauseImage = nil
+        persistPack(pack)
+        activeComposerIconSetRaw = nil
+        UserDefaults.standard.removeObject(forKey: Keys.composerIconSet)
+    }
+
+    /// [composer-icons] 这套按键图现在是不是还正在用：记录和 live 的四个
+    /// 图字段都对上才算。换主题包、恢复默认清掉图字段时标记随即消失。
+    func isComposerIconSetActive(_ set: ComposerIconSet) -> Bool {
+        guard set.rawValue == activeComposerIconSetRaw else { return false }
+        let pack = currentThemePack()
+        return pack.composerMicImage == set.micImage
+            && pack.composerEmojiImage == set.emojiImage
+            && pack.composerSendImage == set.sendImage
+            && pack.composerPauseImage == set.pauseImage
     }
 
     /// [P0-4] 只清这一页 + 这一深浅的覆盖，带纯颜色撤销快照——和
@@ -2032,6 +2078,25 @@ enum AppearancePreset: String, CaseIterable, Identifiable {
                 dark: [.canvas:"171311",.surface:"241E1A",.raised:"2E2621",.mutedSurface:"362B25",.primaryText:"F2E9E1",.secondaryText:"B9A79B",.accent:"C99B84",.userBubble:"513B31",.assistantBubble:"241E1A",.field:"2A231F",.border:"493B33",.iconTile:"241E1A",.chip:"362B25",.success:"91AE8B",.warning:"D4B07A",.destructive:"D17A7A"])
         }
     }
+}
+
+/// [composer-icons] 输入栏四颗键的图片套装。现在只有一套：金色。
+/// 卡片只换四张图，不碰颜色、壁纸、气泡、字体——见 `applyComposerIcons`。
+enum ComposerIconSet: String, CaseIterable, Identifiable {
+    case gold
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .gold: return AppLocalized("金色按键")
+        }
+    }
+    /// 四张图的资源名。`applyComposerIcons` 原样写进 pack 的四个字段。
+    var micImage: String { "ComposerMicGold" }
+    var emojiImage: String { "ComposerEmojiCat" }
+    var sendImage: String { "ComposerSendGold" }
+    var pauseImage: String { "ComposerPauseGold" }
+    /// 卡片预览里四张图按这个顺序排：话筒、表情、发送、暂停。
+    var previewImages: [String] { [micImage, emojiImage, sendImage, pauseImage] }
 }
 
 extension Color {
