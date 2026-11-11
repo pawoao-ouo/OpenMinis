@@ -227,6 +227,15 @@ struct DressingShopView: View {
     private var assistantSideName: String { DressingSide.assistant.displayName }
     private var userSideName: String { DressingSide.user.displayName }
 
+    /// AI side name, same source as the dead page
+    /// (`AppearanceStudioView.aiName`): the persona name from
+    /// `SoulStore.cachedMetadata`, falling back to "AI" when no
+    /// name is set — never the shop's `sidePickerLabel` fallback.
+    @MainActor private var aiName: String {
+        let n = SoulStore.cachedMetadata.name
+        return n.isEmpty ? "AI" : n
+    }
+
     private func sidePickerLabel(for side: DressingSide) -> String {
         let name = side.displayName
         guard assistantSideName == userSideName else { return name }
@@ -1804,7 +1813,7 @@ struct DressingShopView: View {
                 .pickerStyle(.menu)
                 .tint(studio.color(.accent))
                 .font(.system(size: fsSub))
-                Picker(String(format: AppLocalized("%@气泡"), sidePickerLabel(for: .assistant)), selection: assistantStyleBinding) {
+                Picker(String(format: AppLocalized("%@气泡"), aiName), selection: assistantStyleBinding) {
                     ForEach(AppearanceBubbleStyle.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.menu)
