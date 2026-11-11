@@ -38,6 +38,22 @@ struct UserProfileView: View {
         store.personas.first { $0.id == profileId }
     }
 
+    /// 头像预览跟聊天里同一条解析：通讯录「我自己」档案优先，
+    /// 没有就回落到外观工作室的 userAvatar，两边都没有才显示默认图标。
+    /// 文件丢了也算没有，不留白块。
+    private var resolvedAvatarRef: String? {
+        let contact = persona?.avatar ?? ""
+        if !contact.isEmpty, avatarFileExists(contact) { return contact }
+        return studio.userAvatar.isEmpty ? nil : studio.userAvatar
+    }
+
+    /// 只有真能读到的文件才算头像（跟 PersonAvatarView 同款判断）。
+    private func avatarFileExists(_ value: String) -> Bool {
+        guard SoulIconImage.isPathReference(value) else { return true }
+        guard let url = SoulIconImage.fileURL(forReference: value) else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
     /// 称呼：档案里的「怎么称呼」优先，界面文案才跟着变。
     private var addressingName: String {
         let n = SystemPromptBuilder.userProfileAddressingName(for: profileId)
@@ -127,7 +143,7 @@ struct UserProfileView: View {
             HStack(spacing: 14) {
                 PhotosPicker(selection: $photoItem, matching: .images) {
                     ZStack(alignment: .bottomTrailing) {
-                        PersonaAvatarView(iconRef: persona?.avatar, size: 72)
+                        PersonaAvatarView(iconRef: resolvedAvatarRef, size: 72)
                             .clipShape(Circle())
                             .avatarPendantRing(size: 72, side: .user)
                             .overlay(Circle().stroke(accent.opacity(0.35), lineWidth: 1.5))
@@ -148,6 +164,16 @@ struct UserProfileView: View {
                     Text(AppLocalized("点头像换图"))
                         .font(ChatFont.font(11))
                         .foregroundStyle(ChatColors.secondaryText)
+                    if resolvedAvatarRef != nil {
+                        Button {
+                            removeAvatar()
+                        } label: {
+                            Text(AppLocalized("去掉头像"))
+                                .font(ChatFont.font(11))
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -284,11 +310,28 @@ struct UserProfileView: View {
 
     // MARK: - 数据
 
+    /// 去掉头像：通讯录档案和外观工作室的回落值一起清，
+    /// 不然清完一边另一边又弹回来。只清引用，不删文件
+    ///（换头像那路也不删旧文件，保持一致）。
+    private func removeAvatar() {
+        if var p = persona {
+            p.avatar = ""
+            store.updatePersona(p)
+        }
+        studio.removeUserAvatar()
+        Self.publishProfileChange()
+        MinisToast.show(AppLocalized("已去掉头像"))
+    }
+
     /// 落盘「怎么称呼」。空串也算一次有效修改（清掉叫法）。
+    /// 顺手写一份进外观工作室的称呼——气泡上读的是那份，
+    /// 不写的话这里改了气泡上还是旧名字。空串会清掉那份，气泡回「我」。
     private func commitName() {
         let current = SystemPromptBuilder.userProfileAddressingName(for: profileId)
         guard nameDraft != current else { return }
-        setFieldValue("怎么称呼", to: nameDraft.trimmingCharacters(in: .whitespaces))
+        let trimmed = nameDraft.trimmingCharacters(in: .whitespaces)
+        setFieldValue("怎么称呼", to: trimmed)
+        studio.setUserDisplayName(trimmed)
     }
 
     private func reload() {

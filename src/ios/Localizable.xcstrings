@@ -150150,6 +150150,40 @@
         }
       }
     },
+    "去掉头像": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "去掉头像"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Avatar"
+          }
+        }
+      }
+    },
+    "已去掉头像": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已去掉头像"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avatar Removed"
+          }
+        }
+      }
+    },
     "选择图片": {
       "extractionState": "manual",
       "localizations": {
