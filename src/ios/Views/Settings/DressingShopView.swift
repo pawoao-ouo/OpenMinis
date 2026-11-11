@@ -1214,6 +1214,9 @@ struct DressingBubblesPendantsSheet: View {
 
     @State private var selectedTab: Int = 0 // 0: 气泡款式, 1: 头像与挂件
     @State private var editingSide: DressingSide = .user
+    @State private var pickedBubbleImageItem: PhotosPickerItem? = nil
+    @State private var pendingBubbleSide: DressingSide? = nil
+    @State private var bubblePickerPresented = false
 
     var body: some View {
         NavigationStack {
@@ -1244,6 +1247,32 @@ struct DressingBubblesPendantsSheet: View {
                 .padding(16)
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            // 单个选图器由下面气泡底图行的 Button 统一打开：Button 的
+            // action 在 VoiceOver / 切换控制激活下也会触发（图标格那次
+            // 的教训：TapGesture 只认真实触摸），所以点哪侧先记哪侧，
+            // 再打开选图器；onChange 读到的永远是这次点的侧。
+            .photosPicker(isPresented: $bubblePickerPresented, selection: $pickedBubbleImageItem, matching: .images)
+            .onChange(of: pickedBubbleImageItem) { item in
+                guard let item, let side = pendingBubbleSide else { return }
+                pickedBubbleImageItem = nil
+                Task {
+                    guard let data = try? await item.loadTransferable(type: Data.self),
+                          let uiImage = UIImage(data: data) else {
+                        await MainActor.run {
+                            onNotify(AppLocalized("气泡底图设置失败，请换一张图试试"))
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        if let name = BubblePackImageStore.storeCustomImage(uiImage, user: side.isUser) {
+                            setEditingBackgroundImageFile(name, user: side.isUser)
+                            onNotify(AppLocalized("已设置气泡底图"))
+                        } else {
+                            onNotify(AppLocalized("气泡底图设置失败，请换一张图试试"))
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1363,9 +1392,7 @@ struct DressingBubblesPendantsSheet: View {
 
                 // 实时样例气泡：和 live 聊天同一条渲染链
                 // （BubblePackSurfaceBackground + MinisThemeShape 分侧字段），
-                // 改了图案 / 不透明度 / 文字色当场就能看见。
-                // 底图只读展示：BubblePackImageStore 只有读接口，没有存图的
-                // 公开 API，所以这里不放选图入口，等存图 API 有了再接。
+                // 改了图案 / 不透明度 / 文字色 / 底图当场就能看见。
                 BubblePackSurfaceBackground(
                     shape: editingSide.isUser ? MinisThemeShape.userBubble : MinisThemeShape.assistantBubble,
                     colour: editingSide.isUser ? ChatColors.userBubble : ChatColors.assistantBubble,
@@ -1480,6 +1507,53 @@ struct DressingBubblesPendantsSheet: View {
                         .accessibilityLabel(AppLocalized("重置"))
                     }
                 }
+
+                // 气泡底图（分侧自定义图：只写分侧字段。nil = 没有底图。
+                // 和款式库的图不一样：款式库的图是 pack 记录里带来的，
+                // 这里存的是这侧自己挑的图，文件名固定为一侧一个。）
+                HStack(spacing: 8) {
+                    Text(AppLocalized("气泡底图"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                        .frame(width: 72, alignment: .leading)
+
+                    Text(editingBackgroundImageFile == nil ? AppLocalized("未设置") : AppLocalized("已设置"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+
+                    Spacer()
+
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        pendingBubbleSide = editingSide
+                        bubblePickerPresented = true
+                    } label: {
+                        Text(AppLocalized("选择图片"))
+                            .font(.system(size: 11, weight: .medium))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(CSSThemeVariables.surfaceFill(scope: .settings))
+                            .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+                            .clipShape(Capsule())
+                    }
+                    .accessibilityLabel(AppLocalized("选择图片"))
+
+                    if editingBackgroundImageFile != nil {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            removeEditingBackgroundImage()
+                            onNotify(AppLocalized("已移除气泡底图"))
+                        } label: {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 11))
+                                .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                .padding(6)
+                                .background(CSSThemeVariables.surfaceFill(scope: .settings))
+                                .clipShape(Circle())
+                        }
+                        .accessibilityLabel(AppLocalized("重置"))
+                    }
+                }
             }
             .padding(12)
             .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
@@ -1557,6 +1631,32 @@ struct DressingBubblesPendantsSheet: View {
             pack.assistantBubblePackTextHex = hex
         }
         studio.persistPack(pack)
+    }
+
+    /// 当前调节侧的底图文件名：nil = 没有底图。
+    private var editingBackgroundImageFile: String? {
+        editingSide.isUser
+            ? studio.currentThemePack().userBubbleBackgroundImageFile
+            : studio.currentThemePack().assistantBubbleBackgroundImageFile
+    }
+
+    private func setEditingBackgroundImageFile(_ fileName: String?, user: Bool) {
+        var pack = studio.currentThemePack()
+        if user {
+            pack.userBubbleBackgroundImageFile = fileName
+        } else {
+            pack.assistantBubbleBackgroundImageFile = fileName
+        }
+        studio.persistPack(pack)
+    }
+
+    /// 移除当前侧的底图：只有这侧自己挑的自定义图才删文件，
+    /// 款式库带进来的图可能多处共用，只清字段、不删文件。
+    private func removeEditingBackgroundImage() {
+        if BubblePackImageStore.isCustomFileName(editingBackgroundImageFile, user: editingSide.isUser) {
+            BubblePackImageStore.removeCustomImage(user: editingSide.isUser)
+        }
+        setEditingBackgroundImageFile(nil, user: editingSide.isUser)
     }
 
     /// 当前调节侧实际生效的文字色（包里有就用包的，没有就跟主题），

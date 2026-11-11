@@ -305,6 +305,74 @@ enum BubblePackImageStore {
         guard let url = url(fileName: fileName) else { return nil }
         return UIImage(contentsOfFile: url.path)
     }
+
+    /// Custom background image file names: one fixed name per side.
+    /// Replacing overwrites the same path, so a replace can never
+    /// leave an orphan behind — the same fixed-name convention as
+    /// the input-bar ("input-bar.jpg") and wallpaper
+    /// ("wallpaper-<scope>.jpg") images. The name also tells a
+    /// caller whether the field points at a user-picked image or a
+    /// pack record's image: only the two names below are customs.
+    static func customFileName(user: Bool) -> String {
+        user ? "bubble-user.jpg" : "bubble-assistant.jpg"
+    }
+
+    /// Whether this file name is one of the per-side custom images
+    /// rather than a pack record's image.
+    static func isCustomFileName(_ fileName: String?, user: Bool) -> Bool {
+        fileName == customFileName(user: user)
+    }
+
+    /// Stores an image as this side's custom background image:
+    /// downscales to maxEdge 1400 and JPEG-encodes at 0.82 — the
+    /// same numbers as the input-bar / thinking-card paths — and
+    /// writes atomically, so a failed store leaves the previous
+    /// image untouched. Returns the file name on success, nil on
+    /// failure (callers report that honestly, never as success).
+    @discardableResult
+    static func storeCustomImage(_ image: UIImage, user: Bool) -> String? {
+        let name = customFileName(user: user)
+        guard let url = url(fileName: name),
+              writeDownscaledJPEG(image, to: url, maxEdge: 1400, quality: 0.82) else { return nil }
+        return name
+    }
+
+    /// Deletes a file by bare name; silently does nothing when the
+    /// name is unsafe or the file is already gone.
+    static func remove(fileName: String?) {
+        guard let url = url(fileName: fileName) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Deletes this side's custom image file, if there is one.
+    static func removeCustomImage(user: Bool) {
+        remove(fileName: customFileName(user: user))
+    }
+
+    /// Downscale + JPEG + atomic write, mirroring the wallpaper
+    /// path (AppearanceThemePack.writeDownscaledJPEG): the store
+    /// cannot call that private method, so the same lines live
+    /// here. A failed encode or write returns false and the old
+    /// file stays exactly as it was (atomic write).
+    private static func writeDownscaledJPEG(_ image: UIImage, to url: URL,
+                                            maxEdge: CGFloat, quality: CGFloat) -> Bool {
+        let size = image.size
+        let scale = min(1, maxEdge / max(size.width, size.height, 1))
+        let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        guard let data = rendered.jpegData(compressionQuality: quality) else { return false }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            return false
+        }
+        return true
+    }
 }
 
 /// The one bubble surface every surface uses: solid colour first
@@ -1046,6 +1114,15 @@ final class BubbleStylePackStore: ObservableObject {
         let style = s.liveStyle()
         for side in sides {
             if side.isUser {
+                // A pack replacing this side's image must not orphan
+                // a user-picked custom file left behind under its
+                // fixed name: delete it before the pack's name (or
+                // nil) takes the field. Pack records' own images
+                // are shared and never touched.
+                if BubblePackImageStore.isCustomFileName(theme.userBubbleBackgroundImageFile, user: true),
+                   s.backgroundImageFile != theme.userBubbleBackgroundImageFile {
+                    BubblePackImageStore.removeCustomImage(user: true)
+                }
                 theme.userBubbleStyle = style.rawValue
                 theme.userBubbleRadius = s.userRadius
                 theme.userBubbleSurface = s.userSurface.rawValue
@@ -1061,6 +1138,10 @@ final class BubbleStylePackStore: ObservableObject {
                 theme.userBubbleDecorationsJSON = BubbleStyleRecord.encodeDecorations(s.decorations)
                 appliedUserNumber = pack.number
             } else {
+                if BubblePackImageStore.isCustomFileName(theme.assistantBubbleBackgroundImageFile, user: false),
+                   s.backgroundImageFile != theme.assistantBubbleBackgroundImageFile {
+                    BubblePackImageStore.removeCustomImage(user: false)
+                }
                 theme.assistantBubbleStyle = style.rawValue
                 theme.assistantBubbleRadius = s.assistantRadius
                 theme.assistantBubbleSurface = s.assistantSurface.rawValue
