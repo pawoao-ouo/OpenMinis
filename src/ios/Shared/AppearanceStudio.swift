@@ -652,7 +652,7 @@ final class AppearanceStudio: ObservableObject {
         if role == .bubbleText || role == .assistantBubbleText {
             return hex(.primaryText, scope: scope, variant: variant)
         }
-        return (variant == .light ? Self.lightDefaults : Self.darkDefaults)[role] ?? "808080"
+        return (variant == .light ? Self.lightDefaults : Self.darkDefaults)[role] ?? DressingTokens.fallbackHex
     }
 
     /// 老键名，按"新角色 → 它继承的旧角色"查。
@@ -1198,7 +1198,7 @@ final class AppearanceStudio: ObservableObject {
         }
         return snap[scoped] ?? snap[global] ?? legacyValue
             ?? (variant == .light ? AppearancePaletteBook.light : AppearancePaletteBook.dark)[role]
-            ?? "808080"
+            ?? DressingTokens.fallbackHex
     }
 
     // MARK: Wallpaper
@@ -1555,7 +1555,7 @@ final class AppearanceStudio: ObservableObject {
     /// 底色"——垫的是画布色而不是写死的白，所以换明暗不会留下一圈亮边。
     private static func backgroundJPEG(_ image: UIImage, dark: Bool = false) -> Data? {
         let book = dark ? darkDefaults : lightDefaults
-        let matte = UIColor(hex: book[.canvas] ?? (dark ? "000000" : "F5F5F7"))
+        let matte = UIColor(hex: book[.canvas] ?? (dark ? DressingTokens.higDarkCanvasHex : DressingTokens.higLightCanvasHex))
         return WallpaperPipeline.jpeg(image, matte: matte)
     }
 
@@ -1810,7 +1810,7 @@ private enum AppearancePaletteBook {
     // 现在按"canvas 最灰 → raised 次之 → surface 最白"排，输入框单独一档
     // 灰（iOS 的 search field 语言），四层各差一点点。
     static let light: [AppearanceColorRole: String] = [
-        .canvas: "F5F5F7", .surface: "FFFFFF", .raised: "FBFBFD",
+        .canvas: DressingTokens.higLightCanvasHex, .surface: "FFFFFF", .raised: "FBFBFD",
         .mutedSurface: "F7F7F9", .primaryText: "111113", .secondaryText: "636366",
         .tertiaryText: "8E8E93", .shellText: "E5E5EA",
         .accent: "111113", .userBubble: "E5E5EA", .assistantBubble: "FFFFFF",
@@ -1837,7 +1837,7 @@ private enum AppearancePaletteBook {
     }
 
     static let dark: [AppearanceColorRole: String] = [
-        .canvas: "000000", .surface: "1C1C1E", .raised: "2C2C2E",
+        .canvas: DressingTokens.higDarkCanvasHex, .surface: "1C1C1E", .raised: "2C2C2E",
         .mutedSurface: "242426", .primaryText: "FFFFFF", .secondaryText: "AEAEB2",
         .tertiaryText: "8E8E93", .shellText: "E5E5EA",
         .accent: "FFFFFF", .userBubble: "3A3A3C", .assistantBubble: "1C1C1E",
@@ -1918,7 +1918,7 @@ extension UIColor {
     var hexRGB: String {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         let resolved = resolvedColor(with: UITraitCollection.current)
-        guard resolved.getRed(&r, green: &g, blue: &b, alpha: &a) else { return "808080" }
+        guard resolved.getRed(&r, green: &g, blue: &b, alpha: &a) else { return DressingTokens.fallbackHex }
         return String(format: "%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
     }
 }
@@ -2184,6 +2184,120 @@ public extension View {
     }
 }
 
+// MARK: - Dressing tokens (装扮页统一数值)
+//
+// One named home for every literal the dressing UI used to repeat:
+// hex fallbacks, corner radii, padding steps, the section-title
+// font, and the black shadow recipes. Values are exactly the old
+// literals, only named — nothing here changes a pixel. Role colours
+// still live in AppearancePaletteBook / lightDefaults / darkDefaults;
+// the hex below is only the fallback grey/white and the two HIG
+// canvas values, each defined once.
+enum DressingTokens {
+    // MARK: Hex fallbacks (no "#" prefix, same convention as the palette books)
+    /// Neutral grey a broken / missing hex falls back to.
+    static let fallbackHex = "808080"
+    /// White a missing preset swatch falls back to.
+    static let fallbackWhiteHex = "FFFFFF"
+    /// HIG light canvas, also the matte fallback for light JPEGs.
+    static let higLightCanvasHex = "F5F5F7"
+    /// HIG dark canvas, also the matte fallback for dark JPEGs.
+    static let higDarkCanvasHex = "000000"
+
+    // MARK: Corner radii (pt)
+    static let radiusHairline: CGFloat = 1
+    static let radiusMicro: CGFloat = 3
+    static let radiusChip: CGFloat = 4
+    static let radiusTag: CGFloat = 5
+    static let radiusMini: CGFloat = 6
+    static let radiusCard: CGFloat = 8
+    static let radiusSmall: CGFloat = 10
+    static let radiusTile: CGFloat = 12
+    static let radiusPanel: CGFloat = 14
+    static let radiusMedium: CGFloat = 16
+    static let radiusHero: CGFloat = 18
+    static let radiusSheet: CGFloat = 20
+    static let radiusLarge: CGFloat = 22
+    static let radiusStage: CGFloat = 24
+    static let radiusBar: CGFloat = 26
+    static let radiusPill: CGFloat = 999
+
+    // MARK: Padding steps (pt)
+    static let pad1_5: CGFloat = 1.5
+    static let pad2: CGFloat = 2
+    static let pad3: CGFloat = 3
+    static let pad4: CGFloat = 4
+    static let pad5: CGFloat = 5
+    static let pad6: CGFloat = 6
+    static let pad7: CGFloat = 7
+    static let pad8: CGFloat = 8
+    static let pad9: CGFloat = 9
+    static let pad10: CGFloat = 10
+    static let pad12: CGFloat = 12
+    static let pad14: CGFloat = 14
+    static let pad16: CGFloat = 16
+    static let pad18: CGFloat = 18
+    static let pad20: CGFloat = 20
+    static let pad24: CGFloat = 24
+    static let pad28: CGFloat = 28
+    static let pad32: CGFloat = 32
+    /// Negative bleed for the wallpaper title backing (T-62).
+    static let padNeg2: CGFloat = -2
+    static let padNeg6: CGFloat = -6
+
+    // MARK: Padding bases the font section already named
+    static let horizontal: CGFloat = 16
+    static let cardPadding: CGFloat = 16
+    static let sectionGap: CGFloat = 28
+    static let listGap: CGFloat = 10
+    static let gridGap: CGFloat = 8
+
+    // MARK: Section titles — the one title font for the shop
+    static func sectionTitleFont(size: CGFloat) -> Font {
+        .system(size: size, weight: .semibold, design: .serif)
+    }
+}
+
+extension View {
+    /// Card shadow: faint 3pt lift + 2pt contact shadow.
+    func dressingCardShadow() -> some View {
+        self
+            .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
+            .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
+    }
+
+    /// Selected-card shadow: strong 16pt lift when applied, card shadow when not.
+    func dressingSelectedShadow(_ applied: Bool) -> some View {
+        self
+            .shadow(color: .black.opacity(applied ? 0.12 : 0.03),
+                    radius: applied ? 16 : 3, x: 0, y: applied ? 4 : 1)
+            .shadow(color: .black.opacity(applied ? 0 : 0.02),
+                    radius: 2, x: 0, y: 1)
+    }
+
+    /// Soft single shadow: faint 4pt lift (preview bubbles, stage card).
+    func dressingSoftShadow() -> some View {
+        self.shadow(color: .black.opacity(0.03), radius: 4, x: 0, y: 1)
+    }
+
+    /// Lifted single shadow: 10pt lift at 12% (user bubble preview).
+    func dressingLiftedShadow() -> some View {
+        self.shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 3)
+    }
+
+    /// Stage shadow: deep 40pt lift + 10pt contact shadow (font stage card).
+    func dressingStageShadow() -> some View {
+        self
+            .shadow(color: .black.opacity(0.08), radius: 40, x: 0, y: 16)
+            .shadow(color: .black.opacity(0.02), radius: 10, x: 0, y: 2)
+    }
+
+    /// Hero shadow: 24pt lift at 18% (toast bar).
+    func dressingHeroShadow() -> some View {
+        self.shadow(color: .black.opacity(0.18), radius: 24, x: 0, y: 8)
+    }
+}
+
 struct PersonAvatarView: View {
     enum Kind { case user, assistant }
     let kind: Kind
@@ -2319,12 +2433,12 @@ struct QuietAppIcon: View {
                 // 圆角沿用原来的 8pt（size 21 时约 0.38 倍，比 0.25 更圆润），
                 // 不动，因为它本来就在她要的"圆润"一侧。
                 Image(systemName: Self.filledSymbolName(systemName))
-                    .font(.system(size: max(9, size * 0.44), weight: .semibold))
+                    .font(.system(size: max(10, size * 0.44), weight: .semibold))
                     .foregroundStyle(Color.black)
                     .frame(width: size, height: size)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: DressingTokens.radiusCard, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: DressingTokens.radiusCard, style: .continuous)
                             .stroke(Color.black.opacity(0.08), lineWidth: 0.6)
                     )
             }

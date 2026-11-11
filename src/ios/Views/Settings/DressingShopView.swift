@@ -18,7 +18,11 @@ import UniformTypeIdentifiers
 // — the scroll state is never torn down, it is simply covered.
 //
 // Colours come only from the theme variables (AppearanceStudio
-// roles); this view hard-codes no hex, no palette of its own.
+// roles). The only hex in this file is the new-pendant default
+// (AvatarPendant.defaultNewHex), the preset-swatch and
+// contrast-check fallbacks (DressingTokens), and the built-in
+// contrast table below, which mirrors the HIG palette because
+// that palette book is private to AppearanceStudio.swift.
 // No emoji, no prices, no SVIP, no gift, no QQ artwork or names.
 //
 // Scope of this batch: the bubble path, end to end, plus the
@@ -163,7 +167,7 @@ struct DressingShopView: View {
     /// New custom pendant draft: name + ring colour, created
     /// through AvatarPendantStore.create (same list as built-ins).
     @State private var newPendantName = ""
-    @State private var newPendantColor = Color(hex: "FFF6CC")
+    @State private var newPendantColor = Color(hex: AvatarPendant.defaultNewHex)
     /// Custom pendant waiting for delete confirmation, if any.
     @State private var pendantPendingDelete: AvatarPendant?
     @State private var sheetUp = false
@@ -308,8 +312,8 @@ struct DressingShopView: View {
                 .font(.system(size: globalPointSize))
                 .foregroundStyle(studio.color(.secondaryText))
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
+        .padding(.horizontal, DressingTokens.pad16)
+        .padding(.top, DressingTokens.pad14)
     }
 
 
@@ -331,7 +335,7 @@ struct DressingShopView: View {
                         case .colorVars: colorVarsView
                         }
                     }
-                    .padding(.bottom, 32)
+                    .padding(.bottom, DressingTokens.pad32)
                 }
                 .scrollIndicators(.hidden)
             }
@@ -359,18 +363,18 @@ struct DressingShopView: View {
                             Button(AppLocalized("撤销")) { undoToastAction() }
                                 .font(ChatFont.font(12, weight: .bold))
                                 .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
-                                .padding(.leading, 6)
+                                .padding(.leading, DressingTokens.pad6)
                                 .buttonStyle(PressableStyle(scale: 0.94))
                         }
                     }
                     // [六定-6] 提示条填主文字，字跟着反色。
                     .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, DressingTokens.pad18)
+                    .padding(.vertical, DressingTokens.pad10)
                     .background(studio.color(.primaryText))
-                    .clipShape(RoundedRectangle(cornerRadius: 999, style: .continuous))
-                    .shadow(color: .black.opacity(0.18), radius: 24, x: 0, y: 8)
-                    .padding(.bottom, 24)
+                    .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPill, style: .continuous))
+                    .dressingHeroShadow()
+                    .padding(.bottom, DressingTokens.pad24)
                     // [T-63] 这条黑底小条是全店唯一的确认途径 —— 换套、删字体、
                     // 摇一摇、恢复默认，做完都只靠它。VoiceOver 以前完全听不到
                     // (它 2.2 秒后自己消失，读屏还在念上一句)。现在整条作为一个
@@ -437,14 +441,14 @@ struct DressingShopView: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(studio.color(.primaryText))
-                        .padding(.leading, 16)
+                        .padding(.leading, DressingTokens.pad16)
                         .frame(minWidth: 60, minHeight: 44, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(FontPressStyle(scale: 0.92))
                 Spacer(minLength: 0)
             }
-            .padding(.trailing, 16)
+            .padding(.trailing, DressingTokens.pad16)
         }
         .frame(height: 52)
         .background(studio.color(.surface))
@@ -467,7 +471,7 @@ struct DressingShopView: View {
                             .foregroundStyle(category == item
                                 ? FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant))
                                 : studio.color(.secondaryText))
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, DressingTokens.pad16)
                             // [T-38] 44pt 最小触达:胶囊再小也该点得中。
                             .frame(minHeight: FontSettings.minHitTarget)
                             .background(category == item
@@ -482,8 +486,8 @@ struct DressingShopView: View {
                     .buttonStyle(FontPressStyle(scale: 0.98))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .padding(.horizontal, DressingTokens.pad16)
+            .padding(.vertical, DressingTokens.pad6)
         }
         .background(studio.color(.surface))
         .overlay(alignment: .bottom) {
@@ -516,19 +520,19 @@ struct DressingShopView: View {
                             .foregroundStyle(tag == item
                                 ? FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant))
                                 : studio.color(.secondaryText))
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, DressingTokens.pad16)
                             .frame(minHeight: FontSettings.minHitTarget)
                             .background(tag == item
                                 ? studio.color(.primaryText)
                                 : studio.color(.mutedSurface))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .clipShape(Capsule())
                     }
                     .buttonStyle(FontPressStyle(scale: 0.98))
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DressingTokens.pad16)
         }
-        .padding(.vertical, 18)
+        .padding(.vertical, DressingTokens.pad18)
     }
 
     // MARK: - Sections and rows
@@ -548,10 +552,10 @@ struct DressingShopView: View {
                 // 所以没有壁纸的页面看起来和以前一模一样。
                 .background {
                     if studio.hasWallpaper(.global) {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: DressingTokens.radiusMini, style: .continuous)
                             .fill(studio.color(.canvas))
-                            .padding(.horizontal, -6)
-                            .padding(.vertical, -2)
+                            .padding(.horizontal, DressingTokens.padNeg6)
+                            .padding(.vertical, DressingTokens.padNeg2)
                     }
                 }
             Spacer(minLength: 0)
@@ -575,7 +579,7 @@ struct DressingShopView: View {
             }
             .buttonStyle(FontPressStyle(scale: 0.92))
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, DressingTokens.pad16)
         .padding(.top, fontSettings.density(22))
         .padding(.bottom, fontSettings.density(12))
     }
@@ -585,7 +589,7 @@ struct DressingShopView: View {
             HStack(spacing: 12) {
                 content()
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DressingTokens.pad16)
         }
     }
 
@@ -611,8 +615,8 @@ struct DressingShopView: View {
             Text(AppLocalized("点卡片进入详情预览，确认后再换上；标签条按心情筛选当前页的卡片。"))
                 .font(.system(size: globalPointSize * 13 / 13))
                 .foregroundStyle(studio.color(.secondaryText))
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
+                .padding(.horizontal, DressingTokens.pad16)
+                .padding(.top, DressingTokens.pad10)
         }
     }
 
@@ -644,8 +648,8 @@ struct DressingShopView: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, DressingTokens.pad16)
+        .padding(.vertical, DressingTokens.pad14)
     }
 
     // MARK: - Theme sets (2026-11-02 theme-set batch)
@@ -688,10 +692,10 @@ struct DressingShopView: View {
                 TextField(AppLocalized("给现在这套起个名"), text: $themeSaveName)
                     .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.primaryText))
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, DressingTokens.pad14)
                     .frame(minHeight: 44)
                     .background(studio.color(.field))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusTile, style: .continuous))
                 HStack(spacing: 12) {
                     Button(AppLocalized("把现在这套存下来")) { saveCurrentThemeSet() }
                         .font(.system(size: fsSub, weight: .semibold))
@@ -711,23 +715,23 @@ struct DressingShopView: View {
                         .foregroundStyle(studio.color(.secondaryText))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(.horizontal, DressingTokens.pad16)
+            .padding(.bottom, DressingTokens.pad12)
             if studio.savedThemes().isEmpty {
                 Text(AppLocalized("还没有存下来的整套。上面起个名，把现在这套存下来，它就会出现在这里。"))
                     .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, DressingTokens.pad16)
             } else {
                 ForEach(studio.savedThemes()) { item in themeCard(item) }
             }
             Text(AppLocalized("换主题、重置都不会清掉这里；删只能按套删。"))
                 .font(.system(size: fsCaption))
                 .foregroundStyle(studio.color(.secondaryText))
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
+                .padding(.horizontal, DressingTokens.pad16)
+                .padding(.top, DressingTokens.pad10)
             presetSection
-                .padding(.top, 12)
+                .padding(.top, DressingTokens.pad12)
             Button(AppLocalized("清理无主主题包")) { cleanupOrphanedThemePacks() }
                 .font(.system(size: fsSub, weight: .semibold))
                 .foregroundStyle(studio.color(.secondaryText))
@@ -735,14 +739,14 @@ struct DressingShopView: View {
                 .frame(minHeight: 44)
                 .background(studio.color(.mutedSurface), in: Capsule())
                 .buttonStyle(FontPressStyle(scale: 0.97))
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.horizontal, DressingTokens.pad16)
+                .padding(.top, DressingTokens.pad8)
             globalWallpaperSection
-                .padding(.top, 16)
+                .padding(.top, DressingTokens.pad16)
             pageWallpaperSection
-                .padding(.top, 16)
+                .padding(.top, DressingTokens.pad16)
             stImportSection
-                .padding(.top, 16)
+                .padding(.top, DressingTokens.pad16)
         }
     }
 
@@ -761,7 +765,7 @@ struct DressingShopView: View {
     private var presetSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(AppLocalized("预设"))
-                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                .font(DressingTokens.sectionTitleFont(size: fsTitle))
                 .foregroundStyle(studio.color(.primaryText))
             HStack(spacing: 12) {
                 ForEach(AppearancePreset.allCases) { preset in
@@ -775,26 +779,26 @@ struct DressingShopView: View {
                                 .foregroundStyle(studio.color(.primaryText))
                             HStack(spacing: 4) {
                                 ForEach([AppearanceColorRole.canvas, .accent, .userBubble, .assistantBubble], id: \.self) { role in
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill(Color(hex: preset.colors.light[role] ?? "FFFFFF"))
+                                    RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous)
+                                        .fill(Color(hex: preset.colors.light[role] ?? DressingTokens.fallbackWhiteHex))
                                         .frame(width: 16, height: 16)
-                                        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous)
                                             .stroke(studio.color(.border).opacity(0.5), lineWidth: 0.5))
                                 }
                             }
                         }
-                        .padding(12)
+                        .padding(DressingTokens.pad12)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(studio.color(.surface))
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusSheet, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusSheet, style: .continuous)
                             .stroke(studio.color(.border), lineWidth: 1))
                     }
                     .buttonStyle(FontPressStyle(scale: 0.98))
                 }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, DressingTokens.pad16)
     }
 
     // MARK: - ST theme import (theme category, ST-import batch)
@@ -809,7 +813,7 @@ struct DressingShopView: View {
     private var stImportSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(AppLocalized("导入 ST 主题包"))
-                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                .font(DressingTokens.sectionTitleFont(size: fsTitle))
                 .foregroundStyle(studio.color(.primaryText))
             Text(AppLocalized("选一个 ST 的主题 JSON。颜色、头像形状、消息形态、行高、字距会一起换掉；字号只在包里写了 font_scale 时才按它换算。CSS 里的装饰图接不了。"))
                 .font(.system(size: fsSub))
@@ -832,12 +836,12 @@ struct DressingShopView: View {
                 }
             }
         }
-        .padding(16)
+        .padding(DressingTokens.pad16)
         .background(studio.color(.surface))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
             .stroke(studio.color(.border), lineWidth: 1))
-        .padding(.horizontal, 16)
+        .padding(.horizontal, DressingTokens.pad16)
         .sheet(isPresented: $showSTImporter) {
             DocumentCopyPicker(contentTypes: [.json, .plainText, .data, .item],
                                allowsMultipleSelection: false) { urls in
@@ -889,7 +893,7 @@ struct DressingShopView: View {
     private var globalWallpaperSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(AppLocalized("全局壁纸"))
-                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                .font(DressingTokens.sectionTitleFont(size: fsTitle))
                 .foregroundStyle(studio.color(.primaryText))
             ZStack(alignment: .bottomTrailing) {
                 if let image = studio.wallpaper(for: .global) {
@@ -905,15 +909,15 @@ struct DressingShopView: View {
                      ? AppLocalized("壁纸预览") : AppLocalized("没有壁纸，纯色背景"))
                     .font(.system(size: fsCaption, weight: .medium))
                     .foregroundStyle(studio.color(.primaryText))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, DressingTokens.pad9)
+                    .padding(.vertical, DressingTokens.pad5)
                     .background(studio.color(.raised).opacity(0.85), in: Capsule())
-                    .padding(10)
+                    .padding(DressingTokens.pad10)
             }
             .id(studio.wallpaperRevision)
             .frame(height: 150)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
                 .stroke(studio.color(.border), lineWidth: 1))
             Button(studio.hasOwnWallpaper(.global) ? AppLocalized("换这张") : AppLocalized("选一张")) {
                 // 拾图的目标页：全局这组永远写 .global。只设状态不改行为，
@@ -1004,15 +1008,14 @@ struct DressingShopView: View {
                     .foregroundStyle(studio.color(.secondaryText))
             }
         }
-        .padding(14)
+        .padding(DressingTokens.pad14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(studio.color(.surface))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
             .stroke(studio.color(.border), lineWidth: 1))
-        .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
-        .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
-        .padding(.horizontal, 16)
+        .dressingCardShadow()
+        .padding(.horizontal, DressingTokens.pad16)
     }
 
     // MARK: - Page wallpapers (theme category, page-wallpaper batch)
@@ -1035,7 +1038,7 @@ struct DressingShopView: View {
     private var pageWallpaperSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(AppLocalized("分页壁纸"))
-                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                .font(DressingTokens.sectionTitleFont(size: fsTitle))
                 .foregroundStyle(studio.color(.primaryText))
             Text(AppLocalized("聊天和首页可以单独挂一张图；没挂就跟着全局壁纸走。"))
                 .font(.system(size: fsCaption))
@@ -1049,15 +1052,14 @@ struct DressingShopView: View {
                     .foregroundStyle(studio.color(.secondaryText))
             }
         }
-        .padding(14)
+        .padding(DressingTokens.pad14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(studio.color(.surface))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
             .stroke(studio.color(.border), lineWidth: 1))
-        .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
-        .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
-        .padding(.horizontal, 16)
+        .dressingCardShadow()
+        .padding(.horizontal, DressingTokens.pad16)
     }
 
     /// Caption for the page-wallpaper preview. Keyed on hasOwnWallpaper,
@@ -1103,15 +1105,15 @@ struct DressingShopView: View {
                 Text(pageWallpaperCaption(scope))
                     .font(.system(size: fsCaption, weight: .medium))
                     .foregroundStyle(studio.color(.primaryText))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, DressingTokens.pad9)
+                    .padding(.vertical, DressingTokens.pad5)
                     .background(studio.color(.raised).opacity(0.85), in: Capsule())
-                    .padding(10)
+                    .padding(DressingTokens.pad10)
             }
             .id(studio.wallpaperRevision)
             .frame(height: 96)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
                 .stroke(studio.color(.border), lineWidth: 1))
             Button(studio.hasOwnWallpaper(scope) ? AppLocalized("换这张") : AppLocalized("选一张")) {
                 pickedWallpaperScope = scope
@@ -1257,7 +1259,7 @@ struct DressingShopView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(item.name)
-                        .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                        .font(DressingTokens.sectionTitleFont(size: fsTitle))
                         .foregroundStyle(studio.color(.primaryText))
                     Spacer(minLength: 0)
                     if inUse {
@@ -1281,26 +1283,23 @@ struct DressingShopView: View {
                     Text(AppLocalized("正在用这套"))
                         .font(.system(size: fsCaption, weight: .semibold))
                         .foregroundStyle(studio.color(.surface))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, DressingTokens.pad8)
+                        .padding(.vertical, DressingTokens.pad3)
                         .background(studio.color(.accent), in: Capsule())
                 }
             }
-            .padding(14)
+            .padding(DressingTokens.pad14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(studio.color(.surface))
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusSheet, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusSheet, style: .continuous)
                 .stroke(inUse ? studio.color(.accent) : studio.color(.border),
                         lineWidth: inUse ? 1.5 : 1))
-            .shadow(color: .black.opacity(inUse ? 0.12 : 0.03),
-                    radius: inUse ? 16 : 3, x: 0, y: inUse ? 4 : 1)
-            .shadow(color: .black.opacity(inUse ? 0 : 0.02),
-                    radius: 2, x: 0, y: 1)
+            .dressingSelectedShadow(inUse)
         }
         .buttonStyle(FontPressStyle(scale: 0.98))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+        .padding(.horizontal, DressingTokens.pad16)
+        .padding(.bottom, DressingTokens.pad12)
     }
 
     /// Theme-card colour strip + wallpaper thumbnail (Minis card
@@ -1312,10 +1311,10 @@ struct DressingShopView: View {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 ForEach([AppearanceColorRole.canvas, .surface, .accent, .userBubble, .assistantBubble], id: \.self) { role in
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous)
                         .fill(themePreviewColor(pack, role))
                         .frame(width: 20, height: 20)
-                        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous)
                             .stroke(studio.color(.border).opacity(0.5), lineWidth: 0.5))
                 }
             }
@@ -1325,12 +1324,12 @@ struct DressingShopView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: 44, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusMini, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusMini, style: .continuous)
                         .stroke(studio.color(.border).opacity(0.5), lineWidth: 0.5))
             }
         }
-        .padding(.top, 6)
+        .padding(.top, DressingTokens.pad6)
     }
 
     private func openThemeDetail(_ item: AppearanceSavedTheme) {
@@ -1446,7 +1445,7 @@ struct DressingShopView: View {
                 Image(systemName: "mic")
                     .foregroundStyle(themePreviewColor(pack, .secondaryText))
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DressingTokens.pad16)
             .frame(height: 52)
             .background {
                 if let image = themePreviewImage(pack.inputBarJPEGBase64) {
@@ -1457,7 +1456,7 @@ struct DressingShopView: View {
                     themePreviewColor(pack, .field)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: pack.inputBarRadius > 0 ? pack.inputBarRadius : 26,
+            .clipShape(RoundedRectangle(cornerRadius: pack.inputBarRadius > 0 ? pack.inputBarRadius : DressingTokens.radiusBar,
                                         style: .continuous))
             VStack(alignment: .leading, spacing: 6) {
                 Text(AppLocalized("这套的颜色"))
@@ -1465,10 +1464,10 @@ struct DressingShopView: View {
                     .foregroundStyle(themePreviewColor(pack, .secondaryText))
                 HStack(spacing: 6) {
                     ForEach([AppearanceColorRole.canvas, .surface, .raised, .accent, .userBubble, .assistantBubble, .primaryText], id: \.self) { role in
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: DressingTokens.radiusMini, style: .continuous)
                             .fill(themePreviewColor(pack, role))
                             .frame(width: 28, height: 28)
-                            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusMini, style: .continuous)
                                 .stroke(themePreviewColor(pack, .border).opacity(0.5), lineWidth: 0.5))
                     }
                     Spacer(minLength: 0)
@@ -1480,7 +1479,7 @@ struct DressingShopView: View {
                     .foregroundStyle(themePreviewColor(pack, .secondaryText))
             }
         }
-        .padding(16)
+        .padding(DressingTokens.pad16)
         .background {
             if let image = themePreviewImage(pack.wallpaperJPEGBase64) {
                 Image(uiImage: image)
@@ -1490,7 +1489,7 @@ struct DressingShopView: View {
                 themePreviewColor(pack, .canvas)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
     }
 
     private func themeBubbleLine(_ item: AppearanceSavedTheme, isUser: Bool) -> String {
@@ -1552,7 +1551,7 @@ struct DressingShopView: View {
         for variant in [AppearanceVariant.light, .dark] {
             let map = variant == .light ? pack.colorsLight : pack.colorsDark
             func effective(_ role: AppearanceColorRole) -> String {
-                map[role.rawValue] ?? builtIn[variant]?[role] ?? "808080"
+                map[role.rawValue] ?? builtIn[variant]?[role] ?? DressingTokens.fallbackHex
             }
             let canvas = effective(.canvas), surface = effective(.surface)
             let checks: [(AppearanceColorRole, AppearanceContrast.Level, String)] = [
@@ -1697,21 +1696,21 @@ struct DressingShopView: View {
         VStack(spacing: 0) {
             ZStack {
                 Text(AppLocalized("主题"))
-                    .font(.system(size: fsTitle, weight: .bold, design: .serif))
+                    .font(DressingTokens.sectionTitleFont(size: fsTitle))
                     .foregroundStyle(studio.color(.primaryText))
                 HStack(spacing: 0) {
                     Button { closeThemeDetail() } label: {
                         Image(systemName: "chevron.left")
                             .font(.headline)
                             .foregroundStyle(studio.color(.primaryText))
-                            .padding(.leading, 16)
+                            .padding(.leading, DressingTokens.pad16)
                             .frame(minWidth: 60, minHeight: 44, alignment: .leading)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(FontPressStyle(scale: 0.92))
                     Spacer(minLength: 0)
                 }
-                .padding(.trailing, 16)
+                .padding(.trailing, DressingTokens.pad16)
             }
             .frame(height: 52)
             .background(studio.color(.surface))
@@ -1744,7 +1743,7 @@ struct DressingShopView: View {
                                 .font(.system(size: fsCaption, weight: .semibold))
                         }
                         .foregroundStyle(studio.color(.secondaryText))
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, DressingTokens.pad14)
                         .frame(minHeight: 44)
                         .background(studio.color(.mutedSurface), in: Capsule())
                     }
@@ -1752,7 +1751,7 @@ struct DressingShopView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
-            .padding(16)
+            .padding(DressingTokens.pad16)
 
             if themeSheetUp {
                 VStack(alignment: .leading, spacing: 10) {
@@ -1780,10 +1779,10 @@ struct DressingShopView: View {
                     }
                     HStack(spacing: 6) {
                         Text(item.name)
-                            .font(.system(size: fsTitle, weight: .bold, design: .serif))
+                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.primaryText))
                         Text("·")
-                            .font(.system(size: fsTitle, weight: .bold))
+                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.secondaryText))
                         Text(item.savedAt.formatted(date: .abbreviated, time: .omitted))
                             .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
@@ -1919,14 +1918,14 @@ struct DressingShopView: View {
                         .clipShape(Capsule())
                         .buttonStyle(FontPressStyle(scale: 0.97))
                     }
-                    .padding(.top, 6)
+                    .padding(.top, DressingTokens.pad6)
                 }
-                .padding(20)
+                .padding(DressingTokens.pad20)
                 .background(
                     studio.color(.surface),
                     in: UnevenRoundedRectangle(
                         cornerRadii: RectangleCornerRadii(
-                            topLeading: 22, bottomLeading: 0,
+                            topLeading: DressingTokens.radiusLarge, bottomLeading: 0,
                             bottomTrailing: 0, topTrailing: 22))
                 )
                 .transition(.move(edge: .bottom))
@@ -2050,7 +2049,7 @@ struct DressingShopView: View {
                       spacing: 12) {
                 ForEach(visiblePacks) { pack in bubbleCard(pack, fixedWidth: false) }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DressingTokens.pad16)
             bubbleStyleCard
             novelModeCard
         }
@@ -2184,15 +2183,14 @@ struct DressingShopView: View {
                 styleSliderRow(AppLocalized("字距"), value: letterSpacingBinding, range: -1...3,
                                display: "\(Int(letterSpacingBinding.wrappedValue)) pt")
             }
-            .padding(14)
+            .padding(DressingTokens.pad14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(studio.color(.surface))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
                 .stroke(studio.color(.border), lineWidth: 1))
-            .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
-            .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
-            .padding(.horizontal, 16)
+            .dressingCardShadow()
+            .padding(.horizontal, DressingTokens.pad16)
         }
     }
 
@@ -2234,9 +2232,9 @@ struct DressingShopView: View {
                                 .resizable()
                                 .scaledToFill()
                                 .frame(width: 52, height: 72)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusCard, style: .continuous))
                         } else {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            RoundedRectangle(cornerRadius: DressingTokens.radiusCard, style: .continuous)
                                 .fill(studio.color(.mutedSurface))
                                 .frame(width: 52, height: 72)
                                 .overlay {
@@ -2274,15 +2272,14 @@ struct DressingShopView: View {
                     }
                 }
             }
-            .padding(14)
+            .padding(DressingTokens.pad14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(studio.color(.surface))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
                 .stroke(studio.color(.border), lineWidth: 1))
-            .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
-            .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
-            .padding(.horizontal, 16)
+            .dressingCardShadow()
+            .padding(.horizontal, DressingTokens.pad16)
         }
     }
 
@@ -2309,36 +2306,33 @@ struct DressingShopView: View {
                     bubbleCardArt(pack)
                         .frame(width: fixedWidth ? 125 : nil)
                         .background(studio.color(.surface))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
                             .stroke(applied ? studio.color(.accent) : studio.color(.border),
                                     lineWidth: applied ? 1.5 : 1))
-                        .shadow(color: .black.opacity(applied ? 0.12 : 0.03),
-                                radius: applied ? 16 : 3, x: 0, y: applied ? 4 : 1)
-                        .shadow(color: .black.opacity(applied ? 0 : 0.02),
-                                radius: 2, x: 0, y: 1)
+                        .dressingSelectedShadow(applied)
                     if applied {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 22))
                             .foregroundStyle(studio.color(.accent))
                             .background(studio.color(.surface))
                             .clipShape(Circle())
-                            .padding(8)
+                            .padding(DressingTokens.pad8)
                     }
                 }
                 Text(pack.title)
-                    .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                    .font(DressingTokens.sectionTitleFont(size: fsTitle))
                     .foregroundStyle(studio.color(.primaryText))
-                    .padding(.top, 10)
+                    .padding(.top, DressingTokens.pad10)
                 Text(pack.number)
                     .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
                     .foregroundStyle(studio.color(.secondaryText))
-                    .padding(.top, 3)
+                    .padding(.top, DressingTokens.pad3)
                 if applied {
                     Text(AppLocalized("正在用"))
                         .font(.system(size: fsCaption, weight: .semibold))
                         .foregroundStyle(studio.color(.primaryText))
-                        .padding(.top, 3)
+                        .padding(.top, DressingTokens.pad3)
                 }
             }
             .frame(width: fixedWidth ? 125 : nil, alignment: .leading)
@@ -2358,7 +2352,7 @@ struct DressingShopView: View {
             bubbleSampleRow(pack: rowPack(pack, isUser: false), isUser: false)
             bubbleSampleRow(pack: rowPack(pack, isUser: true), isUser: true)
         }
-        .padding(10)
+        .padding(DressingTokens.pad10)
     }
 
     // Shop samples use the REAL avatar for that side — the
@@ -2418,7 +2412,7 @@ struct DressingShopView: View {
         return AnyView(Text(text)
             .font(.system(size: fontSize))
             .foregroundStyle(textColour)
-            .padding(.horizontal, padding).padding(.vertical, 8)
+            .padding(.horizontal, padding).padding(.vertical, DressingTokens.pad8)
             .background(BubblePackSurfaceBackground(
                 shape: shape, colour: bubbleColour,
                 imageFile: style.backgroundImageFile,
@@ -2446,7 +2440,7 @@ struct DressingShopView: View {
                       spacing: 12) {
                 ForEach(pendantStore.pendants) { pendant in pendantCard(pendant, fixedWidth: false) }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DressingTokens.pad16)
             sectionHeader(AppLocalized("自建挂件"), jumpTo: .pendant)
             createPendantCard
         }
@@ -2478,8 +2472,8 @@ struct DressingShopView: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
+        .padding(.horizontal, DressingTokens.pad16)
+        .padding(.top, DressingTokens.pad10)
     }
 
     /// Build a custom pendant: a name and a ring colour. Same
@@ -2492,10 +2486,10 @@ struct DressingShopView: View {
             TextField(AppLocalized("给新挂件起个名"), text: $newPendantName)
                 .font(.system(size: fsSub))
                 .foregroundStyle(studio.color(.primaryText))
-                .padding(.horizontal, 14)
+                .padding(.horizontal, DressingTokens.pad14)
                 .frame(minHeight: 44)
                 .background(studio.color(.field))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusTile, style: .continuous))
             HStack(spacing: 12) {
                 Text(AppLocalized("圆环颜色"))
                     .font(.system(size: fsSub, weight: .medium))
@@ -2518,8 +2512,8 @@ struct DressingShopView: View {
                 .clipShape(Capsule())
                 .buttonStyle(FontPressStyle(scale: 0.97))
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+        .padding(.horizontal, DressingTokens.pad16)
+        .padding(.bottom, DressingTokens.pad12)
     }
 
     /// Create the drafted custom pendant. An empty name is
@@ -2536,7 +2530,7 @@ struct DressingShopView: View {
             title: name, hex: hex,
             detail: "自建圆环，#\(hex) 柔光，包住整个圆形头像，细线，柔和发光")
         newPendantName = ""
-        newPendantColor = Color(hex: "FFF6CC")
+        newPendantColor = Color(hex: AvatarPendant.defaultNewHex)
         showFontToast(AppLocalized("已新建挂件「\(pendant.title)」"))
     }
 
@@ -2559,36 +2553,33 @@ struct DressingShopView: View {
                     pendantCardArt(pendant)
                         .frame(width: fixedWidth ? 125 : nil)
                         .background(studio.color(.surface))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
                             .stroke(applied ? studio.color(.accent) : studio.color(.border),
                                     lineWidth: applied ? 1.5 : 1))
-                        .shadow(color: .black.opacity(applied ? 0.12 : 0.03),
-                                radius: applied ? 16 : 3, x: 0, y: applied ? 4 : 1)
-                        .shadow(color: .black.opacity(applied ? 0 : 0.02),
-                                radius: 2, x: 0, y: 1)
+                        .dressingSelectedShadow(applied)
                     if applied {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 22))
                             .foregroundStyle(studio.color(.accent))
                             .background(studio.color(.surface))
                             .clipShape(Circle())
-                            .padding(8)
+                            .padding(DressingTokens.pad8)
                     }
                 }
                 Text(pendant.title)
-                    .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                    .font(DressingTokens.sectionTitleFont(size: fsTitle))
                     .foregroundStyle(studio.color(.primaryText))
-                    .padding(.top, 10)
+                    .padding(.top, DressingTokens.pad10)
                 Text(pendant.number)
                     .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
                     .foregroundStyle(studio.color(.secondaryText))
-                    .padding(.top, 3)
+                    .padding(.top, DressingTokens.pad3)
                 if applied {
                     Text(AppLocalized("正在用"))
                         .font(.system(size: fsCaption, weight: .semibold))
                         .foregroundStyle(studio.color(.primaryText))
-                        .padding(.top, 3)
+                        .padding(.top, DressingTokens.pad3)
                 }
             }
             .frame(width: fixedWidth ? 125 : nil, alignment: .leading)
@@ -2607,8 +2598,8 @@ struct DressingShopView: View {
                              size: 72, showPendant: false)
                 .overlay(AvatarRingView(size: 72, color: pendant.color, imageFile: pendant.imageFile))
         }
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.top, DressingTokens.pad8)
+        .padding(.bottom, DressingTokens.pad8)
     }
 
     private func openPendantDetail(_ pendant: AvatarPendant) {
@@ -2636,21 +2627,21 @@ struct DressingShopView: View {
         VStack(spacing: 0) {
             ZStack {
                 Text(AppLocalized("头像挂件"))
-                    .font(.system(size: fsTitle, weight: .bold, design: .serif))
+                    .font(DressingTokens.sectionTitleFont(size: fsTitle))
                     .foregroundStyle(studio.color(.primaryText))
                 HStack(spacing: 0) {
                     Button { closePendantDetail() } label: {
                         Image(systemName: "chevron.left")
                             .font(.headline)
                             .foregroundStyle(studio.color(.primaryText))
-                            .padding(.leading, 16)
+                            .padding(.leading, DressingTokens.pad16)
                             .frame(minWidth: 60, minHeight: 44, alignment: .leading)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(FontPressStyle(scale: 0.92))
                     Spacer(minLength: 0)
                 }
-                .padding(.trailing, 16)
+                .padding(.trailing, DressingTokens.pad16)
             }
             .frame(height: 52)
             .background(studio.color(.surface))
@@ -2681,8 +2672,8 @@ struct DressingShopView: View {
                         .overlay(AvatarRingView(size: 120, color: pendant.color, imageFile: pendant.imageFile))
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, 12)
-                .padding(.bottom, 12)
+                .padding(.top, DressingTokens.pad12)
+                .padding(.bottom, DressingTokens.pad12)
                 HStack(alignment: .center, spacing: 8) {
                     PersonAvatarView(kind: detailPendantSide.isUser ? .user : .assistant,
                                      size: 36, showPendant: false)
@@ -2690,24 +2681,24 @@ struct DressingShopView: View {
                     Text(AppLocalized("今天也想你"))
                         .font(.callout)
                         .foregroundStyle(studio.color(detailPendantSide.isUser ? .bubbleText : .assistantBubbleText))
-                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .padding(.horizontal, DressingTokens.pad14).padding(.vertical, DressingTokens.pad8)
                         .background(studio.color(detailPendantSide.isUser ? .userBubble : .assistantBubble))
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusHero, style: .continuous))
                     Spacer(minLength: 0)
                 }
                 Spacer(minLength: 0)
             }
-            .padding(16)
+            .padding(DressingTokens.pad16)
             .onTapGesture { pendantSheetUp.toggle() }
 
             if pendantSheetUp {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
                         Text(pendant.title)
-                            .font(.system(size: fsTitle, weight: .bold, design: .serif))
+                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.primaryText))
                         Text("·")
-                            .font(.system(size: fsTitle, weight: .bold))
+                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.secondaryText))
                         Text(pendant.number)
                             .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
@@ -2735,7 +2726,7 @@ struct DressingShopView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
                                 .stroke(studio.color(.accent), lineWidth: 1)
                         )
                         .buttonStyle(FontPressStyle(scale: 0.97))
@@ -2748,10 +2739,10 @@ struct DressingShopView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .background(studio.color(.accent))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
                         .buttonStyle(FontPressStyle(scale: 0.97))
                     }
-                    .padding(.top, 6)
+                    .padding(.top, DressingTokens.pad6)
                     // Custom pendants only: built-ins have no
                     // delete path anywhere, and this button is
                     // not even drawn for them.
@@ -2765,12 +2756,12 @@ struct DressingShopView: View {
                         .buttonStyle(FontPressStyle(scale: 0.97))
                     }
                 }
-                .padding(20)
+                .padding(DressingTokens.pad20)
                 .background(
                     studio.color(.surface),
                     in: UnevenRoundedRectangle(
                         cornerRadii: RectangleCornerRadii(
-                            topLeading: 22, bottomLeading: 0,
+                            topLeading: DressingTokens.radiusLarge, bottomLeading: 0,
                             bottomTrailing: 0, topTrailing: 22))
                 )
                 .transition(.move(edge: .bottom))
@@ -2808,13 +2799,13 @@ struct DressingShopView: View {
                 Text(AppLocalized("还没有保存的搭配。在气泡详情里点“保存成搭配”，就会出现在这里。"))
                     .font(.system(size: fsSub))
                     .foregroundStyle(studio.color(.secondaryText))
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, DressingTokens.pad16)
             } else {
                 ForEach(outfitStore.outfits) { outfit in
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(outfit.title)
-                                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                                .font(DressingTokens.sectionTitleFont(size: fsTitle))
                                 .foregroundStyle(studio.color(.primaryText))
                             HStack(alignment: .top, spacing: 4) {
                                 Text(outfit.number)
@@ -2838,9 +2829,9 @@ struct DressingShopView: View {
                         .font(.system(size: fsCaption, weight: .semibold))
                         .foregroundStyle(studio.color(.surface))
                         .frame(minWidth: 44, minHeight: 44)
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, DressingTokens.pad12)
                         .background(studio.color(.accent))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusSmall, style: .continuous))
                         .buttonStyle(FontPressStyle(scale: 0.92))
                         Button(AppLocalized("按编号删除")) {
                             outfitStore.delete(number: outfit.number)
@@ -2851,33 +2842,32 @@ struct DressingShopView: View {
                         .contentShape(Rectangle())
                         .buttonStyle(FontPressStyle(scale: 0.92))
                     }
-                    .padding(14)
+                    .padding(DressingTokens.pad14)
                     .background(studio.color(.surface))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
                         .stroke(studio.color(.border), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
-                    .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                    .dressingCardShadow()
+                    .padding(.horizontal, DressingTokens.pad16)
+                    .padding(.bottom, DressingTokens.pad12)
                 }
             }
             Text(AppLocalized("换主题、重置都不会清掉这里；只有按编号删，才会删掉那一行。"))
                 .font(.system(size: fsCaption))
                 .foregroundStyle(studio.color(.secondaryText))
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
+                .padding(.horizontal, DressingTokens.pad16)
+                .padding(.top, DressingTokens.pad10)
         }
     }
 
     // MARK: - Font section, Gemini workshop skin (locked layout)
 
     /// Layout constants for the font section ONLY, in one
-    /// place, private to this file — never in the theme pack,
-    /// so AI theme tools (colour / wallpaper / font size
-    /// only) cannot move them. This is the layout lock her
-    /// 2026-11-01 AI-theme ban requires: radii, padding
-    /// bases, and gaps are fixed numbers here. Padding and
+    /// place (DressingTokens, AppearanceStudio.swift) — never
+    /// in the theme pack, so AI theme tools (colour / wallpaper
+    /// / font size only) cannot move them. This is the layout
+    /// lock her 2026-11-01 AI-theme ban requires: radii, padding
+    /// bases, and gaps are fixed numbers there. Padding and
     /// gap bases still pass through `density()` so a small
     /// global size pulls the section together (the 194 fix);
     /// radii never densify. Colours are all theme globals
@@ -2885,24 +2875,18 @@ struct DressingShopView: View {
     /// equivalent of the Gemini file's `:root` variables.
     /// Shadows are the one exception: they are black
     /// translucency, not palette colours, exactly as in the
-    /// Gemini file's fixed rgba shadows.
+    /// Gemini file's fixed rgba shadows — now named in
+    /// DressingTokens' `dressing*Shadow()` modifiers.
     ///
     /// 2026-11-02 (v2 diff): radii now match v2 exactly —
     /// stage card 24 (v2 radius-lg), font card 16 (v2
     /// radius-md), size card 10 (v2 radius-sm), tag 5. The 195
     /// values (22 / 22 / 16) were v1's, not v2's.
-    private enum FontSkin {
-        static let radiusStage: CGFloat = 24
-        static let radiusMedium: CGFloat = 16
-        static let radiusSmall: CGFloat = 10
-        static let radiusTag: CGFloat = 5
-        static let radiusPill: CGFloat = 999
-        static let cardPadding: CGFloat = 16
-        static let sectionGap: CGFloat = 28
-        static let listGap: CGFloat = 10
-        static let gridGap: CGFloat = 8
-        static let horizontal: CGFloat = 16
-    }
+    /// Layout constants for the font section and the shop, in one
+    /// place: DressingTokens (AppearanceStudio.swift) holds the
+    /// values; this alias keeps the existing `FontSkin.*` call
+    /// sites reading as before.
+    private typealias FontSkin = DressingTokens
 
     /// v2's `--fs-*` ladder, derived from the one global base
     /// exactly as the HTML derives every size from
@@ -3264,7 +3248,7 @@ struct DressingShopView: View {
     /// 这一份用本类型的 `fsTitle`，和店里别处的小节标题同字号。
     private func decalSectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: fsTitle, weight: .bold))
+            .font(DressingTokens.sectionTitleFont(size: fsTitle))
             .foregroundStyle(studio.color(.primaryText))
             .padding(.top, fontSettings.density(22))
             .padding(.bottom, fontSettings.density(8))
@@ -3326,8 +3310,8 @@ struct DressingShopView: View {
                             .tracking(0.6)
                     }
                     .foregroundStyle(studio.color(.primaryText))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, DressingTokens.pad10)
+                    .padding(.vertical, DressingTokens.pad4)
                     .background(studio.color(.iconTile))
                     .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous)
@@ -3359,21 +3343,21 @@ struct DressingShopView: View {
                                 .font(MinisThemeShape.messageFont(size: globalPointSize))
                                 .lineSpacing(globalPointSize * 0.25)
                                 .foregroundStyle(studio.color(.primaryText))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 10)
+                                .padding(.horizontal, DressingTokens.pad14)
+                                .padding(.vertical, DressingTokens.pad10)
                                 .background(studio.color(.surface))
                                 .clipShape(UnevenRoundedRectangle(
-                                    topLeadingRadius: 4, bottomLeadingRadius: 18,
-                                    bottomTrailingRadius: 18, topTrailingRadius: 18))
+                                    topLeadingRadius: DressingTokens.radiusChip, bottomLeadingRadius: DressingTokens.radiusHero,
+                                    bottomTrailingRadius: DressingTokens.radiusHero, topTrailingRadius: DressingTokens.radiusHero))
                                 .overlay(UnevenRoundedRectangle(
-                                    topLeadingRadius: 4, bottomLeadingRadius: 18,
-                                    bottomTrailingRadius: 18, topTrailingRadius: 18)
+                                    topLeadingRadius: DressingTokens.radiusChip, bottomLeadingRadius: DressingTokens.radiusHero,
+                                    bottomTrailingRadius: DressingTokens.radiusHero, topTrailingRadius: DressingTokens.radiusHero)
                                     .stroke(studio.color(.border), lineWidth: 1))
-                                .shadow(color: .black.opacity(0.03), radius: 4, x: 0, y: 1)
+                                .dressingSoftShadow()
                             Text(assistantSideName)
                                 .font(MinisThemeShape.messageFont(size: fsCaption))
                                 .foregroundStyle(studio.color(.tertiaryText))
-                                .padding(.horizontal, 4)
+                                .padding(.horizontal, DressingTokens.pad4)
                         }
                     }
                     HStack(alignment: .top, spacing: 10) {
@@ -3384,17 +3368,17 @@ struct DressingShopView: View {
                                 .lineSpacing(globalPointSize * 0.25)
                                 // [六定-6] 气泡填主文字，里面的字跟着反色。
                                 .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 10)
+                                .padding(.horizontal, DressingTokens.pad14)
+                                .padding(.vertical, DressingTokens.pad10)
                                 .background(studio.color(.primaryText))
                                 .clipShape(UnevenRoundedRectangle(
-                                    topLeadingRadius: 18, bottomLeadingRadius: 18,
-                                    bottomTrailingRadius: 18, topTrailingRadius: 4))
-                                .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 3)
+                                    topLeadingRadius: DressingTokens.radiusHero, bottomLeadingRadius: DressingTokens.radiusHero,
+                                    bottomTrailingRadius: DressingTokens.radiusHero, topTrailingRadius: DressingTokens.radiusChip))
+                                .dressingLiftedShadow()
                             Text(userSideName)
                                 .font(MinisThemeShape.messageFont(size: fsCaption))
                                 .foregroundStyle(studio.color(.tertiaryText))
-                                .padding(.horizontal, 4)
+                                .padding(.horizontal, DressingTokens.pad4)
                         }
                         PersonAvatarView(kind: .user, size: 30, showPendant: false)
                     }
@@ -3427,20 +3411,20 @@ struct DressingShopView: View {
                     }
                     // [六定-6] 发送钮填主文字，图标跟着反色。
                     .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, DressingTokens.pad14)
                     .frame(height: 34)
                     .background(studio.color(.primaryText))
                     .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
                 }
-                .padding(.leading, 14)
-                .padding(.trailing, 6)
-                .padding(.vertical, 4)
+                .padding(.leading, DressingTokens.pad14)
+                .padding(.trailing, DressingTokens.pad6)
+                .padding(.vertical, DressingTokens.pad4)
                 .frame(minHeight: 44)
                 .background(studio.color(.surface))
                 .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous)
                     .stroke(studio.color(.border), lineWidth: 1))
-                .shadow(color: .black.opacity(0.03), radius: 4, x: 0, y: 1)
+                .dressingSoftShadow()
             }
             .padding(.horizontal, fontSettings.density(18))
             .padding(.vertical, fontSettings.density(20))
@@ -3448,8 +3432,7 @@ struct DressingShopView: View {
             .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusStage, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusStage, style: .continuous)
                 .stroke(studio.color(.border), lineWidth: 1))
-            .shadow(color: .black.opacity(0.08), radius: 40, x: 0, y: 16)
-            .shadow(color: .black.opacity(0.02), radius: 10, x: 0, y: 2)
+            .dressingStageShadow()
             .padding(.horizontal, FontSkin.horizontal)
             .padding(.top, fontSettings.density(12))
         }
@@ -3541,7 +3524,7 @@ struct DressingShopView: View {
             if !hex.isEmpty {
                 Button { onReset() } label: {
                     Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(studio.color(.secondaryText))
                         .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
@@ -3583,15 +3566,14 @@ struct DressingShopView: View {
                     .font(.system(size: fsCaption))
                     .foregroundStyle(studio.color(.secondaryText))
             }
-            .padding(14)
+            .padding(DressingTokens.pad14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(studio.color(.surface))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
                 .stroke(studio.color(.border), lineWidth: 1))
-            .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
-            .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
-            .padding(.horizontal, 16)
+            .dressingCardShadow()
+            .padding(.horizontal, DressingTokens.pad16)
         }
     }
 
@@ -3641,8 +3623,8 @@ struct DressingShopView: View {
                         .tracking(0.2)
                         // [六定-6] 徽标填主文字，字跟着反色。
                         .foregroundStyle(FontSettings.contrastForeground(on: studio.hex(.primaryText, variant: studio.activeVariant)))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1.5)
+                        .padding(.horizontal, DressingTokens.pad5)
+                        .padding(.vertical, DressingTokens.pad1_5)
                         .background(studio.color(.primaryText))
                         .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
                         .opacity(applied ? 1 : 0)
@@ -3666,8 +3648,7 @@ struct DressingShopView: View {
             .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusSmall, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusSmall, style: .continuous)
                 .stroke(applied ? studio.color(.primaryText) : studio.color(.border), lineWidth: applied ? 1.5 : 1))
-            .shadow(color: .black.opacity(applied ? 0.12 : 0.03), radius: applied ? 16 : 3, x: 0, y: applied ? 4 : 1)
-            .shadow(color: .black.opacity(applied ? 0 : 0.02), radius: 2, x: 0, y: 1)
+            .dressingSelectedShadow(applied)
         }
         .buttonStyle(FontPressStyle(scale: 0.96))
     }
@@ -3695,14 +3676,13 @@ struct DressingShopView: View {
                             .font(MinisThemeShape.messageFont(size: fsSub, weight: .semibold))
                     }
                     .foregroundStyle(studio.color(.primaryText))
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, DressingTokens.pad14)
                     .frame(minHeight: 44)
                     .background(studio.color(.surface))
                     .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous)
                         .stroke(studio.color(.border), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
-                    .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
+                    .dressingCardShadow()
                 }
                 .buttonStyle(FontPressStyle(scale: 0.97))
             }
@@ -3752,8 +3732,8 @@ struct DressingShopView: View {
                     Text(number)
                         .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
                         .foregroundStyle(applied ? studio.color(.surface) : studio.color(.secondaryText))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, DressingTokens.pad6)
+                        .padding(.vertical, DressingTokens.pad2)
                         .background(applied ? studio.color(.primaryText) : studio.color(.chip))
                         .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusTag, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusTag, style: .continuous)
@@ -3770,8 +3750,8 @@ struct DressingShopView: View {
                             .font(MinisThemeShape.messageFont(size: fsCaption, weight: .semibold))
                     }
                     .foregroundStyle(studio.color(.primaryText))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3)
+                    .padding(.horizontal, DressingTokens.pad9)
+                    .padding(.vertical, DressingTokens.pad3)
                     .background(studio.color(.iconTile))
                     .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
                     .opacity(applied ? 1 : 0)
@@ -3791,7 +3771,7 @@ struct DressingShopView: View {
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 10)
+                .padding(.top, DressingTokens.pad10)
                 .overlay(alignment: .top) {
                     Rectangle()
                         .fill(studio.color(.border))
@@ -3804,8 +3784,7 @@ struct DressingShopView: View {
             .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusMedium, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusMedium, style: .continuous)
                 .stroke(applied ? studio.color(.primaryText) : studio.color(.border), lineWidth: applied ? 1.5 : 1))
-            .shadow(color: .black.opacity(applied ? 0.12 : 0.03), radius: applied ? 16 : 3, x: 0, y: applied ? 4 : 1)
-            .shadow(color: .black.opacity(applied ? 0 : 0.02), radius: 2, x: 0, y: 1)
+            .dressingSelectedShadow(applied)
         }
         .buttonStyle(FontPressStyle(scale: 0.985))
     }
@@ -3833,8 +3812,8 @@ struct DressingShopView: View {
                         Text(font.number)
                             .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
                             .foregroundStyle(applied ? studio.color(.surface) : studio.color(.secondaryText))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, DressingTokens.pad6)
+                            .padding(.vertical, DressingTokens.pad2)
                             .background(applied ? studio.color(.primaryText) : studio.color(.chip))
                             .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusTag, style: .continuous))
                             .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusTag, style: .continuous)
@@ -3851,8 +3830,8 @@ struct DressingShopView: View {
                                 .font(MinisThemeShape.messageFont(size: fsCaption, weight: .semibold))
                         }
                         .foregroundStyle(studio.color(.primaryText))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, DressingTokens.pad9)
+                        .padding(.vertical, DressingTokens.pad3)
                         .background(studio.color(.iconTile))
                         .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusPill, style: .continuous))
                         .opacity(applied ? 1 : 0)
@@ -3884,7 +3863,7 @@ struct DressingShopView: View {
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 10)
+                .padding(.top, DressingTokens.pad10)
                 .overlay(alignment: .top) {
                     Rectangle()
                         .fill(studio.color(.border))
@@ -3899,8 +3878,7 @@ struct DressingShopView: View {
         .clipShape(RoundedRectangle(cornerRadius: FontSkin.radiusMedium, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: FontSkin.radiusMedium, style: .continuous)
             .stroke(applied ? studio.color(.primaryText) : studio.color(.border), lineWidth: applied ? 1.5 : 1))
-        .shadow(color: .black.opacity(applied ? 0.12 : 0.03), radius: applied ? 16 : 3, x: 0, y: applied ? 4 : 1)
-        .shadow(color: .black.opacity(applied ? 0 : 0.02), radius: 2, x: 0, y: 1)
+        .dressingSelectedShadow(applied)
         .transition(.scale(scale: 0.92).combined(with: .opacity))
     }
 
@@ -4079,7 +4057,7 @@ struct DressingShopView: View {
                 .foregroundStyle(shakePreviewColor(.secondaryText, variant: variant))
             HStack(spacing: 6) {
                 ForEach([AppearanceColorRole.canvas, .surface, .accent, .userBubble, .assistantBubble], id: \.self) { role in
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: DressingTokens.radiusMini, style: .continuous)
                         .fill(shakePreviewColor(role, variant: variant))
                         .frame(height: 24)
                 }
@@ -4088,9 +4066,9 @@ struct DressingShopView: View {
                 Text(AppLocalized("今天也想你"))
                     .font(.system(size: fsSub))
                     .foregroundStyle(shakePreviewColor(.assistantBubbleText, variant: variant))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(shakePreviewColor(.assistantBubble, variant: variant), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(.horizontal, DressingTokens.pad12)
+                    .padding(.vertical, DressingTokens.pad8)
+                    .background(shakePreviewColor(.assistantBubble, variant: variant), in: RoundedRectangle(cornerRadius: DressingTokens.radiusMedium, style: .continuous))
                 Spacer(minLength: 0)
             }
             HStack {
@@ -4098,22 +4076,22 @@ struct DressingShopView: View {
                 Text(AppLocalized("今天也想你"))
                     .font(.system(size: fsSub))
                     .foregroundStyle(shakePreviewColor(.bubbleText, variant: variant))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(shakePreviewColor(.userBubble, variant: variant), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(.horizontal, DressingTokens.pad12)
+                    .padding(.vertical, DressingTokens.pad8)
+                    .background(shakePreviewColor(.userBubble, variant: variant), in: RoundedRectangle(cornerRadius: DressingTokens.radiusMedium, style: .continuous))
             }
         }
-        .padding(12)
+        .padding(DressingTokens.pad12)
         .background(shakePreviewColor(.canvas, variant: variant))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusTile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusTile, style: .continuous)
             .stroke(shakePreviewColor(.border, variant: variant), lineWidth: 1))
     }
 
     private var shakeSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(AppLocalized("摇一摇"))
-                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                .font(DressingTokens.sectionTitleFont(size: fsTitle))
                 .foregroundStyle(studio.color(.primaryText))
             Text(AppLocalized("摇出一套新配色，先预览再决定；预览时现场配色不动。"))
                 .font(.system(size: fsSub))
@@ -4142,7 +4120,7 @@ struct DressingShopView: View {
             .buttonStyle(FontPressStyle(scale: 0.97))
             if let roll = shakePreview {
                 Text(roll.name)
-                    .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                    .font(DressingTokens.sectionTitleFont(size: fsTitle))
                     .foregroundStyle(studio.color(.primaryText))
                 shakePreviewSample(variant: .light)
                 shakePreviewSample(variant: .dark)
@@ -4192,16 +4170,15 @@ struct DressingShopView: View {
                     .foregroundStyle(studio.color(.secondaryText))
             }
         }
-        .padding(14)
+        .padding(DressingTokens.pad14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(studio.color(.surface))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
             .stroke(studio.color(.border), lineWidth: 1))
-        .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
-        .shadow(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
+        .dressingCardShadow()
+        .padding(.horizontal, DressingTokens.pad16)
+        .padding(.top, DressingTokens.pad12)
     }
 
     /// [T-20] 某一页压着全局的项数。用一个真正的结构体，不用元组——
@@ -4246,10 +4223,10 @@ struct DressingShopView: View {
                 }
             }
         }
-        .padding(10)
+        .padding(DressingTokens.pad10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(studio.color(.mutedSurface))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusSmall, style: .continuous))
     }
 
     /// [T-20] 清掉某一页的全部覆盖（明暗两套都清），清完如实报结果。
@@ -4289,8 +4266,8 @@ struct DressingShopView: View {
                     .font(ChatFont.font(11))
                     .foregroundStyle(studio.color(.tertiaryText))
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 18)
+            .padding(.horizontal, DressingTokens.pad16)
+            .padding(.top, DressingTokens.pad18)
 
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -4337,13 +4314,13 @@ struct DressingShopView: View {
                         .foregroundStyle(studio.color(.secondaryText))
                 }
             }
-            .padding(16)
+            .padding(DressingTokens.pad16)
             .background(studio.color(.surface))
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusLarge, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusLarge, style: .continuous)
                 .stroke(studio.color(.border), lineWidth: 1))
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
+            .padding(.horizontal, DressingTokens.pad16)
+            .padding(.top, DressingTokens.pad12)
 
             shakeSection
 
@@ -4362,29 +4339,29 @@ struct DressingShopView: View {
                         Text(editingVariant == .light ? AppLocalized("正在改白天那套") : AppLocalized("正在改黑夜那套"))
                             .font(ChatFont.font(10, weight: .semibold))
                             .foregroundStyle(studio.color(.primaryText))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, DressingTokens.pad8)
+                            .padding(.vertical, DressingTokens.pad4)
                             .background(studio.color(.mutedSurface), in: Capsule())
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, 10)
+                    .padding(.horizontal, DressingTokens.pad16)
+                    .padding(.top, DressingTokens.pad14)
+                    .padding(.bottom, DressingTokens.pad10)
                     ForEach(Array(group.roles.enumerated()), id: \.element) { index, role in
                         if index > 0 {
                             Rectangle()
                                 .fill(studio.color(.border).opacity(0.22))
                                 .frame(height: 0.5)
-                                .padding(.leading, 16)
+                                .padding(.leading, DressingTokens.pad16)
                         }
                         colorVarRow(role)
                     }
                 }
                 .background(studio.color(.surface))
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusLarge, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusLarge, style: .continuous)
                     .stroke(studio.color(.border), lineWidth: 1))
-                .padding(.horizontal, 16)
-                .padding(.top, 24)
+                .padding(.horizontal, DressingTokens.pad16)
+                .padding(.top, DressingTokens.pad24)
             }
 
             Button {
@@ -4402,19 +4379,19 @@ struct DressingShopView: View {
                     .foregroundStyle(studio.color(.primaryText))
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .background(studio.color(.surface))
-                    .clipShape(RoundedRectangle(cornerRadius: 999, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 999, style: .continuous)
+                    .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPill, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPill, style: .continuous)
                         .stroke(studio.color(.border), lineWidth: 1))
             }
             .buttonStyle(FontPressStyle(scale: 0.97))
-            .padding(.horizontal, 16)
-            .padding(.top, 24)
+            .padding(.horizontal, DressingTokens.pad16)
+            .padding(.top, DressingTokens.pad24)
             Text(AppLocalized("只清全局配色，回到内置单色；逐页单独调过的颜色不动。"))
                 .font(ChatFont.font(11))
                 .foregroundStyle(studio.color(.secondaryText))
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 32)
+                .padding(.horizontal, DressingTokens.pad16)
+                .padding(.top, DressingTokens.pad8)
+                .padding(.bottom, DressingTokens.pad32)
         }
     }
 
@@ -4546,7 +4523,7 @@ struct DressingShopView: View {
     }
 
     private func colorVarBar(width: CGFloat, height: CGFloat, color: Color, opacity: Double = 1) -> some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
+        RoundedRectangle(cornerRadius: DressingTokens.radiusMicro, style: .continuous)
             .fill(color.opacity(opacity))
             .frame(width: width, height: height)
     }
@@ -4583,7 +4560,7 @@ struct DressingShopView: View {
             .frame(width: 52, height: 20)
         case .shellText:
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.radiusCard, style: .continuous)
                     .fill(Color.black)
                 VStack(spacing: 4) {
                     colorVarBar(width: 26, height: 5, color: live)
@@ -4593,17 +4570,17 @@ struct DressingShopView: View {
             .frame(width: 46, height: 28)
         case .canvas:
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(live)
+                RoundedRectangle(cornerRadius: DressingTokens.radiusCard, style: .continuous).fill(live)
                 VStack(spacing: 4) {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous)
                         .fill(colorVarLiveColor(.surface)).frame(width: 58, height: 9)
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous)
                         .fill(colorVarLiveColor(.surface)).frame(width: 58, height: 9)
                 }
             }
         case .surface:
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(live)
+                RoundedRectangle(cornerRadius: DressingTokens.radiusCard, style: .continuous).fill(live)
                 VStack(alignment: .leading, spacing: 4) {
                     colorVarBar(width: 44, height: 6, color: colorVarLiveColor(.primaryText))
                     colorVarBar(width: 32, height: 5, color: colorVarLiveColor(.secondaryText))
@@ -4611,28 +4588,28 @@ struct DressingShopView: View {
             }
         case .raised:
             ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.radiusMini, style: .continuous)
                     .fill(colorVarLiveColor(.surface)).frame(width: 58, height: 26)
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.radiusMini, style: .continuous)
                     .fill(live).frame(width: 44, height: 22)
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusMini, style: .continuous)
                         .stroke(colorVarLiveColor(.border).opacity(0.5), lineWidth: 0.5))
                     .offset(x: 10, y: -4)
             }
         case .mutedSurface:
-            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(live)
+            RoundedRectangle(cornerRadius: DressingTokens.radiusCard, style: .continuous).fill(live)
         case .border:
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.radiusCard, style: .continuous)
                     .stroke(live, lineWidth: 1.5)
-                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                RoundedRectangle(cornerRadius: DressingTokens.radiusHairline, style: .continuous)
                     .fill(live).frame(width: 56, height: 1)
             }
         case .userBubble:
             HStack {
                 Spacer(minLength: 0)
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(live)
+                    RoundedRectangle(cornerRadius: DressingTokens.radiusTile, style: .continuous).fill(live)
                     colorVarBar(width: 26, height: 5, color: colorVarLiveColor(.bubbleText))
                 }
                 .frame(width: 46, height: 24)
@@ -4640,7 +4617,7 @@ struct DressingShopView: View {
         case .assistantBubble:
             HStack {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(live)
+                    RoundedRectangle(cornerRadius: DressingTokens.radiusTile, style: .continuous).fill(live)
                     colorVarBar(width: 26, height: 5, color: colorVarLiveColor(.assistantBubbleText))
                 }
                 .frame(width: 46, height: 24)
@@ -4650,7 +4627,7 @@ struct DressingShopView: View {
             HStack {
                 Spacer(minLength: 0)
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: DressingTokens.radiusTile, style: .continuous)
                         .fill(colorVarLiveColor(.userBubble))
                     VStack(spacing: 4) {
                         colorVarBar(width: 26, height: 5, color: live)
@@ -4662,7 +4639,7 @@ struct DressingShopView: View {
         case .assistantBubbleText:
             HStack {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: DressingTokens.radiusTile, style: .continuous)
                         .fill(colorVarLiveColor(.assistantBubble))
                     VStack(spacing: 4) {
                         colorVarBar(width: 26, height: 5, color: live)
@@ -4679,14 +4656,14 @@ struct DressingShopView: View {
                     colorVarBar(width: 2, height: 12, color: colorVarLiveColor(.primaryText))
                     colorVarBar(width: 24, height: 5, color: colorVarLiveColor(.secondaryText))
                 }
-                .padding(.leading, 10)
+                .padding(.leading, DressingTokens.pad10)
             }
             .frame(width: 62, height: 20)
         case .iconTile:
             HStack(spacing: 4) {
                 ForEach(0..<3, id: \.self) { _ in
                     ZStack {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous).fill(live)
+                        RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous).fill(live)
                         Circle().fill(colorVarLiveColor(.primaryText).opacity(0.6))
                             .frame(width: 4, height: 4)
                     }
@@ -4744,7 +4721,7 @@ struct DressingShopView: View {
         HStack(spacing: 12) {
             colorVarMiniature(role)
                 .frame(width: 76, height: 36)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusCard, style: .continuous))
                 .allowsHitTesting(false)
             VStack(alignment: .leading, spacing: 2) {
                 Text(colorVarDisplayName(role))
@@ -4758,8 +4735,8 @@ struct DressingShopView: View {
                     Text(tag)
                         .font(ChatFont.font(10, weight: .semibold))
                         .foregroundStyle(studio.color(.primaryText))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, DressingTokens.pad7)
+                        .padding(.vertical, DressingTokens.pad2)
                         .background(studio.color(.mutedSurface), in: Capsule())
                 }
             }
@@ -4784,7 +4761,7 @@ struct DressingShopView: View {
                     studio.clearOverride(role, scope: editingScope, variant: editingVariant)
                 } label: {
                     Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(studio.color(.secondaryText))
                         .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
@@ -4793,13 +4770,13 @@ struct DressingShopView: View {
                 .accessibilityLabel(AppLocalized("恢复默认"))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, DressingTokens.pad16)
+        .padding(.vertical, DressingTokens.pad10)
         if let warning = colorContrastWarning(for: role) {
             Text(warning)
                 .font(.system(size: fsSub))
                 .foregroundStyle(studio.color(.destructive))
-                .padding(.horizontal, 16)
+                .padding(.horizontal, DressingTokens.pad16)
         }
         }
     }
@@ -4830,21 +4807,21 @@ struct DressingShopView: View {
         VStack(spacing: 0) {
             ZStack {
                 Text(AppLocalized("聊天气泡"))
-                    .font(.system(size: fsTitle, weight: .bold, design: .serif))
+                    .font(DressingTokens.sectionTitleFont(size: fsTitle))
                     .foregroundStyle(studio.color(.primaryText))
                 HStack(spacing: 0) {
                     Button { closeDetail() } label: {
                         Image(systemName: "chevron.left")
                             .font(.headline)
                             .foregroundStyle(studio.color(.primaryText))
-                            .padding(.leading, 16)
+                            .padding(.leading, DressingTokens.pad16)
                             .frame(minWidth: 60, minHeight: 44, alignment: .leading)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(FontPressStyle(scale: 0.92))
                     Spacer(minLength: 0)
                 }
-                .padding(.trailing, 16)
+                .padding(.trailing, DressingTokens.pad16)
             }
             .frame(height: 52)
             .background(studio.color(.surface))
@@ -4875,17 +4852,17 @@ struct DressingShopView: View {
                               text: AppLocalized("好，那就这款。"))
                 Spacer(minLength: 0)
             }
-            .padding(16)
+            .padding(DressingTokens.pad16)
             .onTapGesture { sheetUp.toggle() }
 
             if sheetUp {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
                         Text(pack.title)
-                            .font(.system(size: fsTitle, weight: .bold, design: .serif))
+                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.primaryText))
                         Text("·")
-                            .font(.system(size: fsTitle, weight: .bold))
+                            .font(DressingTokens.sectionTitleFont(size: fsTitle))
                             .foregroundStyle(studio.color(.secondaryText))
                         Text(pack.number)
                             .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
@@ -4908,7 +4885,7 @@ struct DressingShopView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
                                 .stroke(studio.color(.accent), lineWidth: 1)
                         )
                         .buttonStyle(FontPressStyle(scale: 0.97))
@@ -4921,17 +4898,17 @@ struct DressingShopView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .background(studio.color(.accent))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
                         .buttonStyle(FontPressStyle(scale: 0.97))
                     }
-                    .padding(.top, 6)
+                    .padding(.top, DressingTokens.pad6)
                 }
-                .padding(20)
+                .padding(DressingTokens.pad20)
                 .background(
                     studio.color(.surface),
                     in: UnevenRoundedRectangle(
                         cornerRadii: RectangleCornerRadii(
-                            topLeading: 22, bottomLeading: 0,
+                            topLeading: DressingTokens.radiusLarge, bottomLeading: 0,
                             bottomTrailing: 0, topTrailing: 22))
                 )
                 .transition(.move(edge: .bottom))
@@ -5095,7 +5072,7 @@ private struct OtherSettingsContentView: View {
                                         .resizable()
                                         .aspectRatio(contentMode: .fill)
                                         .frame(width: 52, height: 52)
-                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
                                 }
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(option.title)
@@ -5194,9 +5171,9 @@ private struct OtherSettingsContentView: View {
 
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: fsTitle, weight: .bold))
+            .font(DressingTokens.sectionTitleFont(size: fsTitle))
             .foregroundStyle(studio.color(.primaryText))
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DressingTokens.pad16)
             .padding(.top, fontSettings.density(22))
             .padding(.bottom, fontSettings.density(12))
     }
@@ -5207,8 +5184,8 @@ private struct OtherSettingsContentView: View {
         }
         .padding(fontSettings.density(16))
         .background(studio.color(.surface))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .padding(.horizontal, 16)
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+        .padding(.horizontal, DressingTokens.pad16)
     }
 }
 

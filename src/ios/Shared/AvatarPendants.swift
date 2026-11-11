@@ -102,6 +102,10 @@ struct AvatarPendant: Identifiable, Equatable, Codable {
 
     var color: Color { Color(hex: hex) }
 
+    /// Default ring colour for a newly created custom pendant.
+    /// Same pale yellow as built-in PEN-0001.
+    static let defaultNewHex = "FFF6CC"
+
     private enum CodingKeys: String, CodingKey {
         case number, title, category, imageFile, hex, detail
     }

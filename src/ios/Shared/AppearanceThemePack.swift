@@ -947,10 +947,10 @@ fileprivate func normalizeOptionalHex(_ raw: String) -> String {
 
 fileprivate func normalizeHex(_ raw: String) -> String {
     let trimmed = raw.trimmingCharacters(in: CharacterSet.alphanumerics.inverted).uppercased()
-    guard trimmed.count == 6 || trimmed.count == 8 else { return "808080" }
+    guard trimmed.count == 6 || trimmed.count == 8 else { return DressingTokens.fallbackHex }
     // Length alone let "ZZZZZZ" through, which scanned to 0 and painted
     // black. Require actual hex digits so a typo lands on neutral grey.
-    guard trimmed.allSatisfy({ $0.isHexDigit }) else { return "808080" }
+    guard trimmed.allSatisfy({ $0.isHexDigit }) else { return DressingTokens.fallbackHex }
     return trimmed
 }
 
