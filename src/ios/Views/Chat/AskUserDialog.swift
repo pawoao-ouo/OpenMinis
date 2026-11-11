@@ -39,13 +39,10 @@ enum CSSThemeVariables {
     /// --color-card / var(--dudu-card)
     /// [4-1 醒醒] 背景卡接入全局 surface 角色，支持壁纸透明度
     /// 取色和透明度必须一起走:只配一个,页面会一半深一半浅。
-    /// 壁纸开的时候照着壁纸走,别让两者分家。
+    /// 透光只一套算法:无条件乘 surfaceOpacity,有壁纸没壁纸都一样,
+    /// 旋钮就是这一个值。
     static func card(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
-        let surface = studio.color(.surface, scope: scope)
-        if studio.hasWallpaper(scope) {
-            return surface.opacity(studio.surfaceOpacity)
-        }
-        return surface
+        studio.color(.surface, scope: scope).opacity(studio.surfaceOpacity)
     }
 
     /// --color-bg / var(--dudu-cream)
@@ -73,8 +70,8 @@ enum CSSThemeVariables {
         studio.color(.tertiaryText, scope: scope)
     }
 
-    /// [T-03] 玻璃面用的底色。有壁纸时跟 card 一样带透明度，没壁纸时是纯
-    /// surface —— 这样瓷白玻璃在浅色/深色、有图/没图下都还站得住。
+    /// [T-03] 玻璃面用的底色。就是 card 本身,无条件带 surfaceOpacity,
+    /// 有壁纸没壁纸都一样 —— 这样瓷白玻璃在浅色/深色、有图/没图下都还站得住。
     static func surfaceFill(scope: AppearanceScope = ThemeColorLayer.sheet) -> Color {
         card(scope: scope)
     }

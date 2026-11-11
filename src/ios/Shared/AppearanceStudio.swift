@@ -2160,9 +2160,10 @@ extension UIColor {
 /// 旧签名一律保留（`scope:` 仍可显式传），所以这是一轮"包一层"——下一轮才
 /// 合并入口本身。
 ///
-/// 表面透明度的两套算法还没收：`MinisTheme` / `ChatColors` 无条件乘
-/// `surfaceOpacity`，`CSSThemeVariables.card` 只在有壁纸时乘。收成一套会改
-/// 渲染，要真机比图，不在这一轮动。
+/// 表面透明度只一套算法:`MinisTheme` / `ChatColors` 与
+/// `CSSThemeVariables.card` 都无条件乘 `surfaceOpacity`,装扮中心三颗旋钮
+/// 里「卡片表面透光」那颗就是这一个值。没壁纸时卡片也不再是不透明——
+/// 视觉会比以前略透一点(默认 0.88 对原来写死的 0.85),要真机比图。
 enum ThemeColorLayer {
     /// 聊天消息区：气泡、消息操作栏、输入栏。
     static let chat: AppearanceScope = .chat

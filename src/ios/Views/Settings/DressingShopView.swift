@@ -139,7 +139,7 @@ extension DressingShopView {
         }
         .padding(.horizontal, DressingTokens.Padding.cardHorizontal)
         .padding(.vertical, DressingTokens.Padding.cardVertical)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -240,7 +240,7 @@ extension DressingShopView {
                 }
             }
             .padding(DressingTokens.Padding.card)
-            .background(CSSThemeVariables.bg(scope: .chat).opacity(0.85))
+            .background(CSSThemeVariables.bg(scope: .chat).opacity(studio.surfaceOpacity))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
@@ -345,7 +345,7 @@ extension DressingShopView {
             }
         }
         .padding(DressingTokens.Padding.section)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous)
@@ -426,7 +426,7 @@ extension DressingShopView {
             }
             .padding(DressingTokens.Padding.section)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+            .background(CSSThemeVariables.card(scope: .settings))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous)
@@ -653,7 +653,7 @@ struct DressingPresetsSheet: View {
                 .clipShape(Capsule())
             }
             .padding(DressingTokens.Padding.card)
-            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+            .background(CSSThemeVariables.card(scope: .settings))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -730,7 +730,7 @@ struct DressingPresetsSheet: View {
                 .clipShape(Capsule())
             }
             .padding(DressingTokens.Padding.card)
-            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+            .background(CSSThemeVariables.card(scope: .settings))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -950,7 +950,7 @@ struct DressingColorStudioSheet: View {
         }
         .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
         .padding(.vertical, DressingTokens.Padding.tallRowVertical)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
@@ -1138,7 +1138,7 @@ struct DressingWallpaperArtSheet: View {
                 }
             }
             .padding(DressingTokens.Padding.card)
-            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+            .background(CSSThemeVariables.card(scope: .settings))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -1205,7 +1205,7 @@ struct DressingWallpaperArtSheet: View {
                 }
             }
             .padding(DressingTokens.Padding.card)
-            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+            .background(CSSThemeVariables.card(scope: .settings))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -1296,7 +1296,7 @@ struct DressingWallpaperArtSheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
@@ -1515,7 +1515,7 @@ struct DressingBubblesPendantsSheet: View {
                 }
             }
             .padding(DressingTokens.Padding.card)
-            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+            .background(CSSThemeVariables.card(scope: .settings))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -1891,7 +1891,7 @@ struct DressingBubblesPendantsSheet: View {
                 }
             }
             .padding(DressingTokens.Padding.card)
-            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+            .background(CSSThemeVariables.card(scope: .settings))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -2113,7 +2113,7 @@ struct DressingBubblesPendantsSheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
@@ -2173,7 +2173,7 @@ struct DressingBubblesPendantsSheet: View {
                 }
             }
             .padding(DressingTokens.Padding.card)
-            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+            .background(CSSThemeVariables.card(scope: .settings))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -2261,7 +2261,7 @@ struct DressingBubblesPendantsSheet: View {
             }
         }
         .padding(DressingTokens.Padding.innerCard)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
@@ -2351,7 +2351,7 @@ struct DressingTypographySheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -2440,7 +2440,7 @@ struct DressingTypographySheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -2490,7 +2490,7 @@ struct DressingTypographySheet: View {
             )
         }
         .padding(DressingTokens.Padding.card)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -2570,7 +2570,7 @@ struct DressingTypographySheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -2759,7 +2759,7 @@ struct DressingThemeLibrarySheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
@@ -2860,7 +2860,7 @@ struct DressingDetailsIconsSheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -2881,7 +2881,7 @@ struct DressingDetailsIconsSheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -2981,7 +2981,7 @@ struct DressingDetailsIconsSheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
-        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+        .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -3189,7 +3189,7 @@ struct DressingImportExportSheet: View {
                         }
                         .padding(DressingTokens.Padding.section)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+                        .background(CSSThemeVariables.card(scope: .settings))
                         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -3243,7 +3243,7 @@ struct DressingImportExportSheet: View {
                         }
                         .padding(DressingTokens.Padding.section)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+                        .background(CSSThemeVariables.card(scope: .settings))
                         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -3280,7 +3280,7 @@ struct DressingImportExportSheet: View {
                         }
                         .padding(DressingTokens.Padding.section)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+                        .background(CSSThemeVariables.card(scope: .settings))
                         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -3408,7 +3408,7 @@ struct STImportConfirmSheet: View {
                             }
                         }
                         .padding(DressingTokens.Padding.section)
-                        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+                        .background(CSSThemeVariables.card(scope: .settings))
                         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -3440,7 +3440,7 @@ struct STImportConfirmSheet: View {
                             }
                         }
                         .padding(DressingTokens.Padding.card)
-                        .background(Color(hex: hex(.canvas)).opacity(0.85))
+                        .background(Color(hex: hex(.canvas)).opacity(AppearanceStudio.shared.surfaceOpacity))
                         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
@@ -3457,7 +3457,7 @@ struct STImportConfirmSheet: View {
                         }
                         .padding(DressingTokens.Padding.section)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+                        .background(CSSThemeVariables.card(scope: .settings))
                         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
@@ -3475,7 +3475,7 @@ struct STImportConfirmSheet: View {
                             }
                             .padding(DressingTokens.Padding.section)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(CSSThemeVariables.card(scope: .settings).opacity(0.85))
+                            .background(CSSThemeVariables.card(scope: .settings))
                             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
