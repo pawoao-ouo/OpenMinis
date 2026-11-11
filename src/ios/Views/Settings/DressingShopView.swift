@@ -699,6 +699,8 @@ struct DressingShopView: View {
                 .foregroundStyle(studio.color(.secondaryText))
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
+            presetSection
+                .padding(.top, 12)
             Button(AppLocalized("清理无主主题包")) { cleanupOrphanedThemePacks() }
                 .font(.system(size: fsSub, weight: .semibold))
                 .foregroundStyle(studio.color(.secondaryText))
@@ -713,6 +715,57 @@ struct DressingShopView: View {
             stImportSection
                 .padding(.top, 16)
         }
+    }
+
+    // MARK: - Built-in presets (theme category)
+    //
+    // The three built-in presets live in the backend
+    // (AppearancePreset) with full light/dark palettes, but the
+    // shop had no entry for them. The row below is the entry:
+    // one card per preset, swatches from the preset's own light
+    // palette, tap applies it through studio.applyPreset(_:).
+    // applyPreset clears the global overrides first and then
+    // writes the preset colours, so switching presets never
+    // mixes two palettes. Swatches are 16pt (themeCardStrip
+    // uses 20pt on a full-width card; four 20pt swatches do
+    // not fit a third-width card).
+    private var presetSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(AppLocalized("预设"))
+                .font(.system(size: fsTitle, weight: .semibold, design: .serif))
+                .foregroundStyle(studio.color(.primaryText))
+            HStack(spacing: 12) {
+                ForEach(AppearancePreset.allCases) { preset in
+                    Button {
+                        studio.applyPreset(preset)
+                        showFontToast(String(format: AppLocalized("已换上「%@」"), preset.title))
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(preset.title)
+                                .font(.system(size: fsSub, weight: .semibold))
+                                .foregroundStyle(studio.color(.primaryText))
+                            HStack(spacing: 4) {
+                                ForEach([AppearanceColorRole.canvas, .accent, .userBubble, .assistantBubble], id: \.self) { role in
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .fill(Color(hex: preset.colors.light[role] ?? "FFFFFF"))
+                                        .frame(width: 16, height: 16)
+                                        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .stroke(studio.color(.border).opacity(0.5), lineWidth: 0.5))
+                                }
+                            }
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(studio.color(.surface))
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(studio.color(.border), lineWidth: 1))
+                    }
+                    .buttonStyle(FontPressStyle(scale: 0.98))
+                }
+            }
+        }
+        .padding(.horizontal, 16)
     }
 
     // MARK: - ST theme import (theme category, ST-import batch)
