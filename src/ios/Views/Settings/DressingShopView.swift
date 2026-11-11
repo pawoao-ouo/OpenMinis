@@ -441,7 +441,7 @@ extension DressingShopView {
             Button {
                 haptic()
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    studio.resetPaletteWithUndo()
+                    studio.resetGlobalColorsWithUndo()
                 }
                 showToast(AppLocalized("调色板已重置为默认值（可撤销）"))
             } label: {

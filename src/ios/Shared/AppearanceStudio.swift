@@ -1111,6 +1111,47 @@ final class AppearanceStudio: ObservableObject {
         configureUIKitSurfaces()
     }
 
+    /// [F3] 只清全局配色、带撤销：中心页底部「恢复默认调色板」接这里。
+    /// 先抓一份纯颜色撤销快照（和 `clearNonGlobalColorOverridesWithUndo`
+    /// 同一套机制：只存当前颜色表 + "colors-only" 标记），再清全局键，
+    /// 这样 toast 里的「（可撤销）」还是真的，撤销时原样恢复这一刀
+    /// 清掉的颜色表——包括她的分页微调。抓快照失败时不留下旧快照
+    /// （否则撤销会恢复一次根本没抓过的旧状态），重置本身照常跑，
+    /// 和现在按钮的行为一致。
+    func resetGlobalColorsWithUndo() {
+        if !captureColorsUndoSnapshot() {
+            try? FileManager.default.removeItem(at: themeUndoDirectory)
+        }
+        resetGlobalColors()
+    }
+
+    /// 纯颜色撤销快照，和 AppearanceThemePack.swift 里
+    /// `captureColorOnlyUndoSnapshot` 同款（那个是 private，只能在
+    /// 那个文件里用，所以全局重置这条路要自己抓一份）：当前颜色表
+    /// 写进暂存目录再原子换进快照目录。只在真抓失败（建不出暂存
+    /// 目录、颜色写不进去）时返回 false。
+    private func captureColorsUndoSnapshot() -> Bool {
+        let dir = themeUndoDirectory
+        let scratch = dir.deletingLastPathComponent()
+            .appendingPathComponent(".undo-staging", isDirectory: true)
+        try? FileManager.default.removeItem(at: scratch)
+        guard (try? FileManager.default.createDirectory(at: scratch,
+                                                        withIntermediateDirectories: true)) != nil else {
+            return false
+        }
+        let overrides: [String: String] = exportColorOverrides()
+        guard let colors = try? JSONEncoder().encode(overrides),
+              (try? colors.write(to: scratch.appendingPathComponent("colors.json"), options: .atomic)) != nil,
+              (try? "1".write(to: scratch.appendingPathComponent("colors-only"), atomically: true, encoding: .utf8)) != nil else {
+            try? FileManager.default.removeItem(at: scratch)
+            return false
+        }
+        // 快照完整了再换掉旧的，抓一半失败不会毁掉上一次的撤销。
+        try? FileManager.default.removeItem(at: dir)
+        try? FileManager.default.moveItem(at: scratch, to: dir)
+        return FileManager.default.fileExists(atPath: dir.appendingPathComponent("colors.json").path)
+    }
+
     private func persistColors() {
         // [T-73c] 拖色盘时每一帧都会走这里：以前每次都把整张颜色表编码
         // 一次、写一次 UserDefaults（几十个键的字典，主线程上）。屏幕上
