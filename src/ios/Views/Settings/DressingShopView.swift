@@ -722,6 +722,27 @@ struct DressingShopView: View {
                     ForEach(visiblePendants) { pendant in pendantCard(pendant) }
                 }
             }
+            // Recommend shows only what exists: a row whose type
+            // has zero items (nothing saved yet, or nothing
+            // matching the search) is hidden entirely — no header,
+            // no empty line. Every row below reuses its own
+            // category's card and tap behaviour, never a second
+            // copy of an item or a new apply path.
+            if !visibleThemes.isEmpty {
+                sectionHeader(AppLocalized("主题"), jumpTo: .theme)
+                ForEach(visibleThemes) { item in themeCard(item) }
+            }
+            if !visibleOutfits.isEmpty {
+                sectionHeader(AppLocalized("我的搭配"), jumpTo: .outfit)
+                ForEach(visibleOutfits) { outfit in outfitRow(outfit) }
+            }
+            if !visiblePresets.isEmpty {
+                sectionHeader(AppLocalized("预设"), jumpTo: .theme)
+                HStack(spacing: 12) {
+                    ForEach(visiblePresets) { preset in presetCard(preset) }
+                }
+                .padding(.horizontal, DressingTokens.pad16)
+            }
             Text(AppLocalized("点卡片进入详情预览，确认后再换上；标签条按心情筛选当前页的卡片。"))
                 .font(.system(size: globalPointSize * 13 / 13))
                 .foregroundStyle(studio.color(.secondaryText))
@@ -883,38 +904,46 @@ struct DressingShopView: View {
                 searchEmptyLine
             } else {
                 HStack(spacing: 12) {
-                    ForEach(visiblePresets) { preset in
-                    Button {
-                        studio.applyPreset(preset)
-                        showFontToast(String(format: AppLocalized("已换上「%@」"), preset.title))
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(preset.title)
-                                .font(.system(size: fsSub, weight: .semibold))
-                                .foregroundStyle(studio.color(.primaryText))
-                            HStack(spacing: 4) {
-                                ForEach([AppearanceColorRole.canvas, .accent, .userBubble, .assistantBubble], id: \.self) { role in
-                                    RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous)
-                                        .fill(Color(hex: preset.colors.light[role] ?? DressingTokens.fallbackWhiteHex))
-                                        .frame(width: 16, height: 16)
-                                        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous)
-                                            .stroke(studio.color(.border).opacity(0.5), lineWidth: 0.5))
-                                }
-                            }
-                        }
-                        .padding(DressingTokens.pad12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(studio.color(.surface))
-                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusSheet, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusSheet, style: .continuous)
-                            .stroke(studio.color(.border), lineWidth: 1))
-                    }
-                    .buttonStyle(FontPressStyle(scale: 0.98))
+                    ForEach(visiblePresets) { preset in presetCard(preset) }
                 }
-            }
             }
         }
         .padding(.horizontal, DressingTokens.pad16)
+    }
+
+    /// One preset card, shared by the theme category's 预设
+    /// section and the 推荐 page: same title and swatches from
+    /// the preset's own light palette, same tap (applyPreset,
+    /// then the 已换上 toast). Moved here verbatim from
+    /// presetSection — no behaviour change, only the call site
+    /// is shared.
+    private func presetCard(_ preset: AppearancePreset) -> some View {
+        Button {
+            studio.applyPreset(preset)
+            showFontToast(String(format: AppLocalized("已换上「%@」"), preset.title))
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(preset.title)
+                    .font(.system(size: fsSub, weight: .semibold))
+                    .foregroundStyle(studio.color(.primaryText))
+                HStack(spacing: 4) {
+                    ForEach([AppearanceColorRole.canvas, .accent, .userBubble, .assistantBubble], id: \.self) { role in
+                        RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous)
+                            .fill(Color(hex: preset.colors.light[role] ?? DressingTokens.fallbackWhiteHex))
+                            .frame(width: 16, height: 16)
+                            .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusChip, style: .continuous)
+                                .stroke(studio.color(.border).opacity(0.5), lineWidth: 0.5))
+                    }
+                }
+            }
+            .padding(DressingTokens.pad12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(studio.color(.surface))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusSheet, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusSheet, style: .continuous)
+                .stroke(studio.color(.border), lineWidth: 1))
+        }
+        .buttonStyle(FontPressStyle(scale: 0.98))
     }
 
     // MARK: - ST theme import (theme category, ST-import batch)
@@ -2931,56 +2960,7 @@ struct DressingShopView: View {
                     .foregroundStyle(studio.color(.secondaryText))
                     .padding(.horizontal, DressingTokens.pad16)
             } else {
-                ForEach(visibleOutfits) { outfit in
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(outfit.title)
-                                .font(DressingTokens.sectionTitleFont(size: fsTitle))
-                                .foregroundStyle(studio.color(.primaryText))
-                            HStack(alignment: .top, spacing: 4) {
-                                Text(outfit.number)
-                                    .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(studio.color(.secondaryText))
-                                Text("·")
-                                    .font(.system(size: fsCaption))
-                                    .foregroundStyle(studio.color(.secondaryText))
-                                Text(outfit.summary)
-                                    .font(.system(size: fsCaption))
-                                    .foregroundStyle(studio.color(.secondaryText))
-                            }
-                        }
-                        Spacer(minLength: 0)
-                        Button(AppLocalized("换上")) {
-                            let outcome = outfitStore.apply(outfit)
-                            if !outcome.missing.isEmpty {
-                                showFontToast(outfitMissingMessage(outcome.missing), warning: true)
-                            }
-                        }
-                        .font(.system(size: fsCaption, weight: .semibold))
-                        .foregroundStyle(studio.color(.surface))
-                        .frame(minWidth: 44, minHeight: 44)
-                        .padding(.horizontal, DressingTokens.pad12)
-                        .background(studio.color(.accent))
-                        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusSmall, style: .continuous))
-                        .buttonStyle(FontPressStyle(scale: 0.92))
-                        Button(AppLocalized("按编号删除")) {
-                            outfitStore.delete(number: outfit.number)
-                        }
-                        .font(.system(size: fsCaption))
-                        .foregroundStyle(studio.color(.secondaryText))
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentShape(Rectangle())
-                        .buttonStyle(FontPressStyle(scale: 0.92))
-                    }
-                    .padding(DressingTokens.pad14)
-                    .background(studio.color(.surface))
-                    .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
-                        .stroke(studio.color(.border), lineWidth: 1))
-                    .dressingCardShadow()
-                    .padding(.horizontal, DressingTokens.pad16)
-                    .padding(.bottom, DressingTokens.pad12)
-                }
+                ForEach(visibleOutfits) { outfit in outfitRow(outfit) }
             }
             Text(AppLocalized("换主题、重置都不会清掉这里；只有按编号删，才会删掉那一行。"))
                 .font(.system(size: fsCaption))
@@ -2988,6 +2968,62 @@ struct DressingShopView: View {
                 .padding(.horizontal, DressingTokens.pad16)
                 .padding(.top, DressingTokens.pad10)
         }
+    }
+
+    /// One outfit row, shared by the 搭配灵感 category and the
+    /// 推荐 page: same title / number / summary, same 换上
+    /// (outfitStore.apply, missing pieces warned by toast) and
+    /// same 按编号删除. Moved here verbatim from outfitView —
+    /// no behaviour change, only the call site is shared.
+    private func outfitRow(_ outfit: DressingOutfit) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(outfit.title)
+                    .font(DressingTokens.sectionTitleFont(size: fsTitle))
+                    .foregroundStyle(studio.color(.primaryText))
+                HStack(alignment: .top, spacing: 4) {
+                    Text(outfit.number)
+                        .font(.system(size: fsCaption, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(studio.color(.secondaryText))
+                    Text("·")
+                        .font(.system(size: fsCaption))
+                        .foregroundStyle(studio.color(.secondaryText))
+                    Text(outfit.summary)
+                        .font(.system(size: fsCaption))
+                        .foregroundStyle(studio.color(.secondaryText))
+                }
+            }
+            Spacer(minLength: 0)
+            Button(AppLocalized("换上")) {
+                let outcome = outfitStore.apply(outfit)
+                if !outcome.missing.isEmpty {
+                    showFontToast(outfitMissingMessage(outcome.missing), warning: true)
+                }
+            }
+            .font(.system(size: fsCaption, weight: .semibold))
+            .foregroundStyle(studio.color(.surface))
+            .frame(minWidth: 44, minHeight: 44)
+            .padding(.horizontal, DressingTokens.pad12)
+            .background(studio.color(.accent))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusSmall, style: .continuous))
+            .buttonStyle(FontPressStyle(scale: 0.92))
+            Button(AppLocalized("按编号删除")) {
+                outfitStore.delete(number: outfit.number)
+            }
+            .font(.system(size: fsCaption))
+            .foregroundStyle(studio.color(.secondaryText))
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+            .buttonStyle(FontPressStyle(scale: 0.92))
+        }
+        .padding(DressingTokens.pad14)
+        .background(studio.color(.surface))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DressingTokens.radiusPanel, style: .continuous)
+            .stroke(studio.color(.border), lineWidth: 1))
+        .dressingCardShadow()
+        .padding(.horizontal, DressingTokens.pad16)
+        .padding(.bottom, DressingTokens.pad12)
     }
 
     // MARK: - Font section, Gemini workshop skin (locked layout)
