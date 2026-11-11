@@ -8928,6 +8928,15 @@ private struct GlassComposerSurface: ViewModifier {
     var attached: Bool = false
     var topOnly: Bool = false
 
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// 浅色档才压暗膜：亮壁纸上玻璃会把字顶糊，16% 黑膜只加在浮动 chrome
+    /// 上（2026-10-29 那条老规矩），不是全屏罩。深色档不用——深玻璃 +
+    /// 浅字本身够。判的是主题明暗（跟字色走同一信号）；壁纸本身在 App 里
+    /// 没有明暗信号可读。（ComposerSurface.sampleOverlay 同款规矩。）
+    private var needsScrim: Bool { colorScheme != .dark }
+
     private var shape: AnyShape {
         if topOnly {
             return AnyShape(UnevenRoundedRectangle(
@@ -8945,20 +8954,70 @@ private struct GlassComposerSurface: ViewModifier {
     }
 
     func body(content: Content) -> some View {
+        // 读一次：图换了、删了、透明度滑了都要重画（persistPack 会 bump 它）。
+        let _ = appearanceStudio.themePackRevision
         if #available(iOS 26.0, *) {
             if topOnly {
                 // 托盘要一路铺到屏幕物理底,不然底边和屏幕之间漏一条壁纸
                 //(「底部悬空」那个老毛病,ComposerSurface 的 .tray 也这么处理)。
+                // 托盘不画栏的图：那是抽屉，不是输入条。
                 content
                     .glassEffect(.regular, in: shape)
                     .ignoresSafeArea(.container, edges: .bottom)
+            } else if let image = appearanceStudio.inputBarImage() {
+                // 有图：图 + 暗膜都进玻璃的底衬（backdrop），玻璃盖在上面
+                // 折射它，字浮在玻璃上。没图走下面那条原样。
+                content
+                    .glassEffect(.regular, in: shape)
+                    .background { glassBackdrop(image) }
             } else {
                 content.glassEffect(.regular, in: shape)
             }
+        } else if let image = appearanceStudio.inputBarImage() {
+            content
+                .background { materialBackdrop(image) }
+                .overlay(shape.stroke(ChatColors.inputIconBorder.opacity(0.6), lineWidth: 0.5))
         } else {
             content
                 .background(.ultraThinMaterial, in: shape)
                 .overlay(shape.stroke(ChatColors.inputIconBorder.opacity(0.6), lineWidth: 0.5))
+        }
+    }
+
+    /// 玻璃底衬（只在有图时挂在玻璃后面）：图在最底 → 玻璃底色 →
+    /// 浅色档一层 16% 黑膜。图的不透明度走装扮页滑杆
+    /// （MinisThemeShape.inputBarImageOpacity，默认 0.28，夹在 0.05–1），
+    /// 这处不写死任何透明度。图裁成跟玻璃同一个 shape，不会从圆角外面露出来。
+    private func glassBackdrop(_ image: UIImage) -> some View {
+        ZStack {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .opacity(MinisThemeShape.inputBarImageOpacity)
+                .clipShape(shape)
+            shape.fill(ChatColors.inputGlassBg)
+            if needsScrim {
+                shape.fill(.black.opacity(0.16))
+            }
+        }
+    }
+
+    /// 回落底衬（只在有图时挂）：图 → 底色 → 暗膜 → ultraThinMaterial
+    /// 压在最上，材质把底下那层糊掉，字浮在材质上。顺序跟死的
+    /// ComposerSurface.materialBackground 不一样：那份是样张预览，
+    /// 图叠在最上面；真栏要保字，暗膜必须压在图上面（395 P2-7 的教训）。
+    private func materialBackdrop(_ image: UIImage) -> some View {
+        ZStack {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .opacity(MinisThemeShape.inputBarImageOpacity)
+                .clipShape(shape)
+            shape.fill(ChatColors.inputGlassBg)
+            if needsScrim {
+                shape.fill(.black.opacity(0.16))
+            }
+            shape.fill(.ultraThinMaterial)
         }
     }
 }
