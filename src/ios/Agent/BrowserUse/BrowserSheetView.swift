@@ -729,6 +729,7 @@ struct BrowserDownloadCardRow: View {
     let onTap: (() -> Void)?
     let onDismiss: (() -> Void)?
     @StateObject private var progress: DownloadProgressObserver
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
     init(entry: BrowserDownloadCenter.Entry,
          onTap: (() -> Void)?,
@@ -771,7 +772,9 @@ struct BrowserDownloadCardRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .background(appearanceStudio.glassEnabled
+                    ? AnyShapeStyle(.regularMaterial)
+                    : AnyShapeStyle(AppearanceStudio.shared.color(.surface)), in: RoundedRectangle(cornerRadius: 14))
         .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
         .contentShape(Rectangle())
         .onTapGesture { onTap?() }

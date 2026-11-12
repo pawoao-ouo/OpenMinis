@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import WebKit
+import Combine
 
 private let webAppWebLogger = AppLogger(category: "WebAppWeb")
 
@@ -26,6 +27,11 @@ final class WebAppWebViewController: UIViewController, WKNavigationDelegate, WKU
     private let resolved: WebAppPathResolver.Resolved
     private var webView: WKWebView!
     private var dismissEdgeRecognizer: UIScreenEdgePanGestureRecognizer!
+    /// The floating "…" pill's background view + its container, kept so
+    /// the glass switch can swap the blur for a solid plate live.
+    private var menuBackgroundView: UIView?
+    private var menuButtonContainer: UIView?
+    private var glassCancellable: AnyCancellable?
 
     init(shortcut: WebAppShortcut, resolved: WebAppPathResolver.Resolved) {
         self.shortcut = shortcut
@@ -108,6 +114,13 @@ final class WebAppWebViewController: UIViewController, WKNavigationDelegate, WKU
         // paths feel the same. Without this the user has no visible
         // way out of a Home-Screen-launched WebApp.
         installMenuButton()
+        // [glass-switch] The "…" pill follows the global glass switch:
+        // blur while glass is on, solid dark plate while off. Same
+        // removeDuplicates + sink shape as
+        // BackgroundKeepAliveManager.startObservingIfNeeded.
+        glassCancellable = AppearanceStudio.shared.$glassEnabled
+            .removeDuplicates()
+            .sink { [weak self] enabled in self?.updateMenuBackground(glassEnabled: enabled) }
 
         webAppWebLogger.info("loading shortcut id=\(shortcut.id.prefix(8)) scope=\(shortcut.pathScope.rawValue) htmlURL=\(resolved.htmlURL.lastPathComponent) readRoot=\(resolved.readAccessRoot.lastPathComponent)")
         webView.loadFileURL(resolved.htmlURL, allowingReadAccessTo: resolved.readAccessRoot)
@@ -136,13 +149,7 @@ final class WebAppWebViewController: UIViewController, WKNavigationDelegate, WKU
         container.layer.shadowRadius = 12
         container.layer.shadowOffset = CGSize(width: 0, height: 4)
 
-        let bg = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
-        bg.translatesAutoresizingMaskIntoConstraints = false
-        bg.isUserInteractionEnabled = false
-        bg.layer.cornerRadius = 22
-        bg.layer.masksToBounds = true
-        bg.layer.borderWidth = 0.5
-        bg.layer.borderColor = UIColor.white.withAlphaComponent(0.18).cgColor
+        let bg = makeMenuBackground(glassEnabled: AppearanceStudio.shared.glassEnabled)
 
         let button = UIButton(type: .custom)
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -160,6 +167,8 @@ final class WebAppWebViewController: UIViewController, WKNavigationDelegate, WKU
         container.addSubview(bg)
         container.addSubview(button)
         view.addSubview(container)
+        menuBackgroundView = bg
+        menuButtonContainer = container
 
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(equalToConstant: 44),
@@ -177,6 +186,49 @@ final class WebAppWebViewController: UIViewController, WKNavigationDelegate, WKU
             button.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             button.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
+    }
+
+    /// The floating "…" pill's background: blur while glass is on, a
+    /// solid plate while off. The glyph stays white either way, so the
+    /// off-state solid must stay dark or the glyph becomes unreadable —
+    /// a near-black plate, the same tone the dark material reads as.
+    private func makeMenuBackground(glassEnabled: Bool) -> UIView {
+        let bg: UIView
+        if glassEnabled {
+            bg = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        } else {
+            let solid = UIView()
+            solid.backgroundColor = UIColor(white: 0.18, alpha: 1)
+            bg = solid
+        }
+        bg.translatesAutoresizingMaskIntoConstraints = false
+        bg.isUserInteractionEnabled = false
+        bg.layer.cornerRadius = 22
+        bg.layer.masksToBounds = true
+        bg.layer.borderWidth = 0.5
+        bg.layer.borderColor = UIColor.white.withAlphaComponent(0.18).cgColor
+        return bg
+    }
+
+    /// Swaps the pill's background when the glass switch flips. No-op
+    /// when the pill is already the right kind — the subscription's
+    /// initial emission lands here with the value the pill was built
+    /// from. The button stays on top: the new background goes in at
+    /// index 0 with the same edge constraints as the old one.
+    private func updateMenuBackground(glassEnabled: Bool) {
+        guard let container = menuButtonContainer else { return }
+        if glassEnabled, menuBackgroundView is UIVisualEffectView { return }
+        if !glassEnabled, let current = menuBackgroundView, !(current is UIVisualEffectView) { return }
+        menuBackgroundView?.removeFromSuperview()
+        let bg = makeMenuBackground(glassEnabled: glassEnabled)
+        container.insertSubview(bg, at: 0)
+        NSLayoutConstraint.activate([
+            bg.topAnchor.constraint(equalTo: container.topAnchor),
+            bg.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            bg.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            bg.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+        menuBackgroundView = bg
     }
 
     private func makeMenu() -> UIMenu {

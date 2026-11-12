@@ -14,6 +14,7 @@ private let logger = AppLogger(category: "Backup")
 /// handled by removing the server and adding it again.
 struct BackupDestinationDetailView: View {
     @ObservedObject private var fontSettings = FontSettings.shared
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
     enum Target {
         case remote(RcloneRemoteStore.Remote)
@@ -124,7 +125,9 @@ struct BackupDestinationDetailView: View {
                     }
                     .padding(.horizontal, 18)
                     .padding(.vertical, 14)
-                    .background(.regularMaterial, in: Capsule())
+                    .background(appearanceStudio.glassEnabled
+                                ? AnyShapeStyle(.regularMaterial)
+                                : AnyShapeStyle(AppearanceStudio.shared.color(.surface, scope: .settings)), in: Capsule())
                 }
                 .transition(.opacity)
             }

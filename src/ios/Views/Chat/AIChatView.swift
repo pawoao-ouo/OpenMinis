@@ -6119,7 +6119,9 @@ private struct SessionLockGateOverlay: View {
     private var gateView: some View {
         ZStack {
             Rectangle()
-                .fill(.regularMaterial)
+                .fill(appearanceStudio.glassEnabled
+                      ? AnyShapeStyle(.regularMaterial)
+                      : AnyShapeStyle(AppearanceStudio.shared.color(.canvas, scope: ThemeColorLayer.chat)))
                 .ignoresSafeArea()
                 .overlay {
                     AppearanceStudio.shared.color(.canvas, scope: ThemeColorLayer.chat).opacity(0.4)

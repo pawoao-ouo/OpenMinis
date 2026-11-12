@@ -145,21 +145,15 @@ private struct ContextMenuPreviewSurface: ViewModifier {
 ///
 /// Two states that must stay tellable apart at a glance:
 ///
-///  - **Sent** (`isQueued == false`) — Liquid Glass on iOS 26+. These bubbles
-///    scroll over other messages, images and code blocks, so the material has
-///    genuinely varied content to sample; this is the case glass is for, the
-///    same as the tool-status bar and unlike `FolderSurface`, which had to fall
-///    back to a sampled constant for want of anything behind it.
-///  - **Queued** (`isQueued == true`) — deliberately NOT glass, on either OS.
-///    Glass reads as a settled, physical surface, which is the opposite of what
-///    a not-yet-sent message means. It keeps the existing empty fill + dashed
-///    border, so "queued" still looks provisional next to the solid glass of
+///  - **Sent** (`isQueued == false`) — plain solid theme color
+///    (`userPackBackground()`), no glass. The Liquid Glass layer was
+///    removed (it pushed the brightness up and hurt); the opacity
+///    slider still works because `ChatColors.userBubble` carries the
+///    alpha.
+///  - **Queued** (`isQueued == true`) — deliberately NOT the solid
+///    sent fill. It keeps the dimmed 0.72 background, so "queued"
+///    still looks provisional next to the solid theme color of
 ///    everything already sent.
-///
-/// The text is the modified content rather than an `.overlay`, which is what
-/// keeps it above the material: `.glassEffect` composites the material over the
-/// view it modifies, so an overlaid label would be painted underneath it and
-/// disappear (the FAB regression).
 // [B28 R5] internal（原 private）：装扮页样张复用真气泡皮肤本体 ——
 // 平铺/气泡/文稿三形态和 Liquid Glass 判定全在这里，复制=双维护=撒谎。
 // MARK: - 正文视图
