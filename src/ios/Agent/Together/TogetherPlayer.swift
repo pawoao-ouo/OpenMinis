@@ -330,9 +330,19 @@ final class TogetherPlayer: ObservableObject {
 
     func pause() {
         player?.pause()
-        // 停下就还名额：压音暂停时 .replyTTS 还攥着会话，不会整段关掉；
-        // 用户亲手停、来电打断、耳机拔掉时，这里就是释放点。
+        // 停下就还名额：用户亲手停、来电打断、耳机拔掉时，这里就是释放点。
         AudioSessionCoordinator.shared.end(.togetherPlayback)
+        isPlaying = false
+        reportProgress(force: true)
+        VoiceNowPlaying.shared.refresh()
+    }
+
+    /// 压音专用的暂停：只停播放器、不还名额。压音期间 .replyTTS 还攥着
+    /// 会话，名额还了，TTS 一说完 apply() 看到空集就会先关一次会话、
+    /// 恢复时再开一次——正是 [AUD8-11] 禁止的那种先关后开。
+    /// 名额留到她压音期间按停（recordSilenceDuringDuck）或恢复的 play() 再说。
+    private func pauseForDuck() {
+        player?.pause()
         isPlaying = false
         reportProgress(force: true)
         VoiceNowPlaying.shared.refresh()
@@ -378,6 +388,9 @@ final class TogetherPlayer: ObservableObject {
         markUserIntent()
         userPausedDuringDuck = true
         userHeldPause = true
+        // 她在压音期间按了停/播-保持安静：恢复的三道条件全关上了，不会
+        // 再有人调 play()，名额要在这里还——压音专用的暂停故意没还。
+        AudioSessionCoordinator.shared.end(.togetherPlayback)
         store.setPlaying(false, by: .user, heldPause: true)
     }
 
@@ -866,6 +879,13 @@ final class TogetherPlayer: ObservableObject {
 
         case "pause":
             if isPlaying { pause() }
+            else if duckDepth > 0 {
+                // 压音期间 isPlaying 已经是 false，上面那行跳过；但 AI 这
+                // 一下 pause 会把落盘的 playing 写成 false，TTS 结束的恢复
+                // 条件就关上了——没人再调 play()，名额要在这里还。
+                // end() 有 membership 守卫，没拿着时是空操作。
+                AudioSessionCoordinator.shared.end(.togetherPlayback)
+            }
             if store.load().playback.playing {
                 store.setPlaying(false, by: .ai)
             }
@@ -939,7 +959,7 @@ final class TogetherPlayer: ObservableObject {
                 self.duckedWasPlaying = self.isPlaying
                 self.userPausedDuringDuck = false
                 self.syncVoiceDucked()
-                if self.isPlaying { self.pause() }
+                if self.isPlaying { self.pauseForDuck() }
             }
         })
         voiceObservers.append(center.addObserver(

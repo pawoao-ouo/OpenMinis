@@ -143,10 +143,12 @@ final class AudioSessionCoordinator {
         // not membership, and cannot answer "was replyTTS already held".
         let hadReplyTTS = active.contains(.replyTTS)
         active.insert(intent)
-        // Media attachment preempts reply TTS (mutually exclusive voice
-        // content): stop the cloud queue directly and notify the chat VM to
-        // stop System TTS. (TTS is not auto-resumed afterwards.)
-        if intent == .mediaAttachment, active.contains(.replyTTS) {
+        // Media attachment and Together music both preempt reply TTS
+        // (mutually exclusive voice content): stop the cloud queue directly
+        // and notify the chat VM to stop System TTS. (TTS is not
+        // auto-resumed afterwards.)
+        if (intent == .mediaAttachment || intent == .togetherPlayback),
+           active.contains(.replyTTS) {
             VoiceOutputPlayer.shared.stopAll()
             NotificationCenter.default.post(name: Self.replyTTSPreemptedNotification, object: nil)
             // [P2-A] The preempted read-aloud is OVER: drop its intent here so
@@ -155,7 +157,7 @@ final class AudioSessionCoordinator {
             // scheduler, posted from this actor), so every synthesizer is
             // already stopped by this point. end() is membership-guarded, so
             // this can never double-post Ended.
-            // Note: end() applies the mediaAttachment profile, and the
+            // Note: end() applies the new intent's profile, and the
             // trailing apply() below then enqueues the same profile once
             // more — harmless (identical category/mode/options on the serial
             // queue; never an empty-then-active whir).
