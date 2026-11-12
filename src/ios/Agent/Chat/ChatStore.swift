@@ -908,7 +908,7 @@ actor ChatStore {
         // roster merge guard reads them with NO time window (isRecordDeleted),
         // so pruning would silently stop it working for a roster that arrives
         // late. A row of that type exists only while its group is dead —
-        // delete and revive keep that invariant in the same function (the
+        // delete and revive keep that invariant across their paths (the
         // tombstone is written by the delete path and cleared by the revive
         // paths: V3 single-record merge and whole-package merge), and group
         // ids are UUIDs, never reused, so the exempted rows stay bounded by
