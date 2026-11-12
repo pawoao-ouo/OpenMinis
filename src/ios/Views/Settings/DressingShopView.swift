@@ -1418,19 +1418,6 @@ struct DressingWallpaperArtSheet: View {
                     subtitle: AppLocalized("页面专属壁纸 · 助手立绘 · 思考与输入栏贴图")
                 )
 
-                if let status = sheetStatus {
-                    Text(status)
-                        .font(ChatFont.font(12, weight: .medium))
-                        .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
-                        .padding(.horizontal, DressingTokens.Padding.page)
-                        .padding(.vertical, DressingTokens.Padding.cardVertical)
-                        .background(CSSThemeVariables.textMain(scope: .settings))
-                        .clipShape(Capsule())
-                        .shadow(color: DressingTokens.Shadow.floatingColor, radius: DressingTokens.Shadow.floatingRadius, y: DressingTokens.Shadow.floatingY)
-                        .padding(.top, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 16) {
                         // 1. 壁纸模块
@@ -1444,6 +1431,22 @@ struct DressingWallpaperArtSheet: View {
                     }
                     .padding(DressingTokens.Padding.sheet)
                 }
+                // 状态条贴在 ScrollView 顶部做 overlay，不占布局：
+                // 在流内出现/消失时下方内容会上下跳约 44pt。
+                .overlay(alignment: .top) {
+                    if let status = sheetStatus {
+                        Text(status)
+                            .font(ChatFont.font(12, weight: .medium))
+                            .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
+                            .padding(.horizontal, DressingTokens.Padding.page)
+                            .padding(.vertical, DressingTokens.Padding.cardVertical)
+                            .background(CSSThemeVariables.textMain(scope: .settings))
+                            .clipShape(Capsule())
+                            .shadow(color: DressingTokens.Shadow.floatingColor, radius: DressingTokens.Shadow.floatingRadius, y: DressingTokens.Shadow.floatingY)
+                            .padding(.top, 8)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
             .onChange(of: pickedWallpaperItem) { item in
@@ -1452,7 +1455,7 @@ struct DressingWallpaperArtSheet: View {
                 let scope = selectedScope
                 Task {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
-                        appearanceLog.warning("wallpaper picker: loadTransferable returned no data")
+                        appearanceLog.warning("wallpaper picker: loadTransferable failed (returned nil or threw)")
                         await MainActor.run {
                             showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
                         }
@@ -1477,7 +1480,7 @@ struct DressingWallpaperArtSheet: View {
                 pickedArtItem = nil
                 Task {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
-                        appearanceLog.warning("character art picker: loadTransferable returned no data")
+                        appearanceLog.warning("character art picker: loadTransferable failed (returned nil or threw)")
                         await MainActor.run {
                             showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
                         }
@@ -1491,11 +1494,10 @@ struct DressingWallpaperArtSheet: View {
                         return
                     }
                     await MainActor.run {
-                        studio.setCharacterArtImage(uiImage)
-                        if studio.hasCharacterArt {
+                        if studio.setCharacterArtImage(uiImage) {
                             showSheetStatus(AppLocalized("助手立绘已设置"))
                         } else {
-                            appearanceLog.warning("character art picker: write did not produce a file")
+                            appearanceLog.warning("character art picker: setCharacterArtImage returned false")
                             showSheetStatus(AppLocalized("立绘设置失败，请换一张图试试"))
                         }
                     }
@@ -1506,7 +1508,7 @@ struct DressingWallpaperArtSheet: View {
                 pickedThinkingItem = nil
                 Task {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
-                        appearanceLog.warning("thinking card picker: loadTransferable returned no data")
+                        appearanceLog.warning("thinking card picker: loadTransferable failed (returned nil or threw)")
                         await MainActor.run {
                             showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
                         }
@@ -1534,7 +1536,7 @@ struct DressingWallpaperArtSheet: View {
                 pickedInputBarItem = nil
                 Task {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
-                        appearanceLog.warning("input bar picker: loadTransferable returned no data")
+                        appearanceLog.warning("input bar picker: loadTransferable failed (returned nil or threw)")
                         await MainActor.run {
                             showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
                         }

@@ -1998,11 +1998,16 @@ extension AppearanceStudio {
     }
 
     /// [B28 A-1] 直接从 UIImage 落盘。UI 走这条，不经过 base64。
-    func setCharacterArtImage(_ image: UIImage) {
-        writeDownscaledJPEG(image, to: characterArtURL(), maxEdge: 1600, quality: 0.82)
+    /// 返回写盘是否成功（与 setThinkingCardImage / setInputBarImage
+    /// 对齐）：旧文件留在原地时 hasCharacterArt 仍为 true，不能
+    /// 拿它当成功回读，否则写失败也会报「已设置」。
+    @discardableResult
+    func setCharacterArtImage(_ image: UIImage) -> Bool {
+        guard writeDownscaledJPEG(image, to: characterArtURL(), maxEdge: 1600, quality: 0.82) else { return false }
         var pack = currentThemePack()
         pack.characterArtBase64 = nil
         persistPack(pack)
+        return true
     }
 
     private func characterArtURL() -> URL {
