@@ -30,6 +30,12 @@ struct BackupSettingsView: View {
     /// Stored as raw values joined by comma; unknown values from a future
     /// build are dropped on load.
     @AppStorage("backup.selectedCategories") private var selectedStore: String = ""
+    /// [P1-1] Categories that existed when the user last saved her Include
+    /// selection. A category added AFTER that save defaults ON — it was
+    /// never a choice she made — while a category she deliberately turned
+    /// OFF stays OFF. Stored alongside the selection, updated on every
+    /// save in `binding(for:)`; see `loadSelectedCategories`.
+    @AppStorage("backup.knownCategories") private var knownCategoriesStore: String = ""
     /// The app's scene phase, so the passphrase can be cleared when the app
     /// backgrounds (Fix 1: memory only for this app session).
     @Environment(\.scenePhase) private var scenePhase
@@ -666,21 +672,48 @@ struct BackupSettingsView: View {
             set: { on in
                 if on { selected.insert(category) } else { selected.remove(category) }
                 selectedStore = selected.map(\.rawValue).sorted().joined(separator: ",")
+                // [P1-1] Saving is the moment every current category
+                // becomes "known": from here on, only categories added
+                // AFTER this save default ON at load.
+                knownCategoriesStore = BackupCategory.allCases.map(\.rawValue).sorted().joined(separator: ",")
             })
     }
 
+    /// Categories that could never appear in a stored selection written
+    /// before they became selectable: iSH user data is new in this
+    /// build, and voice corrections was never offered as a toggle until
+    /// Fix 3 made it backupable. Any stored string lacking them is from
+    /// before they existed — not a deliberate OFF.
+    private static let categoriesNewToStoredSelections: Set<BackupCategory> = [.ishUserData, .voiceCorrections]
+
     /// Restore the persisted Include selection. An empty store means the user
     /// never changed anything — keep the all-on default.
+    ///
+    /// [P1-1] A stored selection used to be applied verbatim, so existing
+    /// users never got a new category (iSH user data, voice corrections)
+    /// until they toggled it on once — a silent "something missing" on
+    /// restore. Now: categories added after the user last saved default
+    /// ON, categories she deliberately turned OFF stay OFF. The two are
+    /// told apart by `knownCategoriesStore` (what existed at last save);
+    /// for selections saved before that key existed, "known" is every
+    /// category except the two that could never have been selectable.
     func loadSelectedCategories() {
         guard !selectedStore.isEmpty else { return }
         let stored = Set(selectedStore.split(separator: ",")
             .compactMap { BackupCategory(rawValue: String($0)) })
-        // Categories that exist on this build but aren't in the stored string
-        // stay OFF only if the user turned them off; a brand-new category
-        // (added in an upgrade) defaults ON by not being representable in the
-        // old string — but we can't tell those apart, so prefer the user's
-        // explicit selection as saved.
-        if !stored.isEmpty { selected = stored }
+        guard !stored.isEmpty else { return }
+        let known: Set<BackupCategory>
+        if knownCategoriesStore.isEmpty {
+            known = Set(BackupCategory.allCases)
+                .subtracting(Self.categoriesNewToStoredSelections)
+        } else {
+            known = Set(knownCategoriesStore.split(separator: ",")
+                .compactMap { BackupCategory(rawValue: String($0)) })
+        }
+        selected = stored.union(Set(BackupCategory.allCases).subtracting(known))
+        // Record the migration so it runs once: from here on, every
+        // current category is "known".
+        knownCategoriesStore = BackupCategory.allCases.map(\.rawValue).sorted().joined(separator: ",")
     }
 
     /// Backup runs, newest first — the live one plus the past month.
