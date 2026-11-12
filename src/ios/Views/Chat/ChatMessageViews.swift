@@ -155,7 +155,7 @@ private struct ContextMenuPreviewSurface: ViewModifier {
 ///    still looks provisional next to the solid theme color of
 ///    everything already sent.
 // [B28 R5] internal（原 private）：装扮页样张复用真气泡皮肤本体 ——
-// 平铺/气泡/文稿三形态和 Liquid Glass 判定全在这里，复制=双维护=撒谎。
+// 平铺/气泡/文稿三形态全在这里，复制=双维护=撒谎；气泡本体已无 Liquid Glass，唯一的玻璃判定只剩上面长按预览盘的开关分支。
 // MARK: - 正文视图
 
 struct UserMessageText: View {
