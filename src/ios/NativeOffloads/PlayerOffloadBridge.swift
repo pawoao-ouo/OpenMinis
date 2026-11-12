@@ -453,7 +453,7 @@ private class PlayerSession {
         guard let topVC = topViewController() else { return }
         guard let player = session.videoPlayer else { return }
 
-        let view = MinisVideoFullscreenPlayer(fileURL: session.fileURL, externalPlayer: player)
+        let view = MinisVideoFullscreenPlayer(fileURL: session.fileURL, externalPlayer: player, offloadSessionId: session.id)
         let hostingVC = UIHostingController(rootView: view)
         hostingVC.modalPresentationStyle = .overFullScreen
         hostingVC.modalTransitionStyle = .crossDissolve

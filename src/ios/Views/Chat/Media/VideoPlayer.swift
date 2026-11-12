@@ -167,6 +167,10 @@ struct MinisVideoFullscreenPlayer: View {
     /// Optional externally-managed AVPlayer (e.g. from PlayerOffloadBridge).
     /// When provided, the view skips creating its own player.
     let externalPlayer: AVPlayer?
+    /// Offload session id (PlayerOffloadBridge). Only ever set together with
+    /// `externalPlayer`; in-chat playback passes nil. When set, closing this
+    /// view releases the offload session (cleanupSession) from .onDisappear.
+    let offloadSessionId: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var player: AVPlayer?
@@ -181,9 +185,10 @@ struct MinisVideoFullscreenPlayer: View {
             : AnyShapeStyle(AppearanceStudio.shared.color(.surface, scope: .chat))
     }
 
-    init(fileURL: URL, externalPlayer: AVPlayer? = nil) {
+    init(fileURL: URL, externalPlayer: AVPlayer? = nil, offloadSessionId: String? = nil) {
         self.fileURL = fileURL
         self.externalPlayer = externalPlayer
+        self.offloadSessionId = offloadSessionId
     }
 
     // Custom controls state
@@ -417,11 +422,17 @@ struct MinisVideoFullscreenPlayer: View {
                 }
                 // Detect playback ended
                 if let item = p.currentItem, item.duration.isNumeric,
-                   time.seconds >= item.duration.seconds - 0.1, isPlaying {
+                   time.seconds >= item.duration.seconds - 0.1 {
                     isPlaying = false
-                    // [AUD-P1C] Ended counts as not-playing: release the
-                    // intent (pressing play re-begins it). Guarded by
-                    // isPlaying so the tick does not re-end every 0.25s.
+                    // [AUD-P2-2] Ended counts as not-playing: release the
+                    // intent (pressing play re-begins it). No isPlaying guard
+                    // here on purpose: at natural end the rate KVO clears
+                    // isPlaying first (rate drops to 0), so the old guard
+                    // starved this branch forever and the session leaked
+                    // until the player closed. end() is membership-guarded
+                    // (AudioSessionCoordinator.end returns early when the
+                    // intent is not held), so the tick re-hitting this
+                    // branch every 0.25s is a no-op, not a double-end.
                     AudioSessionCoordinator.shared.end(.mediaAttachment)
                 }
             }
@@ -456,6 +467,16 @@ struct MinisVideoFullscreenPlayer: View {
             player = nil
             // [T-video-audiosession-owner] Symmetric end with the begin above.
             AudioSessionCoordinator.shared.end(.mediaAttachment)
+            // [AUD-P2-4] Offload sessions have no other in-app release path:
+            // cleanupSession had zero callers, so closing an offload video
+            // left .offloadPlayback and didSuspendSilentAudio hanging until
+            // app restart. When this view wraps an offload player, releasing
+            // the session here resumes silent audio and drops the
+            // .offloadPlayback claim if no other video session holds one.
+            // In-chat playback passes no session id, so this is a no-op there.
+            if externalPlayer != nil, let offloadSessionId {
+                PlayerOffloadBridge.cleanupSession(offloadSessionId)
+            }
         }
         // [AUD-P1C] Paused video must never hold the session in the
         // background. Only "playing" vs "paused" matters: a live rate
