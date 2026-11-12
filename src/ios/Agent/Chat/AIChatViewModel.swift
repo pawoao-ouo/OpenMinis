@@ -3020,7 +3020,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     // attaching to the assistant bubble. Same root cause as the
                     // Stop-loses-content fix.
                     if let last = self.messages.last(where: { $0.role == .assistant }) {
-                        last.error = displayDesc
+                        attachError(displayDesc, to: last)
                         last.blocks.removeAll { $0.kind == .text && $0.content.isEmpty }
                         // Cancel stale tool blocks left in streaming/running state
                         for block in last.blocks {
@@ -3248,7 +3248,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     // attaching to the assistant bubble. Same root cause as the
                     // Stop-loses-content fix.
                     if let last = self.messages.last(where: { $0.role == .assistant }) {
-                        last.error = displayDesc
+                        attachError(displayDesc, to: last)
                         Task { await self.persistErrorInfo(displayDesc) }  // [T-error-persist-ios]
                         last.blocks.removeAll { $0.kind == .text && $0.content.isEmpty }
                         for block in last.blocks {
@@ -3395,7 +3395,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     // attaching to the assistant bubble. Same root cause as the
                     // Stop-loses-content fix.
                     if let last = self.messages.last(where: { $0.role == .assistant }) {
-                        last.error = displayDesc
+                        attachError(displayDesc, to: last)
                         Task { await self.persistErrorInfo(displayDesc) }  // [T-error-persist-ios]
                         last.blocks.removeAll { $0.kind == .text && $0.content.isEmpty }
                         for block in last.blocks {
@@ -3507,7 +3507,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     // to the bubble; reportTurnFailure is the fallback for the
                     // window before that append. [T-ios-error-banner-lost]
                     if let last = self.messages.last(where: { $0.role == .assistant }) {
-                        last.error = displayDesc
+                        attachError(displayDesc, to: last)
                         Task { await self.persistErrorInfo(displayDesc) }  // [T-error-persist-ios]
                         last.blocks.removeAll { $0.kind == .text && $0.content.isEmpty }
                     } else {
@@ -4264,7 +4264,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     // attaching to the assistant bubble. Same root cause as the
                     // Stop-loses-content fix.
                     if let last = self.messages.last(where: { $0.role == .assistant }) {
-                        last.error = displayDesc
+                        attachError(displayDesc, to: last)
                         Task { await self.persistErrorInfo(displayDesc) }  // [T-error-persist-ios]
                         last.blocks.removeAll { $0.kind == .text && $0.content.isEmpty }
                         for block in last.blocks {
@@ -4834,7 +4834,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     // attaching to the assistant bubble. Same root cause as the
                     // Stop-loses-content fix.
                     if let last = self.messages.last(where: { $0.role == .assistant }) {
-                        last.error = displayDesc
+                        attachError(displayDesc, to: last)
                         Task { await self.persistErrorInfo(displayDesc) }  // [T-error-persist-ios]
                         AppLogger(category: "StreamError").error("[StreamError] → bubble path (set last.error)")
                     } else {
@@ -5132,6 +5132,26 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
     private func playCompletionHaptic() {
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+    }
+
+    /// [chat-1 P1] Attach an error to an assistant message, and when it is
+    /// still an empty placeholder, tell the message list to re-snapshot.
+    ///
+    /// An empty placeholder renders no footer cell (chat-1 suppresses the
+    /// header/footer until the first block), so an in-place @Published
+    /// change has nothing to render into: no inline error, no Retry, no
+    /// Resume, and no top banner until some later snapshot (next send /
+    /// re-enter). Posting `.messageListNeedsResnapshot` makes the
+    /// coordinator rebuild the snapshot; the placeholder's
+    /// `isEmptyPlaceholder` is now false (error != nil), so the footer is
+    /// inserted with the inline error and Retry. Scoped to the empty case
+    /// on purpose: once the first block exists the footer is already in
+    /// the snapshot and the error re-renders in place, so posting there
+    /// would only force a needless rebuild.
+    private func attachError(_ displayDesc: String, to message: ChatMessage) {
+        message.error = displayDesc
+        guard message.blocks.isEmpty, message.streamInterruptCount == 0 else { return }
+        NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: nil)
     }
 
     /// [T-ios-error-banner-lost] Surface a turn failure that has no assistant
@@ -6526,14 +6546,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     // distinguish the wording so a partial reply reads as truncated
                     // rather than empty.
                     if assistantText.isEmpty {
-                        messages[msgIdx].error = AppLocalized("Response ended unexpectedly (no content received)")
+                        attachError(AppLocalized("Response ended unexpectedly (no content received)"), to: messages[msgIdx])
                     } else {
-                        messages[msgIdx].error = AppLocalized("The connection dropped — this reply may be incomplete. Tap Resume to continue.")
+                        attachError(AppLocalized("The connection dropped — this reply may be incomplete. Tap Resume to continue."), to: messages[msgIdx])
                     }
                     canResume = true
                 } else if stopReason == .maxTokens {
                     logger.warning("Agent loop ended at max_tokens with no tool calls")
-                    messages[msgIdx].error = AppLocalized("Response truncated (max tokens reached)")
+                    attachError(AppLocalized("Response truncated (max tokens reached)"), to: messages[msgIdx])
                     canResume = true
                 } else if stopReason == .refusal {
                     // [T-ios-fable5-empty-response] Anthropic safety classifier declined the
@@ -6545,7 +6565,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     // identical request just gets declined again, so we surface it directly
                     // and steer the user to switch models rather than looping.
                     logger.warning("Agent loop ended with stop_reason=refusal — model declined the request")
-                    messages[msgIdx].error = AppLocalized("The model declined to respond to this request. Try rephrasing, or switch to a different model.")
+                    attachError(AppLocalized("The model declined to respond to this request. Try rephrasing, or switch to a different model."), to: messages[msgIdx])
                     canResume = true
                 } else if stopReason == .endTurn && assistantText.isEmpty
                             && (streamResult.reasoningContent ?? "").isEmpty {
@@ -6565,9 +6585,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     let maxCtx = effectiveContextWindow(for: freshModel)
                     let curCtx = estimateContextTokens()
                     if maxCtx > 0 && curCtx > Int(Double(maxCtx) * 0.7) {
-                        messages[msgIdx].error = AppLocalized("The model returned an empty response. The conversation context may be too large — try compacting or starting a new session.")
+                        attachError(AppLocalized("The model returned an empty response. The conversation context may be too large — try compacting or starting a new session."), to: messages[msgIdx])
                     } else {
-                        messages[msgIdx].error = AppLocalized("Model returned an empty response. Please try again or switch models.")
+                        attachError(AppLocalized("Model returned an empty response. Please try again or switch models."), to: messages[msgIdx])
                     }
                     canResume = true
                 }
@@ -6988,7 +7008,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 // Show a warning and enable Resume so the user can continue.
                 if stopReason == .maxTokens {
                     logger.warning("Agent loop stopped: max_tokens reached")
-                    messages[msgIdx].error = AppLocalized("Response truncated (max tokens reached)")
+                    attachError(AppLocalized("Response truncated (max tokens reached)"), to: messages[msgIdx])
                     canResume = true
                 }
                 // [T-stream-drop-silent] nil stopReason after tool turns means the
@@ -6998,9 +7018,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 if stopReason == nil && toolEntries.isEmpty {
                     logger.warning("Agent loop stopped: stream ended without stop reason")
                     if assistantText.isEmpty {
-                        messages[msgIdx].error = AppLocalized("Response ended unexpectedly (no content received)")
+                        attachError(AppLocalized("Response ended unexpectedly (no content received)"), to: messages[msgIdx])
                     } else {
-                        messages[msgIdx].error = AppLocalized("The connection dropped — this reply may be incomplete. Tap Resume to continue.")
+                        attachError(AppLocalized("The connection dropped — this reply may be incomplete. Tap Resume to continue."), to: messages[msgIdx])
                     }
                     canResume = true
                 }
@@ -7020,10 +7040,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // ordinary completion — exactly the v1.4.0-dev bug user hit.)
         if hitTurnLimit, msgIdx >= 0, msgIdx < messages.count {
             logger.warning("⚠️ runAgentLoop hit maxAgentTurns=\(Self.maxAgentTurns) — finalizing as resumable")
-            messages[msgIdx].error =
+            attachError(
                 "Stopped after \(Self.maxAgentTurns) agent turns to prevent runaway tool use. " +
                 "The model kept calling tools without finishing — tap Resume to continue from here, " +
-                "or send a new message to start over."
+                "or send a new message to start over.",
+                to: messages[msgIdx])
             canResume = true
         }
 
