@@ -6978,16 +6978,6 @@ private struct SettingsSheet: View {
                             QuietAppIcon(id: QuietIconSlot.appearance.id, systemName: QuietIconSlot.appearance.systemName)
                         }
                     }
-                    NavigationLink {
-                        ChatSettingsView()
-                    } label: {
-                        Label(AppLocalized("聊天"), systemImage: "bubble.left.and.bubble.right.fill")
-                    }
-                    NavigationLink {
-                        GeneralSettingsView()
-                    } label: {
-                        Label(AppLocalized("通用"), systemImage: "gearshape.2.fill")
-                    }
                 }
 
                 Section("Agent Runtime") {
