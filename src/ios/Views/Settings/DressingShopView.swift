@@ -1536,11 +1536,12 @@ struct DressingWallpaperArtSheet: View {
                         }
                         return
                     }
+                    // [P2-3] The decode + encode now run off the main
+                    // thread inside the setter; only the result is
+                    // reported back here.
+                    let wallpaperOK = await studio.setWallpaperEncoded(data, for: scope)
                     await MainActor.run {
-                        // [P2-3] The decode + encode now run off the main
-                        // thread inside the setter; only the result is
-                        // reported back here.
-                        if await studio.setWallpaperEncoded(data, for: scope) {
+                        if wallpaperOK {
                             if studio.hasOwnWallpaper(scope) {
                                 sheetStatus.show(AppLocalized("壁纸已更新"))
                             } else {
@@ -1578,8 +1579,9 @@ struct DressingWallpaperArtSheet: View {
                         }
                         return
                     }
+                    let artOK = await studio.setCharacterArtImageEncoded(data)
                     await MainActor.run {
-                        if await studio.setCharacterArtImageEncoded(data) {
+                        if artOK {
                             sheetStatus.show(AppLocalized("助手立绘已设置"))
                         } else {
                             appearanceLog.warning("character art picker: setCharacterArtImageEncoded returned false")
@@ -1613,8 +1615,9 @@ struct DressingWallpaperArtSheet: View {
                         }
                         return
                     }
+                    let thinkingOK = await studio.setThinkingCardImageEncoded(data)
                     await MainActor.run {
-                        if await studio.setThinkingCardImageEncoded(data) {
+                        if thinkingOK {
                             sheetStatus.show(AppLocalized("思考卡背景已更新"))
                         } else {
                             appearanceLog.warning("thinking card picker: setThinkingCardImageEncoded returned false")
@@ -1648,8 +1651,9 @@ struct DressingWallpaperArtSheet: View {
                         }
                         return
                     }
+                    let inputBarOK = await studio.setInputBarImageEncoded(data)
                     await MainActor.run {
-                        if await studio.setInputBarImageEncoded(data) {
+                        if inputBarOK {
                             sheetStatus.show(AppLocalized("输入栏背景已更新"))
                         } else {
                             appearanceLog.warning("input bar picker: setInputBarImageEncoded returned false")
@@ -4309,6 +4313,7 @@ struct DressingImportExportSheet: View {
 /// Replace 会删掉、而新包又不带回来的图：只列实际存在的那几项。
 /// 不存在的、或新包会换上新图的，都不列——确认页只报真会丢的。
 /// 文件级共用：粘贴导入与主题档案库“换上”两处都要它。
+@MainActor
 private func replaceDeletions(studio: AppearanceStudio, for pack: AppearanceThemePack) -> [String] {
     var doomed: [String] = []
     // 全局壁纸：包里没带就删。

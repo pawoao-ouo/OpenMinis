@@ -9,6 +9,14 @@ struct GeneralSettingsView: View {
     /// [P2-10] 从哪里开的这页：装扮抽屉里开的，语言切换后要回抽屉，
     /// 不落到设置页。默认 false，设置页原样走老路。
     let isInDressingDrawer: Bool = false
+
+    /// [P2-10] 显式 init：结构体里有 private 存储属性
+    /// （@ObservedObject / @AppStorage），编译器不合成能在别处调的
+    /// memberwise init，只有无参 init；不加这个，
+    /// `GeneralSettingsView(isInDressingDrawer: true)` 编不过。
+    init(isInDressingDrawer: Bool = false) {
+        self.isInDressingDrawer = isInDressingDrawer
+    }
     @ObservedObject private var fontSettings = FontSettings.shared
     @AppStorage("launchScreen") private var launchScreen: Int = 0
     @AppStorage("appLanguage") private var appLanguage: String = ""

@@ -1149,7 +1149,7 @@ extension AppearanceStudio {
         // 只在字段非空时跑一次，之后永远为 nil。
         if let inline = pack.characterArtBase64, !inline.isEmpty,
            let art = Data(base64Encoded: inline) {
-            writeEncodedImage(art, to: characterArtURL(), maxEdge: 1600, quality: 0.82)
+            Self.writeEncodedImage(art, to: characterArtURL(), maxEdge: 1600, quality: 0.82)
             var cleaned = pack
             cleaned.characterArtBase64 = nil
             if let data = try? JSONSerialization.data(withJSONObject: cleaned.asJSONObject()) {
@@ -2012,7 +2012,7 @@ extension AppearanceStudio {
         var pack = currentThemePack()
         pack.characterArtBase64 = base64
         if let base64, let data = Data(base64Encoded: base64) {
-            writeEncodedImage(data, to: characterArtURL(), maxEdge: 1600, quality: 0.82)
+            Self.writeEncodedImage(data, to: characterArtURL(), maxEdge: 1600, quality: 0.82)
             pack.characterArtBase64 = nil
         } else if base64 == nil {
             removeCharacterArt()
@@ -2027,7 +2027,7 @@ extension AppearanceStudio {
     /// 拿它当成功回读，否则写失败也会报「已设置」。
     @discardableResult
     func setCharacterArtImage(_ image: UIImage) -> Bool {
-        guard writeDownscaledJPEG(image, to: characterArtURL(), maxEdge: 1600, quality: 0.82) else { return false }
+        guard Self.writeDownscaledJPEG(image, to: characterArtURL(), maxEdge: 1600, quality: 0.82) else { return false }
         var pack = currentThemePack()
         pack.characterArtBase64 = nil
         persistPack(pack)
@@ -2228,7 +2228,7 @@ extension AppearanceStudio {
     @discardableResult
     func setCategoryImage(_ image: UIImage, for key: String) -> Bool {
         guard AppearanceThemePack.categoryKeys.contains(key) else { return false }
-        guard writeDownscaledJPEG(image, to: categoryImageURL(key), maxEdge: 256, quality: 0.86) else {
+        guard Self.writeDownscaledJPEG(image, to: categoryImageURL(key), maxEdge: 256, quality: 0.86) else {
             return false
         }
         var pack = currentThemePack()
@@ -2409,7 +2409,7 @@ extension AppearanceStudio {
 
     @discardableResult
     func setThinkingCardImage(_ image: UIImage) -> Bool {
-        guard writeDownscaledJPEG(image, to: thinkingCardURL(), maxEdge: 1400, quality: 0.82) else { return false }
+        guard Self.writeDownscaledJPEG(image, to: thinkingCardURL(), maxEdge: 1400, quality: 0.82) else { return false }
         var pack = currentThemePack()
         pack.thinkingCardJPEGBase64 = nil
         persistPack(pack)
@@ -2490,7 +2490,7 @@ extension AppearanceStudio {
 
     @discardableResult
     func setInputBarImage(_ image: UIImage) -> Bool {
-        guard writeDownscaledJPEG(image, to: inputBarImageURL(), maxEdge: 1400, quality: 0.82) else { return false }
+        guard Self.writeDownscaledJPEG(image, to: inputBarImageURL(), maxEdge: 1400, quality: 0.82) else { return false }
         var pack = currentThemePack()
         pack.inputBarJPEGBase64 = nil
         persistPack(pack)
