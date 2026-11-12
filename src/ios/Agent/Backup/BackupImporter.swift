@@ -18,6 +18,10 @@ actor BackupImporter {
     struct Options {
         /// nil = every category present in the package.
         var categories: Set<BackupCategory>?
+        /// Fix 2 — Merge (default) or Overwrite. Overwrite deletes local
+        /// items in the selected categories that the package does not carry,
+        /// after a mandatory safety snapshot; merge never deletes anything.
+        var mode: RestoreMode = .merge
         /// Skip the integrity pass. Only for diagnostics — normal restores must
         /// verify, since a truncated package would otherwise be applied
         /// half-way before anything noticed.
@@ -61,6 +65,9 @@ actor BackupImporter {
         /// were NOT restored. Kept distinct from `credentialsKept`: reporting
         /// these as "kept" claims a credential survived that never arrived.
         var credentialsUndecodable = 0
+        /// Fix 2 — local items an overwrite wipe deleted in this category
+        /// (0 in merge mode, where nothing is ever deleted).
+        var deleted = 0
         var failed: String?
     }
 
@@ -75,6 +82,10 @@ actor BackupImporter {
         var wasEncrypted = false
         var warnings: [String] = []
         var duration: TimeInterval = 0
+        /// Fix 2 — the safety copy taken before an overwrite wipe, if any.
+        /// Lives in `BackupDelivery.backupsDirectory` as
+        /// `pre-overwrite-<timestamp>.minisbak`; nil in merge mode.
+        var safetySnapshotURL: URL?
 
         var totalImported: Int { categories.reduce(0) { $0 + $1.imported } }
         var totalUpdated: Int { categories.reduce(0) { $0 + $1.updated } }
@@ -90,6 +101,10 @@ actor BackupImporter {
         case insufficientDiskSpace(needed: Int64, available: Int64)
         case sessionsRunning([String])
         case passphraseRequired
+        /// Fix 2 — the mandatory safety snapshot could not be taken, so an
+        /// overwrite restore is refused outright. Nothing was deleted: the
+        /// snapshot runs before any wipe.
+        case safetySnapshotFailed(String)
 
         var errorDescription: String? {
             switch self {
@@ -104,6 +119,8 @@ actor BackupImporter {
                 return "Not enough free space: needs ~\(need / 1_000_000)MB, \(have / 1_000_000)MB available"
             case .sessionsRunning(let ids):
                 return "\(ids.count) session(s) are currently running. Stop them before restoring."
+            case .safetySnapshotFailed(let m):
+                return "Could not take a safety copy of your current data (\(m)). Overwrite restore refused — nothing was deleted."
             case .passphraseRequired:
                 return "This backup is encrypted. Enter its passphrase to restore."
             }
@@ -206,15 +223,33 @@ actor BackupImporter {
                 "This package contains encrypted content but its manifest declares none — it may have been modified.")
         }
 
-        progress?("Preflight…")
-        try preflight(manifest: manifest, options: options)
-
+        // `wanted` is resolved before preflight: the overwrite running-session
+        // check needs to know whether chats is selected.
         let wanted = options.categories
             ?? Set(manifest.categories.keys.compactMap(BackupCategory.init(rawValue:)))
+
+        progress?("Preflight…")
+        try await preflight(manifest: manifest, options: options, wanted: wanted)
 
         // Index the package's file tree once; every file-carrying category
         // filters this rather than re-reading the index per category.
         let fileIndex = readFileIndex(at: root)
+
+        // Fix 2 — MANDATORY pre-step for overwrite, before ANY wipe: a full
+        // current-state export (same shape as
+        // `BackupSnapshotService.takeSnapshot` — every backupable category,
+        // no credentials, unencrypted) into the delivered-packages folder as
+        // `pre-overwrite-<timestamp>.minisbak`, keeping the last 1. If it
+        // fails, the restore is refused outright — nothing is deleted.
+        //
+        // The snapshot is deliberately NOT registered in the snapshot ledger:
+        // it is a safety copy, not an automatic snapshot, so snapshot
+        // retention must never prune it and it must never be offered as a
+        // snapshot. Its name does not carry the `snapshot-` prefix either.
+        if options.mode == .overwrite {
+            progress?("Taking a safety copy…")
+            report.safetySnapshotURL = try await takeSafetySnapshot()
+        }
 
         // [T-ios-backup-rollback-persistence] The rollback snapshot must NOT
         // live under `work`, which the `defer` above deletes: on the one
@@ -229,7 +264,9 @@ actor BackupImporter {
         let staging = BackupRestoreJournal.stagingRoot(runId: String(runId))
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         BackupRestoreJournal.begin(backupId: manifest.backupId,
-                                   categories: orderedCategories(wanted).map(\.rawValue))
+                                   categories: orderedCategories(wanted).map(\.rawValue),
+                                   mode: options.mode.rawValue,
+                                   safetySnapshotURL: report.safetySnapshotURL)
         // Cleared only on a clean finish; if the process dies first the marker
         // survives and the next launch reconciles.
         defer { BackupRestoreJournal.finish(runId: String(runId)) }
@@ -239,10 +276,20 @@ actor BackupImporter {
         for category in orderedCategories(wanted) {
             progress?("Restoring \(category.rawValue)…")
             var snapshot: BackupRollbackSnapshot?
+            // Fix 2 — the wipe runs AFTER the rollback snapshot for this
+            // category (so a file-backed category can still roll back) and
+            // BEFORE that category's import. Only the selected categories are
+            // ever wiped, and only inside their containment roots.
+            var deleted = 0
             do {
                 snapshot = try snapshotForRollback(category: category, staging: staging)
+                if options.mode == .overwrite {
+                    deleted = try await wipeCategoryForOverwrite(category, root: root,
+                                                                 fileIndex: fileIndex)
+                }
                 var cat = try await importCategory(category, root: root, fileIndex: fileIndex,
                                                    options: options)
+                cat.deleted = deleted
                 cat.sizeSkippedInPackage = fileIndex
                     .filter { $0.category == category.rawValue && $0.skipped == "size" }.count
                 // [review S9] Same treatment for iCloud placeholders the export
@@ -256,6 +303,9 @@ actor BackupImporter {
                 logger.error("[Restore] category \(category.rawValue) failed: \(error.localizedDescription)")
                 var cat = CategoryReport(category: category.rawValue)
                 cat.failed = error.localizedDescription
+                // The wipe (if it ran) already deleted local items before the
+                // import failed — report that rather than hiding it.
+                cat.deleted = deleted
                 report.categories.append(cat)
                 // Only claim a rollback when the snapshot actually held
                 // something to restore. Categories without a snapshot
@@ -424,7 +474,8 @@ actor BackupImporter {
 
     // MARK: - Preflight (§8.1)
 
-    private func preflight(manifest: BackupManifest, options: Options) throws {
+    private func preflight(manifest: BackupManifest, options: Options,
+                           wanted: Set<BackupCategory>) async throws {
         // Disk space: the design calls this out because Chats and Shared Files
         // can be GB-scale. Require the package's declared size plus 20% for the
         // unpack + staging copies.
@@ -437,6 +488,100 @@ actor BackupImporter {
                 throw ImportError.insufficientDiskSpace(needed: needed, available: free)
             }
         }
+
+        // Fix 2 — overwrite refuses while any selected session is running. A
+        // running agent loop owns its message list and its timers; wiping its
+        // session out from under it would scramble sort order and strand the
+        // run. Checked here (before the safety snapshot, so a doomed run does
+        // not pay for a full export first) and re-checked in the chats wipe
+        // itself, in case a run starts between the two.
+        if options.mode == .overwrite, wanted.contains(.chats) {
+            let store = ChatStore.shared
+            let running = await store.allSessionIds()
+                .filter { store.isSessionRunning($0) }
+            guard running.isEmpty else { throw ImportError.sessionsRunning(running) }
+        }
+    }
+
+    // MARK: - Safety snapshot (Fix 2)
+
+    /// Full current-state export, same shape as
+    /// `BackupSnapshotService.takeSnapshot`: every backupable category, no
+    /// credentials, unencrypted. Runs through the exporter under the restore
+    /// lock (see `BackupExporter.exportUnderRestoreLock` — the public entry
+    /// would refuse, because this restore already holds the lock).
+    ///
+    /// Delivered into `BackupDelivery.backupsDirectory` as
+    /// `pre-overwrite-<timestamp>.minisbak`, keeping the last 1. Throws
+    /// `ImportError.safetySnapshotFailed` on any failure — the caller refuses
+    /// the overwrite rather than proceeding without a safety copy.
+    private func takeSafetySnapshot() async throws -> URL {
+        let options = BackupExporter.Options(
+            categories: Set(BackupCategory.backupable),
+            maxFileBytes: nil,
+            includeCredentials: false,
+            passphrase: nil,
+            allowResume: false)
+        let summary: BackupExporter.Summary
+        do {
+            summary = try await BackupExporter().exportUnderRestoreLock(options: options)
+        } catch {
+            throw ImportError.safetySnapshotFailed(error.localizedDescription)
+        }
+        let dir = BackupDelivery.backupsDirectory
+        do {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let dest = dir.appendingPathComponent(
+                "pre-overwrite-\(Self.safetySnapshotTimestamp(Date())).\(BackupFormat.fileExtension)")
+            try? fm.removeItem(at: dest)
+            try fm.moveItem(at: summary.packageURL, to: dest)
+            // Keep last 1: older safety copies go. Only names with our exact
+            // prefix are ever touched — a hand-made backup is never deleted,
+            // even if it happens to sit in the same folder.
+            let names = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
+            for name in names
+            where name.hasPrefix("pre-overwrite-")
+               && name.hasSuffix(".\(BackupFormat.fileExtension)")
+               && name != dest.lastPathComponent {
+                try? fm.removeItem(at: dir.appendingPathComponent(name))
+            }
+            logger.info("[Restore] safety snapshot written: \(dest.lastPathComponent)")
+            return dest
+        } catch {
+            throw ImportError.safetySnapshotFailed(error.localizedDescription)
+        }
+    }
+
+    private static func safetySnapshotTimestamp(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: date)
+    }
+
+    // MARK: - Overwrite preview (Fix 2)
+
+    /// Counts, per category, how many local items an overwrite restore of
+    /// this package would delete. Read-only: it shares the wipe's
+    /// "local-but-not-in-the-package" sets without deleting anything, so the
+    /// numbers the mode picker shows are the numbers the wipe will act on.
+    ///
+    /// Categories that cannot be counted (or are never wiped, like Voice
+    /// Corrections, which is merge-only) return no entry.
+    func overwritePreview(packageURL: URL,
+                          categories: Set<BackupCategory>) async -> [BackupCategory: Int] {
+        let work = fm.temporaryDirectory
+            .appendingPathComponent("minisbak-preview-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: work) }
+        guard let root = try? unpack(packageURL, to: work) else { return [:] }
+        let fileIndex = readFileIndex(at: root)
+        var out: [BackupCategory: Int] = [:]
+        for category in orderedCategories(categories) {
+            if let n = await overwriteDeletionCount(category, root: root, fileIndex: fileIndex) {
+                out[category] = n
+            }
+        }
+        return out
     }
 
     private func orderedCategories(_ wanted: Set<BackupCategory>) -> [BackupCategory] {

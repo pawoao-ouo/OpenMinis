@@ -37,6 +37,28 @@ func restorePackageKind(fileName: String, isSnapshot: Bool) -> RestorePackageKin
     return .manualPlain
 }
 
+/// How a restore treats local data the package does not carry (Fix 2).
+///
+/// - merge (default, always): items are matched by id, a newer local copy
+///   wins, nothing is ever deleted.
+/// - overwrite (opt-in, per restore): local items in the SELECTED categories
+///   that the package does not carry are deleted, after a mandatory safety
+///   copy of the current state. The choice is never sticky — the screen
+///   resets to merge whenever the package changes — and it is never the
+///   default for snapshots either: a snapshot restores through this same
+///   view, and it opens on merge like everything else.
+enum RestoreMode: String, CaseIterable, Codable {
+    case merge
+    case overwrite
+
+    var label: String {
+        switch self {
+        case .merge: "Merge"
+        case .overwrite: "Overwrite"
+        }
+    }
+}
+
 /// User-facing restore flow (docs/backup-restore-design.md §8.1).
 ///
 /// Follows the documented order exactly: pick a package → read its manifest and
@@ -63,6 +85,14 @@ struct BackupRestoreView: View {
     @State private var localCopyURL: URL?
     @State private var manifest: BackupManifest?
     @State private var selected: Set<BackupCategory> = []
+    /// Fix 2 — merge is the default and the choice never sticks: it resets
+    /// whenever the package is cleared or a new one is loaded.
+    @State private var restoreMode: RestoreMode = .merge
+    /// Fix 2 — per-category "will delete" counts for overwrite, computed
+    /// from the package by `BackupImporter.overwritePreview`. Nil until
+    /// computed, or when a category cannot be counted.
+    @State private var overwritePreview: [BackupCategory: Int]?
+    @State private var previewLoading = false
     @State private var passphrase = ""
 
     @State private var showPicker = false
@@ -94,6 +124,7 @@ struct BackupRestoreView: View {
                 if let manifest {
                     selectedPackageSection(manifest)
                     categorySection(manifest)
+                    modeSection(manifest)
                     if manifest.encryption != nil { passphraseSection }
                     actionSection
                     // [T-restore-hide-pickers] Nothing else. Once a package is
@@ -157,11 +188,11 @@ struct BackupRestoreView: View {
             // rather than only after leaving and re-entering the screen.
             .onDisappear { remotes = RcloneRemoteStore.remotes }
         }
-        .confirmationDialog("Restore this backup?", isPresented: $showConfirm, titleVisibility: .visible) {
-            Button("Restore") { Task { await runImport() } }
+        .confirmationDialog(confirmTitle, isPresented: $showConfirm, titleVisibility: .visible) {
+            Button(restoreMode == .overwrite ? "Delete & Restore" : "Restore") { Task { await runImport() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Items from the backup are merged into your existing data. Nothing is deleted, and anything you've changed more recently is kept.")
+            Text(confirmMessage)
         }
         .onAppear {
             remotes = RcloneRemoteStore.remotes
@@ -470,6 +501,9 @@ struct BackupRestoreView: View {
         localCopyURL = nil
         manifest = nil
         selected = []
+        restoreMode = .merge
+        overwritePreview = nil
+        previewLoading = false
         passphrase = ""
         errorText = nil
         isInspecting = false
@@ -494,15 +528,119 @@ struct BackupRestoreView: View {
                                     .font(.system(size: fontSettings.scaledApp(12)))
                                     .foregroundStyle(MinisTheme.secondaryText)
                             }
+                            // Fix 2 — Voice Corrections can only merge: its
+                            // store has no set-exact restore, so wiping it
+                            // would destroy local learning data without
+                            // faithfully reproducing the package. Not faked,
+                            // just unavailable in overwrite mode.
+                            if category == .voiceCorrections, restoreMode == .overwrite {
+                                Text("Merge only in overwrite mode")
+                                    .font(.system(size: fontSettings.scaledApp(12)))
+                                    .foregroundStyle(MinisTheme.secondaryText)
+                            }
+                        }
+                    }
+                }
+                .disabled(restoreMode == .overwrite && category == .voiceCorrections)
+            }
+        } header: {
+            Text("Restore")
+        } footer: {
+            if restoreMode == .overwrite {
+                Text("Overwrite: local items in the selected categories that are not in this backup will be deleted. A safety copy is made first.")
+            } else {
+                Text("Merge: items are matched by id. Existing items are only replaced when the backup's copy is newer. Nothing is deleted.")
+            }
+        }
+    }
+
+    /// Fix 2 — the mode picker, after the category list it governs.
+    private func modeSection(_ m: BackupManifest) -> some View {
+        Section {
+            Picker("How to restore", selection: $restoreMode) {
+                Text(RestoreMode.merge.label).tag(RestoreMode.merge)
+                Text(RestoreMode.overwrite.label).tag(RestoreMode.overwrite)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: restoreMode) { _, mode in
+                if mode == .overwrite {
+                    // Voice Corrections cannot be overwritten — drop it from
+                    // the selection rather than leaving a row that can never
+                    // run in the chosen mode.
+                    selected.remove(.voiceCorrections)
+                    Task { await refreshOverwritePreview() }
+                } else {
+                    overwritePreview = nil
+                    previewLoading = false
+                }
+            }
+
+            if restoreMode == .merge {
+                Text("Merge keeps everything on this device. Items from the backup are added, and an existing item is only replaced when the backup's copy is newer.")
+                    .font(.system(size: fontSettings.scaledApp(13)))
+                    .foregroundStyle(MinisTheme.secondaryText)
+            } else {
+                Text("Overwrite deletes local items in the selected categories that are not in this backup, so this device ends up exactly as the backup was. A full safety copy of your current data is made first — if the safety copy fails, nothing is deleted and the restore is refused.")
+                    .font(.system(size: fontSettings.scaledApp(13)))
+                    .foregroundStyle(MinisTheme.secondaryText)
+                if previewLoading {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Counting what would be deleted…")
+                            .font(.system(size: fontSettings.scaledApp(13)))
+                            .foregroundStyle(MinisTheme.secondaryText)
+                    }
+                } else if let preview = overwritePreview {
+                    ForEach(selected.sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { category in
+                        if category != .voiceCorrections {
+                            LabeledContent(displayName(category)) {
+                                if let n = preview[category] {
+                                    Text(n == 0 ? "Nothing to delete"
+                                                : "\(n) local item(s) will be deleted")
+                                        .foregroundStyle(n == 0
+                                            ? MinisTheme.secondaryText
+                                            : MinisTheme.destructive)
+                                } else {
+                                    Text("Count unavailable")
+                                        .foregroundStyle(MinisTheme.secondaryText)
+                                }
+                            }
                         }
                     }
                 }
             }
         } header: {
-            Text("Restore")
-        } footer: {
-            Text("Merge: items are matched by id. Existing items are only replaced when the backup's copy is newer. Nothing is deleted.")
+            Text("How to Restore")
         }
+    }
+
+    /// Fix 2 — recompute the overwrite preview for the current selection.
+    /// Runs off the main actor (the importer unpacks the package to read
+    /// what it carries); a stale run finishing late simply overwrites the
+    /// numbers with the same computation for the same selection.
+    private func refreshOverwritePreview() async {
+        guard let localCopyURL else { return }
+        previewLoading = true
+        let counts = await BackupImporter().overwritePreview(
+            packageURL: localCopyURL, categories: selected)
+        overwritePreview = counts
+        previewLoading = false
+    }
+
+    /// Fix 2 — the confirmation names what overwrite will actually do:
+    /// which categories, and that a safety copy comes first. Merge keeps the
+    /// original wording.
+    private var confirmTitle: String {
+        restoreMode == .overwrite ? "Overwrite with this backup?" : "Restore this backup?"
+    }
+
+    private var confirmMessage: String {
+        if restoreMode == .overwrite {
+            let names = selected.sorted(by: { $0.rawValue < $1.rawValue })
+                .map(displayName).joined(separator: ", ")
+            return "Overwrite will delete local \(names) that are not in this backup. A full safety copy of your current data is made first, and if that copy fails nothing is deleted."
+        }
+        return "Items from the backup are merged into your existing data. Nothing is deleted, and anything you've changed more recently is kept."
     }
 
     private var passphraseSection: some View {
@@ -554,6 +692,14 @@ struct BackupRestoreView: View {
             if r.totalUnreadable > 0 {
                 LabeledContent("Unreadable", value: "\(r.totalUnreadable)")
             }
+            // Fix 2 — what overwrite deleted, and where the safety copy is.
+            let deletedTotal = r.categories.reduce(0) { $0 + $1.deleted }
+            if deletedTotal > 0 {
+                LabeledContent("Deleted", value: "\(deletedTotal)")
+            }
+            if let safety = r.safetySnapshotURL {
+                LabeledContent("Safety copy", value: safety.lastPathComponent)
+            }
             let credsRestored = r.categories.reduce(0) { $0 + $1.credentialsRestored }
             if credsRestored > 0 {
                 LabeledContent("API keys restored", value: "\(credsRestored)")
@@ -564,6 +710,12 @@ struct BackupRestoreView: View {
                         .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.destructive)
                 } else {
+                    // Fix 2 — per-category overwrite deletions.
+                    if c.deleted > 0 {
+                        Text("\(displayNameRaw(c.category)): \(c.deleted) local item(s) deleted")
+                            .font(.system(size: fontSettings.scaledApp(12)))
+                            .foregroundStyle(MinisTheme.destructive)
+                    }
                     if c.sizeSkippedInPackage > 0 {
                         Text("\(displayNameRaw(c.category)): \(c.sizeSkippedInPackage) file(s) weren't in the backup (size limit)")
                             .font(.system(size: fontSettings.scaledApp(12)))
@@ -593,6 +745,13 @@ struct BackupRestoreView: View {
                 Text("Rolled back: \(r.rolledBack.joined(separator: ", "))")
                     .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(MinisTheme.warning)
+            }
+            // Fix 2 — point at the safety copy so it can actually be found
+            // again. It lives in the Backups folder, visible in Files.
+            if let safety = r.safetySnapshotURL {
+                Text("Safety copy saved in Backups as \(safety.lastPathComponent) — restore it if you need your previous data back.")
+                    .font(.system(size: fontSettings.scaledApp(12)))
+                    .foregroundStyle(MinisTheme.secondaryText)
             }
         } header: {
             Text("Restore Complete")
@@ -636,6 +795,11 @@ struct BackupRestoreView: View {
         report = nil
         manifest = nil
         selected = []
+        // Fix 2 — a new package always opens on merge; the mode never
+        // carries over from a previous restore.
+        restoreMode = .merge
+        overwritePreview = nil
+        previewLoading = false
 
         // Copy out of the security scope before doing anything else: the
         // picker's URL is only usable inside start/stopAccessing, and the
@@ -740,6 +904,7 @@ struct BackupRestoreView: View {
 
         var options = BackupImporter.Options()
         options.categories = selected
+        options.mode = restoreMode
         options.passphrase = passphrase.isEmpty ? nil : passphrase
 
         do {
@@ -774,6 +939,11 @@ struct BackupRestoreView: View {
             get: { selected.contains(category) },
             set: { on in
                 if on { selected.insert(category) } else { selected.remove(category) }
+                // Fix 2 — the preview counts what the CURRENT selection
+                // would delete, so it follows selection changes.
+                if restoreMode == .overwrite {
+                    Task { await refreshOverwritePreview() }
+                }
             })
     }
 

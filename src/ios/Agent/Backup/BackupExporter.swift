@@ -132,6 +132,23 @@ actor BackupExporter {
         }
     }
 
+    /// Export while the caller already holds the process-wide backup
+    /// exclusion — the safety snapshot an overwrite restore takes before any
+    /// wipe (Fix 2).
+    ///
+    /// `BackupImporter.importBody` runs under `BackupActivityLock` (.restore),
+    /// and `export()` would refuse with `Busy` because the lock is held — by
+    /// the caller itself. Skipping `withLock` here does not weaken the
+    /// exclusion: the restore lock is held for the whole import, so no second
+    /// export or restore can run concurrently with this one. Do not call this
+    /// from anywhere that does not already hold the lock.
+    func exportUnderRestoreLock(options: Options = Options(),
+                                progress: (@Sendable (String) -> Void)? = nil,
+                                progressDetailed: (@Sendable (String, Bool) -> Void)? = nil) async throws -> Summary {
+        try await exportBody(options: options, onBackupId: nil,
+                             progress: progress, progressDetailed: progressDetailed)
+    }
+
     private func exportBody(options: Options,
                             onBackupId: (@Sendable (String) -> Void)? = nil,
                             progress: (@Sendable (String) -> Void)?,

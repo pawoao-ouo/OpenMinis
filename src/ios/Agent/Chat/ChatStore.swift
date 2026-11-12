@@ -8343,9 +8343,15 @@ extension ChatStore {
     ///
     /// LWW on `updated_at`, so re-running a restore is a no-op and a newer local
     /// edit survives.
+    ///
+    /// `overwrite` (Fix 2, overwrite restore mode) bypasses the LWW guard: the
+    /// wipe step has already deleted every session the package does not carry,
+    /// so for a session the package DOES carry the package's copy is the one
+    /// that must stand, even when the local copy is newer.
     func restoreSession(_ session: ChatSession,
                         memoryEnabled: Bool,
-                        modelBinding: String?) -> RestoreOutcome {
+                        modelBinding: String?,
+                        overwrite: Bool = false) -> RestoreOutcome {
         invalidateSessionListCache()
 
         let incoming = session.updatedAt.timeIntervalSince1970
@@ -8360,7 +8366,7 @@ extension ChatStore {
         sqlite3_finalize(stmt)
 
         if let local = localUpdatedAt {
-            guard incoming > local else { return .skippedLocalNewer }
+            guard overwrite || incoming > local else { return .skippedLocalNewer }
             let sql = """
                 UPDATE sessions SET title = ?, category = ?, model_id = ?, updated_at = ?,
                                     memory_enabled = ?, model_binding = ?, pinned_at = ?, folder_id = ?
@@ -8420,6 +8426,10 @@ extension ChatStore {
     /// `sort_order` from the local tail and bumps the session's `updated_at` to
     /// now, which would both reorder a restored transcript and destroy the
     /// timestamps the session LWW depends on.
+    ///
+    /// `overwrite` (Fix 2) bypasses the LWW guard, same as `restoreSession`:
+    /// in overwrite mode the package's copy stands even when the local copy
+    /// is newer.
     func restoreMessage(id: String, sessionId: String, role: String, partsJson: String,
                         createdAt: Date, tokenUsageJson: String?, sortOrder: Int,
                         reasoningContent: String?, streamInterruptCount: Int,
@@ -8429,7 +8439,8 @@ extension ChatStore {
                         // nil for packages written before the fields existed.
                         modelId: String? = nil, modelDisplayName: String? = nil,
                         providerType: String? = nil, providerInstanceId: String? = nil,
-                        errorInfo: String? = nil) -> RestoreOutcome {
+                        errorInfo: String? = nil,
+                        overwrite: Bool = false) -> RestoreOutcome {
         var exists = false
         var stmt: OpaquePointer?
         if sqlite3_prepare_v2(db, "SELECT id FROM sessions WHERE id = ?", -1, &stmt, nil) == SQLITE_OK {
@@ -8450,7 +8461,7 @@ extension ChatStore {
         sqlite3_finalize(chk)
 
         let incoming = updatedAt.timeIntervalSince1970
-        if let local = localUpdated, incoming <= local { return .skippedLocalNewer }
+        if let local = localUpdated, !overwrite, incoming <= local { return .skippedLocalNewer }
 
         // part_flags is a derived column the list query uses for previews; it is
         // computed from parts_json by the same SQL expression the sync backfill

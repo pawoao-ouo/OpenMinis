@@ -52,13 +52,20 @@ enum BackupRestoreJournal {
         var backupId: String
         var startedAt: Date
         var categories: [String]
+        /// "merge" or "overwrite" (Fix 2). nil for markers written before
+        /// Fix 2 — the fields have defaults, so old markers still decode.
+        var mode: String? = nil
+        /// Safety copy taken before an overwrite wipe, if any (Fix 2).
+        var safetySnapshotURL: URL? = nil
     }
 
-    static func begin(backupId: String, categories: [String]) {
+    static func begin(backupId: String, categories: [String],
+                      mode: String? = nil, safetySnapshotURL: URL? = nil) {
         do {
             try FileManager.default.createDirectory(at: supportDir,
                                                     withIntermediateDirectories: true)
-            let marker = Marker(backupId: backupId, startedAt: Date(), categories: categories)
+            let marker = Marker(backupId: backupId, startedAt: Date(), categories: categories,
+                                mode: mode, safetySnapshotURL: safetySnapshotURL)
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             try encoder.encode(marker).write(to: markerURL, options: .atomic)

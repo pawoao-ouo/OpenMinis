@@ -178,7 +178,7 @@ extension BackupImporter {
         case .stickers: return try importStickers(root: root, fileIndex: fileIndex)
         case .skills: return try await importSkills(root: root, fileIndex: fileIndex)
         case .memory: return try await importMemory(root: root)
-        case .providers: return try await importProviders(root: root)
+        case .providers: return try await importProviders(root: root, options: options)
         case .mcpServers: return try await importMCPServers(root: root)
         case .voiceCorrections: return try await importVoiceCorrections(root: root)
         case .environmentVariables:
@@ -245,6 +245,10 @@ extension BackupImporter {
         var restoredSessionIds: [String] = []
         var runningSessionIds: Set<String> = []
         var packageSessionIds: Set<String> = []
+        // Fix 2 — in overwrite mode the package's copy stands even when the
+        // local copy is newer (the wipe already deleted every session the
+        // package does not carry).
+        let overwrite = options.mode == .overwrite
         struct SessionRecord: Codable {
             let session: ChatSession
             let memoryEnabled: Bool
@@ -268,7 +272,8 @@ extension BackupImporter {
             await store.clearRestoreTombstone(sessionId: sid)
             let outcome = await store.restoreSession(rec.session,
                                                      memoryEnabled: rec.memoryEnabled,
-                                                     modelBinding: rec.modelBinding)
+                                                     modelBinding: rec.modelBinding,
+                                                     overwrite: overwrite)
             switch outcome {
             case .inserted: report.imported += 1; restoredSessionIds.append(sid)
             case .updated: report.updated += 1; restoredSessionIds.append(sid)
@@ -314,7 +319,8 @@ extension BackupImporter {
                 modelId: msg.modelId, modelDisplayName: msg.modelDisplayName,
                 providerType: msg.providerType,
                 providerInstanceId: msg.providerInstanceId,
-                errorInfo: msg.errorInfo)
+                errorInfo: msg.errorInfo,
+                overwrite: overwrite)
             switch outcome {
             case .inserted: report.imported += 1
             case .updated: report.updated += 1
@@ -715,7 +721,7 @@ extension BackupImporter {
 
     // MARK: - Providers
 
-    private func importProviders(root: URL) async throws -> CategoryReport {
+    private func importProviders(root: URL, options: Options) async throws -> CategoryReport {
         var report = CategoryReport(category: BackupCategory.providers.rawValue)
         let url = root.appendingPathComponent("data/provider_config.json")
         guard let data = try? Data(contentsOf: url) else { return report }
@@ -738,42 +744,60 @@ extension BackupImporter {
         // a dead path today — kept for a possible iOS 16 revival, with the same
         // union-by-id rules. Restoring must never fall back to the destructive
         // whole-config replace just because sync is unavailable.
-        // Disambiguate model groups whose NAME collides with one already on
-        // this device. The merge is by id, so a restored group is correctly a
-        // separate entity — but on screen the user then sees two rows both
-        // called "Default Models" with no way to tell which is which. Seen for
-        // real: a restore produced three duplicate pairs in the model picker.
+        // Fix 2 — overwrite: the wipe step already replaced the whole config
+        // with the package's via `applyConfig` (local per-device pointers
+        // preserved, no "(from backup)" suffix — there is nothing left to
+        // collide with, because the local groups are gone) and cleared the
+        // local thinking rules, so the rule upserts below land on an empty
+        // set. No merge runs here at all: merging would resurrect the very
+        // providers the wipe just removed.
         //
-        // Only collisions are touched. A group whose name is unique keeps it
-        // exactly, so the common case (restoring onto a clean device) reads
-        // the same as the source.
-        let merged = await MainActor.run { Self.disambiguateGroupNames(config) }
-
-        let before = await MainActor.run { ProviderConfigStore.shared.config.instances.count }
-        if #available(iOS 17.0, *) {
-            await CloudSyncEngine.mergeProviderConfigForRestore(merged)
+        // Merge keeps the existing path below: union-by-id, local wins, and
+        // the per-device pointers are never touched.
+        if options.mode == .overwrite {
+            // Every instance in the package is now live (the config was
+            // replaced wholesale); nothing was "skipped" — a package instance
+            // cannot be skipped when the local side was wiped first.
+            report.imported = config.instances.count
+            report.skipped = 0
         } else {
-            await MainActor.run { Self.mergeProviderConfigFallback(merged) }
-        }
-        let after = await MainActor.run { ProviderConfigStore.shared.config.instances.count }
+            // Disambiguate model groups whose NAME collides with one already on
+            // this device. The merge is by id, so a restored group is correctly a
+            // separate entity — but on screen the user then sees two rows both
+            // called "Default Models" with no way to tell which is which. Seen for
+            // real: a restore produced three duplicate pairs in the model picker.
+            //
+            // Only collisions are touched. A group whose name is unique keeps it
+            // exactly, so the common case (restoring onto a clean device) reads
+            // the same as the source.
+            let merged = await MainActor.run { Self.disambiguateGroupNames(config) }
 
-        // Report what the merge actually did, not the package's instance count:
-        // an instance already present locally is not a new arrival.
-        //
-        // [T-backup-provider-false-updated] `updated` used to be
-        // `config.instances.count - imported`, i.e. "every instance in the
-        // package that wasn't newly inserted" — with no content comparison at
-        // all. Both mergers here are union-by-id and SKIP anything already
-        // present (mergeProviderConfigFallback appends only when the id is
-        // absent; CloudSyncEngine's restore merge behaves the same way), so
-        // those instances were not updated — they were left untouched.
-        // Restoring a package onto the device that produced it therefore
-        // reported "Updated 9" while changing nothing, which is the reported
-        // symptom. Count them as `skipped`, which is what actually happened
-        // and what every other category (chats via LWW, memory via content
-        // hash) already reports for an unchanged item.
-        report.imported = max(0, after - before)
-        report.skipped = max(0, config.instances.count - report.imported)
+            let before = await MainActor.run { ProviderConfigStore.shared.config.instances.count }
+            if #available(iOS 17.0, *) {
+                await CloudSyncEngine.mergeProviderConfigForRestore(merged)
+            } else {
+                await MainActor.run { Self.mergeProviderConfigFallback(merged) }
+            }
+            let after = await MainActor.run { ProviderConfigStore.shared.config.instances.count }
+
+            // Report what the merge actually did, not the package's instance count:
+            // an instance already present locally is not a new arrival.
+            //
+            // [T-backup-provider-false-updated] `updated` used to be
+            // `config.instances.count - imported`, i.e. "every instance in the
+            // package that wasn't newly inserted" — with no content comparison at
+            // all. Both mergers here are union-by-id and SKIP anything already
+            // present (mergeProviderConfigFallback appends only when the id is
+            // absent; CloudSyncEngine's restore merge behaves the same way), so
+            // those instances were not updated — they were left untouched.
+            // Restoring a package onto the device that produced it therefore
+            // reported "Updated 9" while changing nothing, which is the reported
+            // symptom. Count them as `skipped`, which is what actually happened
+            // and what every other category (chats via LWW, memory via content
+            // hash) already reports for an unchanged item.
+            report.imported = max(0, after - before)
+            report.skipped = max(0, config.instances.count - report.imported)
+        }
 
         // [T-backup-thinking-rules] AFTER the instance merge, never before: a
         // rule's `instance_id` points at a ProviderInstance, so importing rules
@@ -1104,6 +1128,508 @@ extension BackupImporter {
         f.dateFormat = "yyyy-MM-dd"
         f.locale = Locale(identifier: "en_US_POSIX")
         return f.string(from: Date(timeIntervalSince1970: epoch))
+    }
+
+    // MARK: - Overwrite wipe (Fix 2)
+    //
+    // Merge never deletes anything. Overwrite deletes, per selected category,
+    // exactly the local items the package does NOT carry — after integrity +
+    // passphrase + preflight have passed, after the mandatory safety snapshot,
+    // and after that category's rollback snapshot. The rules that bound every
+    // wipe:
+    //   * only selected categories, only inside their containment roots
+    //     (`isContained`, resolved both sides);
+    //   * never the device ID, never Keychain items outside the one key being
+    //     deleted, never the safety snapshot (it lives in Backups/, under no
+    //     category root);
+    //   * a package side that cannot be read means NO wipe for that category
+    //     (fail closed — an unreadable sessions file must never read as "the
+    //     package carries zero sessions, delete them all");
+    //   * Voice Corrections is never wiped: its DB exposes only aggregate
+    //     upserts (frequencies bump rather than set), so a wipe + re-import
+    //     would destroy local learning data without faithfully reproducing
+    //     the package — destructive with an unfaithful restore. It stays
+    //     merge-only, and the UI disables its row in overwrite mode.
+    //
+    // The preview (`overwriteDeletionCount`) shares the same "local but not
+    // in the package" target sets as the wipe, so the numbers the mode
+    // picker shows are the numbers the wipe will act on. Target computers
+    // return nil when the package side is unreadable, so the preview shows
+    // nothing rather than a 0 that would be a lie.
+
+    /// Minimal shape of a `sessions.jsonl` record — only the id is needed to
+    /// decide what survives the wipe. Unknown keys are ignored by Codable.
+    private struct SessionIDRecord: Codable {
+        struct SessionStub: Codable { let id: String }
+        let session: SessionStub
+    }
+
+    /// Minimal shape of a `skills.jsonl` record.
+    private struct SkillIDRecord: Codable { let id: String }
+
+    /// True when a sharded JSONL stream (`<base>.jsonl` or `<base>-*.jsonl`)
+    /// exists in `dir`. Used to tell "the package carries zero records" from
+    /// "the package has no such file at all" — only the first may wipe.
+    private func jsonlExists(dir: URL, base: String) -> Bool {
+        ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
+            .contains { $0 == "\(base).jsonl"
+                || ($0.hasPrefix("\(base)-") && $0.hasSuffix(".jsonl")) }
+    }
+
+    /// Delete one selected category's local-but-not-in-package items, before
+    /// that category's import. Returns how many items were deleted.
+    func wipeCategoryForOverwrite(_ category: BackupCategory,
+                                  root: URL,
+                                  fileIndex: [BackupFileIndexEntry]) async throws -> Int {
+        switch category {
+        case .chats:
+            return try await wipeChatsForOverwrite(root: root)
+        case .sharedFiles, .stickers, .appearance:
+            // A missing file index is fail-closed: with no index every live
+            // file would read as "not in the package".
+            guard FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("files.index.jsonl").path) else { return 0 }
+            return deleteWipeTargets(fileWipeTargets(category: category, fileIndex: fileIndex),
+                                     within: containmentRoot(for: category))
+        case .skills:
+            return await wipeSkillsForOverwrite(root: root, fileIndex: fileIndex)
+        case .memory:
+            return deleteWipeTargets(memoryWipeTargets(root: root),
+                                     within: containmentRoot(for: .memory))
+        case .providers:
+            return await wipeProvidersForOverwrite(root: root)
+        case .mcpServers:
+            // Whole-file replace in the import; the count is what the replace
+            // will drop, computed here so the report can state it.
+            return await mcpDeletionCount(root: root) ?? 0
+        case .environmentVariables:
+            return await wipeEnvVarsForOverwrite(root: root)
+        case .scheduledTasks:
+            return await wipeScheduledTasksForOverwrite(root: root)
+        case .voiceCorrections:
+            // Merge only (see the section header). Never wiped, never faked.
+            return 0
+        }
+    }
+
+    /// Preview counterpart of `wipeCategoryForOverwrite`: how many local
+    /// items this category's wipe would delete, or nil when that cannot be
+    /// computed (package side unreadable, or the category is never wiped).
+    func overwriteDeletionCount(_ category: BackupCategory,
+                                root: URL,
+                                fileIndex: [BackupFileIndexEntry]) async -> Int? {
+        switch category {
+        case .chats:
+            return await chatWipeTargets(root: root)?.count
+        case .sharedFiles, .stickers, .appearance:
+            guard FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("files.index.jsonl").path) else { return nil }
+            return fileWipeTargets(category: category, fileIndex: fileIndex).count
+        case .skills:
+            guard let records = await skillWipeTargetIDs(root: root) else { return nil }
+            guard FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("files.index.jsonl").path) else { return records.count }
+            return records.count
+                + fileWipeTargets(category: .skills, fileIndex: fileIndex).count
+        case .memory:
+            return memoryWipeTargets(root: root).count
+        case .providers:
+            return await providerDeletionCount(root: root)
+        case .mcpServers:
+            return await mcpDeletionCount(root: root)
+        case .environmentVariables:
+            return await envWipeTargetIDs(root: root)?.count
+        case .scheduledTasks:
+            return await scheduledWipeTargetIDs(root: root)?.count
+        case .voiceCorrections:
+            return nil
+        }
+    }
+
+    // MARK: Chats wipe
+
+    /// Local session ids an overwrite would delete: everything not in the
+    /// package, minus children of a package session (deleting their parent
+    /// would cascade into them via `deleteSessionLocalOnly`, and the import
+    /// would then have to resurrect them). Nil when the package carries no
+    /// sessions file at all — fail closed, never "zero sessions".
+    private func chatWipeTargets(root: URL) async -> [String]? {
+        let dataDir = root.appendingPathComponent("data", isDirectory: true)
+        guard jsonlExists(dir: dataDir, base: "sessions") else { return nil }
+        let packageIds = Set(readJSONL(dataDir, base: "sessions",
+                                       as: SessionIDRecord.self).map(\.session.id))
+        let store = ChatStore.shared
+        var keep = packageIds
+        for pid in packageIds {
+            keep.formUnion(await store.childSessionIds(of: pid))
+        }
+        return await store.allSessionIds().filter { !keep.contains($0) }
+    }
+
+    private func wipeChatsForOverwrite(root: URL) async throws -> Int {
+        guard let targets = await chatWipeTargets(root: root), !targets.isEmpty else { return 0 }
+        let store = ChatStore.shared
+        // Re-checked immediately before deleting: a run that started after
+        // preflight must not have its session wiped out from under it.
+        let running = targets.filter { store.isSessionRunning($0) }
+        guard running.isEmpty else { throw ImportError.sessionsRunning(running) }
+        var deleted = 0
+        // `deleteSessionLocalOnly` cascades into child sessions, so track
+        // what is already gone instead of counting a child twice.
+        var gone: Set<String> = []
+        for id in targets where !gone.contains(id) {
+            let children = await store.childSessionIds(of: id)
+            // Runtime teardown first (VM cache, browser pool, timers, files),
+            // then the rows — the same order the manual delete path uses.
+            await MainActor.run {
+                SessionTeardown.tearDownRuntime(sessionId: id, reason: "overwrite restore")
+            }
+            await store.deleteSessionLocalOnly(id)
+            gone.insert(id)
+            gone.formUnion(children)
+            deleted += 1
+        }
+        return deleted
+    }
+
+    // MARK: File-tree wipe
+
+    /// Live files under a category root whose index path the package does not
+    /// carry. The index path is the package's own form ("shared/<rel>"), so
+    /// the comparison is against what the export actually recorded.
+    private func fileWipeTargets(category: BackupCategory,
+                                 fileIndex: [BackupFileIndexEntry]) -> [URL] {
+        let fm = FileManager.default
+        let liveRoot = containmentRoot(for: category)
+        let indexed = Set(fileIndex
+            .filter { $0.category == category.rawValue && $0.skipped == nil }
+            .map(\.path))
+        guard let enumerator = fm.enumerator(
+            at: liveRoot, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
+        var out: [URL] = []
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+            else { continue }
+            // A staged temp from an interrupted restore is not user data.
+            guard !url.lastPathComponent.hasPrefix(".restore-") else { continue }
+            let rel = String(url.path.dropFirst(liveRoot.path.count + 1))
+            let indexPath: String
+            switch category {
+            case .sharedFiles: indexPath = "shared/" + rel
+            case .stickers: indexPath = "stickers/" + rel
+            case .appearance: indexPath = "appearance/" + rel
+            case .skills: indexPath = "skills/" + rel
+            default: continue
+            }
+            guard !indexed.contains(indexPath), isContained(url, within: liveRoot) else { continue }
+            out.append(url)
+        }
+        return out
+    }
+
+    /// Delete the targets (each re-checked for containment) and drop
+    /// directories left empty, deepest first, never the root itself.
+    private func deleteWipeTargets(_ urls: [URL], within root: URL) -> Int {
+        let fm = FileManager.default
+        var deleted = 0
+        var parents: [URL] = []
+        for url in urls {
+            guard isContained(url, within: root) else { continue }
+            if (try? fm.removeItem(at: url)) != nil {
+                deleted += 1
+                parents.append(url.deletingLastPathComponent())
+            }
+        }
+        for dir in Set(parents).sorted(by: { $0.path.count > $1.path.count }) {
+            guard dir != root, isContained(dir, within: root),
+                  ((try? fm.contentsOfDirectory(atPath: dir.path))?.isEmpty ?? false)
+            else { continue }
+            try? fm.removeItem(at: dir)
+        }
+        return deleted
+    }
+
+    // MARK: Memory wipe
+
+    /// Live `.md` files the package does not carry: top-level files plus
+    /// `personas/**/*.md`, exactly the two shapes the memory import writes.
+    /// `personas.json` / `regex-rules.json` are not `.md` — they are replaced
+    /// wholesale by the import when the package carries them, and left alone
+    /// when it does not.
+    private func memoryWipeTargets(root: URL) -> [URL] {
+        let fm = FileManager.default
+        let src = root.appendingPathComponent("data/memory", isDirectory: true)
+        guard fm.fileExists(atPath: src.path) else { return [] }
+        var packageRel = Set<String>()
+        for name in (try? fm.contentsOfDirectory(atPath: src.path)) ?? []
+        where name.hasSuffix(".md") {
+            packageRel.insert(name)
+        }
+        let personasSrc = src.appendingPathComponent("personas", isDirectory: true)
+        if fm.fileExists(atPath: personasSrc.path),
+           let e = fm.enumerator(at: personasSrc, includingPropertiesForKeys: [.isRegularFileKey]) {
+            for case let u as URL in e where u.pathExtension == "md" {
+                packageRel.insert("personas/"
+                    + String(u.path.dropFirst(personasSrc.path.count + 1)))
+            }
+        }
+        let dst = AIChatViewModel.minisMemoryPersistentDir
+        var out: [URL] = []
+        for name in (try? fm.contentsOfDirectory(atPath: dst.path)) ?? []
+        where name.hasSuffix(".md") {
+            if !packageRel.contains(name) { out.append(dst.appendingPathComponent(name)) }
+        }
+        let personasDst = dst.appendingPathComponent("personas", isDirectory: true)
+        if fm.fileExists(atPath: personasDst.path),
+           let e = fm.enumerator(at: personasDst, includingPropertiesForKeys: [.isRegularFileKey]) {
+            for case let u as URL in e {
+                guard (try? u.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true,
+                      u.pathExtension == "md" else { continue }
+                let rel = "personas/" + String(u.path.dropFirst(personasDst.path.count + 1))
+                if !packageRel.contains(rel) { out.append(u) }
+            }
+        }
+        return out
+    }
+
+    // MARK: Skills wipe
+
+    /// Local skill ids the package does not carry, excluding bundled skills
+    /// (they ship with the app — deleting one would remove shipped content
+    /// and queue a cloud delete for it). Nil when the package carries no
+    /// skills file.
+    private func skillWipeTargetIDs(root: URL) async -> [String]? {
+        let dataDir = root.appendingPathComponent("data", isDirectory: true)
+        guard jsonlExists(dir: dataDir, base: "skills") else { return nil }
+        let packageIds = Set(readJSONL(dataDir, base: "skills",
+                                       as: SkillIDRecord.self).map(\.id))
+        return await MainActor.run {
+            SkillStore.shared.skills
+                .filter { !packageIds.contains($0.id) && $0.importSource != .bundled }
+                .map(\.id)
+        }
+    }
+
+    private func wipeSkillsForOverwrite(root: URL,
+                                        fileIndex: [BackupFileIndexEntry]) async -> Int {
+        guard let ids = await skillWipeTargetIDs(root: root) else { return 0 }
+        // Records first (deleteSkill removes the skill's directories too),
+        // then the file-tree difference for the skills that survive.
+        let deletedRecords = await MainActor.run {
+            let store = SkillStore.shared
+            for id in ids { store.deleteSkill(id) }
+            return ids.count
+        }
+        guard FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("files.index.jsonl").path) else {
+            return deletedRecords
+        }
+        let deletedFiles = deleteWipeTargets(
+            fileWipeTargets(category: .skills, fileIndex: fileIndex),
+            within: containmentRoot(for: .skills))
+        return deletedRecords + deletedFiles
+    }
+
+    // MARK: Providers wipe
+
+    private func packageProviderConfig(root: URL) -> ProviderConfig? {
+        let url = root.appendingPathComponent("data/provider_config.json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(ProviderConfig.self, from: data)
+    }
+
+    /// A per-device group pointer, kept only when its target survives the
+    /// replace — a pointer at a group the package never carried is dropped
+    /// rather than left dangling.
+    private static func preservedGroupPointer(_ id: String?, in groups: Set<String>) -> String? {
+        guard let id, groups.contains(id) else { return nil }
+        return id
+    }
+
+    /// Replace the whole provider config with the package's, preserving the
+    /// local per-device pointers, and clear every local thinking rule (the
+    /// package's rules are imported onto an empty set by `importProviders`).
+    /// Returns config objects + rules removed.
+    private func wipeProvidersForOverwrite(root: URL) async -> Int {
+        guard let config = packageProviderConfig(root: root) else { return 0 }
+        // Session bindings / inference configs are keyed by session id, so
+        // they are pruned against the sessions that exist NOW — chats, which
+        // runs first, has already wiped its own.
+        let localSessionIds = Set(await ChatStore.shared.allSessionIds())
+        let (removed, localInstances) = await MainActor.run {
+            let local = ProviderConfigStore.shared.config
+            var next = config
+            let groupIds = Set(next.modelGroups.map(\.id))
+            let entryIds = Set(next.modelEntries.map(\.id))
+            // Per-device pointers stay exactly as this device has them.
+            // Defaults are pointers too (the merge path leaves them alone).
+            next.defaultPrimaryGroupId = Self.preservedGroupPointer(
+                local.defaultPrimaryGroupId, in: groupIds)
+            next.defaultSubGroupId = Self.preservedGroupPointer(
+                local.defaultSubGroupId, in: groupIds)
+            next.voiceInputGroupId = Self.preservedGroupPointer(
+                local.voiceInputGroupId, in: groupIds)
+            next.voiceOutputGroupId = Self.preservedGroupPointer(
+                local.voiceOutputGroupId, in: groupIds)
+            next.visionGroupId = Self.preservedGroupPointer(
+                local.visionGroupId, in: groupIds)
+            next.imageOutputGroupId = Self.preservedGroupPointer(
+                local.imageOutputGroupId, in: groupIds)
+            next.videoOutputGroupId = Self.preservedGroupPointer(
+                local.videoOutputGroupId, in: groupIds)
+            next.realtimeVoiceGroupId = Self.preservedGroupPointer(
+                local.realtimeVoiceGroupId, in: groupIds)
+            next.embeddingGroupId = Self.preservedGroupPointer(
+                local.embeddingGroupId, in: groupIds)
+            next.judgeGroupId = Self.preservedGroupPointer(
+                local.judgeGroupId, in: groupIds)
+            next.scheduledHelperGroupId = Self.preservedGroupPointer(
+                local.scheduledHelperGroupId, in: groupIds)
+            next.agentLoopModelEntryIds = local.agentLoopModelEntryIds
+                .filter { entryIds.contains($0) }
+            next.agentLoopGroupIds = local.agentLoopGroupIds
+                .filter { groupIds.contains($0) }
+            next.sessionBindings = local.sessionBindings
+                .filter { localSessionIds.contains($0.key) }
+            next.sessionInferenceConfigs = local.sessionInferenceConfigs
+                .filter { localSessionIds.contains($0.key) }
+            // Tombstones come from the package verbatim: the package is the
+            // source of truth for what was deleted on the source device.
+            // No "(from backup)" suffix anywhere: local groups are gone, so
+            // a package name cannot collide with one.
+            let packageInstanceIds = Set(config.instances.map(\.id))
+            let packageEntryIds = Set(config.modelEntries.map(\.id))
+            let packageGroupIds = Set(config.modelGroups.map(\.id))
+            let removed = local.instances.filter { !packageInstanceIds.contains($0.id) }.count
+                + local.modelEntries.filter { !packageEntryIds.contains($0.id) }.count
+                + local.modelGroups.filter { !packageGroupIds.contains($0.id) }.count
+            ProviderConfigStore.shared.applyConfig(next)
+            return (removed, local.instances)
+        }
+        // Thinking rules go through the store (not raw SQL) so the cloud
+        // delete is queued and peers converge instead of resurrecting them.
+        // Credentials are NOT touched here: the secrets importer keeps
+        // existing keys by policy, and a removed provider's Keychain items
+        // are not in the package's secrets.json, so deleting them would
+        // break the "never delete Keychain items not in secrets.json" rule.
+        let rulesRemoved = await MainActor.run {
+            var n = 0
+            for inst in localInstances {
+                for rule in await ProviderConfigStore.shared.thinkingRules(for: inst.id) {
+                    if await ProviderConfigStore.shared.deleteThinkingRule(
+                        id: rule.id, instanceId: inst.id) {
+                        n += 1
+                    }
+                }
+            }
+            return n
+        }
+        return removed + rulesRemoved
+    }
+
+    /// Read-only counterpart of `wipeProvidersForOverwrite` for the preview.
+    private func providerDeletionCount(root: URL) async -> Int? {
+        guard let config = packageProviderConfig(root: root) else { return nil }
+        let local = await MainActor.run { ProviderConfigStore.shared.config }
+        let packageInstanceIds = Set(config.instances.map(\.id))
+        let packageEntryIds = Set(config.modelEntries.map(\.id))
+        let packageGroupIds = Set(config.modelGroups.map(\.id))
+        var removed = local.instances.filter { !packageInstanceIds.contains($0.id) }.count
+            + local.modelEntries.filter { !packageEntryIds.contains($0.id) }.count
+            + local.modelGroups.filter { !packageGroupIds.contains($0.id) }.count
+        removed += await MainActor.run {
+            var n = 0
+            for inst in local.instances {
+                n += await ProviderConfigStore.shared.thinkingRules(for: inst.id).count
+            }
+            return n
+        }
+        return removed
+    }
+
+    // MARK: MCP wipe (count only — the import replaces the whole file)
+
+    /// Local servers the whole-file replace will drop. The file is
+    /// `{"mcpServers": {<id>: {...}}}` (see `BackupExporter.mcpServerCount`),
+    /// so the ids are the map's keys. Nil when the package carries no
+    /// servers file — then the import replaces nothing.
+    private func mcpDeletionCount(root: URL) async -> Int? {
+        let src = root.appendingPathComponent("data/mcp_servers.json")
+        guard FileManager.default.fileExists(atPath: src.path),
+              let data = try? Data(contentsOf: src),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let servers = json["mcpServers"] as? [String: Any] else { return nil }
+        let packageIds = Set(servers.keys)
+        return await MainActor.run {
+            MCPStore.shared.servers.filter { !packageIds.contains($0.id) }.count
+        }
+    }
+
+    // MARK: Environment variables wipe
+
+    private func packageEnvEntries(root: URL) -> [EnvVarEntry]? {
+        let src = root.appendingPathComponent("data/env_vars.json")
+        guard let data = try? Data(contentsOf: src) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode([EnvVarEntry].self, from: data)
+    }
+
+    /// Local entry ids whose key the package does not carry. Nil when the
+    /// package carries no env file.
+    private func envWipeTargetIDs(root: URL) async -> [String]? {
+        guard let incoming = packageEnvEntries(root: root) else { return nil }
+        let packageKeys = Set(incoming.map(\.key))
+        return await MainActor.run {
+            EnvVarStore.shared.entries
+                .filter { !packageKeys.contains($0.key) }.map(\.id)
+        }
+    }
+
+    private func wipeEnvVarsForOverwrite(root: URL) async -> Int {
+        guard let ids = await envWipeTargetIDs(root: root), !ids.isEmpty else { return 0 }
+        // `EnvVarStore.delete` is the scoped delete: it removes the entry and
+        // its Keychain value only when no other entry references that key —
+        // never a sweep, never anything outside this key.
+        await MainActor.run {
+            let store = EnvVarStore.shared
+            for id in ids { store.delete(id: id) }
+        }
+        return ids.count
+    }
+
+    // MARK: Scheduled tasks wipe
+
+    private func packageScheduledJobIDs(root: URL) -> Set<String>? {
+        let url = root.appendingPathComponent("data/scheduled_tasks.json")
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let jobs = try? decoder.decode([PersistedJob].self, from: data) else { return nil }
+        return Set(jobs.map(\.id))
+    }
+
+    /// Local job ids the package does not carry. Nil when the package
+    /// carries no tasks file.
+    private func scheduledWipeTargetIDs(root: URL) async -> [String]? {
+        guard let packageIds = packageScheduledJobIDs(root: root) else { return nil }
+        return await MainActor.run {
+            Array(AgentJobRegistry.shared.jobs.keys.filter { !packageIds.contains($0) })
+        }
+    }
+
+    private func wipeScheduledTasksForOverwrite(root: URL) async -> Int {
+        guard let ids = await scheduledWipeTargetIDs(root: root), !ids.isEmpty else { return 0 }
+        // `remove` cancels first (a running job's child run is not left
+        // orphaned) and persists, so the deletion sticks across launch.
+        // The import then adopts the package's jobs onto the empty registry.
+        await MainActor.run {
+            let registry = AgentJobRegistry.shared
+            for id in ids { registry.remove(jobId: id) }
+        }
+        return ids.count
     }
 
     // MARK: - Shared helpers
