@@ -161,27 +161,46 @@ enum WallpaperPipeline {
     /// those go through the re-encode instead. PNG keeps PNG so alpha
     /// survives; everything else becomes JPEG, padded with the theme
     /// canvas (matte) so transparent regions do not go black. Returns
-    /// nil when non-strippable bytes cannot be decoded at all —
-    /// undecodable bytes never land (T-29). That nil guarantee covers
-    /// non-strippable formats only: when UIImage cannot decode a
-    /// strippable format at all (e.g. WebP), there is no orientation
-    /// to bake, so it is stripped at byte level exactly like
-    /// `writeEncodedImage` does.
+    /// nil when the bytes cannot be decoded at all — undecodable bytes
+    /// never land (T-29), for every format: the byte-level walkers
+    /// return the ORIGINAL bytes on structural damage (they discard the
+    /// already-stripped `out`), so routing an undecodable strippable
+    /// file through them could base64 its EXIF into the pack. An
+    /// undecodable image is useless in a pack anyway — the receiving
+    /// side cannot decode it either — and this matches the write path
+    /// (`writeEncodedImageIfDecodable` returns false for undecodable
+    /// bytes). PNG keeps PNG so alpha survives, drawn through a
+    /// renderer first so its orientation is baked too — `pngData()`
+    /// alone encodes the raw CGImage without applying the orientation.
     nonisolated static func exportableImageData(_ data: Data, matte: UIColor = canvasMatte()) -> Data? {
         if byteLevelStrippable(data) {
-            if let image = UIImage(data: data),
-               image.size.width > 0, image.size.height > 0,
-               image.imageOrientation != .up {
-                // Orientation must be baked into the pixels before the
-                // metadata is dropped — fall through to the re-encode.
-            } else {
+            // [P1-1] Decode first: an undecodable strippable file must
+            // return nil, not fall through to `strippedMetadata` — the
+            // walkers return the original bytes on structural damage,
+            // so that path could carry EXIF into the pack.
+            guard let image = UIImage(data: data),
+                  image.size.width > 0, image.size.height > 0 else { return nil }
+            if image.imageOrientation == .up {
                 return strippedMetadata(data)
             }
+            // Orientation must be baked into the pixels before the
+            // metadata is dropped — fall through to the re-encode.
         }
         guard let image = UIImage(data: data),
               image.size.width > 0, image.size.height > 0 else { return nil }
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
-            return image.pngData()
+            // [P2-1] `pngData()` encodes the raw CGImage: it neither
+            // applies `imageOrientation` nor writes an orientation
+            // marker, so a portrait PNG would come back rotated.
+            // Draw first so the orientation is baked into the pixels;
+            // `opaque = false` and no matte fill, so alpha survives.
+            let pngFormat = UIGraphicsImageRendererFormat()
+            pngFormat.opaque = false
+            pngFormat.scale = 1
+            let renderedPNG = UIGraphicsImageRenderer(size: image.size, format: pngFormat).image { _ in
+                image.draw(in: CGRect(origin: .zero, size: image.size))
+            }
+            return renderedPNG.pngData()
         }
         // [P2-1/P3-3] JPEG has no alpha: pad transparent regions with the
         // theme canvas (matte) instead of letting them go black. The
@@ -868,8 +887,16 @@ final class AppearanceStudio: ObservableObject {
         // [P1-1] Strip EXIF left on disk by pre-gate saves (see
         // `migrateThemeImageMetadata`): detached so launch never waits
         // on image work; idempotent, safe to run every launch.
+        // [P3-3] The migration pads transparent images with the current
+        // theme canvas, same source as export (`originalImageData`) —
+        // computed here on the main actor because `hex` is a @MainActor
+        // instance method and the migration is nonisolated static; the
+        // two hex strings cross into the detached task as plain values.
+        let lightCanvasHex = hex(.canvas, variant: .light)
+        let darkCanvasHex = hex(.canvas, variant: .dark)
         Task.detached(priority: .utility) {
-            Self.migrateThemeImageMetadata()
+            Self.migrateThemeImageMetadata(lightCanvasHex: lightCanvasHex,
+                                           darkCanvasHex: darkCanvasHex)
         }
     }
 
@@ -2434,11 +2461,12 @@ final class AppearanceStudio: ObservableObject {
     /// Idempotent and safe to run every launch: a file whose cleaned
     /// bytes are identical to its current bytes is not rewritten, so an
     /// already-clean file costs one read and no write. Files that cannot
-    /// be decoded are left alone — the export gate drops them from packs
-    /// instead (T-29), and deleting a user's file for being unreadable
-    /// would destroy data a future decoder might still read. Rewrites
-    /// are atomic, and the thumbnail cache entry is dropped so a
-    /// re-encoded file never keeps showing stale pixels.
+    /// be decoded are left alone — the gate returns nil for them (T-29:
+    /// undecodable bytes never land, for every format), so the `guard
+    /// let clean` fails and the file is skipped; deleting a user's file
+    /// for being unreadable would destroy data a future decoder might
+    /// still read. Rewrites are atomic, and the thumbnail cache entry
+    /// is dropped so a re-encoded file never keeps showing stale pixels.
     ///
     /// Deliberate deviation from the brief's literal prescription
     /// ("rewrite via writeEncodedImageIfDecodable"): that function strips
@@ -2446,7 +2474,7 @@ final class AppearanceStudio: ObservableObject {
     /// batch), so it would rotate old portrait photos on disk
     /// permanently. The migration uses the same orientation-aware gate
     /// as the export path instead (`WallpaperPipeline.exportableImageData`).
-    nonisolated static func migrateThemeImageMetadata() {
+    nonisolated static func migrateThemeImageMetadata(lightCanvasHex: String, darkCanvasHex: String) {
         var urls: [URL] = []
         for scope in AppearanceScope.allCases {
             urls.append(appearanceDirectoryURL.appendingPathComponent("wallpaper-\(scope.rawValue).jpg"))
@@ -2461,14 +2489,15 @@ final class AppearanceStudio: ObservableObject {
         }
         for url in urls {
             guard let data = try? Data(contentsOf: url), !data.isEmpty,
-                  // [P3-11] Matte by filename suffix, same pattern as
+                  // [P3-3] Matte by filename suffix, same source as
                   // `originalImageData`: "-dark.jpg" files are padded with
-                  // the dark canvas, everything else with the light one —
-                  // the default light matte used to pad dark-variant
-                  // transparent wallpapers light.
+                  // the dark canvas, everything else with the light one.
+                  // Both paths use the CURRENT theme canvas (the two hexes
+                  // passed in from `init`), not the palette book's
+                  // built-in canvas — a custom canvas pads the same
+                  // colour on export and on migration.
                   let clean = WallpaperPipeline.exportableImageData(
-                      data, matte: WallpaperPipeline.canvasMatte(
-                          dark: url.lastPathComponent.hasSuffix("-dark.jpg"))),
+                      data, matte: UIColor(hex: url.lastPathComponent.hasSuffix("-dark.jpg") ? darkCanvasHex : lightCanvasHex)),
                   clean != data else { continue }
             // [P3-1] Re-read before writing: a picker may have swapped this
             // file between the read above and this write — never clobber a

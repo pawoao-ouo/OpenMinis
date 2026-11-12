@@ -1580,6 +1580,14 @@ extension AppearanceStudio {
         // `exportThemePack` — so no parameter threading is needed, and the
         // three reader signatures the standalone tests pin by string stay
         // exactly as they are.
+        // [P3-4] Accepted: the re-encode for legacy files (HEIC/GIF,
+        // orientation != up) runs on the main thread here. Making
+        // `exportThemePack` async would ripple through its 5 synchronous
+        // call sites (two ObjC bridge entries via `ThemeBridgeCall.run`,
+        // two sync library functions, one Button action). The expensive
+        // path only fires for pre-gate legacy files, and the launch
+        // migration rewrites those, so repeat exports take the cheap
+        // byte-strip path.
         let matte = UIColor(hex: hex(.canvas, variant: fileName.hasSuffix("-dark.jpg") ? .dark : .light))
         return WallpaperPipeline.exportableImageData(data, matte: matte)
     }
@@ -2392,22 +2400,28 @@ extension AppearanceStudio {
     /// [P2-4] Orientation must be baked before the tag is stripped: an
     /// under-limit photo with orientation != up takes the re-encode
     /// branch below instead of the byte-level strip.
+    /// [P3-1] Undecodable bytes return false, same as
+    /// `writeEncodedImageIfDecodable` below: the strip walkers return
+    /// the ORIGINAL bytes on structural damage, so falling through to
+    /// the byte-level write would land EXIF. This guard is the backstop
+    /// for the next direct caller — every live caller already goes
+    /// through `IfDecodable`.
     @discardableResult
     private static nonisolated func writeEncodedImage(_ data: Data, to url: URL,
                                    maxEdge: CGFloat, quality: CGFloat,
                                    matte: UIColor = WallpaperPipeline.canvasMatte()) -> Bool {
-        if let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 {
-            let longest = max(image.size.width, image.size.height)
-            // [P2-13] Under-limit bytes land as-is only when the format
-            // has a byte-level strip (JPEG/PNG/WebP). HEIC/GIF have none,
-            // so they go through the JPEG re-encode — otherwise their
-            // EXIF would ride in unchanged, because `strippedMetadata`
-            // passes unknown formats through untouched.
-            // (`writeDownscaledJPEG` keeps full size when under the edge:
-            // its scale is min(1, ...).)
-            if longest > maxEdge || !WallpaperPipeline.byteLevelStrippable(data) || image.imageOrientation != .up {
-                return writeDownscaledJPEG(image, to: url, maxEdge: maxEdge, quality: quality, matte: matte)
-            }
+        guard let image = UIImage(data: data),
+              image.size.width > 0, image.size.height > 0 else { return false }
+        let longest = max(image.size.width, image.size.height)
+        // [P2-13] Under-limit bytes land as-is only when the format
+        // has a byte-level strip (JPEG/PNG/WebP). HEIC/GIF have none,
+        // so they go through the JPEG re-encode — otherwise their
+        // EXIF would ride in unchanged, because `strippedMetadata`
+        // passes unknown formats through untouched.
+        // (`writeDownscaledJPEG` keeps full size when under the edge:
+        // its scale is min(1, ...).)
+        if longest > maxEdge || !WallpaperPipeline.byteLevelStrippable(data) || image.imageOrientation != .up {
+            return writeDownscaledJPEG(image, to: url, maxEdge: maxEdge, quality: quality, matte: matte)
         }
         do {
             try WallpaperPipeline.strippedMetadata(data).write(to: url, options: .atomic)
@@ -2422,9 +2436,10 @@ extension AppearanceStudio {
     /// Decode-validated write: undecodable bytes never hit disk (T-29's
     /// rule, same as the wallpaper path) — otherwise the file exists, the
     /// "has image" check is true, and the render is a blank card only a
-    /// manual clear can fix. Nonisolated so a detached task can call it;
-    /// `writeEncodedImage` above keeps its old contract (callers that
-    /// already validated keep calling it directly).
+    /// manual clear can fix. Nonisolated so a detached task can call it.
+    /// `writeEncodedImage` above guards the same way since [P3-1], so a
+    /// direct call is no longer a trap — but every live caller still
+    /// goes through here, and that stays the rule.
     @discardableResult
     private static nonisolated func writeEncodedImageIfDecodable(_ data: Data, to url: URL,
                                       maxEdge: CGFloat, quality: CGFloat,

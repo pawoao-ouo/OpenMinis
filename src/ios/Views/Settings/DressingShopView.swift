@@ -589,7 +589,7 @@ extension DressingShopView {
             ))
         }
 
-        for scope in [AppearanceScope.global, .chat, .home, .settings, .browser, .terminal, .bottomBar] {
+        for scope in [AppearanceScope.global, .chat, .home, .settings, .browser, .terminal, .bottomBar, .persona, .files] {
             entries.append(DressingSearchEntry(
                 id: "wallpaper-\(scope.rawValue)",
                 title: scope.title,
@@ -1708,10 +1708,13 @@ struct DressingWallpaperArtSheet: View {
             // (`homeBottomBarBackground` reads `wallpaper(for: .bottomBar)`),
             // so it needs a pill here — a theme pack can install a
             // bottom-bar wallpaper nothing in this drawer could change
-            // or clear. `.persona` / `.files` have no backdrop or
-            // `wallpaper(for:)` read point yet, so they stay out.
+            // or clear. `.persona` / `.files` are the same: both pages
+            // mount `.appearancePage(<scope>)`, whose generic backdrop
+            // reads `wallpaper(for: scope)` — so all nine scopes have
+            // a pill now, and a pack-installed wallpaper for any of them
+            // can be changed or cleared here.
             HStack(spacing: 6) {
-                ForEach([AppearanceScope.global, .chat, .home, .settings, .browser, .terminal, .bottomBar], id: \.self) { sc in
+                ForEach([AppearanceScope.global, .chat, .home, .settings, .browser, .terminal, .bottomBar, .persona, .files], id: \.self) { sc in
                     let isSelected = selectedScope == sc
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()

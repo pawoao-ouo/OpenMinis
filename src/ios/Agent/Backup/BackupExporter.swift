@@ -1105,7 +1105,21 @@ actor BackupExporter {
     private func exportAppearance(dataDir: URL, trees: BackupFileTreeExporter) async throws
         -> BackupManifest.CategoryStat {
         let dir = await MainActor.run { AppearanceStudio.appearanceAssetsDirectory }
-        let r = try trees.export(root: dir, logicalPrefix: "appearance",
+        // [P1-2] Stage a cleaned copy so EXIF cannot ride into the
+        // backup: the tree exporter copies raw disk bytes, and a backup
+        // can fire before the async launch migration finishes (or on
+        // files the migration deliberately leaves — undecodable ones).
+        // Falls back to the real directory when there is nothing to
+        // stage, so the backup never loses a file to staging.
+        let (lightCanvasHex, darkCanvasHex) = await MainActor.run {
+            (AppearanceStudio.shared.hex(.canvas, variant: .light),
+             AppearanceStudio.shared.hex(.canvas, variant: .dark))
+        }
+        let stage = stageCleanedAppearanceDirectory(dir,
+                                                    lightCanvasHex: lightCanvasHex,
+                                                    darkCanvasHex: darkCanvasHex)
+        defer { if let stage { try? FileManager.default.removeItem(at: stage) } }
+        let r = try trees.export(root: stage ?? dir, logicalPrefix: "appearance",
                                  category: .appearance)
         var bytes = r.bytesIncluded
         var entries = r.filesIncluded
@@ -1118,6 +1132,84 @@ actor BackupExporter {
         }
         return BackupManifest.CategoryStat(
             entries: entries, bytes: bytes, encrypted: false, files: r.filesIncluded)
+    }
+
+    /// [P1-2] Cleaned staging copy of the appearance directory for backup:
+    /// the tree exporter copies raw disk bytes, so pre-gate EXIF (GPS +
+    /// model) would ride into the backup — the async launch migration is
+    /// the only other protection, and a backup can fire before it
+    /// finishes. Every decodable image is replaced by its
+    /// `exportableImageData` bytes (EXIF stripped, orientation baked);
+    /// anything the gate drops (non-images, undecodable files) is copied
+    /// verbatim — deleting user data is worse than the residual EXIF,
+    /// and the migration leaves undecodable files in place for the same
+    /// reason. Names, relative paths and directory structure are mirrored
+    /// exactly, and every staged file keeps the original's mtime: the
+    /// tree exporter drops files modified after the snapshot cut-off,
+    /// and a freshly-written copy would otherwise be dropped as "too
+    /// new". Hidden files are skipped, same as the tree exporter.
+    /// Returns nil when there is nothing to stage (or staging fails), so
+    /// the caller falls back to the real directory — a staging failure
+    /// must never lose files from the backup.
+    private func stageCleanedAppearanceDirectory(_ dir: URL,
+                                                 lightCanvasHex: String,
+                                                 darkCanvasHex: String) -> URL? {
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { return nil }
+        guard let enumerator = fm.enumerator(
+            at: dir,
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+        let stage = fm.temporaryDirectory.appendingPathComponent(
+            "appearance-backup-staging-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try fm.createDirectory(at: stage, withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+        var stagedAnything = false
+        for case let url as URL in enumerator {
+            let rel = url.path.hasPrefix(dir.path + "/")
+                ? String(url.path.dropFirst(dir.path.count + 1))
+                : url.lastPathComponent
+            let dest = stage.appendingPathComponent(rel)
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .contentModificationDateKey])
+            if values?.isDirectory == true {
+                try? fm.createDirectory(at: dest, withIntermediateDirectories: true)
+                continue
+            }
+            guard values?.isRegularFile == true else { continue }
+            do {
+                try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                // Copy first (verbatim fallback), then overwrite with
+                // gated bytes when the gate has something to say — a
+                // gate failure must never lose the file from the backup.
+                try fm.copyItem(at: url, to: dest)
+                if let data = try? Data(contentsOf: url), !data.isEmpty {
+                    let matte = UIColor(hex: url.lastPathComponent.hasSuffix("-dark.jpg") ? darkCanvasHex : lightCanvasHex)
+                    if let clean = WallpaperPipeline.exportableImageData(data, matte: matte) {
+                        try clean.write(to: dest, options: .atomic)
+                    }
+                }
+                if let mtime = values?.contentModificationDate {
+                    try? fm.setAttributes([.modificationDate: mtime], ofItemAtPath: dest.path)
+                }
+                stagedAnything = true
+            } catch {
+                // Any failure here aborts the whole staging: the caller
+                // falls back to the real directory, so the backup keeps
+                // every file (with EXIF) instead of silently dropping one.
+                logger.warning("[Backup] appearance staging failed for \(rel): \(error.localizedDescription)")
+                try? fm.removeItem(at: stage)
+                return nil
+            }
+        }
+        guard stagedAnything else {
+            try? fm.removeItem(at: stage)
+            return nil
+        }
+        return stage
     }
 
     // MARK: - Environment variables
