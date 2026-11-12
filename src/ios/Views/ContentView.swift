@@ -6844,7 +6844,7 @@ private enum SettingsDestination: Hashable {
     case sharedFolders
     case logs
     case appearance
-    // [A-落地] 设置 → 聊天 / 通用两页（行为归设置，视觉归装扮）。
+    // [A-落地] 设置 → 聊天 / 通用两页（入口在装扮中心，页内仍是这两页的设置）。
     case chat
     case general
     case background
