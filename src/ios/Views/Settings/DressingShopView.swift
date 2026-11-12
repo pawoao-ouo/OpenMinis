@@ -19,6 +19,8 @@ struct DressingShopView: View {
     @State private var activeSheet: DressingSheetDestination? = nil
     @State private var toastMessage: String? = nil
     @State private var toastTask: Task<Void, Never>? = nil
+    @State private var searchText = ""
+    @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -32,17 +34,25 @@ struct DressingShopView: View {
                         // 1. 顶栏模式切换与状态胶囊
                         topModeBar
 
-                        // 2. 实时微缩预览卡 (Live Preview Dock)
-                        livePreviewDock
+                        // 1.5 全店搜索框（有字时下方换成结果列表）
+                        searchField
 
-                        // 3. 全局透光与遮罩三旋钮卡片
-                        globalDialsCard
+                        if isSearching {
+                            // 有查询：只看结果列表，主页面内容先收起来
+                            searchResults
+                        } else {
+                            // 2. 实时微缩预览卡 (Live Preview Dock)
+                            livePreviewDock
 
-                        // 4. 六大核心入口网格 (Bento Grid)
-                        bentoGrid
+                            // 3. 全局透光与遮罩三旋钮卡片
+                            globalDialsCard
 
-                        // 5. 底部便捷重置与快速动作
-                        footerQuickActions
+                            // 4. 六大核心入口网格 (Bento Grid)
+                            bentoGrid
+
+                            // 5. 底部便捷重置与快速动作
+                            footerQuickActions
+                        }
 
                         Spacer(minLength: 40)
                     }
@@ -463,6 +473,291 @@ extension DressingShopView {
         }
         .padding(.top, DressingTokens.Padding.sectionTop)
     }
+
+    // MARK: - 全店搜索
+
+    /// 去空白的查询；空 = 没在搜，显示正常主页面。
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isSearching: Bool { !trimmedSearchText.isEmpty }
+
+    /// 搜索框：顶栏下面、预览卡上面。字走全局字号，底走卡片面（跟透光旋钮）。
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+
+            TextField(AppLocalized("搜索预设、颜色、壁纸、气泡、字体、主题…"), text: $searchText)
+                .font(ChatFont.font(13))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+                .textFieldStyle(.plain)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($searchFieldFocused)
+
+            if !searchText.isEmpty {
+                Button {
+                    haptic()
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                }
+                .accessibilityLabel(AppLocalized("清除搜索"))
+            }
+        }
+        .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+        .padding(.vertical, DressingTokens.Padding.cardVertical)
+        .background(CSSThemeVariables.card(scope: .settings))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.field, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.field, style: .continuous)
+                .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+        )
+    }
+
+    /// 搜索索引：全从本文件已有的东西里取，不新造数据。
+    /// 预设 3 + 金色按键 1，颜色角色 21，壁纸 6 页，
+    /// 气泡款式 = bubbleStore.packs，字体族 4 + 已导入字体，
+    /// 已存主题 = studio.savedThemes()，主页面控件 4。
+    private var searchEntries: [DressingSearchEntry] {
+        var entries: [DressingSearchEntry] = []
+
+        for preset in AppearancePreset.allCases {
+            entries.append(DressingSearchEntry(
+                id: "preset-\(preset.rawValue)",
+                title: preset.title,
+                subtitle: nil,
+                category: AppLocalized("预设"),
+                icon: "sparkles",
+                destination: .sheet(.presets)
+            ))
+        }
+        entries.append(DressingSearchEntry(
+            id: "composer-gold",
+            title: ComposerIconSet.gold.title,
+            subtitle: AppLocalized("输入栏四颗键换成金色图片"),
+            category: AppLocalized("预设"),
+            icon: "keyboard",
+            destination: .sheet(.presets)
+        ))
+
+        for role in AppearanceColorRoleGroup.allRoles {
+            entries.append(DressingSearchEntry(
+                id: "color-\(role.rawValue)",
+                title: role.title,
+                subtitle: role.hint,
+                category: AppLocalized("色彩调控"),
+                icon: "paintpalette.fill",
+                destination: .sheet(.colorStudio)
+            ))
+        }
+
+        for scope in [AppearanceScope.global, .chat, .home, .settings, .browser, .terminal] {
+            entries.append(DressingSearchEntry(
+                id: "wallpaper-\(scope.rawValue)",
+                title: scope.title,
+                subtitle: scope == .global ? AppLocalized("全局通用壁纸") : AppLocalized("该页面独立壁纸"),
+                category: AppLocalized("壁纸与立绘"),
+                icon: "photo.on.rectangle.angled",
+                destination: .sheet(.wallpaperArt)
+            ))
+        }
+
+        for pack in bubbleStore.packs {
+            entries.append(DressingSearchEntry(
+                id: "bubble-\(pack.number)",
+                title: pack.title,
+                subtitle: pack.tag,
+                category: AppLocalized("气泡与挂件"),
+                icon: "bubble.left.circle.fill",
+                destination: .sheet(.bubblesPendants)
+            ))
+        }
+
+        for family in AppearanceFontFamily.allCases {
+            entries.append(DressingSearchEntry(
+                id: "font-family-\(family.rawValue)",
+                title: family.title,
+                subtitle: nil,
+                category: AppLocalized("字体与排版"),
+                icon: "textformat",
+                destination: .sheet(.typography)
+            ))
+        }
+        for font in fontStore.fonts {
+            entries.append(DressingSearchEntry(
+                id: "font-uploaded-\(font.number)",
+                title: font.title,
+                subtitle: font.postScriptName,
+                category: AppLocalized("字体与排版"),
+                icon: "textformat",
+                destination: .sheet(.typography)
+            ))
+        }
+
+        for theme in studio.savedThemes() {
+            entries.append(DressingSearchEntry(
+                id: "theme-\(theme.id)",
+                title: theme.name,
+                subtitle: theme.savedAt.formatted(date: .abbreviated, time: .shortened),
+                category: AppLocalized("主题存档库"),
+                icon: "archivebox.fill",
+                destination: .sheet(.themeLibrary)
+            ))
+        }
+
+        // 主页面控件：目标就在本页，点它只清掉搜索，露出主页面。
+        let settingsEntries: [(String, String)] = [
+            (AppLocalized("卡片表面透光"), "square.2.layers.3d.top.filled"),
+            (AppLocalized("气泡表面透光"), "bubble.left.and.bubble.right.fill"),
+            (AppLocalized("壁纸遮罩浓度"), "circle.lefthalf.striped.horizontal"),
+            (AppLocalized("全局玻璃感"), "square.stack.3d.up.fill"),
+        ]
+        for (title, icon) in settingsEntries {
+            entries.append(DressingSearchEntry(
+                id: "setting-\(title)",
+                title: title,
+                subtitle: nil,
+                category: AppLocalized("装扮中心"),
+                icon: icon,
+                destination: .mainPage
+            ))
+        }
+
+        return entries
+    }
+
+    /// 匹配：对行上看得见的字做不区分大小写的包含匹配（标题/分类/副标题）。
+    /// 没写拼音助手——树上没有，全靠字面包含。
+    private var searchResultGroups: [(category: String, entries: [DressingSearchEntry])] {
+        guard isSearching else { return [] }
+        let query = trimmedSearchText
+        let matched = searchEntries.filter { entry in
+            entry.title.localizedCaseInsensitiveContains(query)
+                || entry.category.localizedCaseInsensitiveContains(query)
+                || (entry.subtitle?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+        let order = [
+            AppLocalized("预设"),
+            AppLocalized("色彩调控"),
+            AppLocalized("壁纸与立绘"),
+            AppLocalized("气泡与挂件"),
+            AppLocalized("字体与排版"),
+            AppLocalized("主题存档库"),
+            AppLocalized("装扮中心"),
+        ]
+        return order.compactMap { category in
+            let rows = matched.filter { $0.category == category }
+            return rows.isEmpty ? nil : (category, rows)
+        }
+    }
+
+    /// 有查询时的结果列表：按分类分组；没命中给诚实空态，不编假结果。
+    @ViewBuilder
+    private var searchResults: some View {
+        let groups = searchResultGroups
+        if groups.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 28))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings).opacity(0.6))
+
+                Text(AppLocalized("没有找到"))
+                    .font(ChatFont.font(14, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+                Text("“\(trimmedSearchText)”")
+                    .font(ChatFont.font(12))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 40)
+        } else {
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(groups, id: \.category) { group in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(group.category)
+                            .font(ChatFont.font(12, weight: .bold))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                            .padding(.horizontal, DressingTokens.Padding.cardHorizontal)
+
+                        VStack(spacing: 10) {
+                            ForEach(group.entries) { entry in
+                                searchResultRow(entry)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 结果行：复用配色行同一套卡面（卡片底 + 内圆角 + 细描边），不新发明样子。
+    private func searchResultRow(_ entry: DressingSearchEntry) -> some View {
+        Button {
+            openSearchEntry(entry)
+        } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(CSSThemeVariables.accentSoft(scope: .settings))
+                        .frame(width: 28, height: 28)
+
+                    Image(systemName: entry.icon)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CSSThemeVariables.accent(scope: .settings))
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.title)
+                        .font(ChatFont.font(13, weight: .medium))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+                    if let sub = entry.subtitle {
+                        Text(sub)
+                            .font(ChatFont.font(11))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings).opacity(0.6))
+            }
+            .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+            .padding(.vertical, DressingTokens.Padding.tallRowVertical)
+            .background(CSSThemeVariables.card(scope: .settings))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
+                    .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(DressingPressStyle())
+    }
+
+    /// 点结果：抽屉目标走 bento 卡同一套 activeSheet 路由，只开抽屉不深跳；
+    /// 主页面目标只清掉搜索（键盘也收起来），露出本页的旋钮/开关。
+    private func openSearchEntry(_ entry: DressingSearchEntry) {
+        haptic()
+        searchFieldFocused = false
+        switch entry.destination {
+        case .sheet(let dest):
+            searchText = ""
+            activeSheet = dest
+        case .mainPage:
+            searchText = ""
+        }
+    }
 }
 
 
@@ -480,6 +775,26 @@ enum DressingSheetDestination: String, Identifiable {
     case importExport
 
     var id: String { rawValue }
+}
+
+// MARK: - 全店搜索条目
+
+/// 全店搜索的一条结果：标题 + 副标题 + 分类 + 去向。
+/// 分类文案复用已有的 bento 卡标题 key，不新造文案。
+struct DressingSearchEntry: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String?
+    let category: String
+    let icon: String
+    let destination: DressingSearchDestination
+}
+
+enum DressingSearchDestination {
+    /// 打开对应抽屉（走 bento 卡同一套 activeSheet 路由）。
+    case sheet(DressingSheetDestination)
+    /// 目标就在主页面上（旋钮/开关）：只清掉搜索，露出主页面。
+    case mainPage
 }
 
 extension DressingShopView {
