@@ -185,6 +185,15 @@ final class TogetherPlayer: ObservableObject {
         }
         if autoplay {
             p.play()
+            // [P2-1] 压音期间起歌：不许盖过语音。立刻压住（pauseForDuck
+            // 只停播放器、不还名额），并记下这首是该放的——语音结束时
+            // duckForVoiceEnd 的四道条件才有这首歌可续。KVO ready 分支
+            // 里还有同一道闸（见 addStatusObserver）：load 到 ready 之间
+            // 播放器已经先响起来过，只拦一边不够。
+            if duckDepth > 0 {
+                duckedWasPlaying = true
+                pauseForDuck()
+            }
             // isPlaying 不在这里认：只有 item 到 .readyToPlay 才算真能放，
             // 认早了，坏文件/无声轨会顶着暂停键、MiniBar 挂着歌名，却一声不响。
             // 认"在放"的动作在 addStatusObserver 的 ready 分支里。
@@ -275,11 +284,12 @@ final class TogetherPlayer: ObservableObject {
     /// 和 P2-B 的 .unknown 看门狗同一边界，两个口子在同一秒判失败。
     /// item 中途被换（她切了歌）算 superseded，不替旧歌认成功；
     /// 10 秒还没就绪算 timeout：看门狗会走失败处理报一声，这里不重复 toast。
-    /// 压音期间 isPlaying 是 false、rate 是 0，会一直等到语音结束恢复——
-    /// 压音计数要是残了（P2-A 已修），这里 10 秒超时诚实报失败。
+    /// 压音期间 isPlaying 是 false、rate 是 0：那段时间不算进 10 秒期限
+    /// （每轮压住的 0.2 秒把截止点往后顺延），等到语音结束歌续上了再认——
+    /// 长朗读再也不会把一首好好的歌误判成 timeout。
     private func confirmPlaying(trackTitle: String, timeoutSeconds: Int) async -> TogetherAIPlayResult {
         guard let item = player?.currentItem else { return .superseded(title: trackTitle) }
-        let deadline = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
+        var deadline = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
         while Date() < deadline {
             if Task.isCancelled { return .timeout(title: trackTitle) }
             if player?.currentItem !== item { return .superseded(title: trackTitle) }
@@ -295,6 +305,14 @@ final class TogetherPlayer: ObservableObject {
             @unknown default:
                 break
             }
+            // [P3-1] 压音期间不算进确认期限：歌没坏，只是被语音压着在等着。
+            // 压住的每一轮把截止点往后顺延 0.2 秒——否则长朗读（>10 秒）
+            // 会把一首好好的歌误判成 timeout，模型拿到诚实但错的失败。
+            // 取消照样逃得掉（循环头的 Task.isCancelled），压音本身按层数
+            // 配对、不会残，不会无限等下去。
+            if duckDepth > 0 {
+                deadline = deadline.addingTimeInterval(0.2)
+            }
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
         return .timeout(title: trackTitle)
@@ -309,6 +327,17 @@ final class TogetherPlayer: ObservableObject {
         if p.currentItem?.status == .failed {
             handleUnplayableItem()
             teardown()
+            return
+        }
+        // [P2-1] 压音期间不许起声：load() 之外唯一能让播放器出声的
+        // 口子——跟随 resume、同首换位置再播、播完单曲循环、来电打断
+        // 恢复都走这里，不走 load()，只拦 load() 和 KVO 的话这几条
+        // 还是会盖过语音。压住，等语音结束 duckForVoiceEnd 再续；
+        // 记下 duckedWasPlaying，恢复的四道条件才有这首可续。
+        // duckForVoiceEnd 恢复时调 play()，那时层数已经是 0，不受影响。
+        if duckDepth > 0 {
+            duckedWasPlaying = true
+            pauseForDuck()
             return
         }
         if let d = p.currentItem?.duration.seconds, !d.isNaN, d > 0 {
@@ -1119,9 +1148,19 @@ final class TogetherPlayer: ObservableObject {
                     // 好文件到这一步才算真能放：认"在放"，锁屏也跟着刷新。
                     // 没点播放装回来的那首（autoplay 为 false）不认，
                     // 等她自己按播放时 play() 再认。
+                    // [P2-1] 压音期间起的歌不认"在放"：压住，等语音结束
+                    // 再续。load() 里 p.play() 后那一下是同一道闸——
+                    // KVO 到达前播放器已经先响起来过，只拦一边不够；
+                    // 两边都不认"在放"，confirmPlaying 才不会对着一首
+                    // 静默的歌报 playing（P2-B 的谎话）。
                     if autoplay {
-                        self.isPlaying = true
-                        VoiceNowPlaying.shared.refresh()
+                        if self.duckDepth > 0 {
+                            self.duckedWasPlaying = true
+                            self.pauseForDuck()
+                        } else {
+                            self.isPlaying = true
+                            VoiceNowPlaying.shared.refresh()
+                        }
                     }
                     self.unknownWatchdog?.cancel()
                     self.unknownWatchdog = nil
