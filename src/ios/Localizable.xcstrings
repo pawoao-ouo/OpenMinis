@@ -130904,7 +130904,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "存档库已满（40 套），删一套再存"
+            "value": "Theme library is full (40 sets). Delete one to save another."
           }
         }
       }
@@ -147136,7 +147136,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除失败，请重试"
+            "value": "Clear failed. Please try again."
           }
         }
       }
@@ -147289,7 +147289,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "调色板已重置为默认值"
+            "value": "Palette reset to default."
           }
         }
       }
@@ -147765,7 +147765,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已换上，但没换上："
+            "value": "Applied, but these didn't apply:"
           }
         }
       }
@@ -147782,7 +147782,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已换上，但部分内容没换过来"
+            "value": "Applied, but some content didn't carry over."
           }
         }
       }
@@ -147799,7 +147799,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "还有部分内容没换过来"
+            "value": "some other content didn't carry over"
           }
         }
       }
@@ -147816,24 +147816,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "AI 挂件"
-          }
-        }
-      }
-    },
-    "AI 气泡": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "AI 气泡"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "AI 气泡"
+            "value": "AI pendant"
           }
         }
       }
@@ -147850,24 +147833,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "我的挂件"
-          }
-        }
-      }
-    },
-    "我的气泡": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "我的气泡"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "我的气泡"
+            "value": "My pendant"
           }
         }
       }
@@ -148156,7 +148122,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "分页面 · 分日夜模式 · 21角色精细上色"
+            "value": "Per page, per day/night mode, 21 roles finely colored"
           }
         }
       }
@@ -148309,7 +148275,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已设置图标"
+            "value": "Icon set."
           }
         }
       }
@@ -148326,7 +148292,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "图标设置失败，请换一张图试试"
+            "value": "Couldn't set the icon. Please try a different image."
           }
         }
       }
@@ -148479,7 +148445,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "21色分页面分深浅"
+            "value": "21 colors, per page, per light/dark shade"
           }
         }
       }
@@ -148955,7 +148921,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在用"
+            "value": "In use"
           }
         }
       }
