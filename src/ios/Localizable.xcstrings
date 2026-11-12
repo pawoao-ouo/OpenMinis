@@ -148297,6 +148297,210 @@
         }
       }
     },
+    "换上这个主题会删除以下图片": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "换上这个主题会删除以下图片"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switching to this theme will delete these images"
+          }
+        }
+      }
+    },
+    "%@壁纸": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@壁纸"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wallpaper"
+          }
+        }
+      }
+    },
+    "全局壁纸": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局壁纸"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global wallpaper"
+          }
+        }
+      }
+    },
+    "思考卡背景图": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考卡背景图"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking-card background image"
+          }
+        }
+      }
+    },
+    "输入栏背景图": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入栏背景图"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Input bar background image"
+          }
+        }
+      }
+    },
+    "助手立绘": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手立绘"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistant character art"
+          }
+        }
+      }
+    },
+    "换上并删除": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "换上并删除"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace and delete"
+          }
+        }
+      }
+    },
+    "被删掉的图片找不回来，确定要换上吗？": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "被删掉的图片找不回来，确定要换上吗？"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted images can't be recovered. Are you sure you want to switch?"
+          }
+        }
+      }
+    },
+    "导出时包含图片": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出时包含图片"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include images when exporting"
+          }
+        }
+      }
+    },
+    "关闭时只复制颜色、字体等设置；打开后，壁纸、立绘等图片也会一起复制到剪贴板。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭时只复制颜色、字体等设置；打开后，壁纸、立绘等图片也会一起复制到剪贴板。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, only colors, fonts and other settings are copied. When on, wallpapers, character art and other images are copied to the clipboard too."
+          }
+        }
+      }
+    },
+    "复制主题 JSON（不含图片）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制主题 JSON（不含图片）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy theme JSON (without images)"
+          }
+        }
+      }
+    },
+    "复制主题 JSON（含图片）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制主题 JSON（含图片）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy theme JSON (with images)"
+          }
+        }
+      }
+    },
     "图片格式不支持或已损坏": {
       "extractionState": "manual",
       "localizations": {

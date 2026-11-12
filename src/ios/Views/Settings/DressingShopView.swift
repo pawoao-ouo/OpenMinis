@@ -3793,6 +3793,11 @@ struct DressingImportExportSheet: View {
     @State private var showSTPicker = false
     @State private var pendingST: SillyTavernTheme.Imported? = nil
     @State private var showSTConfirm = false
+    // [P1-4] 导出是否带图片：默认不带，图片只在她明确打开时才进剪贴板。
+    @State private var exportIncludesImages = false
+    // [P1-3] 粘贴导入 replace 前的确认：待换上的包 + 它会删掉的图。
+    @State private var pendingReplacePack: AppearanceThemePack? = nil
+    @State private var pendingReplaceDeletions: [String] = []
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -3815,9 +3820,28 @@ struct DressingImportExportSheet: View {
                                 .font(ChatFont.font(11))
                                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
+                            // [P1-4] 图片进不进剪贴板由她定的开关说了算，默认不带：
+                            // 关着只复制颜色、字体等设置，开着才把壁纸、立绘等
+                            // 图片一起复制出去。按钮文案跟着开关走，不让她猜。
+                            HStack(spacing: 10) {
+                                Text(AppLocalized("导出时包含图片"))
+                                    .font(ChatFont.font(12))
+                                    .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+                                Spacer()
+
+                                Toggle(AppLocalized("导出时包含图片"), isOn: $exportIncludesImages)
+                                    .labelsHidden()
+                                    .tint(CSSThemeVariables.accent(scope: .settings))
+                            }
+
+                            Text(AppLocalized("关闭时只复制颜色、字体等设置；打开后，壁纸、立绘等图片也会一起复制到剪贴板。"))
+                                .font(ChatFont.font(11))
+                                .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+
                             Button {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                let pack = studio.exportThemePack(includeWallpaper: true)
+                                let pack = studio.exportThemePack(includeWallpaper: exportIncludesImages)
                                 if let data = try? JSONSerialization.data(withJSONObject: pack.asJSONObject(), options: [.prettyPrinted, .sortedKeys]),
                                    let str = String(data: data, encoding: .utf8) {
                                     UIPasteboard.general.string = str
@@ -3830,7 +3854,7 @@ struct DressingImportExportSheet: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "doc.on.doc")
                                         .font(.system(size: 11))
-                                    Text(AppLocalized("复制主题 JSON"))
+                                    Text(exportIncludesImages ? AppLocalized("复制主题 JSON（含图片）") : AppLocalized("复制主题 JSON（不含图片）"))
                                         .font(ChatFont.font(12, weight: .semibold))
                                 }
                                 .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
@@ -3966,6 +3990,29 @@ struct DressingImportExportSheet: View {
                     )
                 }
             }
+            // [P1-3] 粘贴导入的换上确认：只在真会删图时弹，列清要删的图。
+            .confirmationDialog(
+                AppLocalized("换上这个主题会删除以下图片"),
+                isPresented: Binding(
+                    get: { pendingReplacePack != nil },
+                    set: { if !$0 { pendingReplacePack = nil; pendingReplaceDeletions = [] } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button(AppLocalized("换上并删除"), role: .destructive) {
+                    if let pack = pendingReplacePack {
+                        applyReplacePack(pack)
+                    }
+                    pendingReplacePack = nil
+                    pendingReplaceDeletions = []
+                }
+                Button(AppLocalized("取消"), role: .cancel) {
+                    pendingReplacePack = nil
+                    pendingReplaceDeletions = []
+                }
+            } message: {
+                Text(pendingReplaceDeletions.joined(separator: "\n") + "\n\n" + AppLocalized("被删掉的图片找不回来，确定要换上吗？"))
+            }
         }
     }
 
@@ -4025,12 +4072,53 @@ struct DressingImportExportSheet: View {
 
         do {
             let pack = try AppearanceThemePack.decode(obj)
-            studio.applyThemePack(pack, mode: .replace)
-            onNotify(AppLocalized("已成功导入并换上主题：") + pack.name)
-            dismiss()
+            let deletions = replaceDeletions(for: pack)
+            if deletions.isEmpty {
+                applyReplacePack(pack)
+            } else {
+                // [P1-3] 换上会删掉她已有的图：先把要删的列清楚让她定，
+                // 不直接换。确认页点“换上并删除”后才走 applyReplacePack。
+                pendingReplacePack = pack
+                pendingReplaceDeletions = deletions
+            }
         } catch {
             onNotify(AppLocalized("主题解析失败：") + error.localizedDescription)
         }
+    }
+
+    /// 真正换上（replace）：直接换、或确认页点“换上并删除”后走这里。
+    private func applyReplacePack(_ pack: AppearanceThemePack) {
+        studio.applyThemePack(pack, mode: .replace)
+        onNotify(AppLocalized("已成功导入并换上主题：") + pack.name)
+        dismiss()
+    }
+
+    /// Replace 会删掉、而新包又不带回来的图：只列实际存在的那几项。
+    /// 不存在的、或新包会换上新图的，都不列——确认页只报真会丢的。
+    private func replaceDeletions(for pack: AppearanceThemePack) -> [String] {
+        var doomed: [String] = []
+        // 全局壁纸：包里没带就删。
+        if !(pack.wallpaperJPEGBase64?.isEmpty == false), studio.hasOwnWallpaper(.global) {
+            doomed.append(AppLocalized("全局壁纸"))
+        }
+        // 各页壁纸：replace 会先清掉每一页，包里没列出这页（或列了
+        // 空串）就不再写回来，旧图就没了；列了图的只是换一张，不算丢。
+        for scope in AppearanceScope.allCases where scope != .global {
+            let carried = pack.pageWallpapers?[scope.rawValue] ?? ""
+            if carried.isEmpty, studio.hasOwnWallpaper(scope) {
+                doomed.append(String(format: AppLocalized("%@壁纸"), scope.title))
+            }
+        }
+        if !(pack.thinkingCardJPEGBase64?.isEmpty == false), studio.hasThinkingCardImage() {
+            doomed.append(AppLocalized("思考卡背景图"))
+        }
+        if !(pack.inputBarJPEGBase64?.isEmpty == false), studio.hasInputBarImage() {
+            doomed.append(AppLocalized("输入栏背景图"))
+        }
+        if !(pack.characterArtBase64?.isEmpty == false), studio.hasCharacterArt {
+            doomed.append(AppLocalized("助手立绘"))
+        }
+        return doomed
     }
 }
 
