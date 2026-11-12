@@ -140029,6 +140029,57 @@
         }
       }
     },
+    "不使用全局壁纸": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不使用全局壁纸"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't use global wallpaper"
+          }
+        }
+      }
+    },
+    "已关闭全局壁纸，仅用主题底色": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已关闭全局壁纸，仅用主题底色"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global wallpaper off, theme colour only"
+          }
+        }
+      }
+    },
+    "已关闭该页全局壁纸": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已关闭该页全局壁纸"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global wallpaper off for this page"
+          }
+        }
+      }
+    },
     "清除当前背景": {
       "extractionState": "manual",
       "localizations": {

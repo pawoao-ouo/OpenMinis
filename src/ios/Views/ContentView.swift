@@ -7391,6 +7391,12 @@ private struct SettingsSheet: View {
                         navPath.append(SettingsDestination.chat)
                     case "general":
                         navPath.append(SettingsDestination.general)
+                    case "dressing-general":
+                        // [P2-10] 通用页是从装扮抽屉里开的：先推回装扮
+                        // 中心，DressingShopView 再靠 pendingDressingSheet
+                        // 把通用抽屉重新打开，不落到设置页的通用页。
+                        navPath.append(SettingsDestination.appearance)
+                        UserDefaults.standard.set("generalSettings", forKey: "pendingDressingSheet")
                     default:
                         break
                     }

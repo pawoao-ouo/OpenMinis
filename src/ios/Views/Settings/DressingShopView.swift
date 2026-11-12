@@ -101,6 +101,18 @@ struct DressingShopView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+            // [P2-10] 语言切换重建后回抽屉：SettingsSheet 把 appearance
+            // 推回来、这页重新挂上时，靠这个标记再把通用抽屉打开。
+            // 标记读一次就清掉，平时挂上什么都不做。
+            .onAppear { openPendingDressingSheet() }
+        }
+    }
+
+    private func openPendingDressingSheet() {
+        guard UserDefaults.standard.string(forKey: "pendingDressingSheet") == "generalSettings" else { return }
+        UserDefaults.standard.removeObject(forKey: "pendingDressingSheet")
+        DispatchQueue.main.async {
+            activeSheet = .generalSettings
         }
     }
 
@@ -408,7 +420,7 @@ extension DressingShopView {
     private var bentoGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             bentoCard(title: AppLocalized("色彩调控"), sub: AppLocalized("21色分页面分深浅"), icon: "paintpalette.fill", dest: .colorStudio)
-            bentoCard(title: AppLocalized("壁纸与立绘"), sub: AppLocalized("全局与独立壁纸立绘"), icon: "photo.on.rectangle.angled", dest: .wallpaperArt)
+            bentoCard(title: AppLocalized("壁纸与立绘"), sub: AppLocalized("全局与独立壁纸立绘"), icon: "photo.on.rectangle.angled", dest: .wallpaperArt(scope: .global))
             bentoCard(title: AppLocalized("气泡与挂件"), sub: AppLocalized("款式、圆角与头像圈"), icon: "bubble.left.circle.fill", dest: .bubblesPendants)
             bentoCard(title: AppLocalized("字体与排版"), sub: AppLocalized("字号、行距与小说模式"), icon: "textformat", dest: .typography)
             bentoCard(title: AppLocalized("主题存档库"), sub: AppLocalized("保存、分享与导入导出"), icon: "archivebox.fill", dest: .themeLibrary)
@@ -584,7 +596,7 @@ extension DressingShopView {
                 subtitle: scope == .global ? AppLocalized("全局通用壁纸") : AppLocalized("该页面独立壁纸"),
                 category: AppLocalized("壁纸与立绘"),
                 icon: "photo.on.rectangle.angled",
-                destination: .sheet(.wallpaperArt)
+                destination: .sheet(.wallpaperArt(scope: scope))
             ))
         }
 
@@ -783,10 +795,10 @@ extension DressingShopView {
 
 // MARK: - 抽屉目标枚举与路由
 
-enum DressingSheetDestination: String, Identifiable {
+enum DressingSheetDestination: Identifiable {
     case presets
     case colorStudio
-    case wallpaperArt
+    case wallpaperArt(scope: AppearanceScope)
     case bubblesPendants
     case typography
     case themeLibrary
@@ -796,7 +808,16 @@ enum DressingSheetDestination: String, Identifiable {
     case saveTheme
     case importExport
 
-    var id: String { rawValue }
+    // [P2-8] wallpaperArt 带 scope：搜索点进来要落在对应的页，不
+    // 是默认全局。id 里带上 scope，同一个抽屉不同页不是同一个 item。
+    var id: String {
+        switch self {
+        case .wallpaperArt(let scope):
+            return "wallpaperArt-\(scope.rawValue)"
+        default:
+            return String(describing: self)
+        }
+    }
 }
 
 // MARK: - 全店搜索条目
@@ -830,8 +851,8 @@ extension DressingShopView {
             })
         case .colorStudio:
             DressingColorStudioSheet(onNotify: { showToast($0) })
-        case .wallpaperArt:
-            DressingWallpaperArtSheet(onNotify: { showToast($0) })
+        case .wallpaperArt(let scope):
+            DressingWallpaperArtSheet(onNotify: { showToast($0) }, initialScope: scope)
         case .bubblesPendants:
             DressingBubblesPendantsSheet(onNotify: { showToast($0) })
         case .typography:
@@ -865,7 +886,7 @@ extension DressingShopView {
                         subtitle: AppLocalized("启动会话、语言、屏幕常亮")
                     )
 
-                    GeneralSettingsView()
+                    GeneralSettingsView(isInDressingDrawer: true)
                         .toolbar(.hidden, for: .navigationBar)
                 }
                 .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
@@ -1446,9 +1467,17 @@ struct DressingColorStudioSheet: View {
 @MainActor
 struct DressingWallpaperArtSheet: View {
     let onNotify: (String) -> Void
+    /// [P2-8] 搜索点进来的落点页：默认全局，搜索进来的按搜索那条定。
+    let initialScope: AppearanceScope = .global
     @ObservedObject private var studio = AppearanceStudio.shared
     @ObservedObject private var fontSettings = FontSettings.shared
     @State private var selectedScope: AppearanceScope = .global
+
+    init(onNotify: @escaping (String) -> Void, initialScope: AppearanceScope = .global) {
+        self.onNotify = onNotify
+        self.initialScope = initialScope
+        self._selectedScope = State(initialValue: initialScope)
+    }
 
     // 相册拾取项
     @State private var pickedWallpaperItem: PhotosPickerItem? = nil
@@ -1643,6 +1672,18 @@ struct DressingWallpaperArtSheet: View {
         }
     }
 
+    /// [P2-7] 壁纸副标题三态：有专属图 / 主动掐了全局继承 / 跟随全局。
+    /// 只看 hasOwnWallpaper 会在掐了继承时撒谎（那页根本不跟全局）。
+    private func wallpaperSubtitle(for scope: AppearanceScope) -> String {
+        if studio.hasOwnWallpaper(scope) {
+            return AppLocalized("已自定义壁纸")
+        }
+        if studio.wallpaperClearsGlobal(scope) {
+            return AppLocalized("已关闭全局壁纸，仅用主题底色")
+        }
+        return AppLocalized("未单独设置（遵循主题底色或全局壁纸）")
+    }
+
     private var wallpaperSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(AppLocalized("分页面壁纸设置"))
@@ -1691,7 +1732,7 @@ struct DressingWallpaperArtSheet: View {
                         .font(ChatFont.font(13, weight: .medium))
                         .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
-                    Text(studio.hasOwnWallpaper(selectedScope) ? AppLocalized("已自定义壁纸") : AppLocalized("未单独设置（遵循主题底色或全局壁纸）"))
+                    Text(wallpaperSubtitle(for: selectedScope))
                         .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
@@ -1717,6 +1758,26 @@ struct DressingWallpaperArtSheet: View {
                                 sheetStatus.show(AppLocalized("已清除该页面壁纸并恢复默认"))
                             } label: {
                                 Text(AppLocalized("清除壁纸"))
+                                    .font(ChatFont.font(11, weight: .medium))
+                                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                                    .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                                    .padding(.vertical, DressingTokens.Padding.pillVertical)
+                                    .background(CSSThemeVariables.surfaceFill(scope: .settings))
+                                    .clipShape(Capsule())
+                            }
+                        }
+
+                        // [P2-9] 正在跟全局的页面才给这个口子：全局自己不
+                        // 需要、有专属图的那页本来就没在跟全局、已掐掉的
+                        // 不重复。点的是一次性动作：删本页文件（这页没
+                        // 有专属图所以删不到东西）并立起不继承标记。
+                        if selectedScope != .global, !studio.hasOwnWallpaper(selectedScope), !studio.wallpaperClearsGlobal(selectedScope) {
+                            Button {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                studio.clearWallpaper(selectedScope)
+                                sheetStatus.show(AppLocalized("已关闭该页全局壁纸"))
+                            } label: {
+                                Text(AppLocalized("不使用全局壁纸"))
                                     .font(ChatFont.font(11, weight: .medium))
                                     .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                                     .padding(.horizontal, DressingTokens.Padding.rowHorizontal)

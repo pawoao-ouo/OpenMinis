@@ -6,6 +6,9 @@ import SwiftUI
 // 语言默认跟随系统（appLanguage 默认 ""）、屏幕常亮默认关
 // （注册表 chat.keepScreenAwake defaultValue false）。
 struct GeneralSettingsView: View {
+    /// [P2-10] 从哪里开的这页：装扮抽屉里开的，语言切换后要回抽屉，
+    /// 不落到设置页。默认 false，设置页原样走老路。
+    let isInDressingDrawer: Bool = false
     @ObservedObject private var fontSettings = FontSettings.shared
     @AppStorage("launchScreen") private var launchScreen: Int = 0
     @AppStorage("appLanguage") private var appLanguage: String = ""
@@ -46,7 +49,9 @@ struct GeneralSettingsView: View {
                         // ContentView 靠这个标记把设置页重新打开，
                         // SettingsSheet 再按标记推回本页。旧外观页的
                         // 语言选择器就是这个写法（随旧页清空一起没了）。
-                        UserDefaults.standard.set("general", forKey: "pendingSettingsReopen")
+                        // [P2-10] 从装扮抽屉进来时写 dressing-general：
+                        // 重建后回装扮中心再开通用抽屉，不落到设置页。
+                        UserDefaults.standard.set(isInDressingDrawer ? "dressing-general" : "general", forKey: "pendingSettingsReopen")
                         appLanguage = newValue
                     }
                 )) {
