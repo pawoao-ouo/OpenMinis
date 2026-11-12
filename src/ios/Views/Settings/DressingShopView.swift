@@ -47,7 +47,7 @@ struct DressingShopView: View {
                             // 3. 全局透光与遮罩三旋钮卡片
                             globalDialsCard
 
-                            // 4. 六大核心入口网格 (Bento Grid)
+                            // 4. 八大核心入口网格 (Bento Grid)
                             bentoGrid
 
                             // 5. 底部便捷重置与快速动作
@@ -834,11 +834,29 @@ extension DressingShopView {
             DressingDetailsIconsSheet(onNotify: { showToast($0) })
         case .chatSettings:
             NavigationStack {
-                ChatSettingsView()
+                VStack(spacing: 0) {
+                    DressingSheetHeader(
+                        title: AppLocalized("聊天"),
+                        subtitle: AppLocalized("自动分组、回车键、回复后聚焦、工具预览")
+                    )
+
+                    ChatSettingsView()
+                        .toolbar(.hidden, for: .navigationBar)
+                }
+                .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
             }
         case .generalSettings:
             NavigationStack {
-                GeneralSettingsView()
+                VStack(spacing: 0) {
+                    DressingSheetHeader(
+                        title: AppLocalized("通用"),
+                        subtitle: AppLocalized("启动会话、语言、屏幕常亮")
+                    )
+
+                    GeneralSettingsView()
+                        .toolbar(.hidden, for: .navigationBar)
+                }
+                .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
             }
         case .saveTheme:
             DressingSaveThemeSheet(onSaved: { name in
