@@ -206,6 +206,12 @@ extension DressingShopView {
                             haptic()
                             if studio.undoThemeReset() {
                                 showToast(AppLocalized("已撤销上一次重置"))
+                            } else {
+                                // [batch-review P3-3] 失败也要吱一声：快照过期
+                                // 或解不出来时 undoThemeReset 会删掉快照再
+                                // 返回 false，箭头就此消失；不报一声，用户
+                                // 只会觉得箭头点了没反应。
+                                showToast(AppLocalized("撤销失败"))
                             }
                         } label: {
                             Image(systemName: "arrow.uturn.backward")
@@ -1740,15 +1746,18 @@ struct DressingBubblesPendantsSheet: View {
                 guard let item, let side = pendingBubbleSide else { return }
                 pickedBubbleImageItem = nil
                 Task {
-                    guard let data = try? await item.loadTransferable(type: Data.self),
-                          let uiImage = UIImage(data: data) else {
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
                         await MainActor.run {
                             onNotify(AppLocalized("气泡底图设置失败，请换一张图试试"))
                         }
                         return
                     }
+                    // [batch-review P3-7] 解码 + 缩放 + 编码 + 写盘都在
+                    // store 里跳到后台线程做了，这里只等结果、回主线
+                    // 程报信；存的文件名和尺寸和以前一模一样。
+                    let name = await BubblePackImageStore.storeCustomImage(data, user: side.isUser)
                     await MainActor.run {
-                        if let name = BubblePackImageStore.storeCustomImage(uiImage, user: side.isUser) {
+                        if let name = name {
                             setEditingBackgroundImageFile(name, user: side.isUser)
                             onNotify(AppLocalized("已设置气泡底图"))
                         } else {
@@ -1766,15 +1775,18 @@ struct DressingBubblesPendantsSheet: View {
                 pickedDecorationItem = nil
                 let index = pendingDecorationIndex
                 Task {
-                    guard let data = try? await item.loadTransferable(type: Data.self),
-                          let uiImage = UIImage(data: data) else {
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
                         await MainActor.run {
                             onNotify(AppLocalized("装饰设置失败，请换一张图试试"))
                         }
                         return
                     }
+                    // [batch-review P3-7] 解码 + 缩放 + 编码 + 写盘都在
+                    // store 里跳到后台线程做了，这里只等结果、回主线
+                    // 程报信；存的文件名和尺寸和以前一模一样。
+                    let name = await BubblePackImageStore.storeDecorationImage(data)
                     await MainActor.run {
-                        if let name = BubblePackImageStore.storeDecorationImage(uiImage) {
+                        if let name = name {
                             if let index {
                                 replaceEditingDecorationImage(at: index, fileName: name, user: side.isUser)
                                 onNotify(AppLocalized("已更换装饰图片"))
@@ -3798,12 +3810,28 @@ struct DressingImportExportSheet: View {
     /// 绝不能回到 open-in-place。
     private func handleSTFile(_ urls: [URL]) {
         guard let url = urls.first else { return }
+        // [batch-review P2-6] 先看大小再读：无上限的 Data(contentsOf:)
+        // 会把整个文件吃进内存，一个巨大/恶意的 JSON 解析时就可能
+        // jetsam。超过 10MB 不读，直接报文件太大。
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attrs[.size] as? NSNumber,
+           size.intValue > 10 * 1024 * 1024 {
+            onNotify(AppLocalized("文件太大"))
+            return
+        }
         guard let data = try? Data(contentsOf: url) else {
             onNotify(AppLocalized("读取文件失败"))
             return
         }
         do {
-            pendingST = try SillyTavernTheme.parse(data)
+            var imported = try SillyTavernTheme.parse(data)
+            // [batch-review P2-6] 名字也不设上限：恶意包可以在 name 里
+            // 塞几十万字，存进主题库后处处跟着。截到 100 字再保存，
+            // 确认页看到的就是最终存下的名字。
+            if imported.name.count > 100 {
+                imported.name = String(imported.name.prefix(100))
+            }
+            pendingST = imported
         } catch {
             onNotify(AppLocalized("主题解析失败：") + error.localizedDescription)
         }

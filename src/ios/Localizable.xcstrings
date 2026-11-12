@@ -147328,6 +147328,23 @@
         }
       }
     },
+    "撤销失败": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销失败"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo failed"
+          }
+        }
+      }
+    },
     "从相册选择": {
       "extractionState": "manual",
       "localizations": {
@@ -150095,6 +150112,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Failed to read file"
+          }
+        }
+      }
+    },
+    "文件太大": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件太大"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File too large"
           }
         }
       }

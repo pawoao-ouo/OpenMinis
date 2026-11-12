@@ -337,12 +337,19 @@ enum BubblePackImageStore {
     /// writes atomically, so a failed store leaves the previous
     /// image untouched. Returns the file name on success, nil on
     /// failure (callers report that honestly, never as success).
+    /// Takes raw bytes, not a UIImage: the decode + downscale +
+    /// encode + write all run in a background task, so a 12MP pick
+    /// no longer blocks the main thread ~100–300ms. Only Data and
+    /// URL (both Sendable) cross into the detached task.
     @discardableResult
-    static func storeCustomImage(_ image: UIImage, user: Bool) -> String? {
+    static func storeCustomImage(_ data: Data, user: Bool) async -> String? {
         let name = customFileName(user: user)
-        guard let url = url(fileName: name),
-              writeDownscaledJPEG(image, to: url, maxEdge: 1400, quality: 0.82) else { return nil }
-        return name
+        guard let url = url(fileName: name) else { return nil }
+        let ok = await Task.detached(priority: .utility) {
+            guard let image = UIImage(data: data) else { return false }
+            return writeDownscaledJPEG(image, to: url, maxEdge: 1400, quality: 0.82)
+        }.value
+        return ok ? name : nil
     }
 
     /// Deletes a file by bare name; silently does nothing when the
@@ -379,12 +386,18 @@ enum BubblePackImageStore {
     /// (maxEdge 1400), JPEG (0.82) and atomic write as the custom
     /// background path. Returns the unique file name on success,
     /// nil on failure (callers report that honestly, never as success).
+    /// Takes raw bytes, not a UIImage — same background-task reason
+    /// as storeCustomImage: decode + downscale + encode + write
+    /// run off the main thread; only Data and URL cross over.
     @discardableResult
-    static func storeDecorationImage(_ image: UIImage) -> String? {
+    static func storeDecorationImage(_ data: Data) async -> String? {
         let name = decorationFileName()
-        guard let url = url(fileName: name),
-              writeDownscaledJPEG(image, to: url, maxEdge: 1400, quality: 0.82) else { return nil }
-        return name
+        guard let url = url(fileName: name) else { return nil }
+        let ok = await Task.detached(priority: .utility) {
+            guard let image = UIImage(data: data) else { return false }
+            return writeDownscaledJPEG(image, to: url, maxEdge: 1400, quality: 0.82)
+        }.value
+        return ok ? name : nil
     }
 
     /// Deletes a decoration image file, but only one this editor
@@ -399,6 +412,10 @@ enum BubblePackImageStore {
     /// cannot call that private method, so the same lines live
     /// here. A failed encode or write returns false and the old
     /// file stays exactly as it was (atomic write).
+    /// Only ever called from a background task now: both store
+    /// entry points hop off MainActor first, because the draw +
+    /// encode of a 12MP photo on the main thread used to block
+    /// ~100–300ms per pick — never call this from the main thread.
     private static func writeDownscaledJPEG(_ image: UIImage, to url: URL,
                                             maxEdge: CGFloat, quality: CGFloat) -> Bool {
         let size = image.size
