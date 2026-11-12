@@ -3221,7 +3221,29 @@ extension CollectionViewMessageListV3 {
                         newItems.append(.assistantFooter(message.id))
                     }
                 case .assistant:
-                    newItems.append(.assistantHeader(message.id))
+                    // [chat-1] Empty placeholder: an assistant message that
+                    // has produced nothing yet renders NO cells at all —
+                    // the user asked to delete the empty state shown
+                    // before the AI starts thinking. The message object
+                    // itself stays in vm.messages (the agent loop streams
+                    // into it, errors attach to it, compaction/retry index
+                    // it), so this only suppresses its empty rendering;
+                    // the cells appear with the first block, exactly like
+                    // a normal turn. Exceptions keep today's behavior: an
+                    // error carrier still shows its inline error, and a
+                    // cancelled opening wait still shows its resume banner.
+                    // The TypingIndicator itself is untouched and still
+                    // renders for between-round waits (message has blocks
+                    // + isAwaitingModelResponse).
+                    let isLastAssistant = (message.id == messages.last(where: { $0.role == .assistant })?.id)
+                    let isEmptyPlaceholder = message.blocks.isEmpty
+                        && message.error == nil
+                        && message.streamInterruptCount == 0
+                        && !(cellBridges[message.id]?.showUsage == true)
+                        && !(isLastAssistant && vm.canResume && !vm.isProcessing)
+                    if !isEmptyPlaceholder {
+                        newItems.append(.assistantHeader(message.id))
+                    }
                     // Turn summary rows: every maximal run of consecutive
                     // thinking/tool blocks becomes exactly one
                     // .assistantTurnSummary item, via the shared
@@ -3244,12 +3266,11 @@ extension CollectionViewMessageListV3 {
                     // footer IS needed later (e.g. showUsage toggled by
                     // double-tap), the toggle triggers a snapshot refresh
                     // which re-evaluates this condition.
-                    let isLastAssistant = (message.id == messages.last(where: { $0.role == .assistant })?.id)
                     let needsFooter = isLastAssistant
                         || message.error != nil
                         || message.streamInterruptCount > 0
                         || (cellBridges[message.id]?.showUsage == true)
-                    if needsFooter {
+                    if needsFooter && !isEmptyPlaceholder {
                         newItems.append(.assistantFooter(message.id))
                     }
                 }
