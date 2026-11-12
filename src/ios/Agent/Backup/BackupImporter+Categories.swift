@@ -961,7 +961,18 @@ extension BackupImporter {
         for lg in local.modelGroups where !placedGroups.contains(lg.id) {
             orderedGroups.append(lg)
         }
+        // [T-subagent-dangling-group] Same rule as removeGroup(): no group
+        // may disappear while a sub-agent still points at it. This merge is
+        // additive — local-only groups are appended above — so the removed
+        // set is empty today; the clear is a guard for this path if the
+        // ordering code ever changes. (Dead path in this build: the live
+        // restore runs through CloudSyncEngine.mergeProviderConfigBody,
+        // whose tombstone pruning now clears sub-agent pointers.)
+        let removedGroupIds = Set(local.modelGroups.map(\.id)).subtracting(orderedGroups.map(\.id))
         local.modelGroups = orderedGroups
+        for groupId in removedGroupIds {
+            SubAgentStore.shared.clearModelGroup(groupId)
+        }
         // agent-loop bindings are additive sets; per-device pointers
         // (defaultPrimaryGroupId, voice*/visionGroupId, sessionBindings,
         // sessionInferenceConfigs) are intentionally NOT touched.

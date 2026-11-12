@@ -2234,7 +2234,18 @@ final class CloudSyncEngine: ObservableObject {
         // side already pruned them in removeGroup; this guard handles
         // an incoming remote that still has them, plus same-id resurrection).
         if !tombstonedGroupIds.isEmpty {
+            // [T-subagent-dangling-group] Groups pruned here never pass through
+            // removeGroup(), so sub-agents pointing at them would keep a
+            // dangling modelGroupId. Clear those pointers the same way
+            // removeGroup() does. Only ids this device actually had can
+            // dangle — intersect with the pre-prune local list, not the whole
+            // tombstone union. This also covers backup restores: the live
+            // restore path runs through this same function (isRestore: true).
+            let removedGroupIds = local.modelGroups.map(\.id).filter { tombstonedGroupIds.contains($0) }
             local.modelGroups.removeAll { tombstonedGroupIds.contains($0.id) }
+            for groupId in removedGroupIds {
+                SubAgentStore.shared.clearModelGroup(groupId)
+            }
         }
         var groupMap = Dictionary(local.modelGroups.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var groupIdRewrites: [String: String] = [:]  // oldRemoteId -> canonicalLocalId
@@ -2409,6 +2420,22 @@ final class CloudSyncEngine: ObservableObject {
                 binding.primarySource = rewrite(binding.primarySource)
                 binding.subModelSource = binding.subModelSource.map(rewrite)
                 local.sessionBindings[sid] = binding
+            }
+            // Sub-agents point at groups too, but their store is not part of
+            // ProviderConfig, so the fix-up above cannot reach them. A pointer
+            // at a rewritten id must FOLLOW the rewrite to the surviving
+            // group — clearing it would drop an assignment that still has a
+            // valid target. The local-loser case is the live one: this
+            // device's own agent can point at the local id that just lost the
+            // name collision. Rewritten via the existing upsertSubAgent (it
+            // persists and marks the record dirty); no SubAgentStore change.
+            let roster = SubAgentStore.shared.subAgents
+            for (oldId, canonicalId) in groupIdRewrites {
+                for agent in roster where agent.modelGroupId == oldId {
+                    var rewritten = agent
+                    rewritten.modelGroupId = canonicalId
+                    SubAgentStore.shared.upsertSubAgent(rewritten)
+                }
             }
         }
 
