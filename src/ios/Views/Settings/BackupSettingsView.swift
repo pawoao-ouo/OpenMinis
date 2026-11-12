@@ -30,8 +30,26 @@ struct BackupSettingsView: View {
     /// Stored as raw values joined by comma; unknown values from a future
     /// build are dropped on load.
     @AppStorage("backup.selectedCategories") private var selectedStore: String = ""
+    /// The app's scene phase, so the passphrase can be cleared when the app
+    /// backgrounds (Fix 1: memory only for this app session).
+    @Environment(\.scenePhase) private var scenePhase
     @State private var passphrase = ""
     @State private var confirmPassphrase = ""
+
+    /// Fix 1 (keys by default): the passphrase-setup sheet. Shown instead of
+    /// silently exporting Providers without keys, when the export would
+    /// otherwise drop them.
+    @State private var showPassphraseSetup = false
+    /// Whether the sheet was opened for a Resume (from a history row) rather
+    /// than a fresh Start Backup — the sheet's buttons resume the same kind
+    /// of run the user asked for.
+    @State private var pendingResume = false
+    /// Fix 1: what the last started export actually contained, captured in
+    /// `runExport` so the result copy can state it plainly. `encryptBackup`
+    /// alone can't be read at result time — the user may have toggled it
+    /// since the export started.
+    @State private var lastExportEncrypted = false
+    @State private var lastExportHadProviders = false
 
     /// §3.4 per-file cap, in MB. Persisted so the choice survives leaving the
     /// screen — it is a preference, not a per-run decision.
@@ -293,12 +311,11 @@ struct BackupSettingsView: View {
                         BackupRunController.shared.stop()
                         return
                     }
-                    // The Task is handed to the controller so Stop (here or
-                    // in the run's detail view) can cancel it — a view can be
-                    // dismissed mid-backup, and a running task nobody holds is
-                    // one nobody can stop.
-                    let t = Task { await runExport() }
-                    BackupRunController.shared.started(task: t)
+                    // Fix 1 (keys by default): goes through requestExport,
+                    // which shows the passphrase-setup sheet first when this
+                    // export would otherwise silently drop the user's API
+                    // keys (Providers selected, encryption off).
+                    requestExport()
                 } label: {
                     // [T-restore-primary-action] Badged like every other
                     // action row in the backup screens, and matching Start
@@ -467,6 +484,18 @@ struct BackupSettingsView: View {
                         }
                         .font(.system(size: fontSettings.scaledApp(13)))
                     }
+
+                    // Fix 1: say plainly whether this backup carries the
+                    // user's API keys — the one fact the pre-fix flow left
+                    // silent. Only shown when Providers was in the backup;
+                    // other backups have no keys question to answer.
+                    if lastExportHadProviders {
+                        Text(lastExportEncrypted
+                             ? "Encrypted — your API keys are in this backup. Keep the password safe; without it, this backup cannot be opened."
+                             : "Not encrypted — your API keys were left out of this backup. Restored providers will need their keys entered again.")
+                            .font(.system(size: fontSettings.scaledApp(13)))
+                            .foregroundStyle(MinisTheme.secondaryText)
+                    }
                 } header: {
                     Text("Backup Ready")
                 } footer: {
@@ -529,6 +558,18 @@ struct BackupSettingsView: View {
             RcloneRemoteStore.syncToRclone()
             refreshSnapshotUsage()
         }
+        // Fix 1: the passphrase lives in @State (memory only — it is never
+        // written to UserDefaults, the Keychain, or any file). Clear it when
+        // the app backgrounds, so a passphrase supplied earlier does not
+        // linger past this app session. Clearing it cannot disturb a run
+        // already in flight: runExport captures the passphrase into its
+        // options when the export starts.
+        .onChange(of: scenePhase) { _ in
+            if scenePhase == .background {
+                passphrase = ""
+                confirmPassphrase = ""
+            }
+        }
         // Destination rows push their details through these hidden links
         // rather than wrapping the row in a visible NavigationLink, which would
         // draw a disclosure chevron immediately left of the row's toggle.
@@ -581,6 +622,13 @@ struct BackupSettingsView: View {
             if let shareURL {
                 BackupDocumentExportPicker(url: shareURL)
             }
+        }
+        // Fix 1 (keys by default): the passphrase-setup sheet. Reuses the
+        // screen's own passphrase / confirmPassphrase @State (memory only —
+        // never written to UserDefaults, the Keychain, or any file).
+        .sheet(isPresented: $showPassphraseSetup) {
+            passphraseSetupSheet
+                .presentationDetents([.medium])
         }
         // [review S14] The `pendingPackage` sheet used to live here. It is now
         // mounted at the WindowGroup root (MinisApp.swift) so opening a
@@ -808,8 +856,9 @@ struct BackupSettingsView: View {
                         // run's snapshot, missing everything written since.
                         if isResumable(r) {
                             Button {
-                                let t = Task { await runExport(resuming: true) }
-                                BackupRunController.shared.started(task: t)
+                                // Fix 1: same gate as Start Backup — a resume
+                                // must not silently export key-less either.
+                                requestExport(resuming: true)
                             } label: {
                                 Label("Resume", systemImage: "play.circle")
                             }
@@ -1015,6 +1064,100 @@ struct BackupSettingsView: View {
 
     // MARK: - Export
 
+    /// Fix 1 (keys by default): true when this export would otherwise ship
+    /// Providers without keys — encryption off, so `runExport` would pass
+    /// `includeCredentials: false` and the API keys would silently stay
+    /// behind. Keyed on `encryptBackup`, not on whether a passphrase
+    /// happens to sit in the field: a passphrase typed earlier and then
+    /// left behind by turning encryption off must not let a later export
+    /// silently drop keys.
+    private var needsPassphraseSetup: Bool {
+        selected.contains(.providers) && !encryptBackup
+    }
+
+    /// The setup sheet's own gate. `passphraseValid` can't be reused here:
+    /// it returns true whenever encryption is off, which is exactly when
+    /// this sheet is shown — the sheet needs the passphrase set and
+    /// matching before "Set password and back up" can proceed.
+    private var sheetPassphraseValid: Bool {
+        !passphrase.isEmpty && passphrase == confirmPassphrase
+    }
+
+    /// Start an export, or show the passphrase-setup sheet first when the
+    /// export would otherwise drop the user's API keys silently. The sheet's
+    /// buttons call `startExport` with the same `resuming` flag stashed in
+    /// `pendingResume`, so a Resume resumes and a fresh Start starts.
+    private func requestExport(resuming: Bool = false) {
+        guard !runController.isRunning else { return }
+        if needsPassphraseSetup {
+            pendingResume = resuming
+            showPassphraseSetup = true
+            return
+        }
+        startExport(resuming: resuming)
+    }
+
+    /// The Task is handed to the controller so Stop (here or in the run's
+    /// detail view) can cancel it — a view can be dismissed mid-backup, and
+    /// a running task nobody holds is one nobody can stop.
+    private func startExport(resuming: Bool = false) {
+        let t = Task { await runExport(resuming: resuming) }
+        BackupRunController.shared.started(task: t)
+    }
+
+    /// Fix 1: the passphrase-setup sheet. Reuses the screen's own
+    /// `passphrase` / `confirmPassphrase` @State (memory only — never
+    /// written anywhere) and `sheetPassphraseValid`.
+    ///
+    /// Confirming turns encryption on, so `runExport` proceeds with
+    /// `includeCredentials: true` using the passphrase just entered.
+    /// "Back up without keys" is an explicit choice, not a silent default:
+    /// the export proceeds unencrypted and key-less, and the result copy
+    /// says so.
+    private var passphraseSetupSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Add your keys to this backup?")
+                .font(.system(size: fontSettings.scaledApp(20), weight: .semibold))
+            Text("Your API keys can go in the backup, but only inside a locked (encrypted) file. Set a password. If you forget it, the backup cannot be opened.")
+                .font(.system(size: fontSettings.scaledApp(15)))
+                .foregroundStyle(MinisTheme.secondaryText)
+            SecureField("Passphrase", text: $passphrase)
+                .textContentType(.newPassword)
+                .textFieldStyle(.roundedBorder)
+            if !passphrase.isEmpty {
+                SecureField("Confirm passphrase", text: $confirmPassphrase)
+                    .textContentType(.newPassword)
+                    .textFieldStyle(.roundedBorder)
+                if passphrase != confirmPassphrase {
+                    Text("Passphrases don't match.")
+                        .font(.system(size: fontSettings.scaledApp(13)))
+                        .foregroundStyle(MinisTheme.destructive)
+                }
+            }
+            Button("Set password and back up") {
+                encryptBackup = true
+                showPassphraseSetup = false
+                startExport(resuming: pendingResume)
+            }
+            .disabled(!sheetPassphraseValid)
+            .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity)
+            Button("Back up without keys") {
+                showPassphraseSetup = false
+                startExport(resuming: pendingResume)
+            }
+            .frame(maxWidth: .infinity)
+            Text("Without keys, restored providers will need their keys entered again.")
+                .font(.system(size: fontSettings.scaledApp(13)))
+                .foregroundStyle(MinisTheme.secondaryText)
+            Button("Cancel") {
+                showPassphraseSetup = false
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding()
+    }
+
     /// - Parameter resuming: continue the interrupted run instead of starting a
     ///   new one. Only ever true from the Resume action on that run's history
     ///   row — Start Backup always means "back up the data as it is now".
@@ -1025,6 +1168,13 @@ struct BackupSettingsView: View {
         shareURL = nil
         deliveryResults = []
         localCopyRemoved = false
+        // Fix 1: remember what THIS run is about to contain, so the result
+        // copy can state encrypted-with-keys vs without-keys. Read here, at
+        // the start — `encryptBackup` / `selected` may change while the
+        // export runs, and the result must describe the package, not the
+        // screen's later state.
+        lastExportEncrypted = encryptBackup
+        lastExportHadProviders = selected.contains(.providers)
         defer { isExporting = false }
 
         let options = BackupExporter.Options(
