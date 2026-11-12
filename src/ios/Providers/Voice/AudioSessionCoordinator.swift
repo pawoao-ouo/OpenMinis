@@ -86,6 +86,13 @@ final class AudioSessionCoordinator {
     static let replyTTSStartedNotification = Notification.Name("AudioSession.replyTTSStarted")
     static let replyTTSEndedNotification = Notification.Name("AudioSession.replyTTSEnded")
 
+    /// [media-duck] 语音/视频附件开始/结束。跟 replyTTS 同一套规矩：
+    /// 附件一响，音乐暂停；附件停了，音乐接着放。Started 只在
+    /// mediaAttachment 成员 0→1 时发，Ended 只在 1→0 时发 — 两边必须
+    /// 对称，否则一起听的计数（duckDepth）只升不降，音乐永远不恢复。
+    static let mediaAttachmentStartedNotification = Notification.Name("AudioSession.mediaAttachmentStarted")
+    static let mediaAttachmentEndedNotification = Notification.Name("AudioSession.mediaAttachmentEnded")
+
     /// Declare that `intent` now needs the audio session. Idempotent.
     ///
     /// The profile is applied ASYNCHRONOUSLY (see `apply`), so on return the
@@ -142,7 +149,19 @@ final class AudioSessionCoordinator {
         // [P2-A] Membership BEFORE the insert — `was` holds the top intent,
         // not membership, and cannot answer "was replyTTS already held".
         let hadReplyTTS = active.contains(.replyTTS)
+        // [media-duck] Same question for the attachment intent — Started
+        // posts only on the 0→1 transition.
+        let hadMediaAttachment = active.contains(.mediaAttachment)
         active.insert(intent)
+        // [media-duck] Post Started BEFORE the preempt block below: when an
+        // attachment preempts reply TTS, the preempted read-aloud's Ended
+        // must nest INSIDE this duck (duckDepth 1→2→1) instead of resuming
+        // music (1→0) while the attachment is still playing. Post order is
+        // delivery order — both posts run on this actor with no suspension
+        // point between them, so the observer always sees Started first.
+        if intent == .mediaAttachment, !hadMediaAttachment {
+            NotificationCenter.default.post(name: Self.mediaAttachmentStartedNotification, object: nil)
+        }
         // Media attachment and Together music both preempt reply TTS
         // (mutually exclusive voice content): stop the cloud queue directly
         // and notify the chat VM to stop System TTS. (TTS is not
@@ -177,6 +196,13 @@ final class AudioSessionCoordinator {
         active.remove(intent)
         if intent == .replyTTS, !active.contains(.replyTTS) {
             NotificationCenter.default.post(name: Self.replyTTSEndedNotification, object: nil)
+        }
+        // [media-duck] Ended only on the 1→0 transition — same symmetry as
+        // replyTTS: the Set holds at most one entry per intent, and this
+        // end() is membership-guarded, so the post below can never fire
+        // twice for one Started.
+        if intent == .mediaAttachment, !active.contains(.mediaAttachment) {
+            NotificationCenter.default.post(name: Self.mediaAttachmentEndedNotification, object: nil)
         }
         apply(reason: "end(\(intent))")
     }

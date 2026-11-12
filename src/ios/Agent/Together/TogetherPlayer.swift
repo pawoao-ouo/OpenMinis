@@ -938,16 +938,47 @@ final class TogetherPlayer: ObservableObject {
 
     // MARK: 语音让路 + 打断
     //
-    // 语音播报和音乐抢同一个 AVAudioSession：不处理就是语音一响音乐乱跳，
+    // 语音播报、语音/视频附件和音乐抢同一个 AVAudioSession：不处理就是语音一响音乐乱跳，
     // 说完了也回不来。规矩是——语音开始我暂停，语音结束我接着放，
     // 只在我本来是"在放"的时候才恢复，她手动停的不要自己响。
     // 压音按层数记：两次开始通知嵌套时，第一次结束不许提前恢复。
+    // 朗读和附件共用一个计数：附件抢掉朗读时，朗读的结束嵌在附件的
+    // 压音里（2→1），音乐不会在附件还响着的时候回来。
     // 来电/Siri 打断和耳机拔掉走同一套"停下并记住"：打断结束且系统说
     // 应该恢复、她又没攥着暂停，才接着放；耳机插回去从不自动恢复。
 
     /// state.json 里现在记的持有人。打断写盘时用它，不许把遥控器顺手改成别人。
     private func preservedActor() -> TogetherActor {
         TogetherActor(rawValue: store.load().playback.by ?? "") ?? .user
+    }
+
+    /// 语音压音的开始（朗读和附件共用）：层数 +1；只有 0→1 那一下才
+    /// 记下压音前是不是在放、把音乐暂停住（pauseForDuck 只停播放器，
+    /// 不还 togetherPlayback 名额——恢复的 play() 再拿）。
+    private func duckForVoiceStart() {
+        duckDepth += 1
+        guard duckDepth == 1 else { return }
+        duckedWasPlaying = isPlaying
+        userPausedDuringDuck = false
+        syncVoiceDucked()
+        if isPlaying { pauseForDuck() }
+    }
+
+    /// 语音压音的结束（朗读和附件共用）：层数 −1；只有 1→0 那一下才
+    /// 考虑恢复——压音前在放、压音期间她没按停、没攥着暂停、落盘还
+    /// 写着在放，四道全过才接着放。
+    private func duckForVoiceEnd() {
+        guard duckDepth > 0 else { return }
+        duckDepth -= 1
+        guard duckDepth == 0 else { return }
+        let shouldResume = duckedWasPlaying
+            && !userPausedDuringDuck
+            && userHeldPause != true
+            && store.load().playback.playing
+        duckedWasPlaying = false
+        userPausedDuringDuck = false
+        syncVoiceDucked()
+        if shouldResume { play() }
     }
 
     private func observeVoice() {
@@ -959,12 +990,7 @@ final class TogetherPlayer: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.duckDepth += 1
-                guard self.duckDepth == 1 else { return }
-                self.duckedWasPlaying = self.isPlaying
-                self.userPausedDuringDuck = false
-                self.syncVoiceDucked()
-                if self.isPlaying { self.pauseForDuck() }
+                self.duckForVoiceStart()
             }
         })
         voiceObservers.append(center.addObserver(
@@ -972,17 +998,29 @@ final class TogetherPlayer: ObservableObject {
             object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.duckDepth > 0 else { return }
-                self.duckDepth -= 1
-                guard self.duckDepth == 0 else { return }
-                let shouldResume = self.duckedWasPlaying
-                    && !self.userPausedDuringDuck
-                    && self.userHeldPause != true
-                    && self.store.load().playback.playing
-                self.duckedWasPlaying = false
-                self.userPausedDuringDuck = false
-                self.syncVoiceDucked()
-                if shouldResume { self.play() }
+                guard let self else { return }
+                self.duckForVoiceEnd()
+            }
+        })
+        // [media-duck] 语音/视频附件跟朗读走同一套压音：开始压住音乐，
+        // 停了再恢复。共用 duckDepth，所以附件抢掉朗读时，朗读的结束
+        // 嵌在附件的压音里（2→1），音乐不会在附件还响着的时候回来。
+        voiceObservers.append(center.addObserver(
+            forName: AudioSessionCoordinator.mediaAttachmentStartedNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.duckForVoiceStart()
+            }
+        })
+        voiceObservers.append(center.addObserver(
+            forName: AudioSessionCoordinator.mediaAttachmentEndedNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.duckForVoiceEnd()
             }
         })
         voiceObservers.append(center.addObserver(
