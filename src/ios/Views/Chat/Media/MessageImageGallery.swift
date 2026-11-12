@@ -51,6 +51,14 @@ struct MessageImageGallery: View {
     /// Chrome (top action buttons + bottom caption) visibility toggled by
     /// single-tapping the image area, matching the system Photos app.
     @State private var chromeVisible: Bool = true
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    /// [glass-switch] 圆形键底：玻璃开 = 材质，关 = 对话实底面色。
+    private var circleFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(AppearanceStudio.shared.color(.surface, scope: .chat))
+    }
 
     private enum SaveStatus { case idle, saving, saved, failed }
 
@@ -117,7 +125,7 @@ struct MessageImageGallery: View {
                         .truncationMode(.middle)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .background(circleFill, in: Capsule())
                         .padding(.bottom, 24)
                         .allowsHitTesting(false)
                 }
@@ -185,7 +193,7 @@ struct MessageImageGallery: View {
                 .foregroundStyle(ChatColors.primaryText)
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
-                .background(.ultraThinMaterial, in: Circle())
+                .background(circleFill, in: Circle())
             }
             .disabled(saveStatus != .idle || currentImage == nil)
 
@@ -215,7 +223,7 @@ struct MessageImageGallery: View {
             .foregroundStyle(tint ?? ChatColors.primaryText)
             .frame(width: 44, height: 44)
             .contentShape(Circle())
-            .background(.ultraThinMaterial, in: Circle())
+            .background(circleFill, in: Circle())
     }
 
     private func loadIfNeeded(item: GalleryItem) async {

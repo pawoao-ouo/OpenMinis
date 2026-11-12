@@ -222,6 +222,14 @@ private struct ImportSkillSheet: View {
     @State private var isImporting = false
     @State private var errorMessage: String?
     @State private var showFilePicker = false
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    /// [glass-switch] 浮条底：玻璃开 = 材质，关 = 浮层实底面色。
+    private var toastFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(CSSThemeVariables.surface())
+    }
 
     enum ImportMode: String, CaseIterable {
         case url = "URL"
@@ -292,7 +300,7 @@ private struct ImportSkillSheet: View {
                 if isImporting {
                     ProgressView("Importing…")
                         .padding()
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .background(toastFill, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
             .sheet(isPresented: $showFilePicker) {
@@ -875,6 +883,14 @@ private struct SkillFileDetailView: View {
     @State private var originalContent: String = ""
     @State private var hasChanges = false
     @State private var saveError: String?
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    /// [glass-switch] 浮条底：玻璃开 = 材质，关 = 浮层实底面色。
+    private var toastFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(CSSThemeVariables.surface())
+    }
 
     private var fileName: String {
         (relativePath as NSString).lastPathComponent
@@ -891,7 +907,7 @@ private struct SkillFileDetailView: View {
                         .foregroundStyle(MinisTheme.destructive)
                         .font(.caption)
                         .padding(8)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .background(toastFill, in: RoundedRectangle(cornerRadius: 8))
                         .padding()
                 }
             }

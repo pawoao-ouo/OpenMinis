@@ -263,6 +263,14 @@ private struct MemoryContentView: View {
     @State private var editedContent: String = ""
     @State private var isEditing = false
     @State private var saved = false
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    /// [glass-switch] 浮条底：玻璃开 = 材质，关 = 浮层实底面色。
+    private var toastFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(CSSThemeVariables.surface())
+    }
 
     init(title: String, content: String, fileURL: URL?) {
         self.title = title
@@ -312,7 +320,7 @@ private struct MemoryContentView: View {
                     .font(.caption)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .background(toastFill, in: Capsule())
                     .padding(.bottom, 8)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -371,6 +379,14 @@ private struct MemoryWriteDetailView: View {
     @State private var revokeResult: String?
     @State private var showResultAlert = false
     @State private var saved = false
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    /// [glass-switch] 浮条底：玻璃开 = 材质，关 = 浮层实底面色。
+    private var toastFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(CSSThemeVariables.surface())
+    }
 
     init(item: SessionMemoryView.ToolMemoryItem, personaID: String) {
         self.item = item
@@ -438,7 +454,7 @@ private struct MemoryWriteDetailView: View {
                     .font(.caption)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .background(toastFill, in: Capsule())
                     .padding(.bottom, 8)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }

@@ -23,6 +23,14 @@ import SwiftUI
 struct BridgeExternalConnectionView: View {
     @ObservedObject private var fontSettings = FontSettings.shared
     @ObservedObject private var relay = BridgeRelayClient.shared
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    /// [glass-switch] 浮条底：玻璃开 = 材质，关 = 浮层实底面色。
+    private var toastFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(CSSThemeVariables.surface())
+    }
 
     @AppStorage(BridgeRelayPreferences.hostKey) private var host: String = ""
     @State private var tokenInput: String = ""
@@ -249,7 +257,7 @@ struct BridgeExternalConnectionView: View {
                     .font(.system(size: fontSettings.scaledApp(13)))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .background(toastFill, in: Capsule())
                     .padding(.bottom, 32)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }

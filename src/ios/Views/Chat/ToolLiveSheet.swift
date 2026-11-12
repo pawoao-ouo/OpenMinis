@@ -2410,11 +2410,15 @@ private struct ToolStatusBarSurface: ViewModifier {
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
     }
+    // [glass-switch] The bar's glass follows the global switch.
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), appearanceStudio.glassEnabled {
             content.glassEffect(.regular, in: shape)
         } else {
+            // Glass off: the pre-26 solid floor + stroke + shadow,
+            // byte-for-byte the branch that already existed.
             content
                 .background(ChatColors.background)
                 .clipShape(RoundedRectangle(cornerRadius: 12))

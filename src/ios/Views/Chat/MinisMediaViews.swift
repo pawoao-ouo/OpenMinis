@@ -585,6 +585,14 @@ struct MinisImageFilePreviewView: View {
     let fileURL: URL
     @Environment(\.dismiss) private var dismiss
     @State private var loadedImage: UIImage?
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    /// [glass-switch] 圆形键底：玻璃开 = 材质，关 = 对话实底面色。
+    private var circleFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(AppearanceStudio.shared.color(.surface, scope: .chat))
+    }
 
     var body: some View {
         if let image = loadedImage {
@@ -602,7 +610,7 @@ struct MinisImageFilePreviewView: View {
                         .foregroundStyle(ChatColors.primaryText)
                         .frame(width: 44, height: 44)
                         .contentShape(Circle())
-                        .background(.ultraThinMaterial, in: Circle())
+                        .background(circleFill, in: Circle())
                 }
                 .padding(.horizontal)
                 .padding(.top, 2)

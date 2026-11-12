@@ -591,6 +591,7 @@ struct WebViewDismissArbiterGate: UIViewRepresentable {
 /// desktop-mode, …) are reachable again.
 struct MinisSafariView: View {
     @StateObject private var holder: WebViewHolder
+    @ObservedObject private var studio = AppearanceStudio.shared
     let shareURL: URL
     let isLocalFile: Bool
     let onCollapse: (() -> Void)?
@@ -686,11 +687,12 @@ struct MinisSafariView: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
+                // [glass-switch] 玻璃关了键底变实底面色，白字读不清，改走主文字色。
+                .foregroundStyle(studio.glassEnabled ? .white : ChatColors.primaryText)
                 .frame(width: 44, height: 44)
                 .background(
                     Circle()
-                        .fill(.ultraThinMaterial)
+                        .fill(studio.glassEnabled ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(CSSThemeVariables.surface()))
                 )
                 .overlay(
                     Circle()
@@ -743,6 +745,7 @@ struct MinisLinkPreviewView: View {
     @StateObject private var holder: WebViewHolder
     @State private var showShareSheet = false
     @State private var desktopMode: Bool = false
+    @ObservedObject private var studio = AppearanceStudio.shared
 
     init(url: URL, browserPool: BrowserTabPool?, onExpand: ((WebViewHolder) -> Void)? = nil) {
         self.url = url
@@ -781,7 +784,8 @@ struct MinisLinkPreviewView: View {
                 .ignoresSafeArea(.keyboard)
                 .navigationTitle(holder.pageTitle.isEmpty ? (url.host ?? url.absoluteString) : holder.pageTitle)
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+                // [glass-switch] 玻璃关了顶栏走不透明底色，不再透网页。
+                .toolbarBackground(studio.glassEnabled ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(CSSThemeVariables.surface()), for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {

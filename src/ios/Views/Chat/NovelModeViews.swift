@@ -92,6 +92,15 @@ struct NovelStageBackdrop: View {
 struct NovelDialogueBox: View {
     let messages: [ChatMessage]
     let personaID: String?
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    /// [glass-switch] 台词框底：玻璃开 = 材质，关 = 不透明面色（与
+    /// 0.72 罩同域，同一个颜色压上去结果不变）。
+    private var dialogueFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(AppearanceStudio.shared.color(.surface))
+    }
     @State private var cursor: Int = 0
     @State private var appeared = false
 
@@ -177,7 +186,7 @@ struct NovelDialogueBox: View {
         .background(
             // 半透明底 + 材质，压在立绘上不挡人
             ZStack {
-                Rectangle().fill(.ultraThinMaterial)
+                Rectangle().fill(dialogueFill)
                 MinisTheme.surface.opacity(0.72)
             }
         )

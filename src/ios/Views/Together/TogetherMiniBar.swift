@@ -38,6 +38,8 @@ struct TogetherMiniBar: View {
     @Environment(\.togetherPersonaId) private var envPersonaId
     @ObservedObject private var player = TogetherPlayer.shared
     @ObservedObject private var hub = TogetherStateHub.shared
+    /// [glass-switch] 这支视图里的 glass() 毛玻璃跟着全局开关走。
+    @ObservedObject private var studio = AppearanceStudio.shared
 
     @State private var deckShown = false
     /// 整页一起听。浮卡右上那颗展开键点这里开,关了回浮卡。
@@ -122,7 +124,7 @@ struct TogetherMiniBar: View {
         .frame(width: width, height: height)
         .background {
             ZStack {
-                TogetherBlurBackdrop()
+                TogetherBackdrop()
                 TogetherSpec.capsuleSurface
             }
         }
@@ -288,7 +290,7 @@ struct TogetherMiniBar: View {
 
     private func ghostCapsule(side: TogetherCapsuleDockSide) -> some View {
         ZStack {
-            TogetherBlurBackdrop()
+            TogetherBackdrop()
             TogetherSpec.glass(0.55)
         }
         .clipShape(capsuleShape(for: side))
@@ -607,6 +609,8 @@ struct TogetherRefinedVinylView: View {
     let isPlaying: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// [glass-switch] 这支视图里的 glass() 毛玻璃跟着全局开关走。
+    @ObservedObject private var studio = AppearanceStudio.shared
     @State private var spinning = false
     @State private var baseAngle: Double = 0
     @State private var spinTracker = TogetherSpinAngle()
@@ -683,7 +687,8 @@ struct TogetherRefinedVinylView: View {
     private var hub: some View {
         ZStack {
             Circle()
-                .fill(.regularMaterial)
+                // [glass-switch] 玻璃开 = 材质盘心，关 = 对话实底面色。
+                .fill(studio.glassEnabled ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(CSSThemeVariables.surface(scope: .chat)))
                 .frame(width: size * 0.44, height: size * 0.44)
             Circle()
                 .fill(CSSThemeVariables.textDim(scope: .chat))
@@ -727,7 +732,7 @@ struct TogetherDeckOverlay: View {
             let drawerHeight = geo.size.height * 0.82
             ZStack(alignment: .bottom) {
                 Color.black.opacity(curtainShown ? 0.3 : 0.26)
-                    .background(TogetherBlurBackdrop(style: .systemUltraThinMaterial))
+                    .background(TogetherBackdrop(style: .systemUltraThinMaterial))
                     .ignoresSafeArea()
                     .onTapGesture {
                         if curtainShown {
@@ -773,6 +778,8 @@ struct TogetherDeckView: View {
     @ObservedObject private var player = TogetherPlayer.shared
     @ObservedObject private var hub = TogetherStateHub.shared
     @ObservedObject private var fontSettings = FontSettings.shared
+    /// [glass-switch] 这支视图里的 glass() 毛玻璃跟着全局开关走。
+    @ObservedObject private var studio = AppearanceStudio.shared
 
     @State private var lyrics: TogetherLyrics?
     @State private var thumbVisible = false
@@ -814,7 +821,7 @@ struct TogetherDeckView: View {
         .frame(width: 360)
         .background {
             ZStack {
-                TogetherBlurBackdrop()
+                TogetherBackdrop()
                 TogetherSpec.capsuleSurface
             }
         }
@@ -1393,6 +1400,8 @@ struct TogetherLyricDrawer: View {
 
     @ObservedObject private var player = TogetherPlayer.shared
     @ObservedObject private var hub = TogetherStateHub.shared
+    /// [glass-switch] 这支视图里的 glass() 毛玻璃跟着全局开关走。
+    @ObservedObject private var studio = AppearanceStudio.shared
 
     @State private var lyrics: TogetherLyrics?
     @State private var followPaused = false
@@ -1424,7 +1433,7 @@ struct TogetherLyricDrawer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             ZStack {
-                TogetherBlurBackdrop(style: .systemThinMaterialLight)
+                TogetherBackdrop(style: .systemThinMaterialLight)
                 TogetherSpec.glass(0.94)
             }
         }
@@ -1609,8 +1618,13 @@ enum TogetherSpec {
 
     /// 玻璃上的高光与内描边。以前写死纯白，深色主题里亮得刺眼；
     /// 现在取玻璃面自己那层色，透明度不变 —— 玻璃层还是玻璃层。
+    /// [glass-switch] 关 = 不透明实底面色：玻璃关了就没有半透层，
+    /// 所有 glass() 调用点都跟着回实底。
     static func glass(_ opacity: Double) -> Color {
-        CSSThemeVariables.surfaceFill(scope: .chat).opacity(opacity)
+        if !AppearanceStudio.shared.glassEnabled {
+            return CSSThemeVariables.surface(scope: .chat)
+        }
+        return CSSThemeVariables.surfaceFill(scope: .chat).opacity(opacity)
     }
 
     /// 玻璃上的暗部：内描边、压痕、分割。取主文字，透明度不变。
@@ -1646,6 +1660,20 @@ struct TogetherBlurBackdrop: UIViewRepresentable {
     }
 }
 
+/// [glass-switch] 毛玻璃底：开 = 原生 blur，关 = 同作用域实底面色。
+/// 本文件 5 处 TogetherBlurBackdrop 调用点都走它。
+private struct TogetherBackdrop: View {
+    @ObservedObject private var studio = AppearanceStudio.shared
+    var style: UIBlurEffect.Style = .systemUltraThinMaterialLight
+    var body: some View {
+        if studio.glassEnabled {
+            TogetherBlurBackdrop(style: style)
+        } else {
+            CSSThemeVariables.surface(scope: .chat)
+        }
+    }
+}
+
 // MARK: - 唱片（Boutique Ceramic Vinyl Disc）
 
 struct TogetherVinylDisc: View {
@@ -1653,6 +1681,8 @@ struct TogetherVinylDisc: View {
     var spinning: Bool = false
 
     @State private var angle: Double = 0
+    /// [glass-switch] 这支视图里的 glass() 毛玻璃跟着全局开关走。
+    @ObservedObject private var studio = AppearanceStudio.shared
 
     private var label: CGFloat { size <= 32 ? 10 : 14 }
     private var ringWidth: CGFloat { size <= 32 ? 1.5 : 1.5 }

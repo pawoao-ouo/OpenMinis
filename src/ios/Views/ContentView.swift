@@ -224,6 +224,8 @@ private let folderEdgeHighlight = Color(UIColor { traits in
 private struct FolderSurface: ViewModifier {
     enum Kind { case lone, top, middle, bottom }
     let kind: Kind
+    // [glass-switch] The expanded segment's glass follows the global switch.
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
     /// The collapsed card's ACTUAL rendered color, eyedropper-sampled from
     /// device screenshots. Dark: RGB 18/18/18 — re-sampled with a probe
@@ -289,7 +291,9 @@ private struct FolderSurface: ViewModifier {
                     content.background(shape.fill(MinisThemeList.rowFill))
                 }
             } else {
-                if #available(iOS 26.0, *) {
+                // Glass off: the pre-26 row fill — the expanded segment
+                // already reads as that solid colour over the flat list.
+                if #available(iOS 26.0, *), appearanceStudio.glassEnabled {
                     content.background(shape.fill(.regularMaterial))
                 } else {
                     content.background(shape.fill(MinisThemeList.rowFill))
@@ -868,6 +872,16 @@ struct ContentView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var shareCoordinator: ShareCoordinator
+    // [glass-switch] Observe the global glass switch so every material
+    // on this page flips to its solid fallback when the user turns glass off.
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
+
+    /// [glass-switch] 首页浮层底：玻璃开 = 材质，关 = 首页实底面色。
+    private var homeChromeFill: AnyShapeStyle {
+        appearanceStudio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(AppearanceStudio.shared.color(.surface, scope: .home))
+    }
     @ObservedObject private var deepLink = DeepLinkCoordinator.shared
     /// Subscribe to the router so changes to its `@Published` fields are
     /// observed by SwiftUI — without this, `onChange(of: router.newChatTrigger)`
@@ -1784,7 +1798,7 @@ struct ContentView: View {
                         }
                     }
                     .padding(24)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .background(homeChromeFill, in: RoundedRectangle(cornerRadius: 16))
                 }
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.2), value: isExporting)
@@ -2741,7 +2755,7 @@ struct ContentView: View {
         .padding(.trailing, 8)
         .frame(height: 48)
         .frame(maxWidth: 320)
-        .background(.ultraThinMaterial, in: Capsule())
+        .background(homeChromeFill, in: Capsule())
         .overlay(Capsule().stroke(AppearanceStudio.shared.color(.border, scope: .home).opacity(0.5), lineWidth: 0.5))
         .shadow(color: Color.black.opacity(0.15), radius: 8, y: 2)
         .padding(.top, 8)
@@ -3608,7 +3622,7 @@ struct ContentView: View {
                                        bottomLeadingRadius: 0,
                                        bottomTrailingRadius: 0,
                                        topTrailingRadius: 24)
-                    .fill(.ultraThinMaterial)
+                    .fill(homeChromeFill)
                 UnevenRoundedRectangle(topLeadingRadius: 24,
                                        bottomLeadingRadius: 0,
                                        bottomTrailingRadius: 0,
@@ -4948,7 +4962,7 @@ struct ContentView: View {
             .disabled(selectedIds.isEmpty)
         }
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
+        .background(homeChromeFill)
     }
 
     /// Force-sync the given sessions: bumps each session, its messages,

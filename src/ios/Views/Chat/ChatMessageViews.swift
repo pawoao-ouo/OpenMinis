@@ -123,15 +123,19 @@ struct MessageContextMenuPreview: View {
 /// highlight and edge that make it read as continuous with the bubble.
 private struct ContextMenuPreviewSurface: ViewModifier {
     private var shape: MinisBubbleShape { MinisThemeShape.userBubble }
+    // [glass-switch] The platter's glass follows the global switch.
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), appearanceStudio.glassEnabled {
             content
                 // Opaque floor first — see the note above.
                 .background(shape.fill(ChatColors.background))
                 .glassEffect(.regular, in: shape)
         } else {
-            content.background(ChatColors.background)
+            // Glass off: the opaque floor stays, so the platter never
+            // shows through to the messages underneath.
+            content.background(shape.fill(ChatColors.background))
         }
     }
 }

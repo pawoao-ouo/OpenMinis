@@ -172,6 +172,14 @@ struct MinisVideoFullscreenPlayer: View {
     @State private var player: AVPlayer?
     @State private var showShareSheet = false
     @State private var saveStatus: SaveStatus = .idle
+    @ObservedObject private var studio = AppearanceStudio.shared
+
+    /// [glass-switch] 圆形键底：玻璃开 = 材质，关 = 对话实底面色。
+    private var circleFill: AnyShapeStyle {
+        studio.glassEnabled
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(AppearanceStudio.shared.color(.surface, scope: .chat))
+    }
 
     init(fileURL: URL, externalPlayer: AVPlayer? = nil) {
         self.fileURL = fileURL
@@ -243,7 +251,7 @@ struct MinisVideoFullscreenPlayer: View {
                                 .foregroundStyle(ChatColors.primaryText)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Circle())
-                                .background(.ultraThinMaterial, in: Circle())
+                                .background(circleFill, in: Circle())
                         }
 
                         Spacer()
@@ -270,7 +278,7 @@ struct MinisVideoFullscreenPlayer: View {
                             .foregroundStyle(ChatColors.primaryText)
                             .frame(width: 44, height: 44)
                             .contentShape(Circle())
-                            .background(.ultraThinMaterial, in: Circle())
+                            .background(circleFill, in: Circle())
                         }
                         .disabled(saveStatus == .saving || saveStatus == .saved)
 
@@ -283,7 +291,7 @@ struct MinisVideoFullscreenPlayer: View {
                                 .foregroundStyle(ChatColors.primaryText)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Circle())
-                                .background(.ultraThinMaterial, in: Circle())
+                                .background(circleFill, in: Circle())
                         }
                     }
                     .padding(.horizontal)
