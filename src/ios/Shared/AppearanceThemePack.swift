@@ -2344,10 +2344,33 @@ extension AppearanceStudio {
         persistPack(pack)
     }
 
-    func setThinkingCardImageOpacity(_ value: Double) {
+    /// Drag-time only: swap the in-memory cached pack and notify observers
+    /// without any disk write or `themePackRevision` bump. The live (`live: true`)
+    /// paths of the opacity setters use it so the preview follows during a
+    /// drag while the revision stays put — a bump would tear down every
+    /// message block's `.id(themePackRevision)` identity and re-lay out the
+    /// whole list on each tick. Skips `persistPack`'s font-unification
+    /// fold on purpose: the pack came from `currentThemePack()`, which was
+    /// already healed, and the release-time `persistPack` folds again.
+    /// A crash mid-drag loses at most the in-flight drag value.
+    private func updateCachedPackLive(_ pack: AppearanceThemePack) {
+        themePackLock.lock()
+        cachedThemePack = pack
+        themePackLoaded = true
+        themePackLock.unlock()
+        objectWillChange.send()
+    }
+
+    /// Drag-time `live: true` only updates the in-memory cached pack and
+    /// notifies observers (live preview follows) — no UserDefaults writes
+    /// and no `themePackRevision` bump, so a drag no longer JSON-encodes
+    /// the whole pack and rebuilds every message block on each tick.
+    /// The release path calls this with `live: false` once, which
+    /// persists the final value. Clamp range unchanged.
+    func setThinkingCardImageOpacity(_ value: Double, live: Bool = false) {
         var pack = currentThemePack()
         pack.thinkingCardImageOpacity = min(1, max(0.05, value))
-        persistPack(pack)
+        if live { updateCachedPackLive(pack) } else { persistPack(pack) }
     }
 
     private func inputBarImageURL() -> URL {
@@ -2394,10 +2417,14 @@ extension AppearanceStudio {
         persistPack(pack)
     }
 
-    func setInputBarImageOpacity(_ value: Double) {
+    /// Same drag-time contract as `setThinkingCardImageOpacity(_:live:)`:
+    /// `live: true` updates only the in-memory cached pack (preview
+    /// follows, no disk writes, no revision bump); the release path
+    /// persists the final value once. Clamp range unchanged.
+    func setInputBarImageOpacity(_ value: Double, live: Bool = false) {
         var pack = currentThemePack()
         pack.inputBarImageOpacity = min(1, max(0.05, value))
-        persistPack(pack)
+        if live { updateCachedPackLive(pack) } else { persistPack(pack) }
     }
 
     fileprivate func applyPackColors(light: [String: String], dark: [String: String]) {

@@ -327,18 +327,24 @@ extension DressingShopView {
             VStack(spacing: 8) {
                 dialRow(title: AppLocalized("卡片表面透光"), icon: "square.2.layers.3d.top.filled", value: Binding(
                     get: { studio.surfaceOpacity },
-                    set: { studio.surfaceOpacity = $0 }
-                ))
+                    set: { studio.setSurfaceOpacityLive($0) }
+                ), onEditingChanged: { editing in
+                    if !editing { studio.commitOpacityDials() }
+                })
 
                 dialRow(title: AppLocalized("气泡表面透光"), icon: "bubble.left.and.bubble.right.fill", value: Binding(
                     get: { studio.bubbleOpacity },
-                    set: { studio.bubbleOpacity = $0 }
-                ))
+                    set: { studio.setBubbleOpacityLive($0) }
+                ), onEditingChanged: { editing in
+                    if !editing { studio.commitOpacityDials() }
+                })
 
                 dialRow(title: AppLocalized("壁纸遮罩浓度"), icon: "circle.lefthalf.striped.horizontal", value: Binding(
                     get: { studio.wallpaperShade },
-                    set: { studio.wallpaperShade = $0 }
-                ))
+                    set: { studio.setWallpaperShadeLive($0) }
+                ), onEditingChanged: { editing in
+                    if !editing { studio.commitOpacityDials() }
+                })
 
                 // [glass-switch] 全局玻璃感：跟三颗旋钮同一张卡，开关只管
                 // 玻璃开不开，不管透多少——透多少还是上面三颗旋钮的事。
@@ -369,7 +375,7 @@ extension DressingShopView {
         )
     }
 
-    private func dialRow(title: String, icon: String, value: Binding<Double>) -> some View {
+    private func dialRow(title: String, icon: String, value: Binding<Double>, onEditingChanged: @escaping (Bool) -> Void = { _ in }) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 11))
@@ -382,7 +388,7 @@ extension DressingShopView {
 
             Spacer()
 
-            Slider(value: value, in: 0.0...1.0)
+            Slider(value: value, in: 0.0...1.0, onEditingChanged: onEditingChanged)
                 .frame(width: 110)
                 .tint(CSSThemeVariables.accent(scope: .settings))
 
@@ -1744,8 +1750,9 @@ struct DressingWallpaperArtSheet: View {
                 },
                 opacity: Binding(
                     get: { studio.currentThemePack().thinkingCardImageOpacity },
-                    set: { studio.setThinkingCardImageOpacity($0) }
-                )
+                    set: { studio.setThinkingCardImageOpacity($0, live: true) }
+                ),
+                onOpacityEndEditing: { studio.setThinkingCardImageOpacity(studio.currentThemePack().thinkingCardImageOpacity) }
             )
 
             // 输入栏装饰
@@ -1759,13 +1766,14 @@ struct DressingWallpaperArtSheet: View {
                 },
                 opacity: Binding(
                     get: { studio.currentThemePack().inputBarImageOpacity },
-                    set: { studio.setInputBarImageOpacity($0) }
-                )
+                    set: { studio.setInputBarImageOpacity($0, live: true) }
+                ),
+                onOpacityEndEditing: { studio.setInputBarImageOpacity(studio.currentThemePack().inputBarImageOpacity) }
             )
         }
     }
 
-    private func decorItemRow(title: String, hasImage: Bool, pickerItem: Binding<PhotosPickerItem?>, onRemove: @escaping () -> Void, opacity: Binding<Double>) -> some View {
+    private func decorItemRow(title: String, hasImage: Bool, pickerItem: Binding<PhotosPickerItem?>, onRemove: @escaping () -> Void, opacity: Binding<Double>, onOpacityEndEditing: @escaping () -> Void = {}) -> some View {
         VStack(spacing: 8) {
             HStack {
                 Text(title)
@@ -1799,7 +1807,7 @@ struct DressingWallpaperArtSheet: View {
                         .font(ChatFont.font(10))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
-                    Slider(value: opacity, in: 0.05...1.0)
+                    Slider(value: opacity, in: 0.05...1.0, onEditingChanged: { if !$0 { onOpacityEndEditing() } })
                         .tint(CSSThemeVariables.accent(scope: .settings))
 
                     Text("\(Int(opacity.wrappedValue * 100))%")

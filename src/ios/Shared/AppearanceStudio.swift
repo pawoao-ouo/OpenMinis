@@ -496,17 +496,26 @@ final class AppearanceStudio: ObservableObject {
     /// [B28 R10] 她自己填的称呼。空 = 没设置，调用方自己回落到中性词。
     @Published private(set) var userDisplayName: String
     @Published private var customIcons: [String: String]
+    /// Drag-time only: while true, the three opacity dials' `didSet`
+    /// skips the UserDefaults write (see `setSurfaceOpacityLive` and
+    /// friends). The in-memory value still updates and observers are
+    /// still notified, so the live preview follows; the final value is
+    /// persisted once on release by `commitOpacityDials()`. Only ever
+    /// flipped on the main actor around a single synchronous assignment,
+    /// never left set — every other writer (reset, theme apply, undo,
+    /// restore) goes through the normal setter and persists as before.
+    private var suppressDialPersist = false
     @Published var surfaceOpacity: Double {
-        didSet { UserDefaults.standard.set(surfaceOpacity, forKey: Keys.surfaceOpacity) }
+        didSet { if !suppressDialPersist { UserDefaults.standard.set(surfaceOpacity, forKey: Keys.surfaceOpacity) } }
     }
     /// [T-bubble-opacity-slider] Bubble-only transparency, separate from the
     /// global surfaceOpacity so dialling bubbles down doesn't wash out cards,
     /// tool capsules and the input bar. User + assistant bubbles both read it.
     @Published var bubbleOpacity: Double {
-        didSet { UserDefaults.standard.set(bubbleOpacity, forKey: Keys.bubbleOpacity) }
+        didSet { if !suppressDialPersist { UserDefaults.standard.set(bubbleOpacity, forKey: Keys.bubbleOpacity) } }
     }
     @Published var wallpaperShade: Double {
-        didSet { UserDefaults.standard.set(wallpaperShade, forKey: Keys.wallpaperShade) }
+        didSet { if !suppressDialPersist { UserDefaults.standard.set(wallpaperShade, forKey: Keys.wallpaperShade) } }
     }
     /// [glass-switch] 全局玻璃感：开 = 输入栏/预览都走玻璃，关 = 都回实底。
     /// 默认开——现在本来就是玻璃，缺省不能把现成的样子换掉。
@@ -1257,6 +1266,43 @@ final class AppearanceStudio: ObservableObject {
         surfaceOpacity = 0.88
         bubbleOpacity = 1.0
         wallpaperShade = 0.08
+    }
+
+    /// Drag-time only: set one opacity dial's in-memory value and notify
+    /// observers (live preview follows) without writing UserDefaults on
+    /// every tick. Pair with `commitOpacityDials()` on release so the
+    /// final value is persisted exactly once. A crash mid-drag loses at
+    /// most the in-flight drag value; the last committed value is kept.
+    func setSurfaceOpacityLive(_ value: Double) {
+        suppressDialPersist = true
+        surfaceOpacity = value
+        suppressDialPersist = false
+    }
+
+    /// Same drag-time contract as `setSurfaceOpacityLive(_:)`, for the
+    /// bubble dial.
+    func setBubbleOpacityLive(_ value: Double) {
+        suppressDialPersist = true
+        bubbleOpacity = value
+        suppressDialPersist = false
+    }
+
+    /// Same drag-time contract as `setSurfaceOpacityLive(_:)`, for the
+    /// wallpaper-shade dial.
+    func setWallpaperShadeLive(_ value: Double) {
+        suppressDialPersist = true
+        wallpaperShade = value
+        suppressDialPersist = false
+    }
+
+    /// Persist the three opacity dials' current in-memory values to
+    /// UserDefaults, once (slider release). Writing all three is
+    /// harmless: only one dial moves at a time, the other two write
+    /// back the value they already hold.
+    func commitOpacityDials() {
+        UserDefaults.standard.set(surfaceOpacity, forKey: Keys.surfaceOpacity)
+        UserDefaults.standard.set(bubbleOpacity, forKey: Keys.bubbleOpacity)
+        UserDefaults.standard.set(wallpaperShade, forKey: Keys.wallpaperShade)
     }
 
     /// Clear ONLY the global colour overrides, back to the built-in
