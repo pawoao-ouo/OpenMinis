@@ -480,9 +480,8 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
     /// data is not a pack JSON object, or when it does not parse —
     /// callers keep the original bytes in all three cases.
     static func cleanedPackJSONData(_ data: Data, lightCanvasHex: String, darkCanvasHex: String) -> Data? {
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               looksLikeThemePack(obj) else { return nil }
-        var obj = obj
         var changed = false
         func cleanBase64(_ b64: String, dark: Bool) -> String? {
             guard !b64.isEmpty,
