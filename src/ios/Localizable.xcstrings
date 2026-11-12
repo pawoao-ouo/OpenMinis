@@ -148054,7 +148054,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "气泡表面透光"
+            "value": "Bubble Surface Opacity"
           }
         }
       }
@@ -148071,7 +148071,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "壁纸遮罩浓度"
+            "value": "Wallpaper Mask Opacity"
           }
         }
       }
@@ -149312,7 +149312,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "卡片表面透光"
+            "value": "Card Surface Opacity"
           }
         }
       }
