@@ -4836,7 +4836,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     if let last = self.messages.last(where: { $0.role == .assistant }) {
                         attachError(displayDesc, to: last)
                         Task { await self.persistErrorInfo(displayDesc) }  // [T-error-persist-ios]
-                        AppLogger(category: "StreamError").error("[StreamError] → bubble path (set last.error)")
+                        AppLogger(category: "StreamError").error("[StreamError] → bubble path (attachError)")
                     } else {
                         self.reportTurnFailure(displayDesc)   // [T-ios-error-banner-lost]
                         AppLogger(category: "StreamError").error("[StreamError] → banner path (carrier row + vm.errorMessage set)")
@@ -5147,10 +5147,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// inserted with the inline error and Retry. Scoped to the empty case
     /// on purpose: once the first block exists the footer is already in
     /// the snapshot and the error re-renders in place, so posting there
-    /// would only force a needless rebuild.
+    /// would only force a needless rebuild. NOTE: do NOT gate on
+    /// `streamInterruptCount` — the mid-stream retry catch bumps it
+    /// without triggering any snapshot, so a retried-then-failed empty
+    /// placeholder would otherwise stay silent forever.
     private func attachError(_ displayDesc: String, to message: ChatMessage) {
         message.error = displayDesc
-        guard message.blocks.isEmpty, message.streamInterruptCount == 0 else { return }
+        guard message.blocks.isEmpty else { return }
         NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: nil)
     }
 
