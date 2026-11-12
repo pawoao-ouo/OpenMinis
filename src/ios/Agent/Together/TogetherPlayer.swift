@@ -37,6 +37,14 @@ final class TogetherPlayer: ObservableObject {
     private var timeObserver: Any?
     private var endToken: NSObjectProtocol?
     private var failToken: NSObjectProtocol?
+    /// item.status 的 KVO：只有到 .readyToPlay 才算真能放。跟 endToken /
+    /// failToken 一样跟某一首 item 绑，换歌时在 teardown() 里作废。
+    private var statusObservation: NSKeyValueObservation?
+    /// .unknown 超过有界等待仍没就绪的看门狗，换歌/清理时取消。
+    private var unknownWatchdog: Task<Void, Never>?
+    /// 这首已经判了"播不出来"：之后的 .readyToPlay 不能再把"在放"认回来，
+    /// 也不能再 toast 一次。换歌时在 teardown() 里清掉。
+    private var statusFailed = false
     private var lastReportedSecond: Double = -1
     private var didSuspendSilentAudio = false
     /// 跟随：上一次处理过的事件 id。
@@ -119,6 +127,7 @@ final class TogetherPlayer: ObservableObject {
 
         addPeriodicObserver()
         addEndObserver()
+        addStatusObserver(for: item, autoplay: autoplay)
 
         if position > 0 {
             p.seek(to: CMTime(seconds: position, preferredTimescale: 600),
@@ -129,7 +138,9 @@ final class TogetherPlayer: ObservableObject {
         }
         if autoplay {
             p.play()
-            isPlaying = true
+            // isPlaying 不在这里认：只有 item 到 .readyToPlay 才算真能放，
+            // 认早了，坏文件/无声轨会顶着暂停键、MiniBar 挂着歌名，却一声不响。
+            // 认"在放"的动作在 addStatusObserver 的 ready 分支里。
         } else {
             isPlaying = false
         }
@@ -889,14 +900,76 @@ final class TogetherPlayer: ObservableObject {
                 guard let self,
                       let failed = note.object as? AVPlayerItem,
                       failed === self.player?.currentItem else { return }
-                self.isPlaying = false
-                self.store.setPlaying(false, by: self.preservedActor())
-                self.reportProgress(force: true)
-                VoiceNowPlaying.shared.refresh()
-                MinisToast.show(TogetherCopy.unplayableTrack,
-                                systemImage: "exclamationmark.triangle.fill")
+                self.handleUnplayableItem()
             }
         }
+    }
+
+    /// 验"真出声"：item 只有到 .readyToPlay 才算能放。坏文件/无声轨走
+    /// .failed、或一直卡 .unknown——两种都按播不出来处理。
+    /// 观察跟某一首 item 绑，换歌时在 teardown() 里作废，不会打到下一首。
+    private func addStatusObserver(for item: AVPlayerItem, autoplay: Bool) {
+        // [.initial]：注册时若已是终态（比如秒失败），立刻就能处理，
+        // 不用等第二次变化。KVO 回调不保证在主线程，用 Task 跳回主 actor——
+        // 这里不许用 MainActor.assumeIsolated，线程不对会直接崩。
+        statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] observed, _ in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      observed === self.player?.currentItem,
+                      !self.statusFailed else { return }
+                switch observed.status {
+                case .readyToPlay:
+                    // 好文件到这一步才算真能放：认"在放"，锁屏也跟着刷新。
+                    // 没点播放装回来的那首（autoplay 为 false）不认，
+                    // 等她自己按播放时 play() 再认。
+                    if autoplay {
+                        self.isPlaying = true
+                        VoiceNowPlaying.shared.refresh()
+                    }
+                    self.unknownWatchdog?.cancel()
+                    self.unknownWatchdog = nil
+                case .failed:
+                    // 没人要点它响（没 autoplay、也没在放），就不报——
+                    // 比如冷启动装回上一首暂停的歌，文件坏了也不该一开 App 就弹错。
+                    guard autoplay || self.isPlaying else { return }
+                    self.handleUnplayableItem()
+                case .unknown:
+                    break
+                @unknown default:
+                    break
+                }
+            }
+        }
+        // .unknown 超过有界等待（10 秒）仍没就绪：按播不出来处理。
+        // 只盯当前这一首，换歌/清理时在 teardown() 里取消，不会打到下一首。
+        // autoplay 为 false 时不盯——没人要点它响，没有"假装在放"要纠。
+        guard autoplay else { return }
+        unknownWatchdog = Task { [weak self, weak item] in
+            try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard let self,
+                  let item,
+                  item === self.player?.currentItem,
+                  !self.statusFailed,
+                  item.status == .unknown else { return }
+            self.handleUnplayableItem()
+        }
+    }
+
+    /// 播不出来的统一处理：停在原地、落盘、说一声。
+    /// AVPlayerItemFailedToPlayToEndTime 通知和 item.status 的 .failed /
+    /// .unknown 超时都走这里，不另造第二种失败样子。幂等：同一首最多 toast 一次。
+    private func handleUnplayableItem() {
+        guard !statusFailed else { return }
+        statusFailed = true
+        unknownWatchdog?.cancel()
+        unknownWatchdog = nil
+        isPlaying = false
+        store.setPlaying(false, by: preservedActor())
+        reportProgress(force: true)
+        VoiceNowPlaying.shared.refresh()
+        MinisToast.show(TogetherCopy.unplayableTrack,
+                        systemImage: "exclamationmark.triangle.fill")
     }
 
     /// 一首放完：单曲循环就重放；否则按队列接下一首（全部循环才绕回开头）。
@@ -960,6 +1033,13 @@ final class TogetherPlayer: ObservableObject {
             NotificationCenter.default.removeObserver(token)
             failToken = nil
         }
+        // 状态观察和 .unknown 看门狗也是跟某一首 item 绑的，换歌必须作废，
+        // 不然旧 item 的状态变化会打到新歌上；失败标记也随新歌清掉。
+        statusObservation?.invalidate()
+        statusObservation = nil
+        unknownWatchdog?.cancel()
+        unknownWatchdog = nil
+        statusFailed = false
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil
