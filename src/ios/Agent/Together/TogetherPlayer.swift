@@ -805,23 +805,15 @@ final class TogetherPlayer: ObservableObject {
                     continue
                 }
                 // [T-audio-heldpause-never-clears] 攥住暂停（userHeldPause）是"她亲手停的"
-                // 这条记忆。但它以前一旦为 true 就永远拦着 AI，只有她自己按播放才解开——
-                // 结果她几天前随手点的那一下暂停，让 AI 之后每一次推歌都被静默丢掉
-                // （state.json 里那串 suppressed/held-pause 就是这么来的）。
-                // 现在分两种：显式换歌的 play/radio 是 AI 的新意图，清掉这把锁照放；
-                // 只是"继续刚才那首"的 resume 仍然压住——那才是真的在抢她的暂停。
-                // 她刚按过暂停的两秒内，下面 quiet-window 那道闸照样拦着，不会被盖过去。
+                // 这条记忆：暂停就是暂停。AI 显式换歌（play/radio）也不算新意图，
+                // 不清这把锁——跟 playTrackForAI 的门一模一样，两个口子同一条规矩。
+                // 只有她自己按播放、自己切歌才解开（userPlay / skipTrack）。
+                // 被攥住的 AI 命令压住并上报 held-pause，state.json 里查得到原因，
+                // 不是静默丢掉。她刚按过暂停的两秒内，下面 quiet-window 那道闸照样拦着。
                 if userHeldPause == true, ev.type != "pause" {
-                    if ev.type == "play" || ev.type == "radio" {
-                        userHeldPause = false
-                        store.mutate(by: .ai, event: "setPlaying") { state in
-                            state.playback.heldPause = false
-                        }
-                    } else {
-                        seenEventId = ev.id
-                        store.reportSuppressed(original: ev, reason: "held-pause")
-                        continue
-                    }
+                    seenEventId = ev.id
+                    store.reportSuppressed(original: ev, reason: "held-pause")
+                    continue
                 }
                 if ev.ts < userBusyUntil {
                     seenEventId = ev.id
