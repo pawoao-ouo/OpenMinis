@@ -1287,14 +1287,16 @@ extension AppearanceStudio {
                 }
                 removeWallpaper(scope)
             }
+            // [P3-4] No bump here either: the trailing `applyCategoryImages`
+            // persist is the single bump for the whole swap.
             if !(pack.thinkingCardJPEGBase64?.isEmpty == false) {
-                removeThinkingCardImage()
+                removeThinkingCardImage(bumpRevision: false)
             }
             if !(pack.inputBarJPEGBase64?.isEmpty == false) {
-                removeInputBarImage()
+                removeInputBarImage(bumpRevision: false)
             }
             if !(pack.characterArtBase64?.isEmpty == false) {
-                removeCharacterArt()
+                removeCharacterArt(bumpRevision: false)
             }
             // [page-state-fix] Replace means the new pack IS the whole
             // theme, page state included — but only when the pack
@@ -1374,12 +1376,14 @@ extension AppearanceStudio {
         }
         if let b64 = pack.thinkingCardJPEGBase64 {
             if let data = Data(base64Encoded: b64) {
-                if !(await setThinkingCardImageEncoded(data)) { warnings.append("thinkingCard") }
+                // [P3-4] No bump: the trailing `applyCategoryImages` persist
+                // is the single bump for the whole swap.
+                if !(await setThinkingCardImageEncoded(data, bumpRevision: false)) { warnings.append("thinkingCard") }
             } else { warnings.append("thinkingCard") }
         }
         if let b64 = pack.inputBarJPEGBase64 {
             if let data = Data(base64Encoded: b64) {
-                if !(await setInputBarImageEncoded(data)) { warnings.append("inputBar") }
+                if !(await setInputBarImageEncoded(data, bumpRevision: false)) { warnings.append("inputBar") }
             } else { warnings.append("inputBar") }
         }
         // [page-state] Page colours and wallpapers carried by the
@@ -1731,7 +1735,8 @@ extension AppearanceStudio {
                 return false
             }
             restoreColorOverrides(decoded)
-            objectWillChange.send()
+            // [P3-1] No extra send: the `@Published customColors` write
+            // above (plus `persistColors()`'s own send) already notifies.
             // Undo is single-use: drop the snapshot so the arrow
             // disappears and the same snapshot cannot be re-applied
             // over newer changes.
@@ -1797,7 +1802,8 @@ extension AppearanceStudio {
         // palette-only snapshots); reset snapshots restore wallpapers
         // and the cleared-fallback list exactly.
         restoreWallpapers(from: dir)
-        objectWillChange.send()
+        // [P3-1] No extra send: `themePackRevision += 1` above plus the
+        // `@Published` writes in this path already notify.
         // Undo is single-use: drop the snapshot so the arrow
         // disappears and the same snapshot cannot be re-applied
         // over newer changes.
@@ -2094,12 +2100,12 @@ extension AppearanceStudio {
         FileManager.default.fileExists(atPath: characterArtURL().path)
     }
 
-    func removeCharacterArt() {
+    func removeCharacterArt(bumpRevision: Bool = true) {
         try? FileManager.default.removeItem(at: characterArtURL())
         ThumbnailCache.shared.removeThumbnail(for: characterArtURL().path)
         var pack = currentThemePack()
         pack.characterArtBase64 = nil
-        persistPack(pack)
+        persistPack(pack, bumpRevision: bumpRevision)
     }
 
     func setLineHeight(_ value: Double) {
@@ -2419,6 +2425,7 @@ extension AppearanceStudio {
     /// manual clear can fix. Nonisolated so a detached task can call it;
     /// `writeEncodedImage` above keeps its old contract (callers that
     /// already validated keep calling it directly).
+    @discardableResult
     private static nonisolated func writeEncodedImageIfDecodable(_ data: Data, to url: URL,
                                       maxEdge: CGFloat, quality: CGFloat,
                                       matte: UIColor = WallpaperPipeline.canvasMatte()) -> Bool {
@@ -2458,7 +2465,7 @@ extension AppearanceStudio {
     /// instead of landing on disk as a file that renders blank (T-29's
     /// rule, same as the wallpaper path).
     @discardableResult
-    func setThinkingCardImageEncoded(_ data: Data) async -> Bool {
+    func setThinkingCardImageEncoded(_ data: Data, bumpRevision: Bool = true) async -> Bool {
         let url = thinkingCardURL()
         let ok = await Task.detached(priority: .utility) {
             Self.writeEncodedImageIfDecodable(data, to: url, maxEdge: 1400, quality: 0.82)
@@ -2466,16 +2473,16 @@ extension AppearanceStudio {
         guard ok else { return false }
         var pack = currentThemePack()
         pack.thinkingCardJPEGBase64 = nil
-        persistPack(pack)
+        persistPack(pack, bumpRevision: bumpRevision)
         return true
     }
 
-    func removeThinkingCardImage() {
+    func removeThinkingCardImage(bumpRevision: Bool = true) {
         try? FileManager.default.removeItem(at: thinkingCardURL())
         ThumbnailCache.shared.removeThumbnail(for: thinkingCardURL().path)
         var pack = currentThemePack()
         pack.thinkingCardJPEGBase64 = nil
-        persistPack(pack)
+        persistPack(pack, bumpRevision: bumpRevision)
     }
 
     /// Drag-time only: swap the in-memory cached pack and notify observers
@@ -2536,7 +2543,7 @@ extension AppearanceStudio {
     /// Stores an already-encoded input-bar image without a re-encode round trip.
     /// [P2-3] Same off-main-thread contract as `setThinkingCardImageEncoded`.
     @discardableResult
-    func setInputBarImageEncoded(_ data: Data) async -> Bool {
+    func setInputBarImageEncoded(_ data: Data, bumpRevision: Bool = true) async -> Bool {
         let url = inputBarImageURL()
         let ok = await Task.detached(priority: .utility) {
             Self.writeEncodedImageIfDecodable(data, to: url, maxEdge: 1400, quality: 0.82)
@@ -2544,16 +2551,16 @@ extension AppearanceStudio {
         guard ok else { return false }
         var pack = currentThemePack()
         pack.inputBarJPEGBase64 = nil
-        persistPack(pack)
+        persistPack(pack, bumpRevision: bumpRevision)
         return true
     }
 
-    func removeInputBarImage() {
+    func removeInputBarImage(bumpRevision: Bool = true) {
         try? FileManager.default.removeItem(at: inputBarImageURL())
         ThumbnailCache.shared.removeThumbnail(for: inputBarImageURL().path)
         var pack = currentThemePack()
         pack.inputBarJPEGBase64 = nil
-        persistPack(pack)
+        persistPack(pack, bumpRevision: bumpRevision)
     }
 
     /// Same drag-time contract as `setThinkingCardImageOpacity(_:live:)`:
