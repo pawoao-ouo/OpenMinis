@@ -1468,7 +1468,7 @@ struct DressingColorStudioSheet: View {
 struct DressingWallpaperArtSheet: View {
     let onNotify: (String) -> Void
     /// [P2-8] 搜索点进来的落点页：默认全局，搜索进来的按搜索那条定。
-    let initialScope: AppearanceScope = .global
+    let initialScope: AppearanceScope
     @ObservedObject private var studio = AppearanceStudio.shared
     @ObservedObject private var fontSettings = FontSettings.shared
     @State private var selectedScope: AppearanceScope = .global
