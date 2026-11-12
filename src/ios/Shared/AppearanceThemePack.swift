@@ -1259,7 +1259,7 @@ extension AppearanceStudio {
         // keeps the old file plus a warning — a corrupt pack must not
         // destroy a good image.)
         if replace {
-            if wallpaper == nil, !(pack.wallpaperJPEGBase64?.isEmpty == false) {
+            if !(pack.wallpaperJPEGBase64?.isEmpty == false) {
                 removeWallpaper(.global)
             }
             // User packs now carry per-page wallpapers, written back
@@ -1535,6 +1535,13 @@ extension AppearanceStudio {
     /// what inflated exported packs.
     /// [T-54] 带透明的壁纸会存成 `wallpaper-<scope>-light/dark.jpg`，不再有
     /// 旧名的单文件；不透明壁纸和旧文件仍只有单份。
+    /// [P1-1] "Exactly as stored" holds for pixels, not for metadata: files
+    /// saved before the strip gate (P2-13) may still carry EXIF, so
+    /// `originalImageData` below routes the bytes through
+    /// `WallpaperPipeline.exportableImageData` (metadata stripped,
+    /// orientation baked when it is not "up", undecodable bytes dropped).
+    /// Every export read goes through these three accessors, so the gate
+    /// cannot be missed by a call site.
     // [T-54 r2] 明暗两份分开取，不再"找到哪份用哪份"：只带一份的话，
     // 别的设备导入后切到另一档，读到的还是导出时那一档的底色。
     // 浅档回落旧单文件：不透明壁纸和有年代的文件都只有那一份。
@@ -1551,7 +1558,9 @@ extension AppearanceStudio {
     private func originalImageData(fileName: String) -> Data? {
         let url = appearanceDirectory.appendingPathComponent(fileName)
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
-        return data
+        // [P1-1] Export-clean bytes (see the doc above): raw disk bytes may
+        // carry pre-gate EXIF, and undecodable bytes must never land in a pack.
+        return WallpaperPipeline.exportableImageData(data)
     }
 
     /// Snapshot directory for the most recent destructive theme operation.

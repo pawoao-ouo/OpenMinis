@@ -132,6 +132,44 @@ enum WallpaperPipeline {
             || isWebP(data)
     }
 
+    /// Bytes safe to embed in an exported pack or to keep on disk:
+    /// metadata stripped, pixels intact.
+    ///
+    /// [P1-1] `exportThemePack` used to embed raw disk bytes, so images
+    /// saved before the strip gate (P2-13) leaked their EXIF (GPS +
+    /// model) on export. Every export read goes through this gate now:
+    /// JPEG/PNG/WebP whose EXIF orientation is "up" are byte-stripped
+    /// (format and pixels untouched); anything else — HEIC/GIF, or any
+    /// image whose orientation is not "up" — is re-encoded, which bakes
+    /// the orientation into the pixels and drops the metadata by
+    /// construction. The orientation check matters: stripping deletes
+    /// the Orientation tag the renderer relies on, so a stripped file
+    /// with orientation 6 would come back rotated on re-apply (P2-4) —
+    /// those go through the re-encode instead. PNG keeps PNG so alpha
+    /// survives; everything else becomes JPEG. Returns nil when the
+    /// bytes cannot be decoded at all — undecodable bytes never land
+    /// (T-29). When UIImage cannot decode a strippable format at all
+    /// (e.g. WebP), there is no orientation to bake, so it is stripped
+    /// at byte level exactly like `writeEncodedImage` does.
+    nonisolated static func exportableImageData(_ data: Data) -> Data? {
+        if byteLevelStrippable(data) {
+            if let image = UIImage(data: data),
+               image.size.width > 0, image.size.height > 0,
+               image.imageOrientation != .up {
+                // Orientation must be baked into the pixels before the
+                // metadata is dropped — fall through to the re-encode.
+            } else {
+                return strippedMetadata(data)
+            }
+        }
+        guard let image = UIImage(data: data),
+              image.size.width > 0, image.size.height > 0 else { return nil }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+            return image.pngData()
+        }
+        return image.jpegData(compressionQuality: 0.82)
+    }
+
     /// "RIFF" + size + "WEBP". Kept separate so both `strippedMetadata`
     /// and `byteLevelStrippable` sniff the same 12 bytes.
     nonisolated private static func isWebP(_ data: Data) -> Bool {
@@ -790,6 +828,12 @@ final class AppearanceStudio: ObservableObject {
         }
         Self.colorSnapshot = customColors
         configureUIKitSurfaces()
+        // [P1-1] Strip EXIF left on disk by pre-gate saves (see
+        // `migrateThemeImageMetadata`): detached so launch never waits
+        // on image work; idempotent, safe to run every launch.
+        Task.detached(priority: .utility) {
+            Self.migrateThemeImageMetadata()
+        }
     }
 
     fileprivate static let lightDefaults = AppearancePaletteBook.light
@@ -2313,6 +2357,53 @@ final class AppearanceStudio: ObservableObject {
             loaded[id] = "data:image/png;base64," + data.base64EncodedString()
         }
         return loaded
+    }
+
+    /// [P1-1] One-time EXIF migration for theme images saved before the
+    /// strip gate (P2-13): old files still carry full EXIF (GPS + model)
+    /// on disk, in Application Support. Runs from `init` in a detached
+    /// task so launch never waits on image work.
+    ///
+    /// Why here and not in `migrateLegacyLibrary`: that function only
+    /// fires for v1 library data in UserDefaults, so most users would
+    /// never get the migration. `init` is the real startup path — it
+    /// already hosts the avatar and custom-icon migrate-on-read work.
+    ///
+    /// Idempotent and safe to run every launch: a file whose cleaned
+    /// bytes are identical to its current bytes is not rewritten, so an
+    /// already-clean file costs one read and no write. Files that cannot
+    /// be decoded are left alone — the export gate drops them from packs
+    /// instead (T-29), and deleting a user's file for being unreadable
+    /// would destroy data a future decoder might still read. Rewrites
+    /// are atomic, and the thumbnail cache entry is dropped so a
+    /// re-encoded file never keeps showing stale pixels.
+    ///
+    /// Deliberate deviation from the brief's literal prescription
+    /// ("rewrite via writeEncodedImageIfDecodable"): that function strips
+    /// the Orientation tag without baking it (P2-4, fixed in the next
+    /// batch), so it would rotate old portrait photos on disk
+    /// permanently. The migration uses the same orientation-aware gate
+    /// as the export path instead (`WallpaperPipeline.exportableImageData`).
+    nonisolated static func migrateThemeImageMetadata() {
+        var urls: [URL] = []
+        for scope in AppearanceScope.allCases {
+            urls.append(appearanceDirectoryURL.appendingPathComponent("wallpaper-\(scope.rawValue).jpg"))
+            urls.append(appearanceDirectoryURL.appendingPathComponent("wallpaper-\(scope.rawValue)-light.jpg"))
+            urls.append(appearanceDirectoryURL.appendingPathComponent("wallpaper-\(scope.rawValue)-dark.jpg"))
+        }
+        for name in ["thinking-card.jpg", "input-bar.jpg", "character-art.jpg"] {
+            urls.append(appearanceDirectoryURL.appendingPathComponent(name))
+        }
+        for key in AppearanceThemePack.categoryKeys {
+            urls.append(appearanceDirectoryURL.appendingPathComponent("category-\(key).jpg"))
+        }
+        for url in urls {
+            guard let data = try? Data(contentsOf: url), !data.isEmpty,
+                  let clean = WallpaperPipeline.exportableImageData(data),
+                  clean != data else { continue }
+            try? clean.write(to: url, options: .atomic)
+            ThumbnailCache.shared.removeThumbnail(for: url.path)
+        }
     }
 
     // MARK: UIKit-backed surfaces
