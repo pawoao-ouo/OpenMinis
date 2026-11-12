@@ -35,9 +35,11 @@ private class PlayerSession {
     var didSuspendSilentAudio = false
 
     /// True once this session has declared the `.offloadPlayback` intent
-    /// and not yet released it. Cleared by stopSession / cleanupSession,
-    /// and used by `deinit` as a last-ditch release so the intent doesn't
-    /// leak when ARC drops the session without a full stop.
+    /// and not yet released it. Never cleared back to false — stopSession /
+    /// cleanupSession remove the session from the dictionary instead, so the
+    /// flag only matters while the session is alive. Used by `deinit` as a
+    /// last-ditch release so the intent doesn't leak when ARC drops the
+    /// session without a full stop.
     var didBeginOffloadPlayback = false
 
     enum MediaType: String {

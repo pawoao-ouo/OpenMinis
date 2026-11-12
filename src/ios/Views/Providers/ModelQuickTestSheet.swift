@@ -107,8 +107,10 @@ struct ModelQuickTestSheet: View {
 /// [AUD-P1D] playAudio used to call setCategory/setActive directly with no
 /// matching deactivation, leaking a .spokenAudio/.duckOthers session that kept
 /// pressing other apps' volume down after the clip ended. The clip now runs
-/// under AudioSessionCoordinator as .replyTTS — the same profile (.playback,
-/// .spokenAudio, [.duckOthers]) — and the intent is ended when playback
+/// under AudioSessionCoordinator as .quickTestClip — the same profile as
+/// .replyTTS (.playback, .spokenAudio, [.duckOthers]) but its own intent, so
+/// a clip played while chat TTS is speaking cannot drop the session under TTS
+/// (the intent set is not refcounted). The intent is ended when playback
 /// finishes, fails to start, is replaced, or the sheet goes away. end() is
 /// membership-guarded, so ending twice (finish + disappear) is a no-op.
 /// Same shape as TTSPreviewPlayer (TTSProviderBridge.swift).
@@ -120,7 +122,7 @@ private final class QuickTestAudioPlayer: NSObject, ObservableObject, AVAudioPla
     /// here and never leave the intent begun.
     func play(_ data: Data) {
         stop()  // a running clip is replaced, never stacked
-        AudioSessionCoordinator.shared.begin(.replyTTS)
+        AudioSessionCoordinator.shared.begin(.quickTestClip)
         do {
             let player = try AVAudioPlayer(data: data)
             player.delegate = self
@@ -131,11 +133,11 @@ private final class QuickTestAudioPlayer: NSObject, ObservableObject, AVAudioPla
                 self.player = player
             } else {
                 // play() returned false — no didFinish callback is coming.
-                AudioSessionCoordinator.shared.end(.replyTTS)
+                AudioSessionCoordinator.shared.end(.quickTestClip)
             }
             qtLog.info("[QuickTest] play bytes=\(data.count) dur=\(String(format: "%.2f", player.duration))s started=\(ok)")
         } catch {
-            AudioSessionCoordinator.shared.end(.replyTTS)
+            AudioSessionCoordinator.shared.end(.quickTestClip)
             qtLog.error("[QuickTest] playback failed: \(error.localizedDescription)")
         }
     }
@@ -144,7 +146,7 @@ private final class QuickTestAudioPlayer: NSObject, ObservableObject, AVAudioPla
     func stop() {
         player?.stop()
         player = nil
-        AudioSessionCoordinator.shared.end(.replyTTS)
+        AudioSessionCoordinator.shared.end(.quickTestClip)
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer,
@@ -156,7 +158,7 @@ private final class QuickTestAudioPlayer: NSObject, ObservableObject, AVAudioPla
             // clip's intent short.
             guard self.player === player else { return }
             self.player = nil
-            AudioSessionCoordinator.shared.end(.replyTTS)
+            AudioSessionCoordinator.shared.end(.quickTestClip)
         }
     }
 
@@ -167,7 +169,7 @@ private final class QuickTestAudioPlayer: NSObject, ObservableObject, AVAudioPla
             // here so a corrupt clip cannot leak the intent either.
             guard self.player === player else { return }
             self.player = nil
-            AudioSessionCoordinator.shared.end(.replyTTS)
+            AudioSessionCoordinator.shared.end(.quickTestClip)
             if let error { qtLog.error("[QuickTest] decode error: \(error.localizedDescription)") }
         }
     }
@@ -177,7 +179,7 @@ private final class QuickTestAudioPlayer: NSObject, ObservableObject, AVAudioPla
         // (Coordinator calls are @MainActor, deinit is not — same Task hop as
         // PlayerSession's deinit in the P1-D fix.)
         Task { @MainActor in
-            AudioSessionCoordinator.shared.end(.replyTTS)
+            AudioSessionCoordinator.shared.end(.quickTestClip)
         }
     }
 }

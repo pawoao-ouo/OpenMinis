@@ -16,6 +16,12 @@ import UIKit
 //   .capture            — mic recording (.record/.measurement)            [highest]
 //   .mediaAttachment    — Markdown audio attachment / auto_play playback
 //   .replyTTS           — read-replies (cloud VoiceOutputPlayer OR System AVSpeech)
+//   .quickTestClip      — model quick-test clip (.playback/.spokenAudio, [.duckOthers]).
+//                         Same profile as `.replyTTS` but its own intent:
+//                         the clip can play WHILE chat TTS is speaking, and the
+//                         intent set is not refcounted, so sharing `.replyTTS`
+//                         would let the clip's end() drop the session under TTS.
+//                         Ranked below `.replyTTS` so TTS always wins.
 //   .offloadPlayback    — apple-player offload video (.playback/.mixWithOthers).
 //                         Its own intent (not `.backgroundKeepAlive`) because
 //                         it is FOREGROUND audible playback: reassertForForeground
@@ -46,9 +52,10 @@ final class AudioSessionCoordinator {
         case backgroundKeepAlive = 0
         case backupKeepAlive = 1
         case offloadPlayback = 2
-        case replyTTS = 3
-        case mediaAttachment = 4
-        case capture = 5
+        case quickTestClip = 3
+        case replyTTS = 4
+        case mediaAttachment = 5
+        case capture = 6
     }
 
     private let logger = AppLogger(category: "AudioSession")
@@ -167,6 +174,11 @@ final class AudioSessionCoordinator {
         case .mediaAttachment:
             return (.playback, .default, [.duckOthers])
         case .replyTTS:
+            return (.playback, .spokenAudio, [.duckOthers])
+        case .quickTestClip:
+            // Same profile as .replyTTS (a short spoken clip) — the separate
+            // case exists only so the clip and chat TTS have independent
+            // lifecycles (see the header comment).
             return (.playback, .spokenAudio, [.duckOthers])
         case .backgroundKeepAlive:
             return (.playback, .default, [.mixWithOthers])
