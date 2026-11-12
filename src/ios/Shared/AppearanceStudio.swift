@@ -116,20 +116,24 @@ enum WallpaperPipeline {
     /// included — GPS + device tags rode into the sandbox and back out on
     /// export. Uniform re-encoding would cost a generation loss on every
     /// apply (see `writeEncodedImage`'s doc), so instead this drops only
-    /// the metadata segments: JPEG APP1 (Exif + XMP), PNG eXIf/text
-    /// chunks, and WebP EXIF/XMP chunks. HEIC and GIF have no byte-level
-    /// strip here and MUST NOT be written as-is — callers route them
-    /// through the re-encode paths (`backgroundJPEG` /
-    /// `writeDownscaledJPEG`), which drop metadata by construction
-    /// (see `byteLevelStrippable`). The old comment's claim that they
-    /// "only reach disk via the re-encode paths" was wrong: there was
-    /// no format gate, so an under-limit HEIC landed with its EXIF.
+    /// the metadata segments: JPEG APP1 (Exif + XMP), APP13 (Photoshop
+    /// IRB) and COM; PNG eXIf, tEXt, iTXt, zTXt and tIME (timestamp);
+    /// WebP EXIF/XMP chunks. ICC is left alone in every format
+    /// (JPEG APP2 / PNG iCCP): dropping it would change colour
+    /// rendering. HEIC and GIF have no byte-level strip here and MUST
+    /// NOT be written as-is — callers route them through the re-encode
+    /// paths (`backgroundJPEG` / `writeDownscaledJPEG`), which drop
+    /// metadata by construction (see `byteLevelStrippable`). The old
+    /// comment's claim that they "only reach disk via the re-encode
+    /// paths" was wrong: there was no format gate, so an under-limit
+    /// HEIC landed with its EXIF.
     /// Any malformed input returns the original bytes untouched —
-    /// except trailing garbage after the last complete chunk and
-    /// truncated metadata after complete image data, which are dropped
-    /// instead: every caller decodes first, so the image data is known
-    /// complete there, and dropping non-image bytes cannot corrupt the
-    /// image. Never corrupt a file to strip a tag.
+    /// except trailing garbage after the end of the image (JPEG: after
+    /// EOI; PNG: after IEND; WebP: after the last chunk) and truncated
+    /// metadata after complete image data, which are dropped instead:
+    /// every caller decodes first, so the image data is known complete
+    /// there, and dropping non-image bytes cannot corrupt the image.
+    /// Never corrupt a file to strip a tag.
     nonisolated static func strippedMetadata(_ data: Data) -> Data {
         if data.starts(with: [0xFF, 0xD8]) { return stripJPEGMetadata(data) }
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return stripPNGMetadata(data) }
@@ -173,9 +177,18 @@ enum WallpaperPipeline {
     /// undecodable image is useless in a pack anyway — the receiving
     /// side cannot decode it either — and this matches the write path
     /// (`writeEncodedImageIfDecodable` returns false for undecodable
-    /// bytes). PNG keeps PNG so alpha survives, drawn through a
-    /// renderer first so its orientation is baked too — `pngData()`
-    /// alone encodes the raw CGImage without applying the orientation.
+    /// bytes). Nil also when the render/encode step itself fails
+    /// (`jpegData`/`pngData` returning nil) — a nil here never means
+    /// "use the original bytes". The three callers treat nil
+    /// differently, and that is deliberate: the launch migration
+    /// leaves the file on disk untouched (never delete user data for
+    /// being unreadable); export omits the field, falling back to a
+    /// live UIImage re-encode only where one exists (global
+    /// wallpaper, thinking card, input bar, category images); backup
+    /// staging keeps the verbatim copy in the package. PNG keeps PNG
+    /// so alpha survives, drawn through a renderer first so its
+    /// orientation is baked too — `pngData()` alone encodes the raw
+    /// CGImage without applying the orientation.
     nonisolated static func exportableImageData(_ data: Data, matte: UIColor = canvasMatte()) -> Data? {
         // [P1-1] Decode first: an undecodable file must return nil, not
         // fall through to `strippedMetadata` — the walkers return the
@@ -228,8 +241,13 @@ enum WallpaperPipeline {
             && head[8] == 0x57 && head[9] == 0x45 && head[10] == 0x42 && head[11] == 0x50
     }
 
-    /// JPEG: walk segments, drop APP1 (0xFFE1, Exif + XMP), copy the rest
-    /// byte-for-byte. Stops parsing at SOS — scan data is copied verbatim.
+    /// JPEG: walk segments, drop APP1 (0xFFE1, Exif + XMP), APP13
+    /// (Photoshop IRB) and COM, copy the rest byte-for-byte. Scan data
+    /// after SOS is walked, not copied blind: the first unstuffed
+    /// 0xFFD9 is EOI, and everything after it is trailing garbage —
+    /// GPS has been seen smuggled there, and copying to end of file
+    /// used to keep it. A further SOS (progressive file) resumes
+    /// segment walking instead of ending the file.
     nonisolated private static func stripJPEGMetadata(_ data: Data) -> Data {
         var out = Data()
         out.reserveCapacity(data.count)
@@ -245,9 +263,39 @@ enum WallpaperPipeline {
                 out.append(data[i..<data.index(i, offsetBy: 2)])
                 return out
             }
-            if marker == 0xDA { // SOS: scan data follows — copy the rest verbatim
-                out.append(data[i...])
-                return out
+            if marker == 0xDA { // SOS: scan data follows — walk it to EOI.
+                // The SOS segment header carries a 2-byte length; scan
+                // data starts after it. Entropy-coded data stuffs a
+                // literal 0xFF as 0xFF00, so a bare 0xFFD9 is the real
+                // end of image; restart markers 0xFFD0–0xFFD7 carry no
+                // payload and fill 0xFF bytes may precede a marker.
+                guard data.distance(from: i, to: data.endIndex) >= 4 else { return data }
+                let segLen = Int(data[data.index(i, offsetBy: 2)]) << 8
+                    | Int(data[data.index(i, offsetBy: 3)])
+                guard segLen >= 2, data.distance(from: i, to: data.endIndex) >= 2 + segLen else { return data }
+                var j = data.index(i, offsetBy: 2 + segLen)
+                var scanEnded = false
+                while j < data.endIndex {
+                    guard data[j] == 0xFF else { j = data.index(after: j); continue }
+                    guard data.index(after: j) < data.endIndex else { return data }
+                    let next = data[data.index(after: j)]
+                    if next == 0xFF { j = data.index(after: j); continue } // fill byte
+                    if next == 0x00 { j = data.index(j, offsetBy: 2); continue } // stuffed literal
+                    if (0xD0...0xD7).contains(next) { j = data.index(j, offsetBy: 2); continue } // restart
+                    if next == 0xD9 { // EOI: copy through it, drop the rest
+                        out.append(data[i...data.index(j, offsetBy: 1)])
+                        return out
+                    }
+                    // Any other marker ends this scan (a progressive file
+                    // has another SOS here): keep the scan bytes and
+                    // resume segment walking from the marker.
+                    out.append(data[i..<j])
+                    i = j
+                    scanEnded = true
+                    break
+                }
+                guard scanEnded else { return data } // no marker: truncated scan
+                continue
             }
             // Segment with a 2-byte length (length includes its own 2 bytes).
             guard data.distance(from: i, to: data.endIndex) >= 4 else { return data }
@@ -265,12 +313,15 @@ enum WallpaperPipeline {
         return out
     }
 
-    /// PNG: walk chunks, drop eXIf + text chunks, copy the rest whole
+    /// PNG: walk chunks, drop eXIf + text chunks (tEXt/iTXt/zTXt) +
+    /// tIME (timestamp), copy the rest whole
     /// (length + type + data + CRC move as one unit, so CRCs stay valid).
-    /// Trailing garbage after IEND and truncated metadata after complete
-    /// image data are dropped, not passed through: callers decode first
-    /// (see `strippedMetadata`), so the image data is known complete —
-    /// returning the original bytes there would put the EXIF back.
+    /// iCCP (ICC profile) is kept: dropping it would change colour
+    /// rendering. Trailing garbage after IEND and truncated metadata
+    /// after complete image data are dropped, not passed through:
+    /// callers decode first (see `strippedMetadata`), so the image
+    /// data is known complete — returning the original bytes there
+    /// would put the EXIF back.
     nonisolated private static func stripPNGMetadata(_ data: Data) -> Data {
         var out = Data()
         out.reserveCapacity(data.count)
@@ -297,7 +348,7 @@ enum WallpaperPipeline {
                 // zlib stream — undecodable, the gate returns nil anyway).
                 return (sawIDAT && typeString != "IDAT") ? out : data
             }
-            if typeString != "eXIf" && typeString != "tEXt" && typeString != "iTXt" && typeString != "zTXt" {
+            if typeString != "eXIf" && typeString != "tEXt" && typeString != "iTXt" && typeString != "zTXt" && typeString != "tIME" {
                 out.append(data[i..<data.index(i, offsetBy: 12 + len)])
             }
             if typeString == "IDAT" { sawIDAT = true }
@@ -948,6 +999,8 @@ final class AppearanceStudio: ObservableObject {
         Task.detached(priority: .utility) {
             Self.migrateThemeImageMetadata(lightCanvasHex: lightCanvasHex,
                                            darkCanvasHex: darkCanvasHex)
+            Self.migrateLibraryPackMetadata(lightCanvasHex: lightCanvasHex,
+                                            darkCanvasHex: darkCanvasHex)
         }
     }
 
@@ -2267,6 +2320,14 @@ final class AppearanceStudio: ObservableObject {
     /// 底色"——垫的是画布色而不是写死的白，所以换明暗不会留下一圈亮边。
     /// [P2-3] Runs off the main thread (see `prepareWallpaper`): only
     /// immutable statics are read here, no actor state.
+    /// [P3-1] Known matte divergence, behaviour unchanged: the single
+    /// intended matte source is the current theme canvas (`hex(.canvas)`,
+    /// what export and the launch migration use), but this function reads
+    /// the palette book's built-in canvas (`darkDefaults`/`lightDefaults`)
+    /// because it runs off the main actor and cannot call `hex`. A custom
+    /// canvas therefore pads a different colour here than on export —
+    /// unifying it needs a hex passed in like the migration does, not a
+    /// behaviour change in this batch.
     nonisolated private static func backgroundJPEG(_ image: UIImage, dark: Bool = false) -> Data? {
         let book = dark ? darkDefaults : lightDefaults
         let matte = UIColor(hex: book[.canvas] ?? (dark ? "000000" : "F5F5F7"))
@@ -2354,9 +2415,38 @@ final class AppearanceStudio: ObservableObject {
                 return false
             }
         }
+        // [P3-6] A successful sync write is a newer write too: bump the
+        // slot so an in-flight detached task drops instead of clobbering.
+        _ = Self.nextIconGeneration(for: id)
         customIcons[id] = value
         persistIcons()
         return true
+    }
+
+    /// [P3-6] Per-slot generation counter for icon writes: two quick
+    /// taps on the same slot used to race — the slower detached task
+    /// could land after the newer one and clobber it. Every writer
+    /// bumps the slot's generation first; a detached task checks it is
+    /// still current right before writing to disk and again before
+    /// updating the read cache, and drops its result when stale.
+    /// Lock-guarded statics (same `nonisolated(unsafe)` + NSLock shape
+    /// as `colorSnapshotLock` below), so the detached task can read
+    /// them without hopping back to the main actor.
+    nonisolated(unsafe) private static let iconGenerationLock = NSLock()
+    nonisolated(unsafe) private static var iconGenerations: [String: UInt64] = [:]
+
+    private static nonisolated func nextIconGeneration(for id: String) -> UInt64 {
+        iconGenerationLock.lock()
+        defer { iconGenerationLock.unlock() }
+        let next = (iconGenerations[id] ?? 0) + 1
+        iconGenerations[id] = next
+        return next
+    }
+
+    private static nonisolated func currentIconGeneration(for id: String) -> UInt64 {
+        iconGenerationLock.lock()
+        defer { iconGenerationLock.unlock() }
+        return iconGenerations[id] ?? 0
     }
 
     /// [P3-3] Detached twin of `setIcon(_:for:)`: decode + encode + write
@@ -2369,12 +2459,19 @@ final class AppearanceStudio: ObservableObject {
         // The URL is plain path-joining; compute it here so the detached
         // task only carries Sendable values (URL + String + Data).
         let url = customIconURL(for: id)
+        // [P3-6] Claim this slot's generation first: a newer tap on the
+        // same slot bumps it again, and this task must then drop its
+        // result instead of clobbering the newer write.
+        let generation = Self.nextIconGeneration(for: id)
         let value = await Task.detached(priority: .utility) { () -> String? in
             guard let image = UIImage(data: data),
                   case .success(let encoded) = SoulIconImage.encode(image),
                   let png = SoulIconImage.pngData(from: encoded) else { return nil }
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                      withIntermediateDirectories: true)
+            // [P3-6] Still current? A newer write to this slot started
+            // after this task did — drop the result, do not write.
+            guard generation == Self.currentIconGeneration(for: id) else { return nil }
             do {
                 try png.write(to: url, options: .atomic)
             } catch {
@@ -2384,6 +2481,10 @@ final class AppearanceStudio: ObservableObject {
             return encoded
         }.value
         guard let value else { return false }
+        // [P3-6] And still current before touching the read cache: the
+        // file write above does not stop a newer task from having
+        // already updated the cache.
+        guard generation == Self.currentIconGeneration(for: id) else { return false }
         customIcons[id] = value
         persistIcons()
         return true
@@ -2396,6 +2497,9 @@ final class AppearanceStudio: ObservableObject {
         let existed = customIcons[id] != nil
             || FileManager.default.fileExists(atPath: customIconURL(for: id).path)
         try? FileManager.default.removeItem(at: customIconURL(for: id))
+        // [P3-6] Only when something was actually removed: a no-op
+        // remove must not invalidate an in-flight detached write.
+        if existed { _ = Self.nextIconGeneration(for: id) }
         customIcons.removeValue(forKey: id)
         persistIcons()
         return existed
@@ -2547,6 +2651,11 @@ final class AppearanceStudio: ObservableObject {
                   // passed in from `init`), not the palette book's
                   // built-in canvas — a custom canvas pads the same
                   // colour on export and on migration.
+                  // [P3-1] The single intended matte source is the
+                  // current theme canvas (`hex(.canvas)`). The write
+                  // path (`backgroundJPEG`) still reads the palette
+                  // book's built-ins instead — a known divergence,
+                  // behaviour unchanged by this batch.
                   let clean = WallpaperPipeline.exportableImageData(
                       data, matte: UIColor(hex: url.lastPathComponent.hasSuffix("-dark.jpg") ? darkCanvasHex : lightCanvasHex)),
                   clean != data else { continue }
@@ -2554,8 +2663,55 @@ final class AppearanceStudio: ObservableObject {
             // file between the read above and this write — never clobber a
             // newer image with cleaned old bytes.
             guard let current = try? Data(contentsOf: url), current == data else { continue }
-            try? clean.write(to: url, options: .atomic)
+            do {
+                try clean.write(to: url, options: .atomic)
+            } catch {
+                // [P3-10] A failed rewrite used to vanish into `try?`:
+                // the file keeps its EXIF and nobody can tell. Warn so
+                // the next launch retries it instead of assuming clean.
+                appearanceLog.warning("theme image metadata migration write failed for \(url.lastPathComponent): \(error.localizedDescription)")
+                continue
+            }
             ThumbnailCache.shared.removeThumbnail(for: url.path)
+        }
+    }
+
+    /// [P1-1] Same launch migration as `migrateThemeImageMetadata`, for
+    /// the saved-theme packs: `library/*.json` (and `library/trash/*.json`)
+    /// written before the strip gate still carry raw image base64 — GPS
+    /// included — inside the pack JSON, and the backup stages those files
+    /// verbatim. Newly saved packs are clean (`saveCurrentTheme` goes
+    /// through the gated `exportThemePack`), but the old ones on disk are
+    /// not. Runs from the same detached task in `init` as the image
+    /// migration, same rules: parse each JSON, run every embedded image
+    /// base64 field through `WallpaperPipeline.exportableImageData`
+    /// (fields enumerated in `AppearanceThemePack.cleanedPackJSONData`),
+    /// leave a field unchanged when the gate returns nil (undecodable —
+    /// never delete user data), rewrite only when a field changed,
+    /// re-read guard before writing, atomic write. Idempotent: a pack
+    /// whose fields are already clean costs one read and no write.
+    nonisolated static func migrateLibraryPackMetadata(lightCanvasHex: String, darkCanvasHex: String) {
+        let libraryURL = appearanceDirectoryURL.appendingPathComponent("library", isDirectory: true)
+        let trashURL = libraryURL.appendingPathComponent("trash", isDirectory: true)
+        var urls: [URL] = []
+        for dir in [libraryURL, trashURL] {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
+            urls.append(contentsOf: files.filter { $0.pathExtension.lowercased() == "json" })
+        }
+        for url in urls {
+            guard let data = try? Data(contentsOf: url), !data.isEmpty,
+                  let clean = AppearanceThemePack.cleanedPackJSONData(
+                      data, lightCanvasHex: lightCanvasHex, darkCanvasHex: darkCanvasHex),
+                  clean != data else { continue }
+            // Same re-read guard as the image migration: a save may have
+            // replaced this pack between the read above and this write.
+            guard let current = try? Data(contentsOf: url), current == data else { continue }
+            do {
+                try clean.write(to: url, options: .atomic)
+            } catch {
+                appearanceLog.warning("library pack metadata migration write failed for \(url.lastPathComponent): \(error.localizedDescription)")
+            }
         }
     }
 

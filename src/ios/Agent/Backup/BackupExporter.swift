@@ -1123,7 +1123,29 @@ actor BackupExporter {
                                  category: .appearance)
         var bytes = r.bytesIncluded
         var entries = r.filesIncluded
-        let values = await MainActor.run { AppearanceStudio.shared.collectBackupDefaults() }
+        var values = await MainActor.run { AppearanceStudio.shared.collectBackupDefaults() }
+        // [P1-1] The stored pack in UserDefaults can still carry pre-gate
+        // raw base64 category markers (persisted before a failed write,
+        // or an early return from `applyThemePack`) — `collectBackupDefaults`
+        // snapshots it verbatim, so `appearance_settings.json` would ship
+        // raw EXIF. Clean those fields at backup-write time, the same way
+        // the launch migration cleans library packs; a field the gate
+        // returns nil for stays unchanged, exactly like the migration.
+        // (P3-4 stops new raw markers at the source; this covers the
+        // legacy ones already stored. The other entries cannot carry
+        // image bytes: `userAvatar` is a relative path after the launch
+        // migration — a data URI that failed migration never decoded as
+        // an image in the first place — and colours / opacities are
+        // hex / numbers, so the pack blob is the only entry that can.)
+        if let entry = values[AppearanceThemePack.currentKey],
+           entry.kind == "data", let b64 = entry.data,
+           let data = Data(base64Encoded: b64),
+           let clean = AppearanceThemePack.cleanedPackJSONData(
+               data, lightCanvasHex: lightCanvasHex, darkCanvasHex: darkCanvasHex) {
+            var cleanedEntry = entry
+            cleanedEntry.data = clean.base64EncodedString()
+            values[AppearanceThemePack.currentKey] = cleanedEntry
+        }
         if !values.isEmpty {
             let url = dataDir.appendingPathComponent("appearance_settings.json")
             try BackupJSONFile.write(values, to: url)
@@ -1140,7 +1162,10 @@ actor BackupExporter {
     /// the only other protection, and a backup can fire before it
     /// finishes. Every decodable image is replaced by its
     /// `exportableImageData` bytes (EXIF stripped, orientation baked);
-    /// anything the gate drops (non-images, undecodable files) is copied
+    /// saved-theme packs (`library/*.json`, including `library/trash/`)
+    /// get their embedded image base64 cleaned the same way
+    /// (`AppearanceThemePack.cleanedPackJSONData`); anything the gate
+    /// drops (non-images, undecodable files, unparseable JSON) is copied
     /// verbatim — deleting user data is worse than the residual EXIF,
     /// and the migration leaves undecodable files in place for the same
     /// reason. Names, relative paths and directory structure are mirrored
@@ -1148,9 +1173,11 @@ actor BackupExporter {
     /// tree exporter drops files modified after the snapshot cut-off,
     /// and a freshly-written copy would otherwise be dropped as "too
     /// new". Hidden files are skipped, same as the tree exporter.
-    /// Returns nil when there is nothing to stage (or staging fails), so
-    /// the caller falls back to the real directory — a staging failure
-    /// must never lose files from the backup.
+    /// Returns nil when there is nothing to stage, or when the stage
+    /// directory itself cannot be created — [P3-3] a single file failing
+    /// no longer aborts the whole staging (the caller used to fall back
+    /// to the raw directory, EXIF and all): the file keeps its verbatim
+    /// copy, a warning is logged, and the rest still stage.
     private func stageCleanedAppearanceDirectory(_ dir: URL,
                                                  lightCanvasHex: String,
                                                  darkCanvasHex: String) -> URL? {
@@ -1186,11 +1213,30 @@ actor BackupExporter {
                 // gated bytes when the gate has something to say — a
                 // gate failure must never lose the file from the backup.
                 try fm.copyItem(at: url, to: dest)
-                if let data = try? Data(contentsOf: url), !data.isEmpty {
-                    let matte = UIColor(hex: url.lastPathComponent.hasSuffix("-dark.jpg") ? darkCanvasHex : lightCanvasHex)
-                    if let clean = WallpaperPipeline.exportableImageData(data, matte: matte) {
-                        try clean.write(to: dest, options: .atomic)
+                stagedAnything = true
+                do {
+                    // [P1-1] Saved-theme packs carry raw image base64 in
+                    // their JSON: clean those fields the same way the
+                    // launch migration does, so a backup fired before the
+                    // migration finishes is clean too. Unparseable JSON
+                    // keeps its verbatim copy (see below).
+                    if rel.hasPrefix("library/"), url.pathExtension.lowercased() == "json" {
+                        if let data = try? Data(contentsOf: url),
+                           let clean = AppearanceThemePack.cleanedPackJSONData(
+                               data, lightCanvasHex: lightCanvasHex, darkCanvasHex: darkCanvasHex) {
+                            try clean.write(to: dest, options: .atomic)
+                        }
+                    } else if let data = try? Data(contentsOf: url), !data.isEmpty {
+                        let matte = UIColor(hex: url.lastPathComponent.hasSuffix("-dark.jpg") ? darkCanvasHex : lightCanvasHex)
+                        if let clean = WallpaperPipeline.exportableImageData(data, matte: matte) {
+                            try clean.write(to: dest, options: .atomic)
+                        }
                     }
+                } catch {
+                    // [P3-3] A single file's clean step failing must not
+                    // abort the whole staging: the verbatim copy above
+                    // stays in place, warn and move on to the rest.
+                    logger.warning("[Backup] appearance staging could not clean \(rel): \(error.localizedDescription)")
                 }
                 if let mtime = values?.contentModificationDate {
                     do {
@@ -1203,14 +1249,14 @@ actor BackupExporter {
                         logger.warning("[Backup] appearance staging could not restore mtime for \(rel): \(error.localizedDescription)")
                     }
                 }
-                stagedAnything = true
             } catch {
-                // Any failure here aborts the whole staging: the caller
-                // falls back to the real directory, so the backup keeps
-                // every file (with EXIF) instead of silently dropping one.
+                // [P3-3] The copy itself failed: nothing staged for this
+                // file — warn and continue with the rest instead of
+                // throwing the whole staging away (and falling back to
+                // the raw directory, EXIF and all). Only a failure to
+                // create the stage directory itself aborts staging.
                 logger.warning("[Backup] appearance staging failed for \(rel): \(error.localizedDescription)")
-                try? fm.removeItem(at: stage)
-                return nil
+                continue
             }
         }
         guard stagedAnything else {

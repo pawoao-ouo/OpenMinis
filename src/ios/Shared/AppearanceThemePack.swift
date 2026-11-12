@@ -458,6 +458,68 @@ struct AppearanceThemePack: Equatable, Codable, Identifiable {
         return obj
     }
 
+    /// Clean the embedded image base64 fields of a theme-pack JSON
+    /// object, for the launch migration and backup staging.
+    ///
+    /// [P1-1] Pack JSONs written before the strip gate (P2-13) still
+    /// carry raw image bytes — GPS included — in `wallpaperJPEGBase64`,
+    /// `wallpaperDarkJPEGBase64`, `thinkingCardJPEGBase64`,
+    /// `inputBarJPEGBase64`, `characterArtBase64`, and in the
+    /// `pageWallpapers` / `pageDarkWallpapers` / `categoryImages` maps
+    /// (the field list is enumerated from `asJSONObject`). Every field
+    /// runs through `WallpaperPipeline.exportableImageData` (metadata
+    /// stripped, orientation baked); a field the gate returns nil for
+    /// (undecodable) is left unchanged — never delete user data for
+    /// being unreadable. Dark-variant fields are padded with the dark
+    /// canvas, everything else with the light one — the same matte
+    /// rule as `originalImageData`. Markers that are not image bytes
+    /// (`""`, `"file"`) are skipped untouched, and every other key
+    /// passes through with its value unchanged (key order is
+    /// normalised to sorted). Returns the cleaned JSON data when at
+    /// least one field changed, nil when nothing changed, when the
+    /// data is not a pack JSON object, or when it does not parse —
+    /// callers keep the original bytes in all three cases.
+    static func cleanedPackJSONData(_ data: Data, lightCanvasHex: String, darkCanvasHex: String) -> Data? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              looksLikeThemePack(obj) else { return nil }
+        var obj = obj
+        var changed = false
+        func cleanBase64(_ b64: String, dark: Bool) -> String? {
+            guard !b64.isEmpty,
+                  let bytes = Data(base64Encoded: b64), !bytes.isEmpty,
+                  let clean = WallpaperPipeline.exportableImageData(
+                      bytes, matte: UIColor(hex: dark ? darkCanvasHex : lightCanvasHex)),
+                  clean != bytes else { return nil }
+            return clean.base64EncodedString()
+        }
+        func cleanField(_ key: String, dark: Bool) {
+            guard let b64 = obj[key] as? String,
+                  let clean = cleanBase64(b64, dark: dark) else { return }
+            obj[key] = clean
+            changed = true
+        }
+        func cleanMap(_ key: String, dark: Bool) {
+            guard var map = obj[key] as? [String: String] else { return }
+            var mapChanged = false
+            for (k, b64) in map {
+                guard b64 != "file", let clean = cleanBase64(b64, dark: dark) else { continue }
+                map[k] = clean
+                mapChanged = true
+            }
+            if mapChanged { obj[key] = map; changed = true }
+        }
+        cleanField("wallpaperJPEGBase64", dark: false)
+        cleanField("wallpaperDarkJPEGBase64", dark: true)
+        cleanField("thinkingCardJPEGBase64", dark: false)
+        cleanField("inputBarJPEGBase64", dark: false)
+        cleanField("characterArtBase64", dark: false)
+        cleanMap("pageWallpapers", dark: false)
+        cleanMap("pageDarkWallpapers", dark: true)
+        cleanMap("categoryImages", dark: false)
+        guard changed else { return nil }
+        return try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
+    }
+
     /// Keys that mark JSON as an Appearance theme pack (partial / legacy OK).
     private static let themePackSignalKeys: Set<String> = [
         "schema",
@@ -1538,6 +1600,15 @@ extension AppearanceStudio {
                 }
             }
             pack.categoryImages = images
+        } else {
+            // [P3-4] Without images the export carries no category
+            // pictures at all — not even the stored markers. A stored
+            // marker can still be a pre-gate raw base64 (a failed
+            // write used to leave it in the pack), and this branch
+            // previously kept it verbatim, so an image-less export
+            // could still ship EXIF. An empty map decodes back to
+            // "no category images", same as a pack that never had any.
+            pack.categoryImages = [:]
         }
         return pack
     }
@@ -1580,6 +1651,10 @@ extension AppearanceStudio {
         // `exportThemePack` — so no parameter threading is needed, and the
         // three reader signatures the standalone tests pin by string stay
         // exactly as they are.
+        // [P3-1] The single intended matte source is this current theme
+        // canvas (`hex(.canvas)`), same as the launch migration — see
+        // `backgroundJPEG` for the known divergence (the write path reads
+        // the palette book's built-ins instead). Behaviour unchanged.
         // [P3-4] Accepted: the re-encode for legacy files (HEIC/GIF,
         // orientation != up) runs on the main thread here. Making
         // `exportThemePack` async would ripple through its 5 synchronous
@@ -2328,6 +2403,15 @@ extension AppearanceStudio {
                 // Undecodable payload: keep whatever is already on disk
                 // rather than silently dropping the user's image, but
                 // say so — the caller reports this key as a warning.
+                // [P3-4] Clear the marker anyway: the stored pack was
+                // already persisted with this key's raw base64 before
+                // the write was attempted, and leaving it there would
+                // keep shipping EXIF in image-less exports and backups.
+                // The file on disk is untouched, and an empty marker is
+                // dropped by `filterCategoryMap` on the next decode —
+                // callers read the file (`hasCategoryImage`), not the
+                // marker, so the image keeps rendering.
+                pack.categoryImages[key] = ""
                 warnings.append(key)
                 continue
             }
@@ -2336,6 +2420,9 @@ extension AppearanceStudio {
                 Self.writeEncodedImageIfDecodable(data, to: url, maxEdge: 256, quality: 0.86)
             }.value
             guard written else {
+                // [P3-4] Same as above: a failed write must not leave
+                // the raw base64 marker in the stored pack.
+                pack.categoryImages[key] = ""
                 warnings.append(key)
                 continue
             }
@@ -2412,6 +2499,20 @@ extension AppearanceStudio {
                                    matte: UIColor = WallpaperPipeline.canvasMatte()) -> Bool {
         guard let image = UIImage(data: data),
               image.size.width > 0, image.size.height > 0 else { return false }
+        // [P3-8] Decode once: the overload below takes the image this
+        // guard already decoded, instead of decoding the same bytes
+        // again inside `writeEncodedImageIfDecodable`'s call.
+        return writeEncodedImage(decoded: image, data, to: url, maxEdge: maxEdge, quality: quality, matte: matte)
+    }
+
+    /// Same write, with the image already decoded by the caller.
+    /// `writeEncodedImage(_:to:...)` above and
+    /// `writeEncodedImageIfDecodable` below both funnel here so the
+    /// bytes are decoded exactly once per write.
+    @discardableResult
+    private static nonisolated func writeEncodedImage(decoded image: UIImage, _ data: Data, to url: URL,
+                                   maxEdge: CGFloat, quality: CGFloat,
+                                   matte: UIColor = WallpaperPipeline.canvasMatte()) -> Bool {
         let longest = max(image.size.width, image.size.height)
         // [P2-13] Under-limit bytes land as-is only when the format
         // has a byte-level strip (JPEG/PNG/WebP). HEIC/GIF have none,
@@ -2444,8 +2545,11 @@ extension AppearanceStudio {
     private static nonisolated func writeEncodedImageIfDecodable(_ data: Data, to url: URL,
                                       maxEdge: CGFloat, quality: CGFloat,
                                       matte: UIColor = WallpaperPipeline.canvasMatte()) -> Bool {
-        guard UIImage(data: data) != nil else { return false }
-        return writeEncodedImage(data, to: url, maxEdge: maxEdge, quality: quality, matte: matte)
+        // [P3-8] Decode once here and hand the image to the overload —
+        // the old shape decoded again inside `writeEncodedImage`.
+        guard let image = UIImage(data: data),
+              image.size.width > 0, image.size.height > 0 else { return false }
+        return writeEncodedImage(decoded: image, data, to: url, maxEdge: maxEdge, quality: quality, matte: matte)
     }
 
     private func thinkingCardURL() -> URL {

@@ -454,6 +454,360 @@ check("T-54 r2: the in-use check ignores variant bytes but not variant slots",
 check("T-54 r2: reporting the previous wallpaper looks at the variant files",
       studio.contains("for variant in [activeVariant, .light, .dark] {"))
 
+// [P2-2] Executable corpus tests for the EXIF gate. The walkers below
+// are transliterations of `WallpaperPipeline.stripJPEGMetadata` /
+// `stripPNGMetadata` / `stripWebPMetadata` in AppearanceStudio.swift,
+// run here on real Pillow-made files (base64 below) so the byte logic is
+// exercised, not just asserted by string. Decode-ability of the stripped
+// output is verified by the Python mirror (/tmp/exif_gate_mirror.py,
+// Pillow: stripped output decodes pixel-identical to the original);
+// this script has no UIImage, so it asserts structure instead: exact
+// golden lengths, segment/chunk inventories, and byte-identical image
+// payloads. The UIImage-dependent gate branches (decode, orientation,
+// re-encode) are covered by the routing table + string pins below.
+func exifStripJPEG(_ bytes: [UInt8]) -> [UInt8] {
+    var out: [UInt8] = []
+    out.reserveCapacity(bytes.count)
+    guard bytes.count >= 4 else { return bytes }
+    out.append(contentsOf: bytes[0..<2])
+    var i = 2
+    while i < bytes.count {
+        guard bytes[i] == 0xFF, i + 1 < bytes.count else { return bytes }
+        let marker = bytes[i + 1]
+        if marker == 0xFF { i += 1; continue }
+        if marker == 0xD9 {
+            out.append(contentsOf: bytes[i..<(i + 2)])
+            return out
+        }
+        if marker == 0xDA {
+            guard bytes.count - i >= 4 else { return bytes }
+            let segLen = (Int(bytes[i + 2]) << 8) | Int(bytes[i + 3])
+            guard segLen >= 2, bytes.count - i >= 2 + segLen else { return bytes }
+            var j = i + 2 + segLen
+            var scanEnded = false
+            while j < bytes.count {
+                guard bytes[j] == 0xFF else { j += 1; continue }
+                guard j + 1 < bytes.count else { return bytes }
+                let next = bytes[j + 1]
+                if next == 0xFF { j += 1; continue }
+                if next == 0x00 { j += 2; continue }
+                if next >= 0xD0 && next <= 0xD7 { j += 2; continue }
+                if next == 0xD9 {
+                    out.append(contentsOf: bytes[i...(j + 1)])
+                    return out
+                }
+                out.append(contentsOf: bytes[i..<j])
+                i = j
+                scanEnded = true
+                break
+            }
+            guard scanEnded else { return bytes }
+            continue
+        }
+        guard bytes.count - i >= 4 else { return bytes }
+        let len = (Int(bytes[i + 2]) << 8) | Int(bytes[i + 3])
+        guard len >= 2, bytes.count - i >= 2 + len else { return bytes }
+        if marker != 0xE1 && marker != 0xED && marker != 0xFE {
+            out.append(contentsOf: bytes[i..<(i + 2 + len)])
+        }
+        i += 2 + len
+    }
+    return out
+}
+
+func exifStripPNG(_ bytes: [UInt8]) -> [UInt8] {
+    var out: [UInt8] = []
+    out.reserveCapacity(bytes.count)
+    guard bytes.count >= 8 else { return bytes }
+    var i = 8
+    out.append(contentsOf: bytes[0..<8])
+    var sawIDAT = false
+    while i < bytes.count {
+        guard bytes.count - i >= 8 else { return out }
+        let len = (Int(bytes[i]) << 24) | (Int(bytes[i + 1]) << 16) | (Int(bytes[i + 2]) << 8) | Int(bytes[i + 3])
+        let type = String(decoding: bytes[(i + 4)..<(i + 8)], as: UTF8.self)
+        guard len >= 0, bytes.count - i >= 12 + len else {
+            return (sawIDAT && type != "IDAT") ? out : bytes
+        }
+        if type != "eXIf" && type != "tEXt" && type != "iTXt" && type != "zTXt" && type != "tIME" {
+            out.append(contentsOf: bytes[i..<(i + 12 + len)])
+        }
+        if type == "IDAT" { sawIDAT = true }
+        if type == "IEND" { return out }
+        i += 12 + len
+    }
+    return out
+}
+
+func exifStripWebP(_ bytes: [UInt8]) -> [UInt8] {
+    var out: [UInt8] = []
+    out.reserveCapacity(bytes.count)
+    guard bytes.count >= 12 else { return bytes }
+    var i = 12
+    out.append(contentsOf: bytes[0..<12])
+    var vp8xFlagOffset: Int? = nil
+    var droppedEXIF = false
+    var droppedXMP = false
+    var sawChunk = false
+    var sawImage = false
+    while i < bytes.count {
+        guard bytes.count - i >= 8 else { break }
+        let type = String(decoding: bytes[i..<(i + 4)], as: UTF8.self)
+        let len = Int(bytes[i + 4]) | (Int(bytes[i + 5]) << 8) | (Int(bytes[i + 6]) << 16) | (Int(bytes[i + 7]) << 24)
+        guard len >= 0, bytes.count - i >= 8 + len else {
+            if !sawImage { return bytes }
+            if type == "EXIF" { droppedEXIF = true } else if type == "XMP " { droppedXMP = true }
+            break
+        }
+        let chunkLen = 8 + len + (len % 2)
+        if bytes.count - i < chunkLen {
+            if type == "VP8 " || type == "VP8L" { return bytes }
+            if type == "EXIF" { droppedEXIF = true } else if type == "XMP " { droppedXMP = true }
+            sawChunk = true
+            break
+        }
+        sawChunk = true
+        if type == "VP8X", len == 10 { vp8xFlagOffset = out.count + 8 }
+        if type == "VP8 " || type == "VP8L" { sawImage = true }
+        if type != "EXIF" && type != "XMP " {
+            out.append(contentsOf: bytes[i..<(i + chunkLen)])
+        } else if type == "EXIF" {
+            droppedEXIF = true
+        } else {
+            droppedXMP = true
+        }
+        i += chunkLen
+    }
+    guard sawChunk else { return bytes }
+    if let flagOffset = vp8xFlagOffset {
+        var flags = out[flagOffset]
+        if droppedEXIF { flags &= ~0x08 }
+        if droppedXMP { flags &= ~0x04 }
+        out[flagOffset] = flags
+    }
+    let newSize = UInt32(out.count - 8)
+    out[4] = UInt8(newSize & 0xFF)
+    out[5] = UInt8((newSize >> 8) & 0xFF)
+    out[6] = UInt8((newSize >> 16) & 0xFF)
+    out[7] = UInt8((newSize >> 24) & 0xFF)
+    return out
+}
+
+func exifJPEGMarkers(_ bytes: [UInt8]) -> [UInt8] {
+    var markers: [UInt8] = []
+    var i = 2
+    while i + 1 < bytes.count {
+        if bytes[i] != 0xFF { break }
+        let marker = bytes[i + 1]
+        if marker == 0xFF { i += 1; continue }
+        markers.append(marker)
+        if marker == 0xD9 { break }
+        if marker == 0xDA { break }
+        if bytes.count - i < 4 { break }
+        let len = (Int(bytes[i + 2]) << 8) | Int(bytes[i + 3])
+        if len < 2 || bytes.count - i < 2 + len { break }
+        i += 2 + len
+    }
+    return markers
+}
+
+func exifPNGTypes(_ bytes: [UInt8]) -> [String] {
+    var types: [String] = []
+    var i = 8
+    while i + 8 <= bytes.count {
+        let len = (Int(bytes[i]) << 24) | (Int(bytes[i + 1]) << 16) | (Int(bytes[i + 2]) << 8) | Int(bytes[i + 3])
+        let type = String(decoding: bytes[(i + 4)..<(i + 8)], as: UTF8.self)
+        types.append(type)
+        if len < 0 || bytes.count - i < 12 + len { break }
+        if type == "IEND" { break }
+        i += 12 + len
+    }
+    return types
+}
+
+func exifWebPTypes(_ bytes: [UInt8]) -> [String] {
+    var types: [String] = []
+    var i = 12
+    while i + 8 <= bytes.count {
+        let type = String(decoding: bytes[i..<(i + 4)], as: UTF8.self)
+        let len = Int(bytes[i + 4]) | (Int(bytes[i + 5]) << 8) | (Int(bytes[i + 6]) << 16) | (Int(bytes[i + 7]) << 24)
+        types.append(type)
+        if len < 0 || bytes.count - i < 8 + len { break }
+        i += 8 + len + (len % 2)
+    }
+    return types
+}
+
+func exifPNGChunkPayload(_ bytes: [UInt8], _ want: String) -> [UInt8] {
+    var i = 8
+    while i + 8 <= bytes.count {
+        let len = (Int(bytes[i]) << 24) | (Int(bytes[i + 1]) << 16) | (Int(bytes[i + 2]) << 8) | Int(bytes[i + 3])
+        let type = String(decoding: bytes[(i + 4)..<(i + 8)], as: UTF8.self)
+        if len < 0 || bytes.count - i < 12 + len { return [] }
+        if type == want { return Array(bytes[(i + 8)..<(i + 8 + len)]) }
+        if type == "IEND" { return [] }
+        i += 12 + len
+    }
+    return []
+}
+
+func exifWebPChunkPayload(_ bytes: [UInt8], _ want: String) -> [UInt8] {
+    var i = 12
+    while i + 8 <= bytes.count {
+        let type = String(decoding: bytes[i..<(i + 4)], as: UTF8.self)
+        let len = Int(bytes[i + 4]) | (Int(bytes[i + 5]) << 8) | (Int(bytes[i + 6]) << 16) | (Int(bytes[i + 7]) << 24)
+        if len < 0 || bytes.count - i < 8 + len { return [] }
+        if type == want { return Array(bytes[(i + 8)..<(i + 8 + len)]) }
+        i += 8 + len + (len % 2)
+    }
+    return []
+}
+
+func exifContains(_ bytes: [UInt8], _ needle: [UInt8]) -> Bool {
+    if needle.count == 0 || bytes.count < needle.count { return false }
+    var i = 0
+    while i + needle.count <= bytes.count {
+        var match = true
+        var k = 0
+        while k < needle.count {
+            if bytes[i + k] != needle[k] { match = false; break }
+            k += 1
+        }
+        if match { return true }
+        i += 1
+    }
+    return false
+}
+
+func exifJPEGScan(_ bytes: [UInt8]) -> [UInt8] {
+    var i = 2
+    while i + 1 < bytes.count {
+        if bytes[i] != 0xFF { return [] }
+        let marker = bytes[i + 1]
+        if marker == 0xD9 { return [] }
+        if marker == 0xDA {
+            let len = (Int(bytes[i + 2]) << 8) | Int(bytes[i + 3])
+            let start = i + 2 + len
+            var j = start
+            while j + 1 < bytes.count {
+                if bytes[j] == 0xFF && bytes[j + 1] == 0xD9 { return Array(bytes[start..<j]) }
+                j += 1
+            }
+            return []
+        }
+        let len = (Int(bytes[i + 2]) << 8) | Int(bytes[i + 3])
+        i += 2 + len
+    }
+    return []
+}
+
+// [P2-1] Gate routing table, mirroring `exportableImageData`'s branches:
+// undecodable -> nil, strippable + orientation up -> byte strip,
+// anything else -> re-encode. The UIImage decode / render itself is
+// not executable here; the string pins below tie the table to the
+// real function.
+func exifGateRoute(strippable: Bool, orientationUp: Bool, decodable: Bool) -> String {
+    if !decodable { return "nil" }
+    if strippable && orientationUp { return "strip" }
+    return "reencode"
+}
+
+// [P3-2] Migration re-read guard, mirroring the decision in
+// `migrateThemeImageMetadata` / `migrateLibraryPackMetadata`: write
+// only when the file on disk is still the bytes that were read, and
+// only when cleaning actually changed something. No reachable case
+// for the residual microsecond TOCTOU window was proven, so no code
+// change rides with this test — it pins the guard that bounds it.
+func exifMigrationShouldWrite(original: [UInt8], current: [UInt8], clean: [UInt8]) -> Bool {
+    if clean == original { return false }
+    return current == original
+}
+
+// Corpora: Pillow-made 24x16 images (see /tmp/exif_gate_mirror.py).
+// JPEG carries a GPS EXIF APP1 + COM + APP13 and trailing garbage after
+// EOI (including a fake EOI + fake APP1 inside the garbage). PNG carries
+// eXIf + tEXt + tIME and trailing garbage after IEND. WebP carries EXIF
+// + XMP chunks and trailing garbage.
+let jpegTrailB64 = "/9j/7QAaUGhvdG9zaG9wIDMuMAA4QklNBAQAAAAA//4ACGhlbGxvIf/hAIhFeGlmAABJSSoACAAAAAEAJYgEAAEAAAAaAAAAAAAAAAQAAQACAAIAAABOAAAAAgAFAAMAAABQAAAAAwACAAIAAABFAAAABAAFAAMAAABoAAAAAAAAACUAAAABAAAALgAAAAEAAAAeAAAAAQAAAHoAAAABAAAACgAAAAEAAAAAAAAAAQAAAP/gABBKRklGAAEBAAABAAEAAP/bAEMABgQFBgUEBgYFBgcHBggKEAoKCQkKFA4PDBAXFBgYFxQWFhodJR8aGyMcFhYgLCAjJicpKikZHy0wLSgwJSgpKP/bAEMBBwcHCggKEwoKEygaFhooKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKP/AABEIABAAGAMBIgACEQEDEQH/xAAfAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgv/xAC1EAACAQMDAgQDBQUEBAAAAX0BAgMABBEFEiExQQYTUWEHInEUMoGRoQgjQrHBFVLR8CQzYnKCCQoWFxgZGiUmJygpKjQ1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4eLj5OXm5+jp6vHy8/T19vf4+fr/xAAfAQADAQEBAQEBAQEBAAAAAAAAAQIDBAUGBwgJCgv/xAC1EQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/APGtM8MdP3f6V1emeGOnyfpXpGmeGOnyfpXV6Z4Y6fu/0rPDYs8fJeKNvePONM8MdPk/SivcbDw2sab3UBR1JFFd9TOsLhbRr1Yxb7yS/Nn6hguJpSpKzP/Z3q2+70V4aWYAAEZBS0VHUFP/2f/hAIhFeGlmAABJSSoACAAAAAEAJYgEAAEAAAAaAAAAAAAAAAQAAQACAAIAAABOAAAAAgAFAAMAAABQAAAAAwACAAIAAABFAAAABAAFAAMAAABoAAAAAAAAACUAAAABAAAALgAAAAEAAAAeAAAAAQAAAHoAAAABAAAACgAAAAEAAAAAAAAAAQAAAA=="
+let pngTrailB64 = "iVBORw0KGgoAAAANSUhEUgAAABgAAAAQCAIAAACDRijCAAAAB3RJTUUH6gsMFwAAX2SpGAAAAA10RVh0Q29tbWVudABoZWxsb+b/riQAAAAkZVhJZk1NACoAAAAIAAEBDwACAAAACQAAABoAAAAAVGVzdE1ha2UAAJV/N/MAAAAiSURBVHicY2RgYOBmYKccsTAIsjMwUAGNGjRq0KhBI9UgAP7gDLMpXKBlAAAAAElFTkSuQmCCR0FSQkFHRWVYSWZGQUtF"
+let webpTrailB64 = "UklGRkQBAABXRUJQVlA4WAoAAAAMAAAAFwAADwAAVlA4IIAAAABQBACdASoYABAAPm0qkUWkIqGYBABABsS2AE6ZQjgb0B8AAKAcQt8Aqf7AAP7/oaztw4nG5MpE9oH2VqpvuHen7YWO82lGJzi95IMe8xzWncLzD+YlxUP1figBg4Zh5pDR6ynJhDd6/yfr9jAO3a6D9I/xgW/4L4kltpB11R8AAEVYSUYkAAAATU0AKgAAAAgAAQEPAAIAAAAJAAAAGgAAAABUZXN0TWFrZQAAWE1QIHIAAAA8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIj48cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiLz48L3g6eG1wbWV0YT4BAgNFWElGRkFLRQ=="
+
+let jpegTrail = [UInt8](Data(base64Encoded: jpegTrailB64) ?? Data())
+let pngTrail = [UInt8](Data(base64Encoded: pngTrailB64) ?? Data())
+let webpTrail = [UInt8](Data(base64Encoded: webpTrailB64) ?? Data())
+
+let jpegStripped = exifStripJPEG(jpegTrail)
+check("P2-1: JPEG strip drops APP1/COM/APP13 and trailing garbage (golden length 712)", jpegStripped.count == 712)
+check("P2-1: JPEG stripped ends exactly at EOI", jpegStripped.count >= 2 && jpegStripped[jpegStripped.count - 2] == 0xFF && jpegStripped[jpegStripped.count - 1] == 0xD9)
+check("P2-1: JPEG stripped has no APP1/COM/APP13 segment left", !exifJPEGMarkers(jpegStripped).contains(0xE1) && !exifJPEGMarkers(jpegStripped).contains(0xED) && !exifJPEGMarkers(jpegStripped).contains(0xFE))
+check("P2-1: JPEG corpus did carry APP1/COM/APP13 to drop", exifJPEGMarkers(jpegTrail).contains(0xE1) && exifJPEGMarkers(jpegTrail).contains(0xED) && exifJPEGMarkers(jpegTrail).contains(0xFE))
+check("P2-1: JPEG scan data is byte-identical after strip", exifJPEGScan(jpegStripped) == exifJPEGScan(jpegTrail))
+check("P2-1: JPEG stripped has no trailing garbage bytes", !exifContains(jpegStripped, [0xDE, 0xAD, 0xBE, 0xEF]))
+check("P2-1: JPEG clean input passes through unchanged", exifStripJPEG(Array(jpegStripped)) == jpegStripped)
+check("P2-1: JPEG truncated scan returns original bytes", exifStripJPEG(Array(jpegStripped.dropLast(5))) == Array(jpegStripped.dropLast(5)))
+
+let pngStripped = exifStripPNG(pngTrail)
+check("P3-5: PNG strip drops eXIf/tEXt/tIME (golden length 91)", pngStripped.count == 91)
+check("P3-5: PNG stripped keeps IDAT and ends at IEND", exifPNGTypes(pngStripped).contains("IDAT") && exifPNGTypes(pngStripped).last == "IEND")
+check("P3-5: PNG stripped has no eXIf/tEXt/tIME left", !exifPNGTypes(pngStripped).contains("eXIf") && !exifPNGTypes(pngStripped).contains("tEXt") && !exifPNGTypes(pngStripped).contains("tIME"))
+check("P3-5: PNG corpus did carry eXIf/tEXt/tIME to drop", exifPNGTypes(pngTrail).contains("eXIf") && exifPNGTypes(pngTrail).contains("tEXt") && exifPNGTypes(pngTrail).contains("tIME"))
+check("P3-5: PNG IDAT payload is byte-identical after strip", exifPNGChunkPayload(pngStripped, "IDAT") == exifPNGChunkPayload(pngTrail, "IDAT"))
+
+let webpStripped = exifStripWebP(webpTrail)
+check("P2-1: WebP strip drops EXIF/XMP and trailing garbage (golden length 166)", webpStripped.count == 166)
+check("P2-1: WebP stripped has no EXIF/XMP chunk left", !exifWebPTypes(webpStripped).contains("EXIF") && !exifWebPTypes(webpStripped).contains("XMP "))
+check("P2-1: WebP corpus did carry EXIF/XMP to drop", exifWebPTypes(webpTrail).contains("EXIF") && exifWebPTypes(webpTrail).contains("XMP "))
+check("P2-1: WebP RIFF size matches stripped length", webpStripped.count >= 8 && Int(webpStripped[4]) | (Int(webpStripped[5]) << 8) | (Int(webpStripped[6]) << 16) | (Int(webpStripped[7]) << 24) == webpStripped.count - 8)
+check("P2-1: WebP VP8 payload is byte-identical after strip", exifWebPChunkPayload(webpStripped, "VP8 ") == exifWebPChunkPayload(webpTrail, "VP8 "))
+
+// Walker fallback invariants: a truncated chunk before any image data
+// returns the original bytes — and the gate (routing table below) turns
+// those undecodable bytes into nil, so they never land.
+let pngSig: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+let pngIHDR: [UInt8] = [0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 24, 0, 0, 0, 16, 8, 2, 0, 0, 0, 0, 0, 0, 0]
+let pngTruncExif: [UInt8] = pngSig + pngIHDR + [0, 0, 1, 244, 0x65, 0x58, 0x49, 0x66] + [UInt8](repeating: 0, count: 10)
+check("P2-2: truncated eXIf before IDAT returns original bytes", exifStripPNG(pngTruncExif) == pngTruncExif)
+let pngTruncIDAT: [UInt8] = pngSig + pngIHDR + [0, 0, 0, 4, 0x49, 0x44, 0x41, 0x54, 1, 2, 3, 4, 0, 0, 0, 0] + [0, 1, 0x86, 0xA0, 0x49, 0x44, 0x41, 0x54] + [UInt8](repeating: 0, count: 20)
+check("P2-2: truncated 2nd IDAT returns original bytes", exifStripPNG(pngTruncIDAT) == pngTruncIDAT)
+let webpNoPad: [UInt8] = [0x52, 0x49, 0x46, 0x46, 30, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x58, 10, 0, 0, 0, 0x18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x56, 0x50, 0x38, 0x20, 5, 0, 0, 0, 1, 2, 3, 4, 5]
+check("P2-2: VP8 chunk missing its pad byte returns original bytes", exifStripWebP(webpNoPad) == webpNoPad)
+
+check("P2-2: gate routes orientation-up strippable to strip", exifGateRoute(strippable: true, orientationUp: true, decodable: true) == "strip")
+check("P2-2: gate routes orientation!=up to re-encode", exifGateRoute(strippable: true, orientationUp: false, decodable: true) == "reencode")
+check("P2-2: gate routes HEIC/GIF to re-encode", exifGateRoute(strippable: false, orientationUp: true, decodable: true) == "reencode")
+check("P2-2: gate returns nil for undecodable bytes", exifGateRoute(strippable: true, orientationUp: true, decodable: false) == "nil")
+check("P2-2: gate returns nil for undecodable strippable bytes (no strip fallback)", exifGateRoute(strippable: true, orientationUp: false, decodable: false) == "nil")
+check("P3-2: migration writes when disk still holds the read bytes and cleaning changed something", exifMigrationShouldWrite(original: [1, 2, 3], current: [1, 2, 3], clean: [1, 2, 9]))
+check("P3-2: migration skips when a picker swapped the file mid-flight", !exifMigrationShouldWrite(original: [1, 2, 3], current: [4, 5, 6], clean: [1, 2, 9]))
+check("P3-2: migration skips when cleaning changed nothing", !exifMigrationShouldWrite(original: [1, 2, 3], current: [1, 2, 3], clean: [1, 2, 3]))
+
+// String pins: the table above only means something if the real
+// functions have the same shape.
+check("P2-2: exportableImageData returns nil for undecodable bytes",
+      studio.contains("guard let image = UIImage(data: data),")
+      && studio.contains("image.size.width > 0, image.size.height > 0 else { return nil }"))
+check("P2-1: JPEG walker scans to EOI instead of copying to end of file",
+      studio.contains("if next == 0xD9 { // EOI: copy through it, drop the rest"))
+check("P3-5: PNG walker drops tIME alongside the text chunks",
+      studio.contains("typeString != \"tIME\""))
+check("P3-2: migration re-reads before writing (TOCTOU guard)",
+      studio.contains("guard let current = try? Data(contentsOf: url), current == data else { continue }"))
+check("P1-1: pack-JSON cleaner enumerates the image base64 fields",
+      pack.contains("cleanField(\"wallpaperJPEGBase64\", dark: false)")
+      && pack.contains("cleanField(\"wallpaperDarkJPEGBase64\", dark: true)")
+      && pack.contains("cleanMap(\"categoryImages\", dark: false)")
+      && pack.contains("cleanMap(\"pageWallpapers\", dark: false)"))
+check("P1-1: launch migration also covers library packs",
+      studio.contains("func migrateLibraryPackMetadata(lightCanvasHex: String, darkCanvasHex: String)"))
+check("P3-4: failed category-image write clears the marker instead of leaving raw base64",
+      pack.contains("pack.categoryImages[key] = \"\""))
+check("P3-4: image-less export omits category images",
+      pack.contains("pack.categoryImages = [:]"))
+check("P3-8: IfDecodable decodes once and hands the image to the overload",
+      pack.contains("writeEncodedImage(decoded: image, data, to: url, maxEdge: maxEdge, quality: quality, matte: matte)"))
+check("P3-6: stale icon task drops its result before writing",
+      studio.contains("guard generation == Self.currentIconGeneration(for: id) else { return nil }"))
+
 // [T-39] Backend APIs remain; UI wiring is intentionally pending a user-approved redesign.
 check("backend retains user avatar setter", studio.contains("func setUserAvatar"))
 check("backend retains character-art API", pack.contains("func setCharacterArtImage"))
