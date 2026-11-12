@@ -872,10 +872,6 @@ struct ContentView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var shareCoordinator: ShareCoordinator
-    // [glass-switch] Observe the global glass switch so every material
-    // on this page flips to its solid fallback when the user turns glass off.
-    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
-
     /// [glass-switch] 首页浮层底：玻璃开 = 材质，关 = 首页实底面色。
     private var homeChromeFill: AnyShapeStyle {
         appearanceStudio.glassEnabled
@@ -919,6 +915,7 @@ struct ContentView: View {
     // refresh the rows, not the header pass.
     @ObservedObject private var sidebarBadgeStore = SessionBadgeStore.shared
     @ObservedObject private var sidebarConcurrencyManager = SessionConcurrencyManager.shared
+    // [glass-switch] Observe the global glass switch so materials on this page flip to their solid fallback when the user turns glass off.
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     @ObservedObject private var fontSettings = FontSettings.shared
     @State private var sessions: [ChatSession] = []
