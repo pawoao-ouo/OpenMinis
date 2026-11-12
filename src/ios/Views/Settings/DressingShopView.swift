@@ -1519,6 +1519,7 @@ struct DressingWallpaperArtSheet: View {
                 }
             }
             .padding(DressingTokens.Padding.card)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(CSSThemeVariables.card(scope: .settings))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
@@ -1586,6 +1587,7 @@ struct DressingWallpaperArtSheet: View {
                 }
             }
             .padding(DressingTokens.Padding.card)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(CSSThemeVariables.card(scope: .settings))
             .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
             .overlay(
@@ -3019,6 +3021,7 @@ struct DressingTypographySheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
@@ -3368,6 +3371,7 @@ struct DressingDetailsIconsSheet: View {
             }
         }
         .padding(DressingTokens.Padding.card)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
         .overlay(
