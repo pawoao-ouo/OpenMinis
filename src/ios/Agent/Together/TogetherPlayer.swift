@@ -164,7 +164,13 @@ final class TogetherPlayer: ObservableObject {
             BackgroundKeepAliveManager.shared.suspendSilentAudioForMedia()
             didSuspendSilentAudio = true
         }
-        AudioSessionCoordinator.shared.begin(.mediaAttachment)
+        // 只有真的要响才拿会话名额：冷启动装回暂停的歌、或跟随收敛到一首
+        // 不响的歌时，旧歌的名额到此为止——不结束，duckOthers 档会一直占着。
+        if autoplay {
+            AudioSessionCoordinator.shared.begin(.togetherPlayback)
+        } else {
+            AudioSessionCoordinator.shared.end(.togetherPlayback)
+        }
 
         addPeriodicObserver()
         addEndObserver()
@@ -314,6 +320,9 @@ final class TogetherPlayer: ObservableObject {
             currentTime = 0
             reportProgress(force: true)
         }
+        // 开始响才拿名额：load() 只在 autoplay 时拿，冷启动装回暂停的歌
+        // 和压音暂停后恢复都要经过这里。Set 插入幂等，已持有时是空操作。
+        AudioSessionCoordinator.shared.begin(.togetherPlayback)
         p.play()
         isPlaying = true
         VoiceNowPlaying.shared.refresh()
@@ -321,6 +330,9 @@ final class TogetherPlayer: ObservableObject {
 
     func pause() {
         player?.pause()
+        // 停下就还名额：压音暂停时 .replyTTS 还攥着会话，不会整段关掉；
+        // 用户亲手停、来电打断、耳机拔掉时，这里就是释放点。
+        AudioSessionCoordinator.shared.end(.togetherPlayback)
         isPlaying = false
         reportProgress(force: true)
         VoiceNowPlaying.shared.refresh()
@@ -595,6 +607,9 @@ final class TogetherPlayer: ObservableObject {
 
     func stop() {
         teardown()
+        // 停就还名额：teardown() 本身不碰会话（换歌时它在 load() 开头跑，
+        // 那里还了又拿是多余的 deactivate→activate），停的路在这里还。
+        AudioSessionCoordinator.shared.end(.togetherPlayback)
         track = nil
         isPlaying = false
         currentTime = 0
@@ -1092,6 +1107,8 @@ final class TogetherPlayer: ObservableObject {
         unknownWatchdog?.cancel()
         unknownWatchdog = nil
         isPlaying = false
+        // 坏文件永远不会响：名额到此为止，不能让死播放器继续占着会话。
+        AudioSessionCoordinator.shared.end(.togetherPlayback)
         store.setPlaying(false, by: preservedActor())
         reportProgress(force: true)
         VoiceNowPlaying.shared.refresh()
@@ -1132,7 +1149,9 @@ final class TogetherPlayer: ObservableObject {
         // 队列到头、没开全部循环：停在这儿，不自己绕回第一首。
         // "停下"也要落盘攥住，不然重开 App 又自己响起来，也别让 AI 悄悄续上。
         userHeldPause = true
-        isPlaying = false
+        // 走 pause() 而不是只改标志：播完了也要把会话名额还回去。
+        // player 在 item 结束时已经自己停了，pause() 里再停一次是空操作。
+        pause()
         currentTime = duration
         store.setPlaying(false, by: actor, heldPause: true)
         reportProgress(force: true)

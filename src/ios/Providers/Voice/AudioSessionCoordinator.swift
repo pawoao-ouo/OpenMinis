@@ -22,6 +22,14 @@ import UIKit
 //                         intent set is not refcounted, so sharing `.replyTTS`
 //                         would let the clip's end() drop the session under TTS.
 //                         Ranked below `.replyTTS` so TTS always wins.
+//   .togetherPlayback   — Together (一起听) background music (.playback/.default, [.duckOthers]).
+//                         Same profile as `.mediaAttachment` but its own intent:
+//                         the music player and the attachment players are
+//                         independent holders — sharing one intent let an
+//                         attachment's end() drop the session under playing
+//                         music, and Together's load() never ended it, so the
+//                         session stayed held (duckOthers) for the life of the
+//                         app. Ranked below `.replyTTS` so TTS always wins.
 //   .offloadPlayback    — apple-player offload video (.playback/.mixWithOthers).
 //                         Its own intent (not `.backgroundKeepAlive`) because
 //                         it is FOREGROUND audible playback: reassertForForeground
@@ -52,10 +60,11 @@ final class AudioSessionCoordinator {
         case backgroundKeepAlive = 0
         case backupKeepAlive = 1
         case offloadPlayback = 2
-        case quickTestClip = 3
-        case replyTTS = 4
-        case mediaAttachment = 5
-        case capture = 6
+        case togetherPlayback = 3
+        case quickTestClip = 4
+        case replyTTS = 5
+        case mediaAttachment = 6
+        case capture = 7
     }
 
     private let logger = AppLogger(category: "AudioSession")
@@ -188,6 +197,11 @@ final class AudioSessionCoordinator {
         case .capture:
             return (.record, .measurement, [])
         case .mediaAttachment:
+            return (.playback, .default, [.duckOthers])
+        case .togetherPlayback:
+            // Same profile as `.mediaAttachment` — its own case only so
+            // Together and the attachment players have independent
+            // lifecycles (see the header comment).
             return (.playback, .default, [.duckOthers])
         case .replyTTS:
             return (.playback, .spokenAudio, [.duckOthers])
