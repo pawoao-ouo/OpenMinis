@@ -171,7 +171,7 @@ extension AIChatViewModel {
             // here to avoid log spam; the open-time trigger event already
             // captured the entry, and dismiss/select cover the exit.
             let count = filteredMentionEntries.count
-            if count == 0 {
+            if count == 0, mentionSelectedIndex != -1 {
                 mentionSelectedIndex = -1
             } else if mentionSelectedIndex < 0 || mentionSelectedIndex >= count {
                 mentionSelectedIndex = 0

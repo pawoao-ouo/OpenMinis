@@ -103,16 +103,42 @@ enum WallpaperPipeline {
     /// included — GPS + device tags rode into the sandbox and back out on
     /// export. Uniform re-encoding would cost a generation loss on every
     /// apply (see `writeEncodedImage`'s doc), so instead this drops only
-    /// the metadata segments: JPEG APP1 (Exif + XMP) and PNG eXIf/text
-    /// chunks. HEIC/WebP/GIF have no byte-level strip here and pass
-    /// through unchanged — they only reach disk via the re-encode paths
-    /// (`backgroundJPEG` / `writeDownscaledJPEG`), which drop metadata
-    /// by construction. Any malformed input returns the original bytes
-    /// untouched: never corrupt a file to strip a tag.
+    /// the metadata segments: JPEG APP1 (Exif + XMP), PNG eXIf/text
+    /// chunks, and WebP EXIF/XMP chunks. HEIC and GIF have no byte-level
+    /// strip here and MUST NOT be written as-is — callers route them
+    /// through the re-encode paths (`backgroundJPEG` /
+    /// `writeDownscaledJPEG`), which drop metadata by construction
+    /// (see `byteLevelStrippable`). The old comment's claim that they
+    /// "only reach disk via the re-encode paths" was wrong: there was
+    /// no format gate, so an under-limit HEIC landed with its EXIF.
+    /// Any malformed input returns the original bytes untouched: never
+    /// corrupt a file to strip a tag.
     nonisolated static func strippedMetadata(_ data: Data) -> Data {
         if data.starts(with: [0xFF, 0xD8]) { return stripJPEGMetadata(data) }
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return stripPNGMetadata(data) }
+        if isWebP(data) { return stripWebPMetadata(data) }
         return data
+    }
+
+    /// Whether `strippedMetadata` actually strips this data. JPEG, PNG
+    /// and WebP are covered byte-for-byte; HEIC (BMFF item tables — no
+    /// safe byte-level cut exists at this layer) and GIF (no EXIF
+    /// segment, and its comment/application extensions are not walked
+    /// here) are not. Callers must re-encode those instead of landing
+    /// the raw bytes, or EXIF rides in unchanged.
+    nonisolated static func byteLevelStrippable(_ data: Data) -> Bool {
+        data.starts(with: [0xFF, 0xD8])
+            || data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+            || isWebP(data)
+    }
+
+    /// "RIFF" + size + "WEBP". Kept separate so both `strippedMetadata`
+    /// and `byteLevelStrippable` sniff the same 12 bytes.
+    nonisolated private static func isWebP(_ data: Data) -> Bool {
+        guard data.count >= 12 else { return false }
+        let head = [UInt8](data.prefix(12))
+        return head[0] == 0x52 && head[1] == 0x49 && head[2] == 0x46 && head[3] == 0x46
+            && head[8] == 0x57 && head[9] == 0x45 && head[10] == 0x42 && head[11] == 0x50
     }
 
     /// JPEG: walk segments, drop APP1 (0xFFE1, Exif + XMP), copy the rest
@@ -169,6 +195,64 @@ enum WallpaperPipeline {
             }
             i = data.index(i, offsetBy: 12 + len)
         }
+        return out
+    }
+
+    /// WebP: RIFF container — walk chunks, drop EXIF + XMP, copy the
+    /// rest whole (id + size + payload + pad move as one unit, so the
+    /// image data is untouched). Chunks are id-first, unlike PNG's
+    /// size-first layout. The RIFF size field (bytes 4-7, file size
+    /// minus 8) is rewritten to match, and a VP8X chunk's EXIF/XMP
+    /// flags are cleared when their chunks were dropped, so the flags
+    /// never claim metadata that is no longer there.
+    nonisolated private static func stripWebPMetadata(_ data: Data) -> Data {
+        var out = Data()
+        out.reserveCapacity(data.count)
+        guard data.count >= 12 else { return data }
+        var i = data.index(data.startIndex, offsetBy: 12)
+        out.append(data[data.startIndex..<i]) // RIFF + size + WEBP
+        var vp8xFlagOffset: Int? = nil
+        var droppedEXIF = false
+        var droppedXMP = false
+        while i < data.endIndex {
+            guard data.distance(from: i, to: data.endIndex) >= 8 else { return data }
+            let type = data[i..<data.index(i, offsetBy: 4)]
+            let len = Int(data[data.index(i, offsetBy: 4)])
+                | (Int(data[data.index(i, offsetBy: 5)]) << 8)
+                | (Int(data[data.index(i, offsetBy: 6)]) << 16)
+                | (Int(data[data.index(i, offsetBy: 7)]) << 24)
+            guard len >= 0, data.distance(from: i, to: data.endIndex) >= 8 + len else { return data }
+            let typeString = String(decoding: type, as: UTF8.self)
+            // Chunks are padded to even size with one pad byte.
+            let chunkLen = 8 + len + (len % 2)
+            guard data.distance(from: i, to: data.endIndex) >= chunkLen else { return data }
+            if typeString == "VP8X", len == 10 {
+                vp8xFlagOffset = out.count + 8
+            }
+            if typeString != "EXIF" && typeString != "XMP " {
+                out.append(data[i..<data.index(i, offsetBy: chunkLen)])
+            } else if typeString == "EXIF" {
+                droppedEXIF = true
+            } else {
+                droppedXMP = true
+            }
+            i = data.index(i, offsetBy: chunkLen)
+        }
+        // VP8X flags must match the chunks that survived: EXIF = 0x08,
+        // XMP = 0x04 (verified against Pillow-written WebPs: RGBA flags
+        // 0x10, +EXIF 0x18).
+        if let flagOffset = vp8xFlagOffset {
+            var flags = out[flagOffset]
+            if droppedEXIF { flags &= ~0x08 }
+            if droppedXMP { flags &= ~0x04 }
+            out[flagOffset] = flags
+        }
+        // Rewrite the RIFF size field: total size minus 8.
+        let newSize = UInt32(out.count - 8)
+        out[4] = UInt8(newSize & 0xFF)
+        out[5] = UInt8((newSize >> 8) & 0xFF)
+        out[6] = UInt8((newSize >> 16) & 0xFF)
+        out[7] = UInt8((newSize >> 24) & 0xFF)
         return out
     }
 }
@@ -1755,7 +1839,8 @@ final class AppearanceStudio: ObservableObject {
     ///
     /// A pack carries a JPEG; decoding it into a UIImage and re-encoding
     /// threw away a generation and inflated the file. Re-encoding now only
-    /// happens when the image is larger than the wallpaper edge limit.
+    /// happens when the image is larger than the wallpaper edge limit, or
+    /// when the format has no byte-level strip (HEIC/GIF).
     /// Under-limit bytes land as-is, metadata stripped (P2-13).
     ///
     /// [P2-3] Decode + downscale + encode run off the main thread (a 48MP
@@ -1814,13 +1899,16 @@ final class AppearanceStudio: ObservableObject {
         if let darkData {
             guard let darkImage = WallpaperPipeline.decodedImage(darkData) else { return .badDark }
             let lightJPEG = max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge
+                || !WallpaperPipeline.byteLevelStrippable(data)
                 ? backgroundJPEG(image, dark: false) : WallpaperPipeline.strippedMetadata(data)
             let darkJPEG = max(darkImage.size.width, darkImage.size.height) > WallpaperPipeline.maxEdge
+                || !WallpaperPipeline.byteLevelStrippable(darkData)
                 ? backgroundJPEG(darkImage, dark: true) : WallpaperPipeline.strippedMetadata(darkData)
             guard let lightJPEG, let darkJPEG else { return .encodeFailed }
             return .ready(light: lightJPEG, dark: darkJPEG)
         }
-        if max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge {
+        if max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge
+            || !WallpaperPipeline.byteLevelStrippable(data) {
             if hasAlpha(image) {
                 guard let light = backgroundJPEG(image, dark: false),
                       let dark = backgroundJPEG(image, dark: true) else { return .encodeFailed }
@@ -1829,8 +1917,16 @@ final class AppearanceStudio: ObservableObject {
             guard let jpeg = backgroundJPEG(image, dark: false) else { return .encodeFailed }
             return .ready(light: jpeg, dark: nil)
         }
-        // [P2-13] Under-limit bytes land as-is, but with metadata stripped
-        // first — pixels untouched, no re-encode, no quality change.
+        // [P2-13] Under-limit JPEG/PNG/WebP bytes land as-is, metadata
+        // stripped byte-for-byte — pixels untouched, no re-encode, no
+        // quality change. HEIC/GIF have no byte-level strip, so they
+        // took the re-encode branch above instead: otherwise their EXIF
+        // would ride in unchanged.
+        // Suffix note: wallpaper files are always named *.jpg. HEIC/GIF
+        // now land as real JPEG bytes, so the name is honest for them;
+        // WebP/PNG still land as their own bytes under a .jpg name —
+        // the same as PNG always did — and every reader sniffs content
+        // (`fileExtension(forHead:)`), never the suffix.
         return .ready(light: WallpaperPipeline.strippedMetadata(data), dark: nil)
     }
 

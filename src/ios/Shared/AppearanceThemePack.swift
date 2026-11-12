@@ -2342,8 +2342,9 @@ extension AppearanceStudio {
     ///
     /// Round-tripping through UIImage and re-encoding a second time cost
     /// roughly 3x the bytes and a visible generation loss on every apply.
-    /// The bytes are only re-encoded when they exceed the target edge, which
-    /// is the one case where re-encoding actually buys something.
+    /// The bytes are only re-encoded when they exceed the target edge, or
+    /// when the format has no byte-level strip (HEIC/GIF) — the cases
+    /// where re-encoding actually buys something.
     /// [P2-13] Under-limit bytes are still written as-is, but with metadata
     /// stripped first (`WallpaperPipeline.strippedMetadata`) — pixels
     /// untouched, no re-encode, no quality change. EXIF used to ride into
@@ -2356,7 +2357,14 @@ extension AppearanceStudio {
                                    maxEdge: CGFloat, quality: CGFloat) -> Bool {
         if let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 {
             let longest = max(image.size.width, image.size.height)
-            if longest > maxEdge {
+            // [P2-13] Under-limit bytes land as-is only when the format
+            // has a byte-level strip (JPEG/PNG/WebP). HEIC/GIF have none,
+            // so they go through the JPEG re-encode — otherwise their
+            // EXIF would ride in unchanged, because `strippedMetadata`
+            // passes unknown formats through untouched.
+            // (`writeDownscaledJPEG` keeps full size when under the edge:
+            // its scale is min(1, ...).)
+            if longest > maxEdge || !WallpaperPipeline.byteLevelStrippable(data) {
                 return writeDownscaledJPEG(image, to: url, maxEdge: maxEdge, quality: quality)
             }
         }
