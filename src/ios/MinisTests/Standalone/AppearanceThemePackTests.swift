@@ -434,7 +434,7 @@ check("T-54 r2: image bytes never land in UserDefaults",
       pack.contains("stored.wallpaperDarkJPEGBase64 = nil")
       && pack.contains("stored.pageDarkWallpapers = nil"))
 check("T-54 r2: import writes both variants and drops the legacy file",
-      studio.contains("func setWallpaperEncoded(_ data: Data, for scope: AppearanceScope,\n                             darkData: Data? = nil) -> Bool")
+      studio.contains("func setWallpaperEncoded(_ data: Data, for scope: AppearanceScope,\n                             darkData: Data? = nil) async -> Bool")
       && studio.contains("writeWallpaperData(darkJPEG, for: scope, variant: .dark)"))
 check("T-54 r2: apply feeds both variants in",
       pack.contains("setWallpaperEncoded(data, for: .global, darkData: darkData)")

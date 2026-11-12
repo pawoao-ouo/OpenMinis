@@ -473,6 +473,18 @@ final class AppearanceStudio: ObservableObject {
         }
     }
     @Published private(set) var wallpaperRevision = 0
+    /// [P2-5] Per-scope view revision: `wallpaperRevision` above still
+    /// advances on every wallpaper write (the preset marker compares
+    /// against it), but a backdrop's `.id()` only reads its own scope's
+    /// counter, so one page's write no longer tears down every other
+    /// page's backdrop (including its blur-28 layer). Not persisted:
+    /// a relaunch rebuilds every backdrop anyway.
+    @Published private(set) var wallpaperRevisionByScope: [AppearanceScope: Int] = [:]
+
+    /// The revision a scope's backdrop `.id()` reads.
+    func wallpaperRevision(for scope: AppearanceScope) -> Int {
+        wallpaperRevisionByScope[scope] ?? 0
+    }
     /// [P1-8] 预设“正在用”标记的内存态。只在 `applyPreset` 里写（见
     /// `recordActivePreset`），启动时从 UserDefaults 读回。`activePresetColors`
     /// 是应用那一刻整张 `customColors` 的快照——任何一处改色（全局或分页）、
@@ -1021,6 +1033,39 @@ final class AppearanceStudio: ObservableObject {
         UserDefaults.standard.set(wallpaperRevision, forKey: Keys.wallpaperRevision)
     }
 
+    /// [P2-5] Advance the global counter (the preset marker) and the
+    /// per-scope counter(s) the backdrops' `.id()` reads. A global write
+    /// bumps every scope — any page inheriting the global image shows a
+    /// different picture. A single-scope write bumps only that scope.
+    private func bumpWallpaperRevision(for scope: AppearanceScope) {
+        bumpWallpaperRevision()
+        if scope == .global {
+            for s in AppearanceScope.allCases { wallpaperRevisionByScope[s, default: 0] += 1 }
+        } else {
+            wallpaperRevisionByScope[scope, default: 0] += 1
+        }
+    }
+
+    /// Same as above for a multi-scope change (restore / reload).
+    private func bumpAllWallpaperRevisions() {
+        bumpWallpaperRevision()
+        for s in AppearanceScope.allCases { wallpaperRevisionByScope[s, default: 0] += 1 }
+    }
+
+    /// [P2-5] Clear only the cache entry a write can stale. A scope's
+    /// cached image is decoded from its own file or the global file, so
+    /// a non-global write cannot stale any other scope's entry; a global
+    /// write can stale every inheriting scope's, so it clears all. (`nil`
+    /// results are never cached, so a cleared-fallback scope needs no
+    /// clearing when the global image changes.)
+    private func clearWallpaperCache(for scope: AppearanceScope) {
+        if scope == .global {
+            wallpaperCache.removeAllObjects()
+        } else {
+            wallpaperCache.removeObject(forKey: cacheKey(scope))
+        }
+    }
+
     /// [P1-8] 记下“刚应用了哪套预设、应用完颜色表长什么样、壁纸版本号
     /// 是多少”。只在这里写，所以 `isPresetActive` 的三项条件不会被
     /// 别的路悄悄改掉；任何一处改色、改壁纸，都会让 live 状态和这份
@@ -1512,7 +1557,8 @@ final class AppearanceStudio: ObservableObject {
     }
 
     /// 这张图带不带透明区域。带的话单份 JPEG 一定会把某一种档位垫错。
-    private static func hasAlpha(_ image: UIImage) -> Bool {
+    /// [P2-3] Pure pixel-format check; safe to call off the main thread.
+    nonisolated private static func hasAlpha(_ image: UIImage) -> Bool {
         guard let cg = image.cgImage else { return false }
         switch cg.alphaInfo {
         case .none, .noneSkipFirst, .noneSkipLast: return false
@@ -1611,8 +1657,10 @@ final class AppearanceStudio: ObservableObject {
             return true
         }
         guard let data = Self.backgroundJPEG(image, dark: dark) else { return false }
-        writeWallpaperData(data, for: scope)
-        return true
+        // [P2-6] 返回写盘的真实结果，不再无条件回 true：以前写盘失败
+        // （磁盘满），调用方还当成功了 —— offload 那句「写不进去就如实
+        // 失败」永远触发不了，apply 那边也不会追加 warning。
+        return writeWallpaperData(data, for: scope)
     }
 
     /// Stores wallpaper bytes that are already encoded.
@@ -1620,39 +1668,79 @@ final class AppearanceStudio: ObservableObject {
     /// A pack carries a JPEG; decoding it into a UIImage and re-encoding
     /// threw away a generation and inflated the file. Re-encoding now only
     /// happens when the image is larger than the wallpaper edge limit.
+    ///
+    /// [P2-3] Decode + downscale + encode run off the main thread (a 48MP
+    /// pick used to expand to ~200MB of bitmap on MainActor). Only the
+    /// prepared bytes cross back; the disk write + revision bump stay on
+    /// the main actor, in the same order, with the same return values.
     @discardableResult
     func setWallpaperEncoded(_ data: Data, for scope: AppearanceScope,
-                             darkData: Data? = nil) -> Bool {
+                             darkData: Data? = nil) async -> Bool {
         // [T-29] 解不出来的字节不许落盘。以前原样写进 wallpaper-<scope>.jpg
         // 再回 true：文件在、hasWallpaper 也真，渲染却是纯色底，只有手动
         // 清除能救回来。现在直接失败，让调用方（主题包流程）追加 warning。
         // [T-55] 解码验证和一起听同一个入口（`WallpaperPipeline.decodedImage`）。
-        guard let image = WallpaperPipeline.decodedImage(data) else {
+        let prepared = await Task.detached(priority: .utility) {
+            Self.prepareWallpaper(data, darkData: darkData)
+        }.value
+        switch prepared {
+        case .badLight:
             appearanceLog.warning("wallpaper bytes for \(scope.rawValue) do not decode; nothing written")
             return false
-        }
-        // [T-54 r2] 主题包带了第二档：两档各写各的文件，再删旧单文件。
-        // 只写单份的话，浅色档导出、别人导入、切深色档，读到的还是浅色
-        // 垫的那张——T-54 的原症状换了个入口。
-        if let darkData {
-            guard let darkImage = WallpaperPipeline.decodedImage(darkData) else {
-                appearanceLog.warning("dark wallpaper bytes for \(scope.rawValue) do not decode; nothing written")
-                return false
+        case .badDark:
+            appearanceLog.warning("dark wallpaper bytes for \(scope.rawValue) do not decode; nothing written")
+            return false
+        case .encodeFailed:
+            return false
+        case let .ready(lightJPEG, darkJPEG):
+            // [T-54 r2] 主题包带了第二档：两档各写各的文件，再删旧单文件。
+            // 只写单份的话，浅色档导出、别人导入、切深色档，读到的还是浅色
+            // 垫的那张——T-54 的原症状换了个入口。
+            if let darkJPEG {
+                guard writeWallpaperData(lightJPEG, for: scope, variant: .light),
+                      writeWallpaperData(darkJPEG, for: scope, variant: .dark) else { return false }
+                try? FileManager.default.removeItem(at: wallpaperURL(scope))
+                return true
             }
+            return writeWallpaperData(lightJPEG, for: scope)
+        }
+    }
+
+    /// Result of off-main-thread wallpaper preparation: decode +
+    /// downscale + encode. Only Data crosses back to the main actor — a
+    /// UIImage must never cross into a detached task (Swift 6: UIImage is
+    /// not Sendable; the BubblePacks store keeps the same Data-only rule).
+    private enum WallpaperPrep {
+        case ready(light: Data, dark: Data?)
+        case badLight, badDark, encodeFailed
+    }
+
+    /// Pure preparation for `setWallpaperEncoded`, run on a detached task:
+    /// decode validation, oversize downscale + re-encode. Write order and
+    /// return values are unchanged — this only decides which bytes the
+    /// main actor writes. The oversize-single rule mirrors `setWallpaper`:
+    /// an alpha image needs both variants, otherwise one light file.
+    nonisolated private static func prepareWallpaper(_ data: Data, darkData: Data?) -> WallpaperPrep {
+        guard let image = WallpaperPipeline.decodedImage(data) else { return .badLight }
+        if let darkData {
+            guard let darkImage = WallpaperPipeline.decodedImage(darkData) else { return .badDark }
             let lightJPEG = max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge
-                ? Self.backgroundJPEG(image, dark: false) : data
+                ? backgroundJPEG(image, dark: false) : data
             let darkJPEG = max(darkImage.size.width, darkImage.size.height) > WallpaperPipeline.maxEdge
-                ? Self.backgroundJPEG(darkImage, dark: true) : darkData
-            guard let lightJPEG, let darkJPEG,
-                  writeWallpaperData(lightJPEG, for: scope, variant: .light),
-                  writeWallpaperData(darkJPEG, for: scope, variant: .dark) else { return false }
-            try? FileManager.default.removeItem(at: wallpaperURL(scope))
-            return true
+                ? backgroundJPEG(darkImage, dark: true) : darkData
+            guard let lightJPEG, let darkJPEG else { return .encodeFailed }
+            return .ready(light: lightJPEG, dark: darkJPEG)
         }
         if max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge {
-            return setWallpaper(image, for: scope)
+            if hasAlpha(image) {
+                guard let light = backgroundJPEG(image, dark: false),
+                      let dark = backgroundJPEG(image, dark: true) else { return .encodeFailed }
+                return .ready(light: light, dark: dark)
+            }
+            guard let jpeg = backgroundJPEG(image, dark: false) else { return .encodeFailed }
+            return .ready(light: jpeg, dark: nil)
         }
-        return writeWallpaperData(data, for: scope)
+        return .ready(light: data, dark: nil)
     }
 
     @discardableResult
@@ -1693,8 +1781,8 @@ final class AppearanceStudio: ObservableObject {
         // removeAll() removeWallpaper / clearWallpaper already use; a
         // still-broken file is simply re-marked on the next read.
         wallpaperUnreadable.removeAll()
-        wallpaperCache.removeAllObjects()
-        bumpWallpaperRevision()
+        clearWallpaperCache(for: scope)
+        bumpWallpaperRevision(for: scope)
         return true
     }
 
@@ -1712,8 +1800,8 @@ final class AppearanceStudio: ObservableObject {
         }
         persistWallpaperCleared()
         wallpaperUnreadable.removeAll()
-        wallpaperCache.removeAllObjects()
-        bumpWallpaperRevision()
+        clearWallpaperCache(for: scope)
+        bumpWallpaperRevision(for: scope)
     }
 
     /// Removes every scope's wallpaper through the proper path, so a
@@ -1777,7 +1865,7 @@ final class AppearanceStudio: ObservableObject {
         // clear them like removeWallpaper / clearWallpaper already do.
         wallpaperUnreadable.removeAll()
         wallpaperCache.removeAllObjects()
-        bumpWallpaperRevision()
+        bumpAllWallpaperRevisions()
     }
 
     /// [T-wallpaper-clear] "清除当前背景" — drop this page's wallpaper AND
@@ -1794,8 +1882,8 @@ final class AppearanceStudio: ObservableObject {
         if scope != .global { wallpaperClearedFallback.insert(scope) }
         persistWallpaperCleared()
         wallpaperUnreadable.removeAll()
-        wallpaperCache.removeAllObjects()
-        bumpWallpaperRevision()
+        clearWallpaperCache(for: scope)
+        bumpWallpaperRevision(for: scope)
     }
 
     /// [batch7 用户-P2-11] 恢复对齐：清除标记为准。恢复是 merge 语义（包里
@@ -1814,7 +1902,7 @@ final class AppearanceStudio: ObservableObject {
         }
         if removed {
             wallpaperCache.removeAllObjects()
-            bumpWallpaperRevision()
+            bumpAllWallpaperRevisions()
         }
     }
 
@@ -1835,7 +1923,9 @@ final class AppearanceStudio: ObservableObject {
     /// mode used to be flattened onto the light canvas color, leaving a pale
     /// fringe around dark content. [T-54] 这一条就是审计说的"透明 PNG 烘焙
     /// 底色"——垫的是画布色而不是写死的白，所以换明暗不会留下一圈亮边。
-    private static func backgroundJPEG(_ image: UIImage, dark: Bool = false) -> Data? {
+    /// [P2-3] Runs off the main thread (see `prepareWallpaper`): only
+    /// immutable statics are read here, no actor state.
+    nonisolated private static func backgroundJPEG(_ image: UIImage, dark: Bool = false) -> Data? {
         let book = dark ? darkDefaults : lightDefaults
         let matte = UIColor(hex: book[.canvas] ?? (dark ? "000000" : "F5F5F7"))
         return WallpaperPipeline.jpeg(image, matte: matte)
@@ -2377,7 +2467,7 @@ struct AppearanceBackdrop: View {
                 }
             }
         }
-        .id(studio.wallpaperRevision)
+        .id(studio.wallpaperRevision(for: scope))
         .ignoresSafeArea()
         .allowsHitTesting(false)
     }
@@ -2839,7 +2929,7 @@ extension AppearanceStudio {
         themePackLock.unlock()
         themePackRevision += 1
         wallpaperCache.removeAllObjects()
-        bumpWallpaperRevision()
+        bumpAllWallpaperRevisions()
         iconRevision += 1
         configureUIKitSurfaces()
         objectWillChange.send()

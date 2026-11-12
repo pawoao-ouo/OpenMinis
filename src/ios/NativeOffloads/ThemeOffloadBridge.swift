@@ -169,7 +169,7 @@ import UIKit
             // out. Merge mode is kept for this path alone; a full theme
             // switch (library apply, clipboard import) uses replace.
             guard token.beginWrite() else { return ["ok": false, "error": "timeout"] }
-            let warnings = AppearanceStudio.shared.applyThemePack(pack, mode: .merge)
+            let warnings = await AppearanceStudio.shared.applyThemePack(pack, mode: .merge)
             var out = AppearanceStudio.shared.currentThemePack().asJSONObject()
             out["ok"] = true
             out["applied"] = true
@@ -331,7 +331,7 @@ import UIKit
                 ]
             }
             guard token.beginWrite() else { return ["ok": false, "error": "timeout"] }
-            if let applied = AppearanceStudio.shared.applySavedThemeAI(id: id) {
+            if let applied = await AppearanceStudio.shared.applySavedThemeAI(id: id) {
                 var out: [String: Any] = [
                     "ok": true, "applied": true, "partial": true, "id": id,
                     "strippedLockedFields": applied.strippedLockedFields,

@@ -1204,9 +1204,13 @@ extension AppearanceStudio {
     /// card, input-bar, character-art and category images on screen.
     /// [B28 R3-5 / F-2] 图吃不下以前也照样应用成功 —— 应用方（UI/CLI/AI）
     /// 需要知道哪些字段没落住，返回值就是那份实话。
+    /// [P2-3] Async: the image writes below decode + encode off the main
+    /// thread, so a full pack no longer blocks it while 10+ images land.
+    /// Everything else (colours, opacities, persist) still runs on the
+    /// main actor, in the same order, with the same warnings.
     @discardableResult
     func applyThemePack(_ pack: AppearanceThemePack, wallpaper: UIImage? = nil,
-                        mode: ThemeApplyMode = .merge) -> [String] {
+                        mode: ThemeApplyMode = .merge) async -> [String] {
         var warnings: [String] = []
         let replace = (mode == .replace)
         var stored = pack
@@ -1314,7 +1318,13 @@ extension AppearanceStudio {
         // behind while the old pack is still recorded.
         if let b64 = pack.characterArtBase64 {
             if let data = Data(base64Encoded: b64) {
-                if !writeEncodedImage(data, to: characterArtURL(), maxEdge: 1600, quality: 0.82) {
+                // [P2-3] Decode + write off the main thread; same contract
+                // as before (a failed write still appends the warning).
+                let url = characterArtURL()
+                let written = await Task.detached(priority: .utility) {
+                    Self.writeEncodedImage(data, to: url, maxEdge: 1600, quality: 0.82)
+                }.value
+                if !written {
                     warnings.append("characterArt")
                 }
             } else { warnings.append("characterArt") }
@@ -1342,19 +1352,19 @@ extension AppearanceStudio {
             if let data = Data(base64Encoded: b64) {
                 // [T-54 r2] 包里带第二档就两档都落盘，没有就还按单份写。
                 let darkData = pack.wallpaperDarkJPEGBase64.flatMap { Data(base64Encoded: $0) }
-                if !setWallpaperEncoded(data, for: .global, darkData: darkData) {
+                if !(await setWallpaperEncoded(data, for: .global, darkData: darkData)) {
                     warnings.append("wallpaper")
                 }
             } else { warnings.append("wallpaper") }
         }
         if let b64 = pack.thinkingCardJPEGBase64 {
             if let data = Data(base64Encoded: b64) {
-                if !setThinkingCardImageEncoded(data) { warnings.append("thinkingCard") }
+                if !(await setThinkingCardImageEncoded(data)) { warnings.append("thinkingCard") }
             } else { warnings.append("thinkingCard") }
         }
         if let b64 = pack.inputBarJPEGBase64 {
             if let data = Data(base64Encoded: b64) {
-                if !setInputBarImageEncoded(data) { warnings.append("inputBar") }
+                if !(await setInputBarImageEncoded(data)) { warnings.append("inputBar") }
             } else { warnings.append("inputBar") }
         }
         // [page-state] Page colours and wallpapers carried by the
@@ -1385,9 +1395,9 @@ extension AppearanceStudio {
                     warnings.append("wallpaper:\(scopeRaw)")
                     continue
                 }
-                if !setWallpaperEncoded(data, for: scope,
+                if !(await setWallpaperEncoded(data, for: scope,
                                         darkData: pack.pageDarkWallpapers?[scopeRaw]
-                                            .flatMap { Data(base64Encoded: $0) }) {
+                                            .flatMap { Data(base64Encoded: $0) })) {
                     warnings.append("wallpaper:\(scopeRaw)")
                 }
             }
@@ -1401,9 +1411,9 @@ extension AppearanceStudio {
             for key in AppearanceThemePack.categoryKeys where completeMap[key] == nil {
                 completeMap[key] = ""
             }
-            warnings.append(contentsOf: applyCategoryImages(completeMap))
+            warnings.append(contentsOf: await applyCategoryImages(completeMap))
         } else {
-            warnings.append(contentsOf: applyCategoryImages(pack.categoryImages))
+            warnings.append(contentsOf: await applyCategoryImages(pack.categoryImages))
         }
         configureUIKitSurfaces()
         return warnings
@@ -2017,6 +2027,23 @@ extension AppearanceStudio {
         return true
     }
 
+    /// Stores an already-encoded character-art image without a re-encode
+    /// round trip. Same off-main-thread contract as the thinking-card /
+    /// input-bar Encoded setters; the pickers call this with the raw
+    /// bytes instead of decoding a UIImage on the main thread first.
+    @discardableResult
+    func setCharacterArtImageEncoded(_ data: Data) async -> Bool {
+        let url = characterArtURL()
+        let ok = await Task.detached(priority: .utility) {
+            Self.writeEncodedImageIfDecodable(data, to: url, maxEdge: 1600, quality: 0.82)
+        }.value
+        guard ok else { return false }
+        var pack = currentThemePack()
+        pack.characterArtBase64 = nil
+        persistPack(pack)
+        return true
+    }
+
     private func characterArtURL() -> URL {
         appearanceDirectory.appendingPathComponent("character-art.jpg")
     }
@@ -2226,7 +2253,13 @@ extension AppearanceStudio {
     /// Returns the category keys whose payload was undecodable and
     /// whose old image was therefore kept, matching the other slots'
     /// warning behaviour in applyThemePack.
-    private func applyCategoryImages(_ map: [String: String]) -> [String] {
+    ///
+    /// [P2-3] The per-item decode + write run off the main thread (the
+    /// payload can be a full-size photo even though the stored file is
+    /// 256px); only Data and the destination URL cross into the detached
+    /// task. A write failure now also reports the key instead of marking
+    /// "file" for a file that never landed.
+    private func applyCategoryImages(_ map: [String: String]) async -> [String] {
         var warnings: [String] = []
         var pack = currentThemePack()
         for key in AppearanceThemePack.categoryKeys {
@@ -2245,14 +2278,21 @@ extension AppearanceStudio {
                 }
                 continue
             }
-            guard let data = Data(base64Encoded: value), UIImage(data: data) != nil else {
+            guard let data = Data(base64Encoded: value) else {
                 // Undecodable payload: keep whatever is already on disk
                 // rather than silently dropping the user's image, but
                 // say so — the caller reports this key as a warning.
                 warnings.append(key)
                 continue
             }
-            writeEncodedImage(data, to: categoryImageURL(key), maxEdge: 256, quality: 0.86)
+            let url = categoryImageURL(key)
+            let written = await Task.detached(priority: .utility) {
+                Self.writeEncodedImageIfDecodable(data, to: url, maxEdge: 256, quality: 0.86)
+            }.value
+            guard written else {
+                warnings.append(key)
+                continue
+            }
             pack.categoryImages[key] = "file"
         }
         persistPack(pack)
@@ -2260,8 +2300,12 @@ extension AppearanceStudio {
     }
 
     /// Writes a downscaled JPEG and drops the cached thumbnail for that path.
+    /// [P2-3] Nonisolated static so a detached task can call it: it touches
+    /// no actor state (only the file, the thread-safe log and the
+    /// thread-safe thumbnail cache). Callers on the main actor run it
+    /// there; the async setters below run it off the main thread.
     @discardableResult
-    private func writeDownscaledJPEG(_ image: UIImage, to url: URL,
+    private static nonisolated func writeDownscaledJPEG(_ image: UIImage, to url: URL,
                                     maxEdge: CGFloat, quality: CGFloat) -> Bool {
         let size = image.size
         let scale = min(1, maxEdge / max(size.width, size.height, 1))
@@ -2293,8 +2337,11 @@ extension AppearanceStudio {
     /// roughly 3x the bytes and a visible generation loss on every apply.
     /// The bytes are only re-encoded when they exceed the target edge, which
     /// is the one case where re-encoding actually buys something.
+    /// [P2-3] Nonisolated static, same reason as `writeDownscaledJPEG`
+    /// above: the decode check, the render and the write take only Data
+    /// and a URL, so a detached task can run them.
     @discardableResult
-    private func writeEncodedImage(_ data: Data, to url: URL,
+    private static nonisolated func writeEncodedImage(_ data: Data, to url: URL,
                                    maxEdge: CGFloat, quality: CGFloat) -> Bool {
         if let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 {
             let longest = max(image.size.width, image.size.height)
@@ -2310,6 +2357,18 @@ extension AppearanceStudio {
         }
         ThumbnailCache.shared.removeThumbnail(for: url.path)
         return true
+    }
+
+    /// Decode-validated write: undecodable bytes never hit disk (T-29's
+    /// rule, same as the wallpaper path) — otherwise the file exists, the
+    /// "has image" check is true, and the render is a blank card only a
+    /// manual clear can fix. Nonisolated so a detached task can call it;
+    /// `writeEncodedImage` above keeps its old contract (callers that
+    /// already validated keep calling it directly).
+    private static nonisolated func writeEncodedImageIfDecodable(_ data: Data, to url: URL,
+                                      maxEdge: CGFloat, quality: CGFloat) -> Bool {
+        guard UIImage(data: data) != nil else { return false }
+        return writeEncodedImage(data, to: url, maxEdge: maxEdge, quality: quality)
     }
 
     private func thinkingCardURL() -> URL {
@@ -2339,9 +2398,17 @@ extension AppearanceStudio {
     }
 
     /// Stores an already-encoded thinking-card image without a re-encode round trip.
+    /// [P2-3] Decode + write run off the main thread; the pack update
+    /// still lands on the main actor afterwards. Undecodable bytes fail
+    /// instead of landing on disk as a file that renders blank (T-29's
+    /// rule, same as the wallpaper path).
     @discardableResult
-    func setThinkingCardImageEncoded(_ data: Data) -> Bool {
-        guard writeEncodedImage(data, to: thinkingCardURL(), maxEdge: 1400, quality: 0.82) else { return false }
+    func setThinkingCardImageEncoded(_ data: Data) async -> Bool {
+        let url = thinkingCardURL()
+        let ok = await Task.detached(priority: .utility) {
+            Self.writeEncodedImageIfDecodable(data, to: url, maxEdge: 1400, quality: 0.82)
+        }.value
+        guard ok else { return false }
         var pack = currentThemePack()
         pack.thinkingCardJPEGBase64 = nil
         persistPack(pack)
@@ -2412,9 +2479,14 @@ extension AppearanceStudio {
     }
 
     /// Stores an already-encoded input-bar image without a re-encode round trip.
+    /// [P2-3] Same off-main-thread contract as `setThinkingCardImageEncoded`.
     @discardableResult
-    func setInputBarImageEncoded(_ data: Data) -> Bool {
-        guard writeEncodedImage(data, to: inputBarImageURL(), maxEdge: 1400, quality: 0.82) else { return false }
+    func setInputBarImageEncoded(_ data: Data) async -> Bool {
+        let url = inputBarImageURL()
+        let ok = await Task.detached(priority: .utility) {
+            Self.writeEncodedImageIfDecodable(data, to: url, maxEdge: 1400, quality: 0.82)
+        }.value
+        guard ok else { return false }
         var pack = currentThemePack()
         pack.inputBarJPEGBase64 = nil
         persistPack(pack)

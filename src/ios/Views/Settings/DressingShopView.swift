@@ -1508,7 +1508,10 @@ struct DressingWallpaperArtSheet: View {
                         return
                     }
                     await MainActor.run {
-                        if studio.setWallpaperEncoded(data, for: scope) {
+                        // [P2-3] The decode + encode now run off the main
+                        // thread inside the setter; only the result is
+                        // reported back here.
+                        if await studio.setWallpaperEncoded(data, for: scope) {
                             if studio.hasOwnWallpaper(scope) {
                                 sheetStatus.show(AppLocalized("壁纸已更新"))
                             } else {
@@ -1532,7 +1535,14 @@ struct DressingWallpaperArtSheet: View {
                         }
                         return
                     }
-                    guard let uiImage = UIImage(data: data) else {
+                    // [P2-3] Decodability is checked off the main thread
+                    // (a 48MP pick used to expand to ~200MB of bitmap
+                    // here); the store itself also validates, this keeps
+                    // the picker's two messages exact.
+                    let decodable = await Task.detached(priority: .utility) {
+                        UIImage(data: data) != nil
+                    }.value
+                    guard decodable else {
                         appearanceLog.warning("character art picker: bytes do not decode as an image")
                         await MainActor.run {
                             sheetStatus.show(AppLocalized("图片格式不支持或已损坏"))
@@ -1540,10 +1550,10 @@ struct DressingWallpaperArtSheet: View {
                         return
                     }
                     await MainActor.run {
-                        if studio.setCharacterArtImage(uiImage) {
+                        if await studio.setCharacterArtImageEncoded(data) {
                             sheetStatus.show(AppLocalized("助手立绘已设置"))
                         } else {
-                            appearanceLog.warning("character art picker: setCharacterArtImage returned false")
+                            appearanceLog.warning("character art picker: setCharacterArtImageEncoded returned false")
                             sheetStatus.show(AppLocalized("立绘设置失败，请换一张图试试"))
                         }
                     }
@@ -1560,7 +1570,14 @@ struct DressingWallpaperArtSheet: View {
                         }
                         return
                     }
-                    guard let uiImage = UIImage(data: data) else {
+                    // [P2-3] Decodability is checked off the main thread
+                    // (a 48MP pick used to expand to ~200MB of bitmap
+                    // here); the store itself also validates, this keeps
+                    // the picker's two messages exact.
+                    let decodable = await Task.detached(priority: .utility) {
+                        UIImage(data: data) != nil
+                    }.value
+                    guard decodable else {
                         appearanceLog.warning("thinking card picker: bytes do not decode as an image")
                         await MainActor.run {
                             sheetStatus.show(AppLocalized("图片格式不支持或已损坏"))
@@ -1568,10 +1585,10 @@ struct DressingWallpaperArtSheet: View {
                         return
                     }
                     await MainActor.run {
-                        if studio.setThinkingCardImage(uiImage) {
+                        if await studio.setThinkingCardImageEncoded(data) {
                             sheetStatus.show(AppLocalized("思考卡背景已更新"))
                         } else {
-                            appearanceLog.warning("thinking card picker: setThinkingCardImage returned false")
+                            appearanceLog.warning("thinking card picker: setThinkingCardImageEncoded returned false")
                             sheetStatus.show(AppLocalized("思考卡背景设置失败，请换一张图试试"))
                         }
                     }
@@ -1588,7 +1605,14 @@ struct DressingWallpaperArtSheet: View {
                         }
                         return
                     }
-                    guard let uiImage = UIImage(data: data) else {
+                    // [P2-3] Decodability is checked off the main thread
+                    // (a 48MP pick used to expand to ~200MB of bitmap
+                    // here); the store itself also validates, this keeps
+                    // the picker's two messages exact.
+                    let decodable = await Task.detached(priority: .utility) {
+                        UIImage(data: data) != nil
+                    }.value
+                    guard decodable else {
                         appearanceLog.warning("input bar picker: bytes do not decode as an image")
                         await MainActor.run {
                             sheetStatus.show(AppLocalized("图片格式不支持或已损坏"))
@@ -1596,10 +1620,10 @@ struct DressingWallpaperArtSheet: View {
                         return
                     }
                     await MainActor.run {
-                        if studio.setInputBarImage(uiImage) {
+                        if await studio.setInputBarImageEncoded(data) {
                             sheetStatus.show(AppLocalized("输入栏背景已更新"))
                         } else {
-                            appearanceLog.warning("input bar picker: setInputBarImage returned false")
+                            appearanceLog.warning("input bar picker: setInputBarImageEncoded returned false")
                             sheetStatus.show(AppLocalized("输入栏背景设置失败，请换一张图试试"))
                         }
                     }
@@ -3356,11 +3380,13 @@ struct DressingThemeLibrarySheet: View {
                 titleVisibility: .visible
             ) {
                 Button(AppLocalized("换上并删除"), role: .destructive) {
-                    if let theme = pendingLibraryTheme {
-                        applyLibraryTheme(theme)
+                    Task {
+                        if let theme = pendingLibraryTheme {
+                            await applyLibraryTheme(theme)
+                        }
+                        pendingLibraryTheme = nil
+                        pendingLibraryDeletions = []
                     }
-                    pendingLibraryTheme = nil
-                    pendingLibraryDeletions = []
                 }
                 Button(AppLocalized("取消"), role: .cancel) {
                     pendingLibraryTheme = nil
@@ -3394,8 +3420,9 @@ struct DressingThemeLibrarySheet: View {
 
     /// 档案库“换上”真正走的那条路：直接换、或确认页点“换上并删除”后走这里。
     /// 上报逻辑与原来按钮里的一字不差。
-    private func applyLibraryTheme(_ theme: AppearanceSavedTheme) {
-        if let result = studio.applySavedThemeSet(id: theme.id) {
+    /// [P2-3] Async：底下的 apply 是异步的（图离主线程落盘），调用方包 Task。
+    private func applyLibraryTheme(_ theme: AppearanceSavedTheme) async {
+        if let result = await studio.applySavedThemeSet(id: theme.id) {
             // 只有 Kept 三码是良性保留，其余警告一律算失败。
             let failureWarnings = result.packWarnings.filter {
                 !Self.applyBenignWarningCodes.contains($0)
@@ -3442,7 +3469,7 @@ struct DressingThemeLibrarySheet: View {
                 }
                 let deletions = replaceDeletions(studio: studio, for: pack)
                 if deletions.isEmpty {
-                    applyLibraryTheme(theme)
+                    Task { await applyLibraryTheme(theme) }
                 } else {
                     pendingLibraryTheme = theme
                     pendingLibraryDeletions = deletions
@@ -4019,7 +4046,7 @@ struct DressingImportExportSheet: View {
                                 Spacer()
 
                                 Button {
-                                    applyImportedPack()
+                                    Task { await applyImportedPack() }
                                 } label: {
                                     Text(AppLocalized("解析并换上"))
                                         .font(ChatFont.font(12, weight: .bold))
@@ -4119,11 +4146,13 @@ struct DressingImportExportSheet: View {
                 titleVisibility: .visible
             ) {
                 Button(AppLocalized("换上并删除"), role: .destructive) {
-                    if let pack = pendingReplacePack {
-                        applyReplacePack(pack)
+                    Task {
+                        if let pack = pendingReplacePack {
+                            await applyReplacePack(pack)
+                        }
+                        pendingReplacePack = nil
+                        pendingReplaceDeletions = []
                     }
-                    pendingReplacePack = nil
-                    pendingReplaceDeletions = []
                 }
                 Button(AppLocalized("取消"), role: .cancel) {
                     pendingReplacePack = nil
@@ -4182,7 +4211,8 @@ struct DressingImportExportSheet: View {
         dismiss()
     }
 
-    private func applyImportedPack() {
+    /// [P2-3] Async：底下的换上是异步的（图离主线程落盘），调用方包 Task。
+    private func applyImportedPack() async {
         guard let data = importText.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             sheetStatus.show(AppLocalized("输入的 JSON 格式无效"))
@@ -4193,7 +4223,7 @@ struct DressingImportExportSheet: View {
             let pack = try AppearanceThemePack.decode(obj)
             let deletions = replaceDeletions(studio: studio, for: pack)
             if deletions.isEmpty {
-                applyReplacePack(pack)
+                await applyReplacePack(pack)
             } else {
                 // [P1-3] 换上会删掉她已有的图：先把要删的列清楚让她定，
                 // 不直接换。确认页点“换上并删除”后才走 applyReplacePack。
@@ -4206,8 +4236,9 @@ struct DressingImportExportSheet: View {
     }
 
     /// 真正换上（replace）：直接换、或确认页点“换上并删除”后走这里。
-    private func applyReplacePack(_ pack: AppearanceThemePack) {
-        studio.applyThemePack(pack, mode: .replace)
+    /// [P2-3] Async：底下的 apply 是异步的，调用方包 Task。
+    private func applyReplacePack(_ pack: AppearanceThemePack) async {
+        await studio.applyThemePack(pack, mode: .replace)
         sheetStatus.show(AppLocalized("已成功导入并换上主题：") + pack.name)
         dismiss()
     }

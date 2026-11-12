@@ -169,7 +169,7 @@ extension AppearanceStudio {
         return failures
     }
 
-    func applySavedThemeAI(id: String) -> (warnings: [String], strippedLockedFields: [String], untouchedImages: [String], untouchedColourRoles: [String])? {
+    func applySavedThemeAI(id: String) async -> (warnings: [String], strippedLockedFields: [String], untouchedImages: [String], untouchedColourRoles: [String])? {
         guard savedThemes().contains(where: { $0.id == id }),
               let saved = readLibraryPack(id: id) else { return nil }
         let stripped = AppearanceThemePack.aiApplyRejectedFields(in: saved.asJSONObject())
@@ -221,7 +221,7 @@ extension AppearanceStudio {
         // Everything else stays live: radii, styles, lineHeight,
         // letterSpacing, opacities, shade, display modes, fontFamily,
         // category icons/images, character art.
-        let warnings = applyThemePack(partial, mode: .merge)
+        let warnings = await applyThemePack(partial, mode: .merge)
         return (warnings, stripped, leftovers.images, leftovers.colours)
     }
 
@@ -232,10 +232,10 @@ extension AppearanceStudio {
     /// This is the USER-initiated path (settings UI library); the AI
     /// path must use `applySavedThemeAI` above, never this one.
     @discardableResult
-    func applySavedTheme(id: String) -> [String]? {
+    func applySavedTheme(id: String) async -> [String]? {
         guard savedThemes().contains(where: { $0.id == id }),
               let pack = readLibraryPack(id: id) else { return nil }
-        let warnings = applyThemePack(pack, mode: .replace)
+        let warnings = await applyThemePack(pack, mode: .replace)
         // [B28 R2-10] 「现在用的是哪套」以前在模型里根本没有。记下这次
         // 应用的是谁，列表才能诚实回答：还是它 / 你后来改过。
         UserDefaults.standard.set(id, forKey: Self.lastAppliedKey)
@@ -263,9 +263,9 @@ extension AppearanceStudio {
     /// follow the saved pack's own style fields from the
     /// replace; a nil pendant side is truly untouched, because
     /// the pack replace never writes the pendant store.
-    func applySavedThemeSet(id: String) -> (packWarnings: [String], failedPieces: [String])? {
+    func applySavedThemeSet(id: String) async -> (packWarnings: [String], failedPieces: [String])? {
         guard let item = savedThemes().first(where: { $0.id == id }) else { return nil }
-        guard let packWarnings = applySavedTheme(id: id) else { return nil }
+        guard let packWarnings = await applySavedTheme(id: id) else { return nil }
         var failed: [String] = []
         for (side, number) in [(DressingSide.user, item.userBubbleNumber),
                                (DressingSide.assistant, item.assistantBubbleNumber)] {

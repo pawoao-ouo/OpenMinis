@@ -4077,7 +4077,7 @@ struct AIChatView: View {
                 // [T-composer-tap-to-focus] 整条都能点着聚焦。这是**底层**的
                 // 点击接收器，不是祖先手势：祖先手势会在子按钮被点时也触发，
                 // 那正好会在发送后重新聚焦、或者在抽屉打开时把键盘拉上来。
-                // 它必须声明在 ComposerSurface 之前 —— 后加的 background 排在
+                // 它必须声明在 GlassComposerSurface 之前 —— 后加的 background 排在
                 // 更底下，于是它压在底色上面、内容下面，只有没打中按钮和输入框
                 // 的点击才落到它这里。
                 .background {
@@ -4109,7 +4109,7 @@ struct AIChatView: View {
                 .padding(.bottom, showStickerPanel ? 0 : 8)
 
                 // 底部抽屉：加号清单 / 表情宫格。贴底满宽，底边一路铺到
-                // 屏幕物理底（ComposerSurface 的 .tray 只圆上两角），
+                // 屏幕物理底（托盘只圆上两角），
                 // 所以不管开哪一个，下面都不会漏出一条壁纸。
                 // [T-composer-oneshot] 加号改走原生 sheet（见 .sheet 挂载处），
                 // 输入条下面只剩表情宫格这一块托盘。
@@ -5245,204 +5245,6 @@ private struct MorphPressStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.9 : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
-    }
-}
-
-// MARK: - Composer Surface
-
-/// Background + shadow for the composer's outer rounded container.
-///
-/// **[T-popup-white-patch 7a0e3d62] — the invariant both branches must keep.**
-/// The fill is painted INSIDE a rounded shape, never as a rectangular
-/// `.background(color)` + `.clipShape(...)` pair. With that older pairing the
-/// host CALayer carried a rectangular backing colour which the system
-/// text-selection / edit-menu pop animation snapshotted *before* SwiftUI's mask
-/// applied, flashing a square of colour around the rounded corners mid-animation.
-/// Filling the shape directly leaves the host layer's `backgroundColor` at
-/// `.clear`, so the snapshot is already rounded. `clipShape` is still applied so
-/// child views (text view, attachment grid) are clipped to the same rect.
-///
-/// [T-composer-glass 11-10] 输入栏改成液态玻璃了（她 2026-11-10 亲口定，
-/// 盖过 378 号「输入栏必须实底 0.94」）：旧的实底只剩无障碍回落。
-/// 做法跟气泡那边验过的同一套——主题 field 色 × surfaceOpacity 全局变量
-/// 当底（滑杆真管透多少，玻璃 tint 的 alpha 只改亮度不改覆盖），上面一层
-/// 无 tint 的 `.regular` 玻璃，浅色档再加 16% 黑膜（2026-10-29 老规矩，
-/// 只加在浮动 chrome 上）。样张图只在非玻璃那两条路画，玻璃路上不叠。
-/// 阴影只留在回落那两条路：玻璃自带边和高光，再叠手写阴影是晕 + 双边
-/// （ToolStatusBar 同款教训）。
-/// [B28 R7 醒醒分类] 输入栏样张要用真皮肤，不能复刻一份假的。
-/// 从 private 放开到 internal：装扮页的气泡页样张直接复用这一份。
-struct ComposerSurface: ViewModifier {
-    /// 同一个贴面，两处用：
-    ///   `.bar`  —— 输入条本身。四角都圆（跟着主题的输入栏圆角），左右留一点点，
-    ///              像一颗胖胶囊浮在消息上面；
-    ///   `.barAttached` —— 同上，但下两角取直。抽屉从它底下吸出来的那一帧用它：
-    ///              胶囊的下圆角会把消息区那圈背景从角里漏出来，跟托盘之间
-    ///              看起来就是「有两道缺口」。取直之后胶囊直接坐进托盘，
-    ///              两块同色接成一整片（[T-tray-seam]）。
-    ///   `.tray` —— 加号抽屉 / 表情宫格。四角取直，底边一路铺到屏幕物理底
-    ///              （home indicator 那条也铺），所以托盘永远不会「底部悬空」。
-    ///              上两角也必须是直的：托盘永远紧贴在输入条下面，输入条那边
-    ///              的下圆角已经取直，这边再圆一次就会在接缝两侧各漏出一小块
-    ///              消息区背景——像素模拟验证过，两个圆角叠在一起是一道月牙缺口
-    ///              （[T-tray-seam]）。
-    enum Style: Equatable { case bar, barAttached, tray }
-
-    var style: Style = .bar
-    /// 主题输入栏样张图：只在非玻璃那两条路（旧工具链回落、无障碍实底）画。
-    /// 玻璃路上不画——那是旧实底皮肤机制，盖在玻璃上只会糊掉折射、跟真栏
-    /// 对不上。聊天页的真输入条本来就不画（395 号 P2-7：28% 叠在实底上
-    /// 占位字糊掉）；装扮页复用这份时保持默认 true。
-    var showsSampleImage: Bool = true
-    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-
-    /// 连续圆角还是直角圆角，跟着主题包那三项走；半径沿用设置页对 pill 的既有规矩。
-    private var continuousCorners: Bool {
-        switch MinisThemeShape.inputBarStyle {
-        case .pill, .squircle, .tail: return true
-        case .rounded, .sharp: return false
-        }
-    }
-
-    private var cornerRadius: CGFloat {
-        switch MinisThemeShape.inputBarStyle {
-        case .pill:
-            // 单行高度约 48，24 就是一颗正胶囊——「椭圆的那种」，不是方盒子。
-            return 24
-        case .sharp:
-            return min(6, MinisThemeShape.inputRadius)
-        case .rounded, .squircle, .tail:
-            // 这类形状由设置里的「输入栏圆角」管，但至少 16：低于这个数
-            // 一条满宽的横条就又像方框了。
-            return max(16, MinisThemeShape.inputRadius)
-        }
-    }
-
-    private var shape: MinisBubbleShape {
-        let r = cornerRadius
-        let corners: RectangleCornerRadii
-        switch style {
-        case .bar:
-            corners = RectangleCornerRadii(topLeading: r, bottomLeading: r, bottomTrailing: r, topTrailing: r)
-        case .barAttached:
-            // 坐在托盘上：下两角取直，跟托盘的顶边严丝合缝。
-            corners = RectangleCornerRadii(topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r)
-        case .tray:
-            corners = RectangleCornerRadii(topLeading: 0, bottomLeading: 0, bottomTrailing: 0, topTrailing: 0)
-        }
-        return MinisBubbleShape(
-            style: continuousCorners ? .squircle : .rounded,
-            radius: r,
-            tailOnTrailing: false,
-            cornerRadii: corners
-        )
-    }
-
-    func body(content: Content) -> some View {
-        let _ = appearanceStudio.themePackRevision
-        content
-            .background {
-                glassBackground
-            }
-            // 接缝处不再画发丝线：托盘跟输入条现在是同一块面（同色、接缝两
-            // 侧都取直），一条线只会在胶囊两侧各露一小截，看着像脏点。
-    }
-
-    /// 浅色档才压暗膜：亮壁纸上玻璃会把字顶糊，16% 黑膜只加在浮动 chrome
-    /// 上（2026-10-29 那条老规矩），不是全屏罩。深色档不用——深玻璃 +
-    /// 浅字本身够。判的是主题明暗（跟字色走同一信号）；壁纸本身在 App 里
-    /// 没有明暗信号可读。
-    private var needsScrim: Bool { colorScheme != .dark }
-
-    /// 栏从消息区浮起来的那道软阴影：只留在回落那两条路。玻璃自带边和高光。
-    private var liftShadowColor: Color {
-        Color(UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(white: 0, alpha: 0.34)
-            : UIColor(white: 0, alpha: 0.05) })
-    }
-
-    /// 三条路，只有一条是玻璃：
-    ///  - 无障碍（减弱透明度 / 增强对比度）→ 回实底，字一定读得清；
-    ///  - 新工具链（compiler ≥ 6.2，即 Xcode 26）→ 一层无 tint 的 `.regular`
-    ///    玻璃盖在主题底色上；
-    ///  - 旧工具链 → 同一套底色 + ultraThinMaterial，看着像玻璃、能编译。
-    @ViewBuilder
-    private var glassBackground: some View {
-        if reduceTransparency || colorSchemeContrast == .increased {
-            solidBackground
-        } else {
-            #if compiler(>=6.2)
-            if #available(iOS 26.0, *) {
-                ZStack {
-                    // 底色是主题 field 色 × surfaceOpacity × 玻璃系数 0.35
-                    //（inputGlassBg，默认 ≈0.31）：装扮页那颗全局滑杆还管
-                    // 着它，壁纸底框能透出来；玻璃 tint 的 alpha 只改亮度
-                    // 不改覆盖（气泡那边的教训），透多少必须由这层底色的
-                    // alpha 定。没为玻璃新加全局变量。
-                    shape.fill(ChatColors.inputGlassBg)
-                    if needsScrim {
-                        shape.fill(.black.opacity(0.16))
-                    }
-                    // 玻璃这条路不叠样张图：那是旧实底皮肤机制；真栏本来
-                    // 就不画，预览画它只会把玻璃糊掉、撒谎。
-                }
-                .glassEffect(.regular, in: shape)
-                // 玻璃自带边和高光，手写阴影不叠（ToolStatusBar 同款教训）。
-                // ignoresSafeArea 仍落背景层最后一步，不然托盘底边和屏幕
-                // 之间露壁纸（「底部悬空」）。
-                .ignoresSafeArea(.container, edges: style == .tray ? .bottom : [])
-            } else {
-                materialBackground
-            }
-            #else
-            materialBackground
-            #endif
-        }
-    }
-
-    /// 旧工具链回落：同一套压过 alpha 的玻璃底色（inputGlassBg，默认 ≈0.31）
-    /// + 暗膜，ultraThinMaterial 当玻璃替身。
-    /// 阴影留着（材质本身没影，栏得从消息区浮起来）。样张图照旧。
-    private var materialBackground: some View {
-        ZStack {
-            shape.fill(.ultraThinMaterial)
-            shape.fill(ChatColors.inputGlassBg)
-            if needsScrim {
-                shape.fill(.black.opacity(0.16))
-            }
-            sampleOverlay.clipShape(shape)
-        }
-        .shadow(color: liftShadowColor, radius: 10, x: 0, y: -2)
-        // 关键：ignoresSafeArea 必须落在背景这一层**最后**一步。
-        // 之前它后面还跟了 clipShape，裁剪把「铺到物理底」那一段又收回了
-        // 安全区里，于是托盘的底边和屏幕之间露出一条壁纸——就是那个
-        // 「底部悬空」。形状自己带圆角，用不着再裁一次。
-        .ignoresSafeArea(.container, edges: style == .tray ? .bottom : [])
-    }
-
-    /// 实底回落（无障碍）：旧栏原样，0.94 下限保字。样张图照旧。
-    private var solidBackground: some View {
-        ZStack {
-            shape.fill(ChatColors.inputBarSolid)
-            sampleOverlay.clipShape(shape)
-        }
-        .shadow(color: liftShadowColor, radius: 10, x: 0, y: -2)
-        .ignoresSafeArea(.container, edges: style == .tray ? .bottom : [])
-    }
-
-    /// 主题输入栏样张图：只在非玻璃那两条路画，玻璃路上不画（见上）。
-    private var sampleOverlay: some View {
-        Group {
-            if showsSampleImage, let image = appearanceStudio.inputBarImage() {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .opacity(MinisThemeShape.inputBarImageOpacity)
-            }
-        }
     }
 }
 
@@ -6745,8 +6547,8 @@ struct ChatStickerPanel: View {
 
     /// [T-composer-four] 宫格像输入法一样从输入栏下面吸出来：高度固定一档，
     /// 内容超出就在格子里滚，抽屉本身不跟着长高，避免把消息区挤没。
-    /// 这里只定义内容高度——输入栏那条底下那截安全区由 ComposerSurface 的
-    /// ignoresSafeArea 铺满，宫格自身的底色也用 clear，两段之间不留缝。
+    /// 这里只定义内容高度——输入栏那条底下那截安全区由托盘自己的
+    /// ignoresSafeArea（GlassComposerSurface topOnly）铺满，宫格自身的底色也用 clear，两段之间不留缝。
     ///
     /// [T-sticker-rows] 高度按整行算，不按「差不多」算：一格的实测高度是
     /// 图 72 + 间隔 4 + 标题一行约 13 ≈ 89，格间距 12，格子上下留白 8 / 16，
@@ -8988,7 +8790,7 @@ private struct GlassComposerSurface: ViewModifier {
     /// 浅色档才压暗膜：亮壁纸上玻璃会把字顶糊，16% 黑膜只加在浮动 chrome
     /// 上（2026-10-29 那条老规矩），不是全屏罩。深色档不用——深玻璃 +
     /// 浅字本身够。判的是主题明暗（跟字色走同一信号）；壁纸本身在 App 里
-    /// 没有明暗信号可读。（ComposerSurface.sampleOverlay 同款规矩。）
+    /// 没有明暗信号可读。（样张图同款规矩。）
     private var needsScrim: Bool { colorScheme != .dark }
 
     private var shape: AnyShape {
@@ -9030,7 +8832,7 @@ private struct GlassComposerSurface: ViewModifier {
         } else if #available(iOS 26.0, *) {
             if topOnly {
                 // 托盘要一路铺到屏幕物理底,不然底边和屏幕之间漏一条壁纸
-                //(「底部悬空」那个老毛病,ComposerSurface 的 .tray 也这么处理)。
+                //(「底部悬空」那个老毛病,托盘也这么处理)。
                 // 托盘不画栏的图：那是抽屉，不是输入条。
                 content
                     .glassEffect(.regular, in: shape)
@@ -9058,19 +8860,24 @@ private struct GlassComposerSurface: ViewModifier {
     /// 玻璃底衬（只在有图时挂在玻璃后面）：图在最底 → 玻璃底色 →
     /// 浅色档一层 16% 黑膜。图的不透明度走装扮页滑杆
     /// （MinisThemeShape.inputBarImageOpacity，默认 0.28，夹在 0.05–1），
-    /// 这处不写死任何透明度。图裁成跟玻璃同一个 shape，不会从圆角外面露出来。
+    /// 这处不写死任何透明度。图先收进跟栏等大的框再裁（scaledToFill 的图
+    /// 不先收框，clipShape 裁的是图自己撑大的框，方形图会上下各溢约
+    /// 157pt），ZStack 再加一道 .clipped() 兜底；圆角仍由 shape 裁。
     private func glassBackdrop(_ image: UIImage) -> some View {
         ZStack {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .opacity(MinisThemeShape.inputBarImageOpacity)
+                .clipped()
                 .clipShape(shape)
             shape.fill(ChatColors.inputGlassBg)
             if needsScrim {
                 shape.fill(.black.opacity(0.16))
             }
         }
+        .clipped()
     }
 
     /// 实底衬（只在玻璃关了、有图时挂）：实底 → 图 → 浅色档暗膜。
@@ -9083,24 +8890,28 @@ private struct GlassComposerSurface: ViewModifier {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .opacity(MinisThemeShape.inputBarImageOpacity)
+                .clipped()
                 .clipShape(shape)
             if needsScrim {
                 shape.fill(.black.opacity(0.16))
             }
         }
+        .clipped()
     }
 
     /// 回落底衬（只在有图时挂）：图 → 底色 → 暗膜 → ultraThinMaterial
-    /// 压在最上，材质把底下那层糊掉，字浮在材质上。顺序跟死的
-    /// ComposerSurface.materialBackground 不一样：那份是样张预览，
-    /// 图叠在最上面；真栏要保字，暗膜必须压在图上面（395 P2-7 的教训）。
+    /// 压在最上，材质把底下那层糊掉，字浮在材质上。顺序跟旧的样张预览
+    /// 不一样：那份图叠在最上面；真栏要保字，暗膜必须压在图上面（395 P2-7 的教训）。
     private func materialBackdrop(_ image: UIImage) -> some View {
         ZStack {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .opacity(MinisThemeShape.inputBarImageOpacity)
+                .clipped()
                 .clipShape(shape)
             shape.fill(ChatColors.inputGlassBg)
             if needsScrim {
@@ -9108,5 +8919,6 @@ private struct GlassComposerSurface: ViewModifier {
             }
             shape.fill(.ultraThinMaterial)
         }
+        .clipped()
     }
 }
