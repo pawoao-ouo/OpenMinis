@@ -883,8 +883,13 @@ final class TogetherPlayer: ObservableObject {
                 // 压音期间 isPlaying 已经是 false，上面那行跳过；但 AI 这
                 // 一下 pause 会把落盘的 playing 写成 false，TTS 结束的恢复
                 // 条件就关上了——没人再调 play()，名额要在这里还。
-                // end() 有 membership 守卫，没拿着时是空操作。
-                AudioSessionCoordinator.shared.end(.togetherPlayback)
+                // 不能只裸还名额：同一次回放里 play 事件刚开的新歌，在
+                // 这个 Task 内 isPlaying 还没认上、Ended 通知也还没投递，
+                // duckDepth 仍是 1——裸 end() 会把新歌的名额摘了，播放器
+                // 却还在响，顶着"在放"静默播。走 pause()：真压音停着的
+                // 老歌，player?.pause() 是空操作，和原来一样；刚开的新歌，
+                // 播放器也停了，播放器和名额不再脱节。
+                pause()
             }
             if store.load().playback.playing {
                 store.setPlaying(false, by: .ai)
