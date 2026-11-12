@@ -402,7 +402,7 @@ extension DressingShopView {
             bentoCard(title: AppLocalized("字体与排版"), sub: AppLocalized("字号、行距与小说模式"), icon: "textformat", dest: .typography)
             bentoCard(title: AppLocalized("主题存档库"), sub: AppLocalized("保存、分享与导入导出"), icon: "archivebox.fill", dest: .themeLibrary)
             bentoCard(title: AppLocalized("细节与图标"), sub: AppLocalized("静音图标与标签符号"), icon: "sparkle.magnifyingglass", dest: .detailsIcons)
-            bentoCard(title: AppLocalized("聊天"), sub: AppLocalized("自动分组、回车键、回复后聚焦、工具预览"), icon: "bubble.left.and.bubble.right.fill", dest: .chatSettings)
+            bentoCard(title: AppLocalized("聊天"), sub: AppLocalized("自动分组、回车键等 4 项"), icon: "bubble.left.and.bubble.right.fill", dest: .chatSettings)
             bentoCard(title: AppLocalized("通用"), sub: AppLocalized("启动会话、语言、屏幕常亮"), icon: "gearshape.2.fill", dest: .generalSettings)
         }
     }
@@ -837,7 +837,7 @@ extension DressingShopView {
                 VStack(spacing: 0) {
                     DressingSheetHeader(
                         title: AppLocalized("聊天"),
-                        subtitle: AppLocalized("自动分组、回车键、回复后聚焦、工具预览")
+                        subtitle: AppLocalized("自动分组、回车键等 4 项")
                     )
 
                     ChatSettingsView()
