@@ -512,6 +512,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // check cannot run between a takeover's register and its begin) and
         // the cloud player (isPlaying/isSynthesizing — the player begins the
         // intent itself at unit start and releases it on drain/stop).
+        // Known gap, not covered by this guard: the Settings preview players
+        // (TTSPreviewPlayer, SystemVoicePreviewPlayer, SpeechPreviewPlayer)
+        // hold .replyTTS without registering activeController and without
+        // going through VoiceOutputPlayer. The two singletons keep playing
+        // after their view closes, so "tap preview, close Settings, exit
+        // chat within a few seconds of audio" can still lose the preview's
+        // intent here — the old unconditional end did exactly the same, so
+        // this is not a regression, only a narrower claim than "no live owner".
         // A synchronous end is not the fix: end() is MainActor-isolated
         // (AudioSessionCoordinator is @MainActor) and assumeIsolated in
         // deinit would trap on an off-main-thread release.
