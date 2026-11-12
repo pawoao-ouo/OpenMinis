@@ -187,6 +187,14 @@ struct MinisApp: App {
         // Start screen-awake controller — it will observe running tasks
         // + the user's opt-in flag and toggle the idle timer accordingly.
         Task { @MainActor in KeepScreenAwakeController.shared.start() }
+        // [P2-D] Start the Together follower at launch. It only starts when
+        // TogetherPlayer.shared is first touched, and the shell state-write
+        // path (AI writing state.json) is dead until it is alive — with no
+        // chat page, MiniBar, or lock screen ever opened, an AI play request
+        // would sound nothing and show nothing. Touching .shared runs
+        // init → startFollowing() (idempotent); it only subscribes to the
+        // state hub + voice notifications, creates no player and plays nothing.
+        Task { @MainActor in TogetherPlayer.shared.startFollowing() }
     }
 
     var body: some Scene {
