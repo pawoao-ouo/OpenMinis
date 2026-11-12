@@ -651,10 +651,16 @@ extension TogetherStore {
             state.playback.playing = true
             state.playback.by = actor.rawValue
             state.playback.updatedAt = TogetherStore.now()
-            // 显式换歌本身就是"要它响"：攥住的暂停在这一刻作废。
-            // 不清这一位，AI 推了歌、播放器也认了，可文件里 heldPause 还写着 true，
-            // 冷启动/压音恢复都会被它拦住，表现就是"推了但没声音"。
-            state.playback.heldPause = false
+            // [P2-C] 攥住的暂停只认"她亲手换歌"才作废：用户显式换歌
+            // 就是"要它响"，这一刻清掉——不清，AI 推了歌、播放器也认了，
+            // 可文件里 heldPause 还写着 true，冷启动/压音恢复都会被它
+            // 拦住，表现就是"推了但没声音"。
+            // AI 推歌不许清：AI 路径的 heldPause 由门口的门控先判——
+            // 跟随回放的门管 AI 事件，playTrackForAI 在调用前就先判、
+            // 被攥住直接拒掉；这里顺手清掉，等于 AI 换歌顶掉了她攥住的暂停。
+            if actor == .user {
+                state.playback.heldPause = false
+            }
             if let q = queue {
                 state.playback.queue = q
                 if let source = queueSource {

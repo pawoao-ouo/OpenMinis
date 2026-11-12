@@ -16,6 +16,47 @@ import Foundation
 import AVFoundation
 import Combine
 
+/// [P2-C] playTrackForAI 的返回：成功必须以播放器状态确认为准，
+/// 失败必须说明原因——AI 不许凭"写状态成功"就说"放上了"。
+/// 工具层把 message 原样返回给模型；succeeded 只有 .playing 是真。
+enum TogetherAIPlayResult {
+    case playing(title: String)
+    case trackNotFound(trackId: String)
+    case fileMissing(title: String)
+    case heldPause(title: String)
+    case quietWindow(title: String)
+    case itemFailed(title: String)
+    case timeout(title: String)
+    case superseded(title: String)
+
+    var succeeded: Bool {
+        if case .playing = self { return true }
+        return false
+    }
+
+    /// 给模型读的结果文案：成功只有一种，失败各说各的原因。
+    var message: String {
+        switch self {
+        case .playing(let title):
+            return "Playing \"\(title)\" — confirmed sounding (player is playing, item ready)."
+        case .trackNotFound(let trackId):
+            return "Could not play: no track with id \"\(trackId)\" in the library. Do not say it is playing."
+        case .fileMissing(let title):
+            return "Could not play \"\(title)\": the audio file is missing. Do not say it is playing."
+        case .heldPause(let title):
+            return "Did not play \"\(title)\": the user pressed pause and is holding it. Do not override a held pause — tell the user to press play when she wants music."
+        case .quietWindow(let title):
+            return "Did not play \"\(title)\": the user just acted (within 2s). Wait and retry later; do not say it is playing."
+        case .itemFailed(let title):
+            return "Could not play \"\(title)\": the file failed to start (corrupt or unsupported). Do not say it is playing."
+        case .timeout(let title):
+            return "Could not confirm \"\(title)\" is sounding within 10s. Do not say it is playing."
+        case .superseded(let title):
+            return "Another track took over before \"\(title)\" was confirmed playing. Check what is actually playing instead of claiming this one."
+        }
+    }
+}
+
 @MainActor
 final class TogetherPlayer: ObservableObject {
 
@@ -174,6 +215,83 @@ final class TogetherPlayer: ObservableObject {
         load(newTrack, from: position)
         store.play(trackId: newTrack.id, at: position, by: actor, queue: queue, queueSource: queueSource)
         return true
+    }
+
+    /// [P2-C] AI 放歌的原生入口：唯一一条"AI 说放歌"该走的路。
+    /// 和 shell 写 state.json 再等跟随回放不同，这条路当场给结论：
+    /// start() 调播放器、再回读播放器状态确认真出声，成功才算成功。
+    /// 门和跟随回放同一套（held-pause / quiet-window；直接调用没有事件，
+    /// stale 不适用）；攥住的暂停直接拒掉，绝不替她清锁。
+    /// 失败一个字都不写进 state——playing=true 只在真开始放时出现。
+    /// 工具层把结果原样返回给模型：只有 .playing 才可以说"放上了"。
+    /// （工具定义与分发不在本次白名单，见报告：需在 makeAgentTools 里
+    /// 注册 together_play、并在 executeSingleToolUse 里调这里。）
+    @discardableResult
+    func playTrackForAI(trackId: String, from position: Double = 0,
+                        queue: [String]? = nil, queueSource: String? = nil) async -> TogetherAIPlayResult {
+        // 跟随器必须活着：它是 MiniBar/锁屏的信号源；没它，播放器响了
+        // 面板也不知道。startFollowing 幂等，调多次也只装一次。
+        startFollowing()
+        guard let track = store.library().track(id: trackId) else {
+            return .trackNotFound(trackId: trackId)
+        }
+        let title = track.title
+        // 门一：攥住的暂停。内存 latch 和落盘位子只要有一个是真，就拒掉——
+        // 直接入口没有"显式换歌算新意图"这一说，暂停永远是暂停。
+        let state = store.load()
+        if userHeldPause == true || state.playback.heldPause == true {
+            recordAISuppressed(trackId: trackId, reason: "held-pause")
+            return .heldPause(title: title)
+        }
+        // 门二：她刚动过手（两秒内）：这一下不抢，等她那口气过去。
+        if TogetherStore.now() - lastUserIntentAt <= Self.aiQuietSeconds {
+            recordAISuppressed(trackId: trackId, reason: "quiet-window")
+            return .quietWindow(title: title)
+        }
+        guard start(track, from: position, by: .ai, queue: queue, queueSource: queueSource) else {
+            return .fileMissing(title: title)
+        }
+        return await confirmPlaying(trackTitle: title, timeoutSeconds: 10)
+    }
+
+    /// 直接入口被门拦住时，和跟随回放一样在 state 里留一条 suppressed 记录，
+    /// 免得"AI 推了歌、什么都没发生"在 state.json 里查不到原因。
+    private func recordAISuppressed(trackId: String, reason: String) {
+        let ev = TogetherEvent(
+            id: "e_\(TogetherStore.now())_direct-ai",
+            type: "play", by: TogetherActor.ai.rawValue, ts: TogetherStore.now(),
+            detail: TogetherEventDetail(trackId: trackId)
+        )
+        store.reportSuppressed(original: ev, reason: reason)
+    }
+
+    /// 等 item 落到 .readyToPlay 且真在放（isPlaying 或 rate > 0），有界 10 秒——
+    /// 和 P2-B 的 .unknown 看门狗同一边界，两个口子在同一秒判失败。
+    /// item 中途被换（她切了歌）算 superseded，不替旧歌认成功；
+    /// 10 秒还没就绪算 timeout：看门狗会走失败处理报一声，这里不重复 toast。
+    /// 压音期间 isPlaying 是 false、rate 是 0，会一直等到语音结束恢复——
+    /// 压音计数要是残了（P2-A 已修），这里 10 秒超时诚实报失败。
+    private func confirmPlaying(trackTitle: String, timeoutSeconds: Int) async -> TogetherAIPlayResult {
+        guard let item = player?.currentItem else { return .superseded(title: trackTitle) }
+        let deadline = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
+        while Date() < deadline {
+            if Task.isCancelled { return .timeout(title: trackTitle) }
+            if player?.currentItem !== item { return .superseded(title: trackTitle) }
+            switch item.status {
+            case .failed:
+                return .itemFailed(title: trackTitle)
+            case .readyToPlay:
+                if isPlaying || (player?.rate ?? 0) > 0 {
+                    return .playing(title: trackTitle)
+                }
+            case .unknown:
+                break
+            @unknown default:
+                break
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return .timeout(title: trackTitle)
     }
 
     func play() {
