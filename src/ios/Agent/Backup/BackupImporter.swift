@@ -43,6 +43,10 @@ actor BackupImporter {
         /// §3.4 tombstones found in the package: the export excluded these, so
         /// the restore surfaces them rather than pretending the files exist.
         var sizeSkippedInPackage = 0
+        /// Fix 3 — the tombstoned paths behind `sizeSkippedInPackage`, so the
+        /// report can name which files were listed but not included in this
+        /// (old, size-capped) backup instead of reporting only a count.
+        var sizeSkippedPaths: [String] = []
         /// [review S9] Tombstones for files that were in iCloud and not on the
         /// exporting device. Distinct from the size cap because the remedy is
         /// different: download the files and back up again.
@@ -229,7 +233,7 @@ actor BackupImporter {
             ?? Set(manifest.categories.keys.compactMap(BackupCategory.init(rawValue:)))
 
         progress?("Preflight…")
-        try await preflight(manifest: manifest, options: options, wanted: wanted)
+        try await preflight(manifest: manifest, options: options, wanted: wanted, root: root)
 
         // Index the package's file tree once; every file-carrying category
         // filters this rather than re-reading the index per category.
@@ -292,6 +296,12 @@ actor BackupImporter {
                 cat.deleted = deleted
                 cat.sizeSkippedInPackage = fileIndex
                     .filter { $0.category == category.rawValue && $0.skipped == "size" }.count
+                // Fix 3 — keep the tombstoned paths alongside the count, so
+                // the report can name the files that were listed but not
+                // included in this (old) backup.
+                cat.sizeSkippedPaths = fileIndex
+                    .filter { $0.category == category.rawValue && $0.skipped == "size" }
+                    .map(\.path)
                 // [review S9] Same treatment for iCloud placeholders the export
                 // could not materialise — the content is missing either way, and
                 // the user needs to know which files before they wipe the old
@@ -475,7 +485,7 @@ actor BackupImporter {
     // MARK: - Preflight (§8.1)
 
     private func preflight(manifest: BackupManifest, options: Options,
-                           wanted: Set<BackupCategory>) async throws {
+                           wanted: Set<BackupCategory>, root: URL) async throws {
         // Disk space: the design calls this out because Chats and Shared Files
         // can be GB-scale. Require the package's declared size plus 20% for the
         // unpack + staging copies.
@@ -486,6 +496,29 @@ actor BackupImporter {
                 .volumeAvailableCapacityForImportantUsage ?? Int64.max
             if free < needed {
                 throw ImportError.insufficientDiskSpace(needed: needed, available: free)
+            }
+        }
+
+        // Fix 3 — running sessions, in ANY mode, not just overwrite. A
+        // running agent loop owns its message list and its timers; writing
+        // under it would scramble sort order and strand the run. Gate on
+        // the PACKAGE's session ids (from data/sessions*.jsonl, read by
+        // `packageSessionIds`) intersected with the tracker's resolved
+        // active ids (draft aliases resolved in), before ANY write —
+        // including before the Fix 2 safety snapshot, so a doomed run does
+        // not pay for a full export first.
+        //
+        // The per-session refusal inside `importChats` stays as the safety
+        // net: it covers runs that start after this check, and message /
+        // marker-only ids the package row does not name.
+        if wanted.contains(.chats) {
+            let packageIds = packageSessionIds(root: root)
+            let active = await MainActor.run {
+                SessionActivityTracker.shared.resolvedActiveSessionIds
+            }
+            let running = packageIds.intersection(active)
+            guard running.isEmpty else {
+                throw ImportError.sessionsRunning(Array(running).sorted())
             }
         }
 

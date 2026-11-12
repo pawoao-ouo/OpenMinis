@@ -54,12 +54,15 @@ struct BackupSettingsView: View {
     /// §3.4 per-file cap, in MB. Persisted so the choice survives leaving the
     /// screen — it is a preference, not a per-run decision.
     ///
-    /// Default 100 MB rather than §3.4's "unlimited": an unlimited backup of a
-    /// chat history with large attachments can run to many GB, which is slow to
-    /// produce and awkward to move around. A file over the cap is NOT silently
-    /// dropped — it leaves a tombstone the restore surfaces — so the trade-off
-    /// is visible rather than lossy-and-quiet.
-    @AppStorage("backup.maxFileSizeMB") private var maxFileSizeMB: Int = 100
+    /// Fix 3 — default is unlimited (§3.4's default) rather than 100 MB: a
+    /// capped backup leaves real files out of the package, and the cap's
+    /// tombstones only help if the user still has the source device to
+    /// re-export from. A file over the cap is NOT silently dropped — it
+    /// leaves a tombstone the restore surfaces — so the trade-off is
+    /// visible rather than lossy-and-quiet. A value stored earlier (e.g.
+    /// 100) is NOT migrated: the default only applies when nothing was
+    /// ever stored.
+    @AppStorage("backup.maxFileSizeMB") private var maxFileSizeMB: Int = unlimitedTag
 
     /// Sentinel for "no cap" (§3.4's `maxFileBytes == nil`).
     static let unlimitedTag = 0
@@ -214,7 +217,10 @@ struct BackupSettingsView: View {
                           maxFileSizeMB != Self.unlimitedTag {
                     Text("Chats includes every file in each conversation, not just the messages. Files larger than \(maxFileSizeMB) MB are listed in the backup but not included.")
                 } else {
-                    Text("Chats includes every file in each conversation, not just the messages.")
+                    // Fix 3 — unlimited is the default: every file is
+                    // included, so there is no "left out" case to warn about.
+                    // Picking a size above reintroduces one.
+                    Text("Chats includes every file in each conversation, not just the messages. No per-file size limit — every file is included.")
                 }
             }
 

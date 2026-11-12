@@ -111,6 +111,11 @@ struct BackupRestoreView: View {
     @State private var isWorking = false
     @State private var statusText = ""
     @State private var errorText: String?
+    /// Fix 3 — sessions the preflight refused to restore over, with their
+    /// titles. Shown with an explicit "Stop these chats and restore"
+    /// button; nothing is ever stopped silently.
+    @State private var runningSessions: [(id: String, title: String)] = []
+    @State private var isStoppingSessions = false
     @State private var report: BackupImporter.Report?
     @State private var showConfirm = false
 
@@ -127,6 +132,7 @@ struct BackupRestoreView: View {
                     modeSection(manifest)
                     if manifest.encryption != nil { passphraseSection }
                     actionSection
+                    if !runningSessions.isEmpty { runningSessionsSection }
                     // [T-restore-hide-pickers] Nothing else. Once a package is
                     // chosen the screen is about THAT package, and leaving the
                     // destination list and "Other Sources" below it invited a
@@ -506,6 +512,8 @@ struct BackupRestoreView: View {
         previewLoading = false
         passphrase = ""
         errorText = nil
+        runningSessions = []
+        isStoppingSessions = false
         isInspecting = false
         inspectStage = ""
         report = nil
@@ -682,6 +690,52 @@ struct BackupRestoreView: View {
         }
     }
 
+    /// Fix 3 — the preflight refused this restore because these chats are
+    /// still running. Names them (titles resolved from the store) and
+    /// offers ONE explicit way forward: stop them, then restore. The stop
+    /// only ever happens from this button — never automatically — and the
+    /// restore only retries after the poll confirms they stopped.
+    /// Nothing here auto-resumes afterwards: a stopped session keeps its
+    /// interrupted state (`canResume`), and the user resumes it by hand.
+    private var runningSessionsSection: some View {
+        Section {
+            Text("These chats are still running. Restoring over a running chat would scramble its messages, so stop them first, then restore.")
+                .font(.system(size: fontSettings.scaledApp(13)))
+                .foregroundStyle(MinisTheme.secondaryText)
+            ForEach(runningSessions.indices, id: \.self) { i in
+                let s = runningSessions[i]
+                HStack(spacing: 10) {
+                    BackupActionIcon(systemName: "message.fill", tint: .orange)
+                    Text(s.title)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            Button {
+                Task { await stopRunningSessionsAndRestore() }
+            } label: {
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
+                    if isStoppingSessions {
+                        ProgressView()
+                            .frame(width: 28, height: 28)
+                        Text("Stopping…")
+                            .foregroundStyle(MinisTheme.secondaryText)
+                    } else {
+                        BackupActionIcon(systemName: "stop.fill", tint: .red)
+                        Text("Stop these chats and restore")
+                            .fontWeight(.semibold)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .disabled(isStoppingSessions || isWorking)
+            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        } header: {
+            Text("Chats Still Running")
+        }
+    }
+
     private func reportSection(_ r: BackupImporter.Report) -> some View {
         Section {
             LabeledContent("Restored", value: "\(r.totalImported)")
@@ -717,9 +771,22 @@ struct BackupRestoreView: View {
                             .foregroundStyle(MinisTheme.destructive)
                     }
                     if c.sizeSkippedInPackage > 0 {
-                        Text("\(displayNameRaw(c.category)): \(c.sizeSkippedInPackage) file(s) weren't in the backup (size limit)")
+                        // Fix 3 — name the files and the remedy: they were
+                        // listed but not included in this (old, size-capped)
+                        // backup, so the only way to get them is to
+                        // re-export from the source device.
+                        Text("\(displayNameRaw(c.category)): \(c.sizeSkippedInPackage) file(s) were listed but not included in this backup (size limit on the device that made it) — re-export from the source device to include them.")
                             .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
+                        if !c.sizeSkippedPaths.isEmpty {
+                            let shown = c.sizeSkippedPaths.prefix(5)
+                                .map { ($0 as NSString).lastPathComponent }
+                            Text("Not included: \(shown.joined(separator: ", "))"
+                                 + (c.sizeSkippedPaths.count > 5
+                                    ? " and \(c.sizeSkippedPaths.count - 5) more" : ""))
+                                .font(.system(size: fontSettings.scaledApp(12)))
+                                .foregroundStyle(MinisTheme.secondaryText)
+                        }
                     }
                     // [review S9] Different remedy from the size cap, so it gets
                     // its own line rather than being folded into "skipped":
@@ -919,9 +986,68 @@ struct BackupRestoreView: View {
             statusText = ""
             logger.info("[Restore] user restore complete imported=\(r.totalImported) skipped=\(r.totalSkipped)")
         } catch {
-            errorText = error.localizedDescription
+            // Fix 3 — a running-session refusal is not a dead end: show
+            // WHICH chats are running and offer the explicit stop button
+            // instead of a bare error line.
+            if let importError = error as? BackupImporter.ImportError,
+               case .sessionsRunning(let ids) = importError {
+                runningSessions = await runningSessionTitles(ids)
+                errorText = nil
+            } else {
+                errorText = error.localizedDescription
+            }
             logger.error("[Restore] user restore failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Fix 3 — resolve the preflight's session ids to display titles.
+    /// A session the store no longer knows (e.g. a draft alias) falls
+    /// back to its id prefix rather than a blank row.
+    private func runningSessionTitles(_ ids: [String]) async -> [(id: String, title: String)] {
+        var out: [(id: String, title: String)] = []
+        for id in ids {
+            let title = await ChatStore.shared.getSession(id)?.title ?? ""
+            out.append((id: id, title: title.isEmpty ? "Chat \(id.prefix(8))" : title))
+        }
+        return out
+    }
+
+    /// Fix 3 — the explicit stop behind "Stop these chats and restore".
+    /// Cancels each session's cached ViewModel (a session with no cached
+    /// VM has nothing to cancel here), then polls the tracker — the
+    /// ground truth, not the VMs — every 250 ms for up to 10 s. Only when
+    /// every session has stopped does the restore retry; if any is still
+    /// running, the restore is aborted and the user is told so.
+    private func stopRunningSessionsAndRestore() async {
+        guard !runningSessions.isEmpty else { return }
+        isStoppingSessions = true
+        defer { isStoppingSessions = false }
+        // Explicit MainActor hop: `ViewModelCache` is MainActor-isolated,
+        // and this must compile whichever isolation mode this file builds
+        // under.
+        await MainActor.run {
+            for s in runningSessions {
+                ViewModelCache.shared.get(for: s.id)?.cancel()
+            }
+        }
+        let deadline = Date().addingTimeInterval(10)
+        var stillRunning = runningSessions.map(\.id)
+        while !stillRunning.isEmpty, Date() < deadline, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            stillRunning = runningSessions.map(\.id)
+                .filter { ChatStore.shared.isSessionRunning($0) }
+        }
+        guard stillRunning.isEmpty else {
+            let names = runningSessions
+                .filter { stillRunning.contains($0.id) }
+                .map(\.title).joined(separator: ", ")
+            errorText = "These chats are still running: \(names). Stop them in their chat screens and try again."
+            logger.error("[Restore] stop-and-restore aborted — still running: \(names)")
+            return
+        }
+        runningSessions = []
+        errorText = nil
+        await runImport()
     }
 
     // MARK: - Helpers

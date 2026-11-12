@@ -49,6 +49,21 @@ extension BackupImporter {
         return out.enumerated().filter { lastIndex["\($0.element.category)\u{0}\($0.element.path)"] == $0.offset }.map(\.element)
     }
 
+    /// Fix 3 — the session ids this package carries, from
+    /// `data/sessions*.jsonl` (shards included, via `readJSONL`).
+    ///
+    /// The preflight gate intersects these with the running sessions
+    /// before any write. Sessions.jsonl is the right source here:
+    /// one small record per session, unlike messages.jsonl, which can
+    /// be hundreds of MB and must never be loaded just to list ids.
+    /// Message / marker-only ids (a session row the package does not
+    /// name) are still refused per-session inside `importChats`.
+    func packageSessionIds(root: URL) -> Set<String> {
+        let dataDir = root.appendingPathComponent("data", isDirectory: true)
+        return Set(readJSONL(dataDir, base: "sessions",
+                             as: SessionIDRecord.self).map(\.session.id))
+    }
+
     // MARK: - Rollback
 
     func snapshotForRollback(category: BackupCategory, staging: URL) throws -> BackupRollbackSnapshot {

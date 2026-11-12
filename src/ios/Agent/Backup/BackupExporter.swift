@@ -183,6 +183,15 @@ actor BackupExporter {
         // silently re-scope to now.
         var options = options
         let resumed = options.allowResume ? Self.resumableRun(for: options) : nil
+        // Fix 3 — disk-space preflight, BEFORE the journal marker or any
+        // staging write: a run that cannot fit must fail here, with
+        // concrete MB numbers, rather than dying half-written.
+        // `streaming` is decided here (not later, next to the writer)
+        // because the preflight's multiplier depends on it: a streamed
+        // run writes blobs straight into the package, while an encrypted
+        // or resumed run stages the whole tree first and then archives it.
+        let streaming = !hasPassphrase && resumed == nil
+        try preflightDiskSpace(options: options, streaming: streaming)
         let backupId: String
         if let resumed {
             backupId = resumed.backupId
@@ -243,7 +252,8 @@ actor BackupExporter {
         //   - a resume adopts staging written by the previous attempt, which
         //     may predate this build.
         // Both keep the old path, which is unchanged and still correct.
-        let streaming = !hasPassphrase && resumed == nil
+        // Fix 3 — `streaming` was decided before the disk-space preflight
+        // above, because the preflight's multiplier depends on it.
         // [T-backup-package-name-parity] Same name shape as the non-streaming
         // path below. This filename is what `RcloneChunkedUpload` uploads
         // under (it takes `packageURL.lastPathComponent`), so it is the name
@@ -363,13 +373,9 @@ actor BackupExporter {
         try await run(.scheduledTasks, AppLocalized("Exporting scheduled tasks…")) {
             try await exportScheduledTasks(dataDir: dataDir)
         }
-        // [2026-08-15] Not reached in normal use: `.voiceCorrections` is absent
-        // from `BackupCategory.backupable`, so it never appears in
-        // `options.categories` and `run` skips it. Kept wired up rather than
-        // deleted — the exporter is the only way to produce a package
-        // containing this section, which the importer still has to handle for
-        // packages made before the exclusion. A caller that passes the category
-        // explicitly (the debug RPC does) still gets it.
+        // Fix 3 — Voice Corrections is back in `BackupCategory.backupable`,
+        // so this runs in normal use now. A caller that passes the category
+        // explicitly (the debug RPC does) still gets it the same way.
         try await run(.voiceCorrections, AppLocalized("Exporting voice corrections…")) {
             try await exportVoiceCorrections(dataDir: dataDir)
         }
@@ -502,6 +508,93 @@ actor BackupExporter {
             duration: Date().timeIntervalSince(started))
     }
 
+
+    // MARK: - Disk-space preflight (Fix 3)
+
+    /// Fail BEFORE any write when the device cannot hold this export, with
+    /// concrete MB numbers — mirroring `BackupImporter.preflight`, which
+    /// refuses a restore that cannot fit.
+    ///
+    /// The requirement is `estimated × factor + 200 MB` of working space:
+    /// factor 1.1 for a streamed run (blobs go straight into the package,
+    /// so the disk only ever holds ~one package), 2.0 for an encrypted or
+    /// resumed run (the whole tree is staged first, then archived, so
+    /// staging + package coexist). The 200 MB covers the manifest,
+    /// indexes, JSONL and zip bookkeeping the estimate does not count.
+    private func preflightDiskSpace(options: Options, streaming: Bool) throws {
+        let estimated = estimateExportBytes(categories: options.categories)
+        let factor = streaming ? 1.1 : 2.0
+        let needed = Int64(Double(estimated) * factor) + 200 * 1_000_000
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let free = (try? docs.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage ?? Int64.max
+        guard free < needed else { return }
+        let mb: (Int64) -> Int64 = { ($0 + 999_999) / 1_000_000 }
+        throw BackupError.writeFailed(
+            "Not enough free space to export: this backup needs about \(mb(needed)) MB free "
+            + "(\(mb(estimated)) MB estimated × \(factor) + 200 MB working space), "
+            + "but only \(mb(free)) MB is available. Free some space and try again.",
+            underlying: nil)
+    }
+
+    /// Stat-only size estimate for this export's file trees: metadata reads
+    /// only, no file content is opened.
+    ///
+    /// Sums the trees the exporters actually walk, for the selected
+    /// categories. The database-derived JSONL (sessions / messages) is
+    /// covered by the `minis.db` file size when chats is selected; the
+    /// remaining categories' JSON is small and falls under the 200 MB
+    /// working-space allowance in `preflightDiskSpace`. The snapshot
+    /// cut-off can only shrink the real export, so over-counting here is
+    /// the safe direction for a disk check.
+    private func estimateExportBytes(categories: Set<BackupCategory>) -> Int64 {
+        func treeSize(_ root: URL) -> Int64 {
+            var total: Int64 = 0
+            guard let e = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]) else { return 0 }
+            for case let url as URL in e {
+                guard let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]),
+                      vals.isRegularFile == true, vals.isSymbolicLink != true else { continue }
+                total += Int64(vals.fileSize ?? 0)
+            }
+            return total
+        }
+        func fileSize(_ url: URL) -> Int64 {
+            (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init) ?? 0
+        }
+        var total: Int64 = 0
+        if categories.contains(.chats) {
+            total += treeSize(AIChatViewModel.minisPersistentBase)
+            // minis.db sits next to minis/ under Library/MinisChat (see
+            // ChatStore's init); its size stands in for the sessions /
+            // messages JSONL the export writes from it.
+            total += fileSize(AIChatViewModel.minisPersistentBase
+                .deletingLastPathComponent().appendingPathComponent("minis.db"))
+        }
+        if categories.contains(.sharedFiles) {
+            total += treeSize(AIChatViewModel.minisSharedPersistentDir)
+        }
+        if categories.contains(.skills) {
+            total += treeSize(AIChatViewModel.minisSkillsPersistentDir)
+        }
+        if categories.contains(.memory) {
+            total += treeSize(AIChatViewModel.minisMemoryPersistentDir)
+            // personas.json / regex-rules.json live in MinisConfig, outside
+            // the memory tree.
+            let config = AIChatViewModel.minisConfigRoot
+            total += fileSize(config.appendingPathComponent("personas.json"))
+            total += fileSize(config.appendingPathComponent("regex-rules.json"))
+        }
+        if categories.contains(.appearance) {
+            total += treeSize(AppearanceStudio.appearanceAssetsDirectory)
+        }
+        if categories.contains(.stickers) {
+            total += treeSize(AIChatViewModel.minisStickersPersistentDir)
+        }
+        // providers / mcpServers / environmentVariables / scheduledTasks /
+        // voiceCorrections are small JSON, not file trees — covered by the
+        // 200 MB working-space allowance.
+        return total
+    }
 
     /// A previous interrupted export that this request can pick up.
     ///

@@ -94,15 +94,15 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
 
     /// Categories a NEW backup may include.
     ///
-    /// [2026-08-15] Voice Corrections is excluded: the feature isn't mature
-    /// enough to back up yet. Deliberately a filter on the export side rather
-    /// than deleting the case — the enum value is part of the wire format, and
-    /// packages already exist that contain a `voice_corrections` section.
-    /// Removing it outright would make those sections undecodable and silently
-    /// drop data the user already backed up. So: not written into new
-    /// packages, still restored from old ones.
+    /// Fix 3 — Voice Corrections is back in: the exporter and importer
+    /// already handle it end to end (`exportVoiceCorrections` /
+    /// `importVoiceCorrections`), and the 2026-08-15 exclusion predates
+    /// that wiring maturing. The enum value stays part of the wire format
+    /// either way, so packages made before the exclusion still restore.
+    /// Overwrite stays merge-only for this category (its store has no
+    /// set-exact restore) — see `wipeCategoryForOverwrite`.
     static var backupable: [BackupCategory] {
-        allCases.filter { $0 != .voiceCorrections }
+        allCases
     }
 
     /// Categories that stream file trees through the blob store, i.e. the ones
