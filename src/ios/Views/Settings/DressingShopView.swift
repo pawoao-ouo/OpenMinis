@@ -393,7 +393,7 @@ extension DressingShopView {
         }
     }
 
-    // 4. 六大核心入口网格 (Bento Grid)
+    // 4. 八大核心入口网格 (Bento Grid)
     private var bentoGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             bentoCard(title: AppLocalized("色彩调控"), sub: AppLocalized("21色分页面分深浅"), icon: "paintpalette.fill", dest: .colorStudio)
@@ -402,6 +402,8 @@ extension DressingShopView {
             bentoCard(title: AppLocalized("字体与排版"), sub: AppLocalized("字号、行距与小说模式"), icon: "textformat", dest: .typography)
             bentoCard(title: AppLocalized("主题存档库"), sub: AppLocalized("保存、分享与导入导出"), icon: "archivebox.fill", dest: .themeLibrary)
             bentoCard(title: AppLocalized("细节与图标"), sub: AppLocalized("静音图标与标签符号"), icon: "sparkle.magnifyingglass", dest: .detailsIcons)
+            bentoCard(title: AppLocalized("聊天"), sub: AppLocalized("自动分组、回车键、回复后聚焦、工具预览"), icon: "bubble.left.and.bubble.right.fill", dest: .chatSettings)
+            bentoCard(title: AppLocalized("通用"), sub: AppLocalized("启动会话、语言、屏幕常亮"), icon: "gearshape.2.fill", dest: .generalSettings)
         }
     }
 
@@ -777,6 +779,8 @@ enum DressingSheetDestination: String, Identifiable {
     case typography
     case themeLibrary
     case detailsIcons
+    case chatSettings
+    case generalSettings
     case saveTheme
     case importExport
 
@@ -828,6 +832,14 @@ extension DressingShopView {
             )
         case .detailsIcons:
             DressingDetailsIconsSheet(onNotify: { showToast($0) })
+        case .chatSettings:
+            NavigationStack {
+                ChatSettingsView()
+            }
+        case .generalSettings:
+            NavigationStack {
+                GeneralSettingsView()
+            }
         case .saveTheme:
             DressingSaveThemeSheet(onSaved: { name in
                 showToast(AppLocalized("已保存主题：") + name)
