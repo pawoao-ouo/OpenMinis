@@ -2712,6 +2712,7 @@ struct DressingBubblesPendantsSheet: View {
             }
         }
         .padding(DressingTokens.Padding.innerCard)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(CSSThemeVariables.card(scope: .settings))
         .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
         .overlay(
