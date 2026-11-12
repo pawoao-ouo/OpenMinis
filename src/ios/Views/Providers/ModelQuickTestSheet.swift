@@ -36,7 +36,9 @@ struct ModelQuickTestSheet: View {
     }
 
     @StateObject private var model: TestSession
-    @State private var audioPlayer: AVAudioPlayer?
+    /// Owns the Quick Test clip player and its audio-session intent (replaces
+    /// the old bare `audioPlayer` state — see QuickTestAudioPlayer below).
+    @StateObject private var quickAudio = QuickTestAudioPlayer()
 
     init(entry: ModelEntry) {
         self.entry = entry
@@ -72,6 +74,9 @@ struct ModelQuickTestSheet: View {
             }
         }
         .onAppear { model.runAllIfNeeded() }
+        // End the clip's intent when the sheet goes away (membership-guarded,
+        // so this is a no-op if playback already finished and ended it).
+        .onDisappear { quickAudio.stop() }
     }
 
     private var header: some View {
@@ -90,18 +95,89 @@ struct ModelQuickTestSheet: View {
         }
     }
 
+    /// Thin wrapper kept so the TestCard call sites (`onPlay: playAudio`) do
+    /// not change; the session ownership lives in QuickTestAudioPlayer.
     private func playAudio(_ data: Data) {
+        quickAudio.play(data)
+    }
+}
+
+/// Owns the Quick Test clip player and its audio-session intent.
+///
+/// [AUD-P1D] playAudio used to call setCategory/setActive directly with no
+/// matching deactivation, leaking a .spokenAudio/.duckOthers session that kept
+/// pressing other apps' volume down after the clip ended. The clip now runs
+/// under AudioSessionCoordinator as .replyTTS — the same profile (.playback,
+/// .spokenAudio, [.duckOthers]) — and the intent is ended when playback
+/// finishes, fails to start, is replaced, or the sheet goes away. end() is
+/// membership-guarded, so ending twice (finish + disappear) is a no-op.
+/// Same shape as TTSPreviewPlayer (TTSProviderBridge.swift).
+@MainActor
+private final class QuickTestAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
+    private var player: AVAudioPlayer?
+
+    /// Plays `data`, keeping playAudio's log line. Start failures are logged
+    /// here and never leave the intent begun.
+    func play(_ data: Data) {
+        stop()  // a running clip is replaced, never stacked
+        AudioSessionCoordinator.shared.begin(.replyTTS)
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
             let player = try AVAudioPlayer(data: data)
+            player.delegate = self
             player.volume = 1.0
             player.prepareToPlay()
             let ok = player.play()
-            audioPlayer = player  // retain — MUST outlive playback
+            if ok {
+                self.player = player
+            } else {
+                // play() returned false — no didFinish callback is coming.
+                AudioSessionCoordinator.shared.end(.replyTTS)
+            }
             qtLog.info("[QuickTest] play bytes=\(data.count) dur=\(String(format: "%.2f", player.duration))s started=\(ok)")
         } catch {
+            AudioSessionCoordinator.shared.end(.replyTTS)
             qtLog.error("[QuickTest] playback failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Stops any running clip and releases the intent (no-op when idle).
+    func stop() {
+        player?.stop()
+        player = nil
+        AudioSessionCoordinator.shared.end(.replyTTS)
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer,
+                                                 successfully flag: Bool) {
+        Task { @MainActor in
+            // Only the live player's finish releases the intent: this callback
+            // hops through a Task, so it can land AFTER a new clip already
+            // replaced self.player — ending unconditionally would cut the new
+            // clip's intent short.
+            guard self.player === player else { return }
+            self.player = nil
+            AudioSessionCoordinator.shared.end(.replyTTS)
+        }
+    }
+
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer,
+                                                   error: Error?) {
+        Task { @MainActor in
+            // A decode failure stops playback without didFinishPlaying; release
+            // here so a corrupt clip cannot leak the intent either.
+            guard self.player === player else { return }
+            self.player = nil
+            AudioSessionCoordinator.shared.end(.replyTTS)
+            if let error { qtLog.error("[QuickTest] decode error: \(error.localizedDescription)") }
+        }
+    }
+
+    deinit {
+        // Last-ditch release if ARC drops the player without a full stop.
+        // (Coordinator calls are @MainActor, deinit is not — same Task hop as
+        // PlayerSession's deinit in the P1-D fix.)
+        Task { @MainActor in
+            AudioSessionCoordinator.shared.end(.replyTTS)
         }
     }
 }
