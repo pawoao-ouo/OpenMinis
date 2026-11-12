@@ -65,9 +65,10 @@ struct BackupSettingsView: View {
     /// tombstones only help if the user still has the source device to
     /// re-export from. A file over the cap is NOT silently dropped — it
     /// leaves a tombstone the restore surfaces — so the trade-off is
-    /// visible rather than lossy-and-quiet. A value stored earlier (e.g.
-    /// 100) is NOT migrated: the default only applies when nothing was
-    /// ever stored.
+    /// visible rather than lossy-and-quiet.
+    /// [P2-2] A stored 100 (the old default) is migrated to unlimited
+    /// once by `migrateLegacySizeCapIfNeeded`; a value the user
+    /// deliberately chose afterwards is never touched.
     @AppStorage("backup.maxFileSizeMB") private var maxFileSizeMB: Int = unlimitedTag
 
     /// Sentinel for "no cap" (§3.4's `maxFileBytes == nil`).
@@ -555,6 +556,7 @@ struct BackupSettingsView: View {
             // what makes a return from a pushed detail leave them alone.
             if !transfer.destinations.isEmpty { didPresentFinishedTransfer = true }
             loadSelectedCategories()
+            migrateLegacySizeCapIfNeeded()
             destinationIds = BackupDestinations.selectedIds
             remotes = RcloneRemoteStore.remotes
             // rclone's config is in-memory only, so it must be rebuilt each
@@ -685,6 +687,21 @@ struct BackupSettingsView: View {
     /// Fix 3 made it backupable. Any stored string lacking them is from
     /// before they existed — not a deliberate OFF.
     private static let categoriesNewToStoredSelections: Set<BackupCategory> = [.ishUserData, .voiceCorrections]
+
+    /// [P2-2] One-time migration of the old 100 MB default cap to
+    /// unlimited (Fix 3's default). 100 was the default before Fix 3,
+    /// so a stored 100 almost always means "never touched the picker"
+    /// — not a deliberate choice. A value the user deliberately chose
+    /// after this migration is never touched: the flag makes this run
+    /// once, and re-picking 100 in the picker afterwards stays 100.
+    private func migrateLegacySizeCapIfNeeded() {
+        let flag = "backup.maxFileSizeMBMigratedFrom100"
+        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        UserDefaults.standard.set(true, forKey: flag)
+        if maxFileSizeMB == 100 {
+            maxFileSizeMB = Self.unlimitedTag
+        }
+    }
 
     /// Restore the persisted Include selection. An empty store means the user
     /// never changed anything — keep the all-on default.
@@ -1114,6 +1131,16 @@ struct BackupSettingsView: View {
         !passphrase.isEmpty && passphrase == confirmPassphrase
     }
 
+    /// [P2-1] Encryption is on but the passphrase is empty — after a
+    /// relaunch the in-memory passphrase is gone (Fix 1 clears it on
+    /// background), so a Resume from a history row would otherwise start
+    /// an encrypted export with no passphrase, which the exporter
+    /// refuses (`includeCredentials` needs one). Prompt instead of
+    /// failing the run.
+    private var needsPassphraseEntry: Bool {
+        encryptBackup && passphrase.isEmpty
+    }
+
     /// Start an export, or show the passphrase-setup sheet first when the
     /// export would otherwise drop the user's API keys silently. The sheet's
     /// buttons call `startExport` with the same `resuming` flag stashed in
@@ -1121,6 +1148,13 @@ struct BackupSettingsView: View {
     private func requestExport(resuming: Bool = false) {
         guard !runController.isRunning else { return }
         if needsPassphraseSetup {
+            pendingResume = resuming
+            showPassphraseSetup = true
+            return
+        }
+        // [P2-1] Encryption on, passphrase gone (relaunch): ask for it
+        // instead of starting an export the exporter must refuse.
+        if needsPassphraseEntry {
             pendingResume = resuming
             showPassphraseSetup = true
             return
@@ -1144,7 +1178,11 @@ struct BackupSettingsView: View {
     /// `includeCredentials: true` using the passphrase just entered.
     /// "Back up without keys" is an explicit choice, not a silent default:
     /// the export proceeds unencrypted and key-less, and the result copy
-    /// says so.
+    /// says so. It turns encryption OFF first: when the sheet was opened
+    /// by the [P2-1] gate (encryption on, passphrase gone after a
+    /// relaunch), proceeding encrypted with an empty passphrase is what
+    /// the exporter refuses — "without keys" has to mean unencrypted.
+    /// In the Fix 1 path encryption is already off, so this is a no-op.
     private var passphraseSetupSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add your keys to this backup?")
@@ -1174,6 +1212,7 @@ struct BackupSettingsView: View {
             .buttonStyle(.borderedProminent)
             .frame(maxWidth: .infinity)
             Button("Back up without keys") {
+                encryptBackup = false
                 showPassphraseSetup = false
                 startExport(resuming: pendingResume)
             }

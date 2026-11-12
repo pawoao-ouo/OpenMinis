@@ -117,6 +117,10 @@ struct BackupRestoreView: View {
     @State private var runningSessions: [(id: String, title: String)] = []
     @State private var isStoppingSessions = false
     @State private var report: BackupImporter.Report?
+    /// [P1-2] The newest pre-overwrite safety copy on disk, if any — the
+    /// way back when an overwrite restore went wrong. Refreshed on
+    /// appear, after every import, and whenever the selection resets.
+    @State private var safetyCopyURL: URL?
     @State private var showConfirm = false
 
     var body: some View {
@@ -148,6 +152,7 @@ struct BackupRestoreView: View {
                 } else {
                     destinationsSection
                     otherSourcesSection
+                    safetyCopySection
                 }
             } else if let report {
                 reportSection(report)
@@ -158,6 +163,16 @@ struct BackupRestoreView: View {
                     Text(errorText)
                         .font(.system(size: fontSettings.scaledApp(13)))
                         .foregroundStyle(MinisTheme.destructive)
+                    // [P1-2] A failed overwrite leaves the wiped state
+                    // behind with no in-app undo — offer the safety copy
+                    // right here, one tap away, instead of only in Files.
+                    if let safety = safetyCopyURL {
+                        Button {
+                            load(safety)
+                        } label: {
+                            Text("Restore the safety copy")
+                        }
+                    }
                 }
             }
         }
@@ -202,6 +217,7 @@ struct BackupRestoreView: View {
         }
         .onAppear {
             remotes = RcloneRemoteStore.remotes
+            safetyCopyURL = BackupImporter.latestSafetyCopyURL()
             if let initialPackageURL, packageURL == nil { load(initialPackageURL) }
         }
     }
@@ -311,6 +327,46 @@ struct BackupRestoreView: View {
             Text("Other Sources")
         } footer: {
             Text("Pick a .minisbak file from Files, iCloud Drive, or any connected storage — or add a server your backups were saved to.")
+        }
+    }
+
+    /// [P1-2] The safety copy from an overwrite restore, offered as a
+    /// restore source in its own right.
+    ///
+    /// Chats, skills, env vars, and scheduled tasks have no copy-aside
+    /// rollback (`snapshotForRollback` records nothing for them), so once
+    /// an overwrite wipe has run, this file is the ONLY way back. Until
+    /// now it was named in the report and findable only through Files;
+    /// now the screen that did the overwrite offers it directly, in
+    /// merge mode — restoring it brings back what the overwrite removed
+    /// and deletes nothing (`load` always opens on merge).
+    private var safetyCopySection: some View {
+        Group {
+            if let safetyCopyURL {
+                Section {
+                    Button {
+                        load(safetyCopyURL)
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Restore safety copy")
+                                Text(safetyCopyURL.lastPathComponent)
+                                    .font(.system(size: fontSettings.scaledApp(12)))
+                                    .foregroundStyle(MinisTheme.secondaryText)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        } icon: {
+                            BackupActionIcon(systemName: "arrow.uturn.backward.circle.fill", tint: .orange)
+                        }
+                    }
+                    .disabled(isWorking)
+                } header: {
+                    Text("Safety Copy")
+                } footer: {
+                    Text("Saved before your last overwrite restore. Restoring it brings back what the overwrite removed — nothing is deleted.")
+                }
+            }
         }
     }
 
@@ -484,6 +540,10 @@ struct BackupRestoreView: View {
     /// would hide the pickers entirely — both states the user cannot get out
     /// of without leaving the screen.
     private func resetSelection() {
+        // [P1-2] Re-check for a safety copy: clearing the package is how
+        // the user gets back to the pickers after a failed overwrite, and
+        // the copy taken by that restore must be offered there.
+        safetyCopyURL = BackupImporter.latestSafetyCopyURL()
         // Cancel first: a running open would otherwise finish and write its
         // manifest into the state we are about to clear, re-selecting a
         // package the user just dismissed.
@@ -815,7 +875,14 @@ struct BackupRestoreView: View {
             }
             // Fix 2 — point at the safety copy so it can actually be found
             // again. It lives in the Backups folder, visible in Files.
+            // [P1-2] And offer it here, one tap away: it is the only
+            // recovery for the categories with no copy-aside rollback.
             if let safety = r.safetySnapshotURL {
+                Button {
+                    load(safety)
+                } label: {
+                    Text("Restore the safety copy")
+                }
                 Text("Safety copy saved in Backups as \(safety.lastPathComponent) — restore it if you need your previous data back.")
                     .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(MinisTheme.secondaryText)
@@ -998,6 +1065,11 @@ struct BackupRestoreView: View {
             }
             logger.error("[Restore] user restore failed: \(error.localizedDescription)")
         }
+        // [P1-2] A completed overwrite just wrote a safety copy, and a
+        // failed one leaves the pre-wipe state recoverable only through
+        // it — refresh so both the report button and the error section
+        // offer it without leaving the screen.
+        safetyCopyURL = BackupImporter.latestSafetyCopyURL()
     }
 
     /// Fix 3 — resolve the preflight's session ids to display titles.

@@ -584,6 +584,25 @@ actor BackupImporter {
         }
     }
 
+    /// [P1-2] The newest pre-overwrite safety copy in the Backups folder,
+    /// if any. The safety copy is the only recovery for categories with no
+    /// copy-aside rollback (chats, skills, env vars, scheduled tasks —
+    /// see `snapshotForRollback`), so the restore screen surfaces it as a
+    /// restore source instead of leaving it discoverable only through
+    /// Files. Names embed `yyyyMMdd-HHmmss`, so the newest sorts last.
+    /// Only the exact `pre-overwrite-` prefix is ever matched — a
+    /// hand-made backup is never mistaken for one.
+    static func latestSafetyCopyURL() -> URL? {
+        let dir = BackupDelivery.backupsDirectory
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        let matches = names.filter {
+            $0.hasPrefix("pre-overwrite-")
+            && $0.hasSuffix(".\(BackupFormat.fileExtension)")
+        }
+        guard let newest = matches.sorted().last else { return nil }
+        return dir.appendingPathComponent(newest)
+    }
+
     private static func safetySnapshotTimestamp(_ date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmmss"
