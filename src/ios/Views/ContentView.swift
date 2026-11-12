@@ -6978,6 +6978,16 @@ private struct SettingsSheet: View {
                             QuietAppIcon(id: QuietIconSlot.appearance.id, systemName: QuietIconSlot.appearance.systemName)
                         }
                     }
+                    NavigationLink {
+                        ChatSettingsView()
+                    } label: {
+                        Label(AppLocalized("聊天"), systemImage: "bubble.left.and.bubble.right.fill")
+                    }
+                    NavigationLink {
+                        GeneralSettingsView()
+                    } label: {
+                        Label(AppLocalized("通用"), systemImage: "gearshape.2.fill")
+                    }
                 }
 
                 // [A-落地] 行为归设置：聊天与通用两页。聊天 4 个控件
