@@ -440,6 +440,7 @@ extension DressingShopView {
                         .font(ChatFont.font(11))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                 }
             }
             .padding(DressingTokens.Padding.section)
