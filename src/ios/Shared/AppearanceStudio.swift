@@ -1641,26 +1641,39 @@ final class AppearanceStudio: ObservableObject {
         return image
     }
 
-    /// [B28 R2-2] 原来解不出来就 `guard else return`——用户点了、转完了、
-    /// 什么也没发生、什么也没说。撒谎的沉默。现在把失败如实报给 UI。
+    /// [P3-1] `setWallpaper(_ image:)` 的接班人：同一个写盘结果，解码 +
+    /// 渲染 + 编码离主线程。UIImage 不是 Sendable（Swift 6），不能进
+    /// detached 任务 —— 过边界的只有文件 URL，UIImage 在任务里现解。
+    /// 返回合同与旧方法一字不差：解不出 / 编不出 / 写不进都回 false，
+    /// 调用方照旧如实失败（B28 R2-2：不再撒谎的沉默）。
     @discardableResult
-    func setWallpaper(_ image: UIImage, for scope: AppearanceScope, dark: Bool = false) -> Bool {
-        // [T-54] 带透明的图按档位各存一份，切档不会再留旧配色的白边。
-        // 不透的图维持原样：单文件就够，尺寸也省一半。
-        if Self.hasAlpha(image) {
-            guard let light = Self.backgroundJPEG(image, dark: false),
-                  let darkData = Self.backgroundJPEG(image, dark: true) else { return false }
+    func setWallpaperFile(at url: URL, for scope: AppearanceScope, dark: Bool = false) async -> Bool {
+        // [T-54] 与旧方法同一条写盘顺序：带透明的图按档位各存一份，
+        // 不透的图维持单文件。只进不退的差别是渲染在 detached 任务里做。
+        let prepared = await Task.detached(priority: .utility) { () -> (light: Data, dark: Data?)? in
+            guard let image = WallpaperPipeline.decodedImage(at: url) else { return nil }
+            if Self.hasAlpha(image) {
+                guard let light = Self.backgroundJPEG(image, dark: false),
+                      let darkData = Self.backgroundJPEG(image, dark: true) else { return nil }
+                return (light, darkData)
+            }
+            guard let data = Self.backgroundJPEG(image, dark: dark) else { return nil }
+            return (data, nil)
+        }.value
+        guard let prepared else { return false }
+        // 局部变量名与旧方法一致：T-54 测试断言钉的就是
+        // "writeWallpaperData(light, for: scope, variant: .light)" 这两行。
+        let light = prepared.light
+        let darkData = prepared.dark
+        if let darkData {
             guard writeWallpaperData(light, for: scope, variant: .light),
                   writeWallpaperData(darkData, for: scope, variant: .dark) else { return false }
             // 旧单文件必须删掉，否则它会先被读到、又是旧配色。
             try? FileManager.default.removeItem(at: wallpaperURL(scope))
             return true
         }
-        guard let data = Self.backgroundJPEG(image, dark: dark) else { return false }
-        // [P2-6] 返回写盘的真实结果，不再无条件回 true：以前写盘失败
-        // （磁盘满），调用方还当成功了 —— offload 那句「写不进去就如实
-        // 失败」永远触发不了，apply 那边也不会追加 warning。
-        return writeWallpaperData(data, for: scope)
+        // [P2-6] 返回写盘的真实结果，不再无条件回 true。
+        return writeWallpaperData(light, for: scope)
     }
 
     /// Stores wallpaper bytes that are already encoded.

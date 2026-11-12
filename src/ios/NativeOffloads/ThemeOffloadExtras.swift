@@ -190,7 +190,10 @@ import UIKit
     // MARK: - Per-page wallpapers
 
     @objc public static func setWallpaper(_ scope: String, hostPath: String) -> NSDictionary {
-        guard let image = loadImage(hostPath) else {
+        // [P3-1] 这里只验文件读不读得出来；真正的解码 + 渲染在下面的
+        // setWallpaperFile 里走 detached 任务，主线程不再碰像素
+        // （解码做两次，但两次都在主线程之外）。
+        guard loadImage(hostPath) != nil else {
             return fail("no_image", "Cannot read an image at \(hostPath).") as NSDictionary
         }
         guard let parsed = AppearanceScope(rawValue: scope) else {
@@ -215,7 +218,8 @@ import UIKit
                 return fail("timeout", "The call timed out before writing; no wallpaper was changed.")
             }
             // [T-29] 写不进去就如实失败，不再回一个 ok 让 AI 以为换上了。
-            guard AppearanceStudio.shared.setWallpaper(image, for: parsed) else {
+            // [P3-1] 解码 + 渲染在 detached 任务里，主线程只写盘 + bump。
+            guard await AppearanceStudio.shared.setWallpaperFile(at: URL(fileURLWithPath: hostPath), for: parsed) else {
                 return fail("wallpaper_write_failed",
                             "Could not store the wallpaper for scope \(parsed.rawValue); nothing was changed.")
             }

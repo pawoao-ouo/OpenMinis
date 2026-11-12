@@ -1209,7 +1209,7 @@ extension AppearanceStudio {
     /// Everything else (colours, opacities, persist) still runs on the
     /// main actor, in the same order, with the same warnings.
     @discardableResult
-    func applyThemePack(_ pack: AppearanceThemePack, wallpaper: UIImage? = nil,
+    func applyThemePack(_ pack: AppearanceThemePack,
                         mode: ThemeApplyMode = .merge) async -> [String] {
         var warnings: [String] = []
         let replace = (mode == .replace)
@@ -1320,9 +1320,13 @@ extension AppearanceStudio {
             if let data = Data(base64Encoded: b64) {
                 // [P2-3] Decode + write off the main thread; same contract
                 // as before (a failed write still appends the warning).
+                // [P2-1] Undecodable bytes fail here (T-29), like the
+                // thinking-card / input-bar slots below — the old writer
+                // wrote the raw bytes and returned true, so a bad payload
+                // left a file that renders blank.
                 let url = characterArtURL()
                 let written = await Task.detached(priority: .utility) {
-                    Self.writeEncodedImage(data, to: url, maxEdge: 1600, quality: 0.82)
+                    Self.writeEncodedImageIfDecodable(data, to: url, maxEdge: 1600, quality: 0.82)
                 }.value
                 if !written {
                     warnings.append("characterArt")
@@ -1346,9 +1350,9 @@ extension AppearanceStudio {
         // A saved pack never carries bubbleOpacity, so in replace mode it
         // used to revert to 1.0. Same rule as above: keep hers.
         if replace { warnings.append("bubbleOpacityKept") }
-        if let wallpaper {
-            if !setWallpaper(wallpaper, for: .global) { warnings.append("wallpaper") }
-        } else if let b64 = pack.wallpaperJPEGBase64 {
+        // [P3-1] 全局壁纸只剩 b64 一条路（`wallpaper: UIImage?` 参数已删，
+        // 全仓无人传它）；b64 走 setWallpaperEncoded 的 detached prep。
+        if let b64 = pack.wallpaperJPEGBase64 {
             if let data = Data(base64Encoded: b64) {
                 // [T-54 r2] 包里带第二档就两档都落盘，没有就还按单份写。
                 let darkData = pack.wallpaperDarkJPEGBase64.flatMap { Data(base64Encoded: $0) }
