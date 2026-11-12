@@ -8535,6 +8535,25 @@ extension ChatStore {
         }
     }
 
+    /// Delete the delete-tombstone row for exactly (`type`, `id`) in the
+    /// per-record table, when the record is live again.
+    ///
+    /// A group that came back alive — a peer's newer edit won LWW, or a
+    /// backup restore put it back — must not keep a tombstone row behind:
+    /// the roster merge guard (`isRecordDeleted`) would otherwise keep
+    /// stripping sub-agents' pointers at a group that is alive. Scoped to
+    /// the (type, id) pair on purpose: unlike `clearRestoreTombstone`,
+    /// which matches on record_id alone because a session restore needs
+    /// every type for that id, a group id must only clear its own row.
+    func clearRecordTombstone(type: String, id: String) {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "DELETE FROM deleted_record_tombstones WHERE record_type = ? AND record_id = ?", -1, &stmt, nil) == SQLITE_OK else { return }
+        sqlite3_bind_text(stmt, 1, (type as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 2, (id as NSString).utf8String, -1, nil)
+        sqlite3_step(stmt)
+    }
+
     /// True when a session is mid agent-loop. The importer refuses to write into
     /// one rather than silently skipping it the way the sync path does.
     nonisolated func isSessionRunning(_ sessionId: String) -> Bool {

@@ -1758,6 +1758,11 @@ enum ChatStoreSyncHydrators {
                 .flatMap { ((try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [Any])?.count } ?? -1
             logger.info("[v3] applied ProviderModelGroupV3 \(id.prefix(8)) members union-merged: local=\(localCount) inbound=\(inboundCount) → \(mergedCount) (added-tombstones=\(inboundAdded.count) removed-tombstones=\(inboundRemoved.count))")
             await refreshStoreFromDB()
+            // The group is alive again — a peer's newer edit won LWW, so the
+            // delete tombstone has done its job. Clear it, or the roster
+            // merge guard (isRecordDeleted) would keep stripping sub-agents'
+            // pointers at a group that is alive.
+            await ChatStore.shared.clearRecordTombstone(type: "ProviderModelGroupV3", id: id)
         } else {
             logger.info("[v3] skipped ProviderModelGroupV3 \(id.prefix(8)) (no scalar/member change) members(local=\(localCount) inbound=\(inboundCount))")
         }
