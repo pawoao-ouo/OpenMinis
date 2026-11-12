@@ -56,7 +56,11 @@ enum WallpaperPipeline {
     /// `backgroundJPEG` uses for wallpapers (theme canvas from the
     /// palette book, falling back to the system greys).
     nonisolated static func canvasMatte(dark: Bool = false) -> UIColor {
-        let book = dark ? darkDefaults : lightDefaults
+        // `darkDefaults` / `lightDefaults` are statics on `AppearanceStudio`
+        // (@MainActor), so the bare names do not resolve in this enum and
+        // qualifying them would hit actor isolation — read the book
+        // directly instead (the two aliases are exactly these values).
+        let book = dark ? AppearancePaletteBook.dark : AppearancePaletteBook.light
         return UIColor(hex: book[.canvas] ?? (dark ? "000000" : "F5F5F7"))
     }
 
