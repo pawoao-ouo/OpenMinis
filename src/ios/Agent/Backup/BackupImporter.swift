@@ -240,9 +240,9 @@ actor BackupImporter {
         let fileIndex = readFileIndex(at: root)
 
         // Fix 2 — MANDATORY pre-step for overwrite, before ANY wipe: a full
-        // current-state export (same shape as
-        // `BackupSnapshotService.takeSnapshot` — every backupable category,
-        // no credentials, unencrypted) into the delivered-packages folder as
+        // current-state export (every backupable category, no credentials,
+        // unencrypted — the shape the removed automatic snapshots used to
+        // have) into the delivered-packages folder as
         // `pre-overwrite-<timestamp>.minisbak`, keeping the last 1. If it
         // fails, the restore is refused outright — nothing is deleted.
         //
@@ -538,8 +538,7 @@ actor BackupImporter {
 
     // MARK: - Safety snapshot (Fix 2)
 
-    /// Full current-state export, same shape as
-    /// `BackupSnapshotService.takeSnapshot`: every backupable category, no
+    /// Full current-state export: every backupable category, no
     /// credentials, unencrypted. Runs through the exporter under the restore
     /// lock (see `BackupExporter.exportUnderRestoreLock` — the public entry
     /// would refuse, because this restore already holds the lock).

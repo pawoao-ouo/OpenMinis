@@ -145,12 +145,10 @@ struct BackupSettingsView: View {
     /// placeholder jump to the automatic name mid-keystroke.
     @State private var deviceNameDraft = ""
 
-    /// [P3-10] Automatic-snapshot switch, mirrored into @State so toggling
-    /// redraws; the source of truth stays in
-    /// `BackupSnapshotService.isAutomaticSnapshotEnabled` (UserDefaults).
-    @State private var autoSnapshots = BackupSnapshotService.isAutomaticSnapshotEnabled
-    /// [P3-10] Live footprint of recognised snapshots for the subtitle
-    /// under the switch. Refreshed in onAppear.
+    /// [2026-11-13] Automatic snapshots are OFF by user decision
+    /// (manual backup only). No toggle anymore — the counts below are
+    /// the footprint of snapshots already on disk, kept, never deleted
+    /// by turning this off. Refreshed in onAppear.
     @State private var snapshotCount = 0
     @State private var snapshotBytes: Int64 = 0
 
@@ -406,38 +404,32 @@ struct BackupSettingsView: View {
                 }
             }
 
-            // [P3-10] Automatic snapshots used to run with no switch and no
-            // word anywhere: the user never asked for them and couldn't
-            // turn them off or see what they cost. The toggle gates both
-            // triggers in the service; the subtitle is the live footprint
-            // (count + bytes) of the snapshots in the Backups folder.
+            // [2026-11-13] Automatic snapshots removed by user decision:
+            // backups are manual only. The toggle is gone; this row only
+            // reports the snapshots already on disk (kept, never deleted
+            // by turning this off) so the user can see what they cost.
             Section {
-                Toggle(isOn: $autoSnapshots.animation()) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 28, height: 28)
-                            .background(MinisTheme.accent, in: Circle())
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Automatic Snapshots")
-                            Group {
-                                if snapshotCount == 0 {
-                                    Text("No snapshots yet")
-                                } else {
-                                    Text("\(snapshotCount) snapshots · \(byteText(snapshotBytes))")
-                                }
+                HStack(spacing: 12) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 28, height: 28)
+                        .background(MinisTheme.accent, in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Automatic Snapshots")
+                        Group {
+                            if snapshotCount == 0 {
+                                Text("Off · No snapshots yet")
+                            } else {
+                                Text("Off · \(snapshotCount) snapshots · \(byteText(snapshotBytes))")
                             }
-                            .font(.system(size: fontSettings.scaledApp(12)))
-                            .foregroundStyle(MinisTheme.secondaryText)
                         }
+                        .font(.system(size: fontSettings.scaledApp(12)))
+                        .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
-                .onChange(of: autoSnapshots) { _ in
-                    BackupSnapshotService.isAutomaticSnapshotEnabled = autoSnapshots
-                }
             } footer: {
-                Text("When on, the app takes a snapshot shortly after launch and when it returns to the foreground, whenever the newest one is stale. Keeps the 7 newest plus one weekly and one monthly copy (at most 9). Snapshots stay on this device in the Backups folder and open from Files like any other backup; switching off stops new snapshots but keeps the existing ones.")
+                Text("Automatic snapshots are off — the app only backs up when you tap Start Backup. Snapshots already in the Backups folder stay there and open from Files like any other backup; delete them yourself if you need the space back.")
             }
 
             historySection
