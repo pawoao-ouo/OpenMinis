@@ -1620,9 +1620,22 @@ final class AppearanceStudio: ObservableObject {
         }
         // [T-wallpaper-clear] Choosing a new image re-enables global
         // fallback for this scope (the clear only sticks until overridden).
-        wallpaperClearedFallback.remove(scope)
+        // A new GLOBAL image re-enables it for every page: a page cleared
+        // earlier must not keep ignoring the global wallpaper the user
+        // just picked (same removeAll() removeWallpaper(.global) does).
+        if scope == .global {
+            wallpaperClearedFallback.removeAll()
+        } else {
+            wallpaperClearedFallback.remove(scope)
+        }
         persistWallpaperCleared()
-        wallpaperUnreadable.remove(scope)
+        // [P1-1] A successful write clears ALL unreadable marks, not just
+        // this scope's: the mark records the requesting scope even when
+        // the file that failed to decode was the global fallback, so a
+        // scope-only clear leaves poisoned scopes behind forever. Same
+        // removeAll() removeWallpaper / clearWallpaper already use; a
+        // still-broken file is simply re-marked on the next read.
+        wallpaperUnreadable.removeAll()
         wallpaperCache.removeAllObjects()
         bumpWallpaperRevision()
         return true
@@ -1702,6 +1715,10 @@ final class AppearanceStudio: ObservableObject {
                 }
             }
         }
+        // [P1-1] Restoring files makes old unreadable marks stale (a
+        // restored-but-broken file is re-marked on the next read), so
+        // clear them like removeWallpaper / clearWallpaper already do.
+        wallpaperUnreadable.removeAll()
         wallpaperCache.removeAllObjects()
         bumpWallpaperRevision()
     }
