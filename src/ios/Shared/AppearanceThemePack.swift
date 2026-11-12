@@ -1257,12 +1257,19 @@ extension AppearanceStudio {
                 removeWallpaper(.global)
             }
             // User packs now carry per-page wallpapers, written back
-            // in the page paint below; this pre-clear still removes
-            // every page wallpaper first, so a scope the new pack does
-            // not carry does not survive the switch. The "never
-            // carries" claim now holds only for the AI merge path,
-            // where page fields are stripped before apply.
+            // in the page paint below; this pre-clear removes every
+            // page wallpaper the new pack does NOT carry, so a scope
+            // it does not carry does not survive the switch. A page
+            // the pack DOES carry is left alone until the write-back:
+            // if its payload turns out undecodable, the write-back
+            // only warns and the old file survives (the promise in
+            // the comment above; an empty entry still means
+            // "explicitly cleared", so it is pre-cleared as before).
+            // [P2-1]
             for scope in AppearanceScope.allCases where scope != .global {
+                if let carried = pack.pageWallpapers?[scope.rawValue], !carried.isEmpty {
+                    continue
+                }
                 removeWallpaper(scope)
             }
             if !(pack.thinkingCardJPEGBase64?.isEmpty == false) {
@@ -2177,6 +2184,11 @@ extension AppearanceStudio {
         guard let image = UIImage(contentsOfFile: path) else { return nil }
         ThumbnailCache.shared.store(image, for: path)
         return image
+    }
+
+    /// 有没有该分类的图片。UI 和 CLI 都该看这个，而不是看 pack 字段。
+    func hasCategoryImage(_ key: String) -> Bool {
+        FileManager.default.fileExists(atPath: categoryImageURL(key).path)
     }
 
     @discardableResult

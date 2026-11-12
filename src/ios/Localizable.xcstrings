@@ -147566,23 +147566,6 @@
         }
       }
     },
-    "复制主题 JSON": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "复制主题 JSON"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "复制主题 JSON"
-          }
-        }
-      }
-    },
     "你好，醒醒。今天想怎么打扮我？": {
       "extractionState": "manual",
       "localizations": {
@@ -148497,6 +148480,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Copy theme JSON (with images)"
+          }
+        }
+      }
+    },
+    "分类图片": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分类图片"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Category images"
           }
         }
       }

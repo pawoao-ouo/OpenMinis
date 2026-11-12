@@ -3203,6 +3203,9 @@ struct DressingThemeLibrarySheet: View {
     @ObservedObject private var studio = AppearanceStudio.shared
     @ObservedObject private var fontSettings = FontSettings.shared
     @State private var deleteConfirmTheme: AppearanceSavedTheme? = nil
+    // [P2-3] 档案库“换上”也是 replace：待换上的主题 + 它会删掉的图。
+    @State private var pendingLibraryTheme: AppearanceSavedTheme? = nil
+    @State private var pendingLibraryDeletions: [String] = []
 
     var body: some View {
         NavigationStack {
@@ -3291,6 +3294,29 @@ struct DressingThemeLibrarySheet: View {
                     deleteConfirmTheme = nil
                 }
             }
+            // [P2-3] 档案库“换上”的换上确认：只在真会删图时弹，列清要删的图。
+            .confirmationDialog(
+                AppLocalized("换上这个主题会删除以下图片"),
+                isPresented: Binding(
+                    get: { pendingLibraryTheme != nil },
+                    set: { if !$0 { pendingLibraryTheme = nil; pendingLibraryDeletions = [] } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button(AppLocalized("换上并删除"), role: .destructive) {
+                    if let theme = pendingLibraryTheme {
+                        applyLibraryTheme(theme)
+                    }
+                    pendingLibraryTheme = nil
+                    pendingLibraryDeletions = []
+                }
+                Button(AppLocalized("取消"), role: .cancel) {
+                    pendingLibraryTheme = nil
+                    pendingLibraryDeletions = []
+                }
+            } message: {
+                Text(pendingLibraryDeletions.joined(separator: "\n") + "\n\n" + AppLocalized("被删掉的图片找不回来，确定要换上吗？"))
+            }
         }
     }
 
@@ -3314,6 +3340,33 @@ struct DressingThemeLibrarySheet: View {
         }
     }
 
+    /// 档案库“换上”真正走的那条路：直接换、或确认页点“换上并删除”后走这里。
+    /// 上报逻辑与原来按钮里的一字不差。
+    private func applyLibraryTheme(_ theme: AppearanceSavedTheme) {
+        if let result = studio.applySavedThemeSet(id: theme.id) {
+            // 只有 Kept 三码是良性保留，其余警告一律算失败。
+            let failureWarnings = result.packWarnings.filter {
+                !Self.applyBenignWarningCodes.contains($0)
+            }
+            if result.packWarnings.contains("pack") {
+                // 包没落盘就提前返回了，什么都没换上，算彻底失败。
+                onNotify(AppLocalized("主题应用失败"))
+            } else if result.failedPieces.isEmpty, failureWarnings.isEmpty {
+                onNotify(AppLocalized("已成功换上：") + theme.name)
+            } else if !result.failedPieces.isEmpty {
+                var message = AppLocalized("已换上，但没换上：") + result.failedPieces.map({ failedPieceLabel($0) }).joined(separator: "、")
+                if !failureWarnings.isEmpty {
+                    message += "、" + AppLocalized("还有部分内容没换过来")
+                }
+                onNotify(message)
+            } else {
+                onNotify(AppLocalized("已换上，但部分内容没换过来"))
+            }
+        } else {
+            onNotify(AppLocalized("主题应用失败"))
+        }
+    }
+
     private func savedThemeCard(_ theme: AppearanceSavedTheme) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
@@ -3330,27 +3383,17 @@ struct DressingThemeLibrarySheet: View {
 
             Button {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                if let result = studio.applySavedThemeSet(id: theme.id) {
-                    // 只有 Kept 三码是良性保留，其余警告一律算失败。
-                    let failureWarnings = result.packWarnings.filter {
-                        !Self.applyBenignWarningCodes.contains($0)
-                    }
-                    if result.packWarnings.contains("pack") {
-                        // 包没落盘就提前返回了，什么都没换上，算彻底失败。
-                        onNotify(AppLocalized("主题应用失败"))
-                    } else if result.failedPieces.isEmpty, failureWarnings.isEmpty {
-                        onNotify(AppLocalized("已成功换上：") + theme.name)
-                    } else if !result.failedPieces.isEmpty {
-                        var message = AppLocalized("已换上，但没换上：") + result.failedPieces.map({ failedPieceLabel($0) }).joined(separator: "、")
-                        if !failureWarnings.isEmpty {
-                            message += "、" + AppLocalized("还有部分内容没换过来")
-                        }
-                        onNotify(message)
-                    } else {
-                        onNotify(AppLocalized("已换上，但部分内容没换过来"))
-                    }
-                } else {
+                // [P2-3] 档案库“换上”也是 replace：先算会删的图，非空先让她定。
+                guard let pack = studio.libraryPack(id: theme.id) else {
                     onNotify(AppLocalized("主题应用失败"))
+                    return
+                }
+                let deletions = replaceDeletions(studio: studio, for: pack)
+                if deletions.isEmpty {
+                    applyLibraryTheme(theme)
+                } else {
+                    pendingLibraryTheme = theme
+                    pendingLibraryDeletions = deletions
                 }
             } label: {
                 Text(AppLocalized("换上"))
@@ -4072,7 +4115,7 @@ struct DressingImportExportSheet: View {
 
         do {
             let pack = try AppearanceThemePack.decode(obj)
-            let deletions = replaceDeletions(for: pack)
+            let deletions = replaceDeletions(studio: studio, for: pack)
             if deletions.isEmpty {
                 applyReplacePack(pack)
             } else {
@@ -4093,33 +4136,42 @@ struct DressingImportExportSheet: View {
         dismiss()
     }
 
-    /// Replace 会删掉、而新包又不带回来的图：只列实际存在的那几项。
-    /// 不存在的、或新包会换上新图的，都不列——确认页只报真会丢的。
-    private func replaceDeletions(for pack: AppearanceThemePack) -> [String] {
-        var doomed: [String] = []
-        // 全局壁纸：包里没带就删。
-        if !(pack.wallpaperJPEGBase64?.isEmpty == false), studio.hasOwnWallpaper(.global) {
-            doomed.append(AppLocalized("全局壁纸"))
-        }
-        // 各页壁纸：replace 会先清掉每一页，包里没列出这页（或列了
-        // 空串）就不再写回来，旧图就没了；列了图的只是换一张，不算丢。
-        for scope in AppearanceScope.allCases where scope != .global {
-            let carried = pack.pageWallpapers?[scope.rawValue] ?? ""
-            if carried.isEmpty, studio.hasOwnWallpaper(scope) {
-                doomed.append(String(format: AppLocalized("%@壁纸"), scope.title))
-            }
-        }
-        if !(pack.thinkingCardJPEGBase64?.isEmpty == false), studio.hasThinkingCardImage() {
-            doomed.append(AppLocalized("思考卡背景图"))
-        }
-        if !(pack.inputBarJPEGBase64?.isEmpty == false), studio.hasInputBarImage() {
-            doomed.append(AppLocalized("输入栏背景图"))
-        }
-        if !(pack.characterArtBase64?.isEmpty == false), studio.hasCharacterArt {
-            doomed.append(AppLocalized("助手立绘"))
-        }
-        return doomed
+}
+
+/// Replace 会删掉、而新包又不带回来的图：只列实际存在的那几项。
+/// 不存在的、或新包会换上新图的，都不列——确认页只报真会丢的。
+/// 文件级共用：粘贴导入与主题档案库“换上”两处都要它。
+private func replaceDeletions(studio: AppearanceStudio, for pack: AppearanceThemePack) -> [String] {
+    var doomed: [String] = []
+    // 全局壁纸：包里没带就删。
+    if !(pack.wallpaperJPEGBase64?.isEmpty == false), studio.hasOwnWallpaper(.global) {
+        doomed.append(AppLocalized("全局壁纸"))
     }
+    // 各页壁纸：replace 会先清掉包里没带的每一页，包里没列出这页（或列了
+    // 空串）就不再写回来，旧图就没了；列了图的只是换一张，不算丢。
+    for scope in AppearanceScope.allCases where scope != .global {
+        let carried = pack.pageWallpapers?[scope.rawValue] ?? ""
+        if carried.isEmpty, studio.hasOwnWallpaper(scope) {
+            doomed.append(String(format: AppLocalized("%@壁纸"), scope.title))
+        }
+    }
+    if !(pack.thinkingCardJPEGBase64?.isEmpty == false), studio.hasThinkingCardImage() {
+        doomed.append(AppLocalized("思考卡背景图"))
+    }
+    if !(pack.inputBarJPEGBase64?.isEmpty == false), studio.hasInputBarImage() {
+        doomed.append(AppLocalized("输入栏背景图"))
+    }
+    if !(pack.characterArtBase64?.isEmpty == false), studio.hasCharacterArt {
+        doomed.append(AppLocalized("助手立绘"))
+    }
+    // [P2-2] 分类图片：replace 会把包里没带的分类键补 ""，applyCategoryImages
+    // 遇空串就删 category-<key>.jpg；只列手机上真有、包里又没带的，汇总成一行。
+    if AppearanceThemePack.categoryKeys.contains(where: { key in
+        (pack.categoryImages[key]?.isEmpty ?? true) && studio.hasCategoryImage(key)
+    }) {
+        doomed.append(AppLocalized("分类图片"))
+    }
+    return doomed
 }
 
 // MARK: - 10. 小酒馆主题导入确认 (STImportConfirmSheet)
