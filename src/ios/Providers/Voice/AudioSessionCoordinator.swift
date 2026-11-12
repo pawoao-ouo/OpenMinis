@@ -16,6 +16,18 @@ import UIKit
 //   .capture            — mic recording (.record/.measurement)            [highest]
 //   .mediaAttachment    — Markdown audio attachment / auto_play playback
 //   .replyTTS           — read-replies (cloud VoiceOutputPlayer OR System AVSpeech)
+//   .offloadPlayback    — apple-player offload video (.playback/.mixWithOthers).
+//                         Its own intent (not `.backgroundKeepAlive`) because
+//                         it is FOREGROUND audible playback: reassertForForeground
+//                         drops `.backgroundKeepAlive`, which would yank the
+//                         session from under a playing video.
+//   .backupKeepAlive    — silent backup loop (.playback/.mixWithOthers).
+//                         Its own intent (not `.backgroundKeepAlive`) because
+//                         BackupKeepAlive and BackgroundKeepAliveManager can
+//                         hold the session at the SAME time (backup in the
+//                         background); the intent set is not refcounted, so
+//                         sharing one intent would let the first end() drop the
+//                         session under the other holder.
 //   .backgroundKeepAlive— silent keep-alive track (background only)        [lowest]
 //
 // `.mediaAttachment` and `.replyTTS` are mutually exclusive at the source level
@@ -28,11 +40,15 @@ final class AudioSessionCoordinator {
     private init() { registerInterruptionObserver() }
 
     enum Intent: Int {
-        // Higher rawValue = higher priority.
+        // Higher rawValue = higher priority. The raw values are only used
+        // for the `highest` comparison — they are never persisted, so
+        // renumbering is safe; keep them consecutive.
         case backgroundKeepAlive = 0
-        case replyTTS = 1
-        case mediaAttachment = 2
-        case capture = 3
+        case backupKeepAlive = 1
+        case offloadPlayback = 2
+        case replyTTS = 3
+        case mediaAttachment = 4
+        case capture = 5
     }
 
     private let logger = AppLogger(category: "AudioSession")
@@ -153,6 +169,16 @@ final class AudioSessionCoordinator {
         case .replyTTS:
             return (.playback, .spokenAudio, [.duckOthers])
         case .backgroundKeepAlive:
+            return (.playback, .default, [.mixWithOthers])
+        case .backupKeepAlive:
+            // Same profile as .backgroundKeepAlive (silent, mixes with
+            // others) — the separate case exists only so the two holders
+            // have independent lifecycles (see the header comment).
+            return (.playback, .default, [.mixWithOthers])
+        case .offloadPlayback:
+            // Same profile the offload bridge used to set directly
+            // (.playback/.mixWithOthers, default mode) — now owned by the
+            // coordinator, so it can no longer clobber the other intents.
             return (.playback, .default, [.mixWithOthers])
         }
     }

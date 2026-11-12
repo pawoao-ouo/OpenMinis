@@ -212,11 +212,17 @@ final class SpeechRecognitionManager: ObservableObject {
         recognitionTask?.cancel()
         recognitionTask = nil
 
-        let audioSession = AVAudioSession.sharedInstance()
-        // No `.duckOthers`: capturing the mic shouldn't quiet other apps' audio
-        // (it sometimes stayed ducked after recording stopped).
-        try audioSession.setCategory(.record, mode: .measurement)
-        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        // The session is owned by AudioSessionCoordinator: `.capture`
+        // applies (.record, .measurement) — no `.duckOthers`, capturing the
+        // mic shouldn't quiet other apps' audio (it sometimes stayed ducked
+        // after recording stopped). MUST be beginAndWait, not begin: the
+        // profile switch lands on a background queue, and `inputFormat`
+        // below must be read only once .record is live — reading it while
+        // the session still carries a playback profile yields 0 channels
+        // (see the coordinator's doc on beginAndWait). On timeout the
+        // caller proceeds and the 0-channel guard below still protects.
+        let applied = AudioSessionCoordinator.shared.beginAndWait(.capture)
+        logger.info("Audio session capture requested (applied=\(applied))")
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -233,7 +239,10 @@ final class SpeechRecognitionManager: ObservableObject {
         guard recordingFormat.channelCount > 0 else {
             logger.error("Recording format has 0 channels — cannot install tap")
             recognitionRequest = nil
-            try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            // The session is part of the rollback: it was claimed above,
+            // and leaving `.capture` declared keeps the mic session live
+            // until some unrelated path releases it.
+            AudioSessionCoordinator.shared.end(.capture)
             throw NSError(domain: "SpeechRecognition", code: -1, userInfo: [NSLocalizedDescriptionKey: "Recording format has 0 channels"])
         }
 
@@ -275,7 +284,7 @@ final class SpeechRecognitionManager: ObservableObject {
             inputNode.removeTap(onBus: 0)
             recognitionRequest = nil
             state = .idle
-            try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            AudioSessionCoordinator.shared.end(.capture)
             let reason = installOk
                 ? (startError?.localizedDescription ?? "audio engine failed to start")
                 : "installTap raised an exception (audio session unavailable?)"
@@ -316,7 +325,7 @@ final class SpeechRecognitionManager: ObservableObject {
         recognitionTask = nil
         state = .idle
 
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        AudioSessionCoordinator.shared.end(.capture)
     }
 
     private func computeRMS(buffer: AVAudioPCMBuffer) -> Float {

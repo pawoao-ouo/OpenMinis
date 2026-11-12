@@ -34,6 +34,12 @@ private class PlayerSession {
     /// without a full stop.
     var didSuspendSilentAudio = false
 
+    /// True once this session has declared the `.offloadPlayback` intent
+    /// and not yet released it. Cleared by stopSession / cleanupSession,
+    /// and used by `deinit` as a last-ditch release so the intent doesn't
+    /// leak when ARC drops the session without a full stop.
+    var didBeginOffloadPlayback = false
+
     enum MediaType: String {
         case video
         case audio
@@ -57,6 +63,16 @@ private class PlayerSession {
         if didSuspendSilentAudio {
             Task { @MainActor in
                 BackgroundKeepAliveManager.shared.resumeSilentAudioForMedia(caller: "PlayerSession.deinit")
+            }
+        }
+        // Same last-resort for the session claim below: if the session was
+        // dropped without a full stop, release the intent so the audio
+        // session doesn't stay active for a video that no longer exists.
+        // The release is refcount-aware (it checks the remaining sessions),
+        // so a still-live sibling video keeps its claim.
+        if didBeginOffloadPlayback {
+            Task { @MainActor in
+                PlayerOffloadBridge.releaseOffloadPlaybackIfIdle()
             }
         }
     }
@@ -141,12 +157,19 @@ private class PlayerSession {
         BackgroundKeepAliveManager.shared.suspendSilentAudioForMedia()
         session.didSuspendSilentAudio = true
 
-        // Configure audio session. .mixWithOthers so we don't yank the
-        // system audio session away from external apps (Spotify, Apple
-        // Music, etc.) — taking it away triggers an interruption chain
-        // that can kill our background keepalive when they reclaim it.
-        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        // Configure audio session. The session is owned by
+        // AudioSessionCoordinator: `.offloadPlayback` applies the same
+        // profile this used to set directly (.playback / .mixWithOthers,
+        // default mode) — .mixWithOthers so we don't yank the system audio
+        // session away from external apps (Spotify, Apple Music, etc.);
+        // taking it away triggers an interruption chain that can kill our
+        // background keepalive when they reclaim it. The coordinator owns
+        // the apply, so this can no longer clobber reply TTS / media /
+        // capture, and the claim is released in stopSession /
+        // cleanupSession instead of leaking (the old bare setActive(true)
+        // here had no matching setActive(false) anywhere in the file).
+        AudioSessionCoordinator.shared.begin(.offloadPlayback)
+        session.didBeginOffloadPlayback = true
 
         let player = AVPlayer(url: session.fileURL)
         session.videoPlayer = player
@@ -310,6 +333,19 @@ private class PlayerSession {
         }
     }
 
+    /// Release the `.offloadPlayback` intent, but only once the LAST video
+    /// session holding it is gone. The coordinator's intent set is not
+    /// refcounted, so ending the intent while another video session still
+    /// holds the claim would drop the session under it. `end()` itself is
+    /// idempotent, so calling this when nothing holds the claim is a no-op.
+    /// `fileprivate` (not `private`): `PlayerSession.deinit` in this file
+    /// calls it as the last-ditch release, and a private member of the
+    /// bridge class is not visible to the separate PlayerSession type.
+    fileprivate static func releaseOffloadPlaybackIfIdle() {
+        guard !sessions.values.contains(where: { $0.didBeginOffloadPlayback }) else { return }
+        AudioSessionCoordinator.shared.end(.offloadPlayback)
+    }
+
     @objc public static func stopSession(_ sessionId: String, error: UnsafeMutablePointer<NSString?>) -> NSDictionary? {
         guard let session = sessions[sessionId] else {
             error.pointee = "Session '\(sessionId)' not found" as NSString
@@ -330,6 +366,9 @@ private class PlayerSession {
         } else {
             logger.info("[PlayerOffload] stop: sessionId=\(sessionId) mediaType=\(session.mediaType.rawValue) (no resume — other video sessions still active or audio session)")
         }
+        // The session is gone, so its audio-session claim goes with it —
+        // unless another live video session still holds one.
+        releaseOffloadPlaybackIfIdle()
         return [
             "session_id": sessionId,
             "status": "stopped",
@@ -385,6 +424,10 @@ private class PlayerSession {
         } else {
             logger.info("[PlayerOffload] cleanup: sessionId=\(sessionId) mediaType=\(session.mediaType.rawValue) (no resume — other video sessions still active or audio session)")
         }
+        // Same release as stopSession: the session is gone, so its
+        // audio-session claim goes with it, unless another live video
+        // session still holds one.
+        releaseOffloadPlaybackIfIdle()
     }
 
     // MARK: - UI Presentation
