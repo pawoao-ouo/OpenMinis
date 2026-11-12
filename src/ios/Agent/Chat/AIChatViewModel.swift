@@ -11,6 +11,45 @@ private let logger = AppLogger(category: "AIChatVM")
 
 // MARK: - View Model
 
+/// Draft state for the composer input, kept in an object the chat page
+/// body does NOT observe.
+///
+/// [P2-12] `inputText`/`inputCaret`/`pendingCaret` used to be `@Published`
+/// on the view model, so every keystroke (and every streamed-token-driven
+/// draft change) re-evaluated the whole `AIChatView.body` — the message
+/// list's `updateUIViewController` included. The draft now lives here;
+/// only `ChatComposerView` observes this store, so typing rebuilds the
+/// composer alone. Reads through `AIChatViewModel.inputText` /
+/// `inputCaret` / `pendingCaret` stay live — they forward straight to the
+/// store, with no sync point and no adoption logic, so `send()`,
+/// `enqueuePrompt()`, intents and bridges keep reading the true current
+/// text and writing it exactly as before.
+@MainActor
+final class ComposerDraftStore: ObservableObject {
+    @Published var text: String = ""
+    @Published var caret: Int = 0
+    @Published var pendingCaret: Int?
+
+    /// Called after the draft changes, with the new text and the text it
+    /// replaced. The view model registers it in `init` to run the side
+    /// effects the old `inputText` didSet used to run.
+    var onTextChanged: ((String, String) -> Void)?
+    /// Called after the caret changes, with the new caret offset. Runs
+    /// the side effects the old `inputCaret` didSet used to run.
+    var onCaretChanged: ((Int) -> Void)?
+
+    func setText(_ newValue: String) {
+        let oldValue = text
+        if newValue != text { text = newValue }
+        onTextChanged?(newValue, oldValue)
+    }
+
+    func setCaret(_ newValue: Int) {
+        if newValue != caret { caret = newValue }
+        onCaretChanged?(newValue)
+    }
+}
+
 @MainActor
 final class AIChatViewModel: ObservableObject, SpeechControlling {
 
@@ -179,6 +218,35 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
     init() {
         logger.info("🔄SESSION [vm=\(self.vmInstanceId)] init — new AIChatViewModel created")
+
+        // [P2-12] The draft store's change callbacks run the side effects
+        // the old `inputText`/`inputCaret` didSets used to run. Typing
+        // only notifies the store's observers (the composer subview),
+        // never the view model — the whole page body stays out of the
+        // keystroke path. `voiceUsedInComposition` is a plain var, so
+        // clearing it here notifies nothing.
+        draftStore.onTextChanged = { [weak self] text, oldValue in
+            guard let self else { return }
+            if text.isEmpty && !oldValue.isEmpty {
+                self.voiceUsedInComposition = false
+                #if DEBUG
+                logger.info("DRAFT [vm=\(self.vmInstanceId)] inputText CLEARED (was '\(String(oldValue.prefix(30)))') sessionId=\(self.sessionId ?? "nil") draftId=\(self.draftId ?? "nil") isProcessing=\(self.isProcessing)")
+                #else
+                logger.info("DRAFT [vm=\(self.vmInstanceId)] inputText CLEARED (was \(oldValue.count)ch) sessionId=\(self.sessionId ?? "nil") draftId=\(self.draftId ?? "nil") isProcessing=\(self.isProcessing)")
+                #endif
+            }
+            self.updateSlashMenuState(for: text)
+            self.updateMentionMenuState(for: text)
+        }
+        draftStore.onCaretChanged = { [weak self] caret in
+            guard let self else { return }
+            self.updateMentionMenuState(for: self.inputText, caret: caret)
+            // If the caret arrived at the desired location, clear the pending
+            // request so subsequent edits aren't forced back.
+            if let p = self.pendingCaret, p == caret {
+                self.pendingCaret = nil
+            }
+        }
 
         fontChangeObserver = NotificationCenter.default.addObserver(
             forName: .fontSettingsMessageBaseChanged, object: nil, queue: .main
@@ -577,35 +645,82 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// since the composer was last cleared" and flip the remembered
     /// input-mode preference back to "text".
     var voiceUsedInComposition = false
-    @Published var inputText = "" {
-        didSet {
-            if inputText.isEmpty && !oldValue.isEmpty {
-                voiceUsedInComposition = false
-                #if DEBUG
-                logger.info("🔑DRAFT [vm=\(self.vmInstanceId)] inputText CLEARED (was '\(String(oldValue.prefix(30)))') sessionId=\(self.sessionId ?? "nil") draftId=\(self.draftId ?? "nil") isProcessing=\(self.isProcessing)")
-                #else
-                logger.info("🔑DRAFT [vm=\(self.vmInstanceId)] inputText CLEARED (was \(oldValue.count)ch) sessionId=\(self.sessionId ?? "nil") draftId=\(self.draftId ?? "nil") isProcessing=\(self.isProcessing)")
-                #endif
-            }
-            updateSlashMenuState()
-            updateMentionMenuState()
-        }
+    /// [P2-12] The composer draft lives in `draftStore`, an object the
+    /// chat page body does not observe — typing used to re-evaluate the
+    /// whole page (message-list `updateUIViewController` included).
+    /// These stay as plain pass-throughs so every existing reader and
+    /// writer (`send()`, intents, bridges, menus) keeps working untouched
+    /// and always sees the live text.
+    let draftStore = ComposerDraftStore()
+    var inputText: String {
+        get { draftStore.text }
+        set { draftStore.setText(newValue) }
     }
     /// Caret position (character offset) published by the input text view.
     /// Used by the `@` mention detector to locate the active token.
-    @Published var inputCaret: Int = 0 {
-        didSet {
-            updateMentionMenuState()
-            // If the caret arrived at the desired location, clear the pending
-            // request so subsequent edits aren't forced back.
-            if let p = pendingCaret, p == inputCaret {
-                pendingCaret = nil
-            }
-        }
+    var inputCaret: Int {
+        get { draftStore.caret }
+        set { draftStore.setCaret(newValue) }
     }
     /// One-shot request to move the caret to a specific offset. Cleared once
     /// the text view publishes a matching caret position via `inputCaret`.
-    @Published var pendingCaret: Int?
+    var pendingCaret: Int? {
+        get { draftStore.pendingCaret }
+        set { draftStore.pendingCaret = newValue }
+    }
+
+    /// [P2-12] Composer-gate predicates, moved here from `AIChatView` so
+    /// the composer subview and the page share one definition. They read
+    /// the draft through the pass-throughs above, so they stay live while
+    /// the page body itself no longer re-evaluates per keystroke.
+    var canSend: Bool {
+        isReady && !hasLoadingAttachments && hasDraftContent
+    }
+
+    /// [T-no-provider-mute] 输入栏里有没有「值得发出去的东西」，**不看**模型
+    /// 配没配。以前这个判断塞在 `canSend` 里，没启用任何 provider 时它恒为
+    /// 假：输入框里明明写着字，形态键还是话筒、还灰着点不动，回车和上滑
+    /// 发送两条路也全静默——新装第一次就撞这堵墙，而且一句提示都没有。
+    /// 现在内容判断独立出来，能不能发由 `canSend` 叠加 readiness，点下去
+    /// 没模型时走提示，不再是死键。
+    var hasDraftContent: Bool {
+        let hasText = !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasReadyAttachment = attachments.contains { $0.loadState == .ready }
+        return hasText || hasReadyAttachment
+    }
+
+    /// [T-composer-edit-clear] 语音/发送形态只看文字空不空，不看附件。
+    /// 她定的准表：没字就是语音键，有字才变发送键；编辑时把字删空退回语音键
+    /// 后，附件还挂着，键也还是语音键。附件能不能发由 canSend/canEnqueue
+    /// 另算（回车、上滑照样能发纯附件），形态键不管。
+    var hasDraftText: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var canEnqueue: Bool {
+        // [T-ios-photo-pick-placeholder] Same attachment gate as canSend: while
+        // any picked photo/video is still loading, enqueueing would snapshot
+        // its /dev/null placeholder and silently drop the real bytes.
+        //
+        // [10-20] Content test must match canSend exactly. It used to require
+        // non-empty TEXT, so with only a photo attached during a running reply
+        // the button stayed in Stop mode — tapping it killed the reply instead
+        // of queueing the photo. enqueuePrompt() has always accepted
+        // attachments, so the gate was the only thing blocking it.
+        guard isProcessing, !hasLoadingAttachments else { return false }
+        let hasText = !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasReadyAttachment = attachments.contains { $0.loadState == .ready }
+        return hasText || hasReadyAttachment
+    }
+
+    /// Whether the composer actually holds something worth moving to another
+    /// session — non-blank text or at least one attachment. Gates the
+    /// "移动到…" tile in the plus panel, so an empty composer gets a toast
+    /// instead of opening a picker that would move nothing.
+    var hasMovableShareContent: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !attachments.isEmpty
+    }
     /// Plain string capture of the vm state for diagnostic logging from deinit
     /// (which is nonisolated and can't touch @Published MainActor properties).
     /// Updated on every isProcessing flip and on send entry.

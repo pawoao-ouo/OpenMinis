@@ -168,6 +168,7 @@ final class ThumbnailCache {
     func removeAll() {
         lock.lock()
         pathIndex.removeAll()
+        statCache.removeAll()
         lock.unlock()
         cache.removeAllObjects()
     }
@@ -188,21 +189,51 @@ final class ThumbnailCache {
     func removeThumbnail(for path: String) {
         lock.lock()
         let keys = pathIndex.removeValue(forKey: path) ?? []
+        statCache.removeValue(forKey: path)
         lock.unlock()
         for key in keys { cache.removeObject(forKey: key as NSString) }
     }
 
     // MARK: - Private
 
+    /// [P3-3] Cached file stats for `cacheKey`: every cache check used to
+    /// `stat` the file, so a rebuild burst (e.g. the input-bar image being
+    /// re-read on every keystroke) paid a syscall per check. Stats are
+    /// cached for 2s — long enough to collapse a burst, short enough that
+    /// an external overwrite is picked up almost immediately. Writers still
+    /// invalidate explicitly via `removeThumbnail(for:)` / `removeAll()`,
+    /// which is the path that must never serve stale bytes; a `store()`
+    /// under a stale key can only orphan an entry (next lookup reloads
+    /// from disk), never serve the wrong image.
+    private var statCache: [String: (size: Int64, mtime: TimeInterval, at: Date)] = [:]
+    private static let statCacheTTL: TimeInterval = 2
+
+    private func cachedStat(for path: String) -> (size: Int64, mtime: TimeInterval) {
+        let now = Date()
+        lock.lock()
+        if let hit = statCache[path], now.timeIntervalSince(hit.at) < Self.statCacheTTL {
+            lock.unlock()
+            return (hit.size, hit.mtime)
+        }
+        lock.unlock()
+        let attrs = try? FileManager.default.attributesOfItem(atPath: path)
+        let stat = ((attrs?[.size] as? NSNumber)?.int64Value ?? 0,
+                    (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)
+        lock.lock()
+        statCache[path] = (stat.0, stat.1, now)
+        lock.unlock()
+        return stat
+    }
+
     private func cacheKey(path: String, maxSize: CGFloat) -> String {
         // Include the file's size + modification time so overwriting the file
         // at the same path produces a different key — a path-only key would
         // keep serving the old image until eviction/memory-warning/background.
         // A missing file stamps as 0:0, which simply never matches a real load.
-        let attrs = try? FileManager.default.attributesOfItem(atPath: path)
-        let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
-        let mtime = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-        return "thumb:\(Int(maxSize)):\(path):\(size):\(mtime)"
+        // [P3-3] The stat itself is cached for 2s (see `cachedStat`) so a
+        // burst of cache checks does not stat the file once per check.
+        let stat = cachedStat(for: path)
+        return "thumb:\(Int(maxSize)):\(path):\(stat.size):\(stat.mtime)"
     }
 
     /// Load image from disk and downsample to maxSize using ImageIO.

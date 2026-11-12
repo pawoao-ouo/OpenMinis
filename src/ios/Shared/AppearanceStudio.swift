@@ -96,6 +96,81 @@ enum WallpaperPipeline {
               image.size.width > 0, image.size.height > 0 else { return nil }
         return image
     }
+
+    /// Returns `data` with metadata segments stripped, pixels untouched.
+    ///
+    /// [P2-13] Imported images used to land on disk byte-for-byte, EXIF
+    /// included — GPS + device tags rode into the sandbox and back out on
+    /// export. Uniform re-encoding would cost a generation loss on every
+    /// apply (see `writeEncodedImage`'s doc), so instead this drops only
+    /// the metadata segments: JPEG APP1 (Exif + XMP) and PNG eXIf/text
+    /// chunks. HEIC/WebP/GIF have no byte-level strip here and pass
+    /// through unchanged — they only reach disk via the re-encode paths
+    /// (`backgroundJPEG` / `writeDownscaledJPEG`), which drop metadata
+    /// by construction. Any malformed input returns the original bytes
+    /// untouched: never corrupt a file to strip a tag.
+    nonisolated static func strippedMetadata(_ data: Data) -> Data {
+        if data.starts(with: [0xFF, 0xD8]) { return stripJPEGMetadata(data) }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return stripPNGMetadata(data) }
+        return data
+    }
+
+    /// JPEG: walk segments, drop APP1 (0xFFE1, Exif + XMP), copy the rest
+    /// byte-for-byte. Stops parsing at SOS — scan data is copied verbatim.
+    nonisolated private static func stripJPEGMetadata(_ data: Data) -> Data {
+        var out = Data()
+        out.reserveCapacity(data.count)
+        guard data.count >= 4 else { return data }
+        var i = data.startIndex
+        out.append(data[i..<data.index(i, offsetBy: 2)]) // SOI
+        i = data.index(i, offsetBy: 2)
+        while i < data.endIndex {
+            guard data[i] == 0xFF, data.index(after: i) < data.endIndex else { return data }
+            let marker = data[data.index(after: i)]
+            if marker == 0xFF { i = data.index(after: i); continue } // fill byte, carries nothing
+            if marker == 0xD9 { // EOI: copy and finish
+                out.append(data[i..<data.index(i, offsetBy: 2)])
+                return out
+            }
+            if marker == 0xDA { // SOS: scan data follows — copy the rest verbatim
+                out.append(data[i...])
+                return out
+            }
+            // Segment with a 2-byte length (length includes its own 2 bytes).
+            guard data.distance(from: i, to: data.endIndex) >= 4 else { return data }
+            let len = Int(data[data.index(i, offsetBy: 2)]) << 8
+                | Int(data[data.index(i, offsetBy: 3)])
+            guard len >= 2, data.distance(from: i, to: data.endIndex) >= 2 + len else { return data }
+            if marker != 0xE1 { // keep everything except APP1 (Exif/XMP)
+                out.append(data[i..<data.index(i, offsetBy: 2 + len)])
+            }
+            i = data.index(i, offsetBy: 2 + len)
+        }
+        return out
+    }
+
+    /// PNG: walk chunks, drop eXIf + text chunks, copy the rest whole
+    /// (length + type + data + CRC move as one unit, so CRCs stay valid).
+    nonisolated private static func stripPNGMetadata(_ data: Data) -> Data {
+        var out = Data()
+        out.reserveCapacity(data.count)
+        guard data.count >= 8 else { return data }
+        var i = data.index(data.startIndex, offsetBy: 8)
+        out.append(data[data.startIndex..<i]) // signature
+        while i < data.endIndex {
+            guard data.distance(from: i, to: data.endIndex) >= 8 else { return data }
+            let len = (Int(data[i]) << 24) | (Int(data[data.index(i, offsetBy: 1)]) << 16)
+                | (Int(data[data.index(i, offsetBy: 2)]) << 8) | Int(data[data.index(i, offsetBy: 3)])
+            let type = data[data.index(i, offsetBy: 4)..<data.index(i, offsetBy: 8)]
+            guard len >= 0, data.distance(from: i, to: data.endIndex) >= 12 + len else { return data }
+            let typeString = String(decoding: type, as: UTF8.self)
+            if typeString != "eXIf" && typeString != "tEXt" && typeString != "iTXt" && typeString != "zTXt" {
+                out.append(data[i..<data.index(i, offsetBy: 12 + len)])
+            }
+            i = data.index(i, offsetBy: 12 + len)
+        }
+        return out
+    }
 }
 
 // MARK: - Semantic appearance system
@@ -1681,6 +1756,7 @@ final class AppearanceStudio: ObservableObject {
     /// A pack carries a JPEG; decoding it into a UIImage and re-encoding
     /// threw away a generation and inflated the file. Re-encoding now only
     /// happens when the image is larger than the wallpaper edge limit.
+    /// Under-limit bytes land as-is, metadata stripped (P2-13).
     ///
     /// [P2-3] Decode + downscale + encode run off the main thread (a 48MP
     /// pick used to expand to ~200MB of bitmap on MainActor). Only the
@@ -1738,9 +1814,9 @@ final class AppearanceStudio: ObservableObject {
         if let darkData {
             guard let darkImage = WallpaperPipeline.decodedImage(darkData) else { return .badDark }
             let lightJPEG = max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge
-                ? backgroundJPEG(image, dark: false) : data
+                ? backgroundJPEG(image, dark: false) : WallpaperPipeline.strippedMetadata(data)
             let darkJPEG = max(darkImage.size.width, darkImage.size.height) > WallpaperPipeline.maxEdge
-                ? backgroundJPEG(darkImage, dark: true) : darkData
+                ? backgroundJPEG(darkImage, dark: true) : WallpaperPipeline.strippedMetadata(darkData)
             guard let lightJPEG, let darkJPEG else { return .encodeFailed }
             return .ready(light: lightJPEG, dark: darkJPEG)
         }
@@ -1753,7 +1829,9 @@ final class AppearanceStudio: ObservableObject {
             guard let jpeg = backgroundJPEG(image, dark: false) else { return .encodeFailed }
             return .ready(light: jpeg, dark: nil)
         }
-        return .ready(light: data, dark: nil)
+        // [P2-13] Under-limit bytes land as-is, but with metadata stripped
+        // first — pixels untouched, no re-encode, no quality change.
+        return .ready(light: WallpaperPipeline.strippedMetadata(data), dark: nil)
     }
 
     @discardableResult

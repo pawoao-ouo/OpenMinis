@@ -181,13 +181,6 @@ struct AIChatView: View {
     /// so SwiftUI observes changes through `cached`.
     private var vm: AIChatViewModel { cached.vm }
 
-    /// Binding to vm.inputText, routed through the stable @StateObject.
-    private var inputTextBinding: Binding<String> {
-        Binding(
-            get: { cached.vm.inputText },
-            set: { cached.vm.inputText = $0 }
-        )
-    }
 
     init(sessionId: String? = nil, draftId: String? = nil, initialGroupId: String? = nil) {
         self.sessionId = sessionId
@@ -238,9 +231,6 @@ struct AIChatView: View {
     @State private var keyboardAnim: Animation = .easeOut(duration: 0.25)
     /// 同一次的时长数字版:动画用 Animation,延迟要用秒。
     @State private var keyboardAnimDuration: Double = 0.25
-    /// [T-composer-split] 语音/发送键和停止键的点按计数，只给 sensoryFeedback 当触发器用。
-    @State private var voiceSendTapCount = 0
-    @State private var stopTapCount = 0
     @State private var inputBarHeight: CGFloat = 0
     /// [T-composer-single-anchor] 输入栏那一摞（浮窗键 + 一起听胶囊 + 输入栏）的实测高度。
     /// 斜杠/提及弹窗只认这一个数字，不再三段相加。
@@ -447,7 +437,6 @@ struct AIChatView: View {
     @State private var screenshotPreview: ChatScreenshotPreview?
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var attachmentGridHeight: CGFloat = 0
-    @State private var transcriptHeight: CGFloat = 0
     /// Tracks how much of recognizedText has already been appended to inputText.
     @State private var lastRecognizedLength: Int = 0
     /// Intent-based auto-scroll: stays true until the user actively scrolls up
@@ -459,45 +448,7 @@ struct AIChatView: View {
 
     /// Persisted composer height as a FRACTION of screen height (e.g. 0.5).
     /// 0 = never resized, so the composer keeps its natural content-driven
-    /// height. Stored as a fraction rather than points so the preference
-    /// survives rotation, Split View resizes and a move to another iPad.
-    @AppStorage("chat.composer.heightFraction") private var composerHeightFraction: Double = 0
-    /// Live delta while a drag is in flight, in POINTS. Kept separate from the
-    /// persisted fraction so an in-progress drag never writes to defaults and a
-    /// cancelled gesture leaves no trace.
-    @State private var composerDragOffset: CGFloat = 0
 
-    /// The drag handle is iPad-only: on iPhone the composer is already close to
-    /// the keyboard and a 50%-height composer would leave no readable
-    /// transcript, so the affordance is not offered there.
-    private var composerResizeEnabled: Bool { UIDevice.current.userInterfaceIdiom == .pad }
-
-    /// Upper bound for the composer: half the screen. Beyond this the chat
-    /// transcript stops being usable, which is the point of the feature's cap.
-    private var composerMaxHeight: CGFloat { UIScreen.main.bounds.height * 0.5 }
-
-    /// The resolved text-view height, or nil to let the composer size itself.
-    ///
-    /// nil is the untouched default — the composer grows with its content up to
-    /// the built-in ~120pt cap, exactly as before this feature. Once the user
-    /// drags, the stored fraction becomes a FLOOR that the text view is pinned
-    /// to, clamped to [default, 50% of screen].
-    private var composerTextHeight: CGFloat? {
-        guard composerResizeEnabled else { return nil }
-        let base = composerHeightFraction > 0
-            ? UIScreen.main.bounds.height * composerHeightFraction
-            : 0
-        // A drag in flight applies even before anything is persisted, so the
-        // very first drag has something to move away from.
-        guard base > 0 || composerDragOffset != 0 else { return nil }
-        let start = base > 0 ? base : Self.composerDefaultHeight
-        return min(max(start + composerDragOffset, Self.composerDefaultHeight), composerMaxHeight)
-    }
-
-    /// The composer's natural cap when it has never been resized. Also the
-    /// LOWER bound for a drag, per the requirement that the default height is
-    /// the minimum.
-    static var composerDefaultHeight: CGFloat { PastableUITextView.defaultMaxHeight }
     /// Face ID lock state — observed so the navbar title can blur in
     /// lockstep with the chat-body SessionLockGateOverlay (both read
     /// `lockStore.isVisuallyLocked(sid)` rather than recomputing the
@@ -1006,7 +957,7 @@ struct AIChatView: View {
         .onChange(of: vm.moveToRequested) { requested in
             guard requested else { return }
             vm.moveToRequested = false
-            guard hasMovableShareContent else {
+            guard vm.hasMovableShareContent else {
                 MinisToast.show(AppLocalized("先输入内容或添加附件，再移动到别的会话"),
                                 systemImage: "arrow.right.circle")
                 return
@@ -3504,32 +3455,6 @@ struct AIChatView: View {
         }
     }
 
-    /// Double-tap: jump between the 50% cap and the default height. Anything
-    /// short of the cap counts as "not expanded" and expands, so a partially
-    /// dragged composer grows rather than collapsing unexpectedly.
-    private func toggleComposerHeight() {
-        let isExpanded = currentComposerHeight >= composerMaxHeight - 0.5
-        withAnimation(.easeOut(duration: 0.2)) {
-            persistComposerHeight(isExpanded ? Self.composerDefaultHeight : composerMaxHeight)
-        }
-    }
-
-    /// Store a resolved composer height as a screen fraction. Collapsing to the
-    /// default clears the preference entirely, so the composer returns to
-    /// content-driven sizing rather than being pinned at the default.
-    private func persistComposerHeight(_ height: CGFloat) {
-        composerHeightFraction = height <= Self.composerDefaultHeight + 0.5
-            ? 0
-            : height / UIScreen.main.bounds.height
-    }
-
-    /// The composer's height right now, used as the drag's starting point.
-    private var currentComposerHeight: CGFloat {
-        composerHeightFraction > 0
-            ? min(max(UIScreen.main.bounds.height * composerHeightFraction,
-                      Self.composerDefaultHeight), composerMaxHeight)
-            : Self.composerDefaultHeight
-    }
 
     // MARK: - Input keyboard handlers (extracted to avoid inflating the
     // generic type of `inputBar` past what Swift can demangle at runtime).
@@ -3542,14 +3467,14 @@ struct AIChatView: View {
         // 生成中也一样走 performSaveEdit（先停再提交），别让 send() 的
         // !isProcessing 守卫把回车静默吃掉。
         if vm.editingMessageIndex != nil {
-            if hasDraftContent { performSaveEdit() }
+            if vm.hasDraftContent { performSaveEdit() }
             return
         }
-        if canEnqueue { performEnqueue() }
-        else if canSend { performSend() }
+        if vm.canEnqueue { performEnqueue() }
+        else if vm.canSend { performSend() }
         // [T-no-provider-mute] 有内容、没模型：回车也要给同一句提示。
         // 以前这里两条分支都假，回车就这么无声无息地什么也没发生。
-        else if hasDraftContent { notifyNoUsableModel() }
+        else if vm.hasDraftContent { notifyNoUsableModel() }
     }
 
     private func handleArrowUp() -> Bool {
@@ -3583,185 +3508,6 @@ struct AIChatView: View {
     @ViewBuilder
     // MARK: - 输入栏(上游皮)· 11-10 重做
 
-    /// [T-composer-rebuild 11-10] 两行骨架,照上游:输入框独占上排,键在下排。
-    /// 她要的「输入栏 UI 做成上游那样一模一样」——尺寸、间距、圆角全按上游抄。
-    private var composerRows: AnyView {
-        let rows = VStack(spacing: 5) {
-            inputFieldOrWaveform
-            inputBottomRow
-        }
-        return AnyView(rows)
-    }
-
-    /// 下排键。上游那排是 [+ 退出编辑 话筒 发送];我们要的是 [+ 表情 …… 发送/暂停]。
-    /// 话筒、语音转文字全搬进加号抽屉([T-composer-nomic]),这是她点的名。
-    private var inputBottomRow: some View {
-        HStack(spacing: 12) {
-            plusKey
-            stickerKey
-            Spacer(minLength: 0)
-            sendPauseKey
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
-    }
-
-    /// 34 的圆、18 的字形——上游那颗键的尺寸,照着画。
-    /// [T-composer-rebuild 11-10] 配色走主题变量(CSSThemeVariables / ChatColors),
-    /// 不写死色值,换皮肤时它跟着走。
-    private func composerRoundKey(_ symbol: String, active: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(active ? ChatColors.primaryText : ChatColors.secondaryText)
-                .frame(width: 34, height: 34)
-                .background(ChatColors.inputIconBg)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// 图片版圆键:和 composerRoundKey 同一套外壳(34pt 圆、主题底、描边),
-    /// 只是里面放一张图而不是系统符号。图是黑底不透明,盖满圆内,
-    /// 所以不用再套前景色;active 态不染色,托盘开着本身就是状态。
-    private func composerRoundImage(_ name: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(name)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 34, height: 34)
-                .background(ChatColors.inputIconBg)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// 加号:开小抽屉卡片(照片/文件/表情包/语音输入/记忆/技能/连接器…)。
-    /// 功能一个不少,搬的是原来那颗加号键的整套动作,只是外壳换成上游的圆。
-    private var plusKey: some View {
-        composerRoundKey("plus") {
-            // 键盘和抽屉不同时站着,否则卡片会被顶上去。
-            if inputFocused { inputFocused = false }
-            if showStickerPanel { closeComposerTray(focusKeyboard: false) }
-            showPlusSheet = true
-        }
-        .accessibilityLabel(Text(AppLocalized("更多")))
-    }
-
-    /// 表情包键:吸出托盘,托盘里是她自己的表情包。卡片选了金色按键就
-    /// 显示皇冠猫那张图,没选就走原来的系统符号(默认干净界面)。
-    private var stickerKey: some View {
-        Group {
-            if let icon = appearanceStudio.currentThemePack().composerEmojiImage {
-                composerRoundImage(icon) { toggleStickerTray() }
-            } else {
-                composerRoundKey("face.smiling", active: showStickerPanel) { toggleStickerTray() }
-            }
-        }
-        .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
-    }
-
-    /// 表情键的动作:开/关托盘。抽出来是免得图片/符号两支各写一遍。
-    private func toggleStickerTray() {
-        if showStickerPanel { closeComposerTray(focusKeyboard: true) }
-        else { openComposerTray() }
-    }
-
-    /// 发送 / 暂停:同一颗键,按状态换字形,不占两个位置(她要的「一颗键切换」)。
-    ///   · 生成中 → 暂停(点下去停整队,见 AIChatViewModel.cancel())
-    ///   · 编辑中 → 有字提交 / 没字退出编辑
-    ///   · 有字   → 箭头发送(排得上队就排队)
-    ///   · 空输入 → 灰箭头,看得见点不动;语音入口在加号抽屉里
-    ///
-    /// [T-key-no-detach] 字形不增删视图,几个字形同时挂着只切透明度:
-    /// 增删视图会让黑圆那层在键盘动画期间重新挂载,表现层停在旧坐标,
-    /// 看着就是「黑圆片飞出去又落回来」。
-    private var sendPauseKey: some View {
-        let editing = vm.editingMessageIndex != nil
-        let generating = vm.isProcessing
-        let hasText = hasDraftText
-        let showArrow = hasText && !generating
-        let showPause = generating
-        let showClose = editing && !hasText && !generating
-        let showIdle = !editing && !hasText && !generating
-
-        // 卡片选的四张图。没选就是 nil,四颗键全走系统符号(默认干净界面)。
-        let sendIcon = appearanceStudio.currentThemePack().composerSendImage
-        let pauseIcon = appearanceStudio.currentThemePack().composerPauseImage
-
-        return Button {
-            if generating {
-                stopTapCount &+= 1
-                vm.cancel()
-                return
-            }
-            voiceSendTapCount &+= 1
-            if editing {
-                if hasText { performSaveEdit() } else { vm.cancelEdit() }
-            } else if hasText && canEnqueue {
-                performEnqueue()
-            } else if hasText && canSend {
-                performSend()
-            } else if hasText {
-                notifyNoUsableModel()
-            }
-        } label: {
-            ZStack {
-                // 只有发送/暂停态才有实圆底;编辑和空输入都没有。
-                // 实圆底仍挂着(不增删视图,见 [T-key-no-detach]):金色图本身
-                // 是不透明黑底圆,会把它盖住;万一资源丢了,实圆底还能兜住形状。
-                Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
-                    .opacity(showArrow || showPause ? 1 : 0)
-                // 发送态:卡片选了就显示金箭头图,没选就显示原来的箭头符号。
-                // [T-key-no-detach] 图片支只在点卡片时才挂/摘(抽屉弹着,键盘
-                // 不在动画),打字/生成时的态切换仍只切透明度,不增删视图。
-                if let sendIcon {
-                    Image(sendIcon)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 34, height: 34)
-                        .clipShape(Circle())
-                        .opacity(showArrow ? 1 : 0)
-                }
-                Image(systemName: "arrow.up")
-                    .font(ChatFont.font(17, weight: .semibold))
-                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
-                    .opacity(showArrow && sendIcon == nil ? 1 : 0)
-                // 暂停态:同上,金双竖线图 / 原来的暂停符号。
-                if let pauseIcon {
-                    Image(pauseIcon)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 34, height: 34)
-                        .clipShape(Circle())
-                        .opacity(showPause ? 1 : 0)
-                }
-                Image(systemName: "pause.fill")
-                    .font(ChatFont.font(15, weight: .semibold))
-                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
-                    .opacity(showPause && pauseIcon == nil ? 1 : 0)
-                Image(systemName: "xmark")
-                    .font(ChatFont.font(15, weight: .semibold))
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
-                    .opacity(showClose ? 1 : 0)
-                Image(systemName: "arrow.up")
-                    .font(ChatFont.font(17, weight: .semibold))
-                    .foregroundStyle(ChatColors.secondaryText.opacity(0.45))
-                    .opacity(showIdle ? 1 : 0)
-            }
-            .frame(width: 34, height: 34)
-            .contentShape(Circle())
-        }
-        .buttonStyle(MorphPressStyle())
-        .sensoryFeedback(.impact, trigger: voiceSendTapCount)
-        .sensoryFeedback(.impact, trigger: stopTapCount)
-        .disabled(!generating && !editing && !hasText)
-        .accessibilityLabel(Text(generating
-            ? AppLocalized("停止生成")
-            : (editing ? (hasText ? AppLocalized("提交编辑") : AppLocalized("退出编辑")) : AppLocalized("发送"))))
-    }
 
     /// [Edit Header] 编辑模式提示栏（贴在输入框右上方，AnyView-erased 不增加泛型深度，不挤占单行输入条宽度）
     private var editingModeHeader: AnyView {
@@ -3803,230 +3549,6 @@ struct AIChatView: View {
                 Capsule().strokeBorder(CSSThemeVariables.optionBorder(), lineWidth: 1.0)
             )
         }
-    }
-
-    /// Speech language badge, mounted on the recording waveform.
-    ///
-    /// [K-5] This button existed but nothing ever mounted it, and
-    /// `showLanguagePicker` had no sheet attached — so the language was
-    /// effectively unchangeable. A `Menu` rather than a sheet on purpose:
-    /// AIChatView already carries 39 presentation modifiers, and a menu needs
-    /// none, so this adds no presentation pressure to an 8400-line body.
-    ///
-    /// [K-5b] Two things were wrong with the first cut, both fixed here.
-    ///
-    /// 1. It listed `speechManager.availableLocales` — a SECOND language list
-    ///    (own order, own labels) next to `VoiceLanguages.options`, which is
-    ///    what the inline voice panel's globe menu uses. Same underlying
-    ///    recognizer locales, different presentation, so the two entry points
-    ///    disagreed. Both now read `VoiceLanguages.options`.
-    /// 2. It only ever appears on the legacy `speechManager` recording path,
-    ///    which normal users never reach: tapping the mic switches to the
-    ///    inline voice panel, and the panel's own globe menu is the real
-    ///    language switch. This badge covers the Shortcuts `.startVoice` path,
-    ///    which is the one place `speechManager` still starts a recording.
-    private var languageBadgeButton: some View {
-        Menu {
-            ForEach(VoiceLanguages.options) { opt in
-                Button {
-                    speechManager.setLanguage(Locale(identifier: opt.code))
-                    // The recogniser cannot be restarted while the menu is
-                    // still dismissing; wait for it to leave the screen.
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 350_000_000)
-                        speechManager.restartRecordingIfPending()
-                    }
-                } label: {
-                    if opt.code == speechManager.locale.identifier {
-                        Label(opt.label, systemImage: "checkmark")
-                    } else {
-                        Text(opt.label)
-                    }
-                }
-            }
-        } label: {
-            Text(speechManager.languageLabel)
-                .font(ChatFont.font(12, weight: .semibold))
-                .foregroundStyle(ChatColors.secondaryText)
-                .frame(width: 34, height: 34)
-                .background(ChatColors.inputIconBg)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
-        }
-        .accessibilityLabel(AppLocalized("识别语言"))
-    }
-
-    /// Either the multi-line text field or the audio waveform, depending on
-    /// whether speech recording is active. Returning `AnyView` erases the
-    /// nested `PastableTextView` generic so SwiftUI's runtime type metadata
-    /// decoder doesn't recurse past its stack limit (see crash 2026-04-17
-    /// where `AIChatView.inputBar.getter` blew the stack via
-    /// `__swift_instantiateConcreteTypeFromMangledNameV2`).
-    private var inputFieldOrWaveform: AnyView {
-        // [T-composer-upstream] 单行 52 高（16 上 + 20 字 + 8 下 + 键行），
-        // 跟上游一致：输入区在上面独占整宽，键在下面一行。
-        // [T-composer-upstream 11-10] 16/11 跟上游一致:空栏时文字上方留够
-        // 呼吸量,挂了附件预览时收窄到 11,不然上下两块挤成一块。
-        let topPadding: CGFloat = (vm.attachments.isEmpty && vm.loadingVideoCount == 0) ? 16 : 11
-        if voiceInputActive {
-            return AnyView(
-                // [voice-correction §6] Recent conversation turns, straight from the
-                // already-loaded in-memory list (§12.1 forbids a DB query on this path),
-                // budgeted by CorrectionContextBuilder.
-                InlineVoiceInputView(
-                    viewModel: voiceVM,
-                    inputText: inputTextBinding,
-                    onPasteImage: { image in vm.addImageAttachment(image) },
-                    onPasteFile: { url in vm.addFileAttachment(from: url) },
-                    conversationContext: { voiceCorrectionContext(from: vm.messages) },
-                    onExitToKeyboard: { exitVoiceToKeyboard() }
-                )
-            )
-        }
-        if speechManager.state == .recording {
-            // Transcript area grows with content up to a cap (~5 lines),
-            // then scrolls internally. ScrollView is greedy in its scroll
-            // axis, so we measure the Text's intrinsic height via a
-            // GeometryReader preference and clamp the ScrollView frame to
-            // min(measured, cap).
-            let transcriptMaxHeight: CGFloat = 100
-            let waveform = VStack(spacing: 6) {
-                // [K-5] Mount the language badge here — this is the only state
-                // in which it means anything (a recording is in progress), and
-                // it is the one place the recogniser's language can matter.
-                HStack(spacing: 8) {
-                    languageBadgeButton
-                    AudioWaveformView(levels: speechManager.audioLevels)
-                        .frame(maxWidth: .infinity)
-                }
-                .padding(.horizontal, 8)
-                if !speechManager.recognizedText.isEmpty {
-                    ScrollViewReader { proxy in
-                        ScrollView(.vertical, showsIndicators: true) {
-                            Text(speechManager.recognizedText)
-                                .font(.subheadline)
-                                .foregroundStyle(ChatColors.secondaryText)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity)
-                                .background(GeometryReader { geo in
-                                    Color.clear.preference(key: TranscriptHeightKey.self, value: geo.size.height)
-                                })
-                                .id("transcriptTail")
-                        }
-                        .frame(height: min(max(transcriptHeight, 22), transcriptMaxHeight))
-                        .onPreferenceChange(TranscriptHeightKey.self) { transcriptHeight = $0 }
-                        .onReceive(speechManager.$recognizedText) { _ in
-                            withAnimation(.linear(duration: 0.1)) {
-                                proxy.scrollTo("transcriptTail", anchor: .bottom)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, topPadding)
-            .padding(.bottom, 10)
-            return AnyView(waveform)
-        }
-        let field = PastableTextView(
-            text: inputTextBinding,
-            isFocused: $inputFocused,
-            hasSelection: $inputHasSelection,
-            isScrollable: $inputIsScrollable,
-            isAtScrollBottom: $inputAtScrollBottom,
-            // `String(localized:)` with an interpolation extracts the
-            // `%@` form ("Message %@ (@ to mention files)") as the lookup
-            // key in Localizable.xcstrings, so translators get one
-            // parameterized entry per locale instead of one per soul name.
-            placeholder: AppLocalized("Message \(soulName) (@ to mention files)"),
-            onPasteImage: { image in vm.addImageAttachment(image) },
-            onPasteFile: { url in vm.addFileAttachment(from: url) },
-            onReturnKey: handleReturnKey,
-            onArrowUp: handleArrowUp,
-            onArrowDown: handleArrowDown,
-            onTab: handleTabKey,
-            onCaretChange: handleCaretChange,
-            onSelectionReplace: { before, after in
-                // [T-text-input-correction-source] Feed composer select-and-
-                // replace edits into the SAME correction learner as voice
-                // transcript fixes, tagged source=text_input. Fire-and-forget
-                // off the keystroke path (design §12.2). The recorder applies
-                // the phonetic-admission + consent gate, so a plain reword is
-                // dropped and nothing is stored without opt-in. locale "zh" is
-                // the only phonetic normalizer currently active; the composer
-                // has no ASR language context, and a non-normalizable locale
-                // would just be discarded downstream.
-                Task.detached(priority: .utility) {
-                    await VoiceCorrectionRecorder.shared.recordEdit(
-                        before: before, after: after,
-                        locale: "zh", source: "text_input")
-                }
-            },
-            desiredCaret: vm.pendingCaret,
-            // [T-ipad-composer-resize] Raise the text view's growth cap in
-            // lockstep with the dragged frame, otherwise text would scroll at
-            // 120pt inside a taller box and the extra space would be dead.
-            maxHeightOverride: composerTextHeight
-        )
-        return AnyView(composerBody(field: field, topPadding: topPadding))
-    }
-
-    /// [T-ipad-composer-resize] Wraps the text field with its (optional) fixed
-    /// height and the iPad drag handle.
-    ///
-    /// `.fixedSize(vertical:)` and an explicit `.frame(height:)` are mutually
-    /// exclusive: fixedSize asks the view for its intrinsic height, which is
-    /// exactly what we're overriding once the user has resized. So the two
-    /// modes are separate branches rather than modifiers stacked on one view.
-    private func composerBody(field: PastableTextView, topPadding: CGFloat) -> some View {
-        Group {
-            if let height = composerTextHeight {
-                field.frame(height: height)
-            } else {
-                field.fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        // [T-composer-upstream 11-10] 内边距照上游:左右 16、上 topPadding、
-        // 下 10。单行胶囊时代那套 4/4 是给外层 6pt 让位用的,两行骨架下
-        // 那颗外层 padding 已经没了,再留 4 文字会贴着栏边。
-        .padding(.horizontal, 16)
-        .padding(.top, topPadding)
-        .padding(.bottom, 10)
-        // [T-composer-rebuild] 输入框本体不再嵌第二颗胶囊。以前外面是输入条、
-        // 里面再套一颗 18 圆角的小胶囊，两层半透明叠在一起：底色加深一道，
-        // 消息内容从两层里各透一次，看着又脏又挤，像「方框套方框」。
-        // 成熟产品的输入栏只有一层皮——整条就是那颗胶囊，文字直接坐在上面。
-        .overlay(alignment: .top) {
-            if composerResizeEnabled { composerResizeHandle }
-        }
-    }
-
-    /// The grab affordance. Dragging UP makes the composer taller, so the drag
-    /// translation is negated. Double-tapping toggles between the two extremes.
-    private var composerResizeHandle: some View {
-        Capsule()
-            .fill(ChatColors.secondaryText.opacity(0.35))
-            .frame(width: 36, height: 5)
-            .padding(.top, 4)
-            .contentShape(Rectangle().inset(by: -12))  // enlarge the hit area
-            // Order matters: the double-tap must be registered BEFORE the drag,
-            // otherwise the drag (minimumDistance 2) claims the touch sequence
-            // first and the second tap never forms.
-            .onTapGesture(count: 2) { toggleComposerHeight() }
-            .gesture(
-                DragGesture(minimumDistance: 2)
-                    .onChanged { value in composerDragOffset = -value.translation.height }
-                    .onEnded { value in
-                        let resolved = min(
-                            max(currentComposerHeight - value.translation.height,
-                                Self.composerDefaultHeight),
-                            composerMaxHeight)
-                        composerDragOffset = 0
-                        persistComposerHeight(resolved)
-                    }
-            )
-            .accessibilityLabel(AppLocalized("Resize input box"))
-            .accessibilityHint(AppLocalized("Drag to resize, double tap to toggle"))
     }
 
 
@@ -4071,8 +3593,32 @@ struct AIChatView: View {
                     // 现在入口是斜杠命令 /move（见 AIChatViewModel+SlashCommands），
                     // 输入条上不再有任何浮层。
 
-                    // 微信式单行聊天输入条 (AnyView 类型擦除，杜绝深层泛型栈溢出)
-                    composerRows
+                    // 微信式单行聊天输入条。独立子视图，只它自己观察草稿 store，
+                    // 打字不再重估整个聊天页（P2-12）。
+                    ChatComposerView(
+                        vm: vm,
+                        draftStore: vm.draftStore,
+                        voiceVM: voiceVM,
+                        inputFocused: $inputFocused,
+                        showStickerPanel: $showStickerPanel,
+                        showPlusSheet: $showPlusSheet,
+                        inputHasSelection: $inputHasSelection,
+                        inputIsScrollable: $inputIsScrollable,
+                        inputAtScrollBottom: $inputAtScrollBottom,
+                        soulName: soulName,
+                        performSend: performSend,
+                        performEnqueue: performEnqueue,
+                        performSaveEdit: performSaveEdit,
+                        notifyNoUsableModel: notifyNoUsableModel,
+                        exitVoiceToKeyboard: exitVoiceToKeyboard,
+                        openComposerTray: openComposerTray,
+                        closeComposerTray: closeComposerTray,
+                        onReturnKey: handleReturnKey,
+                        onArrowUp: handleArrowUp,
+                        onArrowDown: handleArrowDown,
+                        onTab: handleTabKey,
+                        onCaretChange: handleCaretChange
+                    )
                 }
                 // [T-composer-tap-to-focus] 整条都能点着聚焦。这是**底层**的
                 // 点击接收器，不是祖先手势：祖先手势会在子按钮被点时也触发，
@@ -4336,7 +3882,7 @@ struct AIChatView: View {
                                 // queues the prompt instead of sending it,
                                 // so the capsule advertises that — matches
                                 // the send-button's send/enqueue toggle.
-                                isEnqueue: vm.isProcessing && !canSend)
+                                isEnqueue: vm.isProcessing && !vm.canSend)
             }
             .simultaneousGesture(
                 DragGesture(minimumDistance: 20, coordinateSpace: .local)
@@ -4462,11 +4008,11 @@ struct AIChatView: View {
                                 // busy run with text in the composer
                                 // bypassed enqueue and started a fresh
                                 // send that got dropped (T-drag-send-queue).
-                                if canEnqueue {
+                                if vm.canEnqueue {
                                     performEnqueue()
-                                } else if canSend {
+                                } else if vm.canSend {
                                     performSend()
-                                } else if hasDraftContent {
+                                } else if vm.hasDraftContent {
                                     // [T-no-provider-mute] 上滑发送同样不能静默。
                                     notifyNoUsableModel()
                                 }
@@ -5076,55 +4622,6 @@ struct AIChatView: View {
             .background(Color.secondary.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
-    }
-
-    private var canSend: Bool {
-        vm.isReady && !vm.hasLoadingAttachments && hasDraftContent
-    }
-
-    /// [T-no-provider-mute] 输入栏里有没有「值得发出去的东西」，**不看**模型
-    /// 配没配。以前这个判断塞在 `canSend` 里，没启用任何 provider 时它恒为
-    /// 假：输入框里明明写着字，形态键还是话筒、还灰着点不动，回车和上滑
-    /// 发送两条路也全静默——新装第一次就撞这堵墙，而且一句提示都没有。
-    /// 现在内容判断独立出来，能不能发由 `canSend` 叠加 readiness，点下去
-    /// 没模型时走提示，不再是死键。
-    private var hasDraftContent: Bool {
-        let hasText = !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasReadyAttachment = vm.attachments.contains { $0.loadState == .ready }
-        return hasText || hasReadyAttachment
-    }
-
-    /// [T-composer-edit-clear] 语音/发送形态只看文字空不空，不看附件。
-    /// 她定的准表：没字就是语音键，有字才变发送键；编辑时把字删空退回语音键
-    /// 后，附件还挂着，键也还是语音键。附件能不能发由 canSend/canEnqueue
-    /// 另算（回车、上滑照样能发纯附件），形态键不管。
-    private var hasDraftText: Bool {
-        !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var canEnqueue: Bool {
-        // [T-ios-photo-pick-placeholder] Same attachment gate as canSend: while
-        // any picked photo/video is still loading, enqueueing would snapshot
-        // its /dev/null placeholder and silently drop the real bytes.
-        //
-        // [10-20] Content test must match canSend exactly. It used to require
-        // non-empty TEXT, so with only a photo attached during a running reply
-        // the button stayed in Stop mode — tapping it killed the reply instead
-        // of queueing the photo. enqueuePrompt() has always accepted
-        // attachments, so the gate was the only thing blocking it.
-        guard vm.isProcessing, !vm.hasLoadingAttachments else { return false }
-        let hasText = !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasReadyAttachment = vm.attachments.contains { $0.loadState == .ready }
-        return hasText || hasReadyAttachment
-    }
-
-    /// Whether the composer actually holds something worth moving to another
-    /// session — non-blank text or at least one attachment. Gates the
-    /// "移动到…" tile in the plus panel, so an empty composer gets a toast
-    /// instead of opening a picker that would move nothing.
-    private var hasMovableShareContent: Bool {
-        !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !vm.attachments.isEmpty
     }
 
 
@@ -8920,5 +8417,539 @@ private struct GlassComposerSurface: ViewModifier {
             shape.fill(.ultraThinMaterial)
         }
         .clipped()
+    }
+}
+
+
+// MARK: - Composer (P2-12)
+
+/// The composer subtree: text field, bottom key row, iPad resize handle.
+///
+/// [P2-12] This view — not the page — observes the draft store. Typing
+/// used to re-evaluate the whole `AIChatView.body` (message list included)
+/// because `inputText`/`inputCaret` were `@Published` on the view model.
+/// The draft now lives in `ComposerDraftStore`; only this subview observes
+/// it, so a keystroke rebuilds the composer alone. Everything else on the
+/// page (message list, menus, toolbar) only re-renders when the view
+/// model's own `@Published` state changes. Behaviour is unchanged: the
+/// text field, send/pause key, trays and menus read and write the same
+/// values through `vm`'s pass-throughs.
+private struct ChatComposerView: View {
+    @ObservedObject var vm: AIChatViewModel
+    @ObservedObject var draftStore: ComposerDraftStore
+    @ObservedObject var voiceVM: VoiceInputViewModel
+    @ObservedObject var appearanceStudio: AppearanceStudio = AppearanceStudio.shared
+    @ObservedObject private var voiceMode = VoiceModePreference.shared
+    @StateObject private var speechManager = SpeechRecognitionManager.shared
+
+    @Binding var inputFocused: Bool
+    @Binding var showStickerPanel: Bool
+    @Binding var showPlusSheet: Bool
+    @Binding var inputHasSelection: Bool
+    @Binding var inputIsScrollable: Bool
+    @Binding var inputAtScrollBottom: Bool
+
+    var soulName: String
+    var performSend: () -> Void
+    var performEnqueue: () -> Void
+    var performSaveEdit: () -> Void
+    var notifyNoUsableModel: () -> Void
+    var exitVoiceToKeyboard: () -> Void
+    var openComposerTray: () -> Void
+    var closeComposerTray: (Bool) -> Void
+    var onReturnKey: () -> Void
+    var onArrowUp: () -> Bool
+    var onArrowDown: () -> Bool
+    var onTab: () -> Bool
+    var onCaretChange: (Int) -> Void
+
+    private var voiceInputActive: Bool {
+        get { voiceMode.isVoiceActive }
+        nonmutating set { voiceMode.isVoiceActive = newValue }
+    }
+
+    /// Binding to the draft store's text, so the text view and the voice
+    /// panel write straight into the store the page body never observes.
+    private var inputTextBinding: Binding<String> {
+        Binding(
+            get: { draftStore.text },
+            set: { draftStore.setText($0) }
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 5) {
+            inputFieldOrWaveform
+            inputBottomRow
+        }
+    }
+
+    /// [T-composer-split] 语音/发送键和停止键的点按计数，只给 sensoryFeedback 当触发器用。
+    @State private var voiceSendTapCount = 0
+    @State private var stopTapCount = 0
+
+    @State private var transcriptHeight: CGFloat = 0
+
+    /// height. Stored as a fraction rather than points so the preference
+    /// survives rotation, Split View resizes and a move to another iPad.
+    @AppStorage("chat.composer.heightFraction") private var composerHeightFraction: Double = 0
+
+    /// Live delta while a drag is in flight, in POINTS. Kept separate from the
+    /// persisted fraction so an in-progress drag never writes to defaults and a
+    /// cancelled gesture leaves no trace.
+    @State private var composerDragOffset: CGFloat = 0
+
+    /// The drag handle is iPad-only: on iPhone the composer is already close to
+    /// the keyboard and a 50%-height composer would leave no readable
+    /// transcript, so the affordance is not offered there.
+    private var composerResizeEnabled: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
+    /// Upper bound for the composer: half the screen. Beyond this the chat
+    /// transcript stops being usable, which is the point of the feature's cap.
+    private var composerMaxHeight: CGFloat { UIScreen.main.bounds.height * 0.5 }
+
+    /// The resolved text-view height, or nil to let the composer size itself.
+    ///
+    /// nil is the untouched default — the composer grows with its content up to
+    /// the built-in ~120pt cap, exactly as before this feature. Once the user
+    /// drags, the stored fraction becomes a FLOOR that the text view is pinned
+    /// to, clamped to [default, 50% of screen].
+    private var composerTextHeight: CGFloat? {
+        guard composerResizeEnabled else { return nil }
+        let base = composerHeightFraction > 0
+            ? UIScreen.main.bounds.height * composerHeightFraction
+            : 0
+        // A drag in flight applies even before anything is persisted, so the
+        // very first drag has something to move away from.
+        guard base > 0 || composerDragOffset != 0 else { return nil }
+        let start = base > 0 ? base : Self.composerDefaultHeight
+        return min(max(start + composerDragOffset, Self.composerDefaultHeight), composerMaxHeight)
+    }
+
+    /// The composer's natural cap when it has never been resized. Also the
+    /// LOWER bound for a drag, per the requirement that the default height is
+    /// the minimum.
+    static var composerDefaultHeight: CGFloat { PastableUITextView.defaultMaxHeight }
+
+    /// Double-tap: jump between the 50% cap and the default height. Anything
+    /// short of the cap counts as "not expanded" and expands, so a partially
+    /// dragged composer grows rather than collapsing unexpectedly.
+    private func toggleComposerHeight() {
+        let isExpanded = currentComposerHeight >= composerMaxHeight - 0.5
+        withAnimation(.easeOut(duration: 0.2)) {
+            persistComposerHeight(isExpanded ? Self.composerDefaultHeight : composerMaxHeight)
+        }
+    }
+
+    /// Store a resolved composer height as a screen fraction. Collapsing to the
+    /// default clears the preference entirely, so the composer returns to
+    /// content-driven sizing rather than being pinned at the default.
+    private func persistComposerHeight(_ height: CGFloat) {
+        composerHeightFraction = height <= Self.composerDefaultHeight + 0.5
+            ? 0
+            : height / UIScreen.main.bounds.height
+    }
+
+    /// The composer's height right now, used as the drag's starting point.
+    private var currentComposerHeight: CGFloat {
+        composerHeightFraction > 0
+            ? min(max(UIScreen.main.bounds.height * composerHeightFraction,
+                      Self.composerDefaultHeight), composerMaxHeight)
+            : Self.composerDefaultHeight
+    }
+
+
+    /// 下排键。上游那排是 [+ 退出编辑 话筒 发送];我们要的是 [+ 表情 …… 发送/暂停]。
+    /// 话筒、语音转文字全搬进加号抽屉([T-composer-nomic]),这是她点的名。
+    private var inputBottomRow: some View {
+        HStack(spacing: 12) {
+            plusKey
+            stickerKey
+            Spacer(minLength: 0)
+            sendPauseKey
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+    }
+
+    /// 34 的圆、18 的字形——上游那颗键的尺寸,照着画。
+    /// [T-composer-rebuild 11-10] 配色走主题变量(CSSThemeVariables / ChatColors),
+    /// 不写死色值,换皮肤时它跟着走。
+    private func composerRoundKey(_ symbol: String, active: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(active ? ChatColors.primaryText : ChatColors.secondaryText)
+                .frame(width: 34, height: 34)
+                .background(ChatColors.inputIconBg)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 图片版圆键:和 composerRoundKey 同一套外壳(34pt 圆、主题底、描边),
+    /// 只是里面放一张图而不是系统符号。图是黑底不透明,盖满圆内,
+    /// 所以不用再套前景色;active 态不染色,托盘开着本身就是状态。
+    private func composerRoundImage(_ name: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(name)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 34, height: 34)
+                .background(ChatColors.inputIconBg)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 加号:开小抽屉卡片(照片/文件/表情包/语音输入/记忆/技能/连接器…)。
+    /// 功能一个不少,搬的是原来那颗加号键的整套动作,只是外壳换成上游的圆。
+    private var plusKey: some View {
+        composerRoundKey("plus") {
+            // 键盘和抽屉不同时站着,否则卡片会被顶上去。
+            if inputFocused { inputFocused = false }
+            if showStickerPanel { closeComposerTray(false) }
+            showPlusSheet = true
+        }
+        .accessibilityLabel(Text(AppLocalized("更多")))
+    }
+
+    /// 表情包键:吸出托盘,托盘里是她自己的表情包。卡片选了金色按键就
+    /// 显示皇冠猫那张图,没选就走原来的系统符号(默认干净界面)。
+    private var stickerKey: some View {
+        Group {
+            if let icon = appearanceStudio.currentThemePack().composerEmojiImage {
+                composerRoundImage(icon) { toggleStickerTray() }
+            } else {
+                composerRoundKey("face.smiling", active: showStickerPanel) { toggleStickerTray() }
+            }
+        }
+        .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
+    }
+
+    /// 表情键的动作:开/关托盘。抽出来是免得图片/符号两支各写一遍。
+    private func toggleStickerTray() {
+        if showStickerPanel { closeComposerTray(true) }
+        else { openComposerTray() }
+    }
+
+    /// 发送 / 暂停:同一颗键,按状态换字形,不占两个位置(她要的「一颗键切换」)。
+    ///   · 生成中 → 暂停(点下去停整队,见 AIChatViewModel.cancel())
+    ///   · 编辑中 → 有字提交 / 没字退出编辑
+    ///   · 有字   → 箭头发送(排得上队就排队)
+    ///   · 空输入 → 灰箭头,看得见点不动;语音入口在加号抽屉里
+    ///
+    /// [T-key-no-detach] 字形不增删视图,几个字形同时挂着只切透明度:
+    /// 增删视图会让黑圆那层在键盘动画期间重新挂载,表现层停在旧坐标,
+    /// 看着就是「黑圆片飞出去又落回来」。
+    private var sendPauseKey: some View {
+        let editing = vm.editingMessageIndex != nil
+        let generating = vm.isProcessing
+        let hasText = vm.hasDraftText
+        let showArrow = hasText && !generating
+        let showPause = generating
+        let showClose = editing && !hasText && !generating
+        let showIdle = !editing && !hasText && !generating
+
+        // 卡片选的四张图。没选就是 nil,四颗键全走系统符号(默认干净界面)。
+        let sendIcon = appearanceStudio.currentThemePack().composerSendImage
+        let pauseIcon = appearanceStudio.currentThemePack().composerPauseImage
+
+        return Button {
+            if generating {
+                stopTapCount &+= 1
+                vm.cancel()
+                return
+            }
+            voiceSendTapCount &+= 1
+            if editing {
+                if hasText { performSaveEdit() } else { vm.cancelEdit() }
+            } else if hasText && vm.canEnqueue {
+                performEnqueue()
+            } else if hasText && vm.canSend {
+                performSend()
+            } else if hasText {
+                notifyNoUsableModel()
+            }
+        } label: {
+            ZStack {
+                // 只有发送/暂停态才有实圆底;编辑和空输入都没有。
+                // 实圆底仍挂着(不增删视图,见 [T-key-no-detach]):金色图本身
+                // 是不透明黑底圆,会把它盖住;万一资源丢了,实圆底还能兜住形状。
+                Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
+                    .opacity(showArrow || showPause ? 1 : 0)
+                // 发送态:卡片选了就显示金箭头图,没选就显示原来的箭头符号。
+                // [T-key-no-detach] 图片支只在点卡片时才挂/摘(抽屉弹着,键盘
+                // 不在动画),打字/生成时的态切换仍只切透明度,不增删视图。
+                if let sendIcon {
+                    Image(sendIcon)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 34, height: 34)
+                        .clipShape(Circle())
+                        .opacity(showArrow ? 1 : 0)
+                }
+                Image(systemName: "arrow.up")
+                    .font(ChatFont.font(17, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                    .opacity(showArrow && sendIcon == nil ? 1 : 0)
+                // 暂停态:同上,金双竖线图 / 原来的暂停符号。
+                if let pauseIcon {
+                    Image(pauseIcon)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 34, height: 34)
+                        .clipShape(Circle())
+                        .opacity(showPause ? 1 : 0)
+                }
+                Image(systemName: "pause.fill")
+                    .font(ChatFont.font(15, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                    .opacity(showPause && pauseIcon == nil ? 1 : 0)
+                Image(systemName: "xmark")
+                    .font(ChatFont.font(15, weight: .semibold))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
+                    .opacity(showClose ? 1 : 0)
+                Image(systemName: "arrow.up")
+                    .font(ChatFont.font(17, weight: .semibold))
+                    .foregroundStyle(ChatColors.secondaryText.opacity(0.45))
+                    .opacity(showIdle ? 1 : 0)
+            }
+            .frame(width: 34, height: 34)
+            .contentShape(Circle())
+        }
+        .buttonStyle(MorphPressStyle())
+        .sensoryFeedback(.impact, trigger: voiceSendTapCount)
+        .sensoryFeedback(.impact, trigger: stopTapCount)
+        .disabled(!generating && !editing && !hasText)
+        .accessibilityLabel(Text(generating
+            ? AppLocalized("停止生成")
+            : (editing ? (hasText ? AppLocalized("提交编辑") : AppLocalized("退出编辑")) : AppLocalized("发送"))))
+    }
+
+    /// Speech language badge, mounted on the recording waveform.
+    ///
+    /// [K-5] This button existed but nothing ever mounted it, and
+    /// `showLanguagePicker` had no sheet attached — so the language was
+    /// effectively unchangeable. A `Menu` rather than a sheet on purpose:
+    /// AIChatView already carries 39 presentation modifiers, and a menu needs
+    /// none, so this adds no presentation pressure to an 8400-line body.
+    ///
+    /// [K-5b] Two things were wrong with the first cut, both fixed here.
+    ///
+    /// 1. It listed `speechManager.availableLocales` — a SECOND language list
+    ///    (own order, own labels) next to `VoiceLanguages.options`, which is
+    ///    what the inline voice panel's globe menu uses. Same underlying
+    ///    recognizer locales, different presentation, so the two entry points
+    ///    disagreed. Both now read `VoiceLanguages.options`.
+    /// 2. It only ever appears on the legacy `speechManager` recording path,
+    ///    which normal users never reach: tapping the mic switches to the
+    ///    inline voice panel, and the panel's own globe menu is the real
+    ///    language switch. This badge covers the Shortcuts `.startVoice` path,
+    ///    which is the one place `speechManager` still starts a recording.
+    private var languageBadgeButton: some View {
+        Menu {
+            ForEach(VoiceLanguages.options) { opt in
+                Button {
+                    speechManager.setLanguage(Locale(identifier: opt.code))
+                    // The recogniser cannot be restarted while the menu is
+                    // still dismissing; wait for it to leave the screen.
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 350_000_000)
+                        speechManager.restartRecordingIfPending()
+                    }
+                } label: {
+                    if opt.code == speechManager.locale.identifier {
+                        Label(opt.label, systemImage: "checkmark")
+                    } else {
+                        Text(opt.label)
+                    }
+                }
+            }
+        } label: {
+            Text(speechManager.languageLabel)
+                .font(ChatFont.font(12, weight: .semibold))
+                .foregroundStyle(ChatColors.secondaryText)
+                .frame(width: 34, height: 34)
+                .background(ChatColors.inputIconBg)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
+        }
+        .accessibilityLabel(AppLocalized("识别语言"))
+    }
+
+    /// Either the multi-line text field or the audio waveform, depending on
+    /// whether speech recording is active. Returning `AnyView` erases the
+    /// nested `PastableTextView` generic so SwiftUI's runtime type metadata
+    /// decoder doesn't recurse past its stack limit (see crash 2026-04-17
+    /// where `AIChatView.inputBar.getter` blew the stack via
+    /// `__swift_instantiateConcreteTypeFromMangledNameV2`).
+    private var inputFieldOrWaveform: AnyView {
+        // [T-composer-upstream] 单行 52 高（16 上 + 20 字 + 8 下 + 键行），
+        // 跟上游一致：输入区在上面独占整宽，键在下面一行。
+        // [T-composer-upstream 11-10] 16/11 跟上游一致:空栏时文字上方留够
+        // 呼吸量,挂了附件预览时收窄到 11,不然上下两块挤成一块。
+        let topPadding: CGFloat = (vm.attachments.isEmpty && vm.loadingVideoCount == 0) ? 16 : 11
+        if voiceInputActive {
+            return AnyView(
+                // [voice-correction §6] Recent conversation turns, straight from the
+                // already-loaded in-memory list (§12.1 forbids a DB query on this path),
+                // budgeted by CorrectionContextBuilder.
+                InlineVoiceInputView(
+                    viewModel: voiceVM,
+                    inputText: inputTextBinding,
+                    onPasteImage: { image in vm.addImageAttachment(image) },
+                    onPasteFile: { url in vm.addFileAttachment(from: url) },
+                    conversationContext: { voiceCorrectionContext(from: vm.messages) },
+                    onExitToKeyboard: { exitVoiceToKeyboard() }
+                )
+            )
+        }
+        if speechManager.state == .recording {
+            // Transcript area grows with content up to a cap (~5 lines),
+            // then scrolls internally. ScrollView is greedy in its scroll
+            // axis, so we measure the Text's intrinsic height via a
+            // GeometryReader preference and clamp the ScrollView frame to
+            // min(measured, cap).
+            let transcriptMaxHeight: CGFloat = 100
+            let waveform = VStack(spacing: 6) {
+                // [K-5] Mount the language badge here — this is the only state
+                // in which it means anything (a recording is in progress), and
+                // it is the one place the recogniser's language can matter.
+                HStack(spacing: 8) {
+                    languageBadgeButton
+                    AudioWaveformView(levels: speechManager.audioLevels)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(.horizontal, 8)
+                if !speechManager.recognizedText.isEmpty {
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: true) {
+                            Text(speechManager.recognizedText)
+                                .font(.subheadline)
+                                .foregroundStyle(ChatColors.secondaryText)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                                .background(GeometryReader { geo in
+                                    Color.clear.preference(key: TranscriptHeightKey.self, value: geo.size.height)
+                                })
+                                .id("transcriptTail")
+                        }
+                        .frame(height: min(max(transcriptHeight, 22), transcriptMaxHeight))
+                        .onPreferenceChange(TranscriptHeightKey.self) { transcriptHeight = $0 }
+                        .onReceive(speechManager.$recognizedText) { _ in
+                            withAnimation(.linear(duration: 0.1)) {
+                                proxy.scrollTo("transcriptTail", anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, topPadding)
+            .padding(.bottom, 10)
+            return AnyView(waveform)
+        }
+        let field = PastableTextView(
+            text: inputTextBinding,
+            isFocused: $inputFocused,
+            hasSelection: $inputHasSelection,
+            isScrollable: $inputIsScrollable,
+            isAtScrollBottom: $inputAtScrollBottom,
+            // `String(localized:)` with an interpolation extracts the
+            // `%@` form ("Message %@ (@ to mention files)") as the lookup
+            // key in Localizable.xcstrings, so translators get one
+            // parameterized entry per locale instead of one per soul name.
+            placeholder: AppLocalized("Message \(soulName) (@ to mention files)"),
+            onPasteImage: { image in vm.addImageAttachment(image) },
+            onPasteFile: { url in vm.addFileAttachment(from: url) },
+            onReturnKey: onReturnKey,
+            onArrowUp: onArrowUp,
+            onArrowDown: onArrowDown,
+            onTab: onTab,
+            onCaretChange: onCaretChange,
+            onSelectionReplace: { before, after in
+                // [T-text-input-correction-source] Feed composer select-and-
+                // replace edits into the SAME correction learner as voice
+                // transcript fixes, tagged source=text_input. Fire-and-forget
+                // off the keystroke path (design §12.2). The recorder applies
+                // the phonetic-admission + consent gate, so a plain reword is
+                // dropped and nothing is stored without opt-in. locale "zh" is
+                // the only phonetic normalizer currently active; the composer
+                // has no ASR language context, and a non-normalizable locale
+                // would just be discarded downstream.
+                Task.detached(priority: .utility) {
+                    await VoiceCorrectionRecorder.shared.recordEdit(
+                        before: before, after: after,
+                        locale: "zh", source: "text_input")
+                }
+            },
+            desiredCaret: vm.pendingCaret,
+            // [T-ipad-composer-resize] Raise the text view's growth cap in
+            // lockstep with the dragged frame, otherwise text would scroll at
+            // 120pt inside a taller box and the extra space would be dead.
+            maxHeightOverride: composerTextHeight
+        )
+        return AnyView(composerBody(field: field, topPadding: topPadding))
+    }
+
+    /// [T-ipad-composer-resize] Wraps the text field with its (optional) fixed
+    /// height and the iPad drag handle.
+    ///
+    /// `.fixedSize(vertical:)` and an explicit `.frame(height:)` are mutually
+    /// exclusive: fixedSize asks the view for its intrinsic height, which is
+    /// exactly what we're overriding once the user has resized. So the two
+    /// modes are separate branches rather than modifiers stacked on one view.
+    private func composerBody(field: PastableTextView, topPadding: CGFloat) -> some View {
+        Group {
+            if let height = composerTextHeight {
+                field.frame(height: height)
+            } else {
+                field.fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        // [T-composer-upstream 11-10] 内边距照上游:左右 16、上 topPadding、
+        // 下 10。单行胶囊时代那套 4/4 是给外层 6pt 让位用的,两行骨架下
+        // 那颗外层 padding 已经没了,再留 4 文字会贴着栏边。
+        .padding(.horizontal, 16)
+        .padding(.top, topPadding)
+        .padding(.bottom, 10)
+        // [T-composer-rebuild] 输入框本体不再嵌第二颗胶囊。以前外面是输入条、
+        // 里面再套一颗 18 圆角的小胶囊，两层半透明叠在一起：底色加深一道，
+        // 消息内容从两层里各透一次，看着又脏又挤，像「方框套方框」。
+        // 成熟产品的输入栏只有一层皮——整条就是那颗胶囊，文字直接坐在上面。
+        .overlay(alignment: .top) {
+            if composerResizeEnabled { composerResizeHandle }
+        }
+    }
+
+    /// The grab affordance. Dragging UP makes the composer taller, so the drag
+    /// translation is negated. Double-tapping toggles between the two extremes.
+    private var composerResizeHandle: some View {
+        Capsule()
+            .fill(ChatColors.secondaryText.opacity(0.35))
+            .frame(width: 36, height: 5)
+            .padding(.top, 4)
+            .contentShape(Rectangle().inset(by: -12))  // enlarge the hit area
+            // Order matters: the double-tap must be registered BEFORE the drag,
+            // otherwise the drag (minimumDistance 2) claims the touch sequence
+            // first and the second tap never forms.
+            .onTapGesture(count: 2) { toggleComposerHeight() }
+            .gesture(
+                DragGesture(minimumDistance: 2)
+                    .onChanged { value in composerDragOffset = -value.translation.height }
+                    .onEnded { value in
+                        let resolved = min(
+                            max(currentComposerHeight - value.translation.height,
+                                Self.composerDefaultHeight),
+                            composerMaxHeight)
+                        composerDragOffset = 0
+                        persistComposerHeight(resolved)
+                    }
+            )
+            .accessibilityLabel(AppLocalized("Resize input box"))
+            .accessibilityHint(AppLocalized("Drag to resize, double tap to toggle"))
     }
 }

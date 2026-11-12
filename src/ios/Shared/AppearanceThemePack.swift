@@ -1177,8 +1177,10 @@ extension AppearanceStudio {
         cachedThemePack = pack
         themePackLoaded = true
         themePackLock.unlock()
+        // [P3-4] `themePackRevision` is `@Published`, so the bump above
+        // already emits `objectWillChange` — a second manual `send()` here
+        // only re-evaluated every observer twice per persist. Removed.
         themePackRevision += 1
-        objectWillChange.send()
     }
 
     /// How a pack apply treats fields the pack does not carry.
@@ -1448,10 +1450,11 @@ extension AppearanceStudio {
         // 964B → 2156B for the wallpaper) and lost detail on every pass, even
         // though apply had stored the bytes verbatim.
         //
-        // The file on disk IS the original bytes — `writeEncodedImage` writes
-        // them untouched when no downscale is needed — so read those instead
-        // of round-tripping through UIImage. The UIImage path stays as the
-        // fallback for anything not backed by a file.
+        // The file on disk IS the stored bytes — `writeEncodedImage` writes
+        // them untouched (metadata stripped on write, pixels intact) when no
+        // downscale is needed — so read those instead of round-tripping
+        // through UIImage. The UIImage path stays as the fallback for
+        // anything not backed by a file.
         if includeWallpaper, let data = wallpaperLightFileData(.global) {
             pack.wallpaperJPEGBase64 = data.base64EncodedString()
             // [T-54 r2] 有暗档就一起带上，两档都进包才谈得上往返。
@@ -2341,6 +2344,10 @@ extension AppearanceStudio {
     /// roughly 3x the bytes and a visible generation loss on every apply.
     /// The bytes are only re-encoded when they exceed the target edge, which
     /// is the one case where re-encoding actually buys something.
+    /// [P2-13] Under-limit bytes are still written as-is, but with metadata
+    /// stripped first (`WallpaperPipeline.strippedMetadata`) — pixels
+    /// untouched, no re-encode, no quality change. EXIF used to ride into
+    /// the sandbox and back out on export.
     /// [P2-3] Nonisolated static, same reason as `writeDownscaledJPEG`
     /// above: the decode check, the render and the write take only Data
     /// and a URL, so a detached task can run them.
@@ -2354,7 +2361,7 @@ extension AppearanceStudio {
             }
         }
         do {
-            try data.write(to: url, options: .atomic)
+            try WallpaperPipeline.strippedMetadata(data).write(to: url, options: .atomic)
         } catch {
             appearanceLog.warning("image write failed \(url.lastPathComponent): \(error.localizedDescription)")
             return false

@@ -59,7 +59,7 @@ extension AIChatViewModel {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             inputText = "/"
-            // updateSlashMenuState() in inputText didSet flips showSlashMenu
+            // the draft-store callback runs updateSlashMenuState(for:) and flips showSlashMenu
         } else {
             // Save original state.
             savedInputBeforeSlash = inputText
@@ -137,9 +137,16 @@ extension AIChatViewModel {
         slashMenuSelectedIndex = -1
     }
 
-    /// Update slash menu state based on current input text.
-    func updateSlashMenuState() {
-        let text = inputText
+    /// Update slash menu state based on the given input text.
+    ///
+    /// [P2-12] Called from the draft store's change callback, not from a
+    /// didSet. Every `@Published` write below is guarded by an equality
+    /// check: an unguarded same-value write still emits
+    /// `objectWillChange`, which would re-evaluate the whole page body on
+    /// every plain keystroke — the exact cost this fix removes. While the
+    /// menu is open the filter genuinely changes per keystroke, so the
+    /// menu still updates; plain typing changes nothing here.
+    func updateSlashMenuState(for text: String) {
         // Over-input mode: composer reads `/<typed-filter> <saved-text>`
         // (see showSlashMenuOverInput). Filter is the token between the
         // leading "/" and the first whitespace — anything after that
@@ -149,8 +156,8 @@ extension AIChatViewModel {
         if savedInputBeforeSlash != nil {
             guard text.hasPrefix("/") else {
                 // The "/" got deleted — close the menu without restoring.
-                showSlashMenu = false
-                slashMenuSelectedIndex = -1
+                if showSlashMenu { showSlashMenu = false }
+                if slashMenuSelectedIndex != -1 { slashMenuSelectedIndex = -1 }
                 return
             }
             let afterSlash = text.dropFirst()
@@ -158,17 +165,19 @@ extension AIChatViewModel {
             // user typed nothing yet the composer is exactly "/ <saved>",
             // so afterSlash starts with a space → filter is "".
             let filterEnd = afterSlash.firstIndex(where: { $0.isWhitespace }) ?? afterSlash.endIndex
-            slashFilter = String(afterSlash[..<filterEnd])
-            showSlashMenu = true
+            let newFilter = String(afterSlash[..<filterEnd])
+            if slashFilter != newFilter { slashFilter = newFilter }
+            if !showSlashMenu { showSlashMenu = true }
             return
         }
         if text.hasPrefix("/") && !text.contains("\n") && text.count < 30 {
-            showSlashMenu = true
-            slashFilter = String(text.dropFirst())
-            slashMenuSelectedIndex = -1
+            let newFilter = String(text.dropFirst())
+            if slashFilter != newFilter { slashFilter = newFilter }
+            if !showSlashMenu { showSlashMenu = true }
+            if slashMenuSelectedIndex != -1 { slashMenuSelectedIndex = -1 }
         } else {
-            showSlashMenu = false
-            slashMenuSelectedIndex = -1
+            if showSlashMenu { showSlashMenu = false }
+            if slashMenuSelectedIndex != -1 { slashMenuSelectedIndex = -1 }
         }
     }
 
@@ -338,8 +347,8 @@ extension AIChatViewModel {
     /// savedInputBeforeSlash flavor preserved, and the picker dismissed.
     /// [T-ios-slash-tab-autocomplete-dismiss-space] Previously this assigned
     /// "/<title>" with no space and left showSlashMenu untouched — the new
-    /// inputText still matched the filter, so updateSlashMenuState (inputText
-    /// didSet) kept the panel open over the filled composer.
+    /// inputText still matched the filter, so updateSlashMenuState (via the
+    /// draft-store callback) kept the panel open over the filled composer.
     func slashMenuAutocomplete() {
         let commands = filteredSlashCommands
         guard !commands.isEmpty else { return }
@@ -359,8 +368,8 @@ extension AIChatViewModel {
         } else {
             inputText = "/\(cmd.title) "
         }
-        // AFTER the inputText assignment — its didSet re-evaluates the menu
-        // state and would re-show the panel otherwise.
+        // AFTER the inputText assignment — its draft-store callback
+        // re-evaluates the menu state and would re-show the panel otherwise.
         showSlashMenu = false
         slashMenuSelectedIndex = -1
         requestComposerFocusSignal.send()

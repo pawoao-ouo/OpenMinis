@@ -147153,7 +147153,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已保存主题："
+            "value": "Theme saved: "
           }
         }
       }
@@ -147170,7 +147170,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已清除当前页面的自定义覆盖"
+            "value": "Cleared this page's custom overrides."
           }
         }
       }
@@ -147289,7 +147289,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "壁纸格式不支持或已损坏"
+            "value": "This wallpaper format isn't supported or the file is damaged."
           }
         }
       }
@@ -147357,7 +147357,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "调色板已重置为默认值（可撤销）"
+            "value": "Palette reset to default. You can undo."
           }
         }
       }
@@ -147374,7 +147374,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已撤销上一次重置"
+            "value": "Undid the last reset."
           }
         }
       }
@@ -147527,7 +147527,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "导出主题失败"
+            "value": "Couldn't export the theme."
           }
         }
       }
@@ -147748,7 +147748,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已粘贴剪贴板内容"
+            "value": "Clipboard content pasted."
           }
         }
       }
@@ -147782,7 +147782,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已卸下我的挂件"
+            "value": "Removed the pendant from me."
           }
         }
       }
@@ -147799,7 +147799,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已成功换上："
+            "value": "Applied: "
           }
         }
       }
@@ -147935,7 +147935,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "主题解析失败："
+            "value": "Failed to parse the theme: "
           }
         }
       }
@@ -148003,7 +148003,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已移除输入栏装饰图"
+            "value": "Input bar image removed."
           }
         }
       }
@@ -148037,7 +148037,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已切换字体："
+            "value": "Switched font: "
           }
         }
       }
@@ -148088,7 +148088,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已删除主题："
+            "value": "Deleted theme: "
           }
         }
       }
@@ -148139,7 +148139,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "助手立绘已设置"
+            "value": "Assistant character art set."
           }
         }
       }
@@ -148224,7 +148224,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "旋钮已复位"
+            "value": "Dials reset."
           }
         }
       }
@@ -148309,7 +148309,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "壁纸已更新"
+            "value": "Wallpaper updated."
           }
         }
       }
@@ -148717,7 +148717,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "字体导入失败，请确保格式正确"
+            "value": "Couldn't import the font. Make sure the format is correct."
           }
         }
       }
@@ -148887,7 +148887,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已复制主题包 JSON 到剪贴板"
+            "value": "Theme JSON copied to clipboard."
           }
         }
       }
@@ -148921,7 +148921,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已卸下AI的挂件"
+            "value": "Removed the pendant from AI."
           }
         }
       }
@@ -148955,7 +148955,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已移除思考卡装饰图"
+            "value": "Thinking card image removed."
           }
         }
       }
@@ -148972,7 +148972,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "成功导入字体："
+            "value": "Font imported: "
           }
         }
       }
@@ -149227,7 +149227,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已应用自定义字体"
+            "value": "Custom font applied."
           }
         }
       }
@@ -149295,7 +149295,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已停用自定义字体"
+            "value": "Custom font disabled."
           }
         }
       }
@@ -149448,7 +149448,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "思考卡背景已更新"
+            "value": "Thinking card background updated."
           }
         }
       }
@@ -149635,7 +149635,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已删除字体"
+            "value": "Font deleted."
           }
         }
       }
@@ -149652,7 +149652,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已自定义壁纸"
+            "value": "Custom wallpaper set."
           }
         }
       }
@@ -149771,7 +149771,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已清除该页面壁纸并恢复默认"
+            "value": "Cleared this page's wallpaper and restored the default."
           }
         }
       }
@@ -149788,7 +149788,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "主题应用失败"
+            "value": "Couldn't apply the theme."
           }
         }
       }
@@ -149805,7 +149805,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已成功导入并换上主题："
+            "value": "Theme imported and applied: "
           }
         }
       }
@@ -149839,7 +149839,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "输入栏背景已更新"
+            "value": "Input bar background updated."
           }
         }
       }
@@ -149856,7 +149856,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已清除立绘"
+            "value": "Character art cleared."
           }
         }
       }
@@ -149890,7 +149890,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已佩戴在AI头像上"
+            "value": "Worn on the AI avatar."
           }
         }
       }
@@ -149958,7 +149958,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "输入的 JSON 格式无效"
+            "value": "The JSON you entered isn't valid."
           }
         }
       }
@@ -150162,7 +150162,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已随机一套全新配色"
+            "value": "Shuffled a fresh palette."
           }
         }
       }
@@ -150264,7 +150264,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已应用预设："
+            "value": "Preset applied: "
           }
         }
       }
@@ -150298,7 +150298,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已佩戴在我的头像上"
+            "value": "Worn on my avatar."
           }
         }
       }
@@ -150605,6 +150605,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Follows Theme"
+          }
+        }
+      }
+    },
+    "已恢复默认图标": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢复默认图标"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored default icon."
           }
         }
       }

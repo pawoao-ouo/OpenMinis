@@ -22,9 +22,16 @@ extension AIChatViewModel {
         return result
     }
 
-    /// Called from `inputText.didSet` and `inputCaret.didSet`. Detects whether
-    /// the caret is inside an `@<token>` and toggles the menu accordingly.
-    func updateMentionMenuState() {
+    /// Called from the draft store's change callbacks (text and caret).
+    /// Detects whether the caret is inside an `@<token>` and toggles the
+    /// menu accordingly.
+    ///
+    /// [P2-12] The `mentionFilter` write below is guarded by an equality
+    /// check: an unguarded same-value write still emits `objectWillChange`,
+    /// which would re-evaluate the whole page body on a caret move that
+    /// changed no token. Plain typing with no `@` token touches nothing
+    /// `@Published` here at all.
+    func updateMentionMenuState(for text: String, caret: Int? = nil) {
         // Never show alongside the slash menu.
         if showSlashMenu {
             if showMentionMenu {
@@ -33,9 +40,8 @@ extension AIChatViewModel {
             }
             return
         }
-        let text = inputText
         let nsText = text as NSString
-        let caret = max(0, min(inputCaret, nsText.length))
+        let caret = max(0, min(caret ?? inputCaret, nsText.length))
 
         // Walk backwards from caret to find a `@`. Bail on whitespace/newline.
         var anchor = -1
@@ -72,7 +78,7 @@ extension AIChatViewModel {
             // when text has `@` but show was already false. Most
             // keystrokes that hit this branch are no-ops.
             if showMentionMenu {
-                let preview = String(inputText.prefix(60))
+                let preview = String(text.prefix(60))
                 mentionPickerLogger.info("[MentionPicker] event=dismiss reason=caretLeftAnchor inputLen=\(nsText.length) caretPos=\(caret) textPrefix=\"\(preview)\"")
                 dismissMentionMenu()
             }
@@ -83,7 +89,7 @@ extension AIChatViewModel {
         let filter = nsText.substring(with: filterRange)
 
         mentionAnchor = anchor
-        mentionFilter = filter
+        if mentionFilter != filter { mentionFilter = filter }
         if !showMentionMenu {
             // Pre-select the first row so a hardware-keyboard user can hit
             // Return immediately to insert the top match. The selection
@@ -237,7 +243,7 @@ extension AIChatViewModel {
         let newCaret = anchor + (replacement as NSString).length
         mentionPickerLogger.info("[MentionPicker] event=select basename=\(entry.basename) pathLen=\((entry.linuxPath as NSString).length) candidatesAtSelect=\(self.filteredMentionEntries.count)")
         // Dismiss *before* text mutation so `updateMentionMenuState` in the
-        // didSet doesn't re-open on the fresh input.
+        // draft-store callback doesn't re-open on the fresh input.
         dismissMentionMenu()
         inputText = newText
         pendingCaret = newCaret
