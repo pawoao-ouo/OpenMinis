@@ -1282,10 +1282,10 @@ struct DressingColorStudioSheet: View {
 
     private var scopeAndVariantPills: some View {
         VStack(spacing: 8) {
-            // Scope 选择（P3-5：底部栏与通讯录也能挂壁纸，以前没进药丸，选不到）
+            // Scope 选择（P3-5：底部栏与通讯录也能挂壁纸，以前没进药丸，选不到；文件页同理能调色——supportsColour 为 true，主题包能装文件页颜色，没药丸就改不了清不掉）
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach([AppearanceScope.global, .chat, .home, .settings, .browser, .terminal, .bottomBar, .persona], id: \.self) { scope in
+                    ForEach([AppearanceScope.global, .chat, .home, .settings, .browser, .terminal, .bottomBar, .persona, .files], id: \.self) { scope in
                         let isSelected = selectedScope == scope
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()

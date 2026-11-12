@@ -124,8 +124,12 @@ enum WallpaperPipeline {
     /// (see `byteLevelStrippable`). The old comment's claim that they
     /// "only reach disk via the re-encode paths" was wrong: there was
     /// no format gate, so an under-limit HEIC landed with its EXIF.
-    /// Any malformed input returns the original bytes untouched: never
-    /// corrupt a file to strip a tag.
+    /// Any malformed input returns the original bytes untouched —
+    /// except trailing garbage after the last complete chunk and
+    /// truncated metadata after complete image data, which are dropped
+    /// instead: every caller decodes first, so the image data is known
+    /// complete there, and dropping non-image bytes cannot corrupt the
+    /// image. Never corrupt a file to strip a tag.
     nonisolated static func strippedMetadata(_ data: Data) -> Data {
         if data.starts(with: [0xFF, 0xD8]) { return stripJPEGMetadata(data) }
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return stripPNGMetadata(data) }
@@ -173,21 +177,19 @@ enum WallpaperPipeline {
     /// renderer first so its orientation is baked too — `pngData()`
     /// alone encodes the raw CGImage without applying the orientation.
     nonisolated static func exportableImageData(_ data: Data, matte: UIColor = canvasMatte()) -> Data? {
-        if byteLevelStrippable(data) {
-            // [P1-1] Decode first: an undecodable strippable file must
-            // return nil, not fall through to `strippedMetadata` — the
-            // walkers return the original bytes on structural damage,
-            // so that path could carry EXIF into the pack.
-            guard let image = UIImage(data: data),
-                  image.size.width > 0, image.size.height > 0 else { return nil }
-            if image.imageOrientation == .up {
-                return strippedMetadata(data)
-            }
-            // Orientation must be baked into the pixels before the
-            // metadata is dropped — fall through to the re-encode.
-        }
+        // [P1-1] Decode first: an undecodable file must return nil, not
+        // fall through to `strippedMetadata` — the walkers return the
+        // original bytes on structural damage, so that path could carry
+        // EXIF into the pack. [P3-1] Decode once here and reuse `image`
+        // below: the strippable branch used to decode, then the re-encode
+        // guard decoded the same bytes again for orientation != up.
         guard let image = UIImage(data: data),
               image.size.width > 0, image.size.height > 0 else { return nil }
+        if byteLevelStrippable(data), image.imageOrientation == .up {
+            return strippedMetadata(data)
+        }
+        // Orientation must be baked into the pixels before the metadata
+        // is dropped — the re-encode below does that.
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
             // [P2-1] `pngData()` encodes the raw CGImage: it neither
             // applies `imageOrientation` nor writes an orientation
@@ -265,22 +267,43 @@ enum WallpaperPipeline {
 
     /// PNG: walk chunks, drop eXIf + text chunks, copy the rest whole
     /// (length + type + data + CRC move as one unit, so CRCs stay valid).
+    /// Trailing garbage after IEND and truncated metadata after complete
+    /// image data are dropped, not passed through: callers decode first
+    /// (see `strippedMetadata`), so the image data is known complete —
+    /// returning the original bytes there would put the EXIF back.
     nonisolated private static func stripPNGMetadata(_ data: Data) -> Data {
         var out = Data()
         out.reserveCapacity(data.count)
         guard data.count >= 8 else { return data }
         var i = data.index(data.startIndex, offsetBy: 8)
         out.append(data[data.startIndex..<i]) // signature
+        // [P2-1] Whether an IDAT chunk was already copied: a truncated
+        // chunk after complete image data is trailing metadata, so the
+        // stripped bytes are the right answer; before any IDAT the file
+        // cannot have decoded, so keep the old fallback below.
+        var sawIDAT = false
         while i < data.endIndex {
-            guard data.distance(from: i, to: data.endIndex) >= 8 else { return data }
+            // Fewer than 8 bytes left is trailing garbage (or a truncated
+            // chunk header), not image data — return what was stripped.
+            guard data.distance(from: i, to: data.endIndex) >= 8 else { return out }
             let len = (Int(data[i]) << 24) | (Int(data[data.index(i, offsetBy: 1)]) << 16)
                 | (Int(data[data.index(i, offsetBy: 2)]) << 8) | Int(data[data.index(i, offsetBy: 3)])
             let type = data[data.index(i, offsetBy: 4)..<data.index(i, offsetBy: 8)]
-            guard len >= 0, data.distance(from: i, to: data.endIndex) >= 12 + len else { return data }
             let typeString = String(decoding: type, as: UTF8.self)
+            guard len >= 0, data.distance(from: i, to: data.endIndex) >= 12 + len else {
+                // Truncated chunk: keep the stripped bytes only when the
+                // image data is already copied and the truncated chunk is
+                // not image data itself (a truncated IDAT is an incomplete
+                // zlib stream — undecodable, the gate returns nil anyway).
+                return (sawIDAT && typeString != "IDAT") ? out : data
+            }
             if typeString != "eXIf" && typeString != "tEXt" && typeString != "iTXt" && typeString != "zTXt" {
                 out.append(data[i..<data.index(i, offsetBy: 12 + len)])
             }
+            if typeString == "IDAT" { sawIDAT = true }
+            // IEND is the last chunk by spec: stop here — anything after
+            // it is trailing garbage, not image data.
+            if typeString == "IEND" { return out }
             i = data.index(i, offsetBy: 12 + len)
         }
         return out
@@ -303,22 +326,50 @@ enum WallpaperPipeline {
         var droppedEXIF = false
         var droppedXMP = false
         var sawChunk = false
+        // [P2-1] Whether an image chunk (VP8/VP8L) was already copied:
+        // a truncated chunk after complete image data is trailing
+        // metadata, so stopping here is right; before any image data
+        // the file cannot have decoded, so keep the old fallback below.
+        var sawImage = false
         while i < data.endIndex {
-            guard data.distance(from: i, to: data.endIndex) >= 8 else { return data }
+            // Fewer than 8 bytes left is trailing garbage, not a chunk:
+            // stop here and let the VP8X flag fix + RIFF size rewrite
+            // below run on what was stripped.
+            guard data.distance(from: i, to: data.endIndex) >= 8 else { break }
             let type = data[i..<data.index(i, offsetBy: 4)]
             let len = Int(data[data.index(i, offsetBy: 4)])
                 | (Int(data[data.index(i, offsetBy: 5)]) << 8)
                 | (Int(data[data.index(i, offsetBy: 6)]) << 16)
                 | (Int(data[data.index(i, offsetBy: 7)]) << 24)
-            guard len >= 0, data.distance(from: i, to: data.endIndex) >= 8 + len else { return data }
             let typeString = String(decoding: type, as: UTF8.self)
+            guard len >= 0, data.distance(from: i, to: data.endIndex) >= 8 + len else {
+                // Truncated chunk: keep the stripped bytes only when the
+                // image chunk was already copied. A truncated EXIF/XMP is
+                // still dropped, so flag it for the VP8X fixup below.
+                if !sawImage { return data }
+                if typeString == "EXIF" { droppedEXIF = true }
+                else if typeString == "XMP " { droppedXMP = true }
+                break
+            }
             // Chunks are padded to even size with one pad byte.
             let chunkLen = 8 + len + (len % 2)
-            guard data.distance(from: i, to: data.endIndex) >= chunkLen else { return data }
+            if data.distance(from: i, to: data.endIndex) < chunkLen {
+                // Payload complete, pad byte missing (file cut by one
+                // byte): appending without the pad yields bytes libwebp
+                // rejects, so drop a non-image chunk and stop. An image
+                // chunk (VP8/VP8L) must never be dropped — keep the old
+                // fallback.
+                if typeString == "VP8 " || typeString == "VP8L" { return data }
+                if typeString == "EXIF" { droppedEXIF = true }
+                else if typeString == "XMP " { droppedXMP = true }
+                sawChunk = true
+                break
+            }
             sawChunk = true
             if typeString == "VP8X", len == 10 {
                 vp8xFlagOffset = out.count + 8
             }
+            if typeString == "VP8 " || typeString == "VP8L" { sawImage = true }
             if typeString != "EXIF" && typeString != "XMP " {
                 out.append(data[i..<data.index(i, offsetBy: chunkLen)])
             } else if typeString == "EXIF" {

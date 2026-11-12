@@ -1193,7 +1193,15 @@ actor BackupExporter {
                     }
                 }
                 if let mtime = values?.contentModificationDate {
-                    try? fm.setAttributes([.modificationDate: mtime], ofItemAtPath: dest.path)
+                    do {
+                        try fm.setAttributes([.modificationDate: mtime], ofItemAtPath: dest.path)
+                    } catch {
+                        // A staged file that keeps mtime=now is dropped by
+                        // the tree exporter's snapshot cut-off as "too new"
+                        // (counted in `filesAfterSnapshot`, self-heals next
+                        // backup) — warn, don't abort the staging over it.
+                        logger.warning("[Backup] appearance staging could not restore mtime for \(rel): \(error.localizedDescription)")
+                    }
                 }
                 stagedAnything = true
             } catch {
