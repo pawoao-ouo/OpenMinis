@@ -1968,6 +1968,9 @@ final class ProviderConfigStore: ObservableObject {
         config.agentLoopGroupIds.removeAll { $0 == groupId }
         Self.recordTombstone(in: &config.deletedModelGroups, ids: [groupId])
         save()
+        // 子代理也可能指着这个已删的分组：清掉它们的 modelGroupId，
+        // 让它们回到"由委派模型自己选"，别留悬空引用。
+        SubAgentStore.shared.clearModelGroup(groupId)
         // [T-icloud-provider-sync-consistency] Explicit V3 delete tombstone —
         // emitV3MarkDirty no longer diff-infers group deletions.
         Task { await ChatStore.shared.markDirty(recordType: "ProviderModelGroupV3", recordId: groupId, operation: "delete") }
