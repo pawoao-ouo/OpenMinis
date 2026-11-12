@@ -148467,19 +148467,19 @@
         }
       }
     },
-    "自动分组、回车键、回复后聚焦、工具预览": {
+    "自动分组、回车键等 4 项": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "自动分组、回车键、回复后聚焦、工具预览"
+            "value": "自动分组、回车键等 4 项"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auto-grouping, Enter key, refocus after reply, tool previews"
+            "value": "Auto-grouping, Enter key, and 2 more"
           }
         }
       }
