@@ -2509,6 +2509,16 @@ final class CloudSyncEngine: ObservableObject {
         store.applyMergedConfigFromSync(local)
         logger.info("[iCloud] mergeProviderConfig: merged \(instanceMap.count) instances, \(local.modelEntries.count) entries, \(local.modelGroups.count) groups")
 
+        // Groups alive in the merged result are alive again — a peer's newer
+        // edit or a backup restore brought them back. Their delete-tombstone
+        // rows are stale now: the roster merge guard (isRecordDeleted) would
+        // otherwise keep stripping sub-agents' pointers at a group that is alive.
+        // Only ids in the merged result are cleared — a group absent from the
+        // result keeps its tombstone, so the guard keeps working for it.
+        for group in local.modelGroups {
+            await ChatStore.shared.clearRecordTombstone(type: "ProviderModelGroupV3", id: group.id)
+        }
+
         // A restore is user-initiated local authorship, not an inbound echo:
         // mark dirty unconditionally so the restored providers propagate, and
         // skip the anti-ping-pong throttle (which exists to damp device-to-
