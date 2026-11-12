@@ -2003,6 +2003,21 @@ enum ChatStoreSyncHydrators {
         await db.deleteGroupRow(id: id)
         logger.info("[v3] deleted ProviderModelGroupV3 \(id.prefix(8))")
         await refreshStoreFromDB()
+        // The group is gone — sub-agents pointing at it must fall back to
+        // model-chosen, same as the local removeGroup() path. Without this,
+        // the roster keeps a dangling modelGroupId until a cleaned
+        // SubAgentV3 record happens to win LWW (it may never arrive).
+        await MainActor.run {
+            SubAgentStore.shared.clearModelGroup(id)
+        }
+        // Leave the same durable delete trace a local delete leaves
+        // (markDirty op=delete records it on the originating device):
+        // without it, this device has no way to tell a deleted group from
+        // one whose record simply has not arrived yet, so a stale roster
+        // arriving later could resurrect the dangling pointer. This also
+        // lets the merge path's recently-deleted guard skip a stale live
+        // group record re-pulled by fetchRecentV2.
+        await ChatStore.shared.recordDeletedRecordTombstone(type: "ProviderModelGroupV3", id: id)
     }
 
     /// After any V3 inbound mutation, re-hydrate the
