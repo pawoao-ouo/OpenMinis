@@ -309,14 +309,15 @@ import UIKit
     }
 
     /// AI-path `minis-theme use`. This bridge entry is AI-only: the
-    /// settings UI calls `AppearanceStudio.applySavedTheme` directly and
-    /// is untouched by this change. A saved pack always carries locked
-    /// layout fields, so a full replace here would smuggle layout back
-    /// through the AI path. Instead this applies ONLY colours, images,
-    /// thinking-card font sizes, and non-rectangle avatar shape from the
-    /// saved pack (see `applySavedThemeAI`), leaves layout exactly as
-    /// the user left it, and says so in the result. It does not mark the
-    /// saved theme as in use, because the result is not that theme.
+    /// settings UI goes through `AppearanceStudio.applySavedThemeSet`
+    /// (not `applySavedTheme` directly), and is untouched by this change.
+    /// A saved pack always carries locked layout fields, so a full replace
+    /// here would smuggle layout back through the AI path. Instead this
+    /// applies ONLY colours, images, thinking-card font sizes, and
+    /// non-rectangle avatar shape from the saved pack (see
+    /// `applySavedThemeAI`), leaves layout exactly as the user left it,
+    /// and says so in the result. It does not mark the saved theme as in
+    /// use, because the result is not that theme.
     @objc public static func applySaved(id: String) -> NSDictionary {
         ThemeBridgeCall.run { token in
             // [F2] Same contrast gate as apply, BEFORE anything is

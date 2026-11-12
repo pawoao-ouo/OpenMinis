@@ -1489,12 +1489,16 @@ struct DressingWallpaperArtSheet: View {
     // 抽屉里、同时透传给父 toast；抽屉外的调用方不受影响。
     @StateObject private var sheetStatus = DressingSheetStatus()
 
-    // 透明度滑杆拖动在途标记：滑杆 set 时置 true，正常松手
-    // onOpacityEndEditing 时清掉并落盘。拖动中途抽屉被划掉、
+    // 透明度滑杆拖动在途标记：每个滑杆各一个。滑杆 set 时置 true，
+    // 正常松手 onOpacityEndEditing 时清掉并落盘。拖动中途抽屉被划掉、
     // onEditingChanged(false) 没触发时，onDisappear 靠它判断
     // 要不要补落盘一次。正常松手后 flag 已清，不会多一次
     // persistPack、不会多 bump 一次 themePackRevision。
-    @State private var opacityDragInFlight = false
+    // [P3-8] 两只滑杆原来共用一个 flag：A 松手会把 flag 清掉，
+    // B 紧接着的 set 又置 true——交错时 onDisappear 可能看到
+    // 错的 flag 而丢掉 B 的在途值。各管各的就没这个 race。
+    @State private var thinkingCardOpacityDragInFlight = false
+    @State private var inputBarOpacityDragInFlight = false
 
     var body: some View {
         NavigationStack {
@@ -1667,9 +1671,14 @@ struct DressingWallpaperArtSheet: View {
                 // Slider 的 onEditingChanged(false) 没触发，内存里的
                 // 透明度就永远落不了盘，下次启动读盘直接回到旧值。
                 // 只在有拖动在途时补一次（幂等，和松手那下同一条路）。
-                if opacityDragInFlight {
-                    opacityDragInFlight = false
+                // [P3-8] 每只滑杆各按自己的 flag 补——共用一个 flag
+                // 时 A 松手会清掉 B 的在途标记。
+                if thinkingCardOpacityDragInFlight {
+                    thinkingCardOpacityDragInFlight = false
                     studio.setThinkingCardImageOpacity(studio.currentThemePack().thinkingCardImageOpacity)
+                }
+                if inputBarOpacityDragInFlight {
+                    inputBarOpacityDragInFlight = false
                     studio.setInputBarImageOpacity(studio.currentThemePack().inputBarImageOpacity)
                 }
             }
@@ -1896,9 +1905,9 @@ struct DressingWallpaperArtSheet: View {
                 },
                 opacity: Binding(
                     get: { studio.currentThemePack().thinkingCardImageOpacity },
-                    set: { opacityDragInFlight = true; studio.setThinkingCardImageOpacity($0, live: true) }
+                    set: { thinkingCardOpacityDragInFlight = true; studio.setThinkingCardImageOpacity($0, live: true) }
                 ),
-                onOpacityEndEditing: { opacityDragInFlight = false; studio.setThinkingCardImageOpacity(studio.currentThemePack().thinkingCardImageOpacity) }
+                onOpacityEndEditing: { thinkingCardOpacityDragInFlight = false; studio.setThinkingCardImageOpacity(studio.currentThemePack().thinkingCardImageOpacity) }
             )
 
             // 输入栏装饰
@@ -1912,9 +1921,9 @@ struct DressingWallpaperArtSheet: View {
                 },
                 opacity: Binding(
                     get: { studio.currentThemePack().inputBarImageOpacity },
-                    set: { opacityDragInFlight = true; studio.setInputBarImageOpacity($0, live: true) }
+                    set: { inputBarOpacityDragInFlight = true; studio.setInputBarImageOpacity($0, live: true) }
                 ),
-                onOpacityEndEditing: { opacityDragInFlight = false; studio.setInputBarImageOpacity(studio.currentThemePack().inputBarImageOpacity) }
+                onOpacityEndEditing: { inputBarOpacityDragInFlight = false; studio.setInputBarImageOpacity(studio.currentThemePack().inputBarImageOpacity) }
             )
         }
     }
@@ -2833,7 +2842,7 @@ struct DressingBubblesPendantsSheet: View {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     bubbleStore.apply(pack, for: editingSide)
-                    sheetStatus.show(AppLocalized("已给 \(editingSide.displayName) 换上 \(pack.title)"))
+                    sheetStatus.show(String(format: AppLocalized("已给 %@ 换上 %@"), editingSide.displayName, pack.title))
                 } label: {
                     Text(AppLocalized("换上"))
                         .font(ChatFont.font(10, weight: .semibold))
@@ -2847,7 +2856,7 @@ struct DressingBubblesPendantsSheet: View {
                 Button {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     bubbleStore.apply(pack)
-                    sheetStatus.show(AppLocalized("已全部应用 \(pack.title)"))
+                    sheetStatus.show(String(format: AppLocalized("已全部应用 %@"), pack.title))
                 } label: {
                     Text(AppLocalized("双方都用"))
                         .font(ChatFont.font(10))
@@ -3398,7 +3407,7 @@ struct DressingThemeLibrarySheet: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(AppLocalized("我的已存主题 (\(studio.savedThemes().count))"))
+                        Text(String(format: AppLocalized("我的已存主题 (%d)"), studio.savedThemes().count))
                             .font(ChatFont.font(13, weight: .bold))
                             .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
@@ -3630,15 +3639,18 @@ struct DressingDetailsIconsSheet: View {
                 guard let item, let slotId = pendingIconSlotId else { return }
                 pickedIconItem = nil
                 Task {
-                    guard let data = try? await item.loadTransferable(type: Data.self),
-                          let uiImage = UIImage(data: data) else {
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
                         await MainActor.run {
                             sheetStatus.show(AppLocalized("图标设置失败，请换一张图试试"))
                         }
                         return
                     }
+                    // [P3-3] Decode + encode + write run in a detached task
+                    // inside setIconEncoded; only the result + toast come
+                    // back to the main actor.
+                    let ok = await studio.setIconEncoded(data, for: slotId)
                     await MainActor.run {
-                        if studio.setIcon(uiImage, for: slotId) {
+                        if ok {
                             sheetStatus.show(AppLocalized("已设置图标"))
                         } else {
                             sheetStatus.show(AppLocalized("图标设置失败，请换一张图试试"))

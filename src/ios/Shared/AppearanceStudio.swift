@@ -229,7 +229,10 @@ enum WallpaperPipeline {
             let len = Int(data[data.index(i, offsetBy: 2)]) << 8
                 | Int(data[data.index(i, offsetBy: 3)])
             guard len >= 2, data.distance(from: i, to: data.endIndex) >= 2 + len else { return data }
-            if marker != 0xE1 { // keep everything except APP1 (Exif/XMP)
+            // Drop APP1 (Exif/XMP), APP13 (Photoshop IRB — IPTC location
+            // data rides here) and COM (free-form comment): none of them
+            // affects rendering, and all three can carry location data.
+            if marker != 0xE1 && marker != 0xED && marker != 0xFE {
                 out.append(data[i..<data.index(i, offsetBy: 2 + len)])
             }
             i = data.index(i, offsetBy: 2 + len)
@@ -276,6 +279,7 @@ enum WallpaperPipeline {
         var vp8xFlagOffset: Int? = nil
         var droppedEXIF = false
         var droppedXMP = false
+        var sawChunk = false
         while i < data.endIndex {
             guard data.distance(from: i, to: data.endIndex) >= 8 else { return data }
             let type = data[i..<data.index(i, offsetBy: 4)]
@@ -288,6 +292,7 @@ enum WallpaperPipeline {
             // Chunks are padded to even size with one pad byte.
             let chunkLen = 8 + len + (len % 2)
             guard data.distance(from: i, to: data.endIndex) >= chunkLen else { return data }
+            sawChunk = true
             if typeString == "VP8X", len == 10 {
                 vp8xFlagOffset = out.count + 8
             }
@@ -300,6 +305,10 @@ enum WallpaperPipeline {
             }
             i = data.index(i, offsetBy: chunkLen)
         }
+        // Header-only input (no chunks at all) is structurally
+        // abnormal: return the original bytes instead of rewriting
+        // the RIFF size field to 4.
+        guard sawChunk else { return data }
         // VP8X flags must match the chunks that survived: EXIF = 0x08,
         // XMP = 0x04 (verified against Pillow-written WebPs: RGBA flags
         // 0x10, +EXIF 0x18).
@@ -1802,20 +1811,6 @@ final class AppearanceStudio: ObservableObject {
         wallpaper(for: scope) != nil
     }
 
-    /// 文件在、但解不出来。给界面一句"这张图坏了，点按清除"用。
-    func hasCorruptWallpaper(_ scope: AppearanceScope) -> Bool {
-        // [T-54] 看当前档位真正会读的那一份。
-        let variantURL = wallpaperURL(scope, variant: activeVariant)
-        let url = FileManager.default.fileExists(atPath: variantURL.path)
-            ? variantURL : wallpaperURL(scope)
-        guard FileManager.default.fileExists(atPath: url.path) else { return false }
-        if let data = try? Data(contentsOf: url), let image = UIImage(data: data),
-           image.size.width > 0, image.size.height > 0 {
-            return false
-        }
-        return true
-    }
-
     func hasOwnWallpaper(_ scope: AppearanceScope) -> Bool {
         let fm = FileManager.default
         return [wallpaperURL(scope),
@@ -2282,6 +2277,36 @@ final class AppearanceStudio: ObservableObject {
         return true
     }
 
+    /// [P3-3] Detached twin of `setIcon(_:for:)`: decode + encode + write
+    /// run off the main thread (a 12MP photo used to block it ~100-300ms);
+    /// only the read-cache update + revision bump run on the main actor.
+    /// Same contract as `setIcon`: false when the bytes do not decode,
+    /// encode fails, or the write fails.
+    @discardableResult
+    func setIconEncoded(_ data: Data, for id: String) async -> Bool {
+        // The URL is plain path-joining; compute it here so the detached
+        // task only carries Sendable values (URL + String + Data).
+        let url = customIconURL(for: id)
+        let value = await Task.detached(priority: .utility) { () -> String? in
+            guard let image = UIImage(data: data),
+                  case .success(let encoded) = SoulIconImage.encode(image),
+                  let png = SoulIconImage.pngData(from: encoded) else { return nil }
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                     withIntermediateDirectories: true)
+            do {
+                try png.write(to: url, options: .atomic)
+            } catch {
+                appearanceLog.warning("icon write failed for \(id): \(error.localizedDescription)")
+                return nil
+            }
+            return encoded
+        }.value
+        guard let value else { return false }
+        customIcons[id] = value
+        persistIcons()
+        return true
+    }
+
     /// Returns whether an icon was actually there to remove (A-3:
     /// removing a nonexistent slot used to answer "removed: true").
     @discardableResult
@@ -2298,7 +2323,6 @@ final class AppearanceStudio: ObservableObject {
         // [PIC-6] The dictionary is now only the in-memory read cache; the
         // files are the source of truth (setIcon/removeIcon write them).
         iconRevision += 1
-        objectWillChange.send()
     }
 
     // MARK: - [PIC-6] Custom icons on disk
@@ -2433,7 +2457,14 @@ final class AppearanceStudio: ObservableObject {
         }
         for url in urls {
             guard let data = try? Data(contentsOf: url), !data.isEmpty,
-                  let clean = WallpaperPipeline.exportableImageData(data),
+                  // [P3-11] Matte by filename suffix, same pattern as
+                  // `originalImageData`: "-dark.jpg" files are padded with
+                  // the dark canvas, everything else with the light one —
+                  // the default light matte used to pad dark-variant
+                  // transparent wallpapers light.
+                  let clean = WallpaperPipeline.exportableImageData(
+                      data, matte: WallpaperPipeline.canvasMatte(
+                          dark: url.lastPathComponent.hasSuffix("-dark.jpg"))),
                   clean != data else { continue }
             // [P3-1] Re-read before writing: a picker may have swapped this
             // file between the read above and this write — never clobber a
@@ -3248,7 +3279,6 @@ extension AppearanceStudio {
         bumpAllWallpaperRevisions()
         iconRevision += 1
         configureUIKitSurfaces()
-        objectWillChange.send()
     }
 }
 

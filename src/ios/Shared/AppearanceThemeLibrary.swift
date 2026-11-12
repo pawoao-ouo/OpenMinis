@@ -490,7 +490,6 @@ extension AppearanceStudio {
             UserDefaults.standard.set(data, forKey: Self.libraryKey)
         }
         themePackRevision += 1
-        objectWillChange.send()
     }
 
     /// [P3-16] Delete saved-theme pack files in `library/` whose id is not

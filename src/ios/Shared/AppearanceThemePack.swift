@@ -1149,7 +1149,7 @@ extension AppearanceStudio {
         // 只在字段非空时跑一次，之后永远为 nil。
         if let inline = pack.characterArtBase64, !inline.isEmpty,
            let art = Data(base64Encoded: inline) {
-            Self.writeEncodedImage(art, to: characterArtURL(), maxEdge: 1600, quality: 0.82)
+            Self.writeEncodedImageIfDecodable(art, to: characterArtURL(), maxEdge: 1600, quality: 0.82)
             var cleaned = pack
             cleaned.characterArtBase64 = nil
             if let data = try? JSONSerialization.data(withJSONObject: cleaned.asJSONObject()) {
@@ -1160,7 +1160,7 @@ extension AppearanceStudio {
         return pack
     }
 
-    func persistPack(_ pack: AppearanceThemePack) {
+    func persistPack(_ pack: AppearanceThemePack, bumpRevision: Bool = true) {
         // Packs arriving here from an import or a theme apply
         // never passed the load-time healing above, so fold
         // per-part fonts to the global choice here too — a
@@ -1180,7 +1180,13 @@ extension AppearanceStudio {
         // [P3-4] `themePackRevision` is `@Published`, so the bump above
         // already emits `objectWillChange` — a second manual `send()` here
         // only re-evaluated every observer twice per persist. Removed.
-        themePackRevision += 1
+        // [P3-4] One theme swap must bump exactly once: `applyThemePack`
+        // persists mid-function (replace atomicity, see below) and again
+        // at the end via `applyCategoryImages`, so the mid-function call
+        // passes `bumpRevision: false` and the trailing one bumps.
+        if bumpRevision {
+            themePackRevision += 1
+        }
     }
 
     /// How a pack apply treats fields the pack does not carry.
@@ -1248,7 +1254,10 @@ extension AppearanceStudio {
         // persistPack sets cachedThemePack on success, so a mismatch
         // here means it failed; nothing has been deleted or written yet
         // (all image writes happen below), so returning now is safe.
-        persistPack(stored)
+        // [P3-4] No revision bump here: `applyCategoryImages` at the end
+        // persists again and bumps once, so one theme swap rebuilds the
+        // message list once instead of twice.
+        persistPack(stored, bumpRevision: false)
         if replace, currentThemePack() != stored {
             warnings.append("pack")
             return warnings
@@ -1910,7 +1919,6 @@ extension AppearanceStudio {
         themePackLock.unlock()
         themePackRevision += 1
         resetColors()
-        objectWillChange.send()
         return snapshotCaptured
     }
 
@@ -2029,7 +2037,7 @@ extension AppearanceStudio {
         var pack = currentThemePack()
         pack.characterArtBase64 = base64
         if let base64, let data = Data(base64Encoded: base64) {
-            Self.writeEncodedImage(data, to: characterArtURL(), maxEdge: 1600, quality: 0.82)
+            Self.writeEncodedImageIfDecodable(data, to: characterArtURL(), maxEdge: 1600, quality: 0.82)
             pack.characterArtBase64 = nil
         } else if base64 == nil {
             removeCharacterArt()

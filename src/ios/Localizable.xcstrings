@@ -147294,36 +147294,36 @@
         }
       }
     },
-    "已全部应用 \\(pack.title)": {
+    "已全部应用 %@": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已全部应用 \\(pack.title)"
+            "value": "已全部应用 %@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已全部应用 \\(pack.title)"
+            "value": "Applied %@ to all"
           }
         }
       }
     },
-    "我的已存主题 (\\(studio.savedThemes().count))": {
+    "我的已存主题 (%d)": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "我的已存主题 (\\(studio.savedThemes().count))"
+            "value": "我的已存主题 (%d)"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "我的已存主题 (\\(studio.savedThemes().count))"
+            "value": "My saved themes (%d)"
           }
         }
       }
@@ -147583,19 +147583,19 @@
         }
       }
     },
-    "已给 \\(editingSide.displayName) 换上 \\(pack.title)": {
+    "已给 %@ 换上 %@": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已给 \\(editingSide.displayName) 换上 \\(pack.title)"
+            "value": "已给 %@ 换上 %@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "已给 \\(editingSide.displayName) 换上 \\(pack.title)"
+            "value": "Switched %@ to %@"
           }
         }
       }

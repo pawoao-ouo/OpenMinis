@@ -205,6 +205,12 @@ final class ThumbnailCache {
     /// which is the path that must never serve stale bytes; a `store()`
     /// under a stale key can only orphan an entry (next lookup reloads
     /// from disk), never serve the wrong image.
+    /// [P3-7] TTL semantics, accepted in writing: an external overwrite
+    /// of the same path that skips `removeThumbnail` keeps serving the
+    /// OLD thumbnail for up to 2s (the cached stat still matches, so the
+    /// old key still hits), then self-heals on the first check after the
+    /// stat expires. All in-app write paths call `removeThumbnail`, so
+    /// only out-of-app edits can hit the window, and only for 2s.
     private var statCache: [String: (size: Int64, mtime: TimeInterval, at: Date)] = [:]
     private static let statCacheTTL: TimeInterval = 2
 
