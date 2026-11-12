@@ -125718,6 +125718,23 @@
         }
       }
     },
+    "列表图标形状": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表图标形状"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "List Icon Shape"
+          }
+        }
+      }
+    },
     "刚刚": {
       "extractionState": "manual",
       "localizations": {
@@ -143536,6 +143553,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定頁每一行的底色。不選就跟卡片走。"
+          }
+        }
+      }
+    },
+    "设置页行底色": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置页行底色"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings Row Background"
           }
         }
       }

@@ -1113,6 +1113,10 @@ struct DressingColorStudioSheet: View {
                             colorRoleRow(role)
                         }
 
+                        // 设置页行底色：主题包的全局字段，不分页面、不分日夜，
+                        // 所以放在角色列表外面，不跟 scope / variant 走。
+                        rowBackgroundRow()
+
                         // 页面重置操作行
                         HStack(spacing: 12) {
                             Button {
@@ -1262,6 +1266,62 @@ struct DressingColorStudioSheet: View {
                     .background(CSSThemeVariables.surfaceFill(scope: .settings))
                     .clipShape(Circle())
             }
+        }
+        .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
+        .padding(.vertical, DressingTokens.Padding.tallRowVertical)
+        .background(CSSThemeVariables.card(scope: .settings))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.innerCard, style: .continuous)
+                .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+        )
+    }
+
+    /// 设置页行底色：写 pack.rowBackgroundHex（全局字段，不分 scope /
+    /// variant）。nil = 跟随 surface（SettingsListRowBackgroundModifier
+    /// 的回落；卡片面本身就是 surface 角色），所以没值时选色器显示
+    /// 的正是生效的那个色；清掉就回到“跟随主题”。
+    private func rowBackgroundRow() -> some View {
+        let packHex = studio.currentThemePack().rowBackgroundHex
+        let binding = Binding<Color>(
+            get: { packHex.map { Color(hex: $0) } ?? studio.color(.surface, scope: .settings) },
+            set: { newColor in
+                studio.setRowBackground(UIColor(newColor).hexRGB)
+            }
+        )
+
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(AppLocalized("设置页行底色"))
+                    .font(ChatFont.font(13, weight: .medium))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+                Text(packHex.map { "#" + $0 } ?? AppLocalized("跟随主题"))
+                    .font(ChatFont.font(11, design: .monospaced))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+            }
+
+            Spacer()
+
+            // 原生 ColorPicker
+            ColorPicker("", selection: binding)
+                .labelsHidden()
+                .scaleEffect(0.9)
+
+            // 清掉自定义，回到跟随 surface（和角色行的单项清除同一个样子）
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                studio.setRowBackground(nil)
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                    .padding(DressingTokens.Padding.tiny)
+                    .background(CSSThemeVariables.surfaceFill(scope: .settings))
+                    .clipShape(Circle())
+            }
+            .disabled(packHex == nil)
+            .opacity(packHex == nil ? 0.5 : 1)
         }
         .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
         .padding(.vertical, DressingTokens.Padding.tallRowVertical)
@@ -1824,6 +1884,68 @@ struct DressingBubblesPendantsSheet: View {
                     .tint(CSSThemeVariables.accent(scope: .settings))
 
                     Text("\(Int(editingSide.isUser ? studio.currentThemePack().userBubbleRadius : studio.currentThemePack().assistantBubbleRadius)) pt")
+                        .font(ChatFont.font(11, design: .monospaced))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                        .frame(width: 36, alignment: .trailing)
+                }
+            }
+            .padding(DressingTokens.Padding.card)
+            .background(CSSThemeVariables.card(scope: .settings))
+            .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
+                    .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+            )
+
+            // 输入栏：写 pack 的 inputBarRadius / inputBarStyle（主题包字段，
+            // 不是气泡款式包里的那份拷贝）；聊天页真输入条直接读
+            // MinisThemeShape.inputBarStyle / inputRadius，改了当场就变。
+            VStack(alignment: .leading, spacing: 10) {
+                Text(AppLocalized("输入栏"))
+                    .font(ChatFont.font(13, weight: .bold))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+                // 形态选择
+                HStack(spacing: 6) {
+                    Text(AppLocalized("输入栏形状"))
+                        .font(ChatFont.font(11))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                        .frame(width: 72, alignment: .leading)
+
+                    ForEach(AppearanceBubbleStyle.allCases) { style in
+                        let isSelected = AppearanceBubbleStyle.parse(studio.currentThemePack().inputBarStyle) == style
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            studio.setInputBarStyle(style)
+                        } label: {
+                            Text(style.title)
+                                .font(ChatFont.font(11, weight: isSelected ? .bold : .regular))
+                                .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                                .padding(.vertical, DressingTokens.Padding.rowVertical)
+                                .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
+                                .foregroundStyle(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+
+                // 圆角滑块（4...32，和气泡圆角同一个夹值；setter 里再夹一次）
+                HStack(spacing: 8) {
+                    Text(AppLocalized("输入栏圆角"))
+                        .font(ChatFont.font(11))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+                        .frame(width: 72, alignment: .leading)
+
+                    Slider(
+                        value: Binding(
+                            get: { studio.currentThemePack().inputBarRadius },
+                            set: { studio.setInputBarRadius($0) }
+                        ),
+                        in: 4...32
+                    )
+                    .tint(CSSThemeVariables.accent(scope: .settings))
+
+                    Text("\(Int(studio.currentThemePack().inputBarRadius)) pt")
                         .font(ChatFont.font(11, design: .monospaced))
                         .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
                         .frame(width: 36, alignment: .trailing)
@@ -3111,6 +3233,9 @@ struct DressingDetailsIconsSheet: View {
                         // 界面静音图标 Slots
                         iconSlotsSection
 
+                        // 列表图标形状
+                        listIconShapeSection
+
                         // 标签符号
                         categorySymbolsSection
                     }
@@ -3192,6 +3317,41 @@ struct DressingDetailsIconsSheet: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach([QuietIconSlot.decorate, .skills, .memory, .terminal, .browser, .storage], id: \.self) { slot in
                     iconSlotCard(slot)
+                }
+            }
+        }
+        .padding(DressingTokens.Padding.card)
+        .background(CSSThemeVariables.card(scope: .settings))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.card, style: .continuous)
+                .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+        )
+    }
+
+    /// 列表图标形状：写 pack.listIconShape（圆 / 方圆 / 圆角方），
+    /// 首页会话行的图标裁剪（minisListIconClip）直接读它，改了当场就变。
+    private var listIconShapeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(AppLocalized("列表图标形状"))
+                .font(ChatFont.font(13, weight: .bold))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+
+            HStack(spacing: 6) {
+                ForEach(AppearanceListIconShape.allCases) { shape in
+                    let isSelected = AppearanceListIconShape.parse(studio.currentThemePack().listIconShape) == shape
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        studio.setListIconShape(shape)
+                    } label: {
+                        Text(shape.title)
+                            .font(ChatFont.font(11, weight: isSelected ? .bold : .regular))
+                            .padding(.horizontal, DressingTokens.Padding.rowHorizontal)
+                            .padding(.vertical, DressingTokens.Padding.rowVertical)
+                            .background(isSelected ? CSSThemeVariables.accentSoft(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
+                            .foregroundStyle(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.textDim(scope: .settings))
+                            .clipShape(Capsule())
+                    }
                 }
             }
         }
