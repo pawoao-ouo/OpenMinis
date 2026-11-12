@@ -262,6 +262,25 @@ extension AIChatViewModel {
             propertyOrdering: ["tool_title", "text", "voice", "group"]
         ))
 
+        // [P2-C] together_play: AI 放歌的原生入口。直接调
+        // TogetherPlayer.playTrackForAI（不走 shell 写状态那条路），成功必须以
+        // 播放器状态确认为准——只收到 "playing" 才可以说"放上了"，失败一律按
+        // tool result 里写的原因回她。trackId 从 `together lib` 拿（见
+        // Catalog 里的 together 条目），不许自己编。
+        tools.append(AgentToolDefinition(
+            name: "together_play",
+            description: "Play a track from the Together (一起听) music library by trackId, through the native player. Get the trackId first with `together lib` (shell_execute) — do not guess it. The result is the truth about what happened: ONLY when the result says the track is playing may you tell the user it is playing. On any other result, report the failure reason from the result and do NOT say it is playing. A held pause (the user pressed pause) is never overridden — tell the user to press play when she wants music.",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "Optional: a concise 5-10 word summary of what you're playing, shown to the user (e.g. 'Play Night Cocoa'). Omit it and a summary is generated from the track title. Use the same language as the user."),
+                "trackId": AgentToolParam(type: .string, description: "The track id from `together lib` (e.g. the id listed for the song). Required — do not guess an id."),
+                "position": AgentToolParam(type: .integer, description: "Optional: start position in seconds (default 0, from the beginning)."),
+                "queue": AgentToolParam(type: .string, description: "Optional: JSON array of track ids to queue after this track (e.g. [\"id1\", \"id2\"]). Omit to keep the current queue."),
+                "queueSource": AgentToolParam(type: .string, description: "Optional: where the queue came from (e.g. \"playlist:xxx\"), for display only."),
+            ],
+            required: ["trackId"],
+            propertyOrdering: ["tool_title", "trackId", "position", "queue", "queueSource"]
+        ))
+
         // [mcp-agg] MCP 聚合点管理工具：小管家（MCP 小助手人设）给她接入/管理 MCP 用。
         // add_mcp/remove_mcp 两段式（先探、请她确认再落盘）；skill 白名单门控在人设层。
         tools.append(contentsOf: MCPManagementTools.dialogDefinitions())

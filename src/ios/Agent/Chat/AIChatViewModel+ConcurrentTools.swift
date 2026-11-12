@@ -1016,6 +1016,42 @@ extension AIChatViewModel {
             toolOutput = voiceResult.output
             toolSuccess = voiceResult.success
 
+        case "together_play":
+            // [P2-C] AI 放歌的原生入口：直接调 TogetherPlayer.playTrackForAI，
+            // 成功必须以播放器状态确认为准。message 原样返回给模型——只有
+            // .playing 才可以说"放上了"，失败各说各的原因。
+            let playTrackId = (toolArgs["trackId"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if playTrackId.isEmpty {
+                toolOutput = "Could not play: missing required 'trackId'. Get the track id from `together lib` first, then call together_play again. Do not say it is playing."
+                toolSuccess = false
+            } else {
+                let playPosition: Double = {
+                    if let n = toolArgs["position"] as? NSNumber { return n.doubleValue }
+                    if let s = toolArgs["position"] as? String,
+                       let d = Double(s.trimmingCharacters(in: .whitespaces)) { return d }
+                    return 0
+                }()
+                let playQueue: [String]? = {
+                    if let arr = toolArgs["queue"] as? [String] { return arr }
+                    if let s = toolArgs["queue"] as? String,
+                       let data = s.data(using: .utf8),
+                       let arr = try? JSONSerialization.jsonObject(with: data) as? [String] { return arr }
+                    return nil
+                }()
+                let playQueueSource: String? = {
+                    let s = (toolArgs["queueSource"] as? String ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    return s.isEmpty ? nil : s
+                }()
+                let playResult = await TogetherPlayer.shared.playTrackForAI(
+                    trackId: playTrackId, from: max(0, playPosition),
+                    queue: playQueue, queueSource: playQueueSource
+                )
+                toolOutput = playResult.message
+                toolSuccess = playResult.succeeded
+            }
+
         case "browse_stickers":
             let drawer: String = {
                 let d = (toolArgs["drawer"] as? String ?? "")
