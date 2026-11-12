@@ -6990,23 +6990,6 @@ private struct SettingsSheet: View {
                     }
                 }
 
-                // [A-落地] 行为归设置：聊天与通用两页。聊天 4 个控件
-                // （自动分组、回车键、自动聚焦、工具预览），通用 3 个
-                // （启动会话、语言、屏幕常亮）。行图标直接用 SF Symbol，
-                // 不新开 QuietIconSlot（那要动 AppearanceStudio.swift）。
-                Section("Behavior") {
-                    NavigationLink {
-                        ChatSettingsView()
-                    } label: {
-                        Label(AppLocalized("聊天"), systemImage: "bubble.left.and.bubble.right.fill")
-                    }
-                    NavigationLink {
-                        GeneralSettingsView()
-                    } label: {
-                        Label(AppLocalized("通用"), systemImage: "gearshape.2.fill")
-                    }
-                }
-
                 Section("Agent Runtime") {
                     NavigationLink {
                         SkillsManagementView()
