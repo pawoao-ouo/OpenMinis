@@ -178,6 +178,15 @@ final class TogetherPlayer: ObservableObject {
 
     func play() {
         guard let p = player else { return }
+        // 坏文件：item 已是终态 .failed，p.play() 是空操作，再认“在放”就是假装。
+        // 先走统一的失败处理（toast + 落盘 false），再把死播放器卸掉——
+        // 不卸，userPlay() 随后看 isActive（player 还在）为真，
+        // 会把刚落盘的 false 又写回 true，假“在放”照样进 state.json。
+        if p.currentItem?.status == .failed {
+            handleUnplayableItem()
+            teardown()
+            return
+        }
         if let d = p.currentItem?.duration.seconds, !d.isNaN, d > 0 {
             duration = d
         }
