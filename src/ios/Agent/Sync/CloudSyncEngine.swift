@@ -2431,9 +2431,22 @@ final class CloudSyncEngine: ObservableObject {
             // persists and marks the record dirty); no SubAgentStore change.
             let roster = SubAgentStore.shared.subAgents
             for (oldId, canonicalId) in groupIdRewrites {
+                // A rewrite can CHAIN: a later collision can drop the very id
+                // an earlier rewrite pointed at (z -> m, then m -> a when a
+                // beats m). Follow the map to its end before writing back,
+                // or the agent lands on an id that no longer exists. The map
+                // cannot cycle by construction — each collision rewrites the
+                // lexicographically larger id onto the smaller one — but guard
+                // anyway so a malformed map can never hang the loop.
+                var target = canonicalId
+                var seen: Set<String> = [canonicalId]
+                while let next = groupIdRewrites[target] {
+                    guard seen.insert(next).inserted else { break }
+                    target = next
+                }
                 for agent in roster where agent.modelGroupId == oldId {
                     var rewritten = agent
-                    rewritten.modelGroupId = canonicalId
+                    rewritten.modelGroupId = target
                     SubAgentStore.shared.upsertSubAgent(rewritten)
                 }
             }
