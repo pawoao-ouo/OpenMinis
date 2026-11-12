@@ -1139,6 +1139,7 @@ struct BackupRestoreView: View {
         case .environmentVariables: return AppLocalized("Environment Variables")
         case .appearance: return AppLocalized("Appearance")
         case .scheduledTasks: return AppLocalized("Scheduled Tasks")
+        case .ishUserData: return AppLocalized("iSH User Data")
         }
     }
 

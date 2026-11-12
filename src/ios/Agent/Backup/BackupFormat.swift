@@ -88,6 +88,19 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     /// reader that predates this case ignores the unknown category key, so this
     /// is a pure addition to the format.
     case scheduledTasks = "scheduled_tasks"
+    /// iSH user data: the guest's two home directories, `/root` and `/home`,
+    /// as file trees under `ish/root/` and `ish/home/`.
+    ///
+    /// This is the user data that lives ONLY inside the Alpine rootfs
+    /// (`Documents/alpine-rootfs/data/`): anything the user or the agent
+    /// created from a terminal that did not go through a bind mount.
+    /// Everything under `/var/minis/` is already covered by the category
+    /// that owns the host directory it is bind-mounted to (memory, skills,
+    /// shared, …), so this category deliberately walks ONLY root + home —
+    /// never the whole rootfs, never the OS trees (`/usr`, `/bin`, `/lib`,
+    /// `/etc`, …). A reader that predates this case ignores the unknown
+    /// category key, so this is a pure addition to the format.
+    case ishUserData = "ish_user_data"
 
     /// Default checkbox state on the backup screen (§3 table).
     var defaultsOn: Bool { true }
@@ -109,7 +122,7 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     /// the §3.4 size cap applies to.
     var carriesFileTree: Bool {
         switch self {
-        case .chats, .sharedFiles, .skills, .appearance, .stickers: return true
+        case .chats, .sharedFiles, .skills, .appearance, .stickers, .ishUserData: return true
         case .memory, .providers, .mcpServers, .voiceCorrections,
              .environmentVariables, .scheduledTasks: return false
         }

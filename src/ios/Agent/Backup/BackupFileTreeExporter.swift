@@ -121,11 +121,22 @@ struct BackupFileTreeExporter {
     ///   - logicalPrefix: package-relative prefix, e.g. `chats/<sid>`.
     ///   - category: recorded on every index line so a selective restore can
     ///     filter without re-deriving ownership from the path.
+    ///   - includeHiddenFiles: dotfiles are user data, not bookkeeping, for
+    ///     a Unix home directory (`.bashrc`, `.ssh`, `.config`, …) — on by
+    ///     default OFF, because every other tree's dotfiles are OS
+    ///     bookkeeping (`.DS_Store`, `.Trash`).
+    ///   - skipSymlinks: never follow a link, and never descend into a
+    ///     linked directory. A link inside an iSH home directory can point
+    ///     anywhere in the guest filesystem, including the OS trees, and
+    ///     the format has no symlink entry type — so a link is skipped
+    ///     rather than stored as its target's content.
     @discardableResult
     func export(root: URL,
                 logicalPrefix: String,
                 category: BackupCategory,
-                sessionId: String? = nil) throws -> Result {
+                sessionId: String? = nil,
+                includeHiddenFiles: Bool = false,
+                skipSymlinks: Bool = false) throws -> Result {
         var result = Result()
         let fm = FileManager.default
 
@@ -137,14 +148,15 @@ struct BackupFileTreeExporter {
         // `.skipsHiddenFiles` matches the app's own session-tree scan
         // (ChatStore.scanAndMarkSessionFilesForResurrect) — dotfiles in these
         // directories are OS bookkeeping (.DS_Store, .Trash), not user content.
+        // A Unix home directory is the exception: its dotfiles ARE the content.
         guard let enumerator = fm.enumerator(
             at: root,
-            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .fileSizeKey],
-            options: [.skipsHiddenFiles]
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .fileSizeKey, .isSymbolicLinkKey],
+            options: includeHiddenFiles ? [] : [.skipsHiddenFiles]
         ) else { return result }
 
         for case let url as URL in enumerator {
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey])
             // Relative path via path-prefix strip: the enumerator yields
             // absolute URLs, and `url.relativePath` is not meaningful here.
             let rel = url.path.hasPrefix(root.path + "/")
@@ -165,6 +177,18 @@ struct BackupFileTreeExporter {
             if isBackupArtifact(relativePath: rel) {
                 if values?.isDirectory == true { enumerator.skipDescendants() }
                 logger.info("[Backup] skipping backup artifact inside \(category.rawValue): \(rel)")
+                continue
+            }
+
+            // Symlinks are not followed for categories that ask (see
+            // `skipSymlinks`): a link inside an iSH home directory can
+            // point at the OS trees, and the format has no symlink entry
+            // type. Checked BEFORE the directory branch — `isDirectory`
+            // follows the link, so a linked directory would otherwise be
+            // walked as a real one.
+            if skipSymlinks, values?.isSymbolicLink == true {
+                if values?.isDirectory == true { enumerator.skipDescendants() }
+                logger.info("[Backup] skipping symlink inside \(category.rawValue): \(rel)")
                 continue
             }
 

@@ -82,6 +82,12 @@ extension BackupImporter {
         // files, so it gets the same copy-aside rollback.
         case .appearance: liveDirs = [AppearanceStudio.appearanceAssetsDirectory]
         case .mcpServers: liveDirs = [MCPStore.syncFileURL.deletingLastPathComponent()]
+        // iSH home directories: the rollback copy-aside covers them like
+        // the other file trees. Missing when the rootfs is not installed,
+        // in which case the import refuses below and there is nothing to
+        // roll back.
+        case .ishUserData: liveDirs = [RootfsManager.shared.dataPath.appendingPathComponent("root"),
+                                       RootfsManager.shared.dataPath.appendingPathComponent("home")]
         // [review B3] Providers had NO rollback at all. It is a single JSON
         // file rather than a directory, so it is snapshotted via a dedicated
         // file-level entry instead of the directory copy-aside used above.
@@ -200,6 +206,7 @@ extension BackupImporter {
             return try await importEnvironmentVariables(root: root)
         case .appearance: return try await importAppearance(root: root, fileIndex: fileIndex)
         case .scheduledTasks: return try await importScheduledTasks(root: root)
+        case .ishUserData: return try await importISHUserData(root: root, fileIndex: fileIndex)
         }
     }
 
@@ -239,6 +246,54 @@ extension BackupImporter {
             AgentJobRegistry.shared.adoptRestoredScheduledTasks(jobs)
         }
         report.imported += adopted
+        return report
+    }
+
+    // MARK: - iSH user data
+
+    /// Guest `/root` and `/home` back to the rootfs they came from.
+    ///
+    /// Refuses outright when the rootfs is not installed: restoring into
+    /// a bare `Documents/alpine-rootfs/` would create `data/root` without
+    /// the `.arch` tag, and the next `installIfNeeded` would treat the
+    /// tree as a broken install and DELETE it — including the files just
+    /// restored. Install the rootfs first (it installs at launch), then
+    /// restore again.
+    ///
+    /// Restored files are registered in fakefs `meta.db` afterwards, or
+    /// the running kernel cannot see them: the host copy alone is not
+    /// enough (`RootfsManager.registerSubtreeInMetaDB` exists for
+    /// exactly this).
+    private func importISHUserData(root: URL, fileIndex: [BackupFileIndexEntry]) async throws
+        -> CategoryReport {
+        var report = CategoryReport(category: BackupCategory.ishUserData.rawValue)
+        guard RootfsManager.shared.isInstalled else {
+            report.failed = "iSH is not installed on this device — install it first, then restore again to bring back /root and /home."
+            return report
+        }
+        let dataPath = RootfsManager.shared.dataPath
+        let files = try restoreFileTree(
+            root: root, fileIndex: fileIndex, category: .ishUserData,
+            destinationFor: { path in
+                // "ish/root/<rel…>" → Documents/alpine-rootfs/data/root/<rel…>
+                // "ish/home/<rel…>" → Documents/alpine-rootfs/data/home/<rel…>
+                // Anything else is not an ish path and is never written.
+                let parts = path.split(separator: "/", maxSplits: 2).map(String.init)
+                guard parts.count >= 2, parts[0] == "ish",
+                      parts[1] == "root" || parts[1] == "home" else { return nil }
+                let tail = parts.count == 3 ? parts[2] : ""
+                let base = dataPath.appendingPathComponent(parts[1], isDirectory: true)
+                return tail.isEmpty ? base : base.appendingPathComponent(tail)
+            })
+        report.filesWritten = files.written
+        report.bytesWritten = files.bytes
+        report.missingBlobs = files.missingBlobs
+        // The kernel reads through meta.db, not the host directory: without
+        // this the restored files exist on disk but are invisible in-guest.
+        for name in ["root", "home"] {
+            RootfsManager.shared.registerSubtreeInMetaDB(
+                hostRoot: dataPath.appendingPathComponent(name))
+        }
         return report
     }
 
@@ -1221,6 +1276,14 @@ extension BackupImporter {
             return await wipeEnvVarsForOverwrite(root: root)
         case .scheduledTasks:
             return await wipeScheduledTasksForOverwrite(root: root)
+        case .ishUserData:
+            // A missing file index is fail-closed: with no index every live
+            // file would read as "not in the package". (Same guard as the
+            // file-tree categories above.)
+            guard FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("files.index.jsonl").path) else { return 0 }
+            return deleteWipeTargets(ishWipeTargets(fileIndex: fileIndex),
+                                     within: RootfsManager.shared.dataPath)
         case .voiceCorrections:
             // Merge only (see the section header). Never wiped, never faked.
             return 0
@@ -1256,6 +1319,10 @@ extension BackupImporter {
             return await envWipeTargetIDs(root: root)?.count
         case .scheduledTasks:
             return await scheduledWipeTargetIDs(root: root)?.count
+        case .ishUserData:
+            guard FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("files.index.jsonl").path) else { return nil }
+            return ishWipeTargets(fileIndex: fileIndex).count
         case .voiceCorrections:
             return nil
         }
@@ -1338,6 +1405,48 @@ extension BackupImporter {
             }
             guard !indexed.contains(indexPath), isContained(url, within: liveRoot) else { continue }
             out.append(url)
+        }
+        return out
+    }
+
+    /// Live files under the guest's home directories that the package does
+    /// not carry. Walks ONLY data/root and data/home — never the whole
+    /// data/ tree, which holds the entire Alpine OS: enumerating that
+    /// would list every system file as "not in the package" and delete
+    /// the OS out from under the user.
+    ///
+    /// Symlinks are skipped (never descended into, never deleted): a link
+    /// inside /root can point at the OS trees, and deleting through it
+    /// would remove system files the index never mentioned.
+    private func ishWipeTargets(fileIndex: [BackupFileIndexEntry]) -> [URL] {
+        let fm = FileManager.default
+        let dataPath = RootfsManager.shared.dataPath
+        let indexed = Set(fileIndex
+            .filter { $0.category == BackupCategory.ishUserData.rawValue && $0.skipped == nil }
+            .map(\.path))
+        var out: [URL] = []
+        for home in ["root", "home"] {
+            let liveRoot = dataPath.appendingPathComponent(home)
+            guard let enumerator = fm.enumerator(
+                at: liveRoot,
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey])
+            else { continue }
+            for case let url as URL in enumerator {
+                guard let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey]) else { continue }
+                // Never follow a link out of the home directory — see above.
+                if vals.isSymbolicLink == true {
+                    if vals.isDirectory == true { enumerator.skipDescendants() }
+                    continue
+                }
+                guard vals.isRegularFile == true else { continue }
+                // A staged temp from an interrupted restore is not user data.
+                guard !url.lastPathComponent.hasPrefix(".restore-") else { continue }
+                let rel = String(url.path.dropFirst(liveRoot.path.count + 1))
+                let indexPath = "ish/\(home)/\(rel)"
+                guard !indexed.contains(indexPath),
+                      isContained(url, within: dataPath) else { continue }
+                out.append(url)
+            }
         }
         return out
     }
@@ -1662,6 +1771,7 @@ extension BackupImporter {
         case .skills: return AIChatViewModel.minisSkillsPersistentDir
         case .memory: return AIChatViewModel.minisMemoryPersistentDir
         case .appearance: return AppearanceStudio.appearanceAssetsDirectory
+        case .ishUserData: return RootfsManager.shared.dataPath
         case .providers, .mcpServers, .voiceCorrections, .environmentVariables,
              .scheduledTasks:
             // These write single known files, not index-driven trees; give them

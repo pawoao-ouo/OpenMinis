@@ -373,6 +373,9 @@ actor BackupExporter {
         try await run(.scheduledTasks, AppLocalized("Exporting scheduled tasks…")) {
             try await exportScheduledTasks(dataDir: dataDir)
         }
+        try await run(.ishUserData, AppLocalized("Exporting iSH user data…")) {
+            try exportISHUserData(trees: trees)
+        }
         // Fix 3 — Voice Corrections is back in `BackupCategory.backupable`,
         // so this runs in normal use now. A caller that passes the category
         // explicitly (the debug RPC does) still gets it the same way.
@@ -548,12 +551,20 @@ actor BackupExporter {
     /// cut-off can only shrink the real export, so over-counting here is
     /// the safe direction for a disk check.
     private func estimateExportBytes(categories: Set<BackupCategory>) -> Int64 {
-        func treeSize(_ root: URL) -> Int64 {
+        func treeSize(_ root: URL, skipSymlinks: Bool = false) -> Int64 {
             var total: Int64 = 0
-            guard let e = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]) else { return 0 }
+            guard let e = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey, .isDirectoryKey]) else { return 0 }
             for case let url as URL in e {
-                guard let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]),
-                      vals.isRegularFile == true, vals.isSymbolicLink != true else { continue }
+                guard let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey, .isDirectoryKey]) else { continue }
+                // For the iSH homes this matches the exporter (which does
+                // not follow links); for the other trees it only keeps the
+                // walk out of linked directories, where the count would
+                // otherwise explode.
+                if skipSymlinks, vals.isSymbolicLink == true {
+                    if vals.isDirectory == true { e.skipDescendants() }
+                    continue
+                }
+                guard vals.isRegularFile == true, vals.isSymbolicLink != true else { continue }
                 total += Int64(vals.fileSize ?? 0)
             }
             return total
@@ -589,6 +600,16 @@ actor BackupExporter {
         }
         if categories.contains(.stickers) {
             total += treeSize(AIChatViewModel.minisStickersPersistentDir)
+        }
+        if categories.contains(.ishUserData) {
+            // Host side of the guest's /root and /home. Size ONLY those
+            // two subtrees — the same roots the exporter walks. A walk
+            // of data/ itself would follow the bind-mount symlinks under
+            // data/var/minis/ into the App Group dirs (double-counting
+            // categories already sized above) and into the OS trees.
+            let dataPath = RootfsManager.shared.dataPath
+            total += treeSize(dataPath.appendingPathComponent("root"), skipSymlinks: true)
+            total += treeSize(dataPath.appendingPathComponent("home"), skipSymlinks: true)
         }
         // providers / mcpServers / environmentVariables / scheduledTasks /
         // voiceCorrections are small JSON, not file trees — covered by the
@@ -822,6 +843,41 @@ actor BackupExporter {
         let session: ChatSession
         let memoryEnabled: Bool
         let modelBinding: String?
+    }
+
+    // MARK: - iSH user data
+
+    /// The guest's home directories, `/root` and `/home` — the user data
+    /// that lives ONLY inside the Alpine rootfs and is not reachable
+    /// through any bind mount.
+    ///
+    /// Host side this is `Documents/alpine-rootfs/data/{root,home}`
+    /// (`RootfsManager.shared.dataPath`). Only those two subtrees are
+    /// walked: never the whole rootfs, never the OS trees, and never
+    /// `data/var/minis/` (those are bind-mount symlinks to host
+    /// directories their own categories already cover — walking them
+    /// would duplicate those categories).
+    ///
+    /// Dotfiles ARE included (a Unix home without them is empty), and
+    /// symlinks are NOT followed (a link in /root can point at the OS
+    /// trees, and the format has no symlink entry type).
+    private func exportISHUserData(trees: BackupFileTreeExporter) throws
+        -> BackupManifest.CategoryStat {
+        let dataPath = RootfsManager.shared.dataPath
+        var fileCount = 0
+        var fileBytes: Int64 = 0
+        for name in ["root", "home"] {
+            let r = try trees.export(root: dataPath.appendingPathComponent(name),
+                                     logicalPrefix: "ish/\(name)",
+                                     category: .ishUserData,
+                                     includeHiddenFiles: true,
+                                     skipSymlinks: true)
+            fileCount += r.filesIncluded
+            fileBytes += r.bytesIncluded
+        }
+        return BackupManifest.CategoryStat(
+            entries: fileCount, bytes: fileBytes, encrypted: false,
+            files: fileCount)
     }
 
     // MARK: - Shared files

@@ -63,6 +63,7 @@ struct BackupCategoryIcon: View {
         case .environmentVariables: return "terminal.fill"
         case .appearance: return "paintpalette.fill"
         case .scheduledTasks: return "clock.arrow.circlepath"
+        case .ishUserData: return "folder.fill"
         }
     }
 
@@ -79,6 +80,7 @@ struct BackupCategoryIcon: View {
         case .environmentVariables: return .brown
         case .appearance: return .mint
         case .scheduledTasks: return .gray
+        case .ishUserData: return .green
         }
     }
 }
