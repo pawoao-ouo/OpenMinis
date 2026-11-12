@@ -38,6 +38,7 @@ struct ChatSettingsView: View {
         }
         .navigationTitle(AppLocalized("聊天"))
         .navigationBarTitleDisplayMode(.inline)
+        .settingsPage()
     }
 
     private func rowTitle(_ title: String, _ detail: String) -> some View {

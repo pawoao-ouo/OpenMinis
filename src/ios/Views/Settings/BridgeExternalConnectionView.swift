@@ -276,6 +276,7 @@ struct BridgeExternalConnectionView: View {
         } message: {
             Text(AppLocalized("两步才算换完：① App 这边已换上新口令，已用新口令自动重连（去 CF 更新前显示「启动中」，更新完自动连上，不用手动开关中继）；② 去 Cloudflare 控制台 → bridge-relay → 设置 → 环境变量，把 RELAY_TOKEN 改成刚复制的新口令并保存。两步都做完，旧口令立刻作废。"))
         }
+        .settingsPage()
     }
 
     // MARK: 口令输入（默认 SecureField 遮住；眼睛按钮切明文，与 AddProviderView 同款）

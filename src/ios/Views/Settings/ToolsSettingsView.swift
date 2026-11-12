@@ -152,6 +152,7 @@ struct ToolsSettingsView: View {
         }
         .navigationTitle(AppLocalized("Agent Tools"))
         .navigationBarTitleDisplayMode(.inline)
+        .settingsPage()
     }
 
     func toolRow(_ title: String, tool: String, icon: String, iconSize: CGFloat = 14,

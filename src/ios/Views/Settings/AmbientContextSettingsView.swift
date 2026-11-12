@@ -61,6 +61,7 @@ struct AmbientContextSettingsView: View {
             refreshPreview()
         }
         .onChange(of: revision) { _, _ in refreshPreview() }
+        .settingsPage()
     }
 
     private func row(_ signal: AmbientSignal) -> some View {

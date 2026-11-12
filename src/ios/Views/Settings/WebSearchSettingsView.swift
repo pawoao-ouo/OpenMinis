@@ -43,6 +43,7 @@ struct WebSearchSettingsView: View {
         .navigationTitle(AppLocalized("联网搜索"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: reloadCounts)
+        .settingsPage()
     }
 
     // MARK: - 单家服务商

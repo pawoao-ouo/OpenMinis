@@ -93,6 +93,7 @@ struct HelperSettingsView: View {
         .sheet(item: $editorTarget) { target in
             SubAgentEditorView(existing: target.definition)
         }
+        .settingsPage()
     }
 
     @ViewBuilder

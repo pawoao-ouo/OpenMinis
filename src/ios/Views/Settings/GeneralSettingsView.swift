@@ -66,6 +66,7 @@ struct GeneralSettingsView: View {
         }
         .navigationTitle(AppLocalized("通用"))
         .navigationBarTitleDisplayMode(.inline)
+        .settingsPage()
     }
 
     private func rowTitle(_ title: String, _ detail: String) -> some View {

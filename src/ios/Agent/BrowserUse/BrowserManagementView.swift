@@ -54,6 +54,7 @@ struct BrowserManagementView: View {
         .task {
             await loadCookies()
         }
+        .settingsPage()
     }
 
     // MARK: - User Agent Section

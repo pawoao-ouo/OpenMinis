@@ -119,6 +119,7 @@ struct GlobalRegexRulesView: View {
         .sheet(isPresented: $showEditor) {
             editorSheet
         }
+        .settingsPage()
     }
 
     // MARK: 列表

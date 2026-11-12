@@ -164,10 +164,8 @@ guard let id = pendingDeleteId else { return }
                     Text(pendingJob?.deleteConfirmMessage ?? "删除后无法恢复。")
                 }
                 .scrollContentBackground(.hidden)
-                .background(CSSThemeVariables.bg(scope: .settings))
             }
         }
-        .background(CSSThemeVariables.bg(scope: .settings))
         .sheet(item: Binding<IdentifiableJobId?>(
             get: { selectedJobId.map { IdentifiableJobId(id: $0) } },
             set: { selectedJobId = $0?.id }
@@ -180,6 +178,7 @@ guard let id = pendingDeleteId else { return }
             // screen is re-created on every visit.
             notificationsDenied = await JobInsuranceNotification.notificationsDenied()
         }
+        .settingsPage()
     }
 
     private func summaryCard(title: String, count: Int, icon: String) -> some View {
