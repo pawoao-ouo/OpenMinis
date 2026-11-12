@@ -148467,6 +148467,40 @@
         }
       }
     },
+    "自动分组、回车键、回复后聚焦、工具预览": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动分组、回车键、回复后聚焦、工具预览"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-grouping, Enter key, refocus after reply, tool previews"
+          }
+        }
+      }
+    },
+    "启动会话、语言、屏幕常亮": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动会话、语言、屏幕常亮"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup session, language, keep screen awake"
+          }
+        }
+      }
+    },
     "摇一摇": {
       "extractionState": "manual",
       "localizations": {
