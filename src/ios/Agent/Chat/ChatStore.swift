@@ -4469,6 +4469,18 @@ actor ChatStore {
         return Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0))
     }
 
+    /// True when record `id` of `type` was ever deleted (local delete or an
+    /// inbound V3 delete). No time window, unlike isRecentlyDeletedRecord:
+    /// a deleted group stays deleted — a re-created group gets a fresh
+    /// UUID id (ModelGroup.init defaults id to UUID().uuidString), so no
+    /// re-create can ever reuse this id. Use this to stop a stale record
+    /// from resurrecting a pointer to a deleted group, long after the
+    /// delete; never use it to judge a record that merely has not arrived
+    /// yet (absent is not deleted).
+    func isRecordDeleted(type: String, id: String) -> Bool {
+        deletedRecordTombstone(type: type, id: id) != nil
+    }
+
     /// True when the inbound record is the just-deleted one coming back (its
     /// remote timestamp is not newer than the local deletion, +5s skew slack)
     /// rather than a genuine newer re-create. The merge should refuse it.

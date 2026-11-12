@@ -1802,7 +1802,7 @@ enum ChatStoreSyncHydrators {
             logger.warning("[SubAgents] mergeSubAgentV3 SKIP (no name) id=\(id.prefix(8))")
             return
         }
-        let remote = SubAgentDefinition(
+        var remote = SubAgentDefinition(
             id: id,
             name: name,
             description: stringField(record, "desc") ?? "",
@@ -1814,6 +1814,17 @@ enum ChatStoreSyncHydrators {
             sortOrder: intField(record, "sortOrder") ?? 0,
             updatedAt: dateField(record, "updatedAt") ?? Date()
         )
+        // A stale roster can resurrect a pointer to a group this device
+        // already deleted: LWW takes the whole winning definition, so an
+        // agent edited elsewhere after the delete (but before that device
+        // saw it) arrives with the old modelGroupId and a newer timestamp.
+        // Only tombstoned ids are cleared — a group merely absent locally
+        // (its record has not arrived yet) is still a valid assignment.
+        if let groupId = remote.modelGroupId,
+           await ChatStore.shared.isRecordDeleted(type: "ProviderModelGroupV3", id: groupId) {
+            logger.info("[SubAgents] mergeSubAgentV3 dropping modelGroupId \(groupId.prefix(8)) (group deleted): id=\(id.prefix(8))")
+            remote.modelGroupId = nil
+        }
         await MainActor.run {
             let store = SubAgentStore.shared
             let merged = SubAgentRoster.merge(
