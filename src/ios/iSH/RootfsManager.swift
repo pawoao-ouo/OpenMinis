@@ -639,18 +639,156 @@ class RootfsManager {
     /// - Returns: Size in bytes
     func getRootfsSize() throws -> Int64 {
         guard FileManager.default.fileExists(atPath: rootfsPath.path) else { return 0 }
+        return Self.directorySize(at: rootfsPath)
+    }
 
-        var totalSize: Int64 = 0
-        let enumerator = FileManager.default.enumerator(at: rootfsPath, includingPropertiesForKeys: [.fileSizeKey])
-
+    /// Size of a directory tree, in bytes. Never throws: unreadable
+    /// entries are skipped, so a size probe can never fail the screen
+    /// that shows it.
+    static func directorySize(at url: URL) -> Int64 {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return 0 }
+        var total: Int64 = 0
+        let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey])
         while let fileURL = enumerator?.nextObject() as? URL {
-            if let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
-               let fileSize = attributes[.size] as? Int64 {
-                totalSize += fileSize
+            if let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize {
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
+    // MARK: - Storage breakdown + safe cleanup (2026-11-13)
+
+    /// One row of the storage breakdown shown on the Rootfs page.
+    struct StorageRow {
+        /// Display name, e.g. "Your files (/root)".
+        let label: String
+        /// Guest path, e.g. "/root" — "" for rows that live outside the guest.
+        let linuxPath: String
+        let bytes: Int64
+    }
+
+    /// Where the rootfs bytes actually are, top folders first.
+    ///
+    /// Rows are the big subtrees under `data/` plus the reset-backup
+    /// folder (which lives OUTSIDE the rootfs, so it is not part of
+    /// `total` — it is shown as its own row because it is the same
+    /// disk). `otherBytes` is everything else in the installed tree
+    /// (the Alpine system files, `meta.db`, the arch tag).
+    func storageBreakdown() -> (rows: [StorageRow], otherBytes: Int64, total: Int64) {
+        let total = (try? getRootfsSize()) ?? 0
+        let data = dataPath
+        let defs: [(label: String, linuxPath: String, rel: String)] = [
+            ("Your files (/root)", "/root", "root"),
+            ("Your files (/home)", "/home", "home"),
+            ("Chats & workspace (/var/minis)", "/var/minis", "var/minis"),
+            ("Package cache (/var/cache/apk)", "/var/cache/apk", "var/cache/apk"),
+            ("Temporary files (/tmp)", "/tmp", "tmp"),
+            ("System programs (/usr)", "/usr", "usr"),
+            ("Logs (/var/log)", "/var/log", "var/log"),
+        ]
+        var rows: [StorageRow] = []
+        var accounted: Int64 = 0
+        for def in defs {
+            let bytes = Self.directorySize(at: data.appendingPathComponent(def.rel))
+            rows.append(StorageRow(label: def.label, linuxPath: def.linuxPath, bytes: bytes))
+            accounted += bytes
+        }
+        // Reset backups live in Documents/rootfs-backups, outside the
+        // installed tree — same disk, separate row, not in `total`.
+        let backupBytes = Self.directorySize(at: backupsDirectory)
+        rows.append(StorageRow(label: "Reset backups (rootfs-backups)",
+                               linuxPath: "", bytes: backupBytes))
+        return (rows, max(0, total - accounted), total)
+    }
+
+    /// What `cleanSafeJunk()` removed, so the UI can say how much came back.
+    struct CleanupResult {
+        /// Bytes freed, junk + pruned old reset backups together.
+        let freedBytes: Int64
+        /// Junk entries removed (files / directories under the allowlist).
+        let removedEntries: Int
+        /// Old reset-backup folders pruned (newest one kept).
+        let prunedBackups: Int
+    }
+
+    /// Delete ONLY regenerable junk — never user data, never the system.
+    ///
+    /// Allowlist (contents only — the directories themselves stay):
+    ///   * `data/var/cache/apk/*` — downloaded package files; `apk` re-fetches them.
+    ///   * `data/tmp/*` — scratch files.
+    ///   * `data/var/log/*` — log files.
+    /// Plus: prune `Documents/rootfs-backups/` to the newest 1 folder.
+    ///
+    /// NEVER deleted here: `/root`, `/home`, chats, skills, memory,
+    /// shared files, the installed system (`/usr`, `/bin`, …), or the
+    /// newest reset backup. A failure on one entry is logged and the
+    /// rest still runs, so a partial cleanup still reports what it freed.
+    ///
+    /// Safe while the kernel is booted: deleting these host-side files is
+    /// the same as running `rm` inside the guest — the host/app-group
+    /// design already relies on the guest seeing host-side changes, and
+    /// each removed path is also dropped from fakefs `meta.db` so no
+    /// stale entry points at it.
+    func cleanSafeJunk() -> CleanupResult {
+        let fm = FileManager.default
+        var freed: Int64 = 0
+        var removed = 0
+
+        let junkDirs = ["var/cache/apk", "tmp", "var/log"]
+        for rel in junkDirs {
+            let dir = dataPath.appendingPathComponent(rel)
+            let children = (try? fm.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+            for child in children {
+                // The target must be a direct child of an allowlisted dir —
+                // never anything else, even if the list above is edited.
+                guard child.deletingLastPathComponent().standardized.path == dir.standardized.path else { continue }
+                let bytes = Self.directorySize(at: child)
+                do {
+                    try fm.removeItem(at: child)
+                    freed += bytes
+                    removed += 1
+                    // Drop the fakefs entry (and descendants) so the running
+                    // kernel never resolves a deleted path. No-op when the
+                    // path was never registered; failures are ignored.
+                    let linuxPath = "/" + rel + "/" + child.lastPathComponent
+                    removeFakefsPath(linuxPath)
+                } catch {
+                    logger.warning("[Rootfs] cleanup skipped \(child.path): \(error.localizedDescription)")
+                }
             }
         }
 
-        return totalSize
+        // Prune reset backups to the newest 1. Only folders this feature
+        // itself created (`rootfs-backup-*` under backupsDirectory) are
+        // ever touched; the legacy tmp location is left alone.
+        var pruned = 0
+        let names = (try? fm.contentsOfDirectory(atPath: backupsDirectory.path)) ?? []
+        var candidates: [(url: URL, created: Date)] = []
+        for name in names where name.hasPrefix("rootfs-backup-") {
+            let url = backupsDirectory.appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            let created = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+            candidates.append((url, created))
+        }
+        candidates.sort { $0.created > $1.created }
+        for old in candidates.dropFirst() {
+            let bytes = Self.directorySize(at: old.url)
+            do {
+                try fm.removeItem(at: old.url)
+                freed += bytes
+                pruned += 1
+                logger.info("[Rootfs] cleanup pruned old reset backup \(old.url.lastPathComponent)")
+            } catch {
+                logger.warning("[Rootfs] cleanup could not prune \(old.url.path): \(error.localizedDescription)")
+            }
+        }
+
+        logger.info("[Rootfs] cleanup freed \(freed) bytes (\(removed) junk entries, \(pruned) old reset backups)")
+        return CleanupResult(freedBytes: freed, removedEntries: removed, prunedBackups: pruned)
     }
 
     private func unzipFile(at sourceURL: URL, to destinationURL: URL) throws {

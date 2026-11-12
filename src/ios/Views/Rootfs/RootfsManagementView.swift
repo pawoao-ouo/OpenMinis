@@ -54,6 +54,53 @@ struct RootfsManagementView: View {
             }
 
             if viewModel.isInstalled {
+                // [2026-11-13] Storage breakdown + safe cleanup: the app
+                // grows to 10+ GB mostly inside this tree, and until now
+                // the only way to shrink it was a full reset. This shows
+                // where the bytes are and offers a cleanup that deletes
+                // ONLY regenerable junk.
+                Section("Storage") {
+                    if viewModel.breakdownLoaded {
+                        ForEach(viewModel.breakdownRows, id: \.label) { row in
+                            HStack {
+                                Text(row.label)
+                                Spacer()
+                                Text(ByteCountFormatter.string(fromByteCount: row.bytes, countStyle: .file))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        HStack {
+                            Text("Other (system files)")
+                            Spacer()
+                            Text(ByteCountFormatter.string(fromByteCount: viewModel.breakdownOtherBytes, countStyle: .file))
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        HStack {
+                            Text("Measuring…")
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+
+                    Button(action: { viewModel.showCleanupConfirmation = true }) {
+                        Label {
+                            Text("Clean Up")
+                        } icon: {
+                            Image(systemName: "trash.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(AppearanceStudio.shared.color(.primaryText))
+                                .frame(width: 22, height: 22)
+                                .background(AppearanceStudio.shared.color(.surface), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(AppearanceStudio.shared.color(.border).opacity(0.4), lineWidth: 0.6))
+                        }
+                    }
+                    .disabled(viewModel.isProcessing || !viewModel.breakdownLoaded)
+                } footer: {
+                    Text("Clean Up deletes only package cache, temporary files, and logs — plus old reset backups (keeps the newest one). Your files in /root and /home, chats, skills, and memory are never touched.")
+                }
+
                 Section("Browse") {
                     Button(action: { showFileBrowser = true }) {
                         Label {
@@ -171,6 +218,7 @@ struct RootfsManagementView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             viewModel.refresh()
+            viewModel.refreshBreakdown()
         }
         .alert("Reset Rootfs?", isPresented: $viewModel.showResetConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -187,6 +235,14 @@ struct RootfsManagementView: View {
             }
         } message: {
             Text("This will backup your /root directory, then reset the rootfs. You can restore the backup later.")
+        }
+        .alert("Clean Up?", isPresented: $viewModel.showCleanupConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clean Up") {
+                viewModel.cleanUp()
+            }
+        } message: {
+            Text("Deletes only package cache, temporary files, and logs — plus old reset backups (keeps the newest one). Your files in /root and /home, chats, skills, and memory are never touched.")
         }
         .sheet(isPresented: $showFileBrowser) {
             NavigationStack {
@@ -207,6 +263,13 @@ class RootfsManagementViewModel: ObservableObject {
     @Published var hasBackup = false
     @Published var showResetConfirmation = false
     @Published var showResetWithBackupConfirmation = false
+    /// [2026-11-13] Storage breakdown (safe-cleanup feature): one row per
+    /// big folder, plus the unaccounted rest of the installed tree.
+    @Published var breakdownRows: [RootfsManager.StorageRow] = []
+    @Published var breakdownOtherBytes: Int64 = 0
+    @Published var breakdownLoaded = false
+    @Published var showCleanupConfirmation = false
+    @Published var isCleaning = false
 
     private var backupURL: URL?
 
@@ -243,6 +306,49 @@ class RootfsManagementViewModel: ObservableObject {
                 } catch {
                     print("Failed to get rootfs size: \(error)")
                 }
+            }
+        }
+    }
+
+    func refreshBreakdown() {
+        guard isInstalled else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let breakdown = RootfsManager.shared.storageBreakdown()
+            DispatchQueue.main.async {
+                self.breakdownRows = breakdown.rows
+                self.breakdownOtherBytes = breakdown.otherBytes
+                self.rootfsSize = breakdown.total
+                self.breakdownLoaded = true
+            }
+        }
+    }
+
+    /// Delete only regenerable junk (apk cache, /tmp, logs) and prune old
+    /// reset backups to the newest 1. Never touches /root, /home, chats,
+    /// skills, memory, or the installed system — see
+    /// `RootfsManager.cleanSafeJunk` for the allowlist.
+    func cleanUp() {
+        isCleaning = true
+        isProcessing = true
+        statusMessage = "Cleaning up…"
+        resultMessage = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = RootfsManager.shared.cleanSafeJunk()
+
+            DispatchQueue.main.async {
+                self.isCleaning = false
+                self.isProcessing = false
+                self.lastOperationSuccess = true
+                if result.freedBytes > 0 {
+                    self.resultMessage = "✅ Cleaned up \(ByteCountFormatter.string(fromByteCount: result.freedBytes, countStyle: .file)) — \(result.removedEntries) junk item(s) removed"
+                        + (result.prunedBackups > 0 ? ", \(result.prunedBackups) old reset backup(s) removed" : "")
+                        + ". Your files were not touched."
+                } else {
+                    self.resultMessage = "✅ Nothing to clean — no package cache, temporary files, logs, or old reset backups were found."
+                }
+                self.refresh()
+                self.refreshBreakdown()
             }
         }
     }
