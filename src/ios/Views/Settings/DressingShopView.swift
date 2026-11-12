@@ -928,6 +928,56 @@ struct DressingSheetHeader: View {
 }
 
 
+// MARK: - 抽屉内状态条（各抽屉共用）
+
+/// 抽屉内反馈状态：抽屉盖在父页面 toast 上面，父 toast 在抽屉开着时
+/// 看不见，所以每个抽屉自己持一份；show 既画在抽屉里、也透传给父 toast，
+/// 抽屉外的调用方不受影响。壁纸抽屉先用的同款写法，抽成共用。
+@MainActor
+final class DressingSheetStatus: ObservableObject {
+    @Published private(set) var text: String? = nil
+    private var clearTask: Task<Void, Never>? = nil
+    /// 透传给父 toast 的回调，由抽屉在 onAppear 时接上。
+    var forward: ((String) -> Void)? = nil
+
+    func show(_ text: String) {
+        clearTask?.cancel()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            self.text = text
+        }
+        forward?(text)
+        clearTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if !Task.isCancelled {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    self.text = nil
+                }
+            }
+        }
+    }
+}
+
+/// 抽屉内状态条胶囊：挂在抽屉自己的 ScrollView 顶部做 overlay，不占布局。
+struct DressingSheetStatusBar: View {
+    let status: String?
+
+    var body: some View {
+        if let status {
+            Text(status)
+                .font(ChatFont.font(12, weight: .medium))
+                .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
+                .padding(.horizontal, DressingTokens.Padding.page)
+                .padding(.vertical, DressingTokens.Padding.cardVertical)
+                .background(CSSThemeVariables.textMain(scope: .settings))
+                .clipShape(Capsule())
+                .shadow(color: DressingTokens.Shadow.floatingColor, radius: DressingTokens.Shadow.floatingRadius, y: DressingTokens.Shadow.floatingY)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+}
+
+
 // MARK: - 1. 经典预设快速拾取 (DressingPresetsSheet)
 
 @MainActor
@@ -1133,6 +1183,9 @@ struct DressingColorStudioSheet: View {
     @State private var selectedVariant: AppearanceVariant = .light
     @State private var selectedGroup: AppearanceColorRoleGroup = .text
 
+    // 抽屉内状态条：和壁纸抽屉同款，提示画在抽屉里、同时透传给父 toast。
+    @StateObject private var sheetStatus = DressingSheetStatus()
+
     /// 清除按钮只在真有东西可清时才给点：默认页没有“本页覆盖”可清，
     /// 覆盖数为 0 时点它也是空操作。覆盖数跟着 customColors 走，
     /// studio 是 @ObservedObject，清完会自动变灰。
@@ -1170,9 +1223,9 @@ struct DressingColorStudioSheet: View {
                             Button {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 if studio.clearOverridesWithUndo(scope: selectedScope, variant: selectedVariant) {
-                                    onNotify(AppLocalized("已清除当前页面的自定义覆盖"))
+                                    sheetStatus.show(AppLocalized("已清除当前页面的自定义覆盖"))
                                 } else {
-                                    onNotify(AppLocalized("清除失败，请重试"))
+                                    sheetStatus.show(AppLocalized("清除失败，请重试"))
                                 }
                             } label: {
                                 HStack(spacing: 4) {
@@ -1196,8 +1249,13 @@ struct DressingColorStudioSheet: View {
                     }
                     .padding(DressingTokens.Padding.sheet)
                 }
+                // 抽屉内状态条贴在 ScrollView 顶部做 overlay，不占布局。
+                .overlay(alignment: .top) {
+                    DressingSheetStatusBar(status: sheetStatus.text)
+                }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            .onAppear { sheetStatus.forward = onNotify }
         }
     }
 
@@ -1398,10 +1456,9 @@ struct DressingWallpaperArtSheet: View {
     @State private var pickedThinkingItem: PhotosPickerItem? = nil
     @State private var pickedInputBarItem: PhotosPickerItem? = nil
 
-    // 抽屉内状态条：抽屉盖在父页面 toast 上面，父 toast 在抽屉
-    // 开着时看不见，所以反馈必须同时画在抽屉里。
-    @State private var sheetStatus: String? = nil
-    @State private var sheetStatusTask: Task<Void, Never>? = nil
+    // 抽屉内状态条：其余抽屉共用的 DressingSheetStatus，提示画在
+    // 抽屉里、同时透传给父 toast；抽屉外的调用方不受影响。
+    @StateObject private var sheetStatus = DressingSheetStatus()
 
     // 透明度滑杆拖动在途标记：滑杆 set 时置 true，正常松手
     // onOpacityEndEditing 时清掉并落盘。拖动中途抽屉被划掉、
@@ -1409,24 +1466,6 @@ struct DressingWallpaperArtSheet: View {
     // 要不要补落盘一次。正常松手后 flag 已清，不会多一次
     // persistPack、不会多 bump 一次 themePackRevision。
     @State private var opacityDragInFlight = false
-
-    /// 抽屉内提示：画在抽屉自己的状态条上，同时透传给父 toast，
-    /// 抽屉外的调用方不受影响。
-    private func showSheetStatus(_ text: String) {
-        sheetStatusTask?.cancel()
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            sheetStatus = text
-        }
-        onNotify(text)
-        sheetStatusTask = Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            if !Task.isCancelled {
-                withAnimation(.easeOut(duration: 0.25)) {
-                    sheetStatus = nil
-                }
-            }
-        }
-    }
 
     var body: some View {
         NavigationStack {
@@ -1449,24 +1488,13 @@ struct DressingWallpaperArtSheet: View {
                     }
                     .padding(DressingTokens.Padding.sheet)
                 }
-                // 状态条贴在 ScrollView 顶部做 overlay，不占布局：
-                // 在流内出现/消失时下方内容会上下跳约 44pt。
+                // 状态条贴在 ScrollView 顶部做 overlay，不占布局。
                 .overlay(alignment: .top) {
-                    if let status = sheetStatus {
-                        Text(status)
-                            .font(ChatFont.font(12, weight: .medium))
-                            .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
-                            .padding(.horizontal, DressingTokens.Padding.page)
-                            .padding(.vertical, DressingTokens.Padding.cardVertical)
-                            .background(CSSThemeVariables.textMain(scope: .settings))
-                            .clipShape(Capsule())
-                            .shadow(color: DressingTokens.Shadow.floatingColor, radius: DressingTokens.Shadow.floatingRadius, y: DressingTokens.Shadow.floatingY)
-                            .padding(.top, 8)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
+                    DressingSheetStatusBar(status: sheetStatus.text)
                 }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            .onAppear { sheetStatus.forward = onNotify }
             .onChange(of: pickedWallpaperItem) { item in
                 guard let item else { return }
                 pickedWallpaperItem = nil
@@ -1475,20 +1503,20 @@ struct DressingWallpaperArtSheet: View {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
                         appearanceLog.warning("wallpaper picker: loadTransferable failed (returned nil or threw)")
                         await MainActor.run {
-                            showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
+                            sheetStatus.show(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
                         }
                         return
                     }
                     await MainActor.run {
                         if studio.setWallpaperEncoded(data, for: scope) {
                             if studio.hasOwnWallpaper(scope) {
-                                showSheetStatus(AppLocalized("壁纸已更新"))
+                                sheetStatus.show(AppLocalized("壁纸已更新"))
                             } else {
                                 appearanceLog.warning("wallpaper picker: write reported success but hasOwnWallpaper is false for \(scope.rawValue)")
-                                showSheetStatus(AppLocalized("壁纸设置失败，请换一张图试试"))
+                                sheetStatus.show(AppLocalized("壁纸设置失败，请换一张图试试"))
                             }
                         } else {
-                            showSheetStatus(AppLocalized("壁纸格式不支持或已损坏"))
+                            sheetStatus.show(AppLocalized("壁纸格式不支持或已损坏"))
                         }
                     }
                 }
@@ -1500,23 +1528,23 @@ struct DressingWallpaperArtSheet: View {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
                         appearanceLog.warning("character art picker: loadTransferable failed (returned nil or threw)")
                         await MainActor.run {
-                            showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
+                            sheetStatus.show(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
                         }
                         return
                     }
                     guard let uiImage = UIImage(data: data) else {
                         appearanceLog.warning("character art picker: bytes do not decode as an image")
                         await MainActor.run {
-                            showSheetStatus(AppLocalized("图片格式不支持或已损坏"))
+                            sheetStatus.show(AppLocalized("图片格式不支持或已损坏"))
                         }
                         return
                     }
                     await MainActor.run {
                         if studio.setCharacterArtImage(uiImage) {
-                            showSheetStatus(AppLocalized("助手立绘已设置"))
+                            sheetStatus.show(AppLocalized("助手立绘已设置"))
                         } else {
                             appearanceLog.warning("character art picker: setCharacterArtImage returned false")
-                            showSheetStatus(AppLocalized("立绘设置失败，请换一张图试试"))
+                            sheetStatus.show(AppLocalized("立绘设置失败，请换一张图试试"))
                         }
                     }
                 }
@@ -1528,23 +1556,23 @@ struct DressingWallpaperArtSheet: View {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
                         appearanceLog.warning("thinking card picker: loadTransferable failed (returned nil or threw)")
                         await MainActor.run {
-                            showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
+                            sheetStatus.show(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
                         }
                         return
                     }
                     guard let uiImage = UIImage(data: data) else {
                         appearanceLog.warning("thinking card picker: bytes do not decode as an image")
                         await MainActor.run {
-                            showSheetStatus(AppLocalized("图片格式不支持或已损坏"))
+                            sheetStatus.show(AppLocalized("图片格式不支持或已损坏"))
                         }
                         return
                     }
                     await MainActor.run {
                         if studio.setThinkingCardImage(uiImage) {
-                            showSheetStatus(AppLocalized("思考卡背景已更新"))
+                            sheetStatus.show(AppLocalized("思考卡背景已更新"))
                         } else {
                             appearanceLog.warning("thinking card picker: setThinkingCardImage returned false")
-                            showSheetStatus(AppLocalized("思考卡背景设置失败，请换一张图试试"))
+                            sheetStatus.show(AppLocalized("思考卡背景设置失败，请换一张图试试"))
                         }
                     }
                 }
@@ -1556,23 +1584,23 @@ struct DressingWallpaperArtSheet: View {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
                         appearanceLog.warning("input bar picker: loadTransferable failed (returned nil or threw)")
                         await MainActor.run {
-                            showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
+                            sheetStatus.show(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
                         }
                         return
                     }
                     guard let uiImage = UIImage(data: data) else {
                         appearanceLog.warning("input bar picker: bytes do not decode as an image")
                         await MainActor.run {
-                            showSheetStatus(AppLocalized("图片格式不支持或已损坏"))
+                            sheetStatus.show(AppLocalized("图片格式不支持或已损坏"))
                         }
                         return
                     }
                     await MainActor.run {
                         if studio.setInputBarImage(uiImage) {
-                            showSheetStatus(AppLocalized("输入栏背景已更新"))
+                            sheetStatus.show(AppLocalized("输入栏背景已更新"))
                         } else {
                             appearanceLog.warning("input bar picker: setInputBarImage returned false")
-                            showSheetStatus(AppLocalized("输入栏背景设置失败，请换一张图试试"))
+                            sheetStatus.show(AppLocalized("输入栏背景设置失败，请换一张图试试"))
                         }
                     }
                 }
@@ -1662,7 +1690,7 @@ struct DressingWallpaperArtSheet: View {
                             Button {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 studio.removeWallpaper(selectedScope)
-                                showSheetStatus(AppLocalized("已清除该页面壁纸并恢复默认"))
+                                sheetStatus.show(AppLocalized("已清除该页面壁纸并恢复默认"))
                             } label: {
                                 Text(AppLocalized("清除壁纸"))
                                     .font(ChatFont.font(11, weight: .medium))
@@ -1731,7 +1759,7 @@ struct DressingWallpaperArtSheet: View {
                             Button {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 studio.removeCharacterArt()
-                                showSheetStatus(AppLocalized("已清除立绘"))
+                                sheetStatus.show(AppLocalized("已清除立绘"))
                             } label: {
                                 Text(AppLocalized("移除"))
                                     .font(ChatFont.font(11))
@@ -1769,7 +1797,7 @@ struct DressingWallpaperArtSheet: View {
                 pickerItem: $pickedThinkingItem,
                 onRemove: {
                     studio.removeThinkingCardImage()
-                    showSheetStatus(AppLocalized("已移除思考卡装饰图"))
+                    sheetStatus.show(AppLocalized("已移除思考卡装饰图"))
                 },
                 opacity: Binding(
                     get: { studio.currentThemePack().thinkingCardImageOpacity },
@@ -1785,7 +1813,7 @@ struct DressingWallpaperArtSheet: View {
                 pickerItem: $pickedInputBarItem,
                 onRemove: {
                     studio.removeInputBarImage()
-                    showSheetStatus(AppLocalized("已移除输入栏装饰图"))
+                    sheetStatus.show(AppLocalized("已移除输入栏装饰图"))
                 },
                 opacity: Binding(
                     get: { studio.currentThemePack().inputBarImageOpacity },
@@ -1871,6 +1899,9 @@ struct DressingBubblesPendantsSheet: View {
     @State private var pendingDecorationIndex: Int? = nil
     @State private var decorationPickerPresented = false
 
+    // 抽屉内状态条：和壁纸抽屉同款，提示画在抽屉里、同时透传给父 toast。
+    @StateObject private var sheetStatus = DressingSheetStatus()
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -1898,8 +1929,13 @@ struct DressingBubblesPendantsSheet: View {
                     }
                 }
                 .padding(DressingTokens.Padding.sheet)
+                // 抽屉内状态条贴在 ScrollView 顶部做 overlay，不占布局。
+                .overlay(alignment: .top) {
+                    DressingSheetStatusBar(status: sheetStatus.text)
+                }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            .onAppear { sheetStatus.forward = onNotify }
             // 单个选图器由下面气泡底图行的 Button 统一打开：Button 的
             // action 在 VoiceOver / 切换控制激活下也会触发（图标格那次
             // 的教训：TapGesture 只认真实触摸），所以点哪侧先记哪侧，
@@ -1911,7 +1947,7 @@ struct DressingBubblesPendantsSheet: View {
                 Task {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
                         await MainActor.run {
-                            onNotify(AppLocalized("气泡底图设置失败，请换一张图试试"))
+                            sheetStatus.show(AppLocalized("气泡底图设置失败，请换一张图试试"))
                         }
                         return
                     }
@@ -1922,9 +1958,9 @@ struct DressingBubblesPendantsSheet: View {
                     await MainActor.run {
                         if let name = name {
                             setEditingBackgroundImageFile(name, user: side.isUser)
-                            onNotify(AppLocalized("已设置气泡底图"))
+                            sheetStatus.show(AppLocalized("已设置气泡底图"))
                         } else {
-                            onNotify(AppLocalized("气泡底图设置失败，请换一张图试试"))
+                            sheetStatus.show(AppLocalized("气泡底图设置失败，请换一张图试试"))
                         }
                     }
                 }
@@ -1940,7 +1976,7 @@ struct DressingBubblesPendantsSheet: View {
                 Task {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
                         await MainActor.run {
-                            onNotify(AppLocalized("装饰设置失败，请换一张图试试"))
+                            sheetStatus.show(AppLocalized("装饰设置失败，请换一张图试试"))
                         }
                         return
                     }
@@ -1952,13 +1988,13 @@ struct DressingBubblesPendantsSheet: View {
                         if let name = name {
                             if let index {
                                 replaceEditingDecorationImage(at: index, fileName: name, user: side.isUser)
-                                onNotify(AppLocalized("已更换装饰图片"))
+                                sheetStatus.show(AppLocalized("已更换装饰图片"))
                             } else {
                                 addEditingDecoration(imageFile: name, user: side.isUser)
-                                onNotify(AppLocalized("已添加装饰"))
+                                sheetStatus.show(AppLocalized("已添加装饰"))
                             }
                         } else {
-                            onNotify(AppLocalized("装饰设置失败，请换一张图试试"))
+                            sheetStatus.show(AppLocalized("装饰设置失败，请换一张图试试"))
                         }
                     }
                 }
@@ -2252,7 +2288,7 @@ struct DressingBubblesPendantsSheet: View {
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             setEditingTextHex(nil)
-                            onNotify(AppLocalized("已恢复默认文字色"))
+                            sheetStatus.show(AppLocalized("已恢复默认文字色"))
                         } label: {
                             Image(systemName: "arrow.uturn.backward")
                                 .font(.system(size: 11))
@@ -2299,7 +2335,7 @@ struct DressingBubblesPendantsSheet: View {
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             removeEditingBackgroundImage()
-                            onNotify(AppLocalized("已移除气泡底图"))
+                            sheetStatus.show(AppLocalized("已移除气泡底图"))
                         } label: {
                             Image(systemName: "arrow.uturn.backward")
                                 .font(.system(size: 11))
@@ -2388,7 +2424,7 @@ struct DressingBubblesPendantsSheet: View {
                                 Button {
                                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                     removeEditingDecoration(at: index, user: editingSide.isUser)
-                                    onNotify(AppLocalized("已移除装饰"))
+                                    sheetStatus.show(AppLocalized("已移除装饰"))
                                 } label: {
                                     Image(systemName: "trash")
                                         .font(.system(size: 11))
@@ -2702,7 +2738,7 @@ struct DressingBubblesPendantsSheet: View {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     bubbleStore.apply(pack, for: editingSide)
-                    onNotify(AppLocalized("已给 \(editingSide.displayName) 换上 \(pack.title)"))
+                    sheetStatus.show(AppLocalized("已给 \(editingSide.displayName) 换上 \(pack.title)"))
                 } label: {
                     Text(AppLocalized("换上"))
                         .font(ChatFont.font(10, weight: .semibold))
@@ -2716,7 +2752,7 @@ struct DressingBubblesPendantsSheet: View {
                 Button {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     bubbleStore.apply(pack)
-                    onNotify(AppLocalized("已全部应用 \(pack.title)"))
+                    sheetStatus.show(AppLocalized("已全部应用 \(pack.title)"))
                 } label: {
                     Text(AppLocalized("双方都用"))
                         .font(ChatFont.font(10))
@@ -2837,10 +2873,10 @@ struct DressingBubblesPendantsSheet: View {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     if isUserWearing {
                         pendantStore.clear(for: .user)
-                        onNotify(AppLocalized("已卸下我的挂件"))
+                        sheetStatus.show(AppLocalized("已卸下我的挂件"))
                     } else {
                         pendantStore.apply(pendant, for: .user)
-                        onNotify(AppLocalized("已佩戴在我的头像上"))
+                        sheetStatus.show(AppLocalized("已佩戴在我的头像上"))
                     }
                 } label: {
                     Text(isUserWearing ? AppLocalized("你已佩戴") : AppLocalized("戴在我头上"))
@@ -2856,10 +2892,10 @@ struct DressingBubblesPendantsSheet: View {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     if isAIWearing {
                         pendantStore.clear(for: .assistant)
-                        onNotify(AppLocalized("已卸下AI的挂件"))
+                        sheetStatus.show(AppLocalized("已卸下AI的挂件"))
                     } else {
                         pendantStore.apply(pendant, for: .assistant)
-                        onNotify(AppLocalized("已佩戴在AI头像上"))
+                        sheetStatus.show(AppLocalized("已佩戴在AI头像上"))
                     }
                 } label: {
                     Text(isAIWearing ? AppLocalized("AI已佩戴") : AppLocalized("戴在AI上"))
@@ -2894,6 +2930,9 @@ struct DressingTypographySheet: View {
     @ObservedObject private var fontSettings = FontSettings.shared
     @State private var showFontPicker = false
 
+    // 抽屉内状态条：和壁纸抽屉同款，提示画在抽屉里、同时透传给父 toast。
+    @StateObject private var sheetStatus = DressingSheetStatus()
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -2918,17 +2957,22 @@ struct DressingTypographySheet: View {
                     }
                     .padding(DressingTokens.Padding.sheet)
                 }
+                // 抽屉内状态条贴在 ScrollView 顶部做 overlay，不占布局。
+                .overlay(alignment: .top) {
+                    DressingSheetStatusBar(status: sheetStatus.text)
+                }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            .onAppear { sheetStatus.forward = onNotify }
             .sheet(isPresented: $showFontPicker) {
                 FontFilePicker(
                     onPick: { url in
                         showFontPicker = false
                         switch fontStore.importFont(from: url) {
                         case .success(let font):
-                            onNotify(AppLocalized("成功导入字体：") + font.title)
+                            sheetStatus.show(AppLocalized("成功导入字体：") + font.title)
                         case .failure(let error):
-                            onNotify(error.userMessage)
+                            sheetStatus.show(error.userMessage)
                         }
                     },
                     onCancel: { showFontPicker = false }
@@ -2950,7 +2994,7 @@ struct DressingTypographySheet: View {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         studio.setFontFamily(family)
                         studio.setGlobalCustomFont(nil)
-                        onNotify(AppLocalized("已切换字体：") + family.title)
+                        sheetStatus.show(AppLocalized("已切换字体：") + family.title)
                     } label: {
                         Text(family.title)
                             .font(ChatFont.font(12, weight: isSelected ? .bold : .medium, design: family.design))
@@ -3023,7 +3067,7 @@ struct DressingTypographySheet: View {
                             Button {
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                 studio.setGlobalCustomFont(isApplied ? nil : font.postScriptName)
-                                onNotify(isApplied ? AppLocalized("已停用自定义字体") : AppLocalized("已应用自定义字体"))
+                                sheetStatus.show(isApplied ? AppLocalized("已停用自定义字体") : AppLocalized("已应用自定义字体"))
                             } label: {
                                 Text(isApplied ? AppLocalized("使用中") : AppLocalized("应用"))
                                     .font(ChatFont.font(10, weight: .semibold))
@@ -3037,7 +3081,7 @@ struct DressingTypographySheet: View {
                             Button {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 fontStore.delete(font)
-                                onNotify(AppLocalized("已删除字体"))
+                                sheetStatus.show(AppLocalized("已删除字体"))
                             } label: {
                                 Image(systemName: "trash")
                                     .font(.system(size: 11))
@@ -3207,6 +3251,9 @@ struct DressingThemeLibrarySheet: View {
     @State private var pendingLibraryTheme: AppearanceSavedTheme? = nil
     @State private var pendingLibraryDeletions: [String] = []
 
+    // 抽屉内状态条：和壁纸抽屉同款，提示画在抽屉里、同时透传给父 toast。
+    @StateObject private var sheetStatus = DressingSheetStatus()
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -3273,8 +3320,13 @@ struct DressingThemeLibrarySheet: View {
                     }
                     .padding(DressingTokens.Padding.sheet)
                 }
+                // 抽屉内状态条贴在 ScrollView 顶部做 overlay，不占布局。
+                .overlay(alignment: .top) {
+                    DressingSheetStatusBar(status: sheetStatus.text)
+                }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            .onAppear { sheetStatus.forward = onNotify }
             .confirmationDialog(
                 AppLocalized("确认删除此主题存档？"),
                 isPresented: Binding(
@@ -3287,7 +3339,7 @@ struct DressingThemeLibrarySheet: View {
                     Button(AppLocalized("确认删除"), role: .destructive) {
                         _ = studio.deleteSavedThemeDetailed(id: t.id)
                         deleteConfirmTheme = nil
-                        onNotify(AppLocalized("已删除主题：") + t.name)
+                        sheetStatus.show(AppLocalized("已删除主题：") + t.name)
                     }
                 }
                 Button(AppLocalized("取消"), role: .cancel) {
@@ -3350,20 +3402,20 @@ struct DressingThemeLibrarySheet: View {
             }
             if result.packWarnings.contains("pack") {
                 // 包没落盘就提前返回了，什么都没换上，算彻底失败。
-                onNotify(AppLocalized("主题应用失败"))
+                sheetStatus.show(AppLocalized("主题应用失败"))
             } else if result.failedPieces.isEmpty, failureWarnings.isEmpty {
-                onNotify(AppLocalized("已成功换上：") + theme.name)
+                sheetStatus.show(AppLocalized("已成功换上：") + theme.name)
             } else if !result.failedPieces.isEmpty {
                 var message = AppLocalized("已换上，但没换上：") + result.failedPieces.map({ failedPieceLabel($0) }).joined(separator: "、")
                 if !failureWarnings.isEmpty {
                     message += "、" + AppLocalized("还有部分内容没换过来")
                 }
-                onNotify(message)
+                sheetStatus.show(message)
             } else {
-                onNotify(AppLocalized("已换上，但部分内容没换过来"))
+                sheetStatus.show(AppLocalized("已换上，但部分内容没换过来"))
             }
         } else {
-            onNotify(AppLocalized("主题应用失败"))
+            sheetStatus.show(AppLocalized("主题应用失败"))
         }
     }
 
@@ -3385,7 +3437,7 @@ struct DressingThemeLibrarySheet: View {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 // [P2-3] 档案库“换上”也是 replace：先算会删的图，非空先让她定。
                 guard let pack = studio.libraryPack(id: theme.id) else {
-                    onNotify(AppLocalized("主题应用失败"))
+                    sheetStatus.show(AppLocalized("主题应用失败"))
                     return
                 }
                 let deletions = replaceDeletions(studio: studio, for: pack)
@@ -3437,6 +3489,9 @@ struct DressingDetailsIconsSheet: View {
     @State private var pendingIconSlotId: String? = nil
     @State private var iconPickerPresented = false
 
+    // 抽屉内状态条：和壁纸抽屉同款，提示画在抽屉里、同时透传给父 toast。
+    @StateObject private var sheetStatus = DressingSheetStatus()
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -3461,8 +3516,13 @@ struct DressingDetailsIconsSheet: View {
                     }
                     .padding(DressingTokens.Padding.sheet)
                 }
+                // 抽屉内状态条贴在 ScrollView 顶部做 overlay，不占布局。
+                .overlay(alignment: .top) {
+                    DressingSheetStatusBar(status: sheetStatus.text)
+                }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            .onAppear { sheetStatus.forward = onNotify }
             // 单个选图器由下面各格的 Button 统一打开：Button 的 action 在
             // VoiceOver / 切换控制激活下也会触发（TapGesture 只认真实触摸，
             // 以前那路 VoiceOver 选图会丢格、甚至贴错格），所以点哪格先记哪格，
@@ -3475,15 +3535,15 @@ struct DressingDetailsIconsSheet: View {
                     guard let data = try? await item.loadTransferable(type: Data.self),
                           let uiImage = UIImage(data: data) else {
                         await MainActor.run {
-                            onNotify(AppLocalized("图标设置失败，请换一张图试试"))
+                            sheetStatus.show(AppLocalized("图标设置失败，请换一张图试试"))
                         }
                         return
                     }
                     await MainActor.run {
                         if studio.setIcon(uiImage, for: slotId) {
-                            onNotify(AppLocalized("已设置图标"))
+                            sheetStatus.show(AppLocalized("已设置图标"))
                         } else {
-                            onNotify(AppLocalized("图标设置失败，请换一张图试试"))
+                            sheetStatus.show(AppLocalized("图标设置失败，请换一张图试试"))
                         }
                     }
                 }
@@ -3613,7 +3673,7 @@ struct DressingDetailsIconsSheet: View {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     _ = studio.removeIcon(for: slot.id)
-                    onNotify(AppLocalized("已恢复默认图标"))
+                    sheetStatus.show(AppLocalized("已恢复默认图标"))
                 } label: {
                     Text(AppLocalized("重置"))
                         .font(ChatFont.font(10, weight: .medium))
@@ -3718,7 +3778,7 @@ struct DressingDetailsIconsSheet: View {
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         studio.setCategorySymbol("", for: key)
-                        onNotify(AppLocalized("已恢复默认符号"))
+                        sheetStatus.show(AppLocalized("已恢复默认符号"))
                     } label: {
                         Text(AppLocalized("重置"))
                             .font(ChatFont.font(10, weight: .medium))
@@ -3774,6 +3834,9 @@ struct DressingSaveThemeSheet: View {
     @State private var themeName: String = ""
     @Environment(\.dismiss) private var dismiss
 
+    // 抽屉内状态条：和壁纸抽屉同款，提示画在抽屉里、同时透传给父 toast。
+    @StateObject private var sheetStatus = DressingSheetStatus()
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
@@ -3804,7 +3867,7 @@ struct DressingSaveThemeSheet: View {
                         dismiss()
                     } else {
                         // 存档库满 40 套时 saveCurrentTheme 返回 nil：如实报，不关弹窗。
-                        onNotify(AppLocalized("存档库已满（40 套），删一套再存"))
+                        sheetStatus.show(AppLocalized("存档库已满（40 套），删一套再存"))
                     }
                 } label: {
                     Text(AppLocalized("立即保存"))
@@ -3820,7 +3883,12 @@ struct DressingSaveThemeSheet: View {
 
                 Spacer()
             }
+            // 抽屉内状态条贴在内容顶部做 overlay，不占布局。
+            .overlay(alignment: .top) {
+                DressingSheetStatusBar(status: sheetStatus.text)
+            }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            .onAppear { sheetStatus.forward = onNotify }
         }
     }
 }
@@ -3842,6 +3910,9 @@ struct DressingImportExportSheet: View {
     @State private var pendingReplacePack: AppearanceThemePack? = nil
     @State private var pendingReplaceDeletions: [String] = []
     @Environment(\.dismiss) private var dismiss
+
+    // 抽屉内状态条：和壁纸抽屉同款，提示画在抽屉里、同时透传给父 toast。
+    @StateObject private var sheetStatus = DressingSheetStatus()
 
     var body: some View {
         NavigationStack {
@@ -3888,10 +3959,10 @@ struct DressingImportExportSheet: View {
                                 if let data = try? JSONSerialization.data(withJSONObject: pack.asJSONObject(), options: [.prettyPrinted, .sortedKeys]),
                                    let str = String(data: data, encoding: .utf8) {
                                     UIPasteboard.general.string = str
-                                    onNotify(AppLocalized("已复制主题包 JSON 到剪贴板"))
+                                    sheetStatus.show(AppLocalized("已复制主题包 JSON 到剪贴板"))
                                     dismiss()
                                 } else {
-                                    onNotify(AppLocalized("导出主题失败"))
+                                    sheetStatus.show(AppLocalized("导出主题失败"))
                                 }
                             } label: {
                                 HStack(spacing: 6) {
@@ -3933,7 +4004,7 @@ struct DressingImportExportSheet: View {
                                 Button {
                                     if let clip = UIPasteboard.general.string {
                                         importText = clip
-                                        onNotify(AppLocalized("已粘贴剪贴板内容"))
+                                        sheetStatus.show(AppLocalized("已粘贴剪贴板内容"))
                                     }
                                 } label: {
                                     Text(AppLocalized("粘贴"))
@@ -4009,8 +4080,13 @@ struct DressingImportExportSheet: View {
                     }
                     .padding(DressingTokens.Padding.sheet)
                 }
+                // 抽屉内状态条贴在 ScrollView 顶部做 overlay，不占布局。
+                .overlay(alignment: .top) {
+                    DressingSheetStatusBar(status: sheetStatus.text)
+                }
             }
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+            .onAppear { sheetStatus.forward = onNotify }
             .sheet(isPresented: $showSTPicker, onDismiss: {
                 // 选完图的回调先于 onDone 跑：解析成功时 pendingST 已经
                 // 在了，选图器关掉后才弹确认页；取消或解析失败时
@@ -4072,11 +4148,11 @@ struct DressingImportExportSheet: View {
         if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
            let size = attrs[.size] as? NSNumber,
            size.intValue > 10 * 1024 * 1024 {
-            onNotify(AppLocalized("文件太大"))
+            sheetStatus.show(AppLocalized("文件太大"))
             return
         }
         guard let data = try? Data(contentsOf: url) else {
-            onNotify(AppLocalized("读取文件失败"))
+            sheetStatus.show(AppLocalized("读取文件失败"))
             return
         }
         do {
@@ -4089,7 +4165,7 @@ struct DressingImportExportSheet: View {
             }
             pendingST = imported
         } catch {
-            onNotify(AppLocalized("主题解析失败：") + error.localizedDescription)
+            sheetStatus.show(AppLocalized("主题解析失败：") + error.localizedDescription)
         }
     }
 
@@ -4102,14 +4178,14 @@ struct DressingImportExportSheet: View {
         studio.applySillyTavern(imported)
         showSTConfirm = false
         pendingST = nil
-        onNotify(AppLocalized("已成功换上：") + imported.name)
+        sheetStatus.show(AppLocalized("已成功换上：") + imported.name)
         dismiss()
     }
 
     private func applyImportedPack() {
         guard let data = importText.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            onNotify(AppLocalized("输入的 JSON 格式无效"))
+            sheetStatus.show(AppLocalized("输入的 JSON 格式无效"))
             return
         }
 
@@ -4125,14 +4201,14 @@ struct DressingImportExportSheet: View {
                 pendingReplaceDeletions = deletions
             }
         } catch {
-            onNotify(AppLocalized("主题解析失败：") + error.localizedDescription)
+            sheetStatus.show(AppLocalized("主题解析失败：") + error.localizedDescription)
         }
     }
 
     /// 真正换上（replace）：直接换、或确认页点“换上并删除”后走这里。
     private func applyReplacePack(_ pack: AppearanceThemePack) {
         studio.applyThemePack(pack, mode: .replace)
-        onNotify(AppLocalized("已成功导入并换上主题：") + pack.name)
+        sheetStatus.show(AppLocalized("已成功导入并换上主题：") + pack.name)
         dismiss()
     }
 
