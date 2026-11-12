@@ -1257,8 +1257,6 @@ final class AppearanceStudio: ObservableObject {
         surfaceOpacity = 0.88
         bubbleOpacity = 1.0
         wallpaperShade = 0.08
-        // [glass-switch] 同卡里的玻璃开关也回出厂（开），不然“复位”只复一半。
-        glassEnabled = true
     }
 
     /// Clear ONLY the global colour overrides, back to the built-in
@@ -1792,6 +1790,12 @@ final class AppearanceStudio: ObservableObject {
     }
 
     func removeUserAvatar() {
+        // 只清引用不够：文件还躺在 Application Support/avatars/user.png。
+        // userAvatar 是相对路径引用，fileURL 会校验格式（avatars/<名>.png，
+        // 无 ..、无嵌套），删不到别处；删失败就静默跳过，引用照样清掉。
+        if let url = SoulIconImage.fileURL(forReference: userAvatar) {
+            try? FileManager.default.removeItem(at: url)
+        }
         userAvatar = ""
         UserDefaults.standard.removeObject(forKey: Keys.userAvatar)
     }
