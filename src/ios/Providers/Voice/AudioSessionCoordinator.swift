@@ -72,6 +72,8 @@ final class AudioSessionCoordinator {
 
     /// [R35] 语音播报开始/结束。一起听的黑胶靠这两个通知让路：
     /// 语音一响，音乐暂停；语音说完，音乐接着放。
+    /// [P2-A] Started 只在 replyTTS 成员 0→1 时发，Ended 只在 1→0 时发 —
+    /// 两边必须对称，否则一起听的计数（duckDepth）只升不降，音乐永远不恢复。
     static let replyTTSStartedNotification = Notification.Name("AudioSession.replyTTSStarted")
     static let replyTTSEndedNotification = Notification.Name("AudioSession.replyTTSEnded")
 
@@ -128,6 +130,9 @@ final class AudioSessionCoordinator {
         // apps. Preempting after the insert keeps the session continuously
         // active: the preempted engines see the new intent already in place.
         let was = highest
+        // [P2-A] Membership BEFORE the insert — `was` holds the top intent,
+        // not membership, and cannot answer "was replyTTS already held".
+        let hadReplyTTS = active.contains(.replyTTS)
         active.insert(intent)
         // Media attachment preempts reply TTS (mutually exclusive voice
         // content): stop the cloud queue directly and notify the chat VM to
@@ -135,8 +140,19 @@ final class AudioSessionCoordinator {
         if intent == .mediaAttachment, active.contains(.replyTTS) {
             VoiceOutputPlayer.shared.stopAll()
             NotificationCenter.default.post(name: Self.replyTTSPreemptedNotification, object: nil)
+            // [P2-A] The preempted read-aloud is OVER: drop its intent here so
+            // its Ended posts and Started/Ended stay symmetric. The VM sinks
+            // above run synchronously inside the post (Combine publisher, no
+            // scheduler, posted from this actor), so every synthesizer is
+            // already stopped by this point. end() is membership-guarded, so
+            // this can never double-post Ended.
+            // Note: end() applies the mediaAttachment profile, and the
+            // trailing apply() below then enqueues the same profile once
+            // more — harmless (identical category/mode/options on the serial
+            // queue; never an empty-then-active whir).
+            end(.replyTTS)
         }
-        if intent == .replyTTS {
+        if intent == .replyTTS, !hadReplyTTS {
             NotificationCenter.default.post(name: Self.replyTTSStartedNotification, object: nil)
         }
         if highest != was || !sessionActive {
