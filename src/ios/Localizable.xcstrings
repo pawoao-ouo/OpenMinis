@@ -148280,6 +148280,108 @@
         }
       }
     },
+    "未能读取这张照片，请换一张或检查 iCloud 下载": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未能读取这张照片，请换一张或检查 iCloud 下载"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read this photo. Try a different one or check the iCloud download."
+          }
+        }
+      }
+    },
+    "图片格式不支持或已损坏": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片格式不支持或已损坏"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This image format isn't supported or the file is damaged."
+          }
+        }
+      }
+    },
+    "壁纸设置失败，请换一张图试试": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁纸设置失败，请换一张图试试"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wallpaper couldn't be saved. Try a different image."
+          }
+        }
+      }
+    },
+    "立绘设置失败，请换一张图试试": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立绘设置失败，请换一张图试试"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Character art couldn't be saved. Try a different image."
+          }
+        }
+      }
+    },
+    "思考卡背景设置失败，请换一张图试试": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考卡背景设置失败，请换一张图试试"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking card background couldn't be saved. Try a different image."
+          }
+        }
+      }
+    },
+    "输入栏背景设置失败，请换一张图试试": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入栏背景设置失败，请换一张图试试"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Input bar background couldn't be saved. Try a different image."
+          }
+        }
+      }
+    },
     "已设置图标": {
       "extractionState": "manual",
       "localizations": {

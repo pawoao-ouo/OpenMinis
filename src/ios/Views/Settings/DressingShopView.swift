@@ -1387,6 +1387,29 @@ struct DressingWallpaperArtSheet: View {
     @State private var pickedThinkingItem: PhotosPickerItem? = nil
     @State private var pickedInputBarItem: PhotosPickerItem? = nil
 
+    // 抽屉内状态条：抽屉盖在父页面 toast 上面，父 toast 在抽屉
+    // 开着时看不见，所以反馈必须同时画在抽屉里。
+    @State private var sheetStatus: String? = nil
+    @State private var sheetStatusTask: Task<Void, Never>? = nil
+
+    /// 抽屉内提示：画在抽屉自己的状态条上，同时透传给父 toast，
+    /// 抽屉外的调用方不受影响。
+    private func showSheetStatus(_ text: String) {
+        sheetStatusTask?.cancel()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            sheetStatus = text
+        }
+        onNotify(text)
+        sheetStatusTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if !Task.isCancelled {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    sheetStatus = nil
+                }
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -1394,6 +1417,19 @@ struct DressingWallpaperArtSheet: View {
                     title: AppLocalized("壁纸与特色装饰"),
                     subtitle: AppLocalized("页面专属壁纸 · 助手立绘 · 思考与输入栏贴图")
                 )
+
+                if let status = sheetStatus {
+                    Text(status)
+                        .font(ChatFont.font(12, weight: .medium))
+                        .foregroundStyle(CSSThemeVariables.surface(scope: .settings))
+                        .padding(.horizontal, DressingTokens.Padding.page)
+                        .padding(.vertical, DressingTokens.Padding.cardVertical)
+                        .background(CSSThemeVariables.textMain(scope: .settings))
+                        .clipShape(Capsule())
+                        .shadow(color: DressingTokens.Shadow.floatingColor, radius: DressingTokens.Shadow.floatingRadius, y: DressingTokens.Shadow.floatingY)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 16) {
@@ -1412,50 +1448,111 @@ struct DressingWallpaperArtSheet: View {
             .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
             .onChange(of: pickedWallpaperItem) { item in
                 guard let item else { return }
+                pickedWallpaperItem = nil
+                let scope = selectedScope
                 Task {
-                    if let data = try? await item.loadTransferable(type: Data.self) {
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
+                        appearanceLog.warning("wallpaper picker: loadTransferable returned no data")
                         await MainActor.run {
-                            if studio.setWallpaperEncoded(data, for: selectedScope) {
-                                onNotify(AppLocalized("壁纸已更新"))
+                            showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        if studio.setWallpaperEncoded(data, for: scope) {
+                            if studio.hasOwnWallpaper(scope) {
+                                showSheetStatus(AppLocalized("壁纸已更新"))
                             } else {
-                                onNotify(AppLocalized("壁纸格式不支持或已损坏"))
+                                appearanceLog.warning("wallpaper picker: write reported success but hasOwnWallpaper is false for \(scope.rawValue)")
+                                showSheetStatus(AppLocalized("壁纸设置失败，请换一张图试试"))
                             }
+                        } else {
+                            showSheetStatus(AppLocalized("壁纸格式不支持或已损坏"))
                         }
                     }
                 }
             }
             .onChange(of: pickedArtItem) { item in
                 guard let item else { return }
+                pickedArtItem = nil
                 Task {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let uiImage = UIImage(data: data) {
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
+                        appearanceLog.warning("character art picker: loadTransferable returned no data")
                         await MainActor.run {
-                            studio.setCharacterArtImage(uiImage)
-                            onNotify(AppLocalized("助手立绘已设置"))
+                            showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
+                        }
+                        return
+                    }
+                    guard let uiImage = UIImage(data: data) else {
+                        appearanceLog.warning("character art picker: bytes do not decode as an image")
+                        await MainActor.run {
+                            showSheetStatus(AppLocalized("图片格式不支持或已损坏"))
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        studio.setCharacterArtImage(uiImage)
+                        if studio.hasCharacterArt {
+                            showSheetStatus(AppLocalized("助手立绘已设置"))
+                        } else {
+                            appearanceLog.warning("character art picker: write did not produce a file")
+                            showSheetStatus(AppLocalized("立绘设置失败，请换一张图试试"))
                         }
                     }
                 }
             }
             .onChange(of: pickedThinkingItem) { item in
                 guard let item else { return }
+                pickedThinkingItem = nil
                 Task {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let uiImage = UIImage(data: data) {
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
+                        appearanceLog.warning("thinking card picker: loadTransferable returned no data")
                         await MainActor.run {
-                            _ = studio.setThinkingCardImage(uiImage)
-                            onNotify(AppLocalized("思考卡背景已更新"))
+                            showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
+                        }
+                        return
+                    }
+                    guard let uiImage = UIImage(data: data) else {
+                        appearanceLog.warning("thinking card picker: bytes do not decode as an image")
+                        await MainActor.run {
+                            showSheetStatus(AppLocalized("图片格式不支持或已损坏"))
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        if studio.setThinkingCardImage(uiImage) {
+                            showSheetStatus(AppLocalized("思考卡背景已更新"))
+                        } else {
+                            appearanceLog.warning("thinking card picker: setThinkingCardImage returned false")
+                            showSheetStatus(AppLocalized("思考卡背景设置失败，请换一张图试试"))
                         }
                     }
                 }
             }
             .onChange(of: pickedInputBarItem) { item in
                 guard let item else { return }
+                pickedInputBarItem = nil
                 Task {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let uiImage = UIImage(data: data) {
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
+                        appearanceLog.warning("input bar picker: loadTransferable returned no data")
                         await MainActor.run {
-                            _ = studio.setInputBarImage(uiImage)
-                            onNotify(AppLocalized("输入栏背景已更新"))
+                            showSheetStatus(AppLocalized("未能读取这张照片，请换一张或检查 iCloud 下载"))
+                        }
+                        return
+                    }
+                    guard let uiImage = UIImage(data: data) else {
+                        appearanceLog.warning("input bar picker: bytes do not decode as an image")
+                        await MainActor.run {
+                            showSheetStatus(AppLocalized("图片格式不支持或已损坏"))
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        if studio.setInputBarImage(uiImage) {
+                            showSheetStatus(AppLocalized("输入栏背景已更新"))
+                        } else {
+                            appearanceLog.warning("input bar picker: setInputBarImage returned false")
+                            showSheetStatus(AppLocalized("输入栏背景设置失败，请换一张图试试"))
                         }
                     }
                 }
@@ -1534,7 +1631,7 @@ struct DressingWallpaperArtSheet: View {
                             Button {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 studio.removeWallpaper(selectedScope)
-                                onNotify(AppLocalized("已清除该页面壁纸并恢复默认"))
+                                showSheetStatus(AppLocalized("已清除该页面壁纸并恢复默认"))
                             } label: {
                                 Text(AppLocalized("清除壁纸"))
                                     .font(ChatFont.font(11, weight: .medium))
@@ -1603,7 +1700,7 @@ struct DressingWallpaperArtSheet: View {
                             Button {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 studio.removeCharacterArt()
-                                onNotify(AppLocalized("已清除立绘"))
+                                showSheetStatus(AppLocalized("已清除立绘"))
                             } label: {
                                 Text(AppLocalized("移除"))
                                     .font(ChatFont.font(11))
@@ -1641,7 +1738,7 @@ struct DressingWallpaperArtSheet: View {
                 pickerItem: $pickedThinkingItem,
                 onRemove: {
                     studio.removeThinkingCardImage()
-                    onNotify(AppLocalized("已移除思考卡装饰图"))
+                    showSheetStatus(AppLocalized("已移除思考卡装饰图"))
                 },
                 opacity: Binding(
                     get: { studio.currentThemePack().thinkingCardImageOpacity },
@@ -1656,7 +1753,7 @@ struct DressingWallpaperArtSheet: View {
                 pickerItem: $pickedInputBarItem,
                 onRemove: {
                     studio.removeInputBarImage()
-                    onNotify(AppLocalized("已移除输入栏装饰图"))
+                    showSheetStatus(AppLocalized("已移除输入栏装饰图"))
                 },
                 opacity: Binding(
                     get: { studio.currentThemePack().inputBarImageOpacity },
