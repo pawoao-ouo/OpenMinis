@@ -499,9 +499,28 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // will never fire finishSystemSpeechIfIdle. Release any residual
         // reply-TTS intent; end() is membership-guarded, so this is a no-op
         // when speech already ended cleanly. (deinit is nonisolated, so the
-        // end runs as a MainActor task capturing only the coordinator
-        // singleton — never self.)
-        Task { @MainActor in AudioSessionCoordinator.shared.end(.replyTTS) }
+        // end runs as a MainActor task capturing only singletons — never self.)
+        //
+        // [P3-6] That Task hops one MainActor tick, and a new VM can begin
+        // (.replyTTS) inside that tick — an unconditional end() would then
+        // remove the NEW read-aloud's intent (duckDepth 1→0, music resumes
+        // mid-read). So the end is guarded at execution time, not at deinit
+        // time: release only when no live owner of the intent remains. The
+        // owners are the read-aloud slot (VoiceOutputState.activeController —
+        // weak, so it is already nil once this VM is gone and non-nil once a
+        // new VM has taken over; speakText registers BEFORE it begins, so the
+        // check cannot run between a takeover's register and its begin) and
+        // the cloud player (isPlaying/isSynthesizing — the player begins the
+        // intent itself at unit start and releases it on drain/stop).
+        // A synchronous end is not the fix: end() is MainActor-isolated
+        // (AudioSessionCoordinator is @MainActor) and assumeIsolated in
+        // deinit would trap on an off-main-thread release.
+        Task { @MainActor in
+            guard VoiceOutputState.shared.activeController == nil,
+                  !VoiceOutputPlayer.shared.isPlaying,
+                  !VoiceOutputPlayer.shared.isSynthesizing else { return }
+            AudioSessionCoordinator.shared.end(.replyTTS)
+        }
     }
 
     /// [T-tool-bg-suspended-hint] On foreground return, mark still-running
