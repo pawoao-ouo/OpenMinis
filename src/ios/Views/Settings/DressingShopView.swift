@@ -373,6 +373,11 @@ extension DressingShopView {
             RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous)
                 .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
         )
+        // [P1-2/P2-4 P3] 兜底落盘：三颗旋钮拖动中途卡片消失（离开装扮中心、
+        // 或切进搜索）时，Slider 的 onEditingChanged(false) 可能没触发，
+        // 内存值和磁盘就分叉了。消失时补一次 commit（幂等，只写回当前
+        // 值）；正常松手已经落过盘，这里只是把同一份值再写一遍。
+        .onDisappear { studio.commitOpacityDials() }
     }
 
     private func dialRow(title: String, icon: String, value: Binding<Double>, onEditingChanged: @escaping (Bool) -> Void = { _ in }) -> some View {
@@ -1398,6 +1403,13 @@ struct DressingWallpaperArtSheet: View {
     @State private var sheetStatus: String? = nil
     @State private var sheetStatusTask: Task<Void, Never>? = nil
 
+    // 透明度滑杆拖动在途标记：滑杆 set 时置 true，正常松手
+    // onOpacityEndEditing 时清掉并落盘。拖动中途抽屉被划掉、
+    // onEditingChanged(false) 没触发时，onDisappear 靠它判断
+    // 要不要补落盘一次。正常松手后 flag 已清，不会多一次
+    // persistPack、不会多 bump 一次 themePackRevision。
+    @State private var opacityDragInFlight = false
+
     /// 抽屉内提示：画在抽屉自己的状态条上，同时透传给父 toast，
     /// 抽屉外的调用方不受影响。
     private func showSheetStatus(_ text: String) {
@@ -1563,6 +1575,17 @@ struct DressingWallpaperArtSheet: View {
                             showSheetStatus(AppLocalized("输入栏背景设置失败，请换一张图试试"))
                         }
                     }
+                }
+            }
+            .onDisappear {
+                // [P1-2/P2-4 P3] 兜底落盘：滑杆拖动中途抽屉被划掉时，
+                // Slider 的 onEditingChanged(false) 没触发，内存里的
+                // 透明度就永远落不了盘，下次启动读盘直接回到旧值。
+                // 只在有拖动在途时补一次（幂等，和松手那下同一条路）。
+                if opacityDragInFlight {
+                    opacityDragInFlight = false
+                    studio.setThinkingCardImageOpacity(studio.currentThemePack().thinkingCardImageOpacity)
+                    studio.setInputBarImageOpacity(studio.currentThemePack().inputBarImageOpacity)
                 }
             }
         }
@@ -1750,9 +1773,9 @@ struct DressingWallpaperArtSheet: View {
                 },
                 opacity: Binding(
                     get: { studio.currentThemePack().thinkingCardImageOpacity },
-                    set: { studio.setThinkingCardImageOpacity($0, live: true) }
+                    set: { opacityDragInFlight = true; studio.setThinkingCardImageOpacity($0, live: true) }
                 ),
-                onOpacityEndEditing: { studio.setThinkingCardImageOpacity(studio.currentThemePack().thinkingCardImageOpacity) }
+                onOpacityEndEditing: { opacityDragInFlight = false; studio.setThinkingCardImageOpacity(studio.currentThemePack().thinkingCardImageOpacity) }
             )
 
             // 输入栏装饰
@@ -1766,9 +1789,9 @@ struct DressingWallpaperArtSheet: View {
                 },
                 opacity: Binding(
                     get: { studio.currentThemePack().inputBarImageOpacity },
-                    set: { studio.setInputBarImageOpacity($0, live: true) }
+                    set: { opacityDragInFlight = true; studio.setInputBarImageOpacity($0, live: true) }
                 ),
-                onOpacityEndEditing: { studio.setInputBarImageOpacity(studio.currentThemePack().inputBarImageOpacity) }
+                onOpacityEndEditing: { opacityDragInFlight = false; studio.setInputBarImageOpacity(studio.currentThemePack().inputBarImageOpacity) }
             )
         }
     }

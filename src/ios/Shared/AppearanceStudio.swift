@@ -448,6 +448,11 @@ final class AppearanceStudio: ObservableObject {
     /// 只能在主线程读；而卡片底那几个 static computed property 不在
     /// `@MainActor` 里。直接读 UserDefaults 拿到的是同一个值——它本来就是
     /// 这个属性的落盘源，写的时候 didSet 立刻写。
+    /// 拖动中的例外：live 拖动（`setSurfaceOpacityLive`）故意跳过
+    /// didSet 写盘，拖动全程快照读到的是旧值；松手时
+    /// `commitOpacityDials()` 写盘后发 `objectWillChange`，快照读者
+    /// （HelperBlockView 的 barBg/cardBg）随重算收回新值。抽屉盖着
+    /// 聊天页拖动时，拖动中的旧值本身看不见，只有松手那下要保证。
     nonisolated static var surfaceOpacitySnapshot: Double {
         (UserDefaults.standard.object(forKey: Keys.surfaceOpacity) as? Double) ?? 0.88
     }
@@ -1298,11 +1303,17 @@ final class AppearanceStudio: ObservableObject {
     /// Persist the three opacity dials' current in-memory values to
     /// UserDefaults, once (slider release). Writing all three is
     /// harmless: only one dial moves at a time, the other two write
-    /// back the value they already hold.
+    /// back the value they already hold. Also notifies observers:
+    /// `surfaceOpacitySnapshot` reads UserDefaults directly, and the
+    /// live-drag path deliberately skipped the didSet write, so
+    /// without this send the snapshot readers (HelperBlockView's
+    /// barBg/cardBg) would keep the pre-drag value until some
+    /// unrelated notification re-rendered them.
     func commitOpacityDials() {
         UserDefaults.standard.set(surfaceOpacity, forKey: Keys.surfaceOpacity)
         UserDefaults.standard.set(bubbleOpacity, forKey: Keys.bubbleOpacity)
         UserDefaults.standard.set(wallpaperShade, forKey: Keys.wallpaperShade)
+        objectWillChange.send()
     }
 
     /// Clear ONLY the global colour overrides, back to the built-in
