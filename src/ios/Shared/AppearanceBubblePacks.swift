@@ -416,8 +416,11 @@ enum BubblePackImageStore {
     /// entry points hop off MainActor first, because the draw +
     /// encode of a 12MP photo on the main thread used to block
     /// ~100–300ms per pick — never call this from the main thread.
+    /// [P2-1] JPEG has no alpha, so transparent regions are padded
+    /// with `matte` (theme canvas by default) instead of going black.
     private static func writeDownscaledJPEG(_ image: UIImage, to url: URL,
-                                            maxEdge: CGFloat, quality: CGFloat) -> Bool {
+                                            maxEdge: CGFloat, quality: CGFloat,
+                                            matte: UIColor = WallpaperPipeline.canvasMatte()) -> Bool {
         let size = image.size
         let scale = min(1, maxEdge / max(size.width, size.height, 1))
         let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
@@ -425,6 +428,8 @@ enum BubblePackImageStore {
         format.opaque = true
         format.scale = 1
         let rendered = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            matte.setFill()
+            UIBezierPath(rect: CGRect(origin: .zero, size: target)).fill()
             image.draw(in: CGRect(origin: .zero, size: target))
         }
         guard let data = rendered.jpegData(compressionQuality: quality) else { return false }

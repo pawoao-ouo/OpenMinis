@@ -589,7 +589,7 @@ extension DressingShopView {
             ))
         }
 
-        for scope in [AppearanceScope.global, .chat, .home, .settings, .browser, .terminal] {
+        for scope in [AppearanceScope.global, .chat, .home, .settings, .browser, .terminal, .bottomBar] {
             entries.append(DressingSearchEntry(
                 id: "wallpaper-\(scope.rawValue)",
                 title: scope.title,
@@ -1695,8 +1695,14 @@ struct DressingWallpaperArtSheet: View {
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
 
             // Scope 切换
+            // [P2-3] `.bottomBar` has a live render surface
+            // (`homeBottomBarBackground` reads `wallpaper(for: .bottomBar)`),
+            // so it needs a pill here — a theme pack can install a
+            // bottom-bar wallpaper nothing in this drawer could change
+            // or clear. `.persona` / `.files` have no backdrop or
+            // `wallpaper(for:)` read point yet, so they stay out.
             HStack(spacing: 6) {
-                ForEach([AppearanceScope.global, .chat, .home, .settings, .browser, .terminal], id: \.self) { sc in
+                ForEach([AppearanceScope.global, .chat, .home, .settings, .browser, .terminal, .bottomBar], id: \.self) { sc in
                     let isSelected = selectedScope == sc
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()

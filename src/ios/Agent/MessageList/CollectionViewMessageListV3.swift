@@ -3232,9 +3232,13 @@ extension CollectionViewMessageListV3 {
                     // a normal turn. Exceptions keep today's behavior: an
                     // error carrier still shows its inline error, and a
                     // cancelled opening wait still shows its resume banner.
-                    // The TypingIndicator itself is untouched and still
-                    // renders for between-round waits (message has blocks
-                    // + isAwaitingModelResponse).
+                    // The TypingIndicator still renders for between-round
+                    // waits (message has blocks + isAwaitingModelResponse)
+                    // and for the first-round wait (blocks empty +
+                    // processing): the footer is emitted for it below, so
+                    // the list shows "thinking" feedback from the moment
+                    // the message is sent. Only the header (avatar +
+                    // blank bubble) stays suppressed for the placeholder.
                     let isLastAssistant = (message.id == messages.last(where: { $0.role == .assistant })?.id)
                     let isEmptyPlaceholder = message.blocks.isEmpty
                         && message.error == nil
@@ -3270,7 +3274,12 @@ extension CollectionViewMessageListV3 {
                         || message.error != nil
                         || message.streamInterruptCount > 0
                         || (cellBridges[message.id]?.showUsage == true)
-                    if needsFooter && !isEmptyPlaceholder {
+                    // [P2-2] The footer still renders for the first-round
+                    // wait: the typing indicator is "thinking" feedback,
+                    // not the empty state. Only the header stays
+                    // suppressed for the placeholder.
+                    let showsTypingIndicator = isLastAssistant && vm.isProcessing && message.shouldShowTypingIndicator
+                    if needsFooter && (!isEmptyPlaceholder || showsTypingIndicator) {
                         newItems.append(.assistantFooter(message.id))
                     }
                 }

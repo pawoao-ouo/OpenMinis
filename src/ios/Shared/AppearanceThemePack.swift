@@ -1560,7 +1560,15 @@ extension AppearanceStudio {
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
         // [P1-1] Export-clean bytes (see the doc above): raw disk bytes may
         // carry pre-gate EXIF, and undecodable bytes must never land in a pack.
-        return WallpaperPipeline.exportableImageData(data)
+        // [P3-3] The matte is the canvas of the variant this file belongs to:
+        // "-dark.jpg" files are padded with the dark canvas, everything else
+        // (light, single-file) with the light canvas. The current theme's
+        // canvas IS the exported pack's canvas — this only ever runs from
+        // `exportThemePack` — so no parameter threading is needed, and the
+        // three reader signatures the standalone tests pin by string stay
+        // exactly as they are.
+        let matte = UIColor(hex: hex(.canvas, variant: fileName.hasSuffix("-dark.jpg") ? .dark : .light))
+        return WallpaperPipeline.exportableImageData(data, matte: matte)
     }
 
     /// Snapshot directory for the most recent destructive theme operation.
@@ -2320,9 +2328,13 @@ extension AppearanceStudio {
     /// no actor state (only the file, the thread-safe log and the
     /// thread-safe thumbnail cache). Callers on the main actor run it
     /// there; the async setters below run it off the main thread.
+    /// [P2-1] JPEG has no alpha, so transparent regions are padded with
+    /// `matte` (theme canvas by default — the colour that sits behind the
+    /// image in the UI) instead of going black.
     @discardableResult
     private static nonisolated func writeDownscaledJPEG(_ image: UIImage, to url: URL,
-                                    maxEdge: CGFloat, quality: CGFloat) -> Bool {
+                                    maxEdge: CGFloat, quality: CGFloat,
+                                    matte: UIColor = WallpaperPipeline.canvasMatte()) -> Bool {
         let size = image.size
         let scale = min(1, maxEdge / max(size.width, size.height, 1))
         let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
@@ -2330,6 +2342,8 @@ extension AppearanceStudio {
         format.opaque = true
         format.scale = 1
         let rendered = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            matte.setFill()
+            UIBezierPath(rect: CGRect(origin: .zero, size: target)).fill()
             image.draw(in: CGRect(origin: .zero, size: target))
         }
         // [B28 R2-2] 编码失败 / 写盘失败以前全是静默的。现在如实上抛。
@@ -2361,9 +2375,13 @@ extension AppearanceStudio {
     /// [P2-3] Nonisolated static, same reason as `writeDownscaledJPEG`
     /// above: the decode check, the render and the write take only Data
     /// and a URL, so a detached task can run them.
+    /// [P2-4] Orientation must be baked before the tag is stripped: an
+    /// under-limit photo with orientation != up takes the re-encode
+    /// branch below instead of the byte-level strip.
     @discardableResult
     private static nonisolated func writeEncodedImage(_ data: Data, to url: URL,
-                                   maxEdge: CGFloat, quality: CGFloat) -> Bool {
+                                   maxEdge: CGFloat, quality: CGFloat,
+                                   matte: UIColor = WallpaperPipeline.canvasMatte()) -> Bool {
         if let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 {
             let longest = max(image.size.width, image.size.height)
             // [P2-13] Under-limit bytes land as-is only when the format
@@ -2373,8 +2391,8 @@ extension AppearanceStudio {
             // passes unknown formats through untouched.
             // (`writeDownscaledJPEG` keeps full size when under the edge:
             // its scale is min(1, ...).)
-            if longest > maxEdge || !WallpaperPipeline.byteLevelStrippable(data) {
-                return writeDownscaledJPEG(image, to: url, maxEdge: maxEdge, quality: quality)
+            if longest > maxEdge || !WallpaperPipeline.byteLevelStrippable(data) || image.imageOrientation != .up {
+                return writeDownscaledJPEG(image, to: url, maxEdge: maxEdge, quality: quality, matte: matte)
             }
         }
         do {
@@ -2394,9 +2412,10 @@ extension AppearanceStudio {
     /// `writeEncodedImage` above keeps its old contract (callers that
     /// already validated keep calling it directly).
     private static nonisolated func writeEncodedImageIfDecodable(_ data: Data, to url: URL,
-                                      maxEdge: CGFloat, quality: CGFloat) -> Bool {
+                                      maxEdge: CGFloat, quality: CGFloat,
+                                      matte: UIColor = WallpaperPipeline.canvasMatte()) -> Bool {
         guard UIImage(data: data) != nil else { return false }
-        return writeEncodedImage(data, to: url, maxEdge: maxEdge, quality: quality)
+        return writeEncodedImage(data, to: url, maxEdge: maxEdge, quality: quality, matte: matte)
     }
 
     private func thinkingCardURL() -> URL {

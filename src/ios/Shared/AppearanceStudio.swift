@@ -51,6 +51,15 @@ enum WallpaperPipeline {
         return rendered.jpegData(compressionQuality: jpegQuality)
     }
 
+    /// Canvas matte for JPEG re-encodes: the colour that sits behind the
+    /// image in the UI. Light canvas by default — the same matte
+    /// `backgroundJPEG` uses for wallpapers (theme canvas from the
+    /// palette book, falling back to the system greys).
+    nonisolated static func canvasMatte(dark: Bool = false) -> UIColor {
+        let book = dark ? darkDefaults : lightDefaults
+        return UIColor(hex: book[.canvas] ?? (dark ? "000000" : "F5F5F7"))
+    }
+
     /// 这张图该存成什么扩展名。先看真实文件头，再看源文件名，最后回落 jpg。
     /// 三者都不认识时返回 nil，让调用方如实报错，而不是写一个解不出来的文件。
     static func fileExtension(for image: UIImage, source: URL) -> String? {
@@ -146,12 +155,15 @@ enum WallpaperPipeline {
     /// the Orientation tag the renderer relies on, so a stripped file
     /// with orientation 6 would come back rotated on re-apply (P2-4) —
     /// those go through the re-encode instead. PNG keeps PNG so alpha
-    /// survives; everything else becomes JPEG. Returns nil when the
-    /// bytes cannot be decoded at all — undecodable bytes never land
-    /// (T-29). When UIImage cannot decode a strippable format at all
-    /// (e.g. WebP), there is no orientation to bake, so it is stripped
-    /// at byte level exactly like `writeEncodedImage` does.
-    nonisolated static func exportableImageData(_ data: Data) -> Data? {
+    /// survives; everything else becomes JPEG, padded with the theme
+    /// canvas (matte) so transparent regions do not go black. Returns
+    /// nil when non-strippable bytes cannot be decoded at all —
+    /// undecodable bytes never land (T-29). That nil guarantee covers
+    /// non-strippable formats only: when UIImage cannot decode a
+    /// strippable format at all (e.g. WebP), there is no orientation
+    /// to bake, so it is stripped at byte level exactly like
+    /// `writeEncodedImage` does.
+    nonisolated static func exportableImageData(_ data: Data, matte: UIColor = canvasMatte()) -> Data? {
         if byteLevelStrippable(data) {
             if let image = UIImage(data: data),
                image.size.width > 0, image.size.height > 0,
@@ -167,7 +179,19 @@ enum WallpaperPipeline {
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
             return image.pngData()
         }
-        return image.jpegData(compressionQuality: 0.82)
+        // [P2-1/P3-3] JPEG has no alpha: pad transparent regions with the
+        // theme canvas (matte) instead of letting them go black. The
+        // matte is the canvas colour — the image is drawn over it, so
+        // padded pixels look exactly like transparent ones.
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            matte.setFill()
+            UIBezierPath(rect: CGRect(origin: .zero, size: image.size)).fill()
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        return rendered.jpegData(compressionQuality: 0.82)
     }
 
     /// "RIFF" + size + "WEBP". Kept separate so both `strippedMetadata`
@@ -1942,17 +1966,25 @@ final class AppearanceStudio: ObservableObject {
         guard let image = WallpaperPipeline.decodedImage(data) else { return .badLight }
         if let darkData {
             guard let darkImage = WallpaperPipeline.decodedImage(darkData) else { return .badDark }
+            // [P2-4] Orientation must be baked before the tag is stripped:
+            // a stripped file with orientation != up would come back rotated.
             let lightJPEG = max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge
                 || !WallpaperPipeline.byteLevelStrippable(data)
+                || image.imageOrientation != .up
                 ? backgroundJPEG(image, dark: false) : WallpaperPipeline.strippedMetadata(data)
             let darkJPEG = max(darkImage.size.width, darkImage.size.height) > WallpaperPipeline.maxEdge
                 || !WallpaperPipeline.byteLevelStrippable(darkData)
+                || darkImage.imageOrientation != .up
                 ? backgroundJPEG(darkImage, dark: true) : WallpaperPipeline.strippedMetadata(darkData)
             guard let lightJPEG, let darkJPEG else { return .encodeFailed }
             return .ready(light: lightJPEG, dark: darkJPEG)
         }
+        // [P2-4] Orientation must be baked before the tag is stripped (same
+        // as the pair above): an under-limit photo with orientation != up
+        // takes this re-encode branch instead of the strip below.
         if max(image.size.width, image.size.height) > WallpaperPipeline.maxEdge
-            || !WallpaperPipeline.byteLevelStrippable(data) {
+            || !WallpaperPipeline.byteLevelStrippable(data)
+            || image.imageOrientation != .up {
             if hasAlpha(image) {
                 guard let light = backgroundJPEG(image, dark: false),
                       let dark = backgroundJPEG(image, dark: true) else { return .encodeFailed }
@@ -1965,7 +1997,9 @@ final class AppearanceStudio: ObservableObject {
         // stripped byte-for-byte — pixels untouched, no re-encode, no
         // quality change. HEIC/GIF have no byte-level strip, so they
         // took the re-encode branch above instead: otherwise their EXIF
-        // would ride in unchanged.
+        // would ride in unchanged. An image whose orientation is not up
+        // takes that branch too (P2-4), so the bytes stripped here are
+        // always orientation-up.
         // Suffix note: wallpaper files are always named *.jpg. HEIC/GIF
         // now land as real JPEG bytes, so the name is honest for them;
         // WebP/PNG still land as their own bytes under a .jpg name —
@@ -2401,6 +2435,10 @@ final class AppearanceStudio: ObservableObject {
             guard let data = try? Data(contentsOf: url), !data.isEmpty,
                   let clean = WallpaperPipeline.exportableImageData(data),
                   clean != data else { continue }
+            // [P3-1] Re-read before writing: a picker may have swapped this
+            // file between the read above and this write — never clobber a
+            // newer image with cleaned old bytes.
+            guard let current = try? Data(contentsOf: url), current == data else { continue }
             try? clean.write(to: url, options: .atomic)
             ThumbnailCache.shared.removeThumbnail(for: url.path)
         }
