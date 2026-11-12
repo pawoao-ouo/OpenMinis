@@ -150643,19 +150643,19 @@
         }
       }
     },
-    "搜索预设、颜色、壁纸、气泡、字体、主题…": {
+    "搜索预设、色彩、壁纸、气泡、字体、主题…": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "搜索预设、颜色、壁纸、气泡、字体、主题…"
+            "value": "搜索预设、色彩、壁纸、气泡、字体、主题…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search presets, colors, wallpapers, bubbles, fonts, themes…"
+            "value": "Search presets, color, wallpapers, bubbles, fonts, themes…"
           }
         }
       }

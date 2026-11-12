@@ -490,7 +490,7 @@ extension DressingShopView {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
 
-            TextField(AppLocalized("搜索预设、颜色、壁纸、气泡、字体、主题…"), text: $searchText)
+            TextField(AppLocalized("搜索预设、色彩、壁纸、气泡、字体、主题…"), text: $searchText)
                 .font(ChatFont.font(13))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
                 .textFieldStyle(.plain)
