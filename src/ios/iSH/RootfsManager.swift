@@ -480,7 +480,7 @@ class RootfsManager {
             throw NSError(
                 domain: "RootfsManager",
                 code: 6,
-                userInfo: [NSLocalizedDescriptionKey: "Restored /\(label) to disk, but it could not be registered in the iSH file index (meta.db) — the files would be invisible inside iSH. Restore reported as failed; nothing was deleted."]
+                userInfo: [NSLocalizedDescriptionKey: "Restored /\(label) to disk, but it could not be registered in the iSH file index (meta.db) — the files are on disk but not yet visible inside iSH. Please retry the restore."]
             )
         }
         logger.info("[Rootfs] /\(label) registered in meta.db")
