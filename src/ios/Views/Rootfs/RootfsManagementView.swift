@@ -59,7 +59,12 @@ struct RootfsManagementView: View {
                 // the only way to shrink it was a full reset. This shows
                 // where the bytes are and offers a cleanup that deletes
                 // ONLY regenerable junk.
-                Section("Storage") {
+                // There is no Section(title, content, footer) initializer —
+                // the title-string form takes content only, so the title goes
+                // in header: like the other sections in this file and in
+                // BackupSettingsView (CI: generic parameter 'Content' could
+                // not be inferred at Section("Storage")).
+                Section {
                     if viewModel.breakdownLoaded {
                         ForEach(viewModel.breakdownRows, id: \.label) { row in
                             HStack {
@@ -97,6 +102,8 @@ struct RootfsManagementView: View {
                         }
                     }
                     .disabled(viewModel.isProcessing || !viewModel.breakdownLoaded)
+                } header: {
+                    Text("Storage")
                 } footer: {
                     Text("Clean Up deletes only package cache, temporary files, and logs — plus old reset backups (keeps the newest one). Your files in /root and /home, chats, skills, and memory are never touched.")
                 }
