@@ -234,7 +234,6 @@ final class EnvVarStore: ObservableObject {
         let entry = EnvVarEntry(key: trimmedKey, note: note)
         entries.append(entry)
         saveEntries()
-        markEntryDirty(entryId: entry.id, operation: "upsert")
         logger.info("Added env var: \(trimmedKey)")
     }
 
@@ -276,7 +275,6 @@ final class EnvVarStore: ObservableObject {
         entries[idx].key = trimmedKey
         if let note { entries[idx].note = note }
         saveEntries()
-        markEntryDirty(entryId: entries[idx].id, operation: "upsert")
 
         if keyChanged {
             deleteValueIfUnreferenced(forKey: oldKey)
@@ -292,7 +290,6 @@ final class EnvVarStore: ObservableObject {
         guard let idx = entries.firstIndex(where: { $0.id == id }) else { return }
         entries[idx].note = note
         saveEntries()
-        markEntryDirty(entryId: id, operation: "upsert")
     }
 
     func delete(id: String) {
