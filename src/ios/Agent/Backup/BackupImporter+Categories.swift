@@ -1638,17 +1638,18 @@ extension BackupImporter {
         // existing keys by policy, and a removed provider's Keychain items
         // are not in the package's secrets.json, so deleting them would
         // break the "never delete Keychain items not in secrets.json" rule.
-        let rulesRemoved = await MainActor.run {
-            var n = 0
-            for inst in localInstances {
-                for rule in await ProviderConfigStore.shared.thinkingRules(for: inst.id) {
-                    if await ProviderConfigStore.shared.deleteThinkingRule(
-                        id: rule.id, instanceId: inst.id) {
-                        n += 1
-                    }
+        // ProviderConfigStore is @MainActor and thinkingRules/deleteThinkingRule
+        // are async, so await them directly — MainActor.run takes a synchronous
+        // closure and cannot hold awaits (CI: "cannot pass @Sendable () async
+        // -> Int to parameter expecting synchronous function type").
+        var rulesRemoved = 0
+        for inst in localInstances {
+            for rule in await ProviderConfigStore.shared.thinkingRules(for: inst.id) {
+                if await ProviderConfigStore.shared.deleteThinkingRule(
+                    id: rule.id, instanceId: inst.id) {
+                    rulesRemoved += 1
                 }
             }
-            return n
         }
         return removed + rulesRemoved
     }
@@ -1663,12 +1664,10 @@ extension BackupImporter {
         var removed = local.instances.filter { !packageInstanceIds.contains($0.id) }.count
             + local.modelEntries.filter { !packageEntryIds.contains($0.id) }.count
             + local.modelGroups.filter { !packageGroupIds.contains($0.id) }.count
-        removed += await MainActor.run {
-            var n = 0
-            for inst in local.instances {
-                n += await ProviderConfigStore.shared.thinkingRules(for: inst.id).count
-            }
-            return n
+        // Same as above: await the @MainActor async method directly, no
+        // MainActor.run wrapper (CI compile error, see wipeProvidersForOverwrite).
+        for inst in local.instances {
+            removed += await ProviderConfigStore.shared.thinkingRules(for: inst.id).count
         }
         return removed
     }
