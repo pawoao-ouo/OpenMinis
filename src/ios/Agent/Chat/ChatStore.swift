@@ -4683,6 +4683,7 @@ actor ChatStore {
         default: return "bin"
         }
     }
+}
 
 // MARK: - Anthropic Conversion
 
@@ -5265,8 +5266,6 @@ extension RawMessage {
         msg.reasoningContent = reasoningContent
         return msg
     }
-}
-
 }
 
 
