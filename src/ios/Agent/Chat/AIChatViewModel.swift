@@ -632,13 +632,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     logger.info("[BlocksLost] DETACHED loop end — posting reload for sid=\(sid.prefix(8)) (active=\(Self.activeSessionId?.prefix(8) ?? "nil"))")
                     NotificationCenter.default.post(name: .sessionAgentLoopDidEnd, object: sid)
                 }
-                // Also drain any skill-filesystem rescan that the AI's
-                // shell tools may have queued during this turn. We hold
-                // the rescan off the hot path so it runs once at quiet
-                // time, not interleaved with every iSH write event.
-                if #available(iOS 17.0, *) {
-                    SkillFilesystemNotifier.shared.drainIfDirty(reason: "agent turn finished")
-                }
             }
         }
     }

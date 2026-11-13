@@ -585,10 +585,6 @@ struct MinisApp: App {
                 AgentLiveActivityManager.shared.dismissFinishedActivityOnForeground()
                 SkillStore.shared.reload()
 
-                if #available(iOS 17.0, *) {
-                    SkillFilesystemNotifier.shared.drainIfDirtyAsync(reason: "scenePhase active")
-                }
-
                 Self.signalFileProvider()
                 MountedFoldersManager.shared.refreshAllWritability()
 
@@ -637,13 +633,6 @@ struct MinisApp: App {
             // BackgroundKeepAliveManager last fired while we were still
             // foreground (badge was forced to 0 by the .active branch).
             BackgroundKeepAliveManager.shared.refreshActiveTaskBadge()
-            // Drain any pending skill-filesystem rescan now that the
-            // app is leaving the foreground — last chance to run the
-            // heavier disk-scan pass while we still have CPU before
-            // iOS suspends us.
-            if #available(iOS 17.0, *) {
-                SkillFilesystemNotifier.shared.drainIfDirtyAsync(reason: "scenePhase background")
-            }
             // [T-config-audit-wal-loss] The config-audit DB runs in WAL mode and
             // is NOT covered by any checkpointing (it lives in its own file,
             // deliberately outside minis.db). Without a checkpoint
