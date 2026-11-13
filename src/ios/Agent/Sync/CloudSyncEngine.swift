@@ -1845,7 +1845,14 @@ final class CloudSyncEngine: ObservableObject {
             }
 
             if shouldWrite {
-                ProviderKeychainHelper.saveAPIKey(key, instanceId: instanceId)
+                let saved = ProviderKeychainHelper.saveAPIKey(key, instanceId: instanceId)
+                guard saved else {
+                    // [P1-1] A failed Keychain write must NOT stamp LWW: the stamp
+                    // would make the next merge skip this import and the key could
+                    // never sync in.
+                    logger.error("[iCloud] Failed to write API key for instance \(instanceId.prefix(8)) — not stamped, will retry on next merge")
+                    continue
+                }
                 // saveAPIKey stamps local savedAt to Date() via UserDefaults. But since
                 // this write was a sync-in, the correct stamp is the REMOTE timestamp
                 // (so subsequent merges on this device compare against the winning value

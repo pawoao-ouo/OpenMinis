@@ -59,8 +59,7 @@ enum BackupSecretsImporter {
             if let b64 = p.apiKey {
                 if let value = decode(b64) {
                     if ProviderKeychainHelper.loadAPIKey(instanceId: p.instanceId) == nil {
-                        ProviderKeychainHelper.saveAPIKey(value, instanceId: p.instanceId)
-                        wrote = true
+                        wrote = ProviderKeychainHelper.saveAPIKey(value, instanceId: p.instanceId) || wrote
                     } else {
                         result.providersSkippedExisting += 1
                     }
@@ -72,9 +71,8 @@ enum BackupSecretsImporter {
                 if let value = decode(b64) {
                     if ProviderKeychainHelper.loadOAuthString(
                         instanceId: p.instanceId, account: "manual-oauth-token") == nil {
-                        ProviderKeychainHelper.saveOAuthString(
-                            value, instanceId: p.instanceId, account: "manual-oauth-token")
-                        wrote = true
+                        wrote = ProviderKeychainHelper.saveOAuthString(
+                            value, instanceId: p.instanceId, account: "manual-oauth-token") || wrote
                     }
                 } else {
                     result.credentialsUndecodable += 1
@@ -84,9 +82,8 @@ enum BackupSecretsImporter {
                 if let value = decode(b64) {
                     if ProviderKeychainHelper.loadOAuthString(
                         instanceId: p.instanceId, account: "oauth-email") == nil {
-                        ProviderKeychainHelper.saveOAuthString(
-                            value, instanceId: p.instanceId, account: "oauth-email")
-                        wrote = true
+                        wrote = ProviderKeychainHelper.saveOAuthString(
+                            value, instanceId: p.instanceId, account: "oauth-email") || wrote
                     }
                 } else {
                     result.credentialsUndecodable += 1
@@ -96,9 +93,8 @@ enum BackupSecretsImporter {
                 if let value = decode(b64) {
                     if ProviderKeychainHelper.loadOAuthString(
                         instanceId: p.instanceId, account: "oauth-gcp-project") == nil {
-                        ProviderKeychainHelper.saveOAuthString(
-                            value, instanceId: p.instanceId, account: "oauth-gcp-project")
-                        wrote = true
+                        wrote = ProviderKeychainHelper.saveOAuthString(
+                            value, instanceId: p.instanceId, account: "oauth-gcp-project") || wrote
                     }
                 } else {
                     result.credentialsUndecodable += 1
@@ -111,8 +107,7 @@ enum BackupSecretsImporter {
             if let b64 = p.oauthToken {
                 if let raw = Data(base64Encoded: b64) {
                     if ProviderKeychainHelper.loadRawOAuthToken(instanceId: p.instanceId) == nil {
-                        ProviderKeychainHelper.saveRawOAuthToken(raw, instanceId: p.instanceId)
-                        wrote = true
+                        wrote = ProviderKeychainHelper.saveRawOAuthToken(raw, instanceId: p.instanceId) || wrote
                     }
                 } else {
                     result.credentialsUndecodable += 1
