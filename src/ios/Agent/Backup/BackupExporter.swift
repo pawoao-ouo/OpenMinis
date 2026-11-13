@@ -625,8 +625,21 @@ actor BackupExporter {
     /// policy and encryption must all match, or the stale staging is discarded
     /// and a fresh export starts.
     ///
-    /// Encrypted runs are resumable only when a passphrase is supplied again —
-    /// the passphrase is never persisted, and silently producing a PLAINTEXT
+    /// Encrypted runs are NEVER resumed, even when a passphrase is supplied
+    /// again. Encryption runs at the end of the export over the whole staged
+    /// tree, under keys derived from a FRESH random salt
+    /// (`BackupCrypto.makeSalt`) that only the finished manifest records —
+    /// so a previous attempt interrupted after encryption started leaves
+    /// `.enc` members encrypted under salt1, while this attempt would
+    /// derive salt2 and write salt2 into the manifest. Resuming would
+    /// either double-encrypt those members (`foo.enc` → `foo.enc.enc`,
+    /// which the importer only decrypts one layer of) or leave them
+    /// encrypted under a salt the new manifest cannot describe — a mixed
+    /// package the importer reports as success-with-0-imported. The stale
+    /// staging is discarded and a fresh export starts instead: an
+    /// interrupted encrypted export restarts from scratch.
+    ///
+    /// The passphrase is never persisted, and silently producing a PLAINTEXT
     /// package from a run the user asked to encrypt would leak their API keys.
     private static func resumableRun(for options: Options) -> BackupExportJournal.Marker? {
         guard let marker = BackupExportJournal.interrupted() else { return nil }
@@ -646,6 +659,18 @@ actor BackupExporter {
         // nil + encrypted (staged) markers may resume.
         if marker.streamed == true || (marker.streamed == nil && !marker.encrypted) {
             logger.info("[Backup] previous export streamed its blobs — starting fresh")
+            BackupExportJournal.finish(backupId: marker.backupId)
+            return nil
+        }
+
+        // See the doc comment above: an encrypted run interrupted after
+        // encryption started leaves `.enc` members under the old salt, and
+        // this attempt derives a new one. Resume cannot tell "interrupted
+        // before encryption" from "interrupted after", so no encrypted run
+        // resumes at all — `finish` removes the marker AND the stale
+        // staging tree, so the `.enc` members cannot leak into a new run.
+        if marker.encrypted {
+            logger.info("[Backup] previous export was encrypted — starting fresh (resume would double-encrypt)")
             BackupExportJournal.finish(backupId: marker.backupId)
             return nil
         }

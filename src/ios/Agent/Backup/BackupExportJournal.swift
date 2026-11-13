@@ -59,10 +59,12 @@ enum BackupExportJournal {
         var includeCredentials: Bool
         var maxFileBytes: Int64?
         /// Whether the interrupted run was producing an encrypted package. The
-        /// passphrase itself is NEVER persisted — a resume of an encrypted
-        /// export requires the user to supply it again, and without it the
-        /// stale staging is discarded rather than silently downgraded to a
-        /// plaintext package.
+        /// passphrase itself is NEVER persisted. An encrypted run is never
+        /// resumed — its staged tree may already hold `.enc` members
+        /// encrypted under the previous attempt's fresh salt, which a new
+        /// attempt cannot reproduce — so the stale staging is discarded and
+        /// a fresh export starts instead of silently downgrading to a
+        /// plaintext package (which would leak API keys) or double-encrypting.
         var encrypted: Bool
         /// Whether the interrupted run streamed its blobs straight into a
         /// temporary package instead of staging them. Those blobs are gone
