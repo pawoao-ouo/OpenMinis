@@ -2524,9 +2524,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     }
                 }
             }
+            // Lowest agentHistory index this edit removes (captured before the
+            // array shrinks) so postTruncationCleanup can tell whether a
+            // removed entry sat at or before a compact marker's anchor.
+            var editRemovedFromIndex = agentHistory.count  // nothing removed yet
             if remainingUserCount == 0 {
+                editRemovedFromIndex = 0
                 agentHistory.removeAll()
             } else if keepUpTo + 1 < agentHistory.count {
+                editRemovedFromIndex = keepUpTo + 1
                 agentHistory.removeSubrange((keepUpTo + 1)...)
             }
             // Trim persisted messages.
@@ -2553,7 +2559,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // for this window, and a caller that already held one (a nested
             // send) must not leave it dangling after the cut lands.
             discardTruncationSnapshot()
-            postTruncationCleanup()
+            postTruncationCleanup(removedFromIndex: editRemovedFromIndex)
             // Rebuild toolSnapshots from remaining messages
             toolSnapshots = messages
                 .filter { $0.role == .assistant }
@@ -3596,7 +3602,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // budget) or, worse, slices from a stale anchor and reintroduces
         // messages the user just deleted. Drop the marker when its anchor is
         // no longer reachable from the surviving history.
-        postTruncationCleanup()
+        postTruncationCleanup(removedFromIndex: keepUpTo + 1)
 
         // Replace attachments in the last user message of agentHistory if new ones are provided
         if let newAttachments = replacementAttachments, !newAttachments.isEmpty {
@@ -3780,7 +3786,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
         logger.info("[DeleteDiag] deleteFromMessage idx=\(idx) deleted=\(deletedCount) messagesLeft=\(self.messages.count) historyLeft=\(self.agentHistory.count)")
         // [T-chat-truncate-marker 10-19] same reason as the retry path.
-        postTruncationCleanup()
+        postTruncationCleanup(removedFromIndex: keepUpTo + 1)
 
         let persistedKeepCount = agentHistory.filter { $0.dbMessageId != nil }.count
         logger.info("[DeleteDiag] persisted entries after truncation=\(persistedKeepCount)")
@@ -3837,30 +3843,36 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     }
 
     /// [T-chat-truncate-marker 10-19] After a truncation, a compact marker may
-    /// anchor on a row that no longer exists. `effectiveAgentHistory()` handles
-    /// an unresolvable anchor by degrading to the FULL history — which silently
-    /// undoes the compaction AND can re-expose messages the user just deleted.
-    /// Drop the marker (memory + DB) when its anchor is unreachable, so the
-    /// next inference call sees a clean, honest history instead.
+    /// anchor on a row that no longer exists — or a message *inside* the
+    /// compacted range may have been removed. `effectiveAgentHistory()` handles
+    /// an unresolvable anchor by degrading to the FULL history (silently
+    /// undoing the compaction), and a marker whose anchor survives keeps
+    /// injecting a summary built from turns the user just deleted. Either way
+    /// the model would see content the UI no longer shows, so drop the marker
+    /// (memory + DB + its UI divider/grey) whenever the anchor is gone or a
+    /// removed entry sat at or before it.
     ///
     /// Also clears the cache keep-alive snapshot: it is a verbatim copy of the
     /// pre-truncation history, and the warmup request replays it as-is. Left
     /// alone, the next keep-alive fires the deleted turns back at the provider
     /// and re-primes the prompt cache with them.
-    private func postTruncationCleanup() {
-        keepAliveHistory = []
-        keepAliveSystemPrompt = nil
-        keepAliveTools = []
+    ///
+    /// `removedFromIndex` is the lowest agentHistory index the caller removed
+    /// (before the array shrank); nil when the caller did not track it.
+    private func postTruncationCleanup(removedFromIndex: Int? = nil) {
+        clearKeepAliveSnapshot()
         guard let marker = cachedLatestMarker else { return }
         // v2 markers anchor on lastCompactedMessageId; v1 on firstKeptMessageId.
         let anchorId = marker.lastCompactedMessageId ?? marker.firstKeptMessageId ?? marker.boundaryMessageId
         guard let anchorId else { return }
-        let reachable = agentHistory.contains { $0.dbMessageId == anchorId }
-        guard !reachable else { return }
-        logger.warning("[TruncateMarker] anchor=\(anchorId.prefix(8)) unreachable after truncation (marker=\(marker.id.prefix(8))) — dropping marker so history isn't re-expanded")
-        cachedLatestMarker = nil
-        if let sessionId {
-            Task { _ = await ChatStore.shared.deleteCompactMarker(id: marker.id) }
+        guard let anchorIdx = agentHistory.firstIndex(where: { $0.dbMessageId == anchorId }) else {
+            logger.warning("[TruncateMarker] anchor=\(anchorId.prefix(8)) unreachable after truncation (marker=\(marker.id.prefix(8))) — dropping marker so history isn't re-expanded")
+            invalidateCompactMarker(marker, reason: "truncate: anchor \(anchorId.prefix(8)) unreachable")
+            return
+        }
+        if let removedFromIndex, removedFromIndex <= anchorIdx {
+            logger.warning("[TruncateMarker] removed entry at history index \(removedFromIndex) lies at/before anchor \(anchorId.prefix(8)) (idx=\(anchorIdx), marker=\(marker.id.prefix(8))) — dropping marker so the summary can't re-expose deleted turns")
+            invalidateCompactMarker(marker, reason: "truncate: removed entry idx=\(removedFromIndex) at/before anchor \(anchorId.prefix(8)) idx=\(anchorIdx)")
         }
     }
 
@@ -3951,7 +3963,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             agentHistory.remove(at: i)
         }
         discardTruncationSnapshot()
-        postTruncationCleanup()
+        postTruncationCleanup(removedFromIndex: removedIdxs.min())
 
         if let sessionId {
             let sid = sessionId
