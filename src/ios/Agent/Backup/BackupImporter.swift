@@ -95,6 +95,12 @@ actor BackupImporter {
         var totalUpdated: Int { categories.reduce(0) { $0 + $1.updated } }
         var totalSkipped: Int { categories.reduce(0) { $0 + $1.skipped } }
         var totalUnreadable: Int { categories.reduce(0) { $0 + $1.unreadable } }
+        /// [A12] True when any category failed. The restore report's header
+        /// must not claim "Restore Complete" over a partial restore: the
+        /// importer deliberately continues past a failed category, so the
+        /// failures are real and visible in the body — the header has to
+        /// agree with them.
+        var hasFailures: Bool { categories.contains { $0.failed != nil } }
     }
 
     enum ImportError: LocalizedError {

@@ -888,7 +888,12 @@ struct BackupRestoreView: View {
                     .foregroundStyle(MinisTheme.secondaryText)
             }
         } header: {
-            Text("Restore Complete")
+            // [A12] Honest header. `importBody` deliberately continues past a
+            // failed category, so a partial restore must not present as a
+            // clean success — show the failed state whenever any category
+            // recorded a failure.
+            Text(r.hasFailures ? AppLocalized("Completed with issues")
+                               : AppLocalized("Restore Complete"))
         } footer: {
             if let prov = r.categories.first(where: { $0.category == BackupCategory.providers.rawValue }) {
                 if prov.credentialsRestored > 0 {
@@ -911,6 +916,13 @@ struct BackupRestoreView: View {
                     // `credentialsKept` was already being computed for this and
                     // simply never read by any view.
                     Text("Your existing API keys were kept — the backup's keys matched credentials already on this device, so nothing needed to be overwritten.")
+                } else if prov.credentialsUndecodable > 0 {
+                    // [A12] The keys WERE in the package; they simply could
+                    // not be decoded. Before this branch existed the footer
+                    // fell through to the "created without API keys" line
+                    // below, blaming the backup for a read failure and hiding
+                    // that the user must re-enter the keys.
+                    Text("This service's saved credentials are incomplete — open it and re-enter the key")
                 } else {
                     // Reachable for OLDER packages: exports used to offer a
                     // credential-free "share copy", and those must keep
