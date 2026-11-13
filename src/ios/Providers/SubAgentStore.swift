@@ -133,7 +133,8 @@ final class SubAgentStore: ObservableObject {
             incoming.sortOrder = list.count
             list.append(incoming)
         }
-        apply(SubAgentRoster.normalize(list), dirtyIds: [incoming.id])
+        subAgents = SubAgentRoster.normalize(list)
+        persist()
     }
 
     /// Delete one definition. The built-in cannot be removed — it is the target
