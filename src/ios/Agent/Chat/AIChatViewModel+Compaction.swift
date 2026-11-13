@@ -473,6 +473,36 @@ extension AIChatViewModel {
         }
     }
 
+    /// [F2 / F3 / S9] Drop a compact marker that can no longer be honoured.
+    ///
+    /// A marker is only valid while its anchor still exists in `agentHistory`.
+    /// Once the anchor — or anything at/before it — is deleted or truncated
+    /// away, honouring the marker either re-injects a summary built from
+    /// content the user removed (F3/S9) or silently degrades to the full
+    /// un-summarised history behind a UI that still claims the range is
+    /// compacted (F2). Both contradict the greyed-out "N messages compacted"
+    /// state, so the honest move is to invalidate the marker: clear the cached
+    /// marker, delete its DB row, and lift the divider/grey so the UI and the
+    /// model agree again.
+    @MainActor
+    func invalidateCompactMarker(_ marker: CompactMarker, reason: String) {
+        logger.warning("[Compact] invalidating marker id=\(marker.id.prefix(8)) v=\(marker.version) reason=\(reason)")
+        cachedLatestMarker = nil
+
+        // Lift the UI "compacted" state: remove the divider row and un-grey
+        // every message that was marked as compacted history. A session shows
+        // at most one divider — the latest marker's.
+        if messages.contains(where: { $0.role == .compactDivider || $0.isCompactedHistory }) {
+            messages = messages.filter { $0.role != .compactDivider }
+            for msg in messages { msg.isCompactedHistory = false }
+            if !transitionSuspended { objectWillChange.send() }
+        }
+
+        if let sessionId {
+            Task { _ = await ChatStore.shared.deleteCompactMarker(id: marker.id) }
+        }
+    }
+
     @MainActor
     /// - allowDuringProcessing: normally compaction is a user-initiated action
     ///   that must not run mid-turn (the `!isProcessing` guard). The agent loop's

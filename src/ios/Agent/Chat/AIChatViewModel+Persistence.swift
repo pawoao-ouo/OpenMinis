@@ -1577,9 +1577,9 @@ extension AIChatViewModel {
     /// every retry and every fallback model, wedging the conversation until the
     /// user clears the session.
     ///
-    /// Any orphan reaching here is a bug upstream (the walk-back boundary and
-    /// the preAnchor prune are both supposed to preserve pairing), so this
-    /// logs loudly rather than silently papering over it. Recovery mirrors the
+    /// Any orphan reaching here is a bug upstream (slicing only at user-message
+    /// boundaries is supposed to preserve pairing), so this logs loudly rather
+    /// than silently papering over it. Recovery mirrors the
     /// long-standing pass `runAgentLoop` runs over the FULL `agentHistory`
     /// (AIChatViewModel ~4556) — that one cannot help here because compaction
     /// slices the history *after* it runs, which is precisely how this orphan
@@ -1681,261 +1681,108 @@ extension AIChatViewModel {
         //   compressed form of that range."
         //
         // What we send to the model, in chronological order:
-        //   1. Last `compactKeepRecentUserTurns` user-text turns BEFORE the
-        //      anchor (inclusive of anchor) — gives the model a few real
-        //      messages of warm-up context immediately preceding the summary.
-        //   2. The summary itself, injected as a `<context-summary>` text
-        //      part PREPENDED to the first user message AFTER the anchor.
-        //      This keeps strict role alternation (user → assistant → ...)
-        //      intact without inserting a synthetic standalone user turn.
-        //   3. All messages strictly after the anchor (with the first user
-        //      already mutated above).
+        //   1. The summary itself, injected as a `<context-summary>` text
+        //      part PREPENDED to the first user message AFTER the anchor
+        //      (or a standalone user turn when no post-anchor user exists).
+        //   2. All messages strictly after the anchor.
+        //
+        // [F1] The compacted range is replaced by the summary ONLY. No
+        // verbatim pre-anchor turns are emitted: the UI greys them out as
+        // "N messages compacted", so sending them back both contradicts the
+        // UI and re-exposes content the user compacted precisely to stop the
+        // model seeing (the "greyed out is not gone" disconnect).
         //
         // Effect on the wire:
-        //   [m_priorN..m_anchor]        (real history, last N turns)
         //   [first_post_anchor_user with summary as part-0]
         //   [m_post_anchor_rest]
         //   [the new user input the caller is about to append]
         if marker.version >= 2 {
             guard let anchorId = marker.lastCompactedMessageId,
                   let anchorIdx = agentHistory.lastIndex(where: { $0.dbMessageId == anchorId }) else {
-                // Anchor unresolvable → degrade safely. Don't emit a
-                // standalone summary message (creates the empty-context loop
-                // when paired with hot tools). Fall back to full history;
-                // the user can `revertCompact` if the marker is corrupt.
-                logger.warning("[Compact] effectiveAgentHistory v2: anchorId=\(marker.lastCompactedMessageId?.prefix(8) ?? "nil") not in agentHistory(count=\(self.agentHistory.count)) — degrading to full history (no summary)")
+                // [F2] Anchor unresolvable -> the marker cannot describe the
+                // surviving history. Sending `agentHistory` verbatim would
+                // look like a full un-summarised context while the UI still
+                // claims the range is compacted, so fail closed: drop the
+                // marker (cache + DB row + UI divider/grey) so history and
+                // the UI agree, then return the honest full history.
+                logger.warning("[Compact] effectiveAgentHistory v2: anchorId=\(marker.lastCompactedMessageId?.prefix(8) ?? "nil") not in agentHistory(count=\(self.agentHistory.count)) — invalidating marker id=\(marker.id.prefix(8))")
+                invalidateCompactMarker(marker, reason: "v2 anchor \(marker.lastCompactedMessageId?.prefix(8) ?? "nil") not in agentHistory(count=\(self.agentHistory.count))")
                 return agentHistory
             }
 
-            // Step 1: walk back from anchor collecting user-text turns. Stop
-            // when EITHER we've collected N user-text turns OR including the
-            // next turn would push preAnchor over 100 messages. Decisions
-            // happen only at user-message boundaries so we never split a
-            // user/assistant/tool round in half (which would orphan a
-            // tool_use with no matching tool_result).
-            //
-            // priorIdx is always set to a `user` message — that's what the
-            // API requires for the first message in a request.
-            let preAnchorCap = 100
-            let walkBack = walkBackUserTurnsBounded(
-                anchorIdx: anchorIdx,
-                maxUserTextTurns: Self.compactKeepRecentUserTurns,
-                maxMessages: preAnchorCap
-            )
-            let priorIdxResolved: Int? = walkBack.priorIdx
-            let priorIdx = walkBack.priorIdx ?? (anchorIdx + 1)  // empty preAnchor sentinel
-            if walkBack.stopReason != "userTextTargetMet" {
-                logger.info("[CompactDiag] eAH v2 walkBack stopped: reason=\(walkBack.stopReason) priorIdx=\(priorIdx) userTextTurnsFound=\(walkBack.userTextTurnsFound) preAnchorMsgs=\(walkBack.messageCount)")
-            }
-
             let summaryText = Self.compactSummaryWrappedText(marker.summary)
-
-            // Step 2 & 3: inject summary into the first POST-anchor user
-            //             message (or, if there isn't one, append a
-            //             standalone user message — safe because no later
-            //             user follows it).
-            //
-            // PRE-ANCHOR PRUNE (tool-heavy session fix):
-            // The walk-back-3-user-text strategy pulls in everything between
-            // the 3rd-last and last user-text turn — in a heavy tool-call
-            // session that can be 200+ messages of tool_result / tool_use,
-            // tens of thousands of tokens that the summary already covers.
-            // Drop any tool_result > 1000 chars in the preAnchor slice and
-            // strip the matching tool_use part (same id) from the assistant
-            // message so the model never sees a dangling tool_use/result.
-            let preAnchorRaw: [AgentMessage] = (priorIdx <= anchorIdx) ? Array(agentHistory[priorIdx...anchorIdx]) : []
-            var droppedToolIds: Set<String> = []
-            var droppedCount = 0
-            for msg in preAnchorRaw {
-                for part in msg.parts {
-                    if case .toolResult(let id, _, let content, _, _, _, _, _) = part,
-                       content.count > 1000 {
-                        droppedToolIds.insert(id)
-                        droppedCount += 1
-                    }
-                }
-            }
-            var preAnchorPruned: [AgentMessage] = []
-            preAnchorPruned.reserveCapacity(preAnchorRaw.count)
-            for var msg in preAnchorRaw {
-                // Filter parts: drop the large toolResult AND its paired toolUse.
-                let kept = msg.parts.filter { part in
-                    switch part {
-                    case .toolUse(let id, _, _):
-                        return !droppedToolIds.contains(id)
-                    case .toolResult(let id, _, _, _, _, _, _, _):
-                        return !droppedToolIds.contains(id)
-                    default:
-                        return true
-                    }
-                }
-                if kept.isEmpty { continue }  // skip empty shells
-                msg.parts = kept
-                preAnchorPruned.append(msg)
-            }
-            if droppedCount > 0 {
-                logger.info("[CompactDiag] eAH v2 preAnchor prune: dropped \(droppedCount) toolResult(>1kc) + paired toolUse, \(preAnchorRaw.count - preAnchorPruned.count) messages emptied; pruned slice=\(preAnchorPruned.count)")
-            }
-
-            // ROLE ALIGNMENT (defense-only, currently unreachable): the API
-            // requires the first message to be `user`. This peel stays as
-            // belt-and-braces, but its body cannot execute today:
-            //   1. walkBackUserTurnsBounded only ever returns priorIdx on a
-            //      `.user` message carrying no toolResult parts — boundary
-            //      decisions happen solely at user messages, and the 100-cap
-            //      stops the walk (rejects the oversize candidate) instead of
-            //      clamping mid-slice, so the head can never be an assistant.
-            //   2. The prune above only drops toolUse/toolResult parts whose
-            //      id is in droppedToolIds (built solely from >1kc toolResults).
-            //      The head user message carries no toolResult by the boundary
-            //      rule, and toolUse parts are only ever constructed on
-            //      assistant-role messages (assistantParts -> .assistant;
-            //      Offloading's in-place rewrite preserves the message role),
-            //      so nothing in the head can be pruned and it can never be
-            //      emptied into the `kept.isEmpty` skip.
-            // Hence preAnchorPruned's head is always that user message (or
-            // preAnchor is empty when walk-back found no boundary), and the
-            // while body never fires. Kept for the pathological case (e.g. a
-            // corrupt DB row decoding to zero parts).
-            while let first = preAnchorPruned.first, first.role != .user {
-                preAnchorPruned.removeFirst()
-            }
-
-            var result: [AgentMessage] = []
-            result.append(contentsOf: preAnchorPruned)
 
             let postAnchor = (anchorIdx + 1) < agentHistory.count
                 ? Array(agentHistory[(anchorIdx + 1)...])
                 : []
 
-            // DIAG: explain how the slice was sized — uses post-prune /
-            // post-alignment counts so the log reflects what actually reaches
-            // the model, not the raw walk-back range.
-            let preAnchorCountSent = preAnchorPruned.count
-            let postAnchorCount = postAnchor.count
-            let priorIdxSource = priorIdxResolved == nil ? "fallback=0(<\(Self.compactKeepRecentUserTurns) user-text turns before anchor)" : "userTextWalkBack(N=\(Self.compactKeepRecentUserTurns))"
-            let preAnchorRawCount = max(0, anchorIdx - priorIdx + 1)
-            logger.info("[CompactDiag] eAH v2 slice: priorIdx=\(priorIdx) anchorIdx=\(anchorIdx) agentHistory.count=\(self.agentHistory.count) → preAnchorRaw=\(preAnchorRawCount) preAnchorSent=\(preAnchorCountSent) postAnchor=\(postAnchorCount) summaryChars=\(marker.summary.count) priorIdxSource=\(priorIdxSource) markerId=\(marker.id.prefix(8))")
-            // Show the post-prune / post-alignment preAnchor absolute indices,
-            // not the raw walk-back range. This way "what is actually sent"
-            // matches what the log shows.
-            let preAnchorTags = preAnchorPruned.map { msg -> String in
-                let dbId = msg.dbMessageId?.prefix(8) ?? "----"
-                return "\(msg.role.rawValue)/db=\(dbId)"
-            }
+            // DIAG: log the exact slice that reaches the model.
+            logger.info("[CompactDiag] eAH v2 slice: anchorIdx=\(anchorIdx) agentHistory.count=\(self.agentHistory.count) → preAnchorSent=0 (summary only) postAnchor=\(postAnchor.count) summaryChars=\(marker.summary.count) markerId=\(marker.id.prefix(8))")
             let postAnchorTags = postAnchor.enumerated().map { (off, m) -> String in
                 "\(anchorIdx + 1 + off):\(m.role.rawValue)"
             }
-            logger.info("[CompactDiag] eAH v2 layout: preAnchorSent=[\(preAnchorTags.joined(separator: ","))] | SUMMARY injected into first postAnchor user | postAnchorAbsIdx=[\(postAnchorTags.joined(separator: ","))]")
+            logger.info("[CompactDiag] eAH v2 layout: preAnchorSent=[] | SUMMARY injected into first postAnchor user | postAnchorAbsIdx=[\(postAnchorTags.joined(separator: ","))]")
 
-            if let firstUserOffset = postAnchor.firstIndex(where: { $0.role == .user }) {
-                // Splice: copy prefix as-is, mutate the first user, copy rest.
-                if firstUserOffset > 0 {
-                    result.append(contentsOf: postAnchor[0..<firstUserOffset])
-                }
-                var injected = postAnchor[firstUserOffset]
+            var result: [AgentMessage] = []
+            if postAnchor.first?.role == .user {
+                // Inject the summary at the head of the first post-anchor
+                // user turn, then keep the rest verbatim.
+                var injected = postAnchor[0]
                 injected.parts.insert(.text(summaryText), at: 0)
                 result.append(injected)
-                if firstUserOffset + 1 < postAnchor.count {
-                    result.append(contentsOf: postAnchor[(firstUserOffset + 1)...])
+                if postAnchor.count > 1 {
+                    result.append(contentsOf: postAnchor[1...])
                 }
             } else {
-                // No user message after anchor — append everything, then a
-                // standalone summary user turn at the end. The new user input
-                // about to be added by the caller will follow it as the last
-                // user, but two user turns at the tail will be merged by the
-                // existing mergeConsecutiveSameRole pass downstream. (Rare:
-                // only happens when compact ran but no new user prompt exists
-                // yet.)
-                result.append(contentsOf: postAnchor)
+                // The post-anchor slice does not open with a `user` turn:
+                // either the anchor was itself a user message (the next row is
+                // the assistant reply) or compact ran before any new user
+                // prompt exists. A request must start with `user`, so prepend
+                // the summary as a standalone user turn and keep the rest
+                // verbatim.
                 result.append(AgentMessage(role: .user, parts: [.text(summaryText)]))
+                result.append(contentsOf: postAnchor)
             }
 
             return result
         }
 
         // ─── v1 (legacy) markers ───────────────────────────────────────
-        // Resolve boundary with same priority as Phase 2.5 restore.
-        if let fkmId = marker.firstKeptMessageId ?? marker.boundaryMessageId,
-           let keepStart = agentHistory.firstIndex(where: { $0.dbMessageId == fkmId }) {
+        //
+        // v1 resolves its boundary by firstKeptMessageId -> boundaryMessageId;
+        // compactAll markers (both nil) resolve by lastCompactedMessageId.
+        // The boundary is the FIRST KEPT message: summary first, then
+        // agentHistory from that index onward.
+        //
+        // [F2] Every unresolvable-anchor branch fails closed (invalidates the
+        // marker) instead of silently sending the full un-summarised history
+        // behind a UI that still shows the compacted zone.
+        if let fkmId = marker.firstKeptMessageId ?? marker.boundaryMessageId {
+            guard let keepStart = agentHistory.firstIndex(where: { $0.dbMessageId == fkmId }) else {
+                logger.warning("[Compact] effectiveAgentHistory v1: firstKept/boundary \(fkmId.prefix(8)) not in agentHistory(count=\(self.agentHistory.count)) — invalidating marker id=\(marker.id.prefix(8))")
+                invalidateCompactMarker(marker, reason: "v1 firstKept/boundary \(fkmId.prefix(8)) not in agentHistory(count=\(self.agentHistory.count))")
+                return agentHistory
+            }
             let summaryMsg = Self.summaryAsAgentMessage(marker.summary)
             var result: [AgentMessage] = [summaryMsg]
             result.append(contentsOf: agentHistory[keepStart...])
             return result
         }
-        // compactAll marker (nil firstKeptMessageId): summary + (anchor user
-        // turns kept by compact) + (any post-compact new messages). The kept
-        // tail is bounded by lastCompactedMessageId — everything strictly AFTER
-        // it in agentHistory is "kept anchor + new messages".
-        //
-        // ⚠️ Defensive lcm resolution: lastCompactedMessageId can fail to map
-        // back into agentHistory in real sessions:
-        //   - The compacted boundary message may have been appended without its
-        //     DB id written back yet (persistAgentMessage races the next agent
-        //     iteration), so the marker was written with `nil` lcmId.
-        //   - View-model rebuild from DB (Phase 2.5 restore) reorders or drops
-        //     transient agentHistory entries, leaving the lcm dbMessageId
-        //     unfindable on the next inference call.
-        // Both used to silently degrade to `[summaryMsg]` (a single message
-        // with no tool_use_id context); the model would then hot-loop calling
-        // memory_get to "recover state" — see the M-Team session bug. Recompute
-        // the anchor from the tail when lcm resolution fails so the model still
-        // has the recent conversation as context.
-        if marker.firstKeptMessageId == nil && marker.boundaryMessageId == nil {
+        // compactAll marker (nil firstKeptMessageId/boundaryMessageId):
+        // summary + everything strictly after the resolved anchor.
+        if let lcmId = marker.lastCompactedMessageId,
+           let lcmIdx = agentHistory.lastIndex(where: { $0.dbMessageId == lcmId }) {
             let summaryMsg = Self.summaryAsAgentMessage(marker.summary)
             var result: [AgentMessage] = [summaryMsg]
-
-            // Normal path: lcmId resolves in agentHistory. Append everything
-            // strictly after it = (anchor user turns kept by compact) + (new
-            // messages added since compact).
-            if let lcmId = marker.lastCompactedMessageId,
-               let lcmIdx = agentHistory.lastIndex(where: { $0.dbMessageId == lcmId }) {
-                if lcmIdx + 1 < agentHistory.count {
-                    result.append(contentsOf: agentHistory[(lcmIdx + 1)...])
-                }
-                return result
-            }
-
-            // Degraded path: lcmId is nil OR not in agentHistory. Recompute
-            // anchor by walking back N user-text turns — same rule compactBefore
-            // uses to *write* the kept tail, so behavior matches the user's
-            // mental model ("compact left the last N turns alone").
-
-            // Diagnostic dump: which msg ids actually exist in agentHistory
-            // around the boundary, vs what the marker expects to find. Prints
-            // last 5 entries' dbMessageId + role + a short content preview so
-            // we can spot whether the lcm is just the wrong id, or whether
-            // entries near the boundary lost their dbMessageId entirely.
-            let withDbId = agentHistory.filter { $0.dbMessageId != nil }.count
-            let tailSlice = agentHistory.suffix(5).enumerated().map { (offset, m) -> String in
-                let absoluteIdx = agentHistory.count - 5 + offset
-                let preview: String = m.parts.first.map { part -> String in
-                    switch part {
-                    case .text(let t):                 return "text(\(t.prefix(40)))"
-                    case .toolUse(_, let name, _):     return "tool_use(\(name))"
-                    case .toolResult(let id, _, _, _, _, _, _, _): return "tool_result(id=\(id.prefix(8)))"
-                    case .imageData:                   return "imageData"
-                    }
-                } ?? "(empty)"
-                return "[\(absoluteIdx)] role=\(m.role) dbId=\(m.dbMessageId?.prefix(8) ?? "nil") \(preview)"
-            }.joined(separator: " | ")
-            logger.warning("[Compact] effectiveAgentHistory DIAG: marker.id=\(marker.id.prefix(8)) marker.lcmId=\(marker.lastCompactedMessageId?.prefix(8) ?? "nil") agentHistory.count=\(self.agentHistory.count) entriesWithDbId=\(withDbId) tail5=\(tailSlice)")
-
-            if let nthIdx = indexOfNthFromLastUserText(Self.compactKeepRecentUserTurns) {
-                result.append(contentsOf: agentHistory[nthIdx...])
-                logger.warning("[Compact] effectiveAgentHistory: lcmId=\(marker.lastCompactedMessageId?.prefix(8) ?? "nil") not in agentHistory(count=\(self.agentHistory.count)); falling back to last \(Self.compactKeepRecentUserTurns) user turns (anchorIdx=\(nthIdx), kept=\(self.agentHistory.count - nthIdx))")
-            } else {
-                // Not even N user-text turns available — append full history
-                // rather than risk the empty-context loop.
-                result.append(contentsOf: agentHistory)
-                logger.warning("[Compact] effectiveAgentHistory: lcmId unresolved AND <\(Self.compactKeepRecentUserTurns) user turns in agentHistory(count=\(self.agentHistory.count)); falling back to full history")
+            if lcmIdx + 1 < agentHistory.count {
+                result.append(contentsOf: agentHistory[(lcmIdx + 1)...])
             }
             return result
         }
-        // Stale / legacy marker with only sortOrder info. agentHistory entries
-        // don't carry sort_order directly, so give up on marker filtering and
-        // return full history.
-        logger.warning("[Compact] effectiveAgentHistory: marker id=\(marker.id.prefix(8)) unresolvable in agentHistory — returning full history")
+        // [F2] No resolvable anchor of any kind -> fail closed rather than
+        // silently returning the full history behind a "compacted" UI.
+        logger.warning("[Compact] effectiveAgentHistory: marker id=\(marker.id.prefix(8)) has no resolvable anchor (fkm=nil, boundary=nil, lcm=\(marker.lastCompactedMessageId?.prefix(8) ?? "nil")) — invalidating")
+        invalidateCompactMarker(marker, reason: "no resolvable id anchor")
         return agentHistory
     }
 
