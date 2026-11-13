@@ -243,9 +243,52 @@ class RootfsManager {
         return candidates.max(by: { $0.created < $1.created })?.url
     }
 
+    /// File count + byte total of a directory tree, for backup verification.
+    /// Counts every entry (files, directories, symlinks); sizes only regular
+    /// files. The same function runs on source and copy, so any difference
+    /// means the copy is incomplete.
+    private static func treeFingerprint(at url: URL) -> (count: Int, bytes: Int64) {
+        let fm = FileManager.default
+        var count = 0
+        var bytes: Int64 = 0
+        let enumerator = fm.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]
+        )
+        while let fileURL = enumerator?.nextObject() as? URL {
+            count += 1
+            if let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+               values.isRegularFile == true, let size = values.fileSize {
+                bytes += Int64(size)
+            }
+        }
+        return (count, bytes)
+    }
+
+    /// Throws unless `dest` is a complete copy of `source` (same entry count
+    /// and same total regular-file bytes). Runs before the old rootfs is
+    /// deleted, so a failed or partial backup aborts the reset instead of
+    /// destroying the only copy of the user's data.
+    private static func verifyBackupCopy(from source: URL, to dest: URL, label: String) throws {
+        let expected = treeFingerprint(at: source)
+        let actual = treeFingerprint(at: dest)
+        guard expected == actual else {
+            throw NSError(
+                domain: "RootfsManager",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Backup of \(label) is incomplete: copied \(actual.count) of \(expected.count) entries (\(actual.bytes) of \(expected.bytes) bytes). Reset aborted; your data was left in place."]
+            )
+        }
+    }
+
     /// Reset (delete) the rootfs, forcing a fresh install on next launch
-    /// - Parameter keepUserData: If true, backs up /root directory before deletion
-    /// - Returns: URL of backup directory if keepUserData was true, nil otherwise
+    /// - Parameter keepUserData: If true, backs up /root and /home before
+    ///   deletion. Each copy is verified (file count + size) before anything
+    ///   is deleted; a failed or incomplete backup aborts the reset and
+    ///   leaves the rootfs in place.
+    /// - Returns: URL of the backed-up /root directory if keepUserData was
+    ///   true and /root existed, nil otherwise. The /home backup, when made,
+    ///   sits next to it as `rootfs-backup-<ts>/home`.
     @discardableResult
     func reset(keepUserData: Bool = false) throws -> URL? {
         logger.warning("[Rootfs] reset requested — deleting \(rootfsPath.path)")
@@ -253,21 +296,34 @@ class RootfsManager {
         var backupURL: URL?
 
         if keepUserData {
-            // Backup /root directory
-            let userDataPath = dataPath.appendingPathComponent("root")
-            if FileManager.default.fileExists(atPath: userDataPath.path) {
-                let backupPath = backupsDirectory
+            // Back up /root AND /home — both are user iSH data. (Previously
+            // only /root was copied, so a reset silently destroyed /home.)
+            let userDirs = ["root", "home"].filter {
+                FileManager.default.fileExists(atPath: dataPath.appendingPathComponent($0).path)
+            }
+            if !userDirs.isEmpty {
+                let backupRoot = backupsDirectory
                     .appendingPathComponent("rootfs-backup-\(Date().timeIntervalSince1970)")
-                    .appendingPathComponent("root")
-
                 try FileManager.default.createDirectory(
-                    at: backupPath.deletingLastPathComponent(),
+                    at: backupRoot,
                     withIntermediateDirectories: true
                 )
-
-                try FileManager.default.copyItem(at: userDataPath, to: backupPath)
-                backupURL = backupPath
-                logger.info("[Rootfs] user data backed up to \(backupPath.path)")
+                do {
+                    for name in userDirs {
+                        let source = dataPath.appendingPathComponent(name)
+                        let dest = backupRoot.appendingPathComponent(name)
+                        try FileManager.default.copyItem(at: source, to: dest)
+                        try Self.verifyBackupCopy(from: source, to: dest, label: "/\(name)")
+                        if name == "root" { backupURL = dest }
+                    }
+                } catch {
+                    // Never present a partial backup as restorable: remove
+                    // it, then abort the reset — the rootfs stays in place.
+                    try? FileManager.default.removeItem(at: backupRoot)
+                    logger.error("[Rootfs] user-data backup failed (\(error.localizedDescription)) — reset aborted, rootfs left in place")
+                    throw error
+                }
+                logger.info("[Rootfs] user data backed up to \(backupRoot.path)")
             }
         }
 

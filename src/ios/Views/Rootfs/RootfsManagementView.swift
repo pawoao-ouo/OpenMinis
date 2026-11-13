@@ -215,7 +215,7 @@ struct RootfsManagementView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    Text("• Reset: Delete everything\n• Backup: Save /root directory\n• Restore: Recover saved data")
+                    Text("• Reset: Delete everything\n• Backup: Save /root and /home directories\n• Restore: Recover saved data")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -241,7 +241,7 @@ struct RootfsManagementView: View {
                 viewModel.resetRootfs(keepUserData: true)
             }
         } message: {
-            Text("This will backup your /root directory, then reset the rootfs. You can restore the backup later.")
+            Text("This will back up your /root and /home directories, then reset the rootfs. You can restore the backup later.")
         }
         .alert("Clean Up?", isPresented: $viewModel.showCleanupConfirmation) {
             Button("Cancel", role: .cancel) {}
