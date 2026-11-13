@@ -192,19 +192,23 @@ extension BackupImporter {
     func importCategory(_ category: BackupCategory,
                         root: URL,
                         fileIndex: [BackupFileIndexEntry],
+                        snapshotAt: Date?,
                         options: Options) async throws -> CategoryReport {
         switch category {
         case .chats: return try await importChats(root: root, fileIndex: fileIndex, options: options)
         case .sharedFiles: return try importSharedFiles(root: root, fileIndex: fileIndex)
         case .stickers: return try importStickers(root: root, fileIndex: fileIndex)
         case .skills: return try await importSkills(root: root, fileIndex: fileIndex)
-        case .memory: return try await importMemory(root: root)
+        case .memory:
+            return try await importMemory(root: root, snapshotAt: snapshotAt, options: options)
         case .providers: return try await importProviders(root: root, options: options)
-        case .mcpServers: return try await importMCPServers(root: root)
+        case .mcpServers:
+            return try await importMCPServers(root: root, options: options)
         case .voiceCorrections: return try await importVoiceCorrections(root: root)
         case .environmentVariables:
             return try await importEnvironmentVariables(root: root)
-        case .appearance: return try await importAppearance(root: root, fileIndex: fileIndex)
+        case .appearance:
+            return try await importAppearance(root: root, fileIndex: fileIndex, options: options)
         case .scheduledTasks: return try await importScheduledTasks(root: root)
         case .ishUserData: return try await importISHUserData(root: root, fileIndex: fileIndex)
         }
@@ -516,8 +520,15 @@ extension BackupImporter {
                 // [batch7 用户-P2-11] 清除标记与文件 merge 语义对齐：以清除
                 // 标记为准——包里没带某页壁纸文件、但标记说该页已清除时，
                 // 本机残留的该页壁纸文件删掉，不让标记变死标记。
-                AppearanceStudio.shared.reconcileClearedWallpapersAfterRestore(
-                    packagedScopes: Self.packagedWallpaperScopes(in: fileIndex))
+                //
+                // [A6] But this DELETES local wallpaper files, so it belongs to
+                // OVERWRITE only. In merge mode the promise is "nothing is
+                // deleted": a local wallpaper the package does not carry stays
+                // put instead of being reconciled away by the package's markers.
+                if options.mode == .overwrite {
+                    AppearanceStudio.shared.reconcileClearedWallpapersAfterRestore(
+                        packagedScopes: Self.packagedWallpaperScopes(in: fileIndex))
+                }
             }
             report.imported += 1
         }
@@ -527,11 +538,16 @@ extension BackupImporter {
         // undeletable) — remove them. Runs even when the package carried
         // no settings: then the local list stands, and only pre-existing
         // local orphans go.
-        let orphansRemoved = await MainActor.run {
-            AppearanceStudio.shared.removeOrphanedLibraryPacks()
-        }
-        if orphansRemoved > 0 {
-            logger.info("[Restore] appearance: removed \(orphansRemoved) orphaned theme pack(s) with no library entry")
+        //
+        // [A6] OVERWRITE only: removing orphaned packs deletes files the
+        // package does not carry, which merge must never do.
+        if options.mode == .overwrite {
+            let orphansRemoved = await MainActor.run {
+                AppearanceStudio.shared.removeOrphanedLibraryPacks()
+            }
+            if orphansRemoved > 0 {
+                logger.info("[Restore] appearance: removed \(orphansRemoved) orphaned theme pack(s) with no library entry")
+            }
         }
         return report
     }
@@ -609,7 +625,8 @@ extension BackupImporter {
 
     // MARK: - Memory & Soul
 
-    private func importMemory(root: URL) async throws -> CategoryReport {
+    private func importMemory(root: URL, snapshotAt: Date?,
+                              options: Options) async throws -> CategoryReport {
         var report = CategoryReport(category: BackupCategory.memory.rawValue)
         let fm = FileManager.default
         let src = root.appendingPathComponent("data/memory", isDirectory: true)
@@ -633,6 +650,15 @@ extension BackupImporter {
             if let localData = try? Data(contentsOf: to),
                let pkgData = try? Data(contentsOf: from),
                localData == pkgData {
+                report.skipped += 1
+                continue
+            }
+            // [A6] Merge must not let an OLDER package overwrite newer local
+            // memory. A local file modified after the backup's cut-off is
+            // newer than anything the package can hold, so keep it; overwrite
+            // mode deliberately replaces regardless (its wipe already treats
+            // the package as the source of truth).
+            if options.mode == .merge, localIsNewerThanBackup(to, snapshotAt: snapshotAt) {
                 report.skipped += 1
                 continue
             }
@@ -682,6 +708,11 @@ extension BackupImporter {
                         report.skipped += 1
                         continue
                     }
+                    // [A6] Same merge guard as the top-level files.
+                    if options.mode == .merge, localIsNewerThanBackup(to, snapshotAt: snapshotAt) {
+                        report.skipped += 1
+                        continue
+                    }
                     let staged = dst.appendingPathComponent(".restore-\(UUID().uuidString).tmp")
                     do {
                         try fm.copyItem(at: fileURL, to: staged)
@@ -708,6 +739,11 @@ extension BackupImporter {
             if let localData = try? Data(contentsOf: registryDst),
                let pkgData = try? Data(contentsOf: registrySrc),
                localData == pkgData {
+                report.skipped += 1
+            } else if options.mode == .merge,
+                      localIsNewerThanBackup(registryDst, snapshotAt: snapshotAt) {
+                // [A6] An older package must not roll back a newer local
+                // persona registry in merge mode.
                 report.skipped += 1
             } else {
                 let staged = registryDst.deletingLastPathComponent()
@@ -736,6 +772,10 @@ extension BackupImporter {
             if let localData = try? Data(contentsOf: regexDst),
                let pkgData = try? Data(contentsOf: regexSrc),
                localData == pkgData {
+                report.skipped += 1
+            } else if options.mode == .merge,
+                      localIsNewerThanBackup(regexDst, snapshotAt: snapshotAt) {
+                // [A6] Same guard for the global regex rules.
                 report.skipped += 1
             } else {
                 let staged = regexDst.deletingLastPathComponent()
@@ -769,6 +809,22 @@ extension BackupImporter {
             await MainActor.run { GlobalRegexStore.shared.reloadFromDisk() }
         }
         return report
+    }
+
+    /// [A6] Merge-only "is the LOCAL file newer than this backup?" test.
+    ///
+    /// The package's own files lose their mtime in the ZIP round-trip (the
+    /// writer stamps 0 and the extractor does not restore it), so the only
+    /// trustworthy backup instant is the manifest's snapshot cut-off. A local
+    /// file modified strictly after that instant is newer than anything the
+    /// package can hold, so merge keeps it; a file modified at or before it
+    /// is not newer, so the package's copy wins. Nil snapshot = no recorded
+    /// cut-off = cannot prove the local copy is newer.
+    private func localIsNewerThanBackup(_ url: URL, snapshotAt: Date?) -> Bool {
+        guard let snapshotAt else { return false }
+        guard let mtime = try? url.resourceValues(
+            forKeys: [.contentModificationDateKey]).contentModificationDate else { return false }
+        return mtime > snapshotAt
     }
 
     // MARK: - Providers

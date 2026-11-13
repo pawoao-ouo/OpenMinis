@@ -292,6 +292,7 @@ actor BackupImporter {
                                                                  fileIndex: fileIndex)
                 }
                 var cat = try await importCategory(category, root: root, fileIndex: fileIndex,
+                                                   snapshotAt: manifest.snapshotAt,
                                                    options: options)
                 cat.deleted = deleted
                 cat.sizeSkippedInPackage = fileIndex
