@@ -15,6 +15,7 @@ struct ProviderInstanceDetailView: View {
     /// Section inside a Form has no stable host and dismissed the whole settings stack.
     @State private var thinkingEditorRequest: ThinkingRuleEditorRequest?
     @State private var fetchError: String?
+    @State private var keySaveError: String?
     @State private var fetchWarnings: [String] = []
     @State private var fetchSource: String?
     @State private var showDeleteConfirm = false
@@ -415,6 +416,13 @@ struct ProviderInstanceDetailView: View {
         switch instance.credentialType {
         case .apiKey:
             apiKeyCredentialView(instance)
+            // Same red-caption error style as the fetch error below.
+            if let keyError = keySaveError {
+                Text(keyError)
+                    .font(.caption)
+                    .foregroundStyle(MinisTheme.destructive)
+                    .textSelection(.enabled)
+            }
         case .oauth:
             oauthCredentialView(instance)
         }
@@ -462,7 +470,14 @@ struct ProviderInstanceDetailView: View {
                     ProviderKeychainHelper.deleteAPIKey(instanceId: instance.id)
                 } else {
                     AppLogger(category: "Provider").info("apiKeyTextField onChange→SAVE instanceId=\(instance.id.prefix(8)) newLen=\(trimmed.count)")
-                    ProviderKeychainHelper.saveAPIKey(trimmed, instanceId: instance.id)
+                    // [keychain-fail-closed] A failed Keychain write must not
+                    // pass silently — the field keeps the typed value and the
+                    // error is shown under it until a later edit saves.
+                    if ProviderKeychainHelper.saveAPIKey(trimmed, instanceId: instance.id) {
+                        keySaveError = nil
+                    } else {
+                        keySaveError = "The API key could not be saved. Please try again."
+                    }
                 }
             }
 

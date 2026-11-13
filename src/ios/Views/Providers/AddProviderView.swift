@@ -915,7 +915,13 @@ struct AddProviderView: View {
         // Nothing to store for a keyless endpoint — and never write an empty
         // string to the Keychain (hasAnyCredential treats empty as absent).
         if !trimmedKey.isEmpty {
-            ProviderKeychainHelper.saveAPIKey(trimmedKey, instanceId: instance.id)
+            // [keychain-fail-closed] A failed Keychain write must not add the
+            // provider or dismiss the sheet as if the key was saved.
+            guard ProviderKeychainHelper.saveAPIKey(trimmedKey, instanceId: instance.id) else {
+                errorMessage = "The API key could not be saved. Please try again."
+                isSaving = false
+                return
+            }
         }
         store.addInstance(instance)
         isSaving = false
@@ -951,7 +957,12 @@ struct AddProviderView: View {
             customBaseURL: trimmedBase.isEmpty ? nil : trimmedBase,
             appendV1Suffix: appendV1SuffixInput
         )
-        ProviderKeychainHelper.saveOAuthString(trimmedToken, instanceId: instance.id, account: "manual-oauth-token")
+        // [keychain-fail-closed] A failed Keychain write must not add the
+        // provider or dismiss the sheet as if the token was saved.
+        guard ProviderKeychainHelper.saveOAuthString(trimmedToken, instanceId: instance.id, account: "manual-oauth-token") else {
+            errorMessage = "The token could not be saved. Please try again."
+            return
+        }
         store.addInstance(instance)
         dismiss()
     }
