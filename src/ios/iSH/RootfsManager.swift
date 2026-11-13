@@ -434,12 +434,14 @@ class RootfsManager {
                 to: dataPath.appendingPathComponent("home"),
                 label: "home"
             )
+            try registerRestoredUserDirectory(label: "home")
         case "root":
             try restoreOneUserDirectory(
                 from: backupURL,
                 to: dataPath.appendingPathComponent("root"),
                 label: "root"
             )
+            try registerRestoredUserDirectory(label: "root")
             // The /home backup, when made, sits next to it as
             // `rootfs-backup-<ts>/home`.
             let homeBackup = backupURL.deletingLastPathComponent().appendingPathComponent("home")
@@ -449,6 +451,7 @@ class RootfsManager {
                     to: dataPath.appendingPathComponent("home"),
                     label: "home"
                 )
+                try registerRestoredUserDirectory(label: "home")
             }
         default:
             // Refuse anything else: passing the backup folder itself would
@@ -461,6 +464,42 @@ class RootfsManager {
         }
 
         logger.info("[Rootfs] user data restored from \(backupURL.path)")
+    }
+
+    /// Register one restored user directory in fakefs meta.db so the
+    /// running kernel can see it, and verify the registration landed.
+    /// `registerSubtreeInMetaDB` never throws and silently no-ops when
+    /// meta.db cannot be opened, so a bare call cannot tell success from
+    /// failure — the root row must be present in `paths` afterwards, or
+    /// the restore reports failure instead of claiming success while the
+    /// files stay invisible in-guest.
+    private func registerRestoredUserDirectory(label: String) throws {
+        let live = dataPath.appendingPathComponent(label)
+        registerSubtreeInMetaDB(hostRoot: live)
+        guard metaDBHasPath("/\(label)") else {
+            throw NSError(
+                domain: "RootfsManager",
+                code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "Restored /\(label) to disk, but it could not be registered in the iSH file index (meta.db) — the files would be invisible inside iSH. Restore reported as failed; nothing was deleted."]
+            )
+        }
+        logger.info("[Rootfs] /\(label) registered in meta.db")
+    }
+
+    /// True when fakefs meta.db has a row for `linuxPath` (e.g. "/root").
+    /// False when meta.db cannot be opened or the row is missing.
+    private func metaDBHasPath(_ linuxPath: String) -> Bool {
+        let metaDBPath = rootfsPath.appendingPathComponent("meta.db").path
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(metaDBPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let db else { return false }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT 1 FROM paths WHERE path = ? LIMIT 1", -1, &stmt, nil) == SQLITE_OK,
+              let stmt else { return false }
+        defer { sqlite3_finalize(stmt) }
+        bindPathBlob(stmt, index: 1, path: linuxPath)
+        return sqlite3_step(stmt) == SQLITE_ROW
     }
 
     /// Overlay default configuration files from the bundle onto the rootfs.
