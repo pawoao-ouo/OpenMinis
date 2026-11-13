@@ -1723,8 +1723,21 @@ extension AIChatViewModel {
             }
             logger.info("[CompactDiag] eAH v2 layout: preAnchorSent=[] | SUMMARY injected into first postAnchor user | postAnchorAbsIdx=[\(postAnchorTags.joined(separator: ","))]")
 
+            // [F12] `role == .user` does not mean "a real user turn": a
+            // tool_result rides on a user-role message (the second half of a
+            // tool round). Injecting the summary into such a carrier would put
+            // user-facing context inside a tool result, and after an in-loop
+            // auto-compact the first post-anchor user message can be exactly
+            // that carrier. Only inject into the first post-anchor user turn
+            // when it carries no toolResult part; otherwise fall through to the
+            // standalone summary turn below — the same exclusion
+            // walkBackUserTurnsBounded / safeContextSuffix apply.
+            let firstPostAnchorIsInjectionTurn = postAnchor.first.map { entry in
+                entry.role == .user
+                    && !entry.parts.contains(where: { if case .toolResult = $0 { return true }; return false })
+            } ?? false
             var result: [AgentMessage] = []
-            if postAnchor.first?.role == .user {
+            if firstPostAnchorIsInjectionTurn {
                 // Inject the summary at the head of the first post-anchor
                 // user turn, then keep the rest verbatim.
                 var injected = postAnchor[0]
@@ -1988,13 +2001,26 @@ extension AIChatViewModel {
     /// 也意味着它永远不会和工具输出粘在一起。
     func appendPersonaReminderToHistory(contextTokens: Int) {
         let msg = AgentMessage(role: .user, parts: [.text(personaReminderText())])
-        let idx = agentHistory.count
         agentHistory.append(msg)
         lastPersonaReminderContextTokens = contextTokens
         Task { @MainActor [weak self] in
             guard let self else { return }
-            if let pid = await self.persistAgentMessage(msg), idx < self.agentHistory.count {
-                self.agentHistory[idx].dbMessageId = pid
+            guard let pid = await self.persistAgentMessage(msg) else { return }
+            // [F13] Stamp the id onto the entry WE appended, never by the index
+            // it happened to occupy: history can be truncated/retried while the
+            // persist awaits, and `agentHistory[idx]` would then point at a
+            // different message (or out of range). Resolve by the entry's own
+            // identity — the reminder is an independent row carrying this
+            // marker, and it is the only still-unstamped one — so a moved or
+            // removed reminder is simply not stamped instead of mis-stamping a
+            // stranger.
+            if let i = self.agentHistory.lastIndex(where: { entry in
+                entry.dbMessageId == nil && entry.parts.contains { part in
+                    if case .text(let text) = part { return text.contains(Self.kPersonaReminderMarker) }
+                    return false
+                }
+            }) {
+                self.agentHistory[i].dbMessageId = pid
             }
         }
     }
