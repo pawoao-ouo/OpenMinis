@@ -651,7 +651,8 @@ actor ChatStore {
                 model_id    TEXT NOT NULL,
                 created_at  REAL NOT NULL,
                 updated_at  REAL NOT NULL,
-                persona_id  TEXT
+                persona_id  TEXT,
+                pinned_at   REAL
             )
         """)
 
@@ -691,6 +692,14 @@ actor ChatStore {
         // cascades clean it up); such orphans render under the default
         // persona rather than failing a constraint.
         addColumnIfMissing(table: "sessions", column: "persona_id", definition: "TEXT")
+        // Session pinning. listSessions() SELECTs s.pinned_at and so do
+        // restoreSession / mergeRemoteSession / getSession / pin toggle — a
+        // fresh DB without this column makes every one of those prepares
+        // fail. Per the add-column wipe trap, the column must exist in BOTH
+        // the initial DDL above and this idempotent migration (it was
+        // dropped from here by 51a4e062, which is why fresh installs showed
+        // an empty chat list forever).
+        addColumnIfMissing(table: "sessions", column: "pinned_at", definition: "REAL")
         // [batch6b / W3A-08] Meta-updated clock: metadata edits (rename /
         // category / pin / folder / memory / model) bump THIS column, while
         // message activity keeps bumping updated_at. Sync's LWW rides this one,
@@ -1503,6 +1512,10 @@ actor ChatStore {
                 row.parentToolUseId = parentToolUseId
                 sessions.append(row)
             }
+        } else {
+            // Never silently return [] again: a failed prepare here used to
+            // leave the chat list permanently empty with no trace in the log.
+            iCloudLogger.error("[ChatStore.listSessions] prepare FAILED: \(String(cString: sqlite3_errmsg(db))) — returning empty list")
         }
         sqlite3_finalize(stmt)
 
