@@ -28,6 +28,21 @@ extension AIChatViewModel {
             MinisToast.show(AppLocalized("找不到要保存的消息"))
             return false
         }
+        let message = messages[messageIndex]
+
+        // [S15] The edit has three homes: the bubble, the model-facing
+        // agentHistory and the stored rows. If the bubble was never persisted
+        // (no dbRowId) and never reloaded (no sourceSortOrder), neither of the
+        // last two can be reached without guessing, and a reload would silently
+        // revert the UI. Refuse up front, the same way deleteSingleMessage does
+        // for the same "not saved yet" state.
+        if message.dbRowId == nil, message.sourceSortOrder == nil {
+            AppLogger(category: "AIChatViewModel").warning(
+                "[CodeBlockEdit] refusing — bubble is neither persisted (no dbRowId) nor reloaded (no sourceSortOrder)")
+            errorMessage = AppLocalized("This message hasn't finished saving yet, so its code can't be edited in place. Try again in a moment.")
+            MinisToast.show(AppLocalized("This message hasn't finished saving yet, so its code can't be edited in place. Try again in a moment."))
+            return false
+        }
 
         let updatedSource = ChatMarkdownSegmenter.replacingNthCode(
             in: request.sourceMarkdown,
@@ -39,7 +54,6 @@ extension AIChatViewModel {
             return false
         }
 
-        let message = messages[messageIndex]
         if message.role == .assistant, let blockId = request.blockId,
            let block = message.blocks.first(where: { $0.id == blockId }) {
             // 命中具体 block：只改这一块，缓存的渲染结果一并作废。
@@ -55,7 +69,7 @@ extension AIChatViewModel {
             message.objectWillChange.send()
         }
 
-        replaceCodeInAgentHistory(oldCode: request.oldCode, newCode: request.newCode)
+        replaceCodeInAgentHistory(message: message, oldCode: request.oldCode, newCode: request.newCode)
         persistEditedCodeBlock(message: message, oldCode: request.oldCode, newCode: request.newCode)
 
         notifyAIAboutCodeEdit(request: request, updatedSource: updatedSource)
@@ -70,19 +84,38 @@ extension AIChatViewModel {
         ChatAddressing.assistant(sessionPersonaId: sessionPersonaId)
     }
 
-    private func replaceCodeInAgentHistory(oldCode: String, newCode: String) {
-        for i in agentHistory.indices {
-            var changed = false
+    /// [S15] Rewrite the `agentHistory` copy of the bubble we just edited —
+    /// the entry carrying the bubble's own DB row (plus, for an assistant
+    /// bubble, the continuation rows folded into it), matched by `dbRowId`.
+    /// The old version searched the WHOLE history for the first text part
+    /// containing `oldCode`, so a snippet repeated in an earlier turn took the
+    /// edit while the edited bubble kept the old code in the model context.
+    private func replaceCodeInAgentHistory(message: ChatMessage, oldCode: String, newCode: String) {
+        guard let rowId = message.dbRowId,
+              let hi = agentHistory.firstIndex(where: { $0.dbMessageId == rowId }) else {
+            AppLogger(category: "AIChatViewModel").warning(
+                "[CodeBlockEdit] no agentHistory entry for bubble dbRowId=\(rowId?.prefix(8) ?? "nil") — history edit skipped")
+            return
+        }
+        // Assistant bubbles fold several DB rows into one UI message, so the
+        // edited block can live in any of them; scan the bubble's own span
+        // only (the same fold deleteSingleMessage uses), never further entries.
+        var lastIdx = hi
+        if message.role == .assistant {
+            var j = hi + 1
+            while j < agentHistory.count, !Self.isUserBubbleEntry(agentHistory[j]) {
+                lastIdx = j
+                j += 1
+            }
+        }
+        for i in hi...lastIdx {
             for j in agentHistory[i].parts.indices {
                 if case .text(let text) = agentHistory[i].parts[j],
                    let updated = ChatMarkdownSegmenter.replacingCode(in: text, oldCode: oldCode, newCode: newCode),
                    updated != text {
                     agentHistory[i].parts[j] = .text(updated)
-                    changed = true
-                    break
                 }
             }
-            if changed { break }
         }
     }
 
@@ -111,6 +144,12 @@ extension AIChatViewModel {
                     AppLogger(category: "AIChatViewModel").warning(
                         "[CodeBlockEdit] 持久化未命中任何行 row=\(rowId?.prefix(8) ?? "nil") range=\(range.lowerBound)...\(range.upperBound)")
                 }
+            } else if !done, sessionId != nil, range == nil {
+                // No id write succeeded AND there is no sort-order window to fall
+                // back to: the persisted copy keeps the old code. Log loudly
+                // instead of leaving the edit silently unwritten.
+                AppLogger(category: "AIChatViewModel").warning(
+                    "[CodeBlockEdit] 持久化未命中且无 sort_order 区间 row=\(rowId?.prefix(8) ?? "nil")")
             }
         }
     }
