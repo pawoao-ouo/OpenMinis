@@ -26,6 +26,7 @@ struct ProviderInstanceDetailView: View {
     @State private var editingCustomUserAgent = ""
     @State private var showManualTokenInput = false
     @State private var manualTokenInputText = ""
+    @State private var manualTokenSaveError: String?
     @State private var editingModelEntry: ModelEntry?
     @State private var pendingDeleteModelEntry: ModelEntry?
     @State private var showKeyRevealed = false
@@ -104,6 +105,15 @@ struct ProviderInstanceDetailView: View {
                     } footer: {
                         Text("Paste the bearer token. Whitespace and newlines will be stripped automatically.")
                     }
+                    // Same red-caption error style as keySaveError below.
+                    if let tokenError = manualTokenSaveError {
+                        Section {
+                            Text(tokenError)
+                                .font(.caption)
+                                .foregroundStyle(MinisTheme.destructive)
+                                .textSelection(.enabled)
+                        }
+                    }
                 }
                 .navigationTitle("Manual Bearer Token")
                 .navigationBarTitleDisplayMode(.inline)
@@ -112,12 +122,20 @@ struct ProviderInstanceDetailView: View {
                         Button("Cancel") {
                             showManualTokenInput = false
                             manualTokenInputText = ""
+                            manualTokenSaveError = nil
                         }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Save") {
                             let cleaned = manualTokenInputText.components(separatedBy: .whitespacesAndNewlines).joined()
-                            ProviderKeychainHelper.saveOAuthString(cleaned, instanceId: instanceId, account: "manual-oauth-token")
+                            // [keychain-fail-closed] A failed Keychain write must
+                            // not clear the typed token or close the sheet as if
+                            // it was saved.
+                            guard ProviderKeychainHelper.saveOAuthString(cleaned, instanceId: instanceId, account: "manual-oauth-token") else {
+                                manualTokenSaveError = "The token could not be saved. Please try again."
+                                return
+                            }
+                            manualTokenSaveError = nil
                             manualTokenInputText = ""
                             showManualTokenInput = false
                             oauthRefreshTrigger.toggle()
@@ -835,6 +853,7 @@ struct ProviderInstanceDetailView: View {
                 HStack(spacing: 12) {
                     Button("Change Token") {
                         manualTokenInputText = ""
+                        manualTokenSaveError = nil
                         showManualTokenInput = true
                     }
                     .font(.caption.weight(.medium))
@@ -850,6 +869,7 @@ struct ProviderInstanceDetailView: View {
             } else {
                 Button("Set Manual Bearer Token") {
                     manualTokenInputText = ""
+                    manualTokenSaveError = nil
                     showManualTokenInput = true
                 }
                 .font(.caption.weight(.medium))

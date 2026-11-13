@@ -129,7 +129,12 @@ final class ClaudeOAuthManager: NSObject, ObservableObject {
         #endif
         logger.info("Has refresh_token: \(token.refreshToken != nil), expires: \(String(describing: token.expireDate))")
 
-        ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId)
+        // [keychain-fail-closed] A failed Keychain write must fail the login,
+        // not report "OAuth login complete" with no credential stored.
+        guard ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId) else {
+            logger.error("OAuth token could not be saved to Keychain (instance: \(instanceId))")
+            throw LLMError.providerError(message: "OAuth token could not be saved. Please try signing in again.")
+        }
         logger.info("=== OAuth login complete (instance: \(instanceId)) ===")
     }
 

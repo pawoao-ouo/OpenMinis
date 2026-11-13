@@ -126,8 +126,12 @@ struct ProvidersCollection: ConfigCollection {
 
         // Save credential to Keychain BEFORE addInstance() so the model-refresh
         // it kicks off can authenticate.
+        // [keychain-fail-closed] A failed Keychain write must fail the add,
+        // not return the new instance id as if the credential was saved.
         if let key = resolvedKey {
-            ProviderKeychainHelper.saveAPIKey(key, instanceId: instance.id)
+            guard ProviderKeychainHelper.saveAPIKey(key, instanceId: instance.id) else {
+                throw ConfigError.io("API key could not be saved to the Keychain")
+            }
         }
         store.addInstance(instance)
         return instance.id
@@ -198,7 +202,11 @@ struct ProvidersCollection: ConfigCollection {
                     throw ConfigError.invalidValue("API key cannot be empty")
                 }
                 let resolved = try Self.resolveSecret(trimmed)
-                ProviderKeychainHelper.saveAPIKey(resolved, instanceId: id)
+                // [keychain-fail-closed] A failed Keychain write must fail the
+                // write, not return success as if the key was saved.
+                guard ProviderKeychainHelper.saveAPIKey(resolved, instanceId: id) else {
+                    throw ConfigError.io("API key could not be saved to the Keychain")
+                }
                 // Touch → updateInstance persists/notifies. (credentialType is a
                 // `let` and cannot be adjusted here; the guard above rejects the
                 // one combination where a key would be meaningless.)

@@ -148,7 +148,12 @@ final class XAIOAuthManager: NSObject, ObservableObject {
         )
         logger.info("Token exchange successful")
 
-        ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId)
+        // [keychain-fail-closed] A failed Keychain write must fail the login,
+        // not report "OAuth login complete" with no credential stored.
+        guard ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId) else {
+            logger.error("OAuth token could not be saved to Keychain (instance: \(instanceId))")
+            throw LLMError.providerError(message: "OAuth token could not be saved. Please try signing in again.")
+        }
         // isAuthenticated(instanceId:) is a plain Keychain read, not @Published —
         // emit objectWillChange so observing views (Provider Detail / AddProvider)
         // refresh their "Signed in" badge immediately on successful login.

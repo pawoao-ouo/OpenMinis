@@ -100,7 +100,12 @@ final class KimiOAuthManager: ObservableObject {
             deviceId: deviceId,
             lastRefresh: Date()
         )
-        ProviderKeychainHelper.saveOAuthToken(storage, instanceId: instanceId)
+        // [keychain-fail-closed] A failed Keychain write must fail the login,
+        // not report "login complete" with no credential stored.
+        guard ProviderKeychainHelper.saveOAuthToken(storage, instanceId: instanceId) else {
+            logger.error("OAuth token could not be saved to Keychain (instance: \(instanceId))")
+            throw LLMError.providerError(message: "OAuth token could not be saved. Please try signing in again.")
+        }
         logger.info("Kimi device login complete (instance: \(instanceId))")
     }
 

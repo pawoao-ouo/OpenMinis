@@ -129,7 +129,12 @@ final class GeminiOAuthManager: NSObject, ObservableObject {
 
         // 6. Exchange code for token (with PKCE verifier)
         let token = try await exchangeCode(result.code, codeVerifier: pkce.verifier)
-        ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId)
+        // [keychain-fail-closed] A failed Keychain write must fail the login,
+        // not report "OAuth login complete" with no credential stored.
+        guard ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId) else {
+            logger.error("OAuth token could not be saved to Keychain (instance: \(instanceId))")
+            throw LLMError.providerError(message: "OAuth token could not be saved. Please try signing in again.")
+        }
 
         // 7. Fetch user email
         if let email = try? await fetchUserEmail(token: token.accessToken) {
