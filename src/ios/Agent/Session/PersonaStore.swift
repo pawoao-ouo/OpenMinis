@@ -386,6 +386,16 @@ final class PersonaStore: ObservableObject {
 
     @Published private(set) var personas: [Persona] = []
 
+    /// [P0-1] personas.json 坏了：隔离 + 降级模式。
+    /// 文件在、但读不出/解不出/解出是空表时置位。置位期间 save() 拒绝写盘，
+    /// 坏文件绝不会被覆盖。只有用户主动改人设（persist()）且坏文件已隔离
+    /// 成功时才解除——隔离失败时继续压住，坏文件还留在原路径。
+    private var registryDegraded = false
+
+    /// [P0-1] 这次启动隔离出来的坏注册表文件。非空 = 人设是从坏文件重建的，
+    /// UI 可以据此提示她：注册表重建了，旧文件留在这里，等她抢救。
+    @Published private(set) var corruptRegistryQuarantineURL: URL?
+
     @Published var currentPersonaID: String = PersonaStore.readCurrentID() {
         didSet {
             UserDefaults.standard.set(currentPersonaID, forKey: Self.currentIDKey)
@@ -723,7 +733,12 @@ final class PersonaStore: ObservableObject {
         guard let data = try? Data(contentsOf: url),
               let list = try? JSONDecoder().decode([Persona].self, from: data),
               !list.isEmpty else {
-            // 注册表坏了：重建默认（不丢记忆文件，只重建注册表）。
+            // 注册表坏了：先看文件在不在。
+            // 在（读不出/解不出/空表）→ 隔离坏文件，内存里重建默认，
+            // 绝不直接覆盖原文件；不在（首装/被删了）→ 重建并保存，老行为。
+            if FileManager.default.fileExists(atPath: url.path) {
+                quarantineCorruptRegistry(at: url)
+            }
             personas = [
                 // [B28 R11] 重建也带上「我自己」，不然升级后看不到这张卡。
                 Self.makeUserProfilePersona(),
@@ -734,7 +749,9 @@ final class PersonaStore: ObservableObject {
                         modelId: nil, skillIds: [], mcpServerIds: nil,
                         localToolIds: nil, sortOrder: 1, isBuiltIn: true),
             ]
-            save(personas)
+            if !registryDegraded {
+                save(personas)
+            }
             return
         }
         personas = list.sorted { $0.sortOrder < $1.sortOrder }
@@ -792,7 +809,29 @@ final class PersonaStore: ObservableObject {
         }
     }
 
+    /// [P0-1] 把坏掉的注册表文件移到同目录的隔离文件，永不删除。
+    /// 隔离名带毫秒时间戳，避免两次坏文件撞名。隔离失败时原文件留在原地，
+    /// 但降级模式照样置位——save() 压住写盘，坏文件不会被覆盖。
+    private func quarantineCorruptRegistry(at url: URL) {
+        registryDegraded = true
+        let stamp = Int(Date().timeIntervalSince1970 * 1000)
+        let quarantineURL = url.deletingLastPathComponent()
+            .appendingPathComponent("\(Self.fileName).corrupt-\(stamp)")
+        do {
+            try FileManager.default.moveItem(at: url, to: quarantineURL)
+            corruptRegistryQuarantineURL = quarantineURL
+            AppLogger(category: "PersonaStore").error("[P0-1] personas.json corrupt/unreadable — quarantined to \(quarantineURL.lastPathComponent), rebuilt defaults in memory only, save() suppressed until a persona is edited")
+        } catch {
+            AppLogger(category: "PersonaStore").error("[P0-1] personas.json corrupt/unreadable — quarantine move failed (\(error)), original left in place, save() suppressed")
+        }
+    }
+
     private func save(_ list: [Persona]) {
+        // [P0-1] 坏注册表隔离后：不写盘，免得覆盖还没被抢救的坏文件。
+        if registryDegraded {
+            AppLogger(category: "PersonaStore").warning("[P0-1] save() suppressed — personas.json was corrupt; edit a persona to start a fresh registry (corrupt file kept at \(corruptRegistryQuarantineURL?.lastPathComponent ?? "original path"))")
+            return
+        }
         let url = jsonURL()
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -814,6 +853,13 @@ final class PersonaStore: ObservableObject {
     }
 
     private func persist() {
+        // [P0-1] 用户主动改人设 = 接受用内存里这份当新注册表。
+        // 只有坏文件已隔离成功才放行写盘；隔离失败时继续压住写盘，
+        // 坏文件还留在原路径，不能被覆盖。
+        if registryDegraded, corruptRegistryQuarantineURL != nil {
+            registryDegraded = false
+            AppLogger(category: "PersonaStore").info("[P0-1] user edited a persona — leaving degraded mode, registry will be saved fresh; corrupt original kept at \(corruptRegistryQuarantineURL?.lastPathComponent ?? "?")")
+        }
         save(personas)
     }
 
