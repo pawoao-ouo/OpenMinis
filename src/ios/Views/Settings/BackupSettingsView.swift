@@ -1447,7 +1447,17 @@ struct BackupSettingsView: View {
             // something went wrong when nothing did. The record notes it was
             // stopped and that the next run resumes.
             errorText = nil
-            BackupHistory.shared.fail(runId, message: AppLocalized("Stopped — the next backup picks up from here."))
+            // [A4] "the next backup picks up from here" is only true when the
+            // backend can actually resume this run. Encrypted and streamed
+            // runs are discarded on the next attempt (see [A3]), so promising
+            // a resume there would coax the user into deleting source data on
+            // a false premise. Ask the same predicate the Resume gate uses.
+            let canResume = BackupExportJournal.interrupted().map {
+                BackupExporter.wouldResume(marker: $0, options: exportOptions(resuming: false))
+            } ?? false
+            BackupHistory.shared.fail(runId, message: canResume
+                ? AppLocalized("Stopped — the next backup picks up from here.")
+                : AppLocalized("Everything backed up so far in this run is discarded. The next backup starts from scratch."))
             logger.info("[Backup] user export stopped by user")
         } catch {
             errorText = error.localizedDescription
