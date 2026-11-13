@@ -67,6 +67,15 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     /// opacities, current pack, theme-library list) as
     /// `data/appearance_settings.json`.
     ///
+    /// [A2] It also carries the avatar PNGs from
+    /// `Application Support/avatars/` under an `avatars/` prefix in the same
+    /// file tree. Those files are what the appearance USER AVATAR (and every
+    /// persona / SOUL icon) REFERENCES; before this the package exported only
+    /// the "avatars/x.png" reference strings and never the bytes, so a restore
+    /// on a wiped or new device fell back to the default glyph with no
+    /// warning. Pure addition: a reader that predates it simply ignores
+    /// `avatars/` rows it does not expect.
+    ///
     /// [PIC-2] Before this category existed a restore brought back chats,
     /// memory and providers but silently dropped every trace of how the
     /// user had dressed the app — the only survivor was the assistant

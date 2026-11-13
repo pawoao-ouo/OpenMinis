@@ -481,8 +481,8 @@ extension BackupImporter {
     /// `applyBackupDefaults` whitelists the keys it writes and reloads
     /// the live AppearanceStudio, so the restored look applies without
     /// a relaunch.
-    private func importAppearance(root: URL, fileIndex: [BackupFileIndexEntry]) async throws
-        -> CategoryReport {
+    private func importAppearance(root: URL, fileIndex: [BackupFileIndexEntry],
+                                  options: Options) async throws -> CategoryReport {
         var report = CategoryReport(category: BackupCategory.appearance.rawValue)
         let base = AppearanceStudio.appearanceAssetsDirectory
         let files = try restoreFileTree(
@@ -491,9 +491,22 @@ extension BackupImporter {
                 guard path.hasPrefix("appearance/") else { return nil }
                 return base.appendingPathComponent(String(path.dropFirst("appearance/".count)))
             })
-        report.filesWritten = files.written
-        report.bytesWritten = files.bytes
-        report.missingBlobs = files.missingBlobs
+        // [A2] Avatar PNGs are carried by this category under an `avatars/`
+        // prefix but live in `Application Support/avatars/`, BESIDE
+        // AppearanceStudio rather than inside it — so they get their own
+        // restore pass, checked against the avatars root's containment rather
+        // than AppearanceStudio's.
+        let avatarDir = SoulStore.avatarsDirectory()
+        let avatars = try restoreFileTree(
+            root: root, fileIndex: fileIndex, category: .appearance,
+            containmentRootOverride: avatarDir,
+            destinationFor: { path in
+                guard path.hasPrefix("avatars/") else { return nil }
+                return avatarDir.appendingPathComponent(String(path.dropFirst("avatars/".count)))
+            })
+        report.filesWritten = files.written + avatars.written
+        report.bytesWritten = files.bytes + avatars.bytes
+        report.missingBlobs = files.missingBlobs + avatars.missingBlobs
 
         let settingsURL = root.appendingPathComponent("data/appearance_settings.json")
         if let data = try? Data(contentsOf: settingsURL),
@@ -2183,11 +2196,14 @@ extension BackupImporter {
     /// Write a category's files back out of `blobs/` using the index.
     /// - Parameter containmentRootOverride: the root that destinations must
     ///   stay inside. Defaults to `containmentRoot(for:)`, i.e. the real
-    ///   category directory — production never passes this. It exists so tests
-    ///   can exercise the blob-accounting logic against a temp directory
-    ///   WITHOUT weakening the [B1] path-traversal guard, which would otherwise
-    ///   reject every test destination before the code under test is reached.
-    ///   The guard still runs; only the root it enforces is injectable.
+    ///   category directory. Two callers pass an explicit root, both
+    ///   legitimate: tests exercise the blob-accounting logic against a temp
+    ///   directory without weakening the [B1] path-traversal guard, and the
+    ///   Appearance category restores avatars into `Application Support/avatars/`
+    ///   ([A2]), which is the real category root for that subtree — they live
+    ///   beside AppearanceStudio, not inside it, so the default root would
+    ///   wrongly reject them. The guard still runs; only the root it enforces
+    ///   is injectable, never the check itself.
     func restoreFileTree(root: URL,
                          fileIndex: [BackupFileIndexEntry],
                          category: BackupCategory,

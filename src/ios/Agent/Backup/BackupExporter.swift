@@ -597,6 +597,9 @@ actor BackupExporter {
         }
         if categories.contains(.appearance) {
             total += treeSize(AppearanceStudio.appearanceAssetsDirectory)
+            // [A2] The avatar bytes now ride in this category too, so the
+            // disk-space estimate must count them or preflight under-counts.
+            total += treeSize(SoulStore.avatarsDirectory())
         }
         if categories.contains(.stickers) {
             total += treeSize(AIChatViewModel.minisStickersPersistentDir)
@@ -1298,8 +1301,19 @@ actor BackupExporter {
         let dir = await MainActor.run { AppearanceStudio.appearanceAssetsDirectory }
         let r = try trees.export(root: dir, logicalPrefix: "appearance",
                                  category: .appearance)
-        var bytes = r.bytesIncluded
-        var entries = r.filesIncluded
+        // [A2] Avatar PNGs live in `Application Support/avatars/`, BESIDE the
+        // AppearanceStudio directory rather than inside it. The Appearance
+        // category only ever archived the references (personas.json /
+        // SOUL.md / appearance_settings.json) and never these bytes, so a
+        // restore on a wiped or new device brought back
+        // "avatar = avatars/x.png" but not x.png — every avatar silently fell
+        // back to the default glyph with no warning. Carry the bytes here so
+        // the category round-trips them under their own `avatars/` prefix.
+        let avatarDir = SoulStore.avatarsDirectory()
+        let a = try trees.export(root: avatarDir, logicalPrefix: "avatars",
+                                 category: .appearance)
+        var bytes = r.bytesIncluded + a.bytesIncluded
+        var entries = r.filesIncluded + a.filesIncluded
         let values = await MainActor.run { AppearanceStudio.shared.collectBackupDefaults() }
         if !values.isEmpty {
             let url = dataDir.appendingPathComponent("appearance_settings.json")
@@ -1308,7 +1322,8 @@ actor BackupExporter {
             entries += 1
         }
         return BackupManifest.CategoryStat(
-            entries: entries, bytes: bytes, encrypted: false, files: r.filesIncluded)
+            entries: entries, bytes: bytes, encrypted: false,
+            files: r.filesIncluded + a.filesIncluded)
     }
 
     // MARK: - Environment variables
