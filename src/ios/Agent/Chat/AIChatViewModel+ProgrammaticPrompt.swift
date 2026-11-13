@@ -441,9 +441,29 @@ extension AIChatViewModel {
     /// [batch7][AUD-B7-6] Persist the final delegate JSON into the stored
     /// tool_result so a reload shows the same finished card, not the running
     /// snapshot that was last written before the process died.
+    ///
+    /// [S16] The model-facing half comes FIRST. `writeDelegateBlock(toolUseId:)`
+    /// above only updates the UI block, and without this loop the next turn —
+    /// built from `effectiveAgentHistory()` ← `agentHistory` — would still be
+    /// fed the interim/progress tool_result while the UI and the DB show the
+    /// final JSON. Mirrors the not-compiled HelperRunner copy, which rewrites
+    /// `agentHistory` before the DB row.
     func persistFinalDelegateResult(toolUseId: String, content: String, status: ToolBlockStatus) {
-        guard let sid = sessionId else { return }
         let success: Bool = { if case .success = status { return true }; return false }()
+        if delegationResultsAreMuted {
+            logger.info("[subagent_task] parent stopped — result for \(toolUseId.prefix(12)) kept for display, withheld from agentHistory")
+        } else {
+            for i in agentHistory.indices {
+                for j in agentHistory[i].parts.indices {
+                    if case .toolResult(let id, let name, _, _, let img, let mime, let url, let path) = agentHistory[i].parts[j],
+                       id == toolUseId {
+                        agentHistory[i].parts[j] = .toolResult(id: id, name: name, content: content, isError: !success,
+                                                               imageData: img, imageMimeType: mime, pageURL: url, imageLinuxPath: path)
+                    }
+                }
+            }
+        }
+        guard let sid = sessionId else { return }
         let statusText: String? = { if case .failed(let m) = status { return m }; return nil }()
         Task { @MainActor in
             let raws = await ChatStore.shared.loadMessages(sessionId: sid)
