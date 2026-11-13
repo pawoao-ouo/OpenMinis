@@ -1028,7 +1028,7 @@ struct AIChatView: View {
         ) { _ in
             Button(AppLocalized("OK"), role: .cancel) { missingMinisFileName = nil }
         } message: { name in
-            Text(AppLocalized("\(name) is unavailable. It may have been deleted or not yet synced from iCloud."))
+            Text(AppLocalized("\(name) is unavailable. It may have been deleted."))
         }
         .fullScreenCover(item: $imageGallery) { presentation in
             MessageImageGallery(items: presentation.items, startIndex: presentation.startIndex)
