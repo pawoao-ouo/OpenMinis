@@ -1458,27 +1458,104 @@ extension BackupImporter {
 
     // MARK: - MCP servers
 
-    private func importMCPServers(root: URL) async throws -> CategoryReport {
+    private func importMCPServers(root: URL, options: Options) async throws -> CategoryReport {
         var report = CategoryReport(category: BackupCategory.mcpServers.rawValue)
         let src = root.appendingPathComponent("data/mcp_servers.json")
         guard FileManager.default.fileExists(atPath: src.path) else { return report }
         let dst = MCPStore.syncFileURL
         try FileManager.default.createDirectory(at: dst.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: dst)
-        try FileManager.default.copyItem(at: src, to: dst)
+        if options.mode == .merge {
+            // [A5] Merge must never delete a local-only MCP server. The old
+            // code ignored `mode` entirely and did removeItem + copyItem, so
+            // every server that existed only on this device vanished — the
+            // exact opposite of the merge footer's "Nothing is deleted".
+            // Match by id and only replace when the package's copy is newer;
+            // the local file is the base, so local-only entries survive and
+            // unknown top-level keys are preserved.
+            let outcome = try Self.mergeMCPServersFile(package: src, live: dst)
+            report.imported = outcome.written
+            report.skipped = outcome.kept
+        } else {
+            try? FileManager.default.removeItem(at: dst)
+            try FileManager.default.copyItem(at: src, to: dst)
+            // Count the servers in the file, not the file itself — reporting
+            // 1 for any number of servers under-states the restore total.
+            // Same lenient count the exporter uses for its manifest stat.
+            // Fallback differs from the exporter's, deliberately: nil means
+            // the file cannot be read as a servers file at all, and MCPStore
+            // loads exactly 0 servers from such a file — reporting 1 here
+            // would claim a restore that never happened.
+            report.imported = BackupExporter.mcpServerCount(at: src) ?? 0
+        }
         // The store caches servers in memory; scanExternalChanges reloads from
         // disk, stamps updatedAt and marks each changed server dirty.
         await MainActor.run { MCPStore.shared.scanExternalChanges() }
-        // Count the servers in the file, not the file itself — reporting 1
-        // for any number of servers under-states the restore total. Same
-        // lenient count the exporter uses for its manifest stat.
-        // Fallback differs from the exporter's, deliberately: nil means the
-        // file cannot be read as a servers file at all, and MCPStore loads
-        // exactly 0 servers from such a file — reporting 1 here would claim
-        // a restore that never happened.
-        report.imported = BackupExporter.mcpServerCount(at: src) ?? 0
         return report
+    }
+
+    /// [A5] Merge the package's `mcpServers` map into the LIVE file by id.
+    ///
+    /// The live file is the base, so a server this device has and the package
+    /// does not is left completely untouched (merge never deletes). A server
+    /// both sides carry is overwritten only when the package's `updatedAt` is
+    /// STRICTLY newer — a package entry with no timestamp cannot prove it is
+    /// newer, so the local copy wins, matching the "only replaced when the
+    /// backup's copy is newer" promise.
+    ///
+    /// Raw JSONSerialization rather than the typed model: it round-trips
+    /// unknown fields an externally-authored config may carry, exactly as
+    /// MCPStore and the exporter's redaction do.
+    ///
+    /// Returns `(written, kept)`: servers added + replaced, and package
+    /// servers whose local copy was left alone.
+    private static func mergeMCPServersFile(package: URL, live: URL)
+        throws -> (written: Int, kept: Int) {
+        let fm = FileManager.default
+        guard let pkgData = try? Data(contentsOf: package),
+              let pkgRoot = (try? JSONSerialization.jsonObject(with: pkgData)) as? [String: Any],
+              let pkgServers = pkgRoot["mcpServers"] as? [String: Any] else {
+            return (0, 0)
+        }
+        var root: [String: Any] = pkgRoot
+        var localServers: [String: Any] = [:]
+        if let liveData = try? Data(contentsOf: live),
+           let liveRoot = (try? JSONSerialization.jsonObject(with: liveData)) as? [String: Any],
+           let existing = liveRoot["mcpServers"] as? [String: Any] {
+            root = liveRoot
+            localServers = existing
+        }
+        var written = 0
+        var kept = 0
+        var merged = localServers
+        for (id, pkgEntry) in pkgServers {
+            guard let localEntry = localServers[id] else {
+                // Not present locally: a genuine addition.
+                merged[id] = pkgEntry
+                written += 1
+                continue
+            }
+            if let pkgAt = serverUpdatedAt(pkgEntry),
+               let localAt = serverUpdatedAt(localEntry),
+               pkgAt > localAt {
+                merged[id] = pkgEntry
+                written += 1
+            } else {
+                kept += 1
+            }
+        }
+        root["mcpServers"] = merged
+        let out = try JSONSerialization.data(withJSONObject: root,
+                                             options: [.prettyPrinted, .sortedKeys])
+        try fm.createDirectory(at: live.deletingLastPathComponent(),
+                               withIntermediateDirectories: true)
+        try out.write(to: live, options: .atomic)
+        return (written, kept)
+    }
+
+    /// Epoch-seconds `updatedAt` from a raw server entry, if present/numeric.
+    private static func serverUpdatedAt(_ raw: Any) -> Double? {
+        (raw as? [String: Any])?["updatedAt"] as? Double
     }
 
     // MARK: - Environment variables
