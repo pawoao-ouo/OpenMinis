@@ -824,11 +824,46 @@ struct BackupSettingsView: View {
         guard !runController.isRunning, r.status == .failed,
               !r.backupId.isEmpty,
               let marker = BackupExportJournal.interrupted(),
-              marker.backupId == r.backupId,
-              !marker.encrypted
+              marker.backupId == r.backupId
         else { return false }
-        return FileManager.default.fileExists(
+        guard FileManager.default.fileExists(
             atPath: BackupExportJournal.stagingRoot(backupId: marker.backupId).path)
+        else { return false }
+        // [A3] Offer Resume ONLY when the backend would actually resume this
+        // run for the scope selected right now. `resumableRun` discards (and
+        // starts fresh) every streamed marker, every encrypted marker, and any
+        // marker whose category / size-cap / credential / encryption scope
+        // differs from the request — so a Resume offered outside those
+        // conditions would quietly produce a brand-new export while the user
+        // believed it continued the old one. That was the lie; the gate now
+        // mirrors the backend's own decision exactly.
+        return BackupExporter.wouldResume(marker: marker,
+                                          options: exportOptions(resuming: false))
+    }
+
+    /// The exporter options this screen would hand to `BackupExporter` for a
+    /// run started now.
+    ///
+    /// Factored out of `runExport` so the [A3] Resume gate and the run itself
+    /// can never disagree about the requested scope — the gate asks the
+    /// backend (`BackupExporter.wouldResume`) whether that exact scope would
+    /// resume or restart.
+    private func exportOptions(resuming: Bool) -> BackupExporter.Options {
+        BackupExporter.Options(
+            categories: selected,
+            // nil = no cap; 0 = every file is over the cap, i.e. contents are
+            // skipped and only tombstones are recorded.
+            maxFileBytes: maxFileSizeMB == Self.unlimitedTag ? nil
+                : maxFileSizeMB == Self.noFilesTag ? 0
+                : Int64(maxFileSizeMB) * 1024 * 1024,
+            // Credentials only ship when the package is encrypted. secrets.json
+            // is base64 — an encoding, not protection — so an unencrypted
+            // package carrying keys would be a plaintext copy of them. The
+            // exporter refuses that combination independently; this makes the
+            // UI agree rather than walk into that error.
+            includeCredentials: encryptBackup,
+            passphrase: encryptBackup && !passphrase.isEmpty ? passphrase : nil,
+            allowResume: resuming)
     }
 
     /// [T-backup-device-name-setting] Lets the user name this device, which is
@@ -1252,21 +1287,7 @@ struct BackupSettingsView: View {
         lastExportHadProviders = selected.contains(.providers)
         defer { isExporting = false }
 
-        let options = BackupExporter.Options(
-            categories: selected,
-            // nil = no cap; 0 = every file is over the cap, i.e. contents are
-            // skipped and only tombstones are recorded.
-            maxFileBytes: maxFileSizeMB == Self.unlimitedTag ? nil
-                : maxFileSizeMB == Self.noFilesTag ? 0
-                : Int64(maxFileSizeMB) * 1024 * 1024,
-            // Credentials only ship when the package is encrypted. secrets.json
-            // is base64 — an encoding, not protection — so an unencrypted
-            // package carrying keys would be a plaintext copy of them. The
-            // exporter refuses that combination independently; this makes the
-            // UI agree rather than walk into that error.
-            includeCredentials: encryptBackup,
-            passphrase: encryptBackup && !passphrase.isEmpty ? passphrase : nil,
-            allowResume: resuming)
+        let options = exportOptions(resuming: resuming)
 
         // Opened BEFORE the work starts, so a run that crashes mid-flight still
         // leaves a record — that is exactly the case a user needs to see.

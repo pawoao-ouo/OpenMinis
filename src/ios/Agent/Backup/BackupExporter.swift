@@ -691,6 +691,35 @@ actor BackupExporter {
         return marker
     }
 
+    /// Pure, side-effect-free twin of `resumableRun`: would the backend
+    /// RESUME this interrupted marker for `options`, or discard it and start
+    /// fresh? The backup-history screen uses it to decide whether offering
+    /// Resume is honest — a Resume that quietly started a fresh export would
+    /// be a lie ([A3]).
+    ///
+    /// It performs the SAME tests `resumableRun` uses to discard, WITHOUT its
+    /// side effects: `resumableRun` calls `BackupExportJournal.finish` and
+    /// deletes the stale staging when it rejects a marker, so it can never be
+    /// called from a view. Kept next to `resumableRun` so the two cannot
+    /// drift; if the discard conditions change there, they change here too.
+    static func wouldResume(marker: BackupExportJournal.Marker,
+                            options: Options) -> Bool {
+        // Streamed runs lost their blobs with the discarded temp package;
+        // markers from builds before the `streamed` field existed were
+        // streamed exactly when unencrypted, so nil + plaintext counts too.
+        if marker.streamed == true || (marker.streamed == nil && !marker.encrypted) {
+            return false
+        }
+        // Encrypted runs never resume across a fresh salt (see `resumableRun`).
+        if marker.encrypted { return false }
+        // Scope must match exactly, or `resumableRun` discards and restarts.
+        let wantsEncryption = !(options.passphrase ?? "").isEmpty
+        return marker.categories == options.categories.map(\.rawValue).sorted()
+            && marker.maxFileBytes == options.maxFileBytes
+            && marker.includeCredentials == options.includeCredentials
+            && marker.encrypted == wantsEncryption
+    }
+
     // MARK: - Chats
 
     /// Chats = messages **plus the whole `<sid>/` directory** (§3, second-round
