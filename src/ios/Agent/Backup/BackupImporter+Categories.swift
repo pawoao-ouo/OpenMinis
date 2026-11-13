@@ -906,6 +906,47 @@ extension BackupImporter {
         return (written, skipped)
     }
 
+    /// Suffix restored model groups whose name is already taken locally.
+    ///
+    /// Returns the config unchanged when there is no collision — the suffix is
+    /// a disambiguator, not a label for "this came from a backup", so a group
+    /// that lands on a device without a same-named one keeps its original
+    /// name. A group already present BY ID is skipped too: that is the same
+    /// group coming home, not a duplicate.
+    @MainActor
+    static func disambiguateGroupNames(_ remote: ProviderConfig) -> ProviderConfig {
+        let local = ProviderConfigStore.shared.config
+        let localIds = Set(local.modelGroups.map(\.id))
+        var takenNames = Set(local.modelGroups.map(\.name))
+        guard !takenNames.isEmpty else { return remote }
+
+        var copy = remote
+        var renamed = 0
+        for i in copy.modelGroups.indices {
+            let group = copy.modelGroups[i]
+            // Same id => the very same group, which merge will skip entirely.
+            guard !localIds.contains(group.id) else { continue }
+            guard takenNames.contains(group.name) else {
+                takenNames.insert(group.name)
+                continue
+            }
+            let base = AppLocalized("\(group.name) (from backup)")
+            var candidate = base
+            var n = 2
+            while takenNames.contains(candidate) {
+                candidate = "\(base) \(n)"
+                n += 1
+            }
+            copy.modelGroups[i].name = candidate
+            takenNames.insert(candidate)
+            renamed += 1
+        }
+        if renamed > 0 {
+            logger.info("[Restore] renamed \(renamed) model group(s) whose names collided with local ones")
+        }
+        return copy
+    }
+
     /// Restore-only provider merge, relocated from the deleted sync engine
     /// (restore variant of its provider-config merge). Union-by-id: the
     /// package wins for same-id items, local-only items are kept, tombstones

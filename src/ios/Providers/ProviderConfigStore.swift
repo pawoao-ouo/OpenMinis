@@ -2130,6 +2130,86 @@ final class ProviderConfigStore: ObservableObject {
         save()
     }
 
+    /// [T-icloud-provider-sync-consistency] Collapse duplicate model entries
+    /// that share the same (providerInstanceId, baseModel.id) — the cross-device
+    /// duplication caused by random per-device entry uuids — and rewrite all
+    /// group member references onto the surviving representative.
+    ///
+    /// Determinism (so every device converges identically):
+    ///   representative = among entries with the same composite key, prefer
+    ///   isCustom==false; tie-break by lexicographically smallest uuid.
+    ///
+    /// Returns the deduped config and the list of pruned (non-representative)
+    /// entry uuids so the caller can delete + tombstone them.
+    static func dedupeEntriesByModel(_ input: ProviderConfig) -> (config: ProviderConfig, prunedEntryIds: [String]) {
+        var config = input
+        // Group entries by composite key.
+        var byKey: [String: [ModelEntry]] = [:]
+        for e in config.modelEntries {
+            byKey[e.compositeKey, default: []].append(e)
+        }
+        guard byKey.values.contains(where: { $0.count > 1 }) else {
+            return (config, [])  // no duplicates — fast path
+        }
+        // For each duplicated key pick a deterministic representative and map
+        // every other uuid → representative uuid.
+        var uuidRewrite: [String: String] = [:]  // prunedUuid → representativeUuid
+        var pruned: [String] = []
+        var survivors: [ModelEntry] = []
+        for (_, entries) in byKey {
+            if entries.count == 1 { survivors.append(entries[0]); continue }
+            var rep = entries.sorted { a, b in
+                if a.isCustom != b.isCustom { return !a.isCustom }  // non-custom first
+                return a.uuid < b.uuid                              // then smallest uuid
+            }.first!
+            // [T-ios-hidden-models-restored] The representative choice is
+            // deterministic by uuid, NOT by user intent — a duplicate that
+            // carries the user's overlay (isHidden / overrides) could be the
+            // one pruned, silently unhiding the model. Fold the overlay from
+            // the duplicate with the newest userModifiedAt into the survivor.
+            if let best = entries
+                .compactMap({ e in e.userModifiedAt.map { (e, $0) } })
+                .max(by: { $0.1 < $1.1 }),
+               (rep.userModifiedAt ?? .distantPast) < best.1 {
+                rep.isHidden = best.0.isHidden
+                rep.overrides = best.0.overrides
+                rep.userModifiedAt = best.1
+            }
+            survivors.append(rep)
+            for e in entries where e.uuid != rep.uuid {
+                uuidRewrite[e.uuid] = rep.uuid
+                pruned.append(e.uuid)
+            }
+        }
+        config.modelEntries = survivors
+        if !uuidRewrite.isEmpty {
+            // Rewrite group member references from pruned uuids → representative.
+            for i in config.modelGroups.indices {
+                var seen = Set<String>()
+                config.modelGroups[i].memberEntryIds = config.modelGroups[i].memberEntryIds.compactMap { mid in
+                    let mapped = uuidRewrite[mid] ?? mid
+                    return seen.insert(mapped).inserted ? mapped : nil  // de-dup after rewrite
+                }
+                // Carry add/remove tombstones across the rewrite too.
+                for (pruned, rep) in uuidRewrite {
+                    if let t = config.modelGroups[i].addedMembers.removeValue(forKey: pruned) {
+                        config.modelGroups[i].addedMembers[rep] = max(config.modelGroups[i].addedMembers[rep] ?? .distantPast, t)
+                    }
+                    if let t = config.modelGroups[i].removedMembers.removeValue(forKey: pruned) {
+                        config.modelGroups[i].removedMembers[rep] = max(config.modelGroups[i].removedMembers[rep] ?? .distantPast, t)
+                    }
+                }
+            }
+            // Rewrite agent-loop entry references too.
+            var seenAL = Set<String>()
+            config.agentLoopModelEntryIds = config.agentLoopModelEntryIds.compactMap { id in
+                let mapped = uuidRewrite[id] ?? id
+                return seenAL.insert(mapped).inserted ? mapped : nil
+            }
+        }
+        return (config, pruned)
+    }
+
     // MARK: - [T-provider-entry-composite-key] legacyUuid normalization
 
     /// Rewrite every group / binding / agent-loop reference that matches a known
