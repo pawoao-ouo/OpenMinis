@@ -222,10 +222,11 @@ class RootfsManager {
         return documents.appendingPathComponent("rootfs-backups")
     }
 
-    /// Newest surviving user-data backup (the `root` directory itself, as
-    /// returned by reset), or nil. Also scans the legacy temporaryDirectory
-    /// location so a backup made by an older build can still be found if
-    /// the system has not purged it yet.
+    /// Newest surviving user-data backup (the `root` directory itself, or
+    /// the `home` directory for a home-only backup, as returned by reset),
+    /// or nil. Also scans the legacy temporaryDirectory location so a
+    /// backup made by an older build can still be found if the system has
+    /// not purged it yet.
     func latestBackupURL() -> URL? {
         let fm = FileManager.default
         let searchRoots = [backupsDirectory, fm.temporaryDirectory]
@@ -233,11 +234,22 @@ class RootfsManager {
         for dir in searchRoots {
             guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { continue }
             for name in names where name.hasPrefix("rootfs-backup-") {
-                let root = dir.appendingPathComponent(name).appendingPathComponent("root")
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: root.path, isDirectory: &isDir), isDir.boolValue else { continue }
-                let created = (try? root.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
-                candidates.append((root, created))
+                let backupDir = dir.appendingPathComponent(name)
+                // Prefer the root entry (the historical return contract); a
+                // home-only backup — no /root existed when it was made — is
+                // still discoverable via its home entry.
+                var entry: URL?
+                for sub in ["root", "home"] {
+                    let candidate = backupDir.appendingPathComponent(sub)
+                    var isDir: ObjCBool = false
+                    if fm.fileExists(atPath: candidate.path, isDirectory: &isDir), isDir.boolValue {
+                        entry = candidate
+                        break
+                    }
+                }
+                guard let found = entry else { continue }
+                let created = (try? found.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+                candidates.append((found, created))
             }
         }
         return candidates.max(by: { $0.created < $1.created })?.url
@@ -276,7 +288,7 @@ class RootfsManager {
             throw NSError(
                 domain: "RootfsManager",
                 code: 4,
-                userInfo: [NSLocalizedDescriptionKey: "Backup of \(label) is incomplete: copied \(actual.count) of \(expected.count) entries (\(actual.bytes) of \(expected.bytes) bytes). Reset aborted; your data was left in place."]
+                userInfo: [NSLocalizedDescriptionKey: "Backup of \(label) is incomplete: copied \(actual.count) of \(expected.count) entries (\(actual.bytes) of \(expected.bytes) bytes). Aborted; your data was left in place."]
             )
         }
     }
@@ -350,8 +362,61 @@ class RootfsManager {
         return backupURL
     }
 
+    /// Restore one user directory (/root or /home) from a backup copy.
+    /// Atomic with respect to the live directory: the backup is first
+    /// copied to a temp sibling and verified; only then is the live
+    /// directory moved aside — a rename, which succeeds even where a
+    /// recursive delete cannot (see discardOldRootfs) — and the verified
+    /// copy moved into place. If the final move fails, the live directory
+    /// is moved back, so a failed restore never destroys the live data.
+    /// The moved-aside copy is removed afterwards on a best-effort basis.
+    private func restoreOneUserDirectory(from source: URL, to live: URL, label: String) throws {
+        let fm = FileManager.default
+        let parent = live.deletingLastPathComponent()
+        let stamp = UUID().uuidString
+        let temp = parent.appendingPathComponent(".restore-\(label)-\(stamp)")
+        let aside = parent.appendingPathComponent(".old-\(label)-\(stamp)")
+
+        do {
+            try fm.copyItem(at: source, to: temp)
+            try Self.verifyBackupCopy(from: source, to: temp, label: "/\(label)")
+        } catch {
+            try? fm.removeItem(at: temp)
+            throw error
+        }
+
+        let hadLive = fm.fileExists(atPath: live.path)
+        if hadLive {
+            do {
+                try fm.moveItem(at: live, to: aside)
+            } catch {
+                try? fm.removeItem(at: temp)
+                throw error
+            }
+        }
+        do {
+            try fm.moveItem(at: temp, to: live)
+        } catch {
+            // Put the live directory back: the restore failed, the data must not move.
+            if hadLive {
+                try? fm.moveItem(at: aside, to: live)
+            }
+            try? fm.removeItem(at: temp)
+            throw error
+        }
+        if hadLive, (try? fm.removeItem(at: aside)) == nil {
+            logger.warning("[Rootfs] could not remove moved-aside \(label) at \(aside.lastPathComponent); left on disk")
+        }
+        logger.info("[Rootfs] \(label) restored from \(source.path)")
+    }
+
     /// Restore user data from a backup
-    /// - Parameter backupURL: URL of backup created by reset(keepUserData: true)
+    /// - Parameter backupURL: URL of a `root` (or, for a home-only backup,
+    ///   `home`) directory inside a `rootfs-backup-<ts>/` folder, as
+    ///   returned by `latestBackupURL()`. Restores /root from it and, when
+    ///   the backup folder also holds a sibling `home/` directory, restores
+    ///   /home too. Each directory is restored via a verified temp copy +
+    ///   swap, so a failed restore leaves the live directory untouched.
     func restoreUserData(from backupURL: URL) throws {
         guard isInstalled else {
             throw NSError(
@@ -361,15 +426,39 @@ class RootfsManager {
             )
         }
 
-        let userDataPath = dataPath.appendingPathComponent("root")
-
-        // Remove existing /root directory
-        if FileManager.default.fileExists(atPath: userDataPath.path) {
-            try FileManager.default.removeItem(at: userDataPath)
+        switch backupURL.lastPathComponent {
+        case "home":
+            // Home-only backup (no /root existed when the backup was made).
+            try restoreOneUserDirectory(
+                from: backupURL,
+                to: dataPath.appendingPathComponent("home"),
+                label: "home"
+            )
+        case "root":
+            try restoreOneUserDirectory(
+                from: backupURL,
+                to: dataPath.appendingPathComponent("root"),
+                label: "root"
+            )
+            // The /home backup, when made, sits next to it as
+            // `rootfs-backup-<ts>/home`.
+            let homeBackup = backupURL.deletingLastPathComponent().appendingPathComponent("home")
+            if FileManager.default.fileExists(atPath: homeBackup.path) {
+                try restoreOneUserDirectory(
+                    from: homeBackup,
+                    to: dataPath.appendingPathComponent("home"),
+                    label: "home"
+                )
+            }
+        default:
+            // Refuse anything else: passing the backup folder itself would
+            // nest root/ and home/ inside /root.
+            throw NSError(
+                domain: "RootfsManager",
+                code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "Not a user-data backup directory: \(backupURL.lastPathComponent). Expected rootfs-backup-<ts>/root or /home."]
+            )
         }
-
-        // Copy backup to rootfs
-        try FileManager.default.copyItem(at: backupURL, to: userDataPath)
 
         logger.info("[Rootfs] user data restored from \(backupURL.path)")
     }
