@@ -74,6 +74,27 @@ struct PersonaContactsView: View {
 
     var body: some View {
         List {
+            // [P0-1] 人设注册表是从坏文件重建的：直接在列表顶上告诉她，
+            // 别让她对着一排默认人设发懵；隔离失败时改人设还存不上，
+            // 也要说清楚，免得她白改一通、下次启动又没了。
+            // 改了人设（persist() 解除降级）或重启后这行自己消失。
+            if store.registryDegraded {
+                Section {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("人设列表被重建了")
+                                .font(ChatFont.font(14, weight: .semibold))
+                                .foregroundStyle(ChatColors.primaryText)
+                            Text(corruptRegistryNoticeText)
+                                .font(ChatFont.font(12))
+                                .foregroundStyle(ChatColors.secondaryText)
+                        }
+                    }
+                }
+            }
+
             Section {
                 ForEach(filteredPersonas) { persona in
                     NavigationLink {
@@ -212,6 +233,15 @@ struct PersonaContactsView: View {
                 Text("确认删除人设「\(target.name)」？该人设的专属记忆目录将一并移除。")
             }
         }
+    }
+
+    /// [P0-1] 坏注册表提示文案：只给隔离出来的文件名，不给完整路径；
+    /// 隔离失败时多说一句"改了也存不上，重启再试"，免得她白改。
+    private var corruptRegistryNoticeText: String {
+        if let name = store.corruptRegistryQuarantineURL?.lastPathComponent {
+            return "原来存人设的文件坏了，读不出来，已经按默认重建了一份。坏掉的那个文件留下来了，叫「\(name)」，没有删。"
+        }
+        return "原来存人设的文件坏了，读不出来，已经按默认重建了一份。这次改人设还存不上，重启 App 再试一次。"
     }
 
     /// [B28 R4] 简介行不许把 markdown 源码直接印给用户 ——

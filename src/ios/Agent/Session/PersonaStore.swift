@@ -390,7 +390,9 @@ final class PersonaStore: ObservableObject {
     /// 文件在、但读不出/解不出/解出是空表时置位。置位期间 save() 拒绝写盘，
     /// 坏文件绝不会被覆盖。只有用户主动改人设（persist()）且坏文件已隔离
     /// 成功时才解除——隔离失败时继续压住，坏文件还留在原路径。
-    private var registryDegraded = false
+    /// 发布出来只给 UI 读：通讯录列表要据此告诉她注册表被重建了，
+    /// 隔离失败时还要说"改了也存不上，重启再试"；行为本身不改。
+    @Published private(set) var registryDegraded = false
 
     /// [P0-1] 这次启动隔离出来的坏注册表文件。非空 = 人设是从坏文件重建的，
     /// UI 可以据此提示她：注册表重建了，旧文件留在这里，等她抢救。
