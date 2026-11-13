@@ -1070,6 +1070,15 @@ struct BackupRestoreView: View {
         // it — refresh so both the report button and the error section
         // offer it without leaving the screen.
         safetyCopyURL = BackupImporter.latestSafetyCopyURL()
+        // [fix 2026-11-13] Force a session-list refresh from here, on BOTH
+        // paths. importBody's reloadStores posts this same signal, but only
+        // if the import reaches its end — and ContentView was left showing
+        // its stale (empty) list after a restore anyway. The observer in
+        // ContentView refreshes on this notification; posting it again is
+        // harmless because refreshSessionList coalesces.
+        await MainActor.run {
+            NotificationCenter.default.post(name: .cloudSyncDidFetchChanges, object: nil)
+        }
     }
 
     /// Fix 3 — resolve the preflight's session ids to display titles.

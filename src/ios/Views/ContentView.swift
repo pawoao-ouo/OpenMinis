@@ -2002,7 +2002,21 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .sessionDidCreate)) { note in
-            guard isWideLayout, let newId = note.object as? String else { return }
+            guard let newId = note.object as? String else { return }
+            guard isWideLayout else {
+                // [fix 2026-11-13] iPhone (compact layout): the old guard
+                // bailed out here entirely, so a chat created on iPhone never
+                // refreshed the list — the new session stayed invisible until
+                // some unrelated refresh happened. No draft bookkeeping applies
+                // here (the proxy row in displaySessions is wide-only), but the
+                // list still has to learn about the new session.
+                // [T-ios-state-publish-offmain-crash] hop explicitly — this
+                // onReceive can be delivered off-main; see below.
+                Task { @MainActor in
+                    refreshSessionList()
+                }
+                return
+            }
             let noteDraftId = (note.userInfo as? [String: String])?["draftId"]
             draftLog.info("🔑DRAFT sessionDidCreate realId=\(newId) noteDraftId=\(noteDraftId ?? "nil") selId=\(selectedSessionId ?? "nil") curReal=\(newSessionRealId ?? "nil") curDraft=\(activeDraftId ?? "nil")")
             // Verify this notification came from the currently active draft.
@@ -2874,6 +2888,22 @@ struct ContentView: View {
         // app is backgrounded (the crash reproduced with the app in the background).
         // refreshMigrationSubtitle is idempotent (Task{@MainActor} + diff-before-assign).
         .task { await migrationSubtitleLoop() }
+        // [fix 2026-11-13] Re-read the list whenever it becomes visible again
+        // (pop back from a chat, return from the restore sheet). The launch
+        // .task loads once, and every other refresh path is conditional — a
+        // session created or restored while this list was off-screen never
+        // reached it, so the welcome/empty overlay stayed stuck on the stale
+        // empty state. The overlay itself needs no change: it already
+        // re-evaluates from `sessions` (`.overlay { if didInitialLoad,
+        // filteredSessions.isEmpty ... }`), it only ever needed `sessions`
+        // to actually change. refreshSessionList is coalesced and
+        // cache-backed, so the extra read is cheap; gated on didInitialLoad
+        // so it never races the first launch load.
+        .onAppear {
+            if didInitialLoad {
+                refreshSessionList()
+            }
+        }
         // [T-ios-soul-name-sidebar-stale] Refresh the sidebar title from SOUL.md.
         // Moved here off the churny toolbar `titleLabel` Text (which rebuilds on
         // every canOpenSync/soulName/migrationSubtitle/isSelecting change) for the
