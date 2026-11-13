@@ -813,13 +813,20 @@ struct BackupSettingsView: View {
     /// record. A run that failed for any other reason has nothing to resume,
     /// and a Resume that quietly started a fresh backup would be a lie.
     ///
+    /// An interrupted ENCRYPTED run is never resumable: its staged tree may
+    /// already hold `.enc` members encrypted under the previous attempt's
+    /// fresh salt, which a new attempt cannot reproduce, so resuming it would
+    /// start a fresh export — and offering "Resume" for it would be the same
+    /// lie. The user starts a fresh backup instead.
+    ///
     /// Not shown while a backup is running: starting a second one is refused,
     /// and offering the action anyway invites a tap that does nothing.
     private func isResumable(_ r: BackupHistory.Record) -> Bool {
         guard !runController.isRunning, r.status == .failed,
               !r.backupId.isEmpty,
               let marker = BackupExportJournal.interrupted(),
-              marker.backupId == r.backupId
+              marker.backupId == r.backupId,
+              !marker.encrypted
         else { return false }
         return FileManager.default.fileExists(
             atPath: BackupExportJournal.stagingRoot(backupId: marker.backupId).path)
