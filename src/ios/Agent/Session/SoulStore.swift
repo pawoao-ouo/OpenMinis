@@ -1151,84 +1151,8 @@ enum SoulStore {
             cachedMetadata = file.metadata
             NotificationCenter.default.post(name: .soulMdChanged, object: nil)
         }
-        // Notify the V2 sync layer so SOUL.md changes propagate to the
-        // user's other devices. SoulStore is a singleton record on
-        // iCloud (recordId "soul"); the hydrator reads SOUL.md from
-        // disk when building the outbound portable, so the only thing
-        // we need to do here is enqueue it as dirty.
-        //
-        // ［persona］只同步默认人设：recordId "soul" 是单例，多个人设
-        // 共用一个 recordId 会互相覆盖。其他人设不同步（留尾巴）。
-        if personaID == PersonaStore.defaultPersonaID {
-            Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
-        }
     }
 
-    /// Apply an inbound SOUL.md from iCloud without re-marking it dirty.
-    /// Used by the V2 sync hydrator's merger path. LWW-by-mtime is
-    /// applied here so a stale remote write doesn't clobber a newer
-    /// local file (the cloud record's updatedAt is the authority, not
-    /// our local file mtime).
-    @MainActor
-    static func applyRemoteContent(_ markdown: String, remoteUpdatedAt: Date) {
-        // ［persona］SoulV2 只同步默认人设，回写也只落默认人设。
-        let url = fileURL(for: PersonaStore.defaultPersonaID)
-        let fm = FileManager.default
-        // Compare local file mtime against the remote updatedAt; skip
-        // the write if local is strictly newer (peer's record reflects
-        // an older snapshot).
-        if let attrs = try? fm.attributesOfItem(atPath: url.path),
-           let localMtime = attrs[.modificationDate] as? Date,
-           localMtime > remoteUpdatedAt {
-            return
-        }
-        // [T-icloud-local-edit-clobber] Content-equality short circuit: an
-        // echo of what we already have must not rewrite the file (rewriting
-        // refreshes the LWW clock and fires soulMdChanged for nothing).
-        if let data = try? Data(contentsOf: url),
-           let localText = String(data: data, encoding: .utf8),
-           localText == markdown {
-            return
-        }
-        // Reject a remote default-seed payload when the local file is
-        // already customized. The matching buildSoul guard prevents
-        // healthy peers from pushing default seeds, but a record that
-        // landed in iCloud before the buildSoul guard existed (or that
-        // came from a downgraded device) would otherwise wipe out a
-        // customized local SOUL.md via LWW.
-        if markdown == defaultContent,
-           let data = try? Data(contentsOf: url),
-           let localText = String(data: data, encoding: .utf8),
-           localText != defaultContent {
-            return
-        }
-        try? fm.createDirectory(at: url.deletingLastPathComponent(),
-                                withIntermediateDirectories: true)
-        // [avatar-file] migrate-on-read, same rule as the local load path:
-        // a legacy inline data URI becomes a file reference before the
-        // remote content lands on disk and in the cache.
-        var remoteFile = SoulMDParser.parse(markdown)
-        var textToWrite = markdown
-        if SoulIconImage.isDataURI(remoteFile.metadata.icon) {
-            let name = SoulIconImage.storedName(prefix: "soul", id: PersonaStore.defaultPersonaID)
-            if let path = SoulIconImage.migrateDataURIToFile(remoteFile.metadata.icon, named: name) {
-                remoteFile.metadata.icon = path
-                textToWrite = SoulMDParser.serialize(remoteFile)
-            } else {
-                AppLogger(category: "Soul").error(
-                    "remote soul icon migration failed; keeping in-memory value")
-            }
-        }
-        try? textToWrite.data(using: .utf8)?.write(to: url, options: .atomic)
-        // Stamp the file's mtime to match the remote updatedAt so the
-        // local mtime comparison stays meaningful across round-trips.
-        try? fm.setAttributes([.modificationDate: remoteUpdatedAt],
-                              ofItemAtPath: url.path)
-        if let parsed = remoteFile.metadata as SoulMetadata? {
-            cachedMetadata = parsed
-        }
-        NotificationCenter.default.post(name: .soulMdChanged, object: nil)
-    }
 }
 
 extension Notification.Name {

@@ -24,12 +24,7 @@ struct SoulSettingsView: View {
     @State private var saveError: String? = nil
     @State private var didJustSave: Bool = false
     @State private var showRestoreConfirm: Bool = false
-    @State private var showForceSyncDone: Bool = false
     @StateObject private var loadedRef = LoadedFileRef()
-    /// Mirrors `SyncV2Bootstrap.isEnabled` so the Force iCloud Sync row
-    /// shows / hides reactively when the user toggles iCloud sync in
-    /// Settings. Same pattern as SkillDetailView (#440 / 3a4fe546).
-    @AppStorage("cloudSync.v2.enabled") private var iCloudSyncEnabled: Bool = false
 
     private static var langOptions: [(label: String, value: String)] {
         [
@@ -83,26 +78,6 @@ struct SoulSettingsView: View {
                     Label(AppLocalized("Restore Default"), systemImage: "arrow.uturn.backward")
                 }
 
-                // Force iCloud Sync — re-marks SOUL.md dirty and asks
-                // SyncCore to send immediately. Same gating predicate
-                // as SkillDetailView (47fd61ef / 3a4fe546): hidden
-                // entirely when the user has iCloud sync off, since
-                // the action would no-op on a disabled engine.
-                if #available(iOS 17.0, *), iCloudSyncEnabled {
-                    Button {
-                        Task { await forceSyncSoul() }
-                    } label: {
-                        HStack {
-                            Label(AppLocalized("Force iCloud Sync"), systemImage: "icloud.and.arrow.up")
-                            Spacer()
-                            if showForceSyncDone {
-                                Text(AppLocalized("Queued"))
-                                    .foregroundStyle(MinisTheme.success)
-                                    .font(.system(size: fontSettings.scaledApp(12)))
-                            }
-                        }
-                    }
-                }
             }
 
             if let saveError {
@@ -293,27 +268,6 @@ struct SoulSettingsView: View {
         }
     }
 
-    /// Bidirectional Soul sync: push local SOUL.md up and pull the
-    /// latest remote SoulV2 down. Mirrors `ProviderInstancesView`'s
-    /// Force iCloud Sync entry (which uses the same `bidirectionalSync`
-    /// helper). iOS-17 gated because the v2 sync surface is.
-    @available(iOS 17.0, *)
-    @MainActor
-    private func forceSyncSoul() async {
-        // 1. Re-mark local SOUL.md dirty (if present) so the upload
-        //    side ships our copy.
-        _ = await ForceSyncHelper.markSoulDirty()
-        // 2. Run a full sendNow + fullFetchAndReconcile cycle so any
-        //    peer-newer SoulV2 lands and the merger overwrites local
-        //    via SoulStore.applyRemoteContent (LWW by mtime).
-        await ForceSyncHelper.bidirectionalSync(recordTypes: ["SoulV2"])
-        // 3. Re-read the on-disk file in case the merger just replaced
-        //    it with a peer's newer copy — otherwise the form stays
-        //    showing the pre-sync values.
-        reload()
-        showForceSyncDone = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showForceSyncDone = false }
-    }
 
     private func restoreDefault() {
         let parsed = SoulMDParser.parse(SoulStore.defaultContent)

@@ -853,14 +853,14 @@ enum DebugRPCChat {
     /// Removes `count` UI rows from the FRONT of the LIVE view model's
     /// `messages` array (never the trailing assistant), simulating the
     /// external mid-loop mutations the agent loop's msgIdx resync exists to
-    /// survive: an iCloud inbound rebuild, a compaction sweep, a user delete.
+    /// survive: an inbound rebuild, a compaction sweep, a user delete.
     /// Exists to deterministically reproduce (and then regression-test) the
     /// crash family where `messages[msgIdx]` is subscripted with a stale
     /// index after a suspension — timing the call into a stalled provider
     /// stream lands the mutation inside the exact windows that crash in the
     /// field (1.11(15) .ips 2026-08-15 14:02, runAgentLoop reminder path).
     /// Deliberately mutates ONLY the UI array (not agentHistory, not the DB)
-    /// — same shape as the sync-rebuild mutation.
+    /// — same shape as an external-rebuild mutation.
     static func debugRemoveMessages(params: [String: Any]) async throws -> [String: Any] {
         guard let sid = params["sessionId"] as? String, !sid.isEmpty else {
             throw DebugRPCErr(-32602, "Missing required param: sessionId")
@@ -1524,7 +1524,7 @@ enum DebugRPCChat {
         let id = try require(params["sessionId"] as? String, "sessionId")
         let raw = try require(params["state"] as? String, "state")
         guard let state = SessionBadgeState(rawValue: raw) else {
-            throw DebugRPCErr(-32602, "Unknown state '\(raw)'. Known: paused, iCloudSyncing, unread")
+            throw DebugRPCErr(-32602, "Unknown state '\(raw)'. Known: paused, unread")
         }
         let ageHours = (params["ageHours"] as? Double) ?? 0
         let enteredAt = Date().addingTimeInterval(-ageHours * 3600)
@@ -1585,11 +1585,11 @@ enum DebugRPCChat {
     }
 
     /// Kick the sidebar's existing external-mutation refresh channel — the
-    /// same notification cloud-sync fetch uses — so an RPC mutation shows up
+    /// same notification a restore uses — so an RPC mutation shows up
     /// without waiting for an unrelated refresh trigger.
     private static func notifySessionListChanged() async {
         await MainActor.run {
-            NotificationCenter.default.post(name: .cloudSyncDidFetchChanges, object: nil)
+            NotificationCenter.default.post(name: .localStoresDidChange, object: nil)
         }
     }
 

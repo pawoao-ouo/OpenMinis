@@ -98,8 +98,8 @@ enum AmbientSignal: String, CaseIterable, Identifiable {
 
 // MARK: - 网络类型
 
-/// 轻量网络类型观察者。SyncCore 里那台 monitor 是它自己私有的（管同步），
-/// 借过来会把两个模块绑死，所以这里单开一台——NWPathMonitor 很便宜。
+/// 轻量网络类型观察者。同步模块那台 monitor 是它自己私有的，借过来会把
+/// 两个模块绑死，所以这里单开一台——NWPathMonitor 很便宜。
 final class AmbientNetworkMonitor: @unchecked Sendable {
     static let shared = AmbientNetworkMonitor()
 

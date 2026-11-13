@@ -332,15 +332,13 @@ private struct MemoryContentView: View {
         do {
             try editedContent.write(to: url, atomically: true, encoding: .utf8)
             currentContent = editedContent
-            // SOUL.md needs the same side effects SoulStore.save() does:
+            // SOUL.md needs the same side effect SoulStore.save() does:
             // refresh the in-memory metadata cache (so the chat header /
-            // SystemPromptBuilder pick up the new identity) and mark it
-            // dirty for iCloud sync. Without these, edits in this sheet
-            // would land on disk but the running app + peer devices
+            // SystemPromptBuilder pick up the new identity). Without this,
+            // edits in this sheet would land on disk but the running app
             // would keep using the stale identity until next launch.
             if url.lastPathComponent == "SOUL.md" {
                 SoulStore.refreshCache()
-                Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
             }
             isEditing = false
             withAnimation { saved = true }

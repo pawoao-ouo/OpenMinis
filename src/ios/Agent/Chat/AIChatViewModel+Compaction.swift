@@ -16,7 +16,7 @@ extension AIChatViewModel {
     /// `binding.primarySource` could disagree with the send path in two ways:
     /// a group's stale resolvedEntryId (member since disabled/hidden) judged
     /// capacity by the WRONG member's window, and sessions without a binding
-    /// (e.g. iCloud-synced) skipped capacity checks entirely.
+    /// (e.g. restored) skipped capacity checks entirely.
     func checkContextBeforeSend(estimatedTokens: Int? = nil) -> ContextPolicy.CheckResult {
         guard let entry = resolveCurrentEntry() else { return .ok }
         let resolved = resolvedContextWindow(for: entry.model)
@@ -1093,8 +1093,8 @@ extension AIChatViewModel {
     /// Call the current LLM to generate a compact summary.
     private func generateCompactSummary(conversationText: String, statusMsg: ChatMessage? = nil) async throws -> String {
         // Resolve the model entry the same way the chat path does — this falls back to the
-        // default group when the session has no binding (e.g. sessions synced from iCloud on
-        // another device, whose provider binding doesn't travel with the CloudKit record).
+        // default group when the session has no binding (e.g. sessions restored from a
+        // backup, whose provider binding doesn't travel with the package).
         guard let entry = resolveCurrentEntry() else {
             throw NSError(domain: "Compact", code: -1, userInfo: [NSLocalizedDescriptionKey: "No model available for summarization"])
         }

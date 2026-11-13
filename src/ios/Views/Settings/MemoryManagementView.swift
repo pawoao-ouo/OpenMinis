@@ -10,8 +10,6 @@ import SwiftUI
 struct MemoryManagementView: View {
     @ObservedObject private var fontSettings = FontSettings.shared
     @State private var memoryFiles: [MemoryFileItem] = []
-    @State private var forceSyncToast: String?
-    @AppStorage("cloudSync.v2.enabled") private var iCloudSyncEnabled: Bool = false
     /// [T-memory-global-toggle-settings-ui-ios] Global default for whether
     /// a NEW session starts with memory enabled. Default true preserves
     /// today's behavior. Already-created sessions keep their own per-
@@ -60,37 +58,8 @@ struct MemoryManagementView: View {
         }
         .navigationTitle("Memory")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if #available(iOS 17.0, *), iCloudSyncEnabled {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            Task { await forceSyncMemory() }
-                        } label: {
-                            Label(AppLocalized("Force iCloud Sync"),
-                                  systemImage: "arrow.triangle.2.circlepath.icloud")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-            }
-        }
-        .overlay(alignment: .top) {
-            if let msg = forceSyncToast {
-                Text(msg)
-                    .font(.system(size: fontSettings.scaledApp(15), weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(MinisTheme.accent, in: Capsule())
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.spring(response: 0.3), value: forceSyncToast)
         .onAppear { loadFiles() }
-        // Refresh when an inbound iCloud merge / memory_write tool / another
+        // Refresh when a restore / memory_write tool / another
         // view writes a memory file. Cheap operation (directory list +
         // per-file mtime/size attrs), safe to run on every notification.
         .onReceive(NotificationCenter.default.publisher(for: .memoryFilesDidChange)) { _ in
@@ -99,16 +68,6 @@ struct MemoryManagementView: View {
         .settingsPage()
     }
 
-    @available(iOS 17.0, *)
-    private func forceSyncMemory() async {
-        let count = await ForceSyncHelper.markMemoryDirty()
-        await ForceSyncHelper.bidirectionalSync(
-            recordTypes: ["MemoryGlobalV2", "MemoryDailyV2"])
-        forceSyncToast = AppLocalized("Synced \(count) memory files")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            forceSyncToast = nil
-        }
-    }
 
     private func loadFiles() {
         let fm = FileManager.default
@@ -310,27 +269,6 @@ private struct MemoryFileEditView: View {
             // doesn't dismiss or change, so without this the user gets no
             // signal that the write landed.
             MinisToast.show(AppLocalized("Saved"))
-            // [audit-E2] Mark the record that belongs to the persona whose
-            // file was actually just edited — `<pid>/<base>` for non-default
-            // personas (the default keeps the historic bare forms). The old
-            // code always marked the DEFAULT persona's records, so editing a
-            // non-default persona's memory pushed the default persona's file
-            // (and left the edit itself un-synced).
-            let pid = PersonaStore.currentID()
-            if isGlobal {
-                Task {
-                    await ChatStore.shared.markDirty(
-                        recordType: "MemoryGlobalV2",
-                        recordId: MemorySyncRecordID.scoped(pid: pid, base: MemorySyncRecordID.globalBase))
-                }
-            } else {
-                let stem = (fileName as NSString).deletingPathExtension
-                Task {
-                    await ChatStore.shared.markDirty(
-                        recordType: "MemoryDailyV2",
-                        recordId: MemorySyncRecordID.scoped(pid: pid, base: stem))
-                }
-            }
             NotificationCenter.default.post(name: .memoryFilesDidChange, object: nil)
         } catch {
             saveError = error.localizedDescription
@@ -340,8 +278,8 @@ private struct MemoryFileEditView: View {
 
 extension Notification.Name {
     /// Posted after a memory file (GLOBAL.md or daily log) is written
-    /// locally — either by the user editing in MemoryManagementView, by
-    /// memory_write tool, or by an inbound iCloud sync merge. Observers
-    /// can use this to refresh their in-memory snapshot of memory files.
+    /// locally — either by the user editing in MemoryManagementView or by
+    /// the memory_write tool. Observers can use this to refresh their
+    /// in-memory snapshot of memory files.
     static let memoryFilesDidChange = Notification.Name("com.openminis.clone.memoryFilesDidChange")
 }

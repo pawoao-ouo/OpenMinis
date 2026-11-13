@@ -1077,7 +1077,7 @@ struct BackupRestoreView: View {
         // ContentView refreshes on this notification; posting it again is
         // harmless because refreshSessionList coalesces.
         await MainActor.run {
-            NotificationCenter.default.post(name: .cloudSyncDidFetchChanges, object: nil)
+            NotificationCenter.default.post(name: .localStoresDidChange, object: nil)
         }
     }
 

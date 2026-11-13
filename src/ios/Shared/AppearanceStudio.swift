@@ -2594,7 +2594,7 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
     case decorate, appearance, skills, soul, memory, mcp, env, terminal, rootfs, browser
     /// [batch1] Settings → Agent Runtime 的「Agent Tools」行（工具开关页）。
     case agentTools
-    case storage, shared, mounts, icloud, backup, permissions, lock
+    case storage, shared, mounts, backup, permissions, lock
     case logs, about, privacy, feedback
     /// [merge step18a] Settings → Agent Runtime 的「桥·对外连接」行。
     case bridgeRelay
@@ -2624,7 +2624,6 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
         case .storage: return AppLocalized("Storage")
         case .shared: return AppLocalized("Shared folders")
         case .mounts: return AppLocalized("外部文件夹")
-        case .icloud: return AppLocalized("iCloud Sync")
         case .backup: return AppLocalized("Backup & Restore")
         case .permissions: return AppLocalized("Permissions")
         case .lock: return AppLocalized("锁定")
@@ -2656,7 +2655,6 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
         case .storage: return "archivebox.fill"
         case .shared: return "folder.fill"
         case .mounts: return "externaldrive.fill"
-        case .icloud: return "icloud.fill"
         case .backup: return "arrow.triangle.2.circlepath"
         case .permissions: return "lock.shield.fill"
         case .lock: return "lock.fill"

@@ -312,7 +312,6 @@ extension BackupImporter {
         }
 
         // Sessions before messages — restoreMessage requires the parent row.
-        var restoredSessionIds: [String] = []
         var runningSessionIds: Set<String> = []
         var packageSessionIds: Set<String> = []
         // Fix 2 — in overwrite mode the package's copy stands even when the
@@ -339,15 +338,14 @@ extension BackupImporter {
                 report.skipped += 1
                 continue
             }
-            await store.clearRestoreTombstone(sessionId: sid)
             let outcome = await store.restoreSession(rec.session,
                                                      memoryEnabled: rec.memoryEnabled,
                                                      modelBinding: rec.modelBinding,
                                                      overwrite: overwrite)
             switch outcome {
-            case .inserted: report.imported += 1; restoredSessionIds.append(sid)
-            case .updated: report.updated += 1; restoredSessionIds.append(sid)
-            case .skippedLocalNewer: report.skipped += 1; restoredSessionIds.append(sid)
+            case .inserted: report.imported += 1
+            case .updated: report.updated += 1
+            case .skippedLocalNewer: report.skipped += 1
             case .skippedNoParent: report.skipped += 1
             }
         }
@@ -411,9 +409,6 @@ extension BackupImporter {
         }
 
         // Session file trees: rebuild <sid>/ wholesale (§8.3).
-        // [AUD3-01] Remember every file that actually landed so the SessionFile
-        // dirty records below can be written for exactly those.
-        var restoredFilePaths: [String] = []
         let files = try restoreFileTree(
             root: root, fileIndex: fileIndex, category: .chats,
             destinationFor: { path in
@@ -426,37 +421,11 @@ extension BackupImporter {
                 return AIChatViewModel.minisPersistentBase
                     .appendingPathComponent(parts[1], isDirectory: true)
                     .appendingPathComponent(parts[2])
-            },
-            didWrite: { restoredFilePaths.append($0) })
+            })
         report.filesWritten = files.written
         report.bytesWritten = files.bytes
         report.missingBlobs = files.missingBlobs
 
-        // §8.3: restored rows go through NORMAL dirty marking so the local sync
-        // engine re-uploads them under this device's identity. They carry no
-        // inbound sync state, and nothing here writes sync_pushed_records.
-        for sid in restoredSessionIds {
-            await store.markDirty(recordType: "Session", recordId: sid)
-        }
-
-        // [AUD3-01] The session's FILES need the same treatment, and used not to
-        // get it. A restored package wrote media/attachments/durable files into
-        // the workspace with no SessionFile dirty record, so from iCloud's point
-        // of view those files had never changed and were never pushed. "Restore
-        // on B, wipe A, move to C" then left B as the only copy. Same record type
-        // and id scheme `saveMedia` uses ("<sessionId>:<subdir>/<name>"), and the
-        // same respect for the user's upload policy: `markDirty` skips the record
-        // when Session Files is switched off in iCloud settings.
-        //
-        // One row per written file — precise, and INSERT OR REPLACE makes a
-        // repeated restore a no-op rather than growth. `restoreFileTree` only
-        // reports files it actually wrote: files the package did not mention,
-        // and files skipped because their session is running, are not marked.
-        for path in restoredFilePaths {
-            let parts = path.split(separator: "/", maxSplits: 2).map(String.init)
-            guard parts.count >= 3, parts[0] == "chats" else { continue }
-            await store.markDirty(recordType: "SessionFile", recordId: "\(parts[1]):\(parts[2])")
-        }
         return report
     }
 
@@ -587,11 +556,11 @@ extension BackupImporter {
         }
         var lwwSkippedIds: Set<String> = []
         for rec in readJSONL(dataDir, base: "skills", as: SkillRecord.self) {
-            // importSkillFromSync preserves the id and applies its own LWW,
-            // which is exactly Merge semantics; it also skips markDirty, so the
-            // rescan below stages the changes instead.
+            // importSkillRecord preserves the id and applies its own LWW,
+            // which is exactly Merge semantics; the rescan below stages
+            // the changes instead.
             let applied = await MainActor.run {
-                SkillStore.shared.importSkillFromSync(
+                SkillStore.shared.importSkillRecord(
                     skillId: rec.id, content: rec.body,
                     source: rec.sourceURL.map { .url($0) } ?? .file,
                     isEnabled: rec.isEnabled, installedAt: rec.installedAt,
@@ -609,7 +578,7 @@ extension BackupImporter {
             destinationFor: { path in
                 let parts = path.split(separator: "/", maxSplits: 2).map(String.init)
                 guard parts.count >= 3, parts[0] == "skills" else { return nil }
-                // A false from importSkillFromSync means the LOCAL skill is
+                // A false from importSkillRecord means the LOCAL skill is
                 // newer than the package's record — its contract says the
                 // caller MUST then stop file processing for that skill.
                 // Restoring its files anyway would silently roll the skill
@@ -805,15 +774,11 @@ extension BackupImporter {
         // the entire config, so any provider / model group / session binding
         // that exists locally but not in the backup was silently deleted —
         // while the restore confirmation promised "Nothing is deleted".
-        // mergeProviderConfigForRestore is the sync engine's union-by-id
-        // merger, which keeps local-only items and leaves the per-device
-        // pointer fields (voice/vision groups, session bindings, defaults)
-        // untouched.
-        // CloudSyncEngine is @available(iOS 17+) (it is CloudKit-backed). This
-        // build's deployment target is ≥ iOS 26, so the inline fallback below is
-        // a dead path today — kept for a possible iOS 16 revival, with the same
-        // union-by-id rules. Restoring must never fall back to the destructive
-        // whole-config replace just because sync is unavailable.
+        // mergeProviderConfigForRestore (below) is the union-by-id merger,
+        // which keeps local-only items and leaves the per-device pointer
+        // fields (voice/vision groups, session bindings, defaults) untouched.
+        // Restoring must never fall back to the destructive whole-config
+        // replace.
         // Fix 2 — overwrite: the wipe step already replaced the whole config
         // with the package's via `applyConfig` (local per-device pointers
         // preserved, no "(from backup)" suffix — there is nothing left to
@@ -822,8 +787,8 @@ extension BackupImporter {
         // set. No merge runs here at all: merging would resurrect the very
         // providers the wipe just removed.
         //
-        // Merge keeps the existing path below: union-by-id, local wins, and
-        // the per-device pointers are never touched.
+        // Merge keeps the existing path below: union-by-id, the package wins
+        // for same-id items, and the per-device pointers are never touched.
         if options.mode == .overwrite {
             // Every instance in the package is now live (the config was
             // replaced wholesale); nothing was "skipped" — a package instance
@@ -843,11 +808,7 @@ extension BackupImporter {
             let merged = await MainActor.run { Self.disambiguateGroupNames(config) }
 
             let before = await MainActor.run { ProviderConfigStore.shared.config.instances.count }
-            if #available(iOS 17.0, *) {
-                await CloudSyncEngine.mergeProviderConfigForRestore(merged)
-            } else {
-                await MainActor.run { Self.mergeProviderConfigFallback(merged) }
-            }
+            await Self.mergeProviderConfigForRestore(merged)
             let after = await MainActor.run { ProviderConfigStore.shared.config.instances.count }
 
             // Report what the merge actually did, not the package's instance count:
@@ -856,15 +817,14 @@ extension BackupImporter {
             // [T-backup-provider-false-updated] `updated` used to be
             // `config.instances.count - imported`, i.e. "every instance in the
             // package that wasn't newly inserted" — with no content comparison at
-            // all. Both mergers here are union-by-id and SKIP anything already
-            // present (mergeProviderConfigFallback appends only when the id is
-            // absent; CloudSyncEngine's restore merge behaves the same way), so
-            // those instances were not updated — they were left untouched.
-            // Restoring a package onto the device that produced it therefore
-            // reported "Updated 9" while changing nothing, which is the reported
-            // symptom. Count them as `skipped`, which is what actually happened
-            // and what every other category (chats via LWW, memory via content
-            // hash) already reports for an unchanged item.
+            // all. The merge above is union-by-id and only grows the list for
+            // genuinely new ids, so an instance already present locally is not
+            // a new arrival even when the merge refreshed its content from the
+            // package. Restoring a package onto the device that produced it
+            // therefore reported "Updated 9" while adding nothing, which is
+            // the reported symptom. Count them as `skipped`, which is what
+            // actually happened and what every other category (chats via LWW,
+            // memory via content hash) already reports for an unchanged item.
             report.imported = max(0, after - before)
             report.skipped = max(0, config.instances.count - report.imported)
         }
@@ -905,7 +865,7 @@ extension BackupImporter {
     /// provider DB.
     ///
     /// Deliberately delegates to `upsertThinkingRuleFromInbound`, the same call
-    /// the iCloud sync hydrator uses, rather than writing a second merge:
+    /// inbound merges use, rather than writing a second merge:
     ///   * conflict is resolved by id (`ON CONFLICT(id) DO UPDATE`);
     ///   * a LOCAL row with an equal-or-newer `updated_at` wins, so restoring
     ///     an older package cannot roll back a rule edited since;
@@ -946,138 +906,501 @@ extension BackupImporter {
         return (written, skipped)
     }
 
-    /// Union-by-id provider merge for iOS 16, where `CloudSyncEngine` (iOS 17+,
-    /// CloudKit-backed) is unavailable.
-    ///
-    /// Deliberately conservative and additive: local wins for anything already
-    /// present, backup-only items are appended, and every per-device pointer
-    /// field is left alone. It does NOT reimplement the sync merger's
-    /// Suffix restored model groups whose name is already taken locally.
-    ///
-    /// Returns the config unchanged when there is no collision — the suffix is
-    /// a disambiguator, not a label for "this came from a backup", so a group
-    /// that lands on a device without a same-named one keeps its original
-    /// name. A group already present BY ID is skipped too: that is the same
-    /// group coming home, not a duplicate.
+    /// Restore-only provider merge, relocated from the deleted sync engine
+    /// (restore variant of its provider-config merge). Union-by-id: the
+    /// package wins for same-id items, local-only items are kept, tombstones
+    /// suppress resurrections, and the package's order leads. Per-device
+    /// pointers (defaults, voice/vision groups, session bindings) are never
+    /// touched — the merge starts from the local config.
     @MainActor
-    static func disambiguateGroupNames(_ remote: ProviderConfig) -> ProviderConfig {
-        let local = ProviderConfigStore.shared.config
-        let localIds = Set(local.modelGroups.map(\.id))
-        var takenNames = Set(local.modelGroups.map(\.name))
-        guard !takenNames.isEmpty else { return remote }
-
-        var copy = remote
-        var renamed = 0
-        for i in copy.modelGroups.indices {
-            let group = copy.modelGroups[i]
-            // Same id => the very same group, which merge will skip entirely.
-            guard !localIds.contains(group.id) else { continue }
-            guard takenNames.contains(group.name) else {
-                takenNames.insert(group.name)
-                continue
-            }
-            let base = AppLocalized("\(group.name) (from backup)")
-            var candidate = base
-            var n = 2
-            while takenNames.contains(candidate) {
-                candidate = "\(base) \(n)"
-                n += 1
-            }
-            copy.modelGroups[i].name = candidate
-            takenNames.insert(candidate)
-            renamed += 1
-        }
-        if renamed > 0 {
-            logger.info("[Restore] renamed \(renamed) model group(s) whose names collided with local ones")
-        }
-        return copy
-    }
-
-    /// model-entry overlay or tombstone reconciliation — those matter for
-    /// device-to-device convergence, not for "put my backup back" — but it
-    /// must never delete, which is the property that was broken.
-    ///
-    /// NOTE: dead path in this build (deployment target ≥ iOS 26) — the
-    /// live restore merge with the same semantics lives in CloudSyncEngine:
-    /// `mergeProviderConfigForRestore` → `mergeProviderConfigBody`. If
-    /// iOS 16 support is ever revisited, mirror changes in both.
-    @MainActor
-    static func mergeProviderConfigFallback(_ remote: ProviderConfig) {
+    static func mergeProviderConfigForRestore(_ remote: ProviderConfig) async {
+        // Read the authoritative current state from the store's in-memory config,
+        // NOT from disk. Reading from disk would lose any changes still in-flight
+        // between a UI edit and the debounced disk write (tiny but real window),
+        // and would silently overwrite per-device-only fields (sessionBindings,
+        // sessionInferenceConfigs, default pointers) if the disk was stale.
         let store = ProviderConfigStore.shared
         var local = store.config
 
-        // [T-backup-restore-order] Restore the BACKUP's order, then keep
-        // local-only items after it.
+        let localInstanceIds = Set(local.instances.map { $0.id })
+        let localGroupIds = Set(local.modelGroups.map { $0.id })
+
+        // Merge strategy: the package wins for same-ID items (propagates edits,
+        // renames, member changes). Local-only items (not in the package) are kept.
         //
-        // Appending backup items to the end preserved neither side's
-        // arrangement: the provider list is drag-reorderable and its order
-        // lives in the array itself (ProviderConfigDB writes the array index
-        // into `sort_order`), so a restore used to leave the list looking
-        // shuffled — the reported "恢复会把服务商、分组的排序全部打乱".
+        // Tombstones drive deletion semantics. Union by id of local + remote
+        // tombstones survives the merge (so the next device that sees this
+        // record also sees the delete intent). An item whose id is in the
+        // tombstone union with `deletedAt > the would-be-resurrected entry's
+        // updatedAt-ish stamp` is suppressed. ProviderInstance has no per-row
+        // updatedAt, so we apply tombstones unconditionally to instances —
+        // a same-id "re-add" would have to happen on the device that holds
+        // the tombstone (where removeInstance has already wiped it).
+        let mergedInstanceTombstones = mergeTombstones(local.deletedInstances, remote.deletedInstances)
+        let mergedEntryTombstones    = mergeTombstones(local.deletedModelEntries, remote.deletedModelEntries)
+        let mergedGroupTombstones    = mergeTombstones(local.deletedModelGroups, remote.deletedModelGroups)
+        let tombstonedInstanceIds = Set(mergedInstanceTombstones.map(\.id))
+        let tombstonedEntryIds    = Set(mergedEntryTombstones.map(\.id))
+        let tombstonedGroupIds    = Set(mergedGroupTombstones.map(\.id))
+
+        // 1. Merge instances — remote wins for same-id, keep local-only,
+        //    suppress anything in the tombstone union.
+        var instanceMap = Dictionary(local.instances.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for ri in remote.instances where !tombstonedInstanceIds.contains(ri.id) {
+            instanceMap[ri.id] = ri  // remote wins for existing; adds new
+        }
+        for tid in tombstonedInstanceIds {
+            instanceMap.removeValue(forKey: tid)
+        }
+        // [T-backup-restore-order] Ordering is USER DATA here: the provider
+        // list is drag-reorderable, and `config.instances`'s array order is
+        // what carries it (ProviderConfigDB writes the array index into
+        // `sort_order` and reads back `ORDER BY sort_order`).
         //
-        // Local wins on CONTENT for an id present on both sides (this path is
-        // deliberately additive and never overwrites), but the package decides
-        // POSITION for the items it carries.
-        var instanceIds = Set(local.instances.map(\.id))
-        var orderedInstances: [ProviderInstance] = []
-        var placedInstances = Set<String>()
+        // The package records the order the user arranged, and rebuilding by
+        // creation date discards it, which is the reported "恢复会把服务商、分组的排序全部打乱".
+        //
+        // On restore: take the backup's order first, then append local-only
+        // instances (which the backup could not know about) after it, keeping
+        // their relative order. That makes the restored device match the
+        // backup for everything the backup contained, and leaves anything
+        // added since at the end rather than interleaved by date.
+        var ordered: [ProviderInstance] = []
+        var placed = Set<String>()
         for ri in remote.instances {
-            if let existing = local.instances.first(where: { $0.id == ri.id }) {
-                orderedInstances.append(existing)
-            } else {
-                orderedInstances.append(ri)
-                instanceIds.insert(ri.id)
+            if let merged = instanceMap[ri.id] {
+                ordered.append(merged)
+                placed.insert(ri.id)
             }
-            placedInstances.insert(ri.id)
         }
-        for li in local.instances where !placedInstances.contains(li.id) {
-            orderedInstances.append(li)
+        for li in local.instances where !placed.contains(li.id) {
+            if let merged = instanceMap[li.id] {
+                ordered.append(merged)
+                placed.insert(li.id)
+            }
         }
-        local.instances = orderedInstances
-        var entryIds = Set(local.modelEntries.map(\.id))
-        for entry in remote.modelEntries where !entryIds.contains(entry.id) {
-            local.modelEntries.append(entry)
-            entryIds.insert(entry.id)
+        // Anything only reachable through the map (defensive; should be
+        // covered above) keeps the previous deterministic ordering.
+        for inst in instanceMap.values where !placed.contains(inst.id) {
+            ordered.append(inst)
         }
-        // [T-backup-restore-order] Same ordering rule as instances above:
-        // groups are drag-reorderable too, so the package decides the position
-        // of what it carries and local-only groups follow.
+        local.instances = ordered
+        // Drop modelEntries whose providerInstanceId was tombstoned. The
+        // remote snapshot may still carry orphaned entries pointing at the
+        // tombstoned instance; the local snapshot was already pruned by
+        // removeInstance. Either way, after this merge no instance =>
+        // no entries that belong to it.
+        local.modelEntries.removeAll { tombstonedInstanceIds.contains($0.providerInstanceId) }
+
+        // 2. Merge modelEntries — consume only user-modified remote entries.
+        //
+        // A restore must NOT propagate API-truth model metadata from another device: each
+        // device can fetch its own models.dev/provider response, and copying one
+        // device's fetched list on top of another's produces ghost entries when
+        // the two fetches disagree (different UUIDs for the same model id, stale
+        // contextWindow, etc.). This is what caused model lists to update
+        // "spontaneously" with results that differed from a manual Refresh.
+        //
+        // New semantics: remote entries are only applied when they carry a user
+        // intent — custom additions, overrides (displayName / maxOutputTokens),
+        // or an explicit isHidden. Everything else is API truth and is dropped.
+        // Pure API-truth entries are never touched; the local list stays exactly
+        // as the last Refresh left it.
+        //
+        // Remote user-modified entries are aligned to local by (providerInstanceId,
+        // baseModel.id), NOT by UUID — that way a model the user renamed on
+        // device A ends up mapped onto device B's same-id local entry even if
+        // the two devices generated different UUIDs during independent refreshes.
+        let localEntriesSnapshot = local.modelEntries
+
+        // Index local entries for lookup by (instanceId, baseModelId).
+        struct EntryKey: Hashable { let instanceId: String; let modelId: String }
+        var localIndex: [EntryKey: Int] = [:]
+        for (idx, e) in local.modelEntries.enumerated() {
+            localIndex[EntryKey(instanceId: e.providerInstanceId, modelId: e.baseModel.id)] = idx
+        }
+
+        var accepted = 0
+        var skipped = 0
+        var appliedOverrides = 0
+        var appliedHidden = 0
+        var insertedCustom = 0
+        var skippedLegacyOverlay = 0   // remote had no userModifiedAt → overrides/isHidden not applied
+        var skippedOlderRemote = 0     // remote userModifiedAt <= local userModifiedAt
+
+        // Drop locally-known entries the union of tombstones marks as deleted.
+        // Done before the remote loop so localIndex (built above) stays
+        // consistent with the post-merge state. modelEntries that belong
+        // to a tombstoned instance were already removed above.
+        if !tombstonedEntryIds.isEmpty {
+            local.modelEntries.removeAll { tombstonedEntryIds.contains($0.id) }
+            // Rebuild localIndex so the per-key lookup below still works.
+            localIndex.removeAll(keepingCapacity: true)
+            for (idx, e) in local.modelEntries.enumerated() {
+                localIndex[EntryKey(instanceId: e.providerInstanceId, modelId: e.baseModel.id)] = idx
+            }
+        }
+
+        for re in remote.modelEntries {
+            // Suppress entries the union of tombstones marks as deleted,
+            // including any entries that hung off an instance the user
+            // deleted on this device.
+            if tombstonedEntryIds.contains(re.id) { continue }
+            if tombstonedInstanceIds.contains(re.providerInstanceId) { continue }
+            guard re.isUserModified else {
+                skipped += 1
+                continue
+            }
+            accepted += 1
+
+            let key = EntryKey(instanceId: re.providerInstanceId, modelId: re.baseModel.id)
+            if let idx = localIndex[key] {
+                // Local already has this model id under this instance.
+                //
+                // Timestamp-based conflict resolution for overlay (overrides + isHidden):
+                //   - Remote has no userModifiedAt → LEGACY data (pre-upgrade or not
+                //     stamped by the uploader). Skip the overlay entirely to prevent
+                //     stale override names from quietly re-appearing on newer devices.
+                //   - Local has userModifiedAt but remote is older-or-equal → local wins.
+                //   - Otherwise → remote wins, apply.
+                //
+                // We never touch baseModel (API truth) or isCustom (local Refresh owns it).
+                let localEntry = local.modelEntries[idx]
+
+                let remoteIsApplicable: Bool
+                if re.userModifiedAt == nil {
+                    remoteIsApplicable = false
+                    skippedLegacyOverlay += 1
+                } else if let localStamp = localEntry.userModifiedAt,
+                          let remoteStamp = re.userModifiedAt,
+                          remoteStamp <= localStamp {
+                    remoteIsApplicable = false
+                    skippedOlderRemote += 1
+                } else {
+                    remoteIsApplicable = true
+                }
+
+                guard remoteIsApplicable else { continue }
+
+                var updated = localEntry
+                var didChange = false
+                if updated.overrides != re.overrides {
+                    updated.overrides = re.overrides
+                    appliedOverrides += 1
+                    didChange = true
+                }
+                if updated.isHidden != re.isHidden {
+                    updated.isHidden = re.isHidden
+                    appliedHidden += 1
+                    didChange = true
+                }
+                if didChange {
+                    // Carry remote's userModifiedAt forward so subsequent merges on
+                    // this device compare against the winning timestamp.
+                    updated.userModifiedAt = re.userModifiedAt
+                    local.modelEntries[idx] = updated
+                }
+            } else if re.isCustom {
+                // Remote has a custom model that local doesn't know about — insert
+                // it, preserving the remote UUID so modelGroups.memberEntryIds
+                // references (which live in the same ProviderConfig blob and were
+                // recorded against the remote UUID) stay valid.
+                //
+                // Legacy custom entries (no userModifiedAt) are still inserted:
+                // refusing them would silently lose a user-authored model across the
+                // upgrade boundary, which is strictly worse than the legacy-overlay
+                // problem (adding a ghost is recoverable; deleting user data isn't).
+                local.modelEntries.append(re)
+                localIndex[key] = local.modelEntries.count - 1
+                insertedCustom += 1
+            }
+            // else: remote has a non-custom entry for a model id local doesn't have.
+            // That means the other device's API fetch returned a model this device's
+            // fetch didn't — treat it as phantom and drop. Local Refresh is the only
+            // authority for which non-custom models exist on this device.
+        }
+
+        // Per-instance before/after diff (unchanged structure — but now should be
+        // mostly empty in the steady state, which is the whole point of the rewrite).
+        let beforeByInstance = Dictionary(grouping: localEntriesSnapshot, by: { $0.providerInstanceId })
+        let afterByInstance = Dictionary(grouping: local.modelEntries, by: { $0.providerInstanceId })
+        let allInstanceIds = Set(beforeByInstance.keys).union(afterByInstance.keys)
+        for iid in allInstanceIds {
+            let beforeIds = Set((beforeByInstance[iid] ?? []).map { $0.baseModel.id })
+            let afterIds = Set((afterByInstance[iid] ?? []).map { $0.baseModel.id })
+            guard beforeIds != afterIds else { continue }
+            let added = afterIds.subtracting(beforeIds).sorted()
+            let removed = beforeIds.subtracting(afterIds).sorted()
+            let instanceLabel = local.instances.first(where: { $0.id == iid })?.label ?? "?"
+            logger.info("[ModelList] mergeProviderConfig: instance=\(instanceLabel)(\(iid.prefix(8))) before=\(beforeIds.count) after=\(afterIds.count) added=\(added.count)[\(added.prefix(10).joined(separator: ","))] removed=\(removed.count)[\(removed.prefix(10).joined(separator: ","))]")
+        }
+        logger.info("[ModelList] mergeProviderConfig: remoteEntries=\(remote.modelEntries.count) accepted=\(accepted) skipped=\(skipped) appliedOverrides=\(appliedOverrides) appliedHidden=\(appliedHidden) insertedCustom=\(insertedCustom) skippedLegacyOverlay=\(skippedLegacyOverlay) skippedOlderRemote=\(skippedOlderRemote) totalAfter=\(local.modelEntries.count)")
+
+        // 3. Merge modelGroups — same-id: remote wins. Same-name different-id:
+        // collapse (both devices independently created a group with the same
+        // name; converge them onto a single id — prefer the smaller id string
+        // as the stable winner so both devices deterministically agree).
+        //
+        // This replaces the old "(device name) suffix on name collision" logic
+        // that produced permanent forks: two devices with a "Coding" group ended
+        // up showing BOTH "Coding" and "Coding (iPhone...)" on both sides forever.
+        // Pre-filter locally-known groups by the tombstone union (the local
+        // side already pruned them in removeGroup; this guard handles
+        // an incoming remote that still has them, plus same-id resurrection).
+        if !tombstonedGroupIds.isEmpty {
+            // [T-subagent-dangling-group] Groups pruned here never pass through
+            // removeGroup(), so sub-agents pointing at them would keep a
+            // dangling modelGroupId. Clear those pointers the same way
+            // removeGroup() does. Only ids this device actually had can
+            // dangle — intersect with the pre-prune local list, not the whole
+            // tombstone union. This covers backup restores: the restore
+            // path runs through this function.
+            let removedGroupIds = local.modelGroups.map(\.id).filter { tombstonedGroupIds.contains($0) }
+            local.modelGroups.removeAll { tombstonedGroupIds.contains($0.id) }
+            for groupId in removedGroupIds {
+                SubAgentStore.shared.clearModelGroup(groupId)
+            }
+        }
+        var groupMap = Dictionary(local.modelGroups.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var groupIdRewrites: [String: String] = [:]  // oldRemoteId -> canonicalLocalId
+        // Build a local name index for collision detection.
+        var localGroupByName: [String: String] = [:]  // name -> id
+        for g in local.modelGroups { localGroupByName[g.name] = g.id }
+        for rg in remote.modelGroups {
+            if tombstonedGroupIds.contains(rg.id) { continue }
+            // Strip out member references to tombstoned entries so a stale
+            // remote member list doesn't carry deleted ids forward.
+            var rg = rg
+            if !tombstonedEntryIds.isEmpty {
+                rg.memberEntryIds.removeAll { tombstonedEntryIds.contains($0) }
+            }
+            if let localGroup = groupMap[rg.id] {
+                // Same id — use the package's member order as primary: it
+                // represents the source device's latest edit whose order should
+                // be respected. Local-only members (added after the backup was
+                // taken) are appended at the end so no member is lost.
+                var merged = rg  // start from remote for scalar fields + order
+                var order = rg.memberEntryIds
+                let remoteSet = Set(order)
+                for mid in localGroup.memberEntryIds where !remoteSet.contains(mid) {
+                    order.append(mid)
+                }
+                merged.memberEntryIds = order
+                groupMap[rg.id] = merged
+            } else if let collidingLocalId = localGroupByName[rg.name], collidingLocalId != rg.id {
+                // Same name, different id → collapse onto the lexicographically
+                // smaller id so both devices deterministically pick the same winner.
+                let canonicalId = min(collidingLocalId, rg.id)
+                let otherId = max(collidingLocalId, rg.id)
+                groupIdRewrites[otherId] = canonicalId
+
+                if canonicalId == collidingLocalId {
+                    // Local id wins: merge remote's memberEntryIds union into local, prefer local's other fields.
+                    if var winner = groupMap[canonicalId] {
+                        var seen = Set(winner.memberEntryIds)
+                        for mid in rg.memberEntryIds where !seen.contains(mid) {
+                            winner.memberEntryIds.append(mid)
+                            seen.insert(mid)
+                        }
+                        groupMap[canonicalId] = winner
+                    }
+                } else {
+                    // Remote id wins: install remote, but merge in the old local memberEntryIds
+                    // so nothing is lost. Drop the old local entry under collidingLocalId.
+                    var winner = rg
+                    if let oldLocal = groupMap[collidingLocalId] {
+                        var seen = Set(winner.memberEntryIds)
+                        for mid in oldLocal.memberEntryIds where !seen.contains(mid) {
+                            winner.memberEntryIds.append(mid)
+                            seen.insert(mid)
+                        }
+                    }
+                    groupMap.removeValue(forKey: collidingLocalId)
+                    groupMap[canonicalId] = winner
+                    localGroupByName[winner.name] = canonicalId
+                }
+                logger.info("[ModelList] mergeProviderConfig: group name collision '\(rg.name)' collapsed: \(otherId.prefix(8)) -> \(canonicalId.prefix(8))")
+            } else {
+                // Brand new group — no id clash, no name clash. Just add it.
+                groupMap[rg.id] = rg
+                localGroupByName[rg.name] = rg.id
+            }
+        }
+        // [T-backup-restore-order] `Dictionary.values` has NO defined order, so
+        // this line alone could reshuffle the group list on every merge —
+        // worse than the instances case, which at least sorted by date.
+        // Rebuild deterministically: the backup's order first, then whatever
+        // is local-only, so a restore does not rearrange a list the user
+        // dragged into place.
         var orderedGroups: [ModelGroup] = []
         var placedGroups = Set<String>()
         for rg in remote.modelGroups {
-            if let existing = local.modelGroups.first(where: { $0.id == rg.id }) {
-                orderedGroups.append(existing)
-            } else {
-                orderedGroups.append(rg)
+            // The id may have been rewritten by the name-collision pass
+            // above, so resolve through the map rather than trusting `rg`.
+            if let merged = groupMap[rg.id] {
+                orderedGroups.append(merged)
+                placedGroups.insert(merged.id)
             }
-            placedGroups.insert(rg.id)
         }
         for lg in local.modelGroups where !placedGroups.contains(lg.id) {
-            orderedGroups.append(lg)
+            if let merged = groupMap[lg.id] {
+                orderedGroups.append(merged)
+                placedGroups.insert(merged.id)
+            }
         }
-        // [T-subagent-dangling-group] Same rule as removeGroup(): no group
-        // may disappear while a sub-agent still points at it. This merge is
-        // additive — local-only groups are appended above — so the removed
-        // set is empty today; the clear is a guard for this path if the
-        // ordering code ever changes. (Dead path in this build: the live
-        // restore runs through CloudSyncEngine.mergeProviderConfigBody,
-        // whose tombstone pruning now clears sub-agent pointers.)
-        let removedGroupIds = Set(local.modelGroups.map(\.id)).subtracting(orderedGroups.map(\.id))
+        for g in groupMap.values where !placedGroups.contains(g.id) {
+            orderedGroups.append(g)
+            placedGroups.insert(g.id)
+        }
         local.modelGroups = orderedGroups
-        for groupId in removedGroupIds {
-            SubAgentStore.shared.clearModelGroup(groupId)
-        }
-        // agent-loop bindings are additive sets; per-device pointers
-        // (defaultPrimaryGroupId, voice*/visionGroupId, sessionBindings,
-        // sessionInferenceConfigs) are intentionally NOT touched.
-        local.agentLoopModelEntryIds = Array(
-            Set(local.agentLoopModelEntryIds).union(remote.agentLoopModelEntryIds))
-        local.agentLoopGroupIds = Array(
-            Set(local.agentLoopGroupIds).union(remote.agentLoopGroupIds))
 
-        store.applyConfig(local)
-        logger.info("[Restore] provider merge (iOS16 path): instances=\(local.instances.count) entries=\(local.modelEntries.count) groups=\(local.modelGroups.count)")
+        // Fix up dangling references to group ids we rewrote. Defaults / agent
+        // loop lists live outside the group array itself but point at group ids.
+        if !groupIdRewrites.isEmpty {
+            if let def = local.defaultPrimaryGroupId, let replacement = groupIdRewrites[def] {
+                local.defaultPrimaryGroupId = replacement
+            }
+            if let def = local.defaultSubGroupId, let replacement = groupIdRewrites[def] {
+                local.defaultSubGroupId = replacement
+            }
+            local.agentLoopGroupIds = local.agentLoopGroupIds.map { groupIdRewrites[$0] ?? $0 }
+            // The voice / vision selectors and per-session group bindings
+            // point at the same groups and were NOT fixed up: leaving them
+            // aimed at the removed id silently disabled voice input/output
+            // and vision (their resolvers return nil for an unknown group)
+            // and stranded each binding's group fallback. The VALUES stay
+            // local — only the id is translated to the surviving group.
+            if let v = local.voiceInputGroupId, let replacement = groupIdRewrites[v] {
+                local.voiceInputGroupId = replacement
+            }
+            if let v = local.voiceOutputGroupId, let replacement = groupIdRewrites[v] {
+                local.voiceOutputGroupId = replacement
+            }
+            if let v = local.visionGroupId, let replacement = groupIdRewrites[v] {
+                local.visionGroupId = replacement
+            }
+            // [问题3 / G2] 新增的五个用途槽位指向同一批组，必须一起改写。
+            // 漏掉它们的话，组被合并后这几个槽位会指向一个已经不存在的 id，
+            // 表现为"明明配了却永远取不到模型"。
+            if let v = local.imageOutputGroupId, let replacement = groupIdRewrites[v] {
+                local.imageOutputGroupId = replacement
+            }
+            if let v = local.videoOutputGroupId, let replacement = groupIdRewrites[v] {
+                local.videoOutputGroupId = replacement
+            }
+            if let v = local.realtimeVoiceGroupId, let replacement = groupIdRewrites[v] {
+                local.realtimeVoiceGroupId = replacement
+            }
+            if let v = local.embeddingGroupId, let replacement = groupIdRewrites[v] {
+                local.embeddingGroupId = replacement
+            }
+            if let v = local.judgeGroupId, let replacement = groupIdRewrites[v] {
+                local.judgeGroupId = replacement
+            }
+            // [T-model-groups-slots] 定时小帮手指针指向同一批组，一起改写。
+            if let v = local.scheduledHelperGroupId, let replacement = groupIdRewrites[v] {
+                local.scheduledHelperGroupId = replacement
+            }
+            for (sid, var binding) in local.sessionBindings {
+                func rewrite(_ source: SessionModelSource) -> SessionModelSource {
+                    if case .group(let gid, let resolved) = source,
+                       let replacement = groupIdRewrites[gid] {
+                        return .group(groupId: replacement, resolvedEntryId: resolved)
+                    }
+                    return source
+                }
+                binding.primarySource = rewrite(binding.primarySource)
+                binding.subModelSource = binding.subModelSource.map(rewrite)
+                local.sessionBindings[sid] = binding
+            }
+            // Sub-agents point at groups too, but their store is not part of
+            // ProviderConfig, so the fix-up above cannot reach them. A pointer
+            // at a rewritten id must FOLLOW the rewrite to the surviving
+            // group — clearing it would drop an assignment that still has a
+            // valid target. The local-loser case is the live one: this
+            // device's own agent can point at the local id that just lost the
+            // name collision. Rewritten via the existing upsertSubAgent (it
+            // persists and marks the record dirty); no SubAgentStore change.
+            let roster = SubAgentStore.shared.subAgents
+            for (oldId, canonicalId) in groupIdRewrites {
+                // A rewrite can CHAIN: a later collision can drop the very id
+                // an earlier rewrite pointed at (z -> m, then m -> a when a
+                // beats m). Follow the map to its end before writing back,
+                // or the agent lands on an id that no longer exists. The map
+                // cannot cycle by construction — each collision rewrites the
+                // lexicographically larger id onto the smaller one — but guard
+                // anyway so a malformed map can never hang the loop.
+                var target = canonicalId
+                var seen: Set<String> = [canonicalId]
+                while let next = groupIdRewrites[target] {
+                    guard seen.insert(next).inserted else { break }
+                    target = next
+                }
+                for agent in roster where agent.modelGroupId == oldId {
+                    var rewritten = agent
+                    rewritten.modelGroupId = target
+                    SubAgentStore.shared.upsertSubAgent(rewritten)
+                }
+            }
+        }
+
+        // 4. Don't touch: agentLoopModelEntryIds, sessionInferenceConfigs, and
+        //    the sessionBindings' contents. These stay per-device independent
+        //    (reading from store.config above ensures we're preserving the
+        //    latest in-memory values, not stale disk) — the fix-up above only
+        //    translates group ids inside bindings/selectors to the surviving
+        //    group when a name collision removed the id they pointed at.
+
+
+        // Write back the union of tombstones so a later restore still
+        // suppresses the same deleted ids. Without this the delete intent
+        // would only live on the device that issued it.
+        local.deletedInstances    = mergedInstanceTombstones
+        local.deletedModelEntries = mergedEntryTombstones
+        local.deletedModelGroups  = mergedGroupTombstones
+
+        // Commit: dedupe cross-device duplicate entries, then publish the
+        // merged config (in-memory + JSON + SQLite) via applyConfig. The
+        // tombstone union above is written back with the config so a later
+        // restore still suppresses the same deleted ids.
+        let priorInstanceIds = Set(store.config.instances.map(\.id))
+        let priorEntryInstanceIds = Set(store.config.modelEntries.map(\.providerInstanceId))
+        let (deduped, prunedEntryIds) = ProviderConfigStore.dedupeEntriesByModel(local)
+        if deduped == store.config, prunedEntryIds.isEmpty {
+            return
+        }
+        store.applyConfig(deduped)
+        logger.info("[Restore] mergeProviderConfigForRestore: merged \(instanceMap.count) instances, \(deduped.modelEntries.count) entries, \(deduped.modelGroups.count) groups")
+        if !prunedEntryIds.isEmpty {
+            logger.info("[Restore] mergeProviderConfigForRestore: collapsed \(prunedEntryIds.count) duplicate model entries")
+        }
+        // Fire-and-forget model refreshes for instances left with an empty
+        // model list (the package can lack model rows when the source device
+        // hadn't refreshed yet). refreshModels handles errors internally.
+        let instancesNeedingRefresh: [ProviderInstance] = deduped.instances.filter { inst in
+            let entriesAfter = deduped.modelEntries.filter { $0.providerInstanceId == inst.id }
+            return entriesAfter.isEmpty && (!priorInstanceIds.contains(inst.id) ||
+                                            !priorEntryInstanceIds.contains(inst.id))
+        }
+        for inst in instancesNeedingRefresh {
+            Task { await ProviderConfigStore.shared.refreshModels(for: inst) }
+        }
     }
+
+    private static func mergeTombstones(_ a: [ProviderConfigTombstone],
+                                        _ b: [ProviderConfigTombstone]) -> [ProviderConfigTombstone] {
+        var byId: [String: ProviderConfigTombstone] = [:]
+        for t in a { byId[t.id] = t }
+        for t in b {
+            if let existing = byId[t.id] {
+                if t.deletedAt > existing.deletedAt { byId[t.id] = t }
+            } else {
+                byId[t.id] = t
+            }
+        }
+        return Array(byId.values)
+    }
+
 
     // MARK: - MCP servers
 
@@ -1988,7 +2311,7 @@ extension BackupImporter {
         if categories.contains(.chats) {
             // One batch signal is enough to refresh everything chat-related.
             await MainActor.run {
-                NotificationCenter.default.post(name: .cloudSyncDidFetchChanges, object: nil)
+                NotificationCenter.default.post(name: .localStoresDidChange, object: nil)
             }
         }
     }

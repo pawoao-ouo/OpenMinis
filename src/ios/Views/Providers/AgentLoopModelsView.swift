@@ -153,7 +153,7 @@ struct AgentLoopModelsSection: View {
     // The IndexSet SwiftUI hands us is based on `currentEntries`, which is the raw
     // id array filtered through `compactMap { store.entry(for: $0) }`. If the raw
     // `agentLoopModelEntryIds` contains any orphan ids (entries that no longer
-    // resolve — e.g. from deleted providers or iCloud-synced ids with no local
+    // resolve — e.g. from deleted providers or restored ids with no local
     // counterpart), the two arrays have different lengths and indexing into the
     // raw array with visible indices corrupts the result — reorders snap back,
     // deletes remove the wrong row. Work on visible ids and drop orphans in the

@@ -3,13 +3,12 @@ import SQLite3
 
 private let logger = AppLogger(category: "ProviderConfigDB")
 
-/// SQLite-backed persistence for ProviderConfig (v3 sync architecture).
+/// SQLite-backed persistence for ProviderConfig (v3 architecture).
 ///
 /// Replaces the file-level last-write-wins of `provider-config.json` with
-/// per-row storage so each instance / entry / group can be synced as its
-/// own CloudKit record. Deletes propagate via CKRecord `op="delete"`
-/// instead of application-layer tombstones — a deleted row is gone for
-/// good and cannot be resurrected by a peer's stale snapshot.
+/// per-row storage so each instance / entry / group is stored independently.
+/// Deletes remove the row for good (plus a tombstone, so a later restore
+/// doesn't resurrect it).
 ///
 /// **Downgrade safety**: `provider-config.json` is kept side-by-side and
 /// rewritten on every mutate so a user reverting to a v2 build sees a
@@ -122,7 +121,7 @@ actor ProviderConfigDB {
         if current < 1 {
             // ── v1: initial schema ──
             //
-            // Sync-domain tables: one row per CloudKit V3 record. updated_at
+            // Provider tables: one row per instance/entry/group. updated_at
             // drives LWW. extras_json carries unknown fields from newer
             // builds so we don't round-trip-strip them (the exact failure
             // mode that pinned v2 into a ping-pong loop when a stale build
@@ -558,10 +557,10 @@ actor ProviderConfigDB {
 
     // MARK: - Write API (used by migration + S3 mutate-path redirects)
 
-    /// Bulk-replace the entire sync-domain content of the DB from a
+    /// Bulk-replace the entire provider content of the DB from a
     /// `ProviderConfig` value. Used during one-shot migration from
-    /// `provider-config.json` (Stage S2) and from
-    /// `ProviderConfigStore.applyMergedConfigFromSync` (Stage S3).
+    /// `provider-config.json` (Stage S2) and from a bulk config
+    /// replace (Stage S3).
     ///
     /// Wraps the whole replace in a single transaction so a crash partway
     /// leaves the prior contents intact. Per-row updated_at is preserved
@@ -1301,9 +1300,9 @@ actor ProviderConfigDB {
         sqlite3_finalize(stmt)
         if let localTs, localTs >= updatedAt { return false }
 
-        // [T-ios-hidden-models-restored] Overlay guard — mirror the V2 merge's
-        // userModifiedAt-aware conflict resolution (CloudSyncEngine
-        // mergeProviderConfig) that this V3 per-record path was missing.
+        // [T-ios-hidden-models-restored] Overlay guard — mirror the restore
+        // merge's userModifiedAt-aware conflict resolution (BackupImporter
+        // mergeProviderConfigForRestore) that this V3 per-record path was missing.
         //
         // The row-level updated_at LWW above is blind to WHO made the change:
         // bulkReplace stamps updated_at = userModifiedAt ?? now, so a peer
@@ -1820,8 +1819,8 @@ actor ProviderConfigDB {
     ///
     /// This distinction is load-bearing. `provider_agent_loop_ids` is local-only
     /// state, but every inbound V3 provider record triggers a whole-config
-    /// replace (`dumpProviderConfig` → `applyMergedConfigFromSync` →
-    /// `bulkReplace`), and `bulkReplace` DELETEs this table before rewriting it
+    /// replace (`dumpProviderConfig` → `bulkReplace`), and `bulkReplace`
+    /// DELETEs this table before rewriting it
     /// from `config.agentLoopModelEntryIds`. When this function swallowed a
     /// prepare failure as `[]`, that empty list round-tripped into the DELETE
     /// and silently erased the user's agent-loop selection — indistinguishable
@@ -2083,11 +2082,10 @@ extension ProviderConfigDB {
         return sqlite3_step(stmt) == SQLITE_DONE
     }
 
-    // MARK: - V3 sync support (T-icloud-thinking-rules-sync)
+    // MARK: - V3 thinking-rule support (T-icloud-thinking-rules-sync)
 
-    /// The owning instance of a rule, needed by the delete path: `markDirty` is
-    /// keyed by rule id alone, but the caller must know which instance's cache to
-    /// refresh. Read BEFORE deleting the row.
+    /// The owning instance of a rule, needed by the delete path: the caller
+    /// must know which instance's cache to refresh. Read BEFORE deleting the row.
     func thinkingRuleInstanceId(id: String) -> String? {
         guard let db else { return nil }
         var stmt: OpaquePointer?

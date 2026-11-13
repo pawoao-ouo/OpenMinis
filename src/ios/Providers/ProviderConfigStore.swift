@@ -9,9 +9,9 @@ private let logger = AppLogger(category: "ProviderConfigStore")
 // MARK: - Persisted Config
 
 /// One soft-delete record. Persisted in `ProviderConfig` so the deletion
-/// can travel through iCloud sync as positive data, and so `mergeProviderConfig`'s
+/// can travel inside a backup package as positive data, and so `mergeProviderConfig`'s
 /// set-union semantics can be told "this id is intentionally gone, don't
-/// resurrect it from the other side's snapshot".
+/// resurrect it from the package's snapshot".
 struct ProviderConfigTombstone: Codable, Hashable {
     let id: String
     let deletedAt: Date
@@ -220,7 +220,7 @@ final class ProviderConfigStore: ObservableObject {
     private(set) var db: ProviderConfigDB?
 
     /// [R3-107] Tail of the serial chain for ALL whole-config SQLite
-    /// writes (save(), applyMergedConfigFromSync, adoptDB prune). The DB
+    /// writes (save(), applyConfig, adoptDB prune). The DB
     /// actor serializes individual bulkReplace calls but NOT their arrival
     /// order, and the three writers used to fire independent detached
     /// tasks — an older snapshot's replace could land after a newer one,
@@ -239,10 +239,6 @@ final class ProviderConfigStore: ObservableObject {
         }
     }
 
-    /// Snapshot of the config the last time `save()` ran, used to diff
-    /// against the current `config` for per-record v3 markDirty emission.
-    /// `nil` until the first save() runs after init.
-    private var lastSavedSnapshot: ProviderConfig?
 
     /// [T-provider-entry-composite-key] legacyUuid → compositeKey map.
     /// Populated by migration (every old entry's uuid → its composite key) and
@@ -274,17 +270,15 @@ final class ProviderConfigStore: ObservableObject {
         // source of truth. [T-icloud-modelgroup-member-loss]
         // [T-ios-reboot-config-loss] Load with missing-vs-unreadable
         // discrimination. After a device reboot iOS can relaunch the app in
-        // the background BEFORE first unlock (BGTask / CloudKit push /
-        // location session); the default file-protection class
-        // (completeUntilFirstUserAuthentication) makes provider-config.json
-        // unreadable then, and the old silent `.empty` fallback plus any
-        // later save() overwrote the real JSON, bulk-replaced the V3 DB from
-        // the empty snapshot, and pushed the wipe to iCloud — the "blank app
+        // the background BEFORE first unlock (BGTask / location session); the
+        // default file-protection class (completeUntilFirstUserAuthentication)
+        // makes provider-config.json unreadable then, and the old silent
+        // `.empty` fallback plus any later save() overwrote the real JSON and
+        // bulk-replaced the V3 DB from the empty snapshot — the "blank app
         // after reboot" field report.
         let loaded = Self.loadGuarded(from: fileURL)
         self.config = loaded.config
         self.loadDegradation = loaded.degradation
-        self.lastSavedSnapshot = self.config
         if loaded.degradation == .none {
             ensureVoiceTemplateModels()
         } else {
@@ -298,14 +292,6 @@ final class ProviderConfigStore: ObservableObject {
         registerKeychainSyncObserver()
         // [T-phase1-sampling] Prime the per-model latency diagnostic cache.
         loadModelLatencyCache()
-        // [T-provider-sync-apply-interaction-defer] Timestamp foreground
-        // activations so applyMergedConfigFromSync can hold its whole-store
-        // publish out of the fragile post-foreground rebuild window.
-        syncApplyForegroundObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.lastDidBecomeActiveAt = Date() }
-        }
     }
 
     /// [T-ios-reboot-config-loss] Adopt the opened V3 DB and, when it is
@@ -332,22 +318,22 @@ final class ProviderConfigStore: ObservableObject {
                 // [T-icloud-fresh-restore-provider-groups] Previously this also
                 // required the `migrationCompleted` flag — but that flag is ONLY
                 // set when a local `provider-config.json` was migrated at first
-                // launch. A fresh device restored from iCloud has no JSON, so the
-                // flag stayed false forever, and providers/model-groups that
-                // arrived via inbound sync (written into the V3 DB) were never
+                // launch. A fresh device restored from a backup has no JSON, so
+                // the flag stayed false forever, and providers/model-groups that
+                // arrived via restore (written into the V3 DB) were never
                 // loaded authoritatively — they vanished on every relaunch even
                 // though the rows were in the DB. Treat the DB as authoritative
                 // whenever V3 is on AND the DB is non-empty (or migration ran),
                 // and stamp the flag so the rest of the store stays consistent.
-                let migratedFlag = UserDefaults.standard.bool(forKey: "cloudSync.providerV3.migrationCompleted")
+                let migratedFlag = UserDefaults.standard.bool(forKey: "providerV3.migrationCompleted")
                 let dbNonEmpty = !(await db.isEmpty())
                 guard ProviderV3Bootstrap.isEnabled, (migratedFlag || dbNonEmpty) else {
                     logger.info("[GroupLoad] init: staying on V2 JSON config (v3Enabled=\(ProviderV3Bootstrap.isEnabled) migrated=\(migratedFlag) dbNonEmpty=\(dbNonEmpty))")
                     return
                 }
                 if !migratedFlag && dbNonEmpty {
-                    UserDefaults.standard.set(true, forKey: "cloudSync.providerV3.migrationCompleted")
-                    logger.info("[GroupLoad] init: V3 DB is authoritative via inbound sync (no local JSON migration) — stamping migrationCompleted")
+                    UserDefaults.standard.set(true, forKey: "providerV3.migrationCompleted")
+                    logger.info("[GroupLoad] init: V3 DB is authoritative via restore (no local JSON migration) — stamping migrationCompleted")
                 }
                 let fresh = await db.dumpProviderConfig()
                 let jsonGroupMembers = self.config.modelGroups.reduce(0) { $0 + $1.memberEntryIds.count }
@@ -359,7 +345,6 @@ final class ProviderConfigStore: ObservableObject {
                 // deleted + tombstoned so they don't resurrect.
                 let (deduped, prunedAtLoad) = Self.dedupeEntriesByModel(fresh)
                 self.config = deduped
-                self.lastSavedSnapshot = deduped
                 // [T-provider-entry-composite-key] Build the legacyUuid map from
                 // the local entries (each entry's random uuid → its composite
                 // key), then normalize any group/binding/agent-loop reference
@@ -379,7 +364,6 @@ final class ProviderConfigStore: ObservableObject {
                     self.legacyUuidToCompositeKey[u] = ck
                 }
                 if self.normalizeReferences() {
-                    self.lastSavedSnapshot = self.config
                     self.save()
                     let danglingAfter = self.config.modelGroups.reduce(0) { acc, g in
                         acc + g.memberEntryIds.filter { ref in !self.config.modelEntries.contains { $0.id == ref || $0.uuid == ref } }.count
@@ -402,9 +386,6 @@ final class ProviderConfigStore: ObservableObject {
                     enqueueDBWrite {
                         await db.bulkReplace(from: snapshot)
                         for eid in toDelete { await db.deleteEntryRow(id: eid) }
-                    }
-                    for eid in prunedAtLoad {
-                        Task { await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: eid, operation: "delete") }
                     }
                 }
     }
@@ -482,7 +463,6 @@ final class ProviderConfigStore: ObservableObject {
         case .none:
             loadDegradation = .none
             config = reloaded.config
-            lastSavedSnapshot = reloaded.config
             ensureVoiceTemplateModels()
             objectWillChange.send()
             logger.info("[RebootGuard] recovered provider config after unlock — instances=\(reloaded.config.instances.count) entries=\(reloaded.config.modelEntries.count) groups=\(reloaded.config.modelGroups.count)")
@@ -518,7 +498,6 @@ final class ProviderConfigStore: ObservableObject {
     init(fileURL: URL) {
         self.fileURL = fileURL
         self.config = Self.load(from: fileURL)
-        self.lastSavedSnapshot = self.config
         // Tests don't open the DB by default.
     }
 
@@ -531,9 +510,9 @@ final class ProviderConfigStore: ObservableObject {
                 // Migration: if DB is empty (fresh install or first v3
                 // launch) and JSON exists, ingest the JSON. The
                 // UserDefaults flag prevents re-running migration even
-                // if the DB is later emptied (rare; usually a sync
-                // bulk-replace would re-populate it).
-                let migratedKey = "cloudSync.providerV3.migrationCompleted"
+                // if the DB is later emptied (rare; usually a restore
+                // would re-populate it).
+                let migratedKey = "providerV3.migrationCompleted"
                 let alreadyMigrated = UserDefaults.standard.bool(forKey: migratedKey)
                 if await db.isEmpty(), !alreadyMigrated,
                    FileManager.default.fileExists(atPath: jsonURL.path) {
@@ -681,8 +660,7 @@ final class ProviderConfigStore: ObservableObject {
         // not be read (pre-first-unlock launch after a device reboot, or a
         // corrupt file pending DB restore). Persisting now would overwrite
         // the real provider-config.json with the empty in-memory seed,
-        // bulk-replace the V3 SQLite store from it, AND markDirty-push the
-        // wipe to iCloud — propagating the loss to every synced device.
+        // bulk-replace the V3 SQLite store from it — propagating the loss.
         guard loadDegradation == .none else {
             logger.error("[RebootGuard] save() suppressed — config load was degraded (\(String(describing: self.loadDegradation))); awaiting post-unlock recovery")
             return
@@ -707,115 +685,15 @@ final class ProviderConfigStore: ObservableObject {
         //    (< 1MB total) full-replace per mutate is < 1ms inside a
         //    single transaction; not a hot path.
         let snapshot = config
-        let prior = lastSavedSnapshot
-        lastSavedSnapshot = snapshot
         if let db {
             // [R3-107] Through the serial chain — see dbWriteTail.
             enqueueDBWrite {
                 await db.bulkReplace(from: snapshot)
-                await Self.emitV3MarkDirty(prior: prior, current: snapshot)
             }
         }
 
-        // 3. v2 compatibility: keep marking the legacy whole-file dirty
-        //    so old peer devices that haven't upgraded to v3 still
-        //    receive a current snapshot via the legacy
-        //    ProviderConfigV2 record. New peer devices ignore inbound
-        //    V2 records once their v3 flag is on (S7).
-        Task { await ChatStore.shared.markDirty(recordType: "ProviderConfig", recordId: "provider-config") }
     }
 
-    /// Diff `prior` vs `current` and emit per-record V3 markDirty calls
-    /// for what changed. Insertions and updates both go as op="upsert";
-    /// removals go as op="delete" so CloudKit propagates a real
-    /// deletion tombstone (the v3 fix for "deleted provider resurrects").
-    private static func emitV3MarkDirty(
-        prior: ProviderConfig?,
-        current: ProviderConfig
-    ) async {
-        // Without a prior snapshot, treat everything as an upsert. This
-        // happens on first save() after a fresh launch when the
-        // lastSavedSnapshot is the initial JSON-loaded state — we
-        // still want all of it in the dirty queue so the v3 sync
-        // engine's first batch carries the full picture to cloud.
-        guard let prior else {
-            for inst in current.instances {
-                await ChatStore.shared.markDirty(recordType: "ProviderInstanceV3", recordId: inst.id, operation: "upsert")
-            }
-            for entry in current.modelEntries {
-                // Plan-X: V3 entry record is keyed by uuid (= DB primary key).
-                await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: entry.uuid, operation: "upsert")
-            }
-            for group in current.modelGroups {
-                await ChatStore.shared.markDirty(recordType: "ProviderModelGroupV3", recordId: group.id, operation: "upsert")
-            }
-            return
-        }
-
-        // Instances
-        let priorInst = Self.dictByIdLastWins(prior.instances.map { ($0.id, $0) })
-        let curInst = Self.dictByIdLastWins(current.instances.map { ($0.id, $0) })
-        for (id, inst) in curInst {
-            if priorInst[id] != inst {
-                await ChatStore.shared.markDirty(recordType: "ProviderInstanceV3", recordId: id, operation: "upsert")
-            }
-        }
-        // [T-ios-provider-reorder] A pure reorder changes no instance STRUCT
-        // (order is positional in config.instances), so the per-record diff
-        // above emits nothing — the new sort_order values written by
-        // bulkReplace never uploaded and peers pulled devices back to the old
-        // order. Detect an order change explicitly and mark every instance
-        // dirty so records carry the fresh sortOrder (+ updated_at bumped by
-        // bulkReplace, so LWW protects the new order against stale echoes).
-        if prior.instances.map(\.id) != current.instances.map(\.id) {
-            for inst in current.instances {
-                await ChatStore.shared.markDirty(recordType: "ProviderInstanceV3", recordId: inst.id, operation: "upsert")
-            }
-        }
-        // [T-icloud-provider-sync-consistency] Do NOT diff-infer instance
-        // deletions — same reasoning as entries/groups below. A "prior had it,
-        // current doesn't" gap is also produced when dumpProviderConfig drops
-        // an instance it couldn't parse (e.g. a providerType from a newer build)
-        // or when the in-memory config is transiently incomplete; inferring a
-        // delete from that wipes the instance on every device. removeInstance
-        // emits its own explicit ProviderInstanceV3 delete record.
-        for id in priorInst.keys where curInst[id] == nil {
-            logger.info("[v3] emitV3MarkDirty: instance \(id.prefix(8)) absent in current snapshot — NOT auto-deleting (explicit removal emits its own tombstone)")
-        }
-
-        // Model entries — Plan-X: key the diff + V3 record by uuid (DB primary
-        // key), not the composite key, so markDirty targets the right record.
-        let priorEntries = Self.dictByIdLastWins(prior.modelEntries.map { ($0.uuid, $0) })
-        let curEntries = Self.dictByIdLastWins(current.modelEntries.map { ($0.uuid, $0) })
-        for (uuid, entry) in curEntries {
-            if priorEntries[uuid] != entry {
-                await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: uuid, operation: "upsert")
-            }
-        }
-        // [T-icloud-provider-sync-consistency] Do NOT diff-infer entry/group
-        // deletions here. A "prior had it, current doesn't" gap is NOT proof of
-        // a user deletion — it also happens when the in-memory config is
-        // transiently incomplete (a peer's entry record hasn't merged in yet, a
-        // refresh is mid-flight, a reload raced). Diff-inferred deletes were the
-        // amplifier that propagated member/entry loss to every device. Real
-        // deletions are emitted explicitly by removeEntry/removeGroup/
-        // removeInstance via markDirtyDelete(...) at the moment the user acts.
-        for id in priorEntries.keys where curEntries[id] == nil {
-            logger.info("[v3] emitV3MarkDirty: entry \(id.prefix(8)) absent in current snapshot — NOT auto-deleting (explicit removal emits its own tombstone)")
-        }
-
-        // Groups
-        let priorGroups = Self.dictByIdLastWins(prior.modelGroups.map { ($0.id, $0) })
-        let curGroups = Self.dictByIdLastWins(current.modelGroups.map { ($0.id, $0) })
-        for (id, group) in curGroups {
-            if priorGroups[id] != group {
-                await ChatStore.shared.markDirty(recordType: "ProviderModelGroupV3", recordId: id, operation: "upsert")
-            }
-        }
-        for id in priorGroups.keys where curGroups[id] == nil {
-            logger.info("[v3] emitV3MarkDirty: group \(id.prefix(8)) absent in current snapshot — NOT auto-deleting (explicit removal emits its own tombstone)")
-        }
-    }
 
     /// Build `[String: T]` from a sequence of `(id, value)` pairs where
     /// later occurrences win on duplicates. Safe replacement for
@@ -831,30 +709,29 @@ final class ProviderConfigStore: ObservableObject {
         return out
     }
 
-    /// Reload config from disk (e.g. after iCloud sync overwrites the file).
+    /// Reload config from disk (e.g. after a restore overwrites the file).
     ///
     /// [T-icloud-modelgroup-member-loss] When V3 is the authoritative store,
     /// reload from the SQLite DB (dumpProviderConfig — preserves group members
-    /// verbatim) instead of the V2 JSON. The legacy whole-file V2 sync path
-    /// (CloudSyncEngine) calls this after merging; routing it through the
-    /// member-truncating `load(from:)` is exactly what propagated group-member
-    /// deletions. The JSON branch remains for pre-migration / kill-switched
-    /// devices.
+    /// verbatim) instead of the V2 JSON. The restore merge calls this after
+    /// merging; routing it through the member-truncating `load(from:)` is
+    /// exactly what propagated group-member deletions. The JSON branch remains
+    /// for pre-migration / kill-switched devices.
     func reloadFromDisk() async {
         // Authority matrix (keep aligned with the init gate and the
-        // CloudSyncEngine / BackupImporter merge paths):
+        // BackupImporter merge path):
         //   fresh install          (no flag, empty DB)     → V2 JSON (empty)
         //   migration completed    (flag set)              → V3 DB
-        //   fresh iCloud-restore   (no flag, DB non-empty) → V3 DB   [T-icloud-fresh-restore]
+        //   fresh restore          (no flag, DB non-empty) → V3 DB   [T-icloud-fresh-restore]
         //   v3 off / re-enabled    (empty DB at reload)    → V2 JSON
         // Rule: dbAuthoritative = v3Enabled && (migratedFlag || !db.isEmpty()).
         // [T-icloud-fresh-restore-provider-groups] Mirror the init gate: the V3
         // DB is authoritative when V3 is on AND (migration ran OR the DB is
-        // non-empty). On a fresh iCloud-restore device the migrationCompleted
-        // flag is never set (no local JSON to migrate), so without the
-        // dbNonEmpty clause a reload here would fall back to the truncating
-        // V2 JSON path and drop inbound-synced group members.
-        let migratedFlag = UserDefaults.standard.bool(forKey: "cloudSync.providerV3.migrationCompleted")
+        // non-empty). On a fresh restore the migrationCompleted flag is never
+        // set (no local JSON to migrate), so without the dbNonEmpty clause a
+        // reload here would fall back to the truncating V2 JSON path and drop
+        // restored group members.
+        let migratedFlag = UserDefaults.standard.bool(forKey: "providerV3.migrationCompleted")
         var dbAuthoritative = false
         if let db, ProviderV3Bootstrap.isEnabled {
             if migratedFlag {
@@ -868,7 +745,6 @@ final class ProviderConfigStore: ObservableObject {
             let fresh = await db.dumpProviderConfig()
             let freshMembers = fresh.modelGroups.reduce(0) { $0 + $1.memberEntryIds.count }
             config = fresh
-            lastSavedSnapshot = fresh
             logger.info("[GroupLoad] reloadFromDisk: V3 DB dump — groups=\(fresh.modelGroups.count) groupMembers(\(priorMembers)→\(freshMembers))")
             objectWillChange.send()
             return
@@ -1069,8 +945,8 @@ final class ProviderConfigStore: ObservableObject {
     func removeInstance(_ instanceId: String) {
         // Collect entry UUIDs to remove from groups before deleting entries
         let removedEntryIds = Set(config.modelEntries.filter { $0.providerInstanceId == instanceId }.map(\.id))
-        // V3 entry records are keyed by uuid (see emitV3MarkDirty upserts);
-        // the delete marks below must use this key space, not the composite ids.
+        // V3 entry records are keyed by uuid; the tombstones below must use
+        // this key space, not the composite ids.
         let removedEntryUuids = Set(config.modelEntries.filter { $0.providerInstanceId == instanceId }.map(\.uuid))
         // Capture groups that go empty as a side effect of this removal so we
         // can tombstone them too — otherwise the other device's snapshot of
@@ -1120,8 +996,9 @@ final class ProviderConfigStore: ObservableObject {
         }
         // Remove from agent loop list
         config.agentLoopModelEntryIds.removeAll { removedEntryIds.contains($0) }
-        // Stamp tombstones so iCloud sync can propagate the delete instead
-        // of resurrecting these ids from the peer's snapshot.
+        // Stamp tombstones so a later restore can tell the delete apart
+        // from a missing row instead of resurrecting these ids from the
+        // package's snapshot.
         Self.recordTombstone(in: &config.deletedInstances, ids: [instanceId])
         Self.recordTombstone(in: &config.deletedModelEntries, ids: Array(removedEntryIds))
         if !removedGroupIds.isEmpty {
@@ -1134,21 +1011,6 @@ final class ProviderConfigStore: ObservableObject {
         ProviderKeychainHelper.deleteOAuthString(instanceId: instanceId, account: "oauth-gcp-project")
         ProviderKeychainHelper.deleteOAuthString(instanceId: instanceId, account: "manual-oauth-token")
         save()
-        // [T-icloud-provider-sync-consistency] Explicit V3 delete tombstones —
-        // emitV3MarkDirty no longer diff-infers deletions, so the instance, its
-        // cascaded entries, and any groups emptied by the removal must each
-        // emit their own delete record here.
-        let entryIds = removedEntryUuids
-        let groupIds = removedGroupIds
-        Task {
-            await ChatStore.shared.markDirty(recordType: "ProviderInstanceV3", recordId: instanceId, operation: "delete")
-            for eid in entryIds {
-                await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: eid, operation: "delete")
-            }
-            for gid in groupIds {
-                await ChatStore.shared.markDirty(recordType: "ProviderModelGroupV3", recordId: gid, operation: "delete")
-            }
-        }
     }
 
     func instance(for id: String) -> ProviderInstance? {
@@ -1485,7 +1347,7 @@ final class ProviderConfigStore: ObservableObject {
     // The storage order of `config.modelEntries` is an implementation detail —
     // it drifts as a side-effect of `replaceEntries` (which removes all entries
     // for an instance and re-appends them at the end), concurrent auto-refresh
-    // finishing in non-deterministic order, and iCloud merge insertions. None
+    // finishing in non-deterministic order, and restore merge insertions. None
     // of that should leak into the UI.
     //
     // All UI-facing reads go through these three getters, which apply a stable
@@ -1629,8 +1491,8 @@ final class ProviderConfigStore: ObservableObject {
         if config.modelEntries.contains(where: { $0.uuid != entry.uuid && $0.id == entry.id }) {
             return false
         }
-        // Stamp userModifiedAt on every UI-driven edit so iCloud merge can resolve
-        // same-field conflicts by last-write-wins. This is the single funnel for
+        // Stamp userModifiedAt on every UI-driven edit so the restore merge can
+        // resolve same-field conflicts by last-write-wins. This is the single funnel for
         // override edits from ProviderInstanceDetailView.
         var stamped = entry
         stamped.userModifiedAt = Date()
@@ -1676,16 +1538,12 @@ final class ProviderConfigStore: ObservableObject {
         }
         // Remove from agent loop list
         config.agentLoopModelEntryIds.removeAll { idForms.contains($0) }
-        // The V2 merge applies entry tombstones against the composite key
-        // (CloudSyncEngine), so record the canonical id; the raw input is
-        // recorded too when it differs, for peers still on pre-composite
-        // builds whose entry ids ARE uuids.
+        // The restore merge applies entry tombstones against the composite key,
+        // so record the canonical id; the raw input is recorded too when it
+        // differs.
         Self.recordTombstone(in: &config.deletedModelEntries, ids: canonicalId == entryId ? [entryId] : [entryId, canonicalId])
         save()
-        // [T-icloud-provider-sync-consistency] emitV3MarkDirty no longer
-        // infers deletes from the snapshot diff, so an explicit removal must
-        // emit its own V3 delete tombstone here.
-        Task { await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: removedUuid, operation: "delete") }
+        // An explicit removal records its own delete tombstone here.
     }
 
     /// Replace model entries for an instance with fresh ones (e.g. after API fetch).
@@ -1824,20 +1682,16 @@ final class ProviderConfigStore: ObservableObject {
         // `staleMemberRow` and the user can decide. If the next refresh confirms the drop,
         // the references remain visible until the user clears them or the model returns.
         //
-        // Why this is safe with iCloud sync:
-        //   - `replaceEntries` is a local-only side effect of a device's own refresh; iCloud
-        //     merge never calls into it. So the skip decision is per-device and the guard
-        //     can't create cross-device reverberation.
-        //   - `memberEntryIds` IS synced. When device A prunes on a healthy refresh, device B
-        //     will also prune on its next healthy refresh (both APIs agree) — they converge
-        //     without needing to coordinate. When device A skips-prune on a degraded refresh,
-        //     it uploads unchanged memberEntryIds; device B also uploads unchanged on its own
-        //     skip — no flip-flop. The merge's union-of-members semantics means a member
-        //     removal only fully propagates when both devices have done a healthy refresh and
-        //     pruned the same UUIDs in their own local state, which is exactly the convergent
+        // Why this is safe:
+        //   - `replaceEntries` is a local-only side effect of this device's own refresh; the
+        //     restore merge never calls into it. So the skip decision is per-device and can't
+        //     leak into a backup package.
+        //   - `memberEntryIds` is carried by backup packages. The restore merge's
+        //     union-of-members semantics means a member removal only fully takes effect when
+        //     both the package and the local state have pruned the same UUIDs — the convergent
         //     outcome we want.
         //   - We never "un-prune" a reference we already removed: skip happens before removal,
-        //     not after. So a genuine local removal, once uploaded, is final.
+        //     not after. So a genuine local removal, once backed up, is final.
         let survivingEntryIds = Set(config.modelEntries.map(\.id))
         let prunedEntryIds = existingEntryIds.subtracting(survivingEntryIds)
         let suspiciousShrink = existing.count >= 4 && models.count * 2 < existing.count
@@ -1971,9 +1825,7 @@ final class ProviderConfigStore: ObservableObject {
         // 子代理也可能指着这个已删的分组：清掉它们的 modelGroupId，
         // 让它们回到"由委派模型自己选"，别留悬空引用。
         SubAgentStore.shared.clearModelGroup(groupId)
-        // [T-icloud-provider-sync-consistency] Explicit V3 delete tombstone —
-        // emitV3MarkDirty no longer diff-infers group deletions.
-        Task { await ChatStore.shared.markDirty(recordType: "ProviderModelGroupV3", recordId: groupId, operation: "delete") }
+        // Explicit delete tombstone for the group.
     }
 
     func group(for id: String) -> ModelGroup? {
@@ -2276,283 +2128,6 @@ final class ProviderConfigStore: ObservableObject {
     func applyConfig(_ newConfig: ProviderConfig) {
         config = newConfig
         save()
-    }
-
-    /// Apply a merged config from iCloud sync without triggering a markDirty upload.
-    /// Used by `CloudSyncEngine.mergeProviderConfig` — it replaces the in-memory config,
-    /// writes it to disk, and publishes the change, but does NOT schedule a re-upload.
-    /// The caller decides separately whether the merge produced data that needs to be
-    /// pushed back to iCloud (via the existing "localHasUnique" re-upload path).
-    // [T-provider-sync-apply-interaction-defer] Deferral plumbing for
-    // applyMergedConfigFromSync — see the gate comment inside it.
-    private var pendingSyncApply: ProviderConfig?
-    private var syncApplyRetryTimer: Timer?
-    var syncApplyForegroundObserver: NSObjectProtocol?
-    private var lastDidBecomeActiveAt: Date = .distantPast
-    private static let postForegroundSettleSeconds: TimeInterval = 1.5
-
-    private func shouldDeferSyncApply() -> Bool {
-        // Backgrounded: apply immediately as before. Rendering is suspended
-        // (no async-render race), and a long-running background agent must
-        // keep reading fresh provider config for routing.
-        guard UIApplication.shared.applicationState == .active else { return false }
-        if Date().timeIntervalSince(lastDidBecomeActiveAt) < Self.postForegroundSettleSeconds {
-            return true
-        }
-        // Any UIKit scroll drag/deceleration puts the main runloop into
-        // tracking mode — a global signal that covers every scrollable
-        // surface, including the provider instance and model picker lists.
-        if RunLoop.main.currentMode == .tracking { return true }
-        return false
-    }
-
-    private func armSyncApplyRetry() {
-        guard syncApplyRetryTimer == nil else { return }
-        logger.info("[v3sync] applyMergedConfigFromSync DEFERRED (settleWindow=\(Date().timeIntervalSince(self.lastDidBecomeActiveAt) < Self.postForegroundSettleSeconds) tracking=\(RunLoop.main.currentMode == .tracking)) — will retry on quiet")
-        // .default runloop mode only: while a scroll keeps the runloop in
-        // tracking mode the timer stays parked, and it fires on the first
-        // idle frame after the interaction ends — exactly the quiet moment
-        // the deferral is waiting for.
-        let timer = Timer(timeInterval: 0.3, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.syncApplyRetryTimer = nil
-                guard let pending = self.pendingSyncApply else { return }
-                self.pendingSyncApply = nil
-                self.applyMergedConfigFromSync(pending)
-            }
-        }
-        syncApplyRetryTimer = timer
-        RunLoop.main.add(timer, forMode: .default)
-    }
-
-    func applyMergedConfigFromSync(_ newConfig: ProviderConfig) {
-        // Compute the set of instances that ended up with zero model
-        // entries after the merge. The remote ProviderConfig snapshot
-        // can be missing model rows when the peer hadn't refreshed yet
-        // (or pushed before its own model fetch completed). Without a
-        // follow-up refresh the model picker would be empty for those
-        // instances on this device.
-        let priorInstanceIds = Set(config.instances.map(\.id))
-        let instancesNeedingRefresh: [ProviderInstance] = newConfig.instances.filter { inst in
-            // Only instances that are either brand-new on this device
-            // (never seen before) OR have no model entries after the
-            // merge are worth refreshing — an existing instance with a
-            // populated picker should be left alone.
-            let entriesAfter = newConfig.modelEntries.filter { $0.providerInstanceId == inst.id }
-            return entriesAfter.isEmpty && (!priorInstanceIds.contains(inst.id) ||
-                                            !config.modelEntries.contains { $0.providerInstanceId == inst.id })
-        }
-
-        // [T-icloud-provider-sync-consistency] Collapse cross-device duplicate
-        // entries. Each device assigns a RANDOM uuid to a freshly-refreshed
-        // model, so two devices refreshing the same instance produce two
-        // ProviderModelEntryV3 records for the same (instanceId, modelId) —
-        // surfacing as the same model appearing 2-3× in the picker. Fold them
-        // to one deterministic representative (lexicographically smallest uuid,
-        // non-custom preferred) AND rewrite every group member reference from
-        // the pruned uuids to the representative, so a group that pointed at a
-        // now-removed duplicate doesn't become a dangling reference. Because
-        // the representative is chosen deterministically, every device
-        // converges to the SAME survivor and the SAME group references.
-        let (deduped, prunedEntryIds) = Self.dedupeEntriesByModel(newConfig)
-
-        // [T-ios-config-noop-publish-storm] No-op compensation short-circuit.
-        // The periodic fetchRecent poll is purely a safety net — the common
-        // case is "nothing changed since the last push", so `deduped` comes
-        // back byte-identical to the in-memory `config`. Assigning it anyway
-        // fired `@Published config`'s objectWillChange unconditionally, which
-        // invalidated EVERY SwiftUI view observing ProviderConfigStore.shared —
-        // including ContentView (whose body re-eval re-creates AIChatView, each
-        // re-init wastefully constructing a throwaway CachedViewModel) and
-        // AIChatView itself. During a scroll glide that landed on the main
-        // thread as a deceleration-phase frame drop (see the MLTRACE decel
-        // trace: AIChatView.init + updateUIViewController + applySubViewport-
-        // Compensation firing mid-decel right before a ~100ms dropped frame).
-        // When the merged result is identical AND there's nothing to prune /
-        // refresh, skip the publish + disk + DB write entirely — the poll was
-        // genuinely a no-op. Any real change (diff, prune, empty-picker
-        // instance) still falls through to the full apply below.
-        if deduped == config, prunedEntryIds.isEmpty, instancesNeedingRefresh.isEmpty {
-            return
-        }
-
-        // [T-provider-sync-apply-interaction-defer] Hold the whole-store
-        // publish out of the two windows where it has raced the async
-        // renderer into an AttributeGraph SIGSEGV (field pair 2026-08-01,
-        // 1.12(2) iOS 27: both crashes = foreground return + large inbound
-        // provider merge, one mid-scroll — ViewGraph.updateOutputsAsync /
-        // AGGraphWithMainThreadHandler, the FB13213926 async-render family):
-        //   1. the first seconds after didBecomeActive, while SwiftUI is
-        //      rebuilding the hosting graph for the returning scene — and
-        //      exactly when the foreground sync fetch delivers its burst;
-        //   2. any live scroll (RunLoop.main in UITracking mode — global,
-        //      covers the provider/model pickers, not just the chat list).
-        // Assigning `config` invalidates EVERY observer of the shared store
-        // at once; deferring it a few hundred ms to the next quiet moment is
-        // invisible to the user and keeps the giant graph update out of the
-        // fragile frames. Latest snapshot wins while deferred; DB/disk
-        // mirrors move with the apply, so state stays consistent.
-        if shouldDeferSyncApply() {
-            pendingSyncApply = newConfig
-            armSyncApplyRetry()
-            return
-        }
-
-        config = deduped
-        // [T-icloud-fresh-restore-provider-groups] Summary of what this device
-        // holds after an inbound merge — the single most useful triage line for
-        // "fresh restore is missing providers/groups": shows instance / entry /
-        // group counts plus total group members actually present.
-        let groupMembers = deduped.modelGroups.reduce(0) { $0 + $1.memberEntryIds.count }
-        logger.info("[v3sync] applyMergedConfigFromSync: instances=\(deduped.instances.count) entries=\(deduped.modelEntries.count) groups=\(deduped.modelGroups.count) groupMembers=\(groupMembers) prunedDup=\(prunedEntryIds.count)")
-        // [T-icloud-provider-sync-apply-offmain] Persist to disk WITHOUT going
-        // through `save()` (which would markDirty) — and do the encode + atomic
-        // write OFF the main thread. Encoding the full provider config (hundreds
-        // of model entries) + a synchronous file write was a measurable chunk of
-        // the per-apply main-thread cost behind the scroll stalls. The in-memory
-        // `config` (@Published) is already assigned above, so the disk mirror is
-        // a fire-and-forget snapshot write with no ordering dependency; a later
-        // apply simply overwrites it atomically. The SQLite mirror below is
-        // likewise already off-main.
-        // [R3-107] The disk mirror and the SQLite mirror below now run as
-        // ONE unit on the serial DB-write chain (see dbWriteTail): they
-        // used to be two independent detached tasks that could land in
-        // either order relative to a concurrent save(), leaving the
-        // authoritative DB holding an older snapshot than the last merge.
-        let snapshotForDisk = config
-        let diskURL = fileURL
-        // Mirror the merged config into SQLite too — but suppress v3
-        // markDirty emission since this update originated INBOUND from
-        // sync (re-emitting it would round-trip the same payload back
-        // to cloud, exactly the v2 ping-pong we're trying to escape).
-        // The lastSavedSnapshot is also updated so the next mutate's
-        // diff is correctly anchored against the freshly-merged state.
-        lastSavedSnapshot = config
-        let snapshot = config
-        let toDelete = prunedEntryIds
-        let dbForWrite = db
-        enqueueDBWrite {
-            do {
-                let data = try JSONEncoder().encode(snapshotForDisk)
-                try data.write(to: diskURL, options: .atomic)
-            } catch {
-                AppLogger(category: "ProviderConfigStore").error("Failed to persist merged provider config: \(error)")
-            }
-            if let dbForWrite {
-                // [T-icloud-agentloop-wipe] INBOUND path — turn on the
-                // local-only preserve guard. agentLoopModelEntryIds is
-                // per-device state that a peer's config knows nothing about, so
-                // an inbound snapshot legitimately carries `[]` for it; without
-                // this the replace below would erase the user's agent-loop
-                // selection on every merge (OpenMinis#98 defect 2). The
-                // user-initiated save() path deliberately does NOT set this —
-                // there, an empty list really does mean "clear it".
-                await dbForWrite.bulkReplace(from: snapshot, preserveLocalOnlyStateIfEmpty: true)
-                // Physically remove the pruned duplicate entry rows so they
-                // don't reappear from the DB, and tombstone them so the
-                // deletion propagates instead of resurrecting from a peer.
-                for eid in toDelete { await dbForWrite.deleteEntryRow(id: eid) }
-            }
-        }
-        if !prunedEntryIds.isEmpty {
-            logger.info("[ModelList] applyMergedConfigFromSync: collapsed \(prunedEntryIds.count) cross-device duplicate entry/entries; rewrote group refs to representatives")
-            // Tombstone the pruned uuids so the fold propagates to peers.
-            for eid in prunedEntryIds {
-                Task { await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: eid, operation: "delete") }
-            }
-        }
-
-        // Fire-and-forget model refreshes for instances left empty.
-        // refreshModels handles errors internally and writes back via
-        // replaceEntries — which will markDirty for the next sync round
-        // (idempotent if the picker is genuinely empty).
-        if !instancesNeedingRefresh.isEmpty {
-            logger.info("[ModelList] applyMergedConfigFromSync: \(instancesNeedingRefresh.count) instance(s) have empty model lists, scheduling refresh")
-            for inst in instancesNeedingRefresh {
-                Task { await refreshModels(for: inst) }
-            }
-        }
-    }
-
-    /// [T-icloud-provider-sync-consistency] Collapse duplicate model entries
-    /// that share the same (providerInstanceId, baseModel.id) — the cross-device
-    /// duplication caused by random per-device entry uuids — and rewrite all
-    /// group member references onto the surviving representative.
-    ///
-    /// Determinism (so every device converges identically):
-    ///   representative = among entries with the same composite key, prefer
-    ///   isCustom==false; tie-break by lexicographically smallest uuid.
-    ///
-    /// Returns the deduped config and the list of pruned (non-representative)
-    /// entry uuids so the caller can delete + tombstone them.
-    static func dedupeEntriesByModel(_ input: ProviderConfig) -> (config: ProviderConfig, prunedEntryIds: [String]) {
-        var config = input
-        // Group entries by composite key.
-        var byKey: [String: [ModelEntry]] = [:]
-        for e in config.modelEntries {
-            byKey[e.compositeKey, default: []].append(e)
-        }
-        guard byKey.values.contains(where: { $0.count > 1 }) else {
-            return (config, [])  // no duplicates — fast path
-        }
-        // For each duplicated key pick a deterministic representative and map
-        // every other uuid → representative uuid.
-        var uuidRewrite: [String: String] = [:]  // prunedUuid → representativeUuid
-        var pruned: [String] = []
-        var survivors: [ModelEntry] = []
-        for (_, entries) in byKey {
-            if entries.count == 1 { survivors.append(entries[0]); continue }
-            var rep = entries.sorted { a, b in
-                if a.isCustom != b.isCustom { return !a.isCustom }  // non-custom first
-                return a.uuid < b.uuid                              // then smallest uuid
-            }.first!
-            // [T-ios-hidden-models-restored] The representative choice is
-            // deterministic by uuid, NOT by user intent — a duplicate that
-            // carries the user's overlay (isHidden / overrides) could be the
-            // one pruned, silently unhiding the model. Fold the overlay from
-            // the duplicate with the newest userModifiedAt into the survivor.
-            if let best = entries
-                .compactMap({ e in e.userModifiedAt.map { (e, $0) } })
-                .max(by: { $0.1 < $1.1 }),
-               (rep.userModifiedAt ?? .distantPast) < best.1 {
-                rep.isHidden = best.0.isHidden
-                rep.overrides = best.0.overrides
-                rep.userModifiedAt = best.1
-            }
-            survivors.append(rep)
-            for e in entries where e.uuid != rep.uuid {
-                uuidRewrite[e.uuid] = rep.uuid
-                pruned.append(e.uuid)
-            }
-        }
-        config.modelEntries = survivors
-        if !uuidRewrite.isEmpty {
-            // Rewrite group member references from pruned uuids → representative.
-            for i in config.modelGroups.indices {
-                var seen = Set<String>()
-                config.modelGroups[i].memberEntryIds = config.modelGroups[i].memberEntryIds.compactMap { mid in
-                    let mapped = uuidRewrite[mid] ?? mid
-                    return seen.insert(mapped).inserted ? mapped : nil  // de-dup after rewrite
-                }
-                // Carry add/remove tombstones across the rewrite too.
-                for (pruned, rep) in uuidRewrite {
-                    if let t = config.modelGroups[i].addedMembers.removeValue(forKey: pruned) {
-                        config.modelGroups[i].addedMembers[rep] = max(config.modelGroups[i].addedMembers[rep] ?? .distantPast, t)
-                    }
-                    if let t = config.modelGroups[i].removedMembers.removeValue(forKey: pruned) {
-                        config.modelGroups[i].removedMembers[rep] = max(config.modelGroups[i].removedMembers[rep] ?? .distantPast, t)
-                    }
-                }
-            }
-            // Rewrite agent-loop entry references too.
-            var seenAL = Set<String>()
-            config.agentLoopModelEntryIds = config.agentLoopModelEntryIds.compactMap { id in
-                let mapped = uuidRewrite[id] ?? id
-                return seenAL.insert(mapped).inserted ? mapped : nil
-            }
-        }
-        return (config, pruned)
     }
 
     // MARK: - [T-provider-entry-composite-key] legacyUuid normalization
@@ -3236,8 +2811,6 @@ final class ProviderConfigStore: ObservableObject {
 
     /// Create or update one rule, then refresh the cache so the next request sees it.
     ///
-    /// [T-icloud-thinking-rules-sync] Emits a per-record markDirty so the rule reaches
-    /// peer devices, exactly as instances / entries / groups do.
     @discardableResult
     func saveThinkingRule(_ rule: ThinkingRule, instanceId: String, sortOrder: Int) async -> Bool {
         guard let db else { return false }
@@ -3248,36 +2821,20 @@ final class ProviderConfigStore: ObservableObject {
         // reorder paths below resurrect/revert the same way).
         if ok {
             await reloadThinkingRuleCache()
-            await ChatStore.shared.markDirty(recordType: "ProviderThinkingRuleV3",
-                                             recordId: rule.id, operation: "upsert")
         }
         return ok
     }
 
     /// Delete one rule locally and propagate the deletion.
     ///
-    /// [T-icloud-thinking-rules-sync] The row is really removed (no soft-delete column):
-    /// the anti-resurrection guarantee comes from the tombstone that `markDirty(op:
-    /// "delete")` writes into `deleted_record_tombstones`, which is the same generic
-    /// mechanism Skill / EnvVarItem / Folder / the other provider V3 types use. Without
-    /// it, a `fetchRecentV2` that races ahead of the cloud delete would re-pull the
-    /// still-live record and the merger would happily re-insert it.
-    ///
-    /// markDirty is emitted BEFORE the row is gone is NOT required — the tombstone is
-    /// keyed by id and the builder returning nil for a missing row is an accepted
-    /// outcome — but the delete op must be emitted regardless of whether the local row
-    /// still existed, so a peer's copy is removed even if ours was already gone.
+    /// The row is really removed (no soft-delete column).
     @discardableResult
     func deleteThinkingRule(id: String, instanceId: String) async -> Bool {
         guard let db else { return false }
         let ok = await db.deleteThinkingRule(id: id)
         // Reload only on success (see saveThinkingRule): reloading after a
         // failed delete would resurrect the rule in the cache immediately.
-        // The delete markDirty below stays unconditional — the tombstone
-        // must reach peers even if our local row was already gone.
         if ok { await reloadThinkingRuleCache() }
-        await ChatStore.shared.markDirty(recordType: "ProviderThinkingRuleV3",
-                                         recordId: id, operation: "delete")
         return ok
     }
 
@@ -3293,8 +2850,6 @@ final class ProviderConfigStore: ObservableObject {
         if ok {
             await reloadThinkingRuleCache()
             for rid in orderedIds {
-                await ChatStore.shared.markDirty(recordType: "ProviderThinkingRuleV3",
-                                                 recordId: rid, operation: "upsert")
             }
         }
         return ok
@@ -3324,30 +2879,6 @@ enum ModelRefreshError: LocalizedError {
 enum ProviderKeychainHelper {
     private static let account = "api-key"
 
-    /// UserDefaults key for the local "last saved at" timestamp of an API key.
-    /// Used for iCloud sync LWW: when a newer device uploads a rotated key, receiving
-    /// devices compare `remote.updatedAt` against this stamp to decide whether to
-    /// overwrite the local Keychain entry.
-    private static func apiKeySavedAtUDKey(instanceId: String) -> String {
-        "providerKey.savedAt.\(instanceId)"
-    }
-
-    /// Timestamp of the last local save for this instance's API key, or
-    /// `.distantPast` if never stamped (legacy entries written before this field existed).
-    static func apiKeySavedAt(instanceId: String) -> Date {
-        let ud = UserDefaults.standard
-        if let ts = ud.object(forKey: apiKeySavedAtUDKey(instanceId: instanceId)) as? Date {
-            return ts
-        }
-        return .distantPast
-    }
-
-    /// Stamp the "saved at" time for this instance's API key. Called automatically by
-    /// `saveAPIKey`; exposed for the iCloud import path to record when a remote update
-    /// won and was applied locally.
-    static func stampAPIKeySavedAt(_ date: Date, instanceId: String) {
-        UserDefaults.standard.set(date, forKey: apiKeySavedAtUDKey(instanceId: instanceId))
-    }
 
     /// [P0-2] Single write path for every provider Keychain value.
     ///
@@ -3415,9 +2946,6 @@ enum ProviderKeychainHelper {
         guard writeKeychainValue(Data(key.utf8), service: service, account: account, kind: "apiKey", caller: caller) else {
             return false
         }
-        // Stamp the local save time for iCloud LWW conflict resolution —
-        // only on a verified write, so a failed save can never poison LWW.
-        stampAPIKeySavedAt(Date(), instanceId: instanceId)
         AppLogger(category: "Keychain").info("write apiKey instanceId=\(instanceId.prefix(8)) keyLen=\(key.count) verified caller=\(caller)")
         // Refresh credential-derived UI (provider list "configured" dot, etc).
         notifyAuthChanged(instanceId: instanceId)
@@ -3472,9 +3000,6 @@ enum ProviderKeychainHelper {
         var syncQuery = query
         syncQuery[kSecAttrSynchronizable as String] = true
         let s2 = SecItemDelete(syncQuery as CFDictionary)
-        // Clear the LWW stamp so any subsequent import (e.g. rebinding from another
-        // device) isn't blocked by a stale "local is newer" comparison.
-        UserDefaults.standard.removeObject(forKey: apiKeySavedAtUDKey(instanceId: instanceId))
         AppLogger(category: "Keychain").info("delete apiKey instanceId=\(instanceId.prefix(8)) legacyStatus=\(s1) syncStatus=\(s2) caller=\(caller)")
         notifyAuthChanged(instanceId: instanceId)
     }

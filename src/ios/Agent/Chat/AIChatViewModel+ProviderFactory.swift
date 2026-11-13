@@ -362,19 +362,19 @@ extension AIChatViewModel {
         // 2. Try the session's persisted modelId (cached at loadSession time)
         //    BEFORE falling back to the default group. The session row stores
         //    `modelId` (set when the user first picked a model on this
-        //    session) which survives iCloud sync even when the in-memory
+        //    session) which survives a restore even when the in-memory
         //    SessionModelBinding doesn't. Without this step, compact / title
         //    generation would silently pick the global default group and run
         //    on a different model than what the chat header is showing.
         //
-        //    When MULTIPLE entries match the same model id (common when iCloud
-        //    sync brings over a second provider instance for the same model,
+        //    When MULTIPLE entries match the same model id (common when a
+        //    restore brings over a second provider instance for the same model,
         //    e.g. "claude-sonnet-4-6" served by both a working API-key
         //    instance and an OAuth instance whose token never landed on this
         //    device), prefer one whose instance has a usable credential.
         //    Without that preference the first-match-wins pick would silently
         //    route to the credential-less instance, producing a 403 OAuth
-        //    error every time the user opens an iCloud-synced session.
+        //    error every time the user opens a restored session.
         if !cachedSessionModelId.isEmpty {
             let matching = store.modelEntries.filter { $0.model.id == cachedSessionModelId && !$0.isHidden }
 
@@ -382,16 +382,16 @@ extension AIChatViewModel {
             //     This is what the chat header subtitle has been showing all
             //     along ("Default Model · Anthropic(X) · Claude Sonnet 4.6"),
             //     so honoring it is the principle of least surprise. It also
-            //     fixes an iCloud-sync footgun: when a session arrives with
+            //     fixes a restore footgun: when a session arrives with
             //     `modelId=claude-sonnet-4-6` but no SessionModelBinding (the
-            //     binding row didn't sync), the older "first credentialed
+            //     binding row didn't travel with the package), the older "first credentialed
             //     match across ALL instances" logic would land on whatever
             //     Anthropic instance came first in `store.modelEntries`. On a
             //     device with multiple Anthropic OAuth logins (e.g. wsvn63 +
             //     53), it could route to wsvn63 whose OAuth token is rejected
             //     by Anthropic at the org level — even though the UI showed
             //     "Anthropic(53)" and the default group would have picked 53.
-            //     User experiences this as "open synced session → 403; switch
+            //     User experiences this as "open restored session → 403; switch
             //     model and pick the SAME model again → 200" because the
             //     re-pick creates a group binding that routes via
             //     ModelGroupRouter (= the default-group path).
@@ -569,7 +569,7 @@ extension AIChatViewModel {
             push(Self.resolveSourceForSubTasks(primary, sessionId: sessionId, store: store))
         }
         // Tier 2b: no binding (or unresolvable) — the session row's persisted
-        // modelId (survives iCloud sync without a binding row).
+        // modelId (survives a restore without a binding row).
         if ordered.isEmpty, let session = await ChatStore.shared.getSession(sessionId) {
             let mid = session.modelId
             if !mid.isEmpty {

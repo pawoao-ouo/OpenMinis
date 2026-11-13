@@ -233,7 +233,7 @@ struct MinisApp: App {
                 // bodies that were already materialized in their original
                 // localization — String(localized:) is only re-evaluated when
                 // the owning view's body re-runs, and many setting/dashboard
-                // sections (iCloud Sync, Appearance, etc.) hold cached strings
+                // sections (Appearance, etc.) hold cached strings
                 // captured at first render. Bundle.setLanguage swizzles new
                 // lookups but does not invalidate the existing view tree.
                 // Re-keying the root drops + re-mounts every descendant,
@@ -465,18 +465,6 @@ struct MinisApp: App {
                     // Create /var/minis/mounts/<name> symlinks in the fakefs now
                     // that the rootfs exists and mounts are active.
                     AIChatViewModel.refreshMountedFolderSymlinks()
-                    // Start iCloud sync engine. v2 takes precedence when its
-                    // feature flag is on (see SyncV2Bootstrap); v1 stays
-                    // paused while v2 is active. When v2 is off, v1 boots
-                    // exactly as before.
-                    if #available(iOS 17.0, *) {
-                        Task { @MainActor in
-                            await SyncV2Bootstrap.startIfEnabled()
-                            if !SyncV2Bootstrap.shouldPauseV1() {
-                                await CloudSyncEngine.shared.start()
-                            }
-                        }
-                    }
                 }
         }
         .commands {
@@ -508,7 +496,7 @@ struct MinisApp: App {
 
             // [T-new-session-hang-credential-cache] L2 invalidation hook #4:
             // foreground backstop. Credentials may have changed while backgrounded
-            // (another device edited a provider and it synced, a Keychain item
+            // (a provider changed elsewhere, a Keychain item
             // rotated) in ways the precise hooks (#1-#3) might not have observed
             // while suspended. Clear the credential cache once on resume so the
             // first resolve re-reads truth.
@@ -627,24 +615,6 @@ struct MinisApp: App {
                     }
                 }
             }
-            // Trigger iCloud sync on foreground resume: fetch remote changes + send local dirty records.
-            // Route to whichever engine is active. v1 must stay quiet whenever
-            // v2 has taken over (SyncV2Bootstrap.shouldPauseV1 == true) —
-            // otherwise v1's triggerFetch round-trips v1 records every scene-
-            // active tick, observed as endless `[iCloud] mergeRemoteMessage
-            // SKIP (local newer)` log spam plus continuous v1-side dirty
-            // drain that competes with v2's send pipeline.
-            if #available(iOS 17.0, *) {
-                Task { @MainActor in
-                    if SyncV2Bootstrap.shouldPauseV1() {
-                        await SyncCore.shared.fetchNow(trigger: .foregroundTimer)
-                        await SyncCore.shared.sendNow(trigger: .foregroundTimer)
-                    } else {
-                        await CloudSyncEngine.shared.triggerFetch()
-                        await CloudSyncEngine.shared.triggerSend()
-                    }
-                }
-            }
 
         case .inactive:
             let remaining = UIApplication.shared.backgroundTimeRemaining
@@ -669,14 +639,14 @@ struct MinisApp: App {
             BackgroundKeepAliveManager.shared.refreshActiveTaskBadge()
             // Drain any pending skill-filesystem rescan now that the
             // app is leaving the foreground — last chance to run the
-            // heavier disk-scan + markDirty pass while we still have
-            // CPU before iOS suspends us.
+            // heavier disk-scan pass while we still have CPU before
+            // iOS suspends us.
             if #available(iOS 17.0, *) {
                 SkillFilesystemNotifier.shared.drainIfDirtyAsync(reason: "scenePhase background")
             }
             // [T-config-audit-wal-loss] The config-audit DB runs in WAL mode and
-            // is NOT covered by ICloudBackupManager's checkpointing (it lives in
-            // its own file, deliberately outside minis.db). Without a checkpoint
+            // is NOT covered by any checkpointing (it lives in its own file,
+            // deliberately outside minis.db). Without a checkpoint
             // a jetsam can drop history that only ever reached the -wal sidecar.
             // Cheap and synchronous — this is the last reliable moment to do it.
             ConfigAuditLog.shared.checkpoint()

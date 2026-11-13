@@ -21,8 +21,6 @@ struct ProviderInstancesView: View {
     @State private var activeSheet: ProviderSheet?
     @State private var importMessage: String?
     @State private var showImportResult = false
-    @State private var forceSyncToast: String?
-    @AppStorage("cloudSync.v2.enabled") private var iCloudSyncEnabled: Bool = false
     /// [T-provider-group-swipe-actions] Swipe-to-edit target. Value-driven so
     /// the swipe opens the SAME detail screen the row's NavigationLink does,
     /// rather than a second editor that could drift from it.
@@ -155,15 +153,6 @@ struct ProviderInstancesView: View {
                     } label: {
                         Label(AppLocalized("Import Provider"), systemImage: "square.and.arrow.down")
                     }
-                    if #available(iOS 17.0, *), iCloudSyncEnabled {
-                        Divider()
-                        Button {
-                            Task { await forceSyncProviders() }
-                        } label: {
-                            Label(AppLocalized("Force iCloud Sync"),
-                                  systemImage: "arrow.triangle.2.circlepath.icloud")
-                        }
-                    }
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -262,20 +251,6 @@ struct ProviderInstancesView: View {
                 Text(msg)
             }
         }
-        .overlay(alignment: .top) {
-            if let msg = forceSyncToast {
-                Text(msg)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(MinisTheme.accent, in: Capsule())
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .settingsPage()
-        .animation(.spring(response: 0.3), value: forceSyncToast)
     }
 
     /// [K-3] Shared alert state for the two message types this page can show.
@@ -297,22 +272,6 @@ struct ProviderInstancesView: View {
         pendingDeleteInstance != nil ? "Delete Provider" : "Import"
     }
 
-    @available(iOS 17.0, *)
-    private func forceSyncProviders() async {
-        // [T-provider-forcesync-v3] markProvidersDirty now re-marks every v3
-        // instance/entry/group/rule row (not just the v2 whole-file record that
-        // v3 peers drop) and resets the pull-side full-history anchors.
-        _ = await ForceSyncHelper.markProvidersDirty()
-        await ForceSyncHelper.bidirectionalSync(recordTypes: [
-            "ProviderConfig", "ProviderConfigV2",
-            "ProviderInstanceV3", "ProviderModelEntryV3",
-            "ProviderModelGroupV3", "ProviderThinkingRuleV3",
-        ])
-        forceSyncToast = AppLocalized("Syncing providers via iCloud")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            forceSyncToast = nil
-        }
-    }
 
     // Section .onMove hands us section-relative indices. Map them back onto the
     // global store.instances order so the new order persists to disk and flows

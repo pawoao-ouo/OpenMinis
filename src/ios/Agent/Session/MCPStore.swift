@@ -34,7 +34,7 @@ struct MCPServerConfig: Codable, Identifiable, Hashable {
     /// [T-mcp-review-fixes-ios]
     var createdAt: Double?
     /// Epoch seconds of the last semantic edit to this entry — the per-server
-    /// LWW clock for iCloud sync (MCPServerItem records). Stamped by every
+    /// LWW clock for local change detection. Stamped by every
     /// in-app mutation; CLI-authored edits get stamped when the external-edit
     /// scan detects a content change. Optional in the on-disk schema (older
     /// builds / CLI never write it); falls back to createdAt / file mtime.
@@ -100,7 +100,6 @@ final class MCPStore: ObservableObject {
         openDatabase()
         createTables()
         load()
-        scheduleLegacyRecordCleanupIfNeeded()
     }
 
     deinit {
@@ -480,7 +479,7 @@ final class MCPStore: ObservableObject {
         }
         servers.sort { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
         save()
-        noteSyncedLocalChange(names: [server.id])
+        noteLocalChange(names: [server.id])
     }
 
     func update(_ server: MCPServerConfig) {
@@ -490,7 +489,7 @@ final class MCPStore: ObservableObject {
     func delete(id: String) {
         servers.removeAll { $0.id == id }
         save()
-        noteSyncedLocalDeletion(names: [id])
+        noteLocalDeletion(names: [id])
         dbDeleteSessionOverrides(serverId: id)
         // [T-mcp-static-oauth] Drop the server's OAuth credentials + guest
         // bridge file with it.
@@ -502,7 +501,7 @@ final class MCPStore: ObservableObject {
         servers[idx].enabled.toggle()
         servers[idx].updatedAt = Date().timeIntervalSince1970
         save()
-        noteSyncedLocalChange(names: [id])
+        noteLocalChange(names: [id])
     }
 
     /// [s2-approve] 设置某工具"调用前是否需要批准"。nil（未登记）默认需要批准。
@@ -513,7 +512,7 @@ final class MCPStore: ObservableObject {
         servers[idx].toolApprovals = approvals
         servers[idx].updatedAt = Date().timeIntervalSince1970
         save()
-        noteSyncedLocalChange(names: [serverId])
+        noteLocalChange(names: [serverId])
     }
 
     // MARK: - JSON import (format compat)
@@ -590,7 +589,7 @@ final class MCPStore: ObservableObject {
         }
         servers.sort { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
         save()
-        noteSyncedLocalChange(names: parsed.map(\.id))
+        noteLocalChange(names: parsed.map(\.id))
     }
 
     /// Convenience: parse + commit in one call.
@@ -776,22 +775,28 @@ final class MCPStore: ObservableObject {
         throw ToolsRefreshError.cliFailed(AppLocalized("Unexpected CLI output (no JSON result). Check the server's connectivity."))
     }
 
-    // MARK: - iCloud sync (per-server MCPServerItem records) [T-mcp-per-server-sync]
+    // MARK: - Local change detection (per-server fingerprints) [T-mcp-per-server-sync]
     //
-    // One CK record per server (recordName = server name). Local mutations
-    // mark per-server dirty rows event-driven; CLI/in-guest edits are caught
-    // by the fingerprint scan below (SyncDirtyScanner triggers it on mtime
-    // change). Inbound applies update the fingerprint WITHOUT marking dirty,
-    // so a received record never echoes back with a fresh clock.
-
-    /// Persisted semantic fingerprints of the last state the sync layer has
-    /// acknowledged, keyed by server name. UserDefaults (tiny payload). Used
-    /// to (a) detect CLI-authored edits that bypassed the CRUD paths and
-    /// (b) suppress echo re-pushes after an inbound apply.
-    private static let fingerprintsKey = "cloudSync.mcp.syncFingerprints"
+    /// Persisted semantic fingerprints of the last acknowledged server state,
+    /// keyed by server name. UserDefaults (tiny payload). Used to detect
+    /// CLI/in-guest edits that bypassed the CRUD paths. A restore applies the
+    /// fingerprint scan right after import, so restored servers don't look
+    /// like fresh external edits.
+    private static let fingerprintsKey = "mcp.syncFingerprints"
+    private static let legacyFingerprintsKey = "cloudSync.mcp.syncFingerprints"
 
     nonisolated private static func loadFingerprints() -> [String: String] {
-        (UserDefaults.standard.dictionary(forKey: fingerprintsKey) as? [String: String]) ?? [:]
+        if let fp = UserDefaults.standard.dictionary(forKey: fingerprintsKey) as? [String: String] {
+            return fp
+        }
+        // One-time migration from the sync-era key (renamed when iCloud sync
+        // was deleted). Keeps the scan from flagging every server as changed.
+        if let fp = UserDefaults.standard.dictionary(forKey: legacyFingerprintsKey) as? [String: String] {
+            UserDefaults.standard.set(fp, forKey: fingerprintsKey)
+            UserDefaults.standard.removeObject(forKey: legacyFingerprintsKey)
+            return fp
+        }
+        return [:]
     }
 
     nonisolated private static func saveFingerprints(_ fp: [String: String]) {
@@ -828,143 +833,39 @@ final class MCPStore: ObservableObject {
     /// purpose as `SubAgentStore.markAllDirty` and
     /// `EnvVarStore.markAllEntriesDirty`.
     ///
-    /// Needed because `markAllLocalForReupload` only walks ChatStore's own
-    /// tables; MCP servers live in their own file and would otherwise never
-    /// come back after a cloud wipe.
-    func markAllServersDirty() {
-        noteSyncedLocalChange(names: servers.map(\.id))
-    }
 
-    /// Record a local mutation: refresh fingerprints and queue per-server
-    /// upsert dirty rows.
-    private func noteSyncedLocalChange(names: [String]) {
+    /// Record a local mutation: refresh the fingerprints so the
+    /// external-edit scan can tell a real CLI edit from our own write.
+    private func noteLocalChange(names: [String]) {
         var fp = Self.loadFingerprints()
         for name in names {
             if let s = servers.first(where: { $0.id == name }) {
                 fp[name] = Self.semanticFingerprint(s)
             }
-            markServerDirty(name: name, operation: "upsert")
         }
         Self.saveFingerprints(fp)
     }
 
-    /// Record a local deletion: drop the fingerprint and queue an op=delete
-    /// dirty row (peers hard-delete via the deletionApplier; the tombstone
-    /// guard in markDirty prevents resurrection by a racing re-fetch).
-    private func noteSyncedLocalDeletion(names: [String]) {
+    /// Record a local deletion: drop the fingerprint so a later
+    /// external-edit scan does not treat the missing server as removed
+    /// by an outside edit.
+    private func noteLocalDeletion(names: [String]) {
         var fp = Self.loadFingerprints()
         for name in names {
             fp.removeValue(forKey: name)
-            markServerDirty(name: name, operation: "delete")
         }
         Self.saveFingerprints(fp)
     }
 
-    private func markServerDirty(name: String, operation: String) {
-        // CK recordNames cannot start with an underscore. Server names are
-        // user/CLI-authored; skip cloud sync for the (rare) invalid ones
-        // rather than failing the push loop.
-        guard !name.hasPrefix("_"), name.utf8.count <= 200 else {
-            AppLogger(category: "MCPStore").warning("[Sync] skip '\(name)': not a valid CK recordName")
-            return
-        }
-        Task { await ChatStore.shared.markDirty(
-            recordType: "MCPServerItem",
-            recordId: name,
-            operation: operation
-        ) }
-    }
 
-    /// Full ServerEntry JSON for the sync builder (verbatim round-trip shape,
-    /// same encoder settings as save()). nil when the server doesn't exist.
-    nonisolated static func entryJsonForSync(name: String) -> (json: String, createdAt: Date, updatedAt: Date)? {
-        // Read straight from disk so the builder (off-MainActor) never races
-        // the in-memory list.
-        guard let data = try? Data(contentsOf: syncFileURL),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let rawServers = root["mcpServers"] as? [String: Any],
-              let rawEntry = rawServers[name] as? [String: Any],
-              let entryData = try? JSONSerialization.data(withJSONObject: rawEntry, options: [.sortedKeys]),
-              let json = String(data: entryData, encoding: .utf8) else { return nil }
-        let mtime = localMTime() ?? Date()
-        let createdAt = (rawEntry["createdAt"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? mtime
-        let updatedAt = (rawEntry["updatedAt"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? createdAt
-        return (json, createdAt, updatedAt)
-    }
-
-    /// Apply an inbound per-server record. LWW by per-entry updatedAt: skip
-    /// when the local entry is strictly newer (small slack for clock skew).
-    /// Updates the fingerprint so the external-edit scan doesn't echo the
-    /// applied content back with a fresh clock.
-    func applyRemoteServerItem(name: String, entryJson: String, remoteCreatedAt: Date, remoteUpdatedAt: Date) {
-        guard let data = entryJson.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            AppLogger(category: "MCPStore").error("[Sync] applyRemoteServerItem '\(name)': unparseable entryJson")
-            return
-        }
-        var incoming = serverConfig(name: name, from: obj)
-        incoming.createdAt = (obj["createdAt"] as? Double) ?? remoteCreatedAt.timeIntervalSince1970
-        incoming.updatedAt = remoteUpdatedAt.timeIntervalSince1970
-
-        if let idx = servers.firstIndex(where: { $0.id == name }) {
-            let local = servers[idx]
-            // Content-equality short circuit — echo of our own push.
-            if Self.semanticFingerprint(local) == Self.semanticFingerprint(incoming) {
-                var fp = Self.loadFingerprints()
-                fp[name] = Self.semanticFingerprint(local)
-                Self.saveFingerprints(fp)
-                return
-            }
-            let localClock = local.updatedAt ?? local.createdAt ?? 0
-            if localClock - remoteUpdatedAt.timeIntervalSince1970 > 2 {
-                AppLogger(category: "MCPStore").info("[Sync] applyRemoteServerItem SKIP (local newer) '\(name)'")
-                return
-            }
-            // Keep the earliest createdAt ever seen for stable Top-20 order.
-            if let lc = local.createdAt, lc < (incoming.createdAt ?? lc) { incoming.createdAt = lc }
-            servers[idx] = incoming
-        } else {
-            servers.append(incoming)
-            servers.sort { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
-        }
-        save()
-        var fp = Self.loadFingerprints()
-        fp[name] = Self.semanticFingerprint(incoming)
-        Self.saveFingerprints(fp)
-        AppLogger(category: "MCPStore").info("[Sync] applied MCPServerItem '\(name)' remoteUpdatedAt=\(remoteUpdatedAt)")
-    }
-
-    /// Hard-delete a server locally from an inbound op=delete tombstone,
-    /// without re-queueing the delete back into the sync layer.
-    func applyRemoteServerDeletion(name: String) {
-        // Only the in-memory removal is conditional. The cleanup below must
-        // run even when the server is absent from the local list — the
-        // leftovers of an earlier lifecycle (fingerprint, per-session
-        // overrides, OAuth credentials) would otherwise survive and be
-        // inherited by a recreated server with the same name. The local
-        // delete(id:) path runs the same cleanup unconditionally.
-        if servers.contains(where: { $0.id == name }) {
-            servers.removeAll { $0.id == name }
-            save()
-        }
-        var fp = Self.loadFingerprints()
-        fp.removeValue(forKey: name)
-        Self.saveFingerprints(fp)
-        // Match the local delete path: OAuth credentials, the seed file and
-        // per-session overrides must not survive to be inherited by a
-        // recreated server with the same name.
-        dbDeleteSessionOverrides(serverId: name)
-        MCPOAuthController.purge(server: name)
-        AppLogger(category: "MCPStore").info("[Sync] applied MCPServerItem deletion '\(name)'")
-    }
 
     /// Detect edits that bypassed the CRUD paths (in-guest minis-mcp-cli
-    /// writes servers.json directly). Called by SyncDirtyScanner when the
-    /// file mtime moves. Compares current semantic fingerprints against the
-    /// persisted last-synced set:
-    ///   changed/new → stamp updatedAt=now (the CLI never writes the clock),
-    ///                 persist, mark dirty;
-    ///   missing     → mark op=delete.
+    /// writes servers.json directly). Called after a restore and by the
+    /// MCP management tools when the file may have changed out-of-band.
+    /// Compares current semantic fingerprints against the persisted set:
+    ///   changed/new → stamp updatedAt=now (the CLI never writes the clock)
+    ///                 and persist;
+    ///   missing     → drop the fingerprint.
     /// Fingerprints persist across launches, so CLI edits made while the app
     /// was closed are caught by the first scan after launch.
     func scanExternalChanges() {
@@ -976,10 +877,8 @@ final class MCPStore: ObservableObject {
         for (idx, s) in servers.enumerated() {
             let cur = Self.semanticFingerprint(s)
             guard fp[s.id] != cur else { continue }
-            // First-ever sight (no fingerprint at all) with no sync history:
-            // still push — per-item sync wants the full set on cloud, and
-            // upserts are idempotent (peer merger short-circuits on equal
-            // content).
+            // First-ever sight (no fingerprint at all): still stamp so the
+            // entry carries a clock from here on.
             if fp[s.id] != nil || s.updatedAt == nil {
                 servers[idx].updatedAt = now
                 stamped = true
@@ -990,9 +889,8 @@ final class MCPStore: ObservableObject {
         let liveNames = Set(servers.map(\.id))
         // "Removed" must mean absent from the FILE, not merely absent from
         // the decoded list: an entry that fails to decode is skipped by
-        // load() but is still on disk — treating it as deleted would
-        // broadcast an op=delete (and an OAuth purge on receiving devices)
-        // for a server that was never removed. If the file can't be parsed
+        // load() but is still on disk — treating it as deleted would drop
+        // a server that was never removed. If the file can't be parsed
         // at all, infer no removals this scan.
         let onDiskNames = rawServerNamesOnDisk()
         let removed = fp.keys.filter { name in
@@ -1002,35 +900,7 @@ final class MCPStore: ObservableObject {
         guard !changed.isEmpty || !removed.isEmpty else { return }
         if stamped { save() }
         Self.saveFingerprints(fp)
-        for name in changed { markServerDirty(name: name, operation: "upsert") }
-        for name in removed { markServerDirty(name: name, operation: "delete") }
-        AppLogger(category: "MCPStore").info("[Sync] external scan: \(changed.count) changed, \(removed.count) removed")
+        AppLogger(category: "MCPStore").info("[MCPStore] external scan: \(changed.count) changed, \(removed.count) removed")
     }
 
-    // MARK: - Legacy whole-file record cleanup
-
-    private static let legacyCleanupKey = "cloudSync.mcp.legacyV2RecordDeleted"
-
-    /// One-time job (mirrors EnvVarStore.scheduleLegacyRecordCleanupIfNeeded):
-    /// re-emit every server as a per-item record, then queue an op=delete for
-    /// the legacy whole-file MCPServersV2 record so it stops occupying cloud
-    /// storage and confusing peers' inbound mergers. CloudKit orders the item
-    /// upserts before the whole-file delete within the batch.
-    private func scheduleLegacyRecordCleanupIfNeeded() {
-        guard !UserDefaults.standard.bool(forKey: Self.legacyCleanupKey) else { return }
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s — let ChatStore/SyncCore finish wiring
-            guard let self else { return }
-            await MainActor.run {
-                self.noteSyncedLocalChange(names: self.servers.map(\.id))
-                Task { await ChatStore.shared.markDirty(
-                    recordType: "MCPServers",
-                    recordId: "mcp-servers",
-                    operation: "delete"
-                ) }
-                UserDefaults.standard.set(true, forKey: Self.legacyCleanupKey)
-                AppLogger(category: "MCPStore").info("[Sync] legacy MCPServersV2 cleanup scheduled (\(self.servers.count) servers re-emitted as MCPServerItem)")
-            }
-        }
-    }
 }

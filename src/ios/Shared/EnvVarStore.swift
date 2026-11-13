@@ -48,49 +48,8 @@ final class EnvVarStore: ObservableObject {
         try? FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
         self.fileURL = baseURL.appendingPathComponent("env-vars.json")
         self.entries = Self.loadEntries(from: fileURL)
-        scheduleLegacyRecordCleanupIfNeeded()
     }
 
-    // MARK: - Legacy whole-file record cleanup
-
-    private static let legacyCleanupKey = "cloudSync.envVar.legacyV2RecordDeleted"
-
-    /// One-time job that removes the old EnvVarV2 whole-file record
-    /// from this device's cloud zone after the first per-variable
-    /// EnvVarItem push round. Without this, the legacy record stays
-    /// on iCloud forever, taking storage and confusing other devices'
-    /// inbound merger.
-    ///
-    /// Sequencing:
-    ///   1. Re-mark every local entry dirty as EnvVarItem (idempotent —
-    ///      no-op if cloud already has them).
-    ///   2. Queue an op=delete dirty row for EnvVarV2 (recordId
-    ///      "env-vars"). SyncCore.sendNow drains the EnvVarItem
-    ///      upserts in the same batch as the EnvVarV2 delete; CloudKit
-    ///      orders the upserts before the delete by record id, so the
-    ///      new schema is in cloud before the old record disappears.
-    ///   3. Persist `legacyCleanupKey = true` so subsequent launches
-    ///      skip this work.
-    private func scheduleLegacyRecordCleanupIfNeeded() {
-        guard !UserDefaults.standard.bool(forKey: Self.legacyCleanupKey) else { return }
-        // Defer past actor init to avoid touching ChatStore before its
-        // SyncCore wiring has completed (ChatStore actor is also being
-        // brought up around the same time on app launch).
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s
-            guard let self else { return }
-            await MainActor.run {
-                self.markAllEntriesDirty()
-                Task { await ChatStore.shared.markDirty(
-                    recordType: "EnvVar",
-                    recordId: "env-vars",
-                    operation: "delete"
-                ) }
-                UserDefaults.standard.set(true, forKey: Self.legacyCleanupKey)
-                logger.info("[EnvVarStore] legacy EnvVarV2 cleanup scheduled (\(self.entries.count) entries re-emitted as EnvVarItem)")
-            }
-        }
-    }
 
     // MARK: - Persistence (key list)
 
@@ -102,10 +61,6 @@ final class EnvVarStore: ObservableObject {
         return entries
     }
 
-    /// Reload entries from disk (e.g. after iCloud sync merges new data).
-    func reloadFromDisk() {
-        entries = Self.loadEntries(from: fileURL)
-    }
 
     private func saveEntries() {
         do {
@@ -114,36 +69,9 @@ final class EnvVarStore: ObservableObject {
         } catch {
             logger.error("Failed to save env var entries: \(error)")
         }
-        // v2 sync uses per-variable EnvVarItem records. Per-key markDirty
-        // is issued by the call sites that actually mutate a specific
-        // entry (add / update / delete / updateNote). Bulk re-emit when
-        // we don't know which key changed (e.g. file rewritten via
-        // SyncDirtyScanner) is handled by markAllEntriesDirty.
-        //
-        // Legacy EnvVar (whole-file) markDirty is no longer issued —
-        // SyncedEnvVars builder returns nil, so any leftover dirty rows
-        // get drained as no-ops.
     }
 
-    /// Mark a single variable's per-key sync record as dirty. Caller
-    /// passes the entry's UUID (EnvVarEntry.id), which is also the
-    /// EnvVarItem record's recordName.
-    fileprivate func markEntryDirty(entryId: String, operation: String = "upsert") {
-        Task { await ChatStore.shared.markDirty(
-            recordType: "EnvVarItem",
-            recordId: entryId,
-            operation: operation
-        ) }
-    }
 
-    /// Re-emit per-key markDirty for every current entry. Used by
-    /// markAllLocalForReupload and any post-restore path that doesn't
-    /// know which keys changed.
-    func markAllEntriesDirty() {
-        for entry in entries {
-            markEntryDirty(entryId: entry.id, operation: "upsert")
-        }
-    }
 
     // MARK: - Keychain (values)
 
@@ -254,12 +182,12 @@ final class EnvVarStore: ObservableObject {
         Self.deleteValue(forKey: key)
     }
 
-    /// Non-isolated read for use from CloudSyncEngine (background thread).
+    /// Non-isolated read for use from background threads (backup, debug RPC).
     nonisolated static func loadValueSync(forKey key: String) -> String? {
         loadValue(forKey: key)
     }
 
-    /// Non-isolated write for use from CloudSyncEngine (background thread).
+    /// Non-isolated write for use from background threads (backup restore).
     nonisolated static func saveValueSync(_ value: String, forKey key: String) {
         saveValue(value, forKey: key)
     }
@@ -337,8 +265,7 @@ final class EnvVarStore: ObservableObject {
             return
         }
         // Confirm the destination account is readable before dropping the old
-        // one on rename (mirrors the copy-then-delete migration below in
-        // applyRemoteItem).
+        // one on rename (mirrors the copy-then-delete migration below).
         if keyChanged {
             guard Self.loadValue(forKey: trimmedKey) != nil else {
                 logger.error("Update env var aborted — Keychain verify failed for \(trimmedKey); prior key \(oldKey) left intact")
@@ -377,7 +304,6 @@ final class EnvVarStore: ObservableObject {
         // Mark the entry's per-key record for cloud deletion. Peers will
         // hard-delete it via applyEnvVarItemDeletion. The recordId is the
         // entry UUID, not the key — same as upsert path.
-        markEntryDirty(entryId: id, operation: "delete")
         logger.info("Deleted env var: \(key)")
     }
 
@@ -389,91 +315,6 @@ final class EnvVarStore: ObservableObject {
         entries.first(where: { $0.id == id })
     }
 
-    // MARK: - Sync inbound (per-variable)
-
-    /// Apply an inbound EnvVarItem. Lookup by id; if a local entry with
-    /// the same id exists, LWW-by-updatedAt decides the winner. If no
-    /// local entry exists by id but another one with the same key
-    /// exists (created independently on two devices before they ever
-    /// synced), keep both — they have distinct UUIDs and the user can
-    /// reconcile manually.
-    ///
-    /// `value` is empty when the sender sent an empty/missing valueB64
-    /// (e.g. legacy build that didn't fill it). In that case we leave
-    /// the local Keychain value untouched rather than wiping it.
-    func applyRemoteItem(
-        id: String, key: String, value: String, note: String,
-        createdAt: Date, updatedAt: Date
-    ) {
-        if let idx = entries.firstIndex(where: { $0.id == id }) {
-            // Local entry exists — LWW by updatedAt. We don't track a
-            // per-entry updatedAt locally yet (the JSON file only has
-            // createdAt), so we accept any inbound update if the field
-            // values actually differ. This gives us last-writer-wins
-            // semantics relative to the inbound stream — both sides'
-            // mutations go through markEntryDirty and produce records
-            // with monotonic updatedAt = Date(), so the cloud serializes
-            // them and the receiver applies the latest one it sees.
-            let existing = entries[idx]
-            let keyChanged = existing.key != key
-            entries[idx].key = key
-            entries[idx].note = note
-            // Don't overwrite createdAt — keep the earliest timestamp
-            // we've ever seen for this id.
-            if existing.createdAt > createdAt { entries[idx].createdAt = createdAt }
-            if !value.isEmpty {
-                // Write new key first; only delete the old account after success
-                // (same race as update() rename — never delete-before-write).
-                if Self.saveValue(value, forKey: key) {
-                    if keyChanged {
-                        deleteValueIfUnreferenced(forKey: existing.key)
-                    }
-                } else {
-                    logger.error("[EnvVarStore] applyRemoteItem Keychain write failed for \(key); prior key left intact")
-                    if keyChanged {
-                        // Roll back in-memory key so metadata still matches the
-                        // surviving Keychain account.
-                        entries[idx].key = existing.key
-                    }
-                }
-            } else if keyChanged {
-                // Key renamed but no value supplied — migrate the existing
-                // value under the new key so we don't strand it.
-                if let oldVal = Self.loadValue(forKey: existing.key),
-                   Self.saveValue(oldVal, forKey: key) {
-                    deleteValueIfUnreferenced(forKey: existing.key)
-                } else {
-                    logger.error("[EnvVarStore] applyRemoteItem rename migrate failed for \(key); prior key left intact")
-                    entries[idx].key = existing.key
-                }
-            }
-            saveEntries()
-            logger.info("[EnvVarStore] applyRemoteItem UPDATE id=\(id.prefix(8)) key=\(key)")
-        } else {
-            // New entry from a peer.
-            let entry = EnvVarEntry(id: id, key: key, createdAt: createdAt, note: note)
-            entries.append(entry)
-            if !value.isEmpty {
-                Self.saveValue(value, forKey: key)
-            }
-            saveEntries()
-            logger.info("[EnvVarStore] applyRemoteItem INSERT id=\(id.prefix(8)) key=\(key)")
-        }
-        _ = updatedAt  // reserved for a future per-entry updatedAt column
-    }
-
-    /// Hard-delete a per-variable entry locally without re-queueing the
-    /// delete back into the sync layer. Mirrors the SessionV2 inbound
-    /// delete pattern. Caller is the sync hydrator; the cloud already
-    /// holds the tombstone.
-    func applyRemoteDeletion(id: String) {
-        guard let idx = entries.firstIndex(where: { $0.id == id }) else { return }
-        let key = entries[idx].key
-        entries.remove(at: idx)
-        deleteValueIfUnreferenced(forKey: key)
-        saveEntries()
-        logger.info("[EnvVarStore] applyRemoteDeletion id=\(id.prefix(8)) key=\(key)")
-    }
 
     /// Returns all env vars as a dictionary for injection into shell execution.
     nonisolated func allAsDict() -> [String: String] {

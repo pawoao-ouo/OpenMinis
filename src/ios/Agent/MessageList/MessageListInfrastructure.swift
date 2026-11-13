@@ -1213,7 +1213,6 @@ final class CellStateBridgeV2: ObservableObject {
     @Published var canResume: Bool = false
     @Published var onResume: (() -> Void)?
     @Published var onCompact: (() -> Void)?
-    @Published var onForceSync: (() -> Void)?
     @Published var onCopyScreenshot: (() -> Void)?
     /// Read this whole reply aloud from the start (clears in-progress TTS).
     @Published var onReadAloud: (() -> Void)?

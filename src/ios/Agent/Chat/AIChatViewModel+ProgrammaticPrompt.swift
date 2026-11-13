@@ -456,7 +456,6 @@ extension AIChatViewModel {
                                                   pageURL: tr.pageURL, status: statusText))
                 }
                 await ChatStore.shared.updateMessageParts(messageId: raw.id, parts: parts)
-                await ChatStore.shared.markDirty(recordType: "Message", recordId: raw.id)
                 return
             }
             logger.warning("[subagent_task] final result NOT persisted — no stored tool_result for \(toolUseId.prefix(12))")

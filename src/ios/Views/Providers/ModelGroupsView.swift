@@ -12,12 +12,10 @@ struct ModelGroupsView: View {
     @State private var showCreateGroup = false
     @State private var newGroupName = ""
     @State private var activeSheet: GroupSheet?
-    @State private var forceSyncToast: String?
     /// [T-provider-group-swipe-actions] Swipe-to-edit target. Edit pushes the
     /// same detail screen the row taps into.
     @State private var editingGroupId: String?
     @State private var pendingDeleteGroup: ModelGroup?
-    @AppStorage("cloudSync.v2.enabled") private var iCloudSyncEnabled: Bool = false
 
     var body: some View {
         List {
@@ -227,33 +225,11 @@ struct ModelGroupsView: View {
                     } label: {
                         Label(AppLocalized("New Group"), systemImage: "plus")
                     }
-                    if #available(iOS 17.0, *), iCloudSyncEnabled {
-                        Divider()
-                        Button {
-                            Task { await forceSyncGroups() }
-                        } label: {
-                            Label(AppLocalized("Force iCloud Sync"),
-                                  systemImage: "arrow.triangle.2.circlepath.icloud")
-                        }
-                    }
                 } label: {
                     Image(systemName: "plus")
                 }
             }
         }
-        .overlay(alignment: .top) {
-            if let msg = forceSyncToast {
-                Text(msg)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(MinisTheme.accent, in: Capsule())
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.spring(response: 0.3), value: forceSyncToast)
         // [T-provider-group-swipe-actions] Swipe-Edit reuses the row's own
         // destination.
         //
@@ -349,15 +325,6 @@ struct ModelGroupsView: View {
         store.reorderGroups(ids)
     }
 
-    @available(iOS 17.0, *)
-    private func forceSyncGroups() async {
-        _ = await ForceSyncHelper.markProvidersDirty()
-        await ForceSyncHelper.bidirectionalSync(recordTypes: ["ProviderConfig", "ProviderConfigV2"])
-        forceSyncToast = AppLocalized("Syncing model groups via iCloud")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            forceSyncToast = nil
-        }
-    }
 }
 
 // MARK: - Group Row

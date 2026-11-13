@@ -524,7 +524,7 @@ enum DebugMethodRegistry {
             description: "Inject a session badge (paused/…) with a back-dated entry stamp — exercises the group-card 24h freshness filter.",
             params: [
                 ParamSpec(name: "sessionId", type: "string", required: true, default: nil, description: "Session id"),
-                ParamSpec(name: "state", type: "string", required: true, default: nil, description: "paused | iCloudSyncing | unread"),
+                ParamSpec(name: "state", type: "string", required: true, default: nil, description: "paused | unread"),
                 ParamSpec(name: "ageHours", type: "number", required: false, default: "0", description: "How long ago the state was entered"),
             ],
             returns: "{sessionId, state, ageHours}",
@@ -668,46 +668,6 @@ enum DebugMethodRegistry {
             returns: "{cleared: int}",
             example: [:]
         ),
-        // Sync v2 diagnostics
-        MethodSpec(
-            name: "debug.sync.transports",
-            description: "List currently registered v2 SyncTransports + capabilities.",
-            params: [],
-            returns: "{isRunning, transports:[{name,capabilities,isLan}], lanImplemented, registeredRecordTypes}",
-            example: [:]
-        ),
-        MethodSpec(
-            name: "debug.sync.tombstones",
-            description: "Sessions that have been remote-deleted but kept locally (soft-delete).",
-            params: [
-                ParamSpec(name: "sessionId", type: "string", required: false, default: nil, description: "Check a single session id; otherwise returns all."),
-            ],
-            returns: "{count, sessionIds} or {sessionId, tombstoned}",
-            example: [:]
-        ),
-        MethodSpec(
-            name: "debug.sync.dirtyByType",
-            description: "Snapshot of the dirty record queue grouped by record type.",
-            params: [],
-            returns: "{total, byType}",
-            example: [:]
-        ),
-        MethodSpec(
-            name: "debug.sync.providerV3.status",
-            description: "Report Provider Sync v3 (per-record SQLite-backed) state: feature flag, migration completion, db open status, per-table row counts. Used to verify the v3 surface is the authoritative inbound path after a build upgrade.",
-            params: [],
-            returns: "{enabled, migrationCompleted, dbOpen, counts:{instances, entries, groups}}",
-            example: [:]
-        ),
-        MethodSpec(
-            name: "debug.sync.providerV3.setEnabled",
-            description: "Kill-switch for Provider Sync v3. Off resumes V2-merge inbound + stops the V3-inbound-merge path (V3 outbound dirty rows already in the queue still drain on next send, harmlessly). Use to revert v3 in the field without a code change. Takes effect immediately for inbound.",
-            params: [
-                ParamSpec(name: "enabled", type: "bool", required: true, default: nil, description: "true = v3 is authoritative for inbound, v2 inbound silently dropped; false = v3 dormant, v2 inbound merged normally."),
-            ],
-            returns: "{enabled}",
-            example: ["enabled": false]
-        ),
         // MARK: Env vars
         MethodSpec(
             name: "debug.envvar.list",
@@ -720,7 +680,7 @@ enum DebugMethodRegistry {
         ),
         MethodSpec(
             name: "debug.envvar.set",
-            description: "Create or update an env-var entry via EnvVarStore (so it triggers the same dirty-marking / sync push as user edits). Lookup precedence: id → key → create new.",
+            description: "Create or update an env-var entry via EnvVarStore. Lookup precedence: id → key → create new.",
             params: [
                 ParamSpec(name: "key", type: "string", required: false, default: nil, description: "Variable name. Required when creating; optional when updating by id."),
                 ParamSpec(name: "value", type: "string", required: false, default: nil, description: "Plaintext value. nil leaves the existing Keychain value untouched on update."),
@@ -732,7 +692,7 @@ enum DebugMethodRegistry {
         ),
         MethodSpec(
             name: "debug.envvar.delete",
-            description: "Delete an env-var entry by id or by key. Routes through EnvVarStore.delete so the per-key sync record is queued for cloud deletion.",
+            description: "Delete an env-var entry by id or by key. Routes through EnvVarStore.delete.",
             params: [
                 ParamSpec(name: "id", type: "string", required: false, default: nil, description: "Entry UUID."),
                 ParamSpec(name: "key", type: "string", required: false, default: nil, description: "Variable name. Used when id is omitted."),
@@ -1322,7 +1282,7 @@ enum DebugMethodRegistry {
         ),
         MethodSpec(
             name: "chat.debugRemoveMessages",
-            description: "TEST HOOK [T-msgidx-oob-repro]: remove N UI rows from the FRONT of the live view model's messages array (never the trailing assistant), simulating an external mid-loop mutation (iCloud rebuild / user delete). Mutates only the UI array — agentHistory and the DB are untouched. Time it into a stalled stream to reproduce the stale-msgIdx crash family.",
+            description: "TEST HOOK [T-msgidx-oob-repro]: remove N UI rows from the FRONT of the live view model's messages array (never the trailing assistant), simulating an external mid-loop mutation (external rebuild / user delete). Mutates only the UI array — agentHistory and the DB are untouched. Time it into a stalled stream to reproduce the stale-msgIdx crash family.",
             params: [
                 ParamSpec(name: "sessionId", type: "string", required: true, default: nil, description: "Target session ID (must be the live/open one)."),
                 ParamSpec(name: "count", type: "int", required: false, default: 2, description: "Rows to remove from the front. Clamped [1,10]."),

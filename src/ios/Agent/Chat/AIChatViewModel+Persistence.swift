@@ -11,7 +11,7 @@ extension AIChatViewModel {
     /// reorder detector AND by send/drain paths that refresh the baseline
     /// without going through reloadMessagesFromDB. Without one shared
     /// implementation, the two writers can disagree and the reorder
-    /// detector trips on every iCloud fetch after a send.
+    /// detector trips on every reload after a send.
     static func computeOrderHash(of messages: [RawMessage]) -> Int {
         var hasher = Hasher()
         for m in messages {
@@ -31,7 +31,7 @@ extension AIChatViewModel {
         // resume() path: tapping Resume sets canResume=false (whose didSet drains
         // pendingSyncReloadOnIdle and dispatches a reload) and then synchronously
         // sets isProcessing=true; by the time the dispatched reload runs, this
-        // guard would skip it — and without re-arming, the deferred iCloud-sync
+        // guard would skip it — and without re-arming, the deferred
         // reload would be stranded forever. The next isProcessing→false drain
         // (line ~198) replays it. Mirrors the post-await guard below.
         guard !isProcessing, !isCompacting, !isTruncatingForRetry else {
@@ -39,21 +39,11 @@ extension AIChatViewModel {
             logger.info("[ReloadTrace] skip+rearm reason=\(reason) sid=\(sessionId.prefix(8)) isProcessing=\(self.isProcessing) isCompacting=\(self.isCompacting) isTruncatingForRetry=\(self.isTruncatingForRetry)")
             return
         }
-        // [T-ios-defer-icloud-sync-after-stop] During the post-stop grace window
-        // (60s after the loop stops, or until the user leaves / backgrounds),
-        // hold the pull-driven reload too. Re-arm so the hold release replays it.
-        // Manual/explicit reloads (force-pull, session open) pass through —
-        // they're user intent, not background sync, and use distinct reasons.
-        if isSyncHeld, reason == "cloudSyncDidFetchChanges" || reason == "deferredSyncReloadOnIdle" {
-            self.pendingSyncReloadOnIdle = true
-            logger.info("[ReloadTrace] HOLD reason=\(reason) sid=\(sessionId.prefix(8)) — post-stop sync hold active; reload deferred until release")
-            return
-        }
         // [T-ios-cancel-reload-overwrite] A reload rebuilds `messages` wholesale
         // from the DB. Right after a Stop, handleUserCancelledCleanup has just
         // preserved the candidate's blocks IN MEMORY — including a cancelled
         // streaming tool block that was never persisted (committedBlockCount <
-        // blocks.count). If a deferred iCloud-sync reload fires here (cancel sets
+        // blocks.count). If a deferred reload fires here (cancel sets
         // isProcessing=false, which drains pendingSyncReloadOnIdle), it overwrites
         // that in-memory candidate with the DB's shorter version and the kept
         // content vanishes from screen (field repro 2026-05-31 18:56, the
@@ -90,16 +80,15 @@ extension AIChatViewModel {
         let lastDbSortOrder = dbMessages.last?.sortOrder ?? 0
         let dbCount = dbMessages.count
         // Reload when new messages exist beyond our baseline. The second condition
-        // handles synced sessions that were initially empty (lastKnownDbSortOrder == 0)
-        // — messages arriving via iCloud should trigger a reload in that case too.
-        // Also reload when messages were removed (e.g. retry deletion propagated from
-        // another device) — detected by DB count being less than the known baseline.
+        // handles sessions that were initially empty (lastKnownDbSortOrder == 0)
+        // — messages arriving via a restore should trigger a reload in that case too.
+        // Also reload when messages were removed (e.g. retry deletion) — detected
+        // by DB count being less than the known baseline.
         let hasNewMessages = lastDbSortOrder > lastKnownDbSortOrder
         let wasEmptyNowHasMessages = lastKnownDbSortOrder == 0 && !dbMessages.isEmpty && messages.count <= 1
         let hasRemovedMessages = dbCount < lastKnownDbCount
-        // Detect a silent sort_order rewrite by another sync path (e.g.
-        // iCloud HEAL when LWW skipped the message but sort_order
-        // disagreed with server). Without this, the view model's
+        // Detect a silent sort_order rewrite by another write path.
+        // Without this, the view model's
         // in-memory ChatMessage array stays in the old order forever
         // because lastDbSortOrder is unchanged. Hash the sequence of
         // (id, sortOrder) pairs and compare against the last seen.
@@ -166,8 +155,8 @@ extension AIChatViewModel {
         }
         // [ReloadTrace] Caller stack at the spinner-on moment. UIKit
         // backtrace on device is unsymbolicated but the offsets are
-        // enough to disambiguate whether the spinner came from a sync
-        // inbound, AIChatView.onAppear, force-pull, or some unrelated
+        // enough to disambiguate whether the spinner came from a
+        // restore reload, AIChatView.onAppear, or some unrelated
         // SwiftUI body re-evaluation.
         let stack = Thread.callStackSymbols.prefix(10).joined(separator: " | ")
         logger.info("[ReloadTrace] loadSession() → spinner ON sid=\(sessionId.prefix(8)) callerStack=\(stack)")
@@ -217,7 +206,7 @@ extension AIChatViewModel {
         let dbStart = CFAbsoluteTimeGetCurrent()
         let rawMessages = await ChatStore.shared.loadMessages(sessionId: sessionId)
         let dbElapsed = (CFAbsoluteTimeGetCurrent() - dbStart) * 1000
-        // Track the highest sortOrder and count so iCloud sync reload triggers for new or removed messages.
+        // Track the highest sortOrder and count so reload triggers fire for new or removed messages.
         lastKnownDbSortOrder = rawMessages.last?.sortOrder ?? 0
         lastKnownDbCount = rawMessages.count
         // [T-ios-token-usage-reload-per-iteration] Zero the session token
@@ -794,7 +783,7 @@ extension AIChatViewModel {
         // If the session already has a title, skip further generation attempts.
         // Also cache `session.modelId` so resolveCurrentEntry can fall back to
         // the session's persisted model when no in-memory binding exists
-        // (e.g. iCloud-synced sessions where SessionModelBinding doesn't carry
+        // (e.g. restored sessions where SessionModelBinding doesn't carry
         // across devices). Without this, compact / title gen silently jumps
         // to the global default group, running on a different model than the
         // one the chat header is showing.
@@ -805,22 +794,22 @@ extension AIChatViewModel {
             cachedSessionModelId = session.modelId
         }
 
-        // iCloud-synced sessions never went through ensureSession() on this
+        // Restored sessions never went through ensureSession() on this
         // device, so createInitialBinding() was never called and the local
         // store has no SessionModelBinding for them. Without a binding, the
         // resolver falls into step 2 (cachedSessionModelId lookup), which can
         // pick an entry that lives outside the default group — observed bug:
-        // synced session routes to Anthropic(wsvn63) whose OAuth token is
+        // a restored session routes to Anthropic(wsvn63) whose OAuth token is
         // org-blocked, even though Default Model group's only sonnet-4-6
         // member is Anthropic(53) (and that's what the UI subtitle showed).
         //
         // Build the binding the same way ensureSession does, so that loading
-        // a synced session converges to the exact same state as creating a
+        // a restored session converges to the exact same state as creating a
         // local one: a group-bound binding pointing into the default primary
         // group. If the cached modelId matches a specific member of the
-        // default group, route the binding to THAT member (so synced session
-        // sticks to the user-visible model). Otherwise fall back to the
-        // group's normal resolve (first available member).
+        // default group, route the binding to THAT member (so the restored
+        // session sticks to the user-visible model). Otherwise fall back to
+        // the group's normal resolve (first available member).
         ensureSessionBindingFromDefaults(sessionId: sessionId)
 
         // Detect interrupted agent loop:
@@ -1135,10 +1124,10 @@ extension AIChatViewModel {
     }
 
     /// Ensure a SessionModelBinding exists for an already-persisted session
-    /// (typically one loaded via iCloud sync). Idempotent: returns immediately
+    /// (typically one loaded via restore). Idempotent: returns immediately
     /// if a binding is already present in the store. When building a new
     /// binding, prefer routing to the default group's member that matches the
-    /// session's cached modelId — that way "open a synced session" converges
+    /// session's cached modelId — that way "open a restored session" converges
     /// to exactly the same routing as "switch model and re-pick the same one"
     /// (which is the user-observed workaround for the OAuth-routing bug).
     func ensureSessionBindingFromDefaults(sessionId: String) {
@@ -1151,9 +1140,9 @@ extension AIChatViewModel {
         }
 
         // Prefer a group member whose model.id matches the session's cached
-        // modelId — this is the "synced session sticks to its model" path.
+        // modelId — this is the "restored session sticks to its model" path.
         // Fall back to the group's normal resolve if no match (rare: the
-        // model the synced session used isn't in this device's default
+        // model the restored session used isn't in this device's default
         // group anymore).
         var resolvedEntryId: String? = nil
         if !cachedSessionModelId.isEmpty {
@@ -1195,7 +1184,7 @@ extension AIChatViewModel {
         )
         store.setBinding(binding, for: sessionId)
         applyGroupSessionDefaults(group: group, sessionId: sessionId)
-        logger.info("🔀ENSURE binding created for synced session=\(sessionId): group=\(groupId) entry=\(entryId) (cachedModelId=\(self.cachedSessionModelId))")
+        logger.info("🔀ENSURE binding created for restored session=\(sessionId): group=\(groupId) entry=\(entryId) (cachedModelId=\(self.cachedSessionModelId))")
     }
 
     /// Create a SessionModelBinding for a newly created session.
@@ -1975,7 +1964,7 @@ extension AIChatViewModel {
         // Post-write DB sanity check: query count + max(sort_order) for this session
         let stats = await ChatStore.shared.sessionWriteStats(sessionId: raw.sessionId)
         logger.info("[Persist] post-write sid=\(raw.sessionId.prefix(8)) dbCount=\(stats.count) dbMaxSortOrder=\(stats.maxSortOrder)")
-        // Bump baseline so iCloud sync doesn't mistake our own persisted messages for remote ones.
+        // Bump baseline so our own persisted messages aren't mistaken for externally-changed rows.
         lastKnownDbSortOrder += 1
         lastKnownDbCount += 1
         return raw.id
@@ -1988,7 +1977,7 @@ extension AIChatViewModel {
     /// persist path wrote). No-op until that turn has been persisted (dbMessageId set)
     /// — the row doesn't exist yet, and the eventual INSERT carries error_info itself
     /// only if set on RawMessage; for the common "set error after persist" ordering
-    /// this UPDATE is what writes it. iCloud is untouched (error_info is device-local).
+    /// this UPDATE is what writes it. error_info is device-local and never leaves the device.
     ///
     /// [T-ios-error-banner-lost] When no assistant row has been persisted yet,
     /// this used to give up and return — which is exactly the case that loses
@@ -2069,7 +2058,7 @@ extension AIChatViewModel {
         var stamped = carrier
         stamped.dbMessageId = raw.id
         agentHistory.append(stamped)
-        // Bump baseline so iCloud sync doesn't mistake our own carrier for a remote row.
+        // Bump baseline so our own carrier row isn't mistaken for an externally-changed row.
         lastKnownDbSortOrder += 1
         lastKnownDbCount += 1
         logger.info("[ErrorPersist] created carrier row msg=\(raw.id.prefix(8)) for early failure")

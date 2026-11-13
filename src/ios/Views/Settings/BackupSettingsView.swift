@@ -23,7 +23,7 @@ struct BackupSettingsView: View {
     var embedded = false
 
     @State private var selected: Set<BackupCategory> = Set(BackupCategory.backupable)
-    /// The Include toggles are styled like the iCloud settings rows, and rows
+    /// The Include toggles are styled like settings rows, and rows
     /// that look like settings are expected to SURVIVE leaving the screen —
     /// a fresh launch used to silently reset a trimmed selection back to
     /// everything, so the next backup was much bigger than the user chose.
@@ -163,10 +163,9 @@ struct BackupSettingsView: View {
         Form {
             deviceNameSection
             Section {
-                // Row styling mirrors the iCloud Sync category list
-                // (CloudSyncSettingsV2View): a 28pt rounded-square badge with a
-                // white glyph. Same kind of choice, so it should look the same
-                // rather than inventing a second visual language for it.
+                // Row styling: a 28pt rounded-square badge with a white glyph.
+                // Same kind of choice as the other category lists, so it should
+                // look the same rather than inventing a second visual language.
                 ForEach(BackupCategory.backupable, id: \.self) { category in
                     Toggle(isOn: binding(for: category)) {
                         HStack(spacing: 12) {
@@ -833,8 +832,7 @@ struct BackupSettingsView: View {
     }
 
     /// [T-backup-device-name-setting] Lets the user name this device, which is
-    /// what the backup filename leads with and what the iCloud sync device
-    /// list shows.
+    /// what the backup filename leads with.
     ///
     /// This is not cosmetic. Since iOS 16 `UIDevice.current.name` returns the
     /// MODEL ("iPhone") unless the app holds the user-assigned-device-name
@@ -873,7 +871,7 @@ struct BackupSettingsView: View {
             // Says what the name is FOR — the whole point is the filename —
             // and how to get back to the default, which an empty field does
             // not otherwise advertise.
-            Text("Used to identify this device in backup filenames and in the iCloud sync device list. Leave empty to use “\(DeviceIdentity.automaticName)”.")
+            Text("Used to identify this device in backup filenames. Leave empty to use “\(DeviceIdentity.automaticName)”.")
         }
         // Seeded in onAppear rather than defaulted, so reopening the screen
         // shows what is actually stored instead of an empty field over a set
@@ -1456,8 +1454,8 @@ struct BackupSettingsView: View {
         }
     }
 
-    /// Glyph + colour per category, matching the iCloud Sync list's visual
-    /// language (and reusing its choices where the categories correspond).
+    /// Glyph + colour per category, matching the backup category list's
+    /// visual language.
 
 
     private func byteText(_ bytes: Int64) -> String {

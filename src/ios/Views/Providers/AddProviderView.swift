@@ -69,7 +69,7 @@ struct AIDataSharingConsentView: View {
                                 .font(.headline)
 
                             VStack(alignment: .leading, spacing: 6) {
-                                dataItem("API keys and tokens are stored in the iOS Keychain on your device. If iCloud sync is on, a copy syncs through your own iCloud account (base64-encoded, not end-to-end encrypted). They are never sent to us")
+                                dataItem("API keys and tokens are stored in the iOS Keychain on your device. If iCloud Keychain is on, a copy syncs through your own iCloud account (base64-encoded, not end-to-end encrypted). They are never sent to us")
                                 dataItem("Data is sent only to the specific provider you choose for each conversation")
                                 dataItem("You can remove any provider and its credentials at any time from Settings")
                                 dataItem("No data is shared with 嘟嘟 or any other party beyond the provider you select")
@@ -695,7 +695,7 @@ struct AddProviderView: View {
                 } header: {
                     Text("API Key")
                 } footer: {
-                    Text("Your key is stored in the iOS Keychain. If iCloud sync is on, a copy syncs through your own iCloud account (base64-encoded, not end-to-end encrypted); otherwise it stays on this device.")
+                    Text("Your key is stored in the iOS Keychain. If iCloud Keychain is on, a copy syncs through your own iCloud account (base64-encoded, not end-to-end encrypted); otherwise it stays on this device.")
                 }
 
             if selectedType != .antigravity {

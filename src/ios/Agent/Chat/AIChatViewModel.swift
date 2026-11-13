@@ -12,6 +12,12 @@ private let logger = AppLogger(category: "AIChatVM")
 // MARK: - View Model
 
 @MainActor
+/// Posted when local stores were reloaded from outside the current view
+/// (backup restore, debug RPC). List and chat views re-read their data.
+extension Notification.Name {
+    static let localStoresDidChange = Notification.Name("localStoresDidChange")
+}
+
 final class AIChatViewModel: ObservableObject, SpeechControlling {
 
     /// Maximum characters returned in a single tool result to the model
@@ -87,68 +93,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     let vmInstanceId = UUID().uuidString.prefix(6)
 
     /// [T-deferred-sync-reload] Set to true when a
-    /// `.cloudSyncDidFetchChanges` notification fires WHILE
+    /// `.localStoresDidChange` notification fires WHILE
     /// `isProcessing == true`. The `$isProcessing` sink drains it on
     /// the false-edge by replaying exactly one `reloadMessagesFromDB`
     /// so the user sees the post-send DB state without waiting for the
     /// next 60s sync timer.
     var pendingSyncReloadOnIdle = false
 
-    // MARK: - Post-stop sync hold (T-ios-defer-icloud-sync-after-stop)
-
-    /// While the agent loop runs (`isProcessing`), and for a grace window AFTER
-    /// it stops, BOTH iCloud directions are held: no push to cloud, no pull-
-    /// driven local reload. This stops a deferred sync from overwriting the
-    /// just-finished candidate the instant the loop ends (field repro: content
-    /// vanished + a brief loading flash right after Stop). The hold is released
-    /// — and a single catch-up sync (flush dirty push + replay reload) runs —
-    /// when the earliest of these happens: the 60s timer fires, the user leaves
-    /// the session (back to the list), or the app is backgrounded.
-    static let postStopSyncHoldSeconds: TimeInterval = 60
-    /// Deadline of the current hold; nil when not held.
-    private(set) var postStopSyncHoldUntil: Date?
-    private var postStopSyncHoldTimer: Timer?
-
-    /// True while the post-stop grace window is active.
-    var isSyncHeld: Bool {
-        guard let until = postStopSyncHoldUntil else { return false }
-        return until > Date()
-    }
-
-    /// Enter the post-stop hold: pause SyncCore (blocks push) for the grace
-    /// window and arm a timer that releases at the deadline. Called when the
-    /// agent loop transitions to idle.
-    @MainActor
-    private func beginPostStopSyncHold() {
-        let until = Date().addingTimeInterval(Self.postStopSyncHoldSeconds)
-        postStopSyncHoldUntil = until
-        SyncCore.shared.pause(for: Self.postStopSyncHoldSeconds)
-        postStopSyncHoldTimer?.invalidate()
-        postStopSyncHoldTimer = Timer.scheduledTimer(withTimeInterval: Self.postStopSyncHoldSeconds, repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.releasePostStopSyncHold(reason: "timer-60s") }
-        }
-        logger.info("[SyncHold] BEGIN hold until \(until) (\(Int(Self.postStopSyncHoldSeconds))s) sid=\(self.sessionId?.prefix(8) ?? "nil")")
-    }
-
-    /// Release the hold early/at-deadline and run one catch-up sync: resume
-    /// SyncCore, flush deferred dirty (push), and replay any pending reload
-    /// (pull). Idempotent — safe to call from any of the release triggers.
-    @MainActor
-    func releasePostStopSyncHold(reason: String) {
-        guard postStopSyncHoldUntil != nil else { return }
-        postStopSyncHoldUntil = nil
-        postStopSyncHoldTimer?.invalidate()
-        postStopSyncHoldTimer = nil
-        logger.info("[SyncHold] RELEASE reason=\(reason) sid=\(self.sessionId?.prefix(8) ?? "nil") — resuming sync + catch-up")
-        SyncCore.shared.resume()
-        // Push: flush whatever the agent turn marked dirty.
-        Task { await ChatStore.shared.flushPendingSyncDirty() }
-        // Pull: replay a deferred reload now that it's safe.
-        if pendingSyncReloadOnIdle, !isProcessing, sessionId != nil {
-            pendingSyncReloadOnIdle = false
-            Task { @MainActor in await self.reloadMessagesFromDB(reason: "syncHoldReleased(\(reason))") }
-        }
-    }
 
     /// Cancellable for tracking `isProcessing` → `SessionActivityTracker`.
     private var activityTrackingCancellable: AnyCancellable?
@@ -158,11 +109,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     private var queueDrainedCancellable: AnyCancellable?
     /// Observer for font-size changes to invalidate cached attributed strings.
     private var fontChangeObserver: Any?
-    /// Observer for iCloud sync changes to reload messages.
+    /// Observer for backup-restore changes to reload messages.
     private var syncChangeObserver: Any?
     /// Observer for group binding changes to update in-memory context limit.
-    /// Observer that releases the post-stop sync hold when the app backgrounds.
-    private var backgroundSyncHoldObserver: Any?
+    /// Observer that stamps the background-entry date for the tool-bg-suspended hint.
+    private var backgroundEntryObserver: Any?
     /// [T-tool-bg-suspended-hint] Observer firing on foreground return; stamps
     /// still-running browser tool blocks that have spanned a background period
     /// and exceeded the long-run threshold so the chat capsule can hint at the
@@ -187,18 +138,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             Task { @MainActor in self.invalidateAttributedStringCaches() }
         }
 
-        // [T-ios-defer-icloud-sync-after-stop] Backgrounding is a release
-        // trigger for the post-stop sync hold — let the held catch-up sync run
-        // before the app suspends, instead of waiting out the 60s window.
-        backgroundSyncHoldObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            // [T-tool-bg-suspended-hint] Remember when we went to background so
-            // a foreground return can tell a browser task actually spanned it.
-            self.bgHintBackgroundEntryDate = Date()
-            Task { @MainActor in self.releasePostStopSyncHold(reason: "background") }
-        }
 
         // [T-tool-bg-suspended-hint] On foreground return, flag any still-running
         // browser tool that spanned the background period and has now exceeded the
@@ -281,7 +220,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
 
         syncChangeObserver = NotificationCenter.default.addObserver(
-            forName: .cloudSyncDidFetchChanges, object: nil, queue: .main
+            forName: .localStoresDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             guard let self, let sid = self.sessionId else { return }
             // Only the foreground-visible VM reacts. ViewModelCache holds
@@ -299,15 +238,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // could clobber the streaming assistant block / hide the
             // "Minis is thinking" indicator. Flip a flag instead; the
             // $isProcessing observer below picks it up and replays one
-            // reload as soon as the send completes. This avoids waiting
-            // the full sync-timer cycle (~60s) for the next refresh.
+            // reload as soon as the send completes.
             if self.isProcessing {
                 self.pendingSyncReloadOnIdle = true
-                logger.info("[ReloadTrace] DEFER reason=cloudSyncDidFetchChanges sid=\(sid.prefix(8)) isProcessing=true — will reload on idle")
+                logger.info("[ReloadTrace] DEFER reason=localStoresDidChange sid=\(sid.prefix(8)) isProcessing=true — will reload on idle")
                 return
             }
             Task { @MainActor in
-                await self.reloadMessagesFromDB(reason: "cloudSyncDidFetchChanges")
+                await self.reloadMessagesFromDB(reason: "localStoresDidChange")
             }
         }
 
@@ -394,22 +332,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                         SessionActivityTracker.shared.setInactive(did, source: src + " (stray draftId)")
                     }
                     self.browserTabPool.releaseAllTabs()
-                    // [T-deferred-sync-reload] Drain any sync reloads that
+                    // [T-deferred-sync-reload] Drain any reloads that
                     // arrived during the send so the UI catches up with the DB
                     // now that the stream finished.
-                    // [T-ios-defer-icloud-sync-after-stop] BUT not while the
-                    // post-stop hold is active — replaying a reload here is the
-                    // exact overwrite we're preventing. Keep the flag armed; the
-                    // hold release (timer / leave / background) replays it.
                     if self.pendingSyncReloadOnIdle, let sid = self.sessionId {
-                        if self.isSyncHeld {
-                            logger.info("[ReloadTrace] HOLD reason=isProcessing→false sid=\(sid.prefix(8)) — deferred reload kept until post-stop hold releases")
-                        } else {
-                            self.pendingSyncReloadOnIdle = false
-                            logger.info("[ReloadTrace] DRAIN reason=isProcessing→false sid=\(sid.prefix(8)) — replaying deferred sync reload")
-                            Task { @MainActor in
-                                await self.reloadMessagesFromDB(reason: "deferredSyncReloadOnIdle")
-                            }
+                        self.pendingSyncReloadOnIdle = false
+                        logger.info("[ReloadTrace] DRAIN reason=isProcessing→false sid=\(sid.prefix(8)) — replaying deferred reload")
+                        Task { @MainActor in
+                            await self.reloadMessagesFromDB(reason: "deferredSyncReloadOnIdle")
                         }
                     }
                 }
@@ -483,7 +413,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         if let observer = syncChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        if let observer = backgroundSyncHoldObserver {
+        if let observer = backgroundEntryObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = bgHintForegroundObserver {
@@ -615,17 +545,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         didSet {
             _deinitSnapshot = "isProcessing=\(isProcessing) session=\(sessionId ?? "nil") draft=\(draftId ?? "nil")"
             if isProcessing && !oldValue {
-                // Agent loop starting — defer iCloud sync sends until completion
-                Task { await ChatStore.shared.setSyncSendDeferred(true) }
-                // [T-ios-defer-icloud-sync-after-stop] A new turn supersedes any
-                // pending post-stop hold; clear it WITHOUT a catch-up sync (the
-                // new turn re-pauses sync via setSyncSendDeferred anyway).
-                if postStopSyncHoldUntil != nil {
-                    postStopSyncHoldUntil = nil
-                    postStopSyncHoldTimer?.invalidate()
-                    postStopSyncHoldTimer = nil
-                    logger.info("[SyncHold] CLEAR — new turn started, superseding post-stop hold")
-                }
                 // Begin watching for main-thread hangs while streaming is
                 // active. Captures a backtrace whenever the main runloop
                 // doesn't drain for >1s, plus a snapshot of streamed text
@@ -634,13 +553,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 // elsewhere — and correlate with the content being rendered.
                 StreamingHangLogger.shared.acquire(reason: "isProcessing=true session=\(sessionId ?? "nil")")
             } else if !isProcessing && oldValue {
-                // [T-ios-defer-icloud-sync-after-stop] Agent loop finished. Do
-                // NOT flush the deferred iCloud push or replay a pull reload now
-                // — that immediate sync is what overwrote the just-finished
-                // candidate. Instead enter the post-stop hold: both directions
-                // stay paused for the grace window, then a single catch-up sync
-                // runs on release (60s timer / leave session / background).
-                beginPostStopSyncHold()
                 StreamingHangLogger.shared.release(reason: "isProcessing=false session=\(sessionId ?? "nil")")
                 // [T-ios-ui-frozen-on-tool-while-loop-runs] Force one snapshot
                 // re-apply from the CURRENT in-memory messages at loop end.
@@ -774,7 +686,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // holds unpersisted interrupted content (so the reload can't
             // overwrite it). Once the interrupted state clears (Resume finished
             // / a normal turn completed and persisted everything), replay the
-            // deferred reload so iCloud-synced changes finally land.
+            // deferred reload so restored changes finally land.
             if oldValue && !canResume && pendingSyncReloadOnIdle, let sid = sessionId {
                 // [T-ios-retry-usermsg-vanish] Don't replay the deferred reload
                 // if canResume is being cleared as the FIRST step of a retry
@@ -807,7 +719,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     @Published var isLoadingSession = false
     /// False until the FIRST loadSession() for this vm completes. Lets the view
     /// distinguish "entering the session, nothing rendered yet" (show the soft
-    /// centered loading card) from every later reload — iCloud sync, compaction,
+    /// centered loading card) from every later reload — restore, compaction,
     /// stale-cache refresh — which must keep the unobtrusive spinner and never
     /// cover content the user is already reading. Not @Published on purpose: it
     /// only ever changes alongside isLoadingSession, whose publish already
@@ -3054,8 +2966,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
             await self.drainQueuedPrompts()
 
-            // Refresh lastKnownDbSortOrder from the actual DB so iCloud sync
-            // doesn't mistake our own persisted messages for remote ones.
+            // Refresh lastKnownDbSortOrder from the actual DB so our own
+            // persisted messages aren't mistaken for externally-changed rows.
             // The in-memory += 1 tracking can drift if messages are batched or retried.
             if let sid = self.sessionId {
                 let dbMessages = await ChatStore.shared.loadMessages(sessionId: sid)
@@ -5372,12 +5284,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// Load an existing session's messages from the database and rebuild UI + agent history.
     ///
     /// The DB stores one RawMessage per API turn: user, assistant, user(tool-results), assistant, ...
-    /// Reload messages from DB after iCloud sync brings new data.
+    /// Reload messages from DB after a restore brings new data.
     /// Only reloads if there are new messages (avoids disrupting active sessions).
-    /// Tracks the highest DB sortOrder seen after each load, so iCloud sync reload
-    /// only triggers when genuinely new messages arrive from another device.
+    /// Tracks the highest DB sortOrder seen after each load, so reload
+    /// only triggers when genuinely new messages arrive.
     var lastKnownDbSortOrder: Int = 0
-    /// Tracks the DB message count so we can detect remote deletions (retry propagation).
+    /// Tracks the DB message count so we can detect deletions made outside this VM (e.g. by a restore).
     var lastKnownDbCount: Int = 0
     /// Hash of the (id, sort_order) pairs from the last DB load. Catches a
     /// silent reorder by another sync path (HEAL on LWW skip) where neither
@@ -5522,8 +5434,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             activeGroupId = gid
         }
 
-        // When resolved via cachedSessionModelId (no binding at all — e.g. an
-        // iCloud-synced session whose binding row didn't sync), the entry may
+        // When resolved via cachedSessionModelId (no binding at all — e.g. a
+        // restored session whose binding row didn't travel), the entry may
         // still belong to the default group. Enable fallback by discovering
         // the group. Deliberately NOT applied when a .directEntry binding
         // exists: that is an explicit user pin, and enabling group fallback
@@ -6168,7 +6080,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     logger.error("🔁STREAM empty after tool result — injecting <system-reminder> and retrying one round")
                     // [T-msgidx-oob] Re-resync before subscripting: the stream
                     // we just consumed is a suspension point, so `messages` may
-                    // have been mutated meanwhile (iCloud inbound rebuild,
+                    // have been mutated meanwhile (restore rebuild,
                     // compaction sweep, user delete) and `msgIdx` gone stale.
                     // Reproduced deterministically on device (mock provider
                     // stalls, chat.debugRemoveMessages drops a row, provider

@@ -98,7 +98,6 @@ final class SkillStore: ObservableObject {
         createTables()
         loadSkills()
         installBundledSkills()
-        migrateMarkBundledSkillsDirty()
     }
 
     deinit {
@@ -225,21 +224,6 @@ final class SkillStore: ObservableObject {
         sqlite3_bind_double(stmt, 4, updatedAt.timeIntervalSince1970)
         sqlite3_bind_text(stmt, 5, (id as NSString).utf8String, -1, Self.SQLITE_TRANSIENT_DB)
         sqlite3_step(stmt)
-    }
-
-    /// Bump only the updatedAt timestamp (in-memory + DB) without changing other metadata.
-    /// Called by CloudSyncEngine when filesystem files are newer than the DB timestamp.
-    func bumpUpdatedAt(skillId: String, to date: Date) {
-        if let idx = skills.firstIndex(where: { $0.id == skillId }) {
-            skills[idx].updatedAt = date
-            let sql = "UPDATE skills SET updated_at = ? WHERE id = ?"
-            var stmt: OpaquePointer?
-            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
-            defer { sqlite3_finalize(stmt) }
-            sqlite3_bind_double(stmt, 1, date.timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 2, (skillId as NSString).utf8String, -1, Self.SQLITE_TRANSIENT_DB)
-            sqlite3_step(stmt)
-        }
     }
 
     private func dbSetEnabled(skillId: String, enabled: Bool) {
@@ -565,30 +549,6 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
         }
     }
 
-    // MARK: - One-time Migration: re-sync skills with bundled files
-
-    /// On first launch after the bundle-sync update, mark all skills that have bundled files
-    /// (scripts, references, assets) as dirty so they get re-uploaded with the ZIP asset.
-    /// Without this, skills synced by the old code (SKILL.md only) would never re-sync.
-    private func migrateMarkBundledSkillsDirty() {
-        let key = "skillStore.didMigrateBundleSync"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        UserDefaults.standard.set(true, forKey: key)
-
-        var count = 0
-        for skill in skills {
-            let skillDir = skillsDir.appendingPathComponent(skill.id)
-            let bundledFiles = collectRelativePaths(in: skillDir)  // excludes SKILL.md
-            if !bundledFiles.isEmpty {
-                AppLogger(category: "SkillSync").info("[MIGRATE] '\(skill.name)' has \(bundledFiles.count) bundled files — marking dirty for re-sync")
-                Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: skill.id) }
-                count += 1
-            }
-        }
-        if count > 0 {
-            AppLogger(category: "SkillSync").info("[MIGRATE] Marked \(count) skills with bundled files for re-sync")
-        }
-    }
 
     // MARK: - YAML Frontmatter Parser
 
@@ -797,24 +757,18 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
             skills.append(skill)
         }
 
-        // Mark dirty for iCloud sync only if content changed
-        if contentChanged {
-            Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: id) }
-        }
-
         return skill
     }
 
-    /// Import a skill from iCloud sync using the remote's exact ID and metadata.
-    /// Unlike `importSkill`, this preserves the remote `skillId` (no re-slugify)
-    /// and does NOT mark dirty (to avoid sync ping-pong).
-    /// Returns `true` if the remote skill was applied, `false` if it was
+    /// Import a skill from a backup package using the package's exact ID and metadata.
+    /// Unlike `importSkill`, this preserves the package `skillId` (no re-slugify).
+    /// Returns `true` if the package skill was applied, `false` if it was
     /// skipped because the local copy is newer (LWW). Callers that also
-    /// process a bundled-file ZIP (importSkillFromSyncWithAsset) MUST honour
-    /// a `false` return and abort the ZIP unpack/prune — otherwise the prune
-    /// step would still delete local bundled files against a stale record.
+    /// process a bundled-file ZIP MUST honour a `false` return and abort the
+    /// ZIP unpack/prune — otherwise the prune step would still delete local
+    /// bundled files against a stale record.
     @discardableResult
-    func importSkillFromSync(
+    func importSkillRecord(
         skillId: String, content: String, source: SkillImportSource,
         isEnabled: Bool, installedAt: Date, updatedAt: Date,
         version: String? = nil, name: String? = nil, description: String? = nil
@@ -838,7 +792,7 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
         // unconditionally. A stale cloud record arriving during the window
         // between a local edit and its push would silently revert the
         // user's just-saved skill (issue #41, same root cause as the
-        // SessionFile path). Mirror the LWW used by mergeRemoteSession: if
+        // SessionFile path). Mirror the LWW guard used by restore: if
         // the local skill's updated_at is newer than the inbound record
         // (+ slack for clock drift), keep local and skip. A skill that
         // doesn't exist locally always applies.
@@ -910,7 +864,7 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
             skills.append(skill)
         }
 
-        // Do NOT markDirty — this came from sync, avoid ping-pong
+        // This came from restore/import — no further action needed.
         return true
     }
 
@@ -967,7 +921,6 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
                                                version: self.skills[idx].version, updatedAt: self.skills[idx].updatedAt)
                     }
                 }
-                await ChatStore.shared.markDirty(recordType: "Skill", recordId: skill.id)
                 if !outcome.isComplete {
                     AppLogger(category: "SkillStore").warning(
                         "[siblings] importFromGitHub partial for \(skill.id): \(outcome.reason ?? "\(outcome.filesFailed) file(s) failed")"
@@ -1009,7 +962,7 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
         // skill is still fully installed: two copies of the same skill,
         // and only the new one will ever update again. The sync import
         // path already treats "same skill, different id" as replace, not
-        // keep-both (see importSkillFromSync) — do the same here. Carry
+        // keep-both (see importSkillRecord) — do the same here. Carry
         // the enabled state over first: importSkill defaulted the unknown
         // new id to enabled, which would silently re-enable a skill the
         // user had deliberately turned off.
@@ -1031,7 +984,6 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
             dbUpdateSkillMeta(id: refreshed.id, name: skills[idx].name, description: skills[idx].description,
                               version: skills[idx].version, updatedAt: skills[idx].updatedAt)
         }
-        Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: refreshed.id) }
 
         if !outcome.isComplete {
             let reason = outcome.reason ?? "\(outcome.filesFailed) sibling file(s) failed to download"
@@ -1094,9 +1046,8 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
             ensureFakefsMetadata(for: linuxPath, isDirectory: false)
         }
 
-        // Re-mark dirty after all bundled files are written so the sync cycle
-        // picks up the complete skill (SKILL.md + scripts/assets).
-        // The stability check (isSkillStable) ensures sync waits until writes settle.
+        // Bump updatedAt after all bundled files are written so the change
+        // is visible to backups and later reads.
         let hasBundledFiles = entries.contains { !$0.isDirectory && $0.name != "SKILL.md" && !$0.name.hasPrefix(".") }
         if hasBundledFiles {
             if let idx = skills.firstIndex(where: { $0.id == skill.id }) {
@@ -1104,7 +1055,6 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
                 dbUpdateSkillMeta(id: skill.id, name: skills[idx].name, description: skills[idx].description,
                                   version: skills[idx].version, updatedAt: skills[idx].updatedAt)
             }
-            Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: skill.id) }
         }
 
         return skill
@@ -1128,7 +1078,6 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
                           version: parsed.version, updatedAt: now)
         syncToRootfs(skill: skills[idx], content: newContent)
 
-        Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: skillId) }
     }
 
     /// Rename a skill (updates in-memory, DB, and SKILL.md frontmatter on disk).
@@ -1157,7 +1106,6 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
             }
         }
 
-        Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: skillId) }
     }
 
     /// Re-read SKILL.md from disk and update metadata (name, description, version, body).
@@ -1193,38 +1141,23 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
             dbUpdateSkillMeta(id: skillId, name: resolvedName, description: resolvedDescription,
                               version: resolvedVersion, updatedAt: now)
             syncToRootfs(skill: skills[idx], content: content)
-            Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: skillId) }
         }
-    }
-
-    /// Unconditionally mark this skill as dirty so the sync engine will
-    /// push it to iCloud on the next send, even if no fields changed.
-    /// Use this for skills that exist on disk (e.g. dropped in via shell)
-    /// but never went through markDirty and so were silently absent from
-    /// the sync queue.
-    func forceMarkDirty(_ skillId: String) {
-        guard skills.contains(where: { $0.id == skillId }) else { return }
-        Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: skillId) }
     }
 
     /// [T-ios-shell-created-skill-not-syncing] Reconcile a skill directory that
     /// exists on disk (`<skillsDir>/<id>/SKILL.md`) but has no skills.db row and
     /// is absent from the in-memory `skills` array — e.g. a skill created purely
     /// via the iSH shell (`mkdir /var/minis/skills/<id>` + write SKILL.md),
-    /// bypassing the import UI. Such orphans were registered into the DB by
-    /// `discoverNewSkillsOnDisk` at launch but never `markDirty`'d, so the
-    /// CloudKit upload builder found the row yet the dirty queue never carried
-    /// it — the skill silently never synced to other devices.
+    /// bypassing the import UI. Such orphans are registered into the DB by
+    /// `discoverNewSkillsOnDisk` at launch.
     ///
     /// Registers the orphan (parse frontmatter → DB row with `.session` source →
-    /// in-memory array) AND markDirty so it enters the upload queue. The
-    /// directory name is the id (NOT a re-slugified name) so the `minis-clone://` link
-    /// keeps resolving. Idempotent: a no-op when the id is already loaded, and
-    /// `dbInsertSkill`'s `ON CONFLICT` preserves `use_count`. Returns true if a
-    /// new orphan was ingested.
+    /// in-memory array). The directory name is the id (NOT a re-slugified name)
+    /// so the `minis-clone://` link keeps resolving. Idempotent: a no-op when
+    /// the id is already loaded, and `dbInsertSkill`'s `ON CONFLICT` preserves
+    /// `use_count`. Returns true if a new orphan was ingested.
     ///
-    /// Shared by the launch reconcile (`discoverNewSkillsOnDisk`) and the
-    /// `SyncDirtyScanner` backstop (skills that appear on disk mid-session).
+    /// Shared by the launch reconcile (`discoverNewSkillsOnDisk`).
     @discardableResult
     func reconcileOrphanSkill(id: String) -> Bool {
         // Idempotent: never duplicate an already-loaded skill.
@@ -1252,9 +1185,7 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
                       isEnabled: true, installedAt: now, updatedAt: now)
         syncToRootfs(skill: skill, content: content)
         skills.append(skill)
-        // The whole point: enter the upload queue so this reaches CloudKit.
-        Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: id) }
-        AppLogger(category: "SkillSync").info("[Reconcile] ingested orphan shell-created skill id=\(id) → markDirty for upload")
+        AppLogger(category: "SkillSync").info("[Reconcile] ingested orphan shell-created skill id=\(id)")
         return true
     }
 
@@ -1324,13 +1255,12 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
             try? fm.createDirectory(at: rootfsFile.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? content.write(to: rootfsFile, atomically: true, encoding: .utf8)
 
-            // Update skill's updatedAt and mark dirty so bundled file changes trigger iCloud sync
+            // Update skill's updatedAt so bundled file changes are picked up by the change scan
             if let idx = skills.firstIndex(where: { $0.id == skillId }) {
                 skills[idx].updatedAt = Date()
                 dbUpdateSkillMeta(id: skillId, name: skills[idx].name, description: skills[idx].description,
                                   version: skills[idx].version, updatedAt: skills[idx].updatedAt)
             }
-            Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: skillId) }
         }
     }
 
@@ -1347,43 +1277,15 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
         let rootfsDir = rootfsSkillsDir.appendingPathComponent(skillId)
         try? fm.removeItem(at: rootfsDir)
 
-        // Propagate the deletion to peer devices. Earlier builds
-        // intentionally suppressed this so accidental local removals
-        // wouldn't nuke a shared library, but the practical UX was
-        // worse: a delete on one device would silently revive next
-        // time the user mutated anything else (the upsert path
-        // re-pushed the skill the peer still had). markDirty op=delete
-        // routes through ChatStoreSyncHydrators.applySkillDeletion on
-        // the receiver.
-        Task { await ChatStore.shared.markDirty(
-            recordType: "Skill", recordId: skillId, operation: "delete"
-        ) }
+        // Deletion is local-only: the skill directory and its rootfs
+        // copy are removed above. Nothing is queued for other devices.
     }
 
-    /// Hard-delete a skill locally without re-queueing a cloud delete.
-    /// Called by the sync hydrator when a peer pushes op=delete for
-    /// this skill id; the cloud already holds the tombstone so we
-    /// must NOT echo it back. Mirrors the SessionV2 / EnvVarItem
-    /// inbound-delete pattern.
-    func applyRemoteDeletion(id skillId: String) {
-        guard skills.contains(where: { $0.id == skillId }) else { return }
-        skills.removeAll { $0.id == skillId }
-        dbDeleteSkill(id: skillId)
-        let skillDir = skillsDir.appendingPathComponent(skillId)
-        try? fm.removeItem(at: skillDir)
-        let rootfsDir = rootfsSkillsDir.appendingPathComponent(skillId)
-        try? fm.removeItem(at: rootfsDir)
-    }
 
     func setEnabled(_ skillId: String, enabled: Bool) {
         guard let idx = skills.firstIndex(where: { $0.id == skillId }) else { return }
         skills[idx].isEnabled = enabled
         dbSetEnabled(skillId: skillId, enabled: enabled)
-        // Enable/disable is part of the skill's syncable state — peer
-        // devices won't see the toggle otherwise.
-        Task { await ChatStore.shared.markDirty(
-            recordType: "Skill", recordId: skillId
-        ) }
     }
 
     // MARK: - Session Overrides
@@ -1601,24 +1503,23 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
         loadSkills()
     }
 
-    /// Rescan disk vs the previous in-memory snapshot, then markDirty
-    /// for every skill whose on-disk state diverged (new SKILL.md
+    /// Rescan disk vs the previous in-memory snapshot, then refresh the
+    /// DB for every skill whose on-disk state diverged (new SKILL.md
     /// appeared, contents changed, or the directory disappeared
     /// entirely). Intended to be called from the debounced fakefs
     /// notifier — a few seconds after iSH shell tools settle down.
     ///
     /// Unlike `reload()`, which only refreshes the in-memory list and
-    /// silently absorbs disk changes, this method drives v2 sync:
-    ///   • New SKILL.md on disk under <skillId>/ → INSERT into DB +
-    ///     markDirty(Skill, op:upsert).
+    /// silently absorbs disk changes, this method also bumps the DB's
+    /// `updated_at` so the change is visible to backups and later reads:
+    ///   • New SKILL.md on disk under <skillId>/ → INSERT into DB.
     ///   • Existing SKILL.md whose mtime is newer than the DB's
-    ///     `updated_at` → bump updated_at and markDirty.
+    ///     `updated_at` → bump updated_at.
     ///   • DB row whose SKILL.md is gone from both the Library copy
-    ///     and the rootfs copy → dbDeleteSkill + markDirty op=delete.
+    ///     and the rootfs copy → dbDeleteSkill.
     ///   • Bundled file (non-SKILL.md content under <skillId>/) mtime
-    ///     newer than DB updated_at → bump + markDirty so the ZIP
-    ///     asset gets re-uploaded.
-    func rescanAndMarkChangedSkillsDirty() {
+    ///     newer than DB updated_at → bump updated_at.
+    func rescanAndRefreshChangedSkills() {
         let syncLog = AppLogger(category: "SkillSync")
         // Snapshot the DB-side state before reloading so we can diff.
         var previousUpdatedAt: [String: Date] = [:]
@@ -1626,8 +1527,8 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
 
         // reload() already detects new dirs (discoverNewSkillsOnDisk)
         // and drops orphans (the dbDeleteSkill branch inside loadSkills
-        // when both Library and rootfs SKILL.md are missing). It just
-        // doesn't markDirty for any of it — we layer that on top here.
+        // when both Library and rootfs SKILL.md are missing). We layer
+        // the updated_at bumps on top here.
         let previousIds = Set(previousUpdatedAt.keys)
         loadSkills()
         let currentIds = Set(skills.map { $0.id })
@@ -1635,19 +1536,13 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
         // Net new skills (likely "agent wrote SKILL.md to a fresh dir").
         let added = currentIds.subtracting(previousIds)
         for id in added {
-            Task { await ChatStore.shared.markDirty(
-                recordType: "Skill", recordId: id, operation: "upsert"
-            ) }
-            syncLog.info("[SkillSync] fakefs rescan → markDirty upsert (new): id=\(id.prefix(8))")
+            syncLog.info("[SkillSync] fakefs rescan → new skill: id=\(id.prefix(8))")
         }
 
         // Removed skills (agent rm -rf'd the dir).
         let removed = previousIds.subtracting(currentIds)
         for id in removed {
-            Task { await ChatStore.shared.markDirty(
-                recordType: "Skill", recordId: id, operation: "delete"
-            ) }
-            syncLog.info("[SkillSync] fakefs rescan → markDirty delete (gone): id=\(id.prefix(8))")
+            syncLog.info("[SkillSync] fakefs rescan → skill gone: id=\(id.prefix(8))")
         }
 
         // Existing skills: check if anything inside the dir is newer
@@ -1662,9 +1557,7 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
             // updated_at column.
             let prev = previousUpdatedAt[skill.id] ?? .distantPast
             if latest.timeIntervalSince(prev) > 1.0 {
-                // Bump the DB so subsequent passes don't keep firing,
-                // and so the v2 builder serializes the new updatedAt
-                // into the synced record.
+                // Bump the DB so subsequent passes don't keep firing.
                 dbUpdateSkillMeta(
                     id: skill.id,
                     name: skill.name,
@@ -1672,16 +1565,13 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
                     version: skill.version,
                     updatedAt: latest
                 )
-                Task { await ChatStore.shared.markDirty(
-                    recordType: "Skill", recordId: skill.id, operation: "upsert"
-                ) }
-                syncLog.info("[SkillSync] fakefs rescan → markDirty upsert (mtime newer): id=\(skill.id.prefix(8)) prev=\(prev) latest=\(latest)")
+                syncLog.info("[SkillSync] fakefs rescan → updated skill: id=\(skill.id.prefix(8)) prev=\(prev) latest=\(latest)")
             }
         }
     }
 
     /// Walks the skill's directory and returns the latest mtime among
-    /// SKILL.md + bundled files. Used by rescanAndMarkChangedSkillsDirty
+    /// SKILL.md + bundled files. Used by rescanAndRefreshChangedSkills
     /// to decide whether a v2 push is needed. Returns nil if the dir
     /// is empty or unreadable.
     private static func latestMtime(in dir: URL) -> Date? {
@@ -1864,10 +1754,8 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
             guard !knownIds.contains(id) else { continue }
 
             // [T-ios-shell-created-skill-not-syncing] Reuse the shared reconcile
-            // so a disk-only skill (e.g. shell-created) is not just registered
-            // into the DB but also markDirty'd — the previous inline version
-            // ingested the row yet never queued it for CloudKit upload, so
-            // shell-created skills silently never synced.
+            // so a disk-only skill (e.g. shell-created) is registered into
+            // the DB and the in-memory list, not just noticed on disk.
             reconcileOrphanSkill(id: id)
         }
     }
@@ -2300,383 +2188,7 @@ enum SkillError: LocalizedError {
     }
 }
 
-// MARK: - CloudSync Helpers
 
-extension SkillStore {
-    /// Directory names to exclude when scanning/zipping a skill for sync.
-    /// Covers package managers, caches, build artifacts, and VCS directories.
-    nonisolated(unsafe) private static let excludedDirNames: Set<String> = [
-        ".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-        "node_modules", ".npm", "bower_components",
-        ".git", ".svn", ".hg",
-        ".tox", ".nox", "eggs",
-        ".build", "build", "dist", "DerivedData",
-        ".gradle", ".idea", ".vscode",
-        "vendor", "Pods", "Carthage",
-    ]
-
-    /// Check if a directory name should be excluded (exact match or suffix pattern like .egg-info).
-    nonisolated static func isExcludedDir(_ name: String) -> Bool {
-        excludedDirNames.contains(name) || name.hasSuffix(".egg-info")
-    }
-
-    /// Returns true if no file in the skill directory has been modified within the last `quietSeconds`.
-    /// This prevents syncing a skill while it's still being written (e.g. mid-install or mid-edit).
-    func isSkillStable(_ skillId: String, quietSeconds: TimeInterval = 60) -> Bool {
-        let syncLogger = AppLogger(category: "SkillSync")
-        let skillDir = skillsDir.appendingPathComponent(skillId)
-        guard fm.fileExists(atPath: skillDir.path) else {
-            syncLogger.info("[STABLE] '\(skillId)' directory missing — not stable")
-            return false
-        }
-
-        let cutoff = Date().addingTimeInterval(-quietSeconds)
-
-        guard let enumerator = fm.enumerator(
-            at: skillDir,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return true }
-
-        for case let fileURL as URL in enumerator {
-            // Skip excluded directories
-            let lastComponent = fileURL.lastPathComponent
-            if Self.isExcludedDir(lastComponent) {
-                enumerator.skipDescendants()
-                continue
-            }
-
-            let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true else { continue }
-            if let modDate = values?.contentModificationDate, modDate > cutoff {
-                let age = Int(Date().timeIntervalSince(modDate))
-                syncLogger.info("[STABLE] '\(skillId)' NOT stable — '\(lastComponent)' modified \(age)s ago (need >\(Int(quietSeconds))s)")
-                return false
-            }
-        }
-        syncLogger.info("[STABLE] '\(skillId)' is stable — all files older than \(Int(quietSeconds))s")
-        return true
-    }
-
-    /// Build a ZIP archive of the skill directory for CloudSync.
-    /// Includes SKILL.md and all bundled files, excluding package manager dirs.
-    /// Returns nil if the skill directory doesn't exist or has no files.
-    func buildSkillZipData(_ skillId: String) -> Data? {
-        let syncLogger = AppLogger(category: "SkillSync")
-        let skillDir = skillsDir.appendingPathComponent(skillId)
-        guard fm.fileExists(atPath: skillDir.path) else {
-            syncLogger.info("[ZIP] '\(skillId)' directory missing — cannot build ZIP")
-            return nil
-        }
-
-        var files: [(relativePath: String, data: Data)] = []
-        var skippedDirs: [String] = []
-
-        guard let enumerator = fm.enumerator(
-            at: skillDir,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-
-        let dirComponents = skillDir.standardizedFileURL.pathComponents
-
-        for case let fileURL as URL in enumerator {
-            let lastComponent = fileURL.lastPathComponent
-            if Self.isExcludedDir(lastComponent) {
-                enumerator.skipDescendants()
-                skippedDirs.append(lastComponent)
-                continue
-            }
-
-            let isRegular = (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile ?? false
-            guard isRegular else { continue }
-
-            let fileComponents = fileURL.standardizedFileURL.pathComponents
-            guard fileComponents.count > dirComponents.count else { continue }
-            let rel = fileComponents[dirComponents.count...].joined(separator: "/")
-
-            guard let data = try? Data(contentsOf: fileURL) else { continue }
-            files.append((relativePath: rel, data: data))
-        }
-
-        if !skippedDirs.isEmpty {
-            syncLogger.info("[ZIP] '\(skillId)' excluded dirs: \(skippedDirs.joined(separator: ", "))")
-        }
-
-        guard !files.isEmpty else {
-            syncLogger.info("[ZIP] '\(skillId)' no files found — returning nil")
-            return nil
-        }
-
-        // Sort so SKILL.md comes first
-        files.sort { a, b in
-            if a.relativePath == "SKILL.md" { return true }
-            if b.relativePath == "SKILL.md" { return false }
-            return a.relativePath < b.relativePath
-        }
-
-        let totalBytes = files.reduce(0) { $0 + $1.data.count }
-        let fileList = files.map { "\($0.relativePath) (\($0.data.count)B)" }.joined(separator: ", ")
-        syncLogger.info("[ZIP] '\(skillId)' packing \(files.count) files (\(totalBytes) bytes raw): \(fileList)")
-
-        let zipData = Self.buildZipArchive(files: files)
-        syncLogger.info("[ZIP] '\(skillId)' ZIP built: \(zipData.count) bytes")
-        return zipData
-    }
-
-    /// Import a skill from iCloud sync, unpacking bundled files from a ZIP asset.
-    /// Preserves the remote `updatedAt` to avoid sync ping-pong.
-    func importSkillFromSyncWithAsset(
-        skillId: String, content: String, zipData: Data?,
-        source: SkillImportSource,
-        isEnabled: Bool, installedAt: Date, updatedAt: Date
-    ) {
-        let syncLogger = AppLogger(category: "SkillSync")
-
-        // [T-icloud-cloud-overwrites-local-edits] Symmetric edit-window
-        // guard. The SEND (upload) path defers a skill whose files were
-        // touched within the last 60s (isSkillStable) so we never push a
-        // half-written skill. The IMPORT (download) path had NO such guard:
-        // while the user is actively editing, the locally-newer upload keeps
-        // deferring (unstable) yet a STALE cloud record keeps importing every
-        // cycle — and its ZIP-as-truth prune deletes the sibling files the
-        // user just created (e.g. cookies.env vanishing in the debug log,
-        // issue #41 "改完又被覆盖"). Mirror the upload gate here: if the local
-        // skill dir has any file modified within the stability window, the
-        // user is mid-edit — skip this import entirely (SKILL.md write AND
-        // ZIP unpack/prune). A later cycle, once edits settle >60s, applies
-        // genuine peer changes normally. A skill that doesn't exist locally
-        // has no edit window and always applies (first download on a new
-        // device).
-        if skills.contains(where: { $0.id == skillId }), !isSkillStable(skillId) {
-            syncLogger.info("[IMPORT] '\(skillId)' SKIP — local files modified within stability window (user mid-edit); deferring inbound apply to protect local edits")
-            return
-        }
-
-        // [T-icloud-local-edit-clobber] Echo short circuit. Applying a record
-        // rewrites SKILL.md (+ ZIP unpack), bumping file mtimes; the dirty
-        // scanner then re-pushes the skill with the SAME updatedAt, every peer
-        // applies + rewrites + re-pushes in turn, and the identical record
-        // ping-pongs between devices forever. An inbound record whose
-        // updatedAt matches the local row (±1s) and whose body matches the
-        // local SKILL.md is that echo — same version, nothing to do.
-        if let local = skills.first(where: { $0.id == skillId }),
-           abs(local.updatedAt.timeIntervalSince(updatedAt)) <= 1,
-           readSkillContent(skillId) == content {
-            syncLogger.info("[IMPORT] '\(skillId)' SKIP — echo of the local version (same updatedAt + same body)")
-            return
-        }
-
-        // First import metadata + SKILL.md (reuses existing importSkillFromSync)
-        syncLogger.info("[IMPORT] '\(skillId)' writing SKILL.md (\(content.count) chars) and updating DB")
-        let applied = importSkillFromSync(
-            skillId: skillId, content: content, source: source,
-            isEnabled: isEnabled, installedAt: installedAt, updatedAt: updatedAt
-        )
-        // [T-icloud-cloud-overwrites-local-edits] Local copy is newer — the
-        // SKILL.md write was skipped above. Abort the ZIP unpack too, or the
-        // "ZIP-as-truth" prune below would delete local bundled files that
-        // the user just added/edited, against this stale remote record.
-        guard applied else {
-            syncLogger.info("[IMPORT] '\(skillId)' skipped ZIP unpack — local newer than remote record")
-            return
-        }
-
-        // If ZIP asset is provided, extract bundled files
-        guard let zipData, !zipData.isEmpty else {
-            syncLogger.info("[IMPORT] '\(skillId)' complete — no bundled files (SKILL.md only)")
-            return
-        }
-        do {
-            let entries = try Self.readZipEntries(data: zipData)
-            let bundledFiles = entries.filter { !$0.isDirectory && $0.name != "SKILL.md" && !$0.name.hasPrefix(".") }
-            syncLogger.info("[IMPORT] '\(skillId)' unpacking ZIP: \(zipData.count) bytes, \(entries.count) entries total, \(bundledFiles.count) bundled files to extract")
-
-            let skillDir = skillsDir.appendingPathComponent(skillId)
-            let rootfsDir = rootfsSkillsDir.appendingPathComponent(skillId)
-
-            // ZIP-as-truth pruning: every bundled file that exists locally
-            // but isn't in the incoming ZIP must have been deleted on the
-            // sender. Without this step the receiver kept stale bundled
-            // files forever (the import only wrote new entries, never
-            // removed obsolete ones), so a delete in scripts/ or
-            // references/ on peer A would silently fail to propagate to
-            // peer B. SKILL.md is excluded from this — it's written by
-            // importSkillFromSync above.
-            let zipPaths = Set(bundledFiles.map { $0.name })
-            let localBundled = collectRelativePaths(in: skillDir).filter { $0 != "SKILL.md" }
-            var prunedCount = 0
-            for rel in localBundled where !zipPaths.contains(rel) {
-                // The sender deliberately leaves excluded dirs (node_modules,
-                // .venv, vendor, …) OUT of the ZIP — their absence from the
-                // package is not a deletion. Pruning them here used to wipe
-                // the receiver's local copies on every sync import.
-                let goesThroughExcludedDir = rel.split(separator: "/")
-                    .contains { Self.isExcludedDir(String($0)) }
-                guard !goesThroughExcludedDir else {
-                    syncLogger.info("[IMPORT] '\(skillId)' kept excluded dir file: \(rel)")
-                    continue
-                }
-                let libFile = skillDir.appendingPathComponent(rel)
-                try? fm.removeItem(at: libFile)
-                let rootfsFile = rootfsDir.appendingPathComponent(rel)
-                try? fm.removeItem(at: rootfsFile)
-                let linuxPath = "/var/minis/skills/\(skillId)/\(rel)"
-                removeFakefsPathIfPresent(linuxPath)
-                prunedCount += 1
-                syncLogger.info("[IMPORT] '\(skillId)' pruned stale bundled file: \(rel)")
-            }
-            if prunedCount > 0 {
-                syncLogger.info("[IMPORT] '\(skillId)' pruned \(prunedCount) local bundled file(s) missing from incoming ZIP")
-            }
-
-            var extractedCount = 0
-            for entry in entries {
-                guard !entry.isDirectory else { continue }
-                let rel = entry.name
-                if rel == "SKILL.md" { continue }   // already written by importSkillFromSync
-                if rel.hasPrefix(".") { continue }
-                // Zip-slip: a crafted entry like `a/../../other-skill/x`
-                // must never write outside this skill's own directory.
-                if rel.hasPrefix("/")
-                    || rel.split(separator: "/").contains("..") { continue }
-
-                // Write to Library skill dir
-                let destFile = skillDir.appendingPathComponent(rel)
-                try? fm.createDirectory(at: destFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try entry.data.write(to: destFile)
-
-                // Write to rootfs
-                let rootfsFile = rootfsDir.appendingPathComponent(rel)
-                try? fm.createDirectory(at: rootfsFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? entry.data.write(to: rootfsFile)
-
-                let linuxPath = "/var/minis/skills/\(skillId)/\(rel)"
-                ensureParentDirsInMetaDB(for: linuxPath)
-                ensureFakefsMetadata(for: linuxPath, isDirectory: false)
-
-                extractedCount += 1
-                syncLogger.info("[IMPORT] '\(skillId)' extracted: \(rel) (\(entry.data.count) bytes)")
-            }
-
-            syncLogger.info("[IMPORT] '\(skillId)' complete — \(extractedCount) bundled files extracted, \(prunedCount) pruned")
-        } catch {
-            syncLogger.error("[IMPORT] '\(skillId)' failed to unpack ZIP: \(error)")
-        }
-    }
-
-    /// Best-effort removal of a fakefs symlink/file for a given Linux
-    /// guest path, mirroring how the rest of the import pipeline writes
-    /// meta entries on the way in. We swallow errors because the
-    /// canonical filesystem state is the Library/rootfs copy we just
-    /// removed above — fakefs cleanup is a niceness, not a correctness
-    /// requirement.
-    private func removeFakefsPathIfPresent(_ linuxPath: String) {
-        if #available(iOS 17.0, *) {
-            RootfsManager.shared.removeFakefsPath(linuxPath)
-        }
-    }
-
-    // MARK: - Minimal ZIP Writer
-
-    /// Build a ZIP archive in memory from a list of (relativePath, data) pairs.
-    /// Uses Store method (no compression) for simplicity and speed.
-    static func buildZipArchive(files: [(relativePath: String, data: Data)]) -> Data {
-        var archive = Data()
-        var centralDirectory = Data()
-        var offset: UInt32 = 0
-
-        for file in files {
-            let nameData = Data(file.relativePath.utf8)
-            let nameLen = UInt16(nameData.count)
-            let fileSize = UInt32(file.data.count)
-            let crc = crc32(file.data)
-
-            // Local file header
-            var local = Data()
-            local.appendU32(0x04034B50)           // signature
-            local.appendU16(20)                   // version needed
-            local.appendU16(0)                    // flags
-            local.appendU16(0)                    // method: Store
-            local.appendU16(0)                    // mod time
-            local.appendU16(0)                    // mod date
-            local.appendU32(crc)                  // CRC-32
-            local.appendU32(fileSize)             // compressed size
-            local.appendU32(fileSize)             // uncompressed size
-            local.appendU16(nameLen)              // file name length
-            local.appendU16(0)                    // extra field length
-            local.append(nameData)
-            local.append(file.data)
-
-            // Central directory entry
-            var cd = Data()
-            cd.appendU32(0x02014B50)              // signature
-            cd.appendU16(20)                      // version made by
-            cd.appendU16(20)                      // version needed
-            cd.appendU16(0)                       // flags
-            cd.appendU16(0)                       // method: Store
-            cd.appendU16(0)                       // mod time
-            cd.appendU16(0)                       // mod date
-            cd.appendU32(crc)                     // CRC-32
-            cd.appendU32(fileSize)                // compressed size
-            cd.appendU32(fileSize)                // uncompressed size
-            cd.appendU16(nameLen)                 // file name length
-            cd.appendU16(0)                       // extra field length
-            cd.appendU16(0)                       // comment length
-            cd.appendU16(0)                       // disk number start
-            cd.appendU16(0)                       // internal attributes
-            cd.appendU32(0)                       // external attributes
-            cd.appendU32(offset)                  // local header offset
-
-            cd.append(nameData)
-
-            archive.append(local)
-            centralDirectory.append(cd)
-            offset += UInt32(local.count)
-        }
-
-        let cdOffset = offset
-        let cdSize = UInt32(centralDirectory.count)
-        archive.append(centralDirectory)
-
-        // End of central directory
-        var eocd = Data()
-        eocd.appendU32(0x06054B50)               // signature
-        eocd.appendU16(0)                        // disk number
-        eocd.appendU16(0)                        // disk with CD
-        eocd.appendU16(UInt16(files.count))      // entries on disk
-        eocd.appendU16(UInt16(files.count))      // total entries
-        eocd.appendU32(cdSize)                   // CD size
-        eocd.appendU32(cdOffset)                 // CD offset
-        eocd.appendU16(0)                        // comment length
-        archive.append(eocd)
-
-        return archive
-    }
-
-    /// CRC-32 (ISO 3309 / ITU-T V.42)
-    private static func crc32(_ data: Data) -> UInt32 {
-        var crc: UInt32 = 0xFFFFFFFF
-        for byte in data {
-            crc ^= UInt32(byte)
-            for _ in 0..<8 {
-                crc = (crc >> 1) ^ (crc & 1 != 0 ? 0xEDB88320 : 0)
-            }
-        }
-        return crc ^ 0xFFFFFFFF
-    }
-}
-
-private extension Data {
-    mutating func appendU16(_ value: UInt16) {
-        var v = value.littleEndian
-        append(Data(bytes: &v, count: 2))
-    }
-    mutating func appendU32(_ value: UInt32) {
-        var v = value.littleEndian
-        append(Data(bytes: &v, count: 4))
-    }
-}
 
 // MARK: - Minimal ZIP Reader (in-memory)
 

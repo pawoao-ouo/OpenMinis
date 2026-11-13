@@ -1190,7 +1190,6 @@ extension AIChatViewModel {
                                                   pageURL: tr.pageURL, status: statusText))
                 }
                 await ChatStore.shared.updateMessageParts(messageId: raw.id, parts: parts)
-                await ChatStore.shared.markDirty(recordType: "Message", recordId: raw.id)
                 logger.info("[delegate_task] persisted final result into message \(raw.id.prefix(8)) tool=\(toolUseId.prefix(12))")
                 return
             }

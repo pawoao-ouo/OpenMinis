@@ -11,8 +11,8 @@ import XCTest
 /// user data that looks cosmetic but isn't.
 ///
 /// Three sites did exactly that before this fix:
-///   * `CloudSyncEngine.mergeProviderConfigBody` re-sorted instances by
-///     `createdAt` (correct for SYNC convergence, wrong for restore);
+///   * the old sync-era `mergeProviderConfigBody` re-sorted instances by
+///     `createdAt` (correct for sync convergence, wrong for restore);
 ///   * the same function assigned `modelGroups` straight from
 ///     `Dictionary.values`, which has NO defined order at all;
 ///   * `mergeProviderConfigFallback` appended backup items to the end of the
@@ -116,9 +116,9 @@ final class BackupOrderPreservationTests: XCTestCase {
 
     // MARK: - The ordering rule under test
     //
-    // Mirrors what `mergeProviderConfigFallback` (and the `isRestore` branch of
-    // `mergeProviderConfigBody`) now do: package order first, local-only after,
-    // local content winning for ids present on both sides.
+    // Mirrors what `mergeProviderConfigForRestore` does for ordering:
+    // package order first, local-only after. (Content for ids on both sides
+    // comes from the package; this helper only mirrors the order.)
 
     private static func orderedForRestore(remote: [ProviderInstance],
                                           local: [ProviderInstance]) -> [ProviderInstance] {

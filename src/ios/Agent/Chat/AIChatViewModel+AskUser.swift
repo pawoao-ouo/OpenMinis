@@ -78,7 +78,7 @@ extension AIChatViewModel {
         if let raw = deferredAssistantRaw, raw.id != assistantMessagePersistedForSuspension {
             await ChatStore.shared.appendMessage(raw)
             assistantMessagePersistedForSuspension = raw.id
-            // 和 persistAgentMessage 一样 bump 基线，别让 iCloud 同步把自己写的当远端。
+            // 和 persistAgentMessage 一样 bump 基线，别让自己写的被当成外部改动。
             lastKnownDbSortOrder += 1
             lastKnownDbCount += 1
         }

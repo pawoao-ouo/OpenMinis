@@ -5,36 +5,10 @@ import UIKit
 import os.log
 
 private let logger = AppLogger(category: "ChatStore")
+private let storeLogger = AppLogger(category: "ChatStore")
 /// [T-memory-enabled-new-session-bug DIAG] dedicated category so the
 /// memory-toggle trace is grep-able (`[MemDiag]`) without ChatStore noise.
 private let memDiagLogger = AppLogger(category: "MemDiag")
-
-// MARK: - Sync Data Types
-
-struct SyncDevice: Identifiable {
-    let id: String       // deviceId
-    var deviceName: String
-    var zoneName: String
-    var lastSeen: Date
-    var osVersion: String
-    /// Content types this device is uploading (e.g. ["Sessions", "Skills", "Providers"])
-    var uploadTypes: [String]
-}
-
-struct RemoteMemory: Identifiable {
-    let id: String
-    let deviceId: String
-    var fileName: String
-    var content: String
-    var updatedAt: Date
-}
-
-enum SyncStatus: Equatable {
-    case idle
-    case syncing
-    case error(String)
-    case disabled
-}
 
 // MARK: - Data Model
 
@@ -48,9 +22,9 @@ struct ChatSession: Identifiable, Codable, Hashable {
     var updatedAt: Date
     var lastMessage: String?
     var source: String?       // e.g. "shortcut" for Shortcuts-triggered sessions
-    var lastSyncedAt: Date?   // non-nil if successfully synced to iCloud
-    var remoteDeviceId: String?   // non-nil if this session came from another device via iCloud
-    var remoteDeviceName: String? // human-readable name of the remote device
+    var lastSyncedAt: Date?   // legacy remote-origin marker (sync removed; always nil locally)
+    var remoteDeviceId: String?   // legacy remote-origin marker (sync removed; always nil locally)
+    var remoteDeviceName: String? // legacy remote-origin marker (sync removed; always nil locally)
     var pinnedAt: Date?       // non-nil if session is pinned; timestamp of when it was pinned
     var folderId: String?     // non-nil if filed into a folder; NULL = ungrouped
     /// [batch7][T-p1-delegate-task] Non-nil ⇒ this is a hidden CHILD session
@@ -86,7 +60,7 @@ struct ChatSession: Identifiable, Codable, Hashable {
     // `==`/`hash` compared EVERY stored field — including the long
     // `lastMessage` / `title` strings. SwiftUI's sidebar `ForEach(groupedSessions)`
     // makes AttributeGraph deep-compare the whole `[ChatSession]` array on every
-    // transaction flush (session switch, tap, foreground, iCloud inbound). In
+    // transaction flush (session switch, tap, foreground, restore). In
     // DEBUG that synthesized `String.==` runs the Unicode NFC normalization
     // slow path (no inlining / ARC elision), and across a long session list it
     // pinned the main thread for 1–2s+ (HangDetector: ChatSession
@@ -429,7 +403,7 @@ struct RawMessage: Identifiable, Codable, Hashable {
     /// never render in the chat UI. Detected by content match rather than a
     /// schema flag: we generate this text verbatim, a content match also hides
     /// rows persisted by OLDER builds (a new column could not), and no
-    /// DB/iCloud-sync wiring is needed.
+    /// DB wiring is needed.
     static let internalBridgeText =
         "(Interrupted mid-task by a new user message. Decide based on the new message and overall context whether the prior task should continue — do not forget or abandon it unless the user explicitly says to stop, or the new message makes clear it is no longer needed.)"
 
@@ -531,7 +505,7 @@ actor ChatStore {
     ///
     /// [audit-E11] Optional `personaId`: when given, invalidates ONLY that
     /// persona's slice; nil invalidates all personas (the safe default used by
-    /// general mutations like iCloud sync merges).
+    /// general mutations like restores).
     func invalidateSessionListCache(personaId: String? = nil) {
         if let pid = personaId {
             sessionListCache.removeValue(forKey: pid)
@@ -558,7 +532,7 @@ actor ChatStore {
 
     /// True when the DB cannot actually serve queries after open. After a
     /// device reboot iOS can relaunch the app in the background BEFORE first
-    /// unlock (BGTask / CloudKit push / location session). minis.db carries
+    /// unlock (BGTask / location session). minis.db carries
     /// the default completeUntilFirstUserAuthentication protection class, so
     /// sqlite3_open "succeeds" lazily but every statement fails — the session
     /// list reads as empty and the home screen looks freshly installed until
@@ -685,7 +659,6 @@ actor ChatStore {
         addColumnIfMissing(table: "sessions", column: "memory_enabled", definition: "INTEGER NOT NULL DEFAULT 1")
         addColumnIfMissing(table: "sessions", column: "last_synced_at", definition: "REAL")
         addColumnIfMissing(table: "sessions", column: "remote_origin_device_id", definition: "TEXT")
-        addColumnIfMissing(table: "sync_devices", column: "upload_types", definition: "TEXT NOT NULL DEFAULT ''")
         // ［persona］会话归属人设。NULL = 老数据，视为默认人设。
         // Intentionally NOT a declared FK: a persona_id pointing at a
         // persona that no longer exists is a transient state (delete
@@ -693,7 +666,7 @@ actor ChatStore {
         // persona rather than failing a constraint.
         addColumnIfMissing(table: "sessions", column: "persona_id", definition: "TEXT")
         // Session pinning. listSessions() SELECTs s.pinned_at and so do
-        // restoreSession / mergeRemoteSession / getSession / pin toggle — a
+        // restoreSession / getSession / pin toggle — a
         // fresh DB without this column makes every one of those prepares
         // fail. Per the add-column wipe trap, the column must exist in BOTH
         // the initial DDL above and this idempotent migration (it was
@@ -725,27 +698,21 @@ actor ChatStore {
         // [T-error-persist-ios] Device-local error string shown on a failed
         // assistant turn (provider/network/empty-response/context-full/…). Persisted
         // so the indicator survives session reload / app restart. NULL = no error.
-        // Not synced via iCloud (errors are device-local; absent from the CKRecord).
+        // Never leaves the device (errors are device-local).
         addColumnIfMissing(table: "messages", column: "error_info", definition: "TEXT")
         // [T-ios-listsessions-part-flags] Device-local bitmask of which
         // ContentPart types a row's parts_json contains — bit0=hasText,
         // bit1=hasToolUse. Lets listSessions() replace 4 un-indexable
         // `parts_json LIKE '%…%'` subqueries per session with cheap integer
         // masks (523ms → single-digit ms cold on a 100k-message DB). Derived
-        // purely from parts_json, so it is NOT synced via iCloud (like
-        // error_info): inbound merge / backfill recompute it locally on write.
+        // purely from parts_json, so it never leaves the device (like
+        // error_info): restores / backfills recompute it locally on write.
         // Backfilled once for pre-existing rows below.
         addColumnIfMissing(table: "messages", column: "part_flags", definition: "INTEGER NOT NULL DEFAULT 0")
-        // v2 sync: soft-delete tombstone for sessions deleted on a peer
-        // device but kept locally. Non-nil = tombstoned at that timestamp.
-        // See SyncV2 §3.3.
+        // Legacy soft-delete tombstone from the deleted sync (sessions
+        // deleted on another device but kept locally). Non-nil = tombstoned
+        // at that timestamp. Column kept for old databases; nothing writes it.
         addColumnIfMissing(table: "sessions", column: "remote_tombstoned_at", definition: "REAL")
-        // v2 sync: priority + creation order on dirty rows so migration's
-        // 28k+ row backlog never starves freshly-typed user messages.
-        // priority: 0 = user-driven (default), 1 = migration backlog
-        // (push only after priority=0 drains in each batch).
-        addColumnIfMissing(table: "sync_dirty_records", column: "priority", definition: "INTEGER NOT NULL DEFAULT 0")
-        addColumnIfMissing(table: "sync_dirty_records", column: "created_at", definition: "REAL NOT NULL DEFAULT 0")
         // [batch7][T-p1-delegate-task] Child-session linkage for sub agents:
         // optional columns, no version bump — pre-column rows read as NULL
         // (`nil` ⇒ top-level), so an old database shows exactly the old list.
@@ -776,27 +743,6 @@ actor ChatStore {
         addColumnIfMissing(table: "messages", column: "provider_type", definition: "TEXT")
         addColumnIfMissing(table: "messages", column: "provider_instance_id", definition: "TEXT")
 
-        // One-shot cleanup: drop legacy v1 dirty rows that have a v2
-        // counterpart. Under the V2 engine these have no consumer (the
-        // v1 engine is paused, SyncCore filters via v2Only:true) so they
-        // accumulate forever. The longer-term fix is the markDirty
-        // guard above that no longer writes them in V2 mode, but
-        // existing installs still carry the rows from before that fix
-        // and from any V2 build that wrote them as dual-write — so
-        // sweep them once on first launch of this build.
-        let zombieCleanupKey = "cloudSync.v2.zombieDirtyCleanupV1Done"
-        if !UserDefaults.standard.bool(forKey: zombieCleanupKey) {
-            let v1Types = ["Session", "Message", "CompactMarker", "SessionFile",
-                           "Skill", "ProviderConfig", "EnvVar", "SyncDevice", "Soul"]
-            let inList = v1Types.map { "'\($0)'" }.joined(separator: ",")
-            var deletedCount: Int32 = 0
-            let delSQL = "DELETE FROM sync_dirty_records WHERE record_type IN (\(inList))"
-            if sqlite3_exec(db, delSQL, nil, nil, nil) == SQLITE_OK {
-                deletedCount = Int32(sqlite3_changes(db))
-            }
-            UserDefaults.standard.set(true, forKey: zombieCleanupKey)
-            iCloudLogger.info("[iCloudTrace] v1 dirty-row zombie cleanup: deleted=\(deletedCount) types=\(v1Types.joined(separator: ","))")
-        }
 
         // Compact markers table — tracks context compaction boundaries per session
         exec("""
@@ -843,88 +789,15 @@ actor ChatStore {
             if sqlite3_exec(db, backfillSQL, nil, nil, nil) == SQLITE_OK {
                 let changed = Int(sqlite3_changes(db))
                 UserDefaults.standard.set(true, forKey: partFlagsBackfillKey)
-                iCloudLogger.info("[part_flags] backfill done: updated \(changed) row(s)")
+                storeLogger.info("[part_flags] backfill done: updated \(changed) row(s)")
             } else {
                 let err = String(cString: sqlite3_errmsg(db))
                 // Leave the flag unset so it retries next launch.
-                iCloudLogger.error("[part_flags] backfill FAILED (will retry next launch): \(err)")
+                storeLogger.error("[part_flags] backfill FAILED (will retry next launch): \(err)")
             }
         }
 
 
-        // iCloud sync tables
-        exec("""
-            CREATE TABLE IF NOT EXISTS sync_dirty_records (
-                record_type TEXT NOT NULL,
-                record_id   TEXT NOT NULL,
-                zone_name   TEXT NOT NULL,
-                operation   TEXT NOT NULL DEFAULT 'upsert',
-                PRIMARY KEY (record_type, record_id)
-            )
-        """)
-        // Distinct recordIDs that have ever been confirmed saved to
-        // iCloud (via CKSyncEngine SentRecordZoneChanges). Used by the
-        // migration progress UI to show a real "unique records pushed"
-        // count rather than the historical save-event counter, which
-        // double-counts every relaunch's re-mark-dirty + re-save cycle.
-        // Insert is INSERT OR IGNORE so duplicate saves are silent.
-        exec("""
-            CREATE TABLE IF NOT EXISTS sync_pushed_records (
-                record_name TEXT PRIMARY KEY
-            )
-        """)
-        // [T-icloud-deleted-session-resurrection] Recent-delete tombstones.
-        // When a session is deleted locally its rows are hard-deleted, but the
-        // cloud delete (CKSyncEngine tombstone) is pushed asynchronously. In the
-        // window before it lands, fetchRecentV2's active query can pull the
-        // still-present old SessionV2/MessageV2/SessionFileV2 records back and
-        // mergeRemote* re-INSERTs them — the session "resurrects" (with a ☁️
-        // remote-origin marker). This table records every locally-deleted
-        // session id + when, so the inbound merge can refuse to re-insert a
-        // record that isn't newer than the deletion. Entries are pruned only by
-        // the 30-day TTL below — session ids are UUIDs (never reused), so a
-        // lingering tombstone never wrongly blocks a future session, and the
-        // table stays tiny.
-        exec("""
-            CREATE TABLE IF NOT EXISTS deleted_session_tombstones (
-                session_id TEXT PRIMARY KEY,
-                deleted_at REAL NOT NULL
-            )
-        """)
-        // [T-icloud-deleted-session-resurrection] Bound the table size: the
-        // cloud delete normally lands within seconds, after which the server
-        // record can no longer be fetched back, so the tombstone has done its
-        // job. Session ids are UUIDs (never reused), so a stale tombstone can't
-        // wrongly block a legitimate future session — but prune entries older
-        // than 30 days on launch so the table can't grow without bound.
-        exec("DELETE FROM deleted_session_tombstones WHERE deleted_at < \(Date().timeIntervalSince1970 - 30 * 24 * 60 * 60)")
-        // [T-icloud-record-delete-resurrection] Same resurrection guard,
-        // generalized to other per-record types whose deletes propagate as
-        // op=delete but whose inbound merges would otherwise happily re-insert
-        // a stale live record fetched by fetchRecentV2 before the cloud delete
-        // lands (CKQuery never sees deletions). Currently written for
-        // Skill / EnvVarItem / CompactMarker via the markDirty(op=delete)
-        // chokepoint. Same 30-day TTL prune as the session table.
-        exec("""
-            CREATE TABLE IF NOT EXISTS deleted_record_tombstones (
-                record_type TEXT NOT NULL,
-                record_id   TEXT NOT NULL,
-                deleted_at  REAL NOT NULL,
-                PRIMARY KEY (record_type, record_id)
-            )
-        """)
-        // ProviderModelGroupV3 rows are exempt from the 30-day prune: the
-        // roster merge guard reads them with NO time window (isRecordDeleted),
-        // so pruning would silently stop it working for a roster that arrives
-        // late. A row of that type exists only while its group is dead —
-        // delete and revive keep that invariant across their paths (the
-        // tombstone is written by the delete path and cleared by the revive
-        // paths: V3 single-record merge and whole-package merge), and group
-        // ids are UUIDs, never reused, so the exempted rows stay bounded by
-        // deletions, one small row each. A stale row on a live group is
-        // cleared by the next whole-package merge, which clears tombstones
-        // for every group alive in the result.
-        exec("DELETE FROM deleted_record_tombstones WHERE deleted_at < \(Date().timeIntervalSince1970 - 30 * 24 * 60 * 60) AND record_type != 'ProviderModelGroupV3'")
         // Session folders (home-list grouping). `id` is a locally generated
         // UUID — uniqueness needs no cross-device coordination, which is why
         // it beats keying on the name when devices create folders offline.
@@ -943,95 +816,6 @@ actor ChatStore {
                 description TEXT,
                 created_at  REAL NOT NULL,
                 updated_at  REAL NOT NULL
-            )
-        """)
-        exec("""
-            CREATE TABLE IF NOT EXISTS sync_devices (
-                device_id   TEXT PRIMARY KEY,
-                device_name TEXT NOT NULL,
-                zone_name   TEXT NOT NULL,
-                last_seen   REAL NOT NULL,
-                os_version  TEXT NOT NULL DEFAULT ''
-            )
-        """)
-        exec("""
-            CREATE TABLE IF NOT EXISTS remote_sessions (
-                id          TEXT NOT NULL,
-                device_id   TEXT NOT NULL,
-                title       TEXT,
-                category    TEXT,
-                model_id    TEXT NOT NULL DEFAULT 'unknown',
-                created_at  REAL NOT NULL,
-                updated_at  REAL NOT NULL,
-                model_binding TEXT,
-                PRIMARY KEY (id, device_id)
-            )
-        """)
-        exec("""
-            CREATE TABLE IF NOT EXISTS remote_messages (
-                id          TEXT NOT NULL,
-                device_id   TEXT NOT NULL,
-                session_id  TEXT NOT NULL,
-                role        TEXT NOT NULL,
-                parts_json  TEXT NOT NULL,
-                created_at  REAL NOT NULL,
-                token_usage TEXT,
-                sort_order  INTEGER NOT NULL DEFAULT 0,
-                reasoning_content TEXT,
-                stream_interrupt_count INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (id, device_id)
-            )
-        """)
-        exec("CREATE INDEX IF NOT EXISTS idx_remote_messages_session ON remote_messages(session_id, device_id, sort_order)")
-        exec("""
-            CREATE TABLE IF NOT EXISTS remote_media (
-                id              TEXT NOT NULL,
-                device_id       TEXT NOT NULL,
-                session_id      TEXT NOT NULL,
-                relative_path   TEXT NOT NULL,
-                mime_type       TEXT,
-                original_file_name TEXT,
-                local_cache_path TEXT,
-                PRIMARY KEY (id, device_id)
-            )
-        """)
-        exec("""
-            CREATE TABLE IF NOT EXISTS remote_skills (
-                id          TEXT NOT NULL,
-                device_id   TEXT NOT NULL,
-                name        TEXT NOT NULL DEFAULT '',
-                description TEXT NOT NULL DEFAULT '',
-                version     TEXT NOT NULL DEFAULT '1.0.0',
-                import_source TEXT NOT NULL DEFAULT 'file',
-                is_enabled  INTEGER NOT NULL DEFAULT 1,
-                installed_at REAL NOT NULL,
-                updated_at  REAL NOT NULL,
-                body_text   TEXT NOT NULL DEFAULT '',
-                PRIMARY KEY (id, device_id)
-            )
-        """)
-        exec("""
-            CREATE TABLE IF NOT EXISTS remote_memories (
-                id          TEXT NOT NULL,
-                device_id   TEXT NOT NULL,
-                file_name   TEXT NOT NULL DEFAULT '',
-                content     TEXT NOT NULL DEFAULT '',
-                updated_at  REAL NOT NULL,
-                PRIMARY KEY (id, device_id)
-            )
-        """)
-        exec("""
-            CREATE TABLE IF NOT EXISTS remote_provider_configs (
-                device_id   TEXT NOT NULL PRIMARY KEY,
-                config_json TEXT NOT NULL DEFAULT '{}',
-                updated_at  REAL NOT NULL
-            )
-        """)
-        exec("""
-            CREATE TABLE IF NOT EXISTS remote_env_vars (
-                device_id       TEXT NOT NULL PRIMARY KEY,
-                env_vars_json   TEXT NOT NULL DEFAULT '[]',
-                updated_at      REAL NOT NULL
             )
         """)
         // WebApp-style home-screen shortcuts. One row per HTML the user has
@@ -1152,8 +936,8 @@ actor ChatStore {
         // code, since the row always existed with 1. Read the global default
         // here (mirroring that fallback) so turning the toggle off actually
         // starts new sessions with memory disabled. Existing sessions keep
-        // their stored value; iCloud-synced sessions (the INSERT at ~L4492)
-        // intentionally use the remote record's memory_enabled and are NOT
+        // their stored value; restored sessions (the INSERT at ~L4492)
+        // intentionally use the package's memory_enabled and are NOT
         // changed.
         let globalMemoryEnabled = (UserDefaults.standard.object(forKey: "memory.global.enabled") as? Bool) ?? true
 
@@ -1230,7 +1014,7 @@ actor ChatStore {
         return flags
     }
 
-    /// Compute part_flags from a raw parts_json string (iCloud merge/backfill
+    /// Compute part_flags from a raw parts_json string (restore/backfill
     /// paths only have the JSON, not a decoded array). Uses the SAME
     /// substring test the old listSessions LIKE patterns used, so the derived
     /// flags exactly reproduce the previous behavior — including the JSON-key-
@@ -1308,7 +1092,7 @@ actor ChatStore {
         let pid = personaId ?? PersonaStore.currentID()
         // ─── crash triage (sqlite3MutexMisuseAssert in column_text) ───
         // Capture the calling context whenever this enters so we can match
-        // mid-flight invocations (App Intents EntityQuery, iCloud sync,
+        // mid-flight invocations (App Intents EntityQuery, restore,
         // SwiftUI body) against the actor's serial expectation. A
         // mutex-misuse trap in sqlite3_column_text usually means the stmt
         // is being stepped on a different thread than it was prepared on,
@@ -1319,9 +1103,9 @@ actor ChatStore {
         let qLabel = String(cString: __dispatch_queue_get_label(nil))
         let tDesc = Thread.current.description
         let isMain = Thread.isMainThread
-        iCloudLogger.info("[ChatStore.listSessions] ENTER queue='\(qLabel)' isMain=\(isMain) thread=\(tDesc.prefix(80))")
+        storeLogger.info("[ChatStore.listSessions] ENTER queue='\(qLabel)' isMain=\(isMain) thread=\(tDesc.prefix(80))")
         defer {
-            iCloudLogger.info("[ChatStore.listSessions] EXIT queue='\(qLabel)'")
+            storeLogger.info("[ChatStore.listSessions] EXIT queue='\(qLabel)'")
         }
         #endif
         // [T-ios-listsessions-cache] Return the cached list verbatim when no
@@ -1428,7 +1212,7 @@ actor ChatStore {
             // table for legacy rows but is no longer consulted. Peer-side
             // SessionV2 deletes are now applied as hard deletes (the row
             // and all its children leave SQLite outright) — see
-            // ChatStore.deleteSessionLocalOnly + TombstoneManager.
+            // ChatStore.deleteSessionLocalOnly.
         var stmt: OpaquePointer?
         var sessions: [ChatSession] = []
         // Count of unusable rows dropped this pass (NULL/empty primary key).
@@ -1465,7 +1249,7 @@ actor ChatStore {
                 // only when the user just sent something the assistant hasn't
                 // answered yet (assistant row is from an earlier turn). This
                 // replaces the dropped SQL pivot clause and is robust to
-                // sort_order re-ranking from iCloud merges.
+                // sort_order re-ranking from restores.
                 let asstSortOrder: Int? = sqlite3_column_type(stmt, 12) != SQLITE_NULL
                     ? Int(sqlite3_column_int64(stmt, 12)) : nil
                 let userSortOrder: Int? = sqlite3_column_type(stmt, 13) != SQLITE_NULL
@@ -1515,12 +1299,12 @@ actor ChatStore {
         } else {
             // Never silently return [] again: a failed prepare here used to
             // leave the chat list permanently empty with no trace in the log.
-            iCloudLogger.error("[ChatStore.listSessions] prepare FAILED: \(String(cString: sqlite3_errmsg(db))) — returning empty list")
+            storeLogger.error("[ChatStore.listSessions] prepare FAILED: \(String(cString: sqlite3_errmsg(db))) — returning empty list")
         }
         sqlite3_finalize(stmt)
 
         if skippedRows > 0 {
-            iCloudLogger.error("[ChatStore.listSessions] skipped \(skippedRows) unusable session row(s) with NULL/empty id — see T-ios-listsessions-cstring-trap")
+            storeLogger.error("[ChatStore.listSessions] skipped \(skippedRows) unusable session row(s) with NULL/empty id — see T-ios-listsessions-cstring-trap")
         }
 
         // [T-ios-listsessions-cache] Store the freshly-built list; subsequent
@@ -1529,25 +1313,6 @@ actor ChatStore {
         sessionListCache[pid] = sessions
 
         return sessions
-    }
-
-    /// Query sync_devices table and check UserDefaults to find which remote devices have sync enabled.
-    private func enabledRemoteDeviceIdsFromDefaults() -> Set<String> {
-        let selfDeviceId = syncZoneName.replacingOccurrences(of: "device-", with: "")
-        var ids = Set<String>()
-        let sql = "SELECT device_id FROM sync_devices WHERE device_id != ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (selfDeviceId as NSString).utf8String, -1, nil)
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let deviceId = String(cString: sqlite3_column_text(stmt, 0))
-                if UserDefaults.standard.bool(forKey: "cloudSync.device.\(deviceId).enabled") {
-                    ids.insert(deviceId)
-                }
-            }
-        }
-        sqlite3_finalize(stmt)
-        return ids
     }
 
 
@@ -2255,7 +2020,6 @@ actor ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
-        markDirty(recordType: "Session", recordId: id)
         NotificationCenter.default.post(name: .sessionDidUpdate, object: id)
     }
 
@@ -2290,7 +2054,6 @@ actor ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
-        markDirty(recordType: "Session", recordId: id)
         return newPinned
     }
 
@@ -2313,7 +2076,6 @@ actor ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
-        markDirty(recordType: "Session", recordId: id)
     }
 
     // MARK: - Folders
@@ -2387,7 +2149,6 @@ actor ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
-        markDirty(recordType: "Folder", recordId: folder.id)
         return folder
     }
 
@@ -2419,7 +2180,6 @@ actor ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
-        markDirty(recordType: "Folder", recordId: id)
     }
 
     /// Toggle a folder's pin. Mirrors toggleSessionPin; also bumps
@@ -2450,7 +2210,6 @@ actor ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
-        markDirty(recordType: "Folder", recordId: id)
         return newPinned
     }
 
@@ -2484,9 +2243,7 @@ actor ChatStore {
 
         // Each freed session needs its own push — folder_id lives on SessionV2.
         for sid in memberIds {
-            markDirty(recordType: "Session", recordId: sid)
         }
-        markDirty(recordType: "Folder", recordId: id, operation: "delete")
         return memberIds
     }
 
@@ -2525,7 +2282,6 @@ actor ChatStore {
                 sqlite3_step(stmt)
             }
             sqlite3_finalize(stmt)
-            markDirty(recordType: "Session", recordId: sid)
         }
     }
 
@@ -2551,7 +2307,6 @@ actor ChatStore {
         }
         sqlite3_finalize(stmt)
         if changed {
-            markDirty(recordType: "Session", recordId: sessionId)
         }
         return changed
     }
@@ -2608,9 +2363,8 @@ actor ChatStore {
         return out
     }
 
-    /// Apply an inbound FolderV2 upsert: LWW by updatedAt against the local
-    /// row; missing locally → insert. Local-only — never marks dirty (the
-    /// cloud already holds this state; re-queueing would ping-pong).
+    /// Upsert a folder row: LWW by updatedAt against the local row;
+    /// missing locally → insert. Used by the backup importer to restore folders.
     func applyRemoteFolder(_ f: ChatFolder) {
         var localUpdatedAt: Double?
         var checkStmt: OpaquePointer?
@@ -2623,7 +2377,7 @@ actor ChatStore {
         sqlite3_finalize(checkStmt)
 
         if let localTs = localUpdatedAt, localTs >= f.updatedAt.timeIntervalSince1970 {
-            iCloudLogger.info("[iCloud] applyRemoteFolder SKIP (local newer/equal): id=\(f.id.prefix(8))")
+            storeLogger.info("[Restore] applyRemoteFolder SKIP (local newer/equal): id=\(f.id.prefix(8))")
             return
         }
         invalidateSessionListCache()
@@ -2656,33 +2410,9 @@ actor ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
-        iCloudLogger.info("[iCloud] applyRemoteFolder APPLIED: id=\(f.id.prefix(8)) name=\(f.name)")
+        storeLogger.info("[Restore] applyRemoteFolder APPLIED: id=\(f.id.prefix(8)) name=\(f.name)")
     }
 
-    /// Apply an inbound FolderV2 tombstone: clear members' folder_id and drop
-    /// the folder row. **Never deletes a session** — folder deletion means
-    /// "members become ungrouped" on every device. Local-only (no markDirty):
-    /// the deleting peer already pushed both its tombstone and its members'
-    /// folder_id=NULL session updates; re-queueing here would delete-loop.
-    func applyRemoteFolderDeletion(id: String) {
-        invalidateSessionListCache()
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "UPDATE sessions SET folder_id = NULL WHERE folder_id = ?", -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-        stmt = nil
-        if sqlite3_prepare_v2(db, "DELETE FROM folders WHERE id = ?", -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-        // Match dissolveFolder's local behavior: leave a tombstone so a
-        // fetchRecentV2 race can't resurrect the folder record we just dropped.
-        recordDeletedRecordTombstone(type: "Folder", id: id)
-        iCloudLogger.info("[iCloud] applyRemoteFolderDeletion: id=\(id.prefix(8))")
-    }
 
     /// Fetch one folder (sync builder path).
     func getFolder(_ id: String) -> ChatFolder? {
@@ -2793,37 +2523,19 @@ actor ChatStore {
         // FIRST — they are reachable only through this parent, so an orphaned
         // child would be invisible (home list filters them out) yet still
         // occupy storage and sync. Each goes through the full funnel below
-        // (cloud tombstone + local rows + recent-delete mark).
+        // (local rows).
         for childId in childSessionIds(of: id) {
             deleteSession(childId)
         }
-        // Queue cloud deletions BEFORE removing local rows so the SELECTs
-        // below can still enumerate child ids. Peers receive op=delete
-        // for the session + each child and apply them as hard deletes
-        // (see TombstoneManager.applyRemoteSessionDeletion).
-        markSessionForCloudDeletion(id)
 
         deleteSessionLocalRowsOnly(id)
 
-        // [T-icloud-deleted-session-resurrection] Record a recent-delete
-        // tombstone so an inbound merge (e.g. fetchRecentV2 pulling the still-
-        // present cloud record before our delete tombstone lands) refuses to
-        // re-insert this session / its messages / its files. Pruned by the
-        // 30-day TTL on launch (ids are UUIDs, so it never blocks a real
-        // future session).
-        recordDeletedSessionTombstone(id)
     }
 
-    /// Hard-delete a session and its children locally without queuing any
-    /// cloud delete rows. Used by the inbound side: when a peer device
-    /// pushes a SessionV2 op=delete, we apply it locally and STOP — the
-    /// cloud already has the deletion, re-queueing it would just create a
-    /// noisy round-trip and risk a delete-loop with peers that haven't
-    /// yet drained the same tombstone.
+    /// Hard-delete a session and its children locally.
+    /// Used by the backup importer when overwrite mode replaces a session.
     func deleteSessionLocalOnly(_ id: String) {
-        // [batch7][T-p1-delegate-task] Inbound peer delete: the peer already
-        // tombstoned the children, so mirror the cascade locally without
-        // re-queueing cloud deletes.
+        // [batch7][T-p1-delegate-task] Mirror the cascade locally.
         for childId in childSessionIds(of: id) {
             deleteSessionLocalOnly(childId)
         }
@@ -2885,15 +2597,11 @@ actor ChatStore {
             logger.error("[DELETE] sessions delete prepare failed id=\(id.prefix(8)): \(String(cString: sqlite3_errmsg(db)))")
         }
         sqlite3_finalize(stmt)
-        // Clean up per-session etag cache
-        if #available(iOS 17.0, *) {
-            Task { @MainActor in CloudSyncEngine.shared.removeSessionCache(id) }
-        }
         // [T-ios-session-paused-badge] Drop any badge state for a deleted session
         // so a stale "paused" badge can't linger in the persisted store.
         Task { @MainActor in SessionBadgeStore.shared.clearAll(for: id) }
         // [T-ios-delete-session-live-activity] All delete funnels (swipe /
-        // long-press / batch / RPC / inbound iCloud delete) converge here, so
+        // long-press / batch / RPC) converge here, so
         // this is the single place that guarantees a deleted conversation never
         // stays visible in the Dynamic Island / Lock Screen. Order matters:
         // setInactive first so the tracker (and any snapshot rebuild) no longer
@@ -2903,69 +2611,6 @@ actor ChatStore {
             SessionActivityTracker.shared.setInactive(id, source: "sessionDeleted")
             AgentLiveActivityManager.shared.handleSessionDeleted(id)
         }
-    }
-
-    /// Mark a session and all its child records (messages, compact markers) as
-    /// pending iCloud deletion. Called from deleteSession before the local rows
-    /// disappear so we can still enumerate the ids.
-    private func markSessionForCloudDeletion(_ sessionId: String) {
-        guard !syncZoneName.isEmpty else { return }
-        // Session itself
-        markDirty(recordType: "Session", recordId: sessionId, operation: "delete")
-        // Messages
-        let msgSql = "SELECT id FROM messages WHERE session_id = ?"
-        var msgStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, msgSql, -1, &msgStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(msgStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(msgStmt) == SQLITE_ROW {
-                let msgId = String(cString: sqlite3_column_text(msgStmt, 0))
-                markDirty(recordType: "Message", recordId: msgId, operation: "delete")
-            }
-        }
-        sqlite3_finalize(msgStmt)
-        // Compact markers
-        let cmSql = "SELECT id FROM compact_markers WHERE session_id = ?"
-        var cmStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, cmSql, -1, &cmStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(cmStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(cmStmt) == SQLITE_ROW {
-                let cmId = String(cString: sqlite3_column_text(cmStmt, 0))
-                markDirty(recordType: "CompactMarker", recordId: cmId, operation: "delete")
-            }
-        }
-        sqlite3_finalize(cmStmt)
-        // SessionFile records — walk the workspace and queue a delete for
-        // every file that lives on iCloud. MUST run before
-        // deleteSessionMedia removes the local files. recordIds are
-        // "<sessionId>:<rel>" matching appendMediaFile +
-        // scanAndMarkSessionFilesForResurrect.
-        let sessionDir = minisBaseURL.appendingPathComponent(sessionId, isDirectory: true)
-        var fileDeleteCount = 0
-        if let enumerator = FileManager.default.enumerator(
-            at: sessionDir,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            for case let url as URL in enumerator {
-                guard let isFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile,
-                      isFile else { continue }
-                let rel = url.path.replacingOccurrences(of: sessionDir.path + "/", with: "")
-                markDirty(recordType: "SessionFile", recordId: "\(sessionId):\(rel)", operation: "delete")
-                fileDeleteCount += 1
-            }
-        }
-        iCloudLogger.info("[iCloud] deleteSession \(sessionId.prefix(8)) → cloud delete queued: \(fileDeleteCount) SessionFile records (in addition to Session/Message/CompactMarker tombstones)")
-    }
-
-    /// Public entry: queue a SessionFile cloud delete for one file under
-    /// a session's workspace. Used by FileBrowserView.deleteItem when the
-    /// user removes a file inside `Library/MinisChat/minis/<sid>/...`.
-    /// `relPath` must be "<subdir>/<rest>" matching the recordId scheme.
-    func markSessionFileForCloudDeletion(sessionId: String, relPath: String) {
-        guard !syncZoneName.isEmpty, !sessionId.isEmpty, !relPath.isEmpty else { return }
-        markDirty(recordType: "SessionFile",
-                  recordId: "\(sessionId):\(relPath)",
-                  operation: "delete")
     }
 
     // MARK: - Message CRUD
@@ -2984,8 +2629,8 @@ actor ChatStore {
     /// [batch2 / W1A-02, W3A-05] Returns the number of rows actually inserted.
     /// All-or-nothing when we own the transaction: any failed row rolls the
     /// whole batch back and returns 0. Rows that did not land are never
-    /// markDirty'd (the old code marked failed rows too, so sync pushed
-    /// records for messages that exist nowhere).
+    /// recorded (the old code recorded failed rows too, so downstream
+    /// consumers chased messages that exist nowhere).
     @discardableResult
     func appendMessages(_ messages: [RawMessage]) -> Int {
         invalidateSessionListCache()
@@ -3089,14 +2734,11 @@ actor ChatStore {
             }
             sqlite3_finalize(stmt)
 
-            // [batch2 / W3A-05] Only rows that actually landed get a dirty mark
-            // and a session touch — a failed row must not create a sync record.
+            // [batch2 / W3A-05] Only rows that actually landed get counted
+            // and touch their session — a failed row must not.
             if rowInserted {
                 insertedCount += 1
                 touchedSessions.insert(message.sessionId)
-                // Always write dirty mark to DB immediately (crash-safe).
-                // Only the CloudKit upload trigger (scheduleSend) is deferred.
-                markDirty(recordType: "Message", recordId: message.id)
             } else {
                 failedCount += 1
             }
@@ -3118,9 +2760,6 @@ actor ChatStore {
         // Touch sessions once per session
         for sessionId in touchedSessions {
             touchSession(sessionId)
-            markDirty(recordType: "Session", recordId: sessionId)
-            // Track for file scanning on flush
-            pendingSyncSessionIds.insert(sessionId)
         }
 
         if ownsTransaction { exec("COMMIT") }
@@ -3436,7 +3075,6 @@ actor ChatStore {
             sqlite3_bind_text(selStmt, 1, (sessionId as NSString).utf8String, -1, nil)
             while sqlite3_step(selStmt) == SQLITE_ROW {
                 let msgId = String(cString: sqlite3_column_text(selStmt, 0))
-                markDirty(recordType: "Message", recordId: msgId, operation: "delete")
             }
         }
         sqlite3_finalize(selStmt)
@@ -3459,13 +3097,11 @@ actor ChatStore {
     /// agentHistory:DB == 1:1 — rows left behind by retry() made every later
     /// truncation cut one row too early, and the "extra" rows (usually the
     /// most recent AI turns) vanished after the next reload.
-    /// markDirty(op: delete) first, mirroring deleteMessages, so the removal
     /// propagates to other devices instead of being re-hydrated by sync.
     func deleteMessagesByIds(sessionId: String, ids: [String]) {
         guard !ids.isEmpty else { return }
         invalidateSessionListCache()
         for id in ids {
-            markDirty(recordType: "Message", recordId: id, operation: "delete")
         }
         let placeholders = ids.map { _ in "?" }.joined(separator: ",")
         let sql = "DELETE FROM messages WHERE session_id = ? AND id IN (\(placeholders))"
@@ -3513,7 +3149,6 @@ actor ChatStore {
         }
         sqlite3_finalize(stmt)
         // Mark dirty so the rewritten row syncs to iCloud.
-        markDirty(recordType: "Message", recordId: messageId)
     }
 
     /// [B28 R10] Replace one fenced code block in the row's persisted text parts.
@@ -3668,7 +3303,7 @@ actor ChatStore {
             }
         }
 
-        // Mark deleted messages for iCloud sync removal before deleting locally.
+        // Collect the ids of the messages about to be deleted (for the log below) before deleting locally.
         let selectSql = deleteAll
             ? "SELECT id FROM messages WHERE session_id = ?"
             : "SELECT id FROM messages WHERE session_id = ? AND sort_order > ?"
@@ -3682,8 +3317,7 @@ actor ChatStore {
             while sqlite3_step(selectStmt) == SQLITE_ROW {
                 let msgId = String(cString: sqlite3_column_text(selectStmt, 0))
                 toDelete.append(msgId)
-                markDirty(recordType: "Message", recordId: msgId, operation: "delete")
-                logger.warning("[EditSync] markDirty Message id=\(msgId.prefix(8)) op=delete — will push tombstone")
+                logger.warning("[EditSync] deleting Message id=\(msgId.prefix(8))")
             }
         }
         sqlite3_finalize(selectStmt)
@@ -3707,7 +3341,7 @@ actor ChatStore {
         logger.warning("[EditSync] [DeleteAfter] DONE sid=\(sessionId.prefix(8)) keepCount=\(keepCount) boundarySortOrder=\(boundaryDesc) deletedRows=\(deletedRows) toDeleteMarked=\(toDelete.count) — after: count=\(afterStats.count) maxSortOrder=\(afterStats.maxSortOrder)")
         if deletedRows > 0 {
             let idSample = toDelete.prefix(10).map { String($0.prefix(8)) }.joined(separator: ",")
-            logger.warning("[EditSync] [DeleteAfter] deleted msg ids (first 10): \(idSample) — these tombstones should appear in next SyncCore outbound batch.deletes")
+            logger.warning("[EditSync] [DeleteAfter] deleted msg ids (first 10): \(idSample)")
         }
     }
 
@@ -3719,7 +3353,7 @@ actor ChatStore {
     /// `guard let role = MessageRole(rawValue:) else { continue }` — an
     /// unparseable role drops the row from agentHistory while leaving it in the
     /// DB, so the count comes up short and the DELETE cuts too early (silent
-    /// user-data loss). Sync merges and sort_order gaps break it the other way.
+    /// user-data loss). Restore merges and sort_order gaps break it the other way.
     ///
     /// Anchor on the message id instead: the caller already holds the dbRowId
     /// of the row it means to cut at, so resolve that row's sort_order once and
@@ -3786,7 +3420,6 @@ actor ChatStore {
             return
         }
         for id in toDelete {
-            markDirty(recordType: "Message", recordId: id, operation: "delete")
         }
 
         let deleteSql = "DELETE FROM messages WHERE \(predicate)"
@@ -3848,7 +3481,6 @@ actor ChatStore {
             return 0
         }
         for id in toDelete {
-            markDirty(recordType: "Message", recordId: id, operation: "delete")
         }
 
         let sql = "DELETE FROM messages WHERE session_id = ? AND sort_order >= ? AND sort_order <= ?"
@@ -3871,8 +3503,8 @@ actor ChatStore {
     /// Files are saved to `Library/MinisChat/minis/<sessionId>/<subdir>/<fileId>.<ext>`.
     ///
     /// [batch2 / W3A-01] Throws when the write fails. The old version logged
-    /// the error and still returned a ref (and markDirty'd it), so chat showed
-    /// broken images and sync chased files that exist nowhere.
+    /// the error and still returned a ref, so chat showed broken images
+    /// for files that exist nowhere.
     func saveMedia(
         data: Data, mimeType: String, sessionId: String,
         originalFileName: String? = nil, subdir: String = "attachments",
@@ -3900,9 +3532,6 @@ actor ChatStore {
             originalFileName: originalFileName,
             linuxPath: linuxPath
         )
-
-        // Mark file dirty for iCloud sync via SessionFile record type
-        markDirty(recordType: "SessionFile", recordId: "\(sessionId):\(subdir)/\(fileId).\(ext)")
 
         return ref
     }
@@ -3953,7 +3582,6 @@ actor ChatStore {
         // 结果 ref 有了、文件没同步，图是空白。
         if let range = relativePath.range(of: "/") {
             let subdirAndFile = String(relativePath[range.upperBound...])
-            markDirty(recordType: "SessionFile", recordId: "\(sessionId):\(subdirAndFile)")
         }
 
         return ref
@@ -4144,7 +3772,6 @@ actor ChatStore {
                     try fm.copyItem(at: src, to: dst)
                     // The dirty record saveMedia would have written, so the
                     // copy's files reach iCloud like any other session's media.
-                    markDirty(recordType: "SessionFile", recordId: "\(destinationSessionId):\(subdir)/\(name)")
                     copied += 1
                 }
             } catch {
@@ -4251,7 +3878,6 @@ actor ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
-        markDirty(recordType: "CompactMarker", recordId: marker.id)
     }
 
     /// Rewrite an existing compact marker in place (same id). Used by Phase 2.5
@@ -4260,7 +3886,7 @@ actor ChatStore {
     /// upgrade the marker to v2, and persist so subsequent loads / agent sends
     /// find the corrected id directly.
     ///
-    /// Implementation mirrors `mergeRemoteCompactMarker`: DELETE + INSERT in
+    /// Implementation: DELETE + INSERT in
     /// the same code path so all columns (including legacy migrations) flow
     /// through one INSERT.
     func updateCompactMarker(_ marker: CompactMarker) {
@@ -4274,66 +3900,9 @@ actor ChatStore {
         insertCompactMarker(marker)
     }
 
-    /// Get a compact marker by ID (for iCloud sync buildCKRecord).
-    func getCompactMarker(id: String) -> CompactMarker? {
-        let sql = "SELECT id, session_id, summary, first_kept_sort_order, compacted_count, created_at, ui_boundary_sort_order, boundary_message_id, first_kept_message_id, last_compacted_message_id, version FROM compact_markers WHERE id = ?"
-        var stmt: OpaquePointer?
-        var marker: CompactMarker?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                marker = readCompactMarker(from: stmt)
-            }
-        }
-        sqlite3_finalize(stmt)
-        return marker
-    }
 
-    /// Merge a remote compact marker into local DB.
-    /// Phase A: createdAt-based UPSERT — remote newer wins, otherwise keep local.
-    /// This lets newer builds propagate upgraded boundary fields to older remote markers.
-    func mergeRemoteCompactMarker(_ marker: CompactMarker) {
-        // [T-icloud-record-delete-resurrection] A marker we just deleted
-        // locally (revertCompact) coming back via fetchRecentV2 before the
-        // cloud delete lands must not be re-inserted. Markers are immutable,
-        // so createdAt is their only clock.
-        if isRecentlyDeletedRecord(type: "CompactMarker", id: marker.id, remoteUpdatedAt: marker.createdAt) {
-            iCloudLogger.info("[iCloud] mergeRemoteCompactMarker SKIP (recently deleted locally): id=\(marker.id.prefix(8))")
-            return
-        }
-        // Only merge if the session exists locally
-        let checkSql = "SELECT id FROM sessions WHERE id = ?"
-        var checkStmt: OpaquePointer?
-        var sessionExists = false
-        if sqlite3_prepare_v2(db, checkSql, -1, &checkStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(checkStmt, 1, (marker.sessionId as NSString).utf8String, -1, nil)
-            sessionExists = sqlite3_step(checkStmt) == SQLITE_ROW
-        }
-        sqlite3_finalize(checkStmt)
-        guard sessionExists else { return }
 
-        // If local already has this marker id, only overwrite when remote is strictly newer.
-        if let existing = getCompactMarker(id: marker.id) {
-            guard marker.createdAt > existing.createdAt else {
-                iCloudLogger.info("[iCloud] mergeRemoteCompactMarker SKIP (local newer or equal): id=\(marker.id.prefix(8))")
-                return
-            }
-            // DELETE existing row so the subsequent insertCompactMarker can re-insert
-            // with all columns (including legacy migrations) in one place.
-            let delSql = "DELETE FROM compact_markers WHERE id = ?"
-            var delStmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, delSql, -1, &delStmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(delStmt, 1, (marker.id as NSString).utf8String, -1, nil)
-                sqlite3_step(delStmt)
-            }
-            sqlite3_finalize(delStmt)
-            iCloudLogger.info("[iCloud] mergeRemoteCompactMarker UPDATE (remote newer): id=\(marker.id.prefix(8))")
-        }
-
-        insertCompactMarker(marker)
-    }
-
-    /// Extra session fields for iCloud sync (memory_enabled, model_binding).
+    /// Extra session fields (memory_enabled, model_binding).
     func getSessionExtras(_ sessionId: String) -> (memoryEnabled: Bool, modelBinding: String?) {
         let sql = "SELECT memory_enabled, model_binding FROM sessions WHERE id = ?"
         var stmt: OpaquePointer?
@@ -4368,28 +3937,12 @@ actor ChatStore {
         return marker
     }
 
-    /// Bump `updated_at = now()` on a single message. Used by debug RPCs to
-    /// force a content-change so a re-pushed Message record actually advances
-    /// CloudKit's modificationDate (saving an unchanged etag is a no-op on
-    /// the cloud side and peer devices won't see it as a "new change").
-    /// Returns true if the row existed and was bumped.
-    @discardableResult
-    func bumpMessageUpdatedAt(id: String) -> Bool {
-        let sql = "UPDATE messages SET updated_at = ? WHERE id = ?"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
-        sqlite3_bind_double(stmt, 1, Date().timeIntervalSince1970)
-        sqlite3_bind_text(stmt, 2, (id as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_DONE else { return false }
-        return sqlite3_changes(db) > 0
-    }
 
     /// [T-error-persist-ios] Persist (or clear) the device-local error string on a
     /// single message. Lightweight UPDATE so the agent loop can write the error the
     /// instant it's set on the in-memory ChatMessage, without re-serializing the whole
     /// message. Pass nil to clear (e.g. a successful retry). Returns true if a row was
-    /// updated. NOT marked dirty for iCloud — error_info is device-local.
+    /// updated. error_info is device-local and never leaves the device.
     @discardableResult
     func updateMessageErrorInfo(messageId: String, errorInfo: String?) -> Bool {
         // [batch3 / W1A-17] Role guard: error_info belongs to assistant rows
@@ -4424,126 +3977,9 @@ actor ChatStore {
 
     /// Return all compact markers for a session, ordered by created_at ascending.
     /// Read-only — used by debug RPCs to inspect sync state.
-    // MARK: - Recent-delete tombstones (resurrection guard)
-    // [T-icloud-deleted-session-resurrection]
 
-    /// Record that `sessionId` was just deleted locally, so an inbound merge
-    /// arriving before the cloud delete tombstone lands won't re-insert it.
-    func recordDeletedSessionTombstone(_ sessionId: String, at: Date = Date()) {
-        let sql = "INSERT OR REPLACE INTO deleted_session_tombstones (session_id, deleted_at) VALUES (?, ?)"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
-        sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-        sqlite3_bind_double(stmt, 2, at.timeIntervalSince1970)
-        _ = sqlite3_step(stmt)
-    }
 
-    /// The timestamp `sessionId` was locally deleted, or nil if it has no
-    /// recent-delete tombstone. Inbound merges consult this to refuse
-    /// resurrecting a session/message/file that isn't newer than the deletion.
-    func deletedSessionTombstone(_ sessionId: String) -> Date? {
-        let sql = "SELECT deleted_at FROM deleted_session_tombstones WHERE session_id = ? LIMIT 1"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0))
-    }
-
-    /// True when `sessionId` has a recent-delete tombstone at least as new as
-    /// `remoteUpdatedAt` — i.e. the inbound record is the just-deleted one
-    /// coming back, not a genuine newer re-create. The merge should refuse it.
-    /// A small slack absorbs server/client clock skew (the resurrected record's
-    /// updatedAt is the pre-deletion value, so it is always <= deletedAt in
-    /// practice; slack only guards against minor forward skew).
-    func isResurrectionOfDeleted(_ sessionId: String, remoteUpdatedAt: Date) -> Bool {
-        guard let deletedAt = deletedSessionTombstone(sessionId) else { return false }
-        return remoteUpdatedAt.timeIntervalSince1970 <= deletedAt.timeIntervalSince1970 + 5
-    }
-
-    // [T-icloud-record-delete-resurrection] Generic per-record variant of the
-    // session tombstones above, for types whose op=delete propagates but whose
-    // inbound merge would re-insert a stale live record that fetchRecentV2
-    // pulled back before the cloud delete landed (Skill / EnvVarItem /
-    // CompactMarker). Written automatically by markDirty(op=delete).
-
-    /// Record that record `id` of `type` was just deleted locally.
-    func recordDeletedRecordTombstone(type: String, id: String, at: Date = Date()) {
-        let sql = "INSERT OR REPLACE INTO deleted_record_tombstones (record_type, record_id, deleted_at) VALUES (?, ?, ?)"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
-        sqlite3_bind_text(stmt, 1, (type as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (id as NSString).utf8String, -1, nil)
-        sqlite3_bind_double(stmt, 3, at.timeIntervalSince1970)
-        _ = sqlite3_step(stmt)
-    }
-
-    /// The timestamp record `id` of `type` was locally deleted, or nil.
-    private func deletedRecordTombstone(type: String, id: String) -> Date? {
-        let sql = "SELECT deleted_at FROM deleted_record_tombstones WHERE record_type = ? AND record_id = ? LIMIT 1"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, (type as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (id as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0))
-    }
-
-    /// True when record `id` of `type` was ever deleted (local delete or an
-    /// inbound V3 delete). No time window, unlike isRecentlyDeletedRecord:
-    /// a deleted group stays deleted — a re-created group gets a fresh
-    /// UUID id (ModelGroup.init defaults id to UUID().uuidString), so no
-    /// re-create can ever reuse this id. Use this to stop a stale record
-    /// from resurrecting a pointer to a deleted group, long after the
-    /// delete; never use it to judge a record that merely has not arrived
-    /// yet (absent is not deleted).
-    func isRecordDeleted(type: String, id: String) -> Bool {
-        deletedRecordTombstone(type: type, id: id) != nil
-    }
-
-    /// True when the inbound record is the just-deleted one coming back (its
-    /// remote timestamp is not newer than the local deletion, +5s skew slack)
-    /// rather than a genuine newer re-create. The merge should refuse it.
-    func isRecentlyDeletedRecord(type: String, id: String, remoteUpdatedAt: Date) -> Bool {
-        guard let deletedAt = deletedRecordTombstone(type: type, id: id) else { return false }
-        return remoteUpdatedAt.timeIntervalSince1970 <= deletedAt.timeIntervalSince1970 + 5
-    }
-
-    /// Set or clear the v2 soft-delete tombstone on a session row. Pass
-    /// `at = nil` to clear (after a resurrect cascade re-pushes the tree).
-    func setSessionTombstone(sessionId: String, at: Date?) {
-        invalidateSessionListCache()
-        let sql = "UPDATE sessions SET remote_tombstoned_at = ? WHERE id = ?"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
-        if let date = at {
-            sqlite3_bind_double(stmt, 1, date.timeIntervalSince1970)
-        } else {
-            sqlite3_bind_null(stmt, 1)
-        }
-        sqlite3_bind_text(stmt, 2, (sessionId as NSString).utf8String, -1, nil)
-        _ = sqlite3_step(stmt)
-    }
-
-    /// Returns the tombstone timestamp (or nil if not tombstoned / row
-    /// missing).
-    func sessionTombstone(sessionId: String) -> Date? {
-        let sql = "SELECT remote_tombstoned_at FROM sessions WHERE id = ? LIMIT 1"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        if sqlite3_column_type(stmt, 0) == SQLITE_NULL { return nil }
-        return Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0))
-    }
-
-    /// All currently-tombstoned session ids — diagnostic.
+    /// All currently-tombstoned session ids (the backup exporter skips these).
     func tombstonedSessionIds() -> [String] {
         let sql = "SELECT id FROM sessions WHERE remote_tombstoned_at IS NOT NULL"
         var stmt: OpaquePointer?
@@ -4558,120 +3994,6 @@ actor ChatStore {
         return ids
     }
 
-    /// Cascade-mark every record in a session's tree dirty (Session +
-    /// Messages + CompactMarkers) for v2 push, and clear the tombstone.
-    /// Called by `markDirty` whenever a tombstoned session takes a new
-    /// upsert. Doesn't hop actors — pure SQL inside the ChatStore actor.
-    /// Returns true if a cascade actually ran.
-    @discardableResult
-    func resurrectSessionTreeIfTombstoned(sessionId: String) -> Bool {
-        guard sessionTombstone(sessionId: sessionId) != nil else { return false }
-        // 1. Session itself.
-        markDirtyRowOnly(recordType: "SessionV2", recordId: sessionId)
-        // 2. Every message id in the session.
-        let msgSql = "SELECT id FROM messages WHERE session_id = ?"
-        var stmt: OpaquePointer?
-        var msgCount = 0
-        if sqlite3_prepare_v2(db, msgSql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                if let cstr = sqlite3_column_text(stmt, 0) {
-                    let mid = String(cString: cstr)
-                    markDirtyRowOnly(recordType: "MessageV2", recordId: mid)
-                    msgCount += 1
-                }
-            }
-        }
-        sqlite3_finalize(stmt)
-        // 3. Every compact marker.
-        let markers = compactMarkers(sessionId: sessionId)
-        for m in markers {
-            markDirtyRowOnly(recordType: "CompactMarkerV2", recordId: m.id)
-        }
-        // 4. Every SessionFile under this session — scan the workspace
-        //    directory and mark each file's v2 dirty row. Mirrors v1's
-        //    scanAndMarkSessionFiles(sessionId:).
-        let fileCount = scanAndMarkSessionFilesForResurrect(sessionId: sessionId)
-        // 5. Clear tombstone.
-        setSessionTombstone(sessionId: sessionId, at: nil)
-        iCloudLogger.info("[SyncConflict] resurrect cascade auto: sessionId=\(sessionId.prefix(8)) Session=1 Messages=\(msgCount) CompactMarkers=\(markers.count) SessionFiles=\(fileCount)")
-        return true
-    }
-
-    /// Resurrect-time SessionFile scanner. Walks the session's workspace
-    /// directory and writes a v2 dirty row for each file (composite key
-    /// = "sessionId:relativePath"). Returns the count.
-    private func scanAndMarkSessionFilesForResurrect(sessionId: String) -> Int {
-        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let sessionDir = library.appendingPathComponent("MinisChat/minis/\(sessionId)")
-        guard let enumerator = FileManager.default.enumerator(
-            at: sessionDir, includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return 0 }
-        var count = 0
-        for case let url as URL in enumerator {
-            guard let isFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile, isFile else { continue }
-            let relativePath = url.path.replacingOccurrences(of: sessionDir.path + "/", with: "")
-            let recordId = "\(sessionId):\(relativePath)"
-            markDirtyRowOnly(recordType: "SessionFileV2", recordId: recordId)
-            count += 1
-        }
-        return count
-    }
-
-    /// Internal helper: write a v2 dirty row directly without scheduling
-    /// a send (the caller's outer markDirty already triggered it).
-    private func markDirtyRowOnly(recordType: String, recordId: String) {
-        guard !syncZoneName.isEmpty else { return }
-        let zoneName = syncZoneName
-        let sql = """
-            INSERT OR REPLACE INTO sync_dirty_records (record_type, record_id, zone_name, operation)
-            VALUES (?, ?, ?, ?)
-        """
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
-        sqlite3_bind_text(stmt, 1, (recordType as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (recordId as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 3, (zoneName as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 4, ("upsert" as NSString).utf8String, -1, nil)
-        _ = sqlite3_step(stmt)
-    }
-
-    /// Resolve the parent sessionId for a v1/v2 record being marked dirty,
-    /// when it falls under a session-scoped record type. Used by markDirty
-    /// to detect "this write belongs to a tombstoned session → cascade".
-    /// Returns nil for global / non-session-scoped types.
-    private func parentSessionId(forV1 recordType: String, recordId: String) -> String? {
-        switch recordType {
-        case "Session":
-            return recordId
-        case "Message":
-            return messageSessionId(id: recordId)
-        case "CompactMarker":
-            return compactMarkerSessionId(id: recordId)
-        case "SessionFile":
-            // SessionFile recordId is "sessionId:relativePath".
-            let parts = recordId.split(separator: ":", maxSplits: 1)
-            guard parts.count == 2 else { return nil }
-            return String(parts[0])
-        default:
-            return nil
-        }
-    }
-
-    /// SessionId of the parent for a CompactMarker id. Light wrapper —
-    /// keeps the SQL away from callers.
-    private func compactMarkerSessionId(id: String) -> String? {
-        let sql = "SELECT session_id FROM compact_markers WHERE id = ? LIMIT 1"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_ROW,
-              let cstr = sqlite3_column_text(stmt, 0) else { return nil }
-        return String(cString: cstr)
-    }
 
     /// Returns every locally-stored session id (for §3.6.0 scenario E
     /// fullFetch reconciliation).
@@ -4724,12 +4046,10 @@ actor ChatStore {
         return marker
     }
 
-    /// Delete a single compact marker by id (for revert-compact). Marks dirty
-    /// for iCloud sync so the deletion propagates. Returns true if a row was
-    /// actually deleted.
+    /// Delete a single compact marker by id (for revert-compact). Returns
+    /// true if a row was actually deleted.
     @discardableResult
     func deleteCompactMarker(id: String) -> Bool {
-        markDirty(recordType: "CompactMarker", recordId: id, operation: "delete")
         return deleteLocalCompactMarker(id: id)
     }
 
@@ -4746,7 +4066,7 @@ actor ChatStore {
         guard sqlite3_step(stmt) == SQLITE_DONE else { return false }
         let removed = sqlite3_changes(db) > 0
         if removed {
-            iCloudLogger.info("[iCloud] deleteLocalCompactMarker: removed '\(id.prefix(8))' from local compact_markers")
+            storeLogger.info("[ChatStore] deleteLocalCompactMarker: removed '\(id.prefix(8))' from local compact_markers")
         }
         return removed
     }
@@ -4762,7 +4082,6 @@ actor ChatStore {
             sqlite3_bind_text(selStmt, 1, (sessionId as NSString).utf8String, -1, nil)
             while sqlite3_step(selStmt) == SQLITE_ROW {
                 let cmId = String(cString: sqlite3_column_text(selStmt, 0))
-                markDirty(recordType: "CompactMarker", recordId: cmId, operation: "delete")
             }
         }
         sqlite3_finalize(selStmt)
@@ -4947,7 +4266,6 @@ actor ChatStore {
             sqlite3_bind_int64(markStmt, 2, Int64(deleteCount))
             while sqlite3_step(markStmt) == SQLITE_ROW {
                 let msgId = String(cString: sqlite3_column_text(markStmt, 0))
-                markDirty(recordType: "Message", recordId: msgId, operation: "delete")
             }
         }
         sqlite3_finalize(markStmt)
@@ -5143,7 +4461,6 @@ actor ChatStore {
                 sqlite3_step(mUpdStmt)
                 report.markersUpgraded += 1
                 // Mark marker as dirty so the upgraded field propagates to iCloud.
-                markDirty(recordType: "CompactMarker", recordId: lm.id)
             }
         }
         sqlite3_finalize(mUpdStmt)
@@ -5366,125 +4683,6 @@ actor ChatStore {
         default: return "bin"
         }
     }
-
-    // MARK: - Sync Zone Name
-
-    /// Zone name for dirty record tracking. Set by CloudSyncEngine on init.
-    var syncZoneName: String = ""
-
-    func setSyncZoneName(_ name: String) {
-        syncZoneName = name
-    }
-
-    // MARK: - Deferred Sync Dirty Marks
-
-    /// When true, markDirty writes to the dirty table but does NOT trigger scheduleSend.
-    /// Set during agent processing to defer CloudKit upload triggers while streaming.
-    /// Dirty marks are always written to DB immediately (crash-safe); only the
-    /// scheduleSend() call is deferred until the agent loop finishes.
-    private(set) var syncSendDeferred = false
-
-    func setSyncSendDeferred(_ value: Bool) {
-        syncSendDeferred = value
-    }
-
-    /// Session IDs touched during agent processing — used to scan file directories
-    /// for changes when the agent loop finishes.
-    private var pendingSyncSessionIds = Set<String>()
-
-    /// Flush deferred sync: scan session file directories and trigger CloudKit upload.
-    /// Dirty marks for messages/sessions are already persisted in DB (written at
-    /// appendMessage/touchSession time), so this only handles file scanning and
-    /// the final scheduleSend trigger.
-    func flushPendingSyncDirty() {
-        syncSendDeferred = false
-        let f0 = CFAbsoluteTimeGetCurrent()
-        var fileCount = 0
-        for sessionId in pendingSyncSessionIds {
-            fileCount += scanAndMarkSessionFiles(sessionId: sessionId)
-        }
-        let f1 = CFAbsoluteTimeGetCurrent()
-        let sessionCount = pendingSyncSessionIds.count
-        pendingSyncSessionIds.removeAll()
-        iCloudLogger.info("[iCloud] flushPendingSyncDirty: \(sessionCount) sessions, \(fileCount) files — scanFiles=\(String(format: "%.0f", (f1-f0)*1000))ms")
-        // Trigger a single debounced send for all the dirty records
-        if #available(iOS 17.0, *) {
-            Task { @MainActor in
-                CloudSyncEngine.shared.scheduleSend()
-            }
-        }
-    }
-
-    // Directories to skip when scanning session files for iCloud sync.
-    // These contain build artifacts, caches, and VCS internals that should not be synced.
-    private static let syncSkipDirNames: Set<String> = [
-        "__pycache__", ".git", ".svn", ".hg",
-        "node_modules", ".tox", ".venv", "venv",
-        ".build", ".eggs",
-        ".mypy_cache", ".pytest_cache", ".ruff_cache",
-        "__pypackages__", ".gradle", ".idea",
-    ]
-
-    /// Scan workspace/offloads/attachments dirs for a session and markDirty for each file.
-    /// Returns number of files marked.
-    @discardableResult
-    private func scanAndMarkSessionFiles(sessionId: String, priority: Int = 0) -> Int {
-        let fm = FileManager.default
-        let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let sessionDir = library.appendingPathComponent("MinisChat/minis/\(sessionId)")
-        guard fm.fileExists(atPath: sessionDir.path) else { return 0 }
-        // Standardize to resolve /private/var vs /var symlink differences
-        let sessionDirStd = sessionDir.standardizedFileURL.path
-
-        let subdirs = ["workspace", "offloads", "attachments", "browser"]
-        var count = 0
-        var subdirCounts: [String: Int] = [:]
-        var totalBytes: Int = 0
-        var skippedOversize = 0
-        var skippedDisabled = 0
-        var skippedJunkDir = 0
-        for subdir in subdirs {
-            let dirURL = sessionDir.appendingPathComponent(subdir)
-            guard let enumerator = fm.enumerator(
-                at: dirURL,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-            var subdirCount = 0
-            for case let fileURL as URL in enumerator {
-                // Skip entire junk directories (build artifacts, caches, VCS internals)
-                let isDir = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-                if isDir {
-                    if Self.syncSkipDirNames.contains(fileURL.lastPathComponent) {
-                        enumerator.skipDescendants()
-                        skippedJunkDir += 1
-                    }
-                    continue
-                }
-                guard (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
-                let fileSize = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                // Skip files exceeding max sync size (single source of truth: UploadPolicy)
-                let maxSize = UploadPolicy.maxFileSizeBytes
-                if fileSize > maxSize { skippedOversize += 1; continue }
-                // recordId format: "sessionId:subdir/relativePath"
-                let fileStd = fileURL.standardizedFileURL.path
-                let prefix = sessionDirStd + "/"
-                let relativePath = fileStd.hasPrefix(prefix) ? String(fileStd.dropFirst(prefix.count)) : fileURL.lastPathComponent
-                markDirty(recordType: "SessionFile", recordId: "\(sessionId):\(relativePath)", priority: priority)
-                count += 1
-                subdirCount += 1
-                totalBytes += fileSize
-            }
-            if subdirCount > 0 { subdirCounts[subdir] = subdirCount }
-        }
-        if count > 0 || skippedOversize > 0 || skippedJunkDir > 0 {
-            let breakdown = subdirCounts.sorted { $0.value > $1.value }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
-            iCloudLogger.info("[iCloud] ⏱ scanAndMarkSessionFiles[\(sessionId.prefix(8))]: \(count) files (\(totalBytes / 1024)KB) cap=\(UploadPolicy.maxFileSizeBytes / 1024)KB skippedOversize=\(skippedOversize) skippedJunkDirs=\(skippedJunkDir) [\(breakdown)]")
-        }
-        _ = skippedDisabled
-        return count
-    }
-}
 
 // MARK: - Anthropic Conversion
 
@@ -6069,2246 +5267,6 @@ extension RawMessage {
     }
 }
 
-// MARK: - Sync Support
-
-private let iCloudLogger = AppLogger(category: "iCloud")
-
-extension ChatStore {
-
-    // MARK: - Sync Dirty Tracking
-
-    /// Mark a record as needing sync to iCloud. Only active in DEBUG builds.
-    func markDirty(recordType: String, recordId: String, operation: String = "upsert", priority: Int = 0) {
-        // DIAG: log every silent early-return so "I added a Skill but
-        // no markDirty appears in logs" can be diagnosed without
-        // re-instrumenting. Previously both guards returned silently,
-        // making it impossible to distinguish "code path not reached"
-        // from "user toggled the category off in Settings".
-        guard !syncZoneName.isEmpty else {
-            iCloudLogger.info("[iCloudTrace] markDirty SKIP type=\(recordType) id=\(recordId.prefix(20)) op=\(operation) reason=zoneEmpty(syncNotInitialized)")
-            return
-        }
-        // User-configurable upload policy: skip categories the user has
-        // disabled in iCloud Sync settings (Chat Sessions / Skills /
-        // Providers / Environments / Session Files). SyncDeviceV2 is
-        // always allowed because peer discovery depends on it.
-        guard UploadPolicy.allowsRecordType(recordType) else {
-            iCloudLogger.info("[iCloudTrace] markDirty SKIP type=\(recordType) id=\(recordId.prefix(20)) op=\(operation) reason=uploadPolicyDisabled(user-toggled-off-in-Settings)")
-            return
-        }
-        // [T-icloud-record-delete-resurrection] A local op=delete on these
-        // types must leave a recent-delete tombstone so an inbound merge that
-        // races ahead of the cloud delete (fetchRecentV2 re-pulling the still-
-        // live record) can't resurrect it. Session/Message/SessionFile have
-        // their own session-level tombstone path (recordDeletedSessionTombstone).
-        if operation == "delete",
-           ["Skill", "EnvVarItem", "CompactMarker", "MCPServerItem", "Folder",
-            "ProviderInstanceV3", "ProviderModelEntryV3", "ProviderModelGroupV3",
-            "ProviderThinkingRuleV3"].contains(recordType) {
-            recordDeletedRecordTombstone(type: recordType, id: recordId)
-        }
-        // Trace priority=0 (user-driven) writes so we can follow a
-        // freshly-typed message from local INSERT through CK push and
-        // peer hydrate. priority=1 (migration backlog) is too noisy to
-        // log at this granularity.
-        if priority == 0 {
-            // [T-ios-log-noise-reduction] INFO→DEBUG: per-record markDirty
-            // trace (~876 lines/day). The SKIP-reason variants above stay INFO
-            // since they indicate sync NOT happening (more diagnostic value).
-            iCloudLogger.debug("[iCloudTrace] markDirty type=\(recordType) id=\(recordId.prefix(20)) op=\(operation)")
-        }
-        let zoneName = syncZoneName
-        let now = Date().timeIntervalSince1970
-        let sql = """
-            INSERT OR REPLACE INTO sync_dirty_records (record_type, record_id, zone_name, operation, priority, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """
-        // When V2 is the active sync engine and this recordType has a v2
-        // counterpart, skip the v1 row entirely. The legacy dual-write was
-        // meant to keep both engines coexisting during rollout, but with
-        // v1 paused (SyncV2Bootstrap.shouldPauseV1) the v1 row has no
-        // consumer — SyncCore filters via v2Only:true, the v1 engine is
-        // off, and nothing ever clears it. The orphan row then poisons
-        // any code path that loads dirty rows without the v2-only filter
-        // (e.g. CloudSyncEngine.mergeProviderConfig's in-flight guard),
-        // pinning their state to "always skip" for the rest of the install.
-        //
-        // Mirror SyncV2Bootstrap.shouldPauseV1() so we stop writing the v1
-        // row exactly when nobody will consume it. shouldPauseV1 returns
-        // true whenever v2 is enabled AND migration status is one of
-        // .pending / .inProgress / .completed (i.e. anything except
-        // .failed, which falls back to v1). The launch path uses the
-        // same predicate to decide whether to start the v1 engine; we
-        // mirror it here so the two decisions stay aligned.
-        // UserDefaults is thread-safe; the actor isolation on
-        // SyncV2Bootstrap.* is a Swift-6 concurrency annotation, not a
-        // real main-thread requirement.
-        let v2Type = Self.v2RecordType(forV1: recordType)
-        let v2Enabled = UserDefaults.standard.bool(forKey: "cloudSync.v2.enabled")
-        let migStatus = UserDefaults.standard.string(forKey: "cloudSync.v2.migrationStatus") ?? "pending"
-        let v1Paused = v2Enabled && migStatus != "failed"
-        let writeV1Row = !(v1Paused && v2Type != recordType)
-        // v1 dirty row.
-        var stmt: OpaquePointer?
-        // DIAG (T-memory-row-vanish): rows for MemoryGlobalV2/MemoryDailyV2
-        // appear in the markDirty INFO log but never show up in
-        // countDirtyRecords or SyncCore.loadDirtyRecords. Capture
-        // prepare/step errcodes + post-step changes() so we can tell
-        // which layer is dropping the write.
-        var prepareRC: Int32 = 0
-        var stepRC: Int32 = -999
-        var changesAfter: Int32 = -1
-        if writeV1Row {
-            prepareRC = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
-            if prepareRC == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, (recordType as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(stmt, 2, (recordId as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(stmt, 3, (zoneName as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(stmt, 4, (operation as NSString).utf8String, -1, nil)
-                sqlite3_bind_int(stmt, 5, Int32(priority))
-                sqlite3_bind_double(stmt, 6, now)
-                stepRC = sqlite3_step(stmt)
-                changesAfter = Int32(sqlite3_changes(db))
-            }
-            sqlite3_finalize(stmt)
-        }
-        if recordType.hasPrefix("Memory") || recordType == "SoulV2" {
-            let errMsg = String(cString: sqlite3_errmsg(db))
-            iCloudLogger.info("[iCloudTrace] markDirty SQL type=\(recordType) id=\(recordId.prefix(20)) prepareRC=\(prepareRC) stepRC=\(stepRC) changes=\(changesAfter) errmsg=\(errMsg) v1RowWritten=\(writeV1Row)")
-        }
-        // v2 dirty row — same record, different recordType name. SyncCore
-        // looks up by V2-suffixed type names, so dual-writing here lets
-        // both engines coexist during the v2 rollout. v1 ignores rows it
-        // doesn't recognize; v2 ignores the un-suffixed names.
-        if v2Type != recordType {
-            var v2Stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &v2Stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(v2Stmt, 1, (v2Type as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(v2Stmt, 2, (recordId as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(v2Stmt, 3, (zoneName as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(v2Stmt, 4, (operation as NSString).utf8String, -1, nil)
-                sqlite3_bind_int(v2Stmt, 5, Int32(priority))
-                sqlite3_bind_double(v2Stmt, 6, now)
-                sqlite3_step(v2Stmt)
-            }
-            sqlite3_finalize(v2Stmt)
-
-            // Resurrect cascade was needed under the old soft-tombstone
-            // policy. Now that inbound SessionV2 deletes hard-delete the
-            // row + children, there's no tombstoned state to resurrect
-            // from — if the row is gone, there's no parent for any new
-            // child write to attach to anyway, so the SQL FK / lookups
-            // upstream of markDirty would have already rejected it.
-        }
-        // Schedule a debounced send so local changes are uploaded promptly
-        // without triggering a full sync on every individual write.
-        // Skip during agent processing (syncSendDeferred) — flushPendingSyncDirty
-        // will trigger a single send when the agent loop finishes.
-        if !syncSendDeferred {
-            if #available(iOS 17.0, *) {
-                Task { @MainActor in
-                    // Drive whichever engine the user is currently on.
-                    if SyncV2Bootstrap.isEnabled {
-                        SyncCore.shared.scheduleSend()
-                    } else {
-                        CloudSyncEngine.shared.scheduleSend()
-                    }
-                }
-            }
-        }
-    }
-
-    /// Map a v1 record type name to its v2 counterpart for dual-writing.
-    /// Returns the input unchanged when no mapping exists (e.g. unknown
-    /// types from future code paths).
-    private static func v2RecordType(forV1 v1Type: String) -> String {
-        switch v1Type {
-        case "Session":         return "SessionV2"
-        case "Message":         return "MessageV2"
-        case "CompactMarker":   return "CompactMarkerV2"
-        case "SessionFile":     return "SessionFileV2"
-        case "Skill":           return "SkillV2"
-        case "ProviderConfig":  return "ProviderConfigV2"
-        case "EnvVar":          return "EnvVarV2"
-        case "SyncDevice":      return "SyncDeviceV2"
-        case "Soul":            return "SoulV2"
-        case "Folder":          return "FolderV2"
-        case "MCPServers":      return "MCPServersV2"   // [T-mcp-integration-ios]
-        default:                return v1Type
-        }
-    }
-
-    /// Force-mark everything locally syncable as dirty for a full re-upload to iCloud.
-    /// Used by the "Delete iCloud Data" flow to repopulate a freshly-emptied cloud from
-    /// local state. Does NOT touch local data. Category toggles in CloudSyncEngine still
-    /// filter what actually gets uploaded.
-    ///
-    /// Two-phase staging to keep cold-launch CPU bounded:
-    ///   • Phase A (synchronous, fast): singleton records — Skills,
-    ///     ProviderConfig, EnvVar, the latest active sessions and their
-    ///     children. These are small and the user wants them on cloud
-    ///     ASAP.
-    ///   • Phase B (background, paginated): historical sessions in
-    ///     created_at-DESC windows of 100. Each window scans a
-    ///     bounded subset and yields between windows. The scan cursor
-    ///     is persisted so a cold launch resumes where the previous
-    ///     pass stopped, never re-walking already-staged history.
-    ///
-    /// Idempotent across launches: once Phase A finishes, the
-    /// once-per-install guard (`initialBacklogMarked`) flips. Future
-    /// calls bail out unless `force: true` (the "Delete iCloud Data"
-    /// recovery path). Phase B continues independently via its own
-    /// cursor until the entire backlog is staged.
-    ///
-    /// Why this matters: pre-fix, every cold launch re-marked 89k+
-    /// session files + 290k SQLite INSERTs unconditionally, sustaining
-    /// 90%+ CPU. Logs showed 60 calls per day, all redundant.
-    func markAllLocalForReupload(force: Bool = false) {
-        guard !syncZoneName.isEmpty else { return }
-        let initialDoneKey = "cloudSync.v2.initialBacklogMarked"
-        let alreadyDone = UserDefaults.standard.bool(forKey: initialDoneKey)
-        if !force && alreadyDone {
-            let counts = countDirtyRecords()
-            iCloudLogger.info("[iCloud] markAllLocalForReupload skipped (initial backlog already marked, dirty=\(counts.total)). Pass force=true to re-mark.")
-            // Even when Phase A is done, Phase B may still be paginating
-            // older sessions across launches. Kick its async loop so
-            // it picks up where it left off (no-op if cursor is past
-            // the oldest session).
-            kickHistoricalBacklogScan(force: false)
-            return
-        }
-        let backlogPriority = 1
-
-        // ─── Phase A — fast path, ship the small / important stuff ───
-        // Singleton records first so user-visible config (skills,
-        // providers, env vars) syncs in the first push regardless of
-        // how long the historical scan takes.
-        markDirty(recordType: "ProviderConfig", recordId: "provider-config", priority: backlogPriority)
-        markDirty(recordType: "EnvVar", recordId: "env-vars", priority: backlogPriority)
-        // Skills are stored in SkillStore's own DB; CloudSyncEngine /
-        // its v2 caller enumerates SkillStore separately. ChatStore
-        // doesn't see them.
-
-        // Most-recent active sessions + children: top-100 by
-        // updated_at. The rest goes to Phase B.
-        let recentLimit = 100
-        let recentSessSql = """
-            SELECT s.id FROM sessions s
-            WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id)
-            ORDER BY s.updated_at DESC, s.id DESC
-            LIMIT \(recentLimit)
-            """
-        var recentIds: [String] = []
-        var rsStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, recentSessSql, -1, &rsStmt, nil) == SQLITE_OK {
-            while sqlite3_step(rsStmt) == SQLITE_ROW {
-                recentIds.append(String(cString: sqlite3_column_text(rsStmt, 0)))
-            }
-        }
-        sqlite3_finalize(rsStmt)
-        for sid in recentIds {
-            stageSessionAndChildrenForReupload(sessionId: sid, priority: backlogPriority)
-        }
-        iCloudLogger.info("[iCloud] markAllLocalForReupload Phase A: staged \(recentIds.count) recent sessions + singletons (priority=\(backlogPriority))")
-        // Reset the historical cursor so Phase B starts at the
-        // boundary just below the most-recent set.
-        if let oldestRecent = recentIds.last,
-           let oldestUpdatedAt = sessionUpdatedAt(id: oldestRecent) {
-            UserDefaults.standard.set(oldestUpdatedAt.timeIntervalSince1970,
-                                      forKey: "cloudSync.v2.backlogScanCursorAt")
-            // Companion keyset component: sessions sharing the boundary
-            // updated_at must not fall between Phase A and Phase B.
-            UserDefaults.standard.set(oldestRecent,
-                                      forKey: "cloudSync.v2.backlogScanCursorId")
-        } else {
-            UserDefaults.standard.set(Date().timeIntervalSince1970,
-                                      forKey: "cloudSync.v2.backlogScanCursorAt")
-            UserDefaults.standard.removeObject(forKey: "cloudSync.v2.backlogScanCursorId")
-        }
-        UserDefaults.standard.set(true, forKey: initialDoneKey)
-
-        // ─── Phase B — paginated background scan of older history ───
-        kickHistoricalBacklogScan(force: true)
-    }
-
-    /// Look up `sessions.updated_at` for a single session. Used by the
-    /// markAllLocalForReupload Phase A→B handoff to set the initial
-    /// pagination cursor.
-    private func sessionUpdatedAt(id: String) -> Date? {
-        let sql = "SELECT updated_at FROM sessions WHERE id = ?"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0))
-    }
-
-    /// Stage one session + all its messages/markers/files dirty.
-    /// Pulled out so Phase A and Phase B share the per-session work.
-    /// Returns the number of SessionFile records staged (used by the
-    /// migration progress UI to grow its denominator dynamically as
-    /// the scan progresses, rather than pre-walking the whole tree).
-    @discardableResult
-    private func stageSessionAndChildrenForReupload(sessionId: String, priority: Int) -> Int {
-        markDirty(recordType: "Session", recordId: sessionId, priority: priority)
-        let msgSql = "SELECT id FROM messages WHERE session_id = ?"
-        var msgStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, msgSql, -1, &msgStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(msgStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(msgStmt) == SQLITE_ROW {
-                markDirty(recordType: "Message",
-                          recordId: String(cString: sqlite3_column_text(msgStmt, 0)),
-                          priority: priority)
-            }
-        }
-        sqlite3_finalize(msgStmt)
-        let cmSql = "SELECT id FROM compact_markers WHERE session_id = ?"
-        var cmStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, cmSql, -1, &cmStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(cmStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(cmStmt) == SQLITE_ROW {
-                markDirty(recordType: "CompactMarker",
-                          recordId: String(cString: sqlite3_column_text(cmStmt, 0)),
-                          priority: priority)
-            }
-        }
-        sqlite3_finalize(cmStmt)
-        let fileCount = scanAndMarkSessionFiles(sessionId: sessionId, priority: priority)
-        // Bump the running session-file estimate so MigrationEngine can
-        // grow the denominator monotonically as Phase B paginates.
-        if fileCount > 0 {
-            let key = "cloudSync.v2.estimatedExtraSessionFiles"
-            let prev = UserDefaults.standard.integer(forKey: key)
-            UserDefaults.standard.set(prev + fileCount, forKey: key)
-        }
-        return fileCount
-    }
-
-    /// Baseline record count for the migration progress UI's denominator.
-    /// Counts only what we can know cheaply from SQLite: sessions
-    /// (non-empty), messages, compact markers, plus singletons. Does
-    /// NOT include SessionFiles — those are filesystem-discovered and
-    /// get added to the denominator incrementally by Phase B as it
-    /// pages through sessions. SkillStore / EnvVarStore counts are
-    /// added by the migration UI on top.
-    func countBacklogBaseline() -> (sessions: Int, messages: Int, compactMarkers: Int, singletons: Int) {
-        var sessions = 0, messages = 0, markers = 0
-        var stmt: OpaquePointer?
-        let sessSql = "SELECT COUNT(*) FROM sessions s WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id)"
-        if sqlite3_prepare_v2(db, sessSql, -1, &stmt, nil) == SQLITE_OK,
-           sqlite3_step(stmt) == SQLITE_ROW {
-            sessions = Int(sqlite3_column_int(stmt, 0))
-        }
-        sqlite3_finalize(stmt)
-        stmt = nil
-        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM messages", -1, &stmt, nil) == SQLITE_OK,
-           sqlite3_step(stmt) == SQLITE_ROW {
-            messages = Int(sqlite3_column_int(stmt, 0))
-        }
-        sqlite3_finalize(stmt)
-        stmt = nil
-        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM compact_markers", -1, &stmt, nil) == SQLITE_OK,
-           sqlite3_step(stmt) == SQLITE_ROW {
-            markers = Int(sqlite3_column_int(stmt, 0))
-        }
-        sqlite3_finalize(stmt)
-        // ProviderConfig + EnvVar (legacy whole-file). Per-key
-        // EnvVarItem records are counted by EnvVarStore separately
-        // when the migration UI assembles the denominator.
-        return (sessions: sessions, messages: messages, compactMarkers: markers, singletons: 2)
-    }
-
-    /// Phase B: paginated background scan of older sessions.
-    ///
-    /// Reads the cursor at `cloudSync.v2.backlogScanCursorAt` (a
-    /// session.updated_at value), pulls the next 100 sessions strictly
-    /// older than it, stages each, advances the cursor, yields, and
-    /// loops. Stops when no sessions remain. Persistent cursor means a
-    /// cold launch resumes where the previous pass stopped — no
-    /// repeated work even if migration takes multiple sessions to
-    /// finish.
-    ///
-    /// Triggered from markAllLocalForReupload (after Phase A) and
-    /// re-kicked on every subsequent invocation that short-circuits
-    /// the once-per-install guard, since the pagination state is
-    /// independent of `initialBacklogMarked`.
-    nonisolated(unsafe) private static var historicalScanInFlight = false
-    private func kickHistoricalBacklogScan(force: Bool) {
-        if !force && Self.historicalScanInFlight { return }
-        Self.historicalScanInFlight = true
-        Task { [weak self] in
-            await self?.runHistoricalBacklogScan()
-            await MainActor.run { Self.historicalScanInFlight = false }
-        }
-    }
-
-    private func runHistoricalBacklogScan() async {
-        let cursorKey = "cloudSync.v2.backlogScanCursorAt"
-        let cursorIdKey = "cloudSync.v2.backlogScanCursorId"
-        let cancelKey = "cloudSync.v2.backlogScanCanceled"
-        let windowSize = 100
-        let backlogPriority = 1
-        var totalStaged = 0
-        var passes = 0
-        while !Task.isCancelled {
-            // Honor explicit user cancel from MigrationEngine.cancelMigration.
-            // Without this, the loop would keep paginating older sessions and
-            // immediately re-stage the priority=1 dirty rows that
-            // clearMigrationBacklog() just removed — the user sees migration
-            // "still running" because it really is.
-            if UserDefaults.standard.bool(forKey: cancelKey) {
-                iCloudLogger.info("[iCloud] historicalBacklogScan: cancel flag set, stopping. totalStaged=\(totalStaged) passes=\(passes)")
-                return
-            }
-            let cursor = UserDefaults.standard.double(forKey: cursorKey)
-            // Cursor sentinel: negative or zero means "no work" only if
-            // we've also recorded at least one Phase B pass. Default 0
-            // would otherwise pull *all* sessions on first call — but
-            // markAllLocalForReupload sets the cursor to the oldest
-            // recent session before kicking us, so 0 here means
-            // pagination already drained completely.
-            guard cursor > 0 else {
-                iCloudLogger.info("[iCloud] historicalBacklogScan: cursor=0 (drained), totalStaged=\(totalStaged) passes=\(passes)")
-                return
-            }
-            // Keyset pagination on (updated_at, id): a bare `updated_at < ?`
-            // drops sessions that share the boundary timestamp with the
-            // previous window. A missing cursor id (cursor written by an
-            // older build) degrades to the old strict-less-than behaviour
-            // until the next markAllLocalForReupload re-seeds it.
-            let cursorId = UserDefaults.standard.string(forKey: cursorIdKey) ?? ""
-            let sql = """
-                SELECT id, updated_at FROM sessions
-                WHERE (updated_at < ? OR (updated_at = ? AND id < ?))
-                  AND EXISTS (SELECT 1 FROM messages m WHERE m.session_id = sessions.id)
-                ORDER BY updated_at DESC, id DESC
-                LIMIT \(windowSize)
-                """
-            var batch: [(id: String, updatedAt: Double)] = []
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_double(stmt, 1, cursor)
-                sqlite3_bind_double(stmt, 2, cursor)
-                sqlite3_bind_text(stmt, 3, (cursorId as NSString).utf8String, -1, nil)
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let sid = String(cString: sqlite3_column_text(stmt, 0))
-                    let updatedAt = sqlite3_column_double(stmt, 1)
-                    batch.append((sid, updatedAt))
-                }
-            }
-            sqlite3_finalize(stmt)
-            if batch.isEmpty {
-                iCloudLogger.info("[iCloud] historicalBacklogScan: window empty, finished. totalStaged=\(totalStaged) passes=\(passes)")
-                // Sentinel to mark fully drained — next launch's
-                // kickHistoricalBacklogScan returns immediately.
-                UserDefaults.standard.set(0.0, forKey: cursorKey)
-                UserDefaults.standard.removeObject(forKey: cursorIdKey)
-                return
-            }
-            for (sid, _) in batch {
-                stageSessionAndChildrenForReupload(sessionId: sid, priority: backlogPriority)
-                totalStaged += 1
-            }
-            // Advance cursor to the OLDEST in this window so the next
-            // pass picks up strictly older sessions.
-            if let oldest = batch.last {
-                UserDefaults.standard.set(oldest.updatedAt, forKey: cursorKey)
-                UserDefaults.standard.set(oldest.id, forKey: cursorIdKey)
-            }
-            passes += 1
-            iCloudLogger.info("[iCloud] historicalBacklogScan: pass=\(passes) staged=\(batch.count) cumulative=\(totalStaged) cursorNext=\(batch.last?.updatedAt ?? 0)")
-
-            // Wait for the previous batch to drain before staging the
-            // next one. Otherwise the dirty queue grows monotonically
-            // (12 windows × 100 sessions = 1200 staged in ~3s, push
-            // hasn't kept up) and we lose the "small bites" benefit —
-            // SyncCore would just see the same single-shot 200k+
-            // backlog at the end. Threshold is one-window-worth of
-            // children: ~100 sessions × ~70 messages + files, give it
-            // room without letting it stall forever.
-            //
-            // Poll every 5s; bail with a hard cap of 30 min per window
-            // so a stuck push doesn't permanently freeze pagination.
-            // Note: countDirtyRecords includes user-driven priority=0
-            // writes, but those are usually a tiny fraction of the
-            // backlog priority=1 rows during initial migration.
-            let drainThreshold = 5_000
-            let drainDeadline = Date().addingTimeInterval(30 * 60)
-            while Date() < drainDeadline, !Task.isCancelled {
-                let dirty = countDirtyRecords()
-                if dirty.total < drainThreshold { break }
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-            }
-            // Brief pause between successful drains so other actor work
-            // (chat writes, view loads) gets cycles even if push is
-            // saturating CK.
-            try? await Task.sleep(nanoseconds: 250_000_000)
-        }
-    }
-
-    /// Force-mark a session and all its messages/compact markers as dirty for iCloud sync.
-    func forceMarkSessionDirty(sessionId: String) {
-        markDirty(recordType: "Session", recordId: sessionId)
-        // Mark all messages in this session as dirty
-        let msgSql = "SELECT id FROM messages WHERE session_id = ?"
-        var msgStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, msgSql, -1, &msgStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(msgStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(msgStmt) == SQLITE_ROW {
-                let msgId = String(cString: sqlite3_column_text(msgStmt, 0))
-                markDirty(recordType: "Message", recordId: msgId)
-            }
-        }
-        sqlite3_finalize(msgStmt)
-        // Mark compact markers
-        let cmSql = "SELECT id FROM compact_markers WHERE session_id = ?"
-        var cmStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, cmSql, -1, &cmStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(cmStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(cmStmt) == SQLITE_ROW {
-                let cmId = String(cString: sqlite3_column_text(cmStmt, 0))
-                markDirty(recordType: "CompactMarker", recordId: cmId)
-            }
-        }
-        sqlite3_finalize(cmStmt)
-        // Mark session files (workspace/offloads/attachments)
-        scanAndMarkSessionFiles(sessionId: sessionId)
-    }
-
-    /// Backfill: merge all remote_sessions and remote_messages into local tables.
-    /// Called after code change that introduced mergeRemoteSession, to retroactively merge
-    /// data that was fetched before the merge logic existed.
-    func backfillRemoteToLocal() {
-        iCloudLogger.info("[iCloud] backfillRemoteToLocal: starting")
-        // 1. Merge remote sessions that don't exist locally
-        let sCount = execCount("""
-            INSERT OR IGNORE INTO sessions (id, title, category, model_id, created_at, updated_at, remote_origin_device_id)
-            SELECT rs.id, rs.title, rs.category, rs.model_id, rs.created_at, rs.updated_at, rs.device_id
-            FROM remote_sessions rs
-            WHERE NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id = rs.id)
-        """)
-        iCloudLogger.info("[iCloud] backfillRemoteToLocal: inserted \(sCount) sessions")
-
-        // 2. Merge remote messages into local messages for sessions that exist locally
-        // [T-ios-listsessions-part-flags] compute the bitmask inline so remote-
-        // inserted rows carry correct flags (never left at DEFAULT 0).
-        let mCount = execCount("""
-            INSERT OR IGNORE INTO messages (id, session_id, role, parts_json, created_at, token_usage, sort_order, reasoning_content, stream_interrupt_count, updated_at, part_flags)
-            SELECT rm.id, rm.session_id, rm.role, rm.parts_json, rm.created_at, rm.token_usage, rm.sort_order, rm.reasoning_content, rm.stream_interrupt_count, rm.created_at, \(Self.partFlagsSQLExpr("rm.parts_json"))
-            FROM remote_messages rm
-            WHERE EXISTS (SELECT 1 FROM sessions s WHERE s.id = rm.session_id)
-              AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.id = rm.id)
-        """)
-        iCloudLogger.info("[iCloud] backfillRemoteToLocal: inserted \(mCount) messages")
-
-        iCloudLogger.info("[iCloud] backfillRemoteToLocal: done")
-    }
-
-    /// Execute SQL and return number of changes. Returns 0 on error.
-    private func execCount(_ sql: String) -> Int {
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_step(stmt)
-            sqlite3_finalize(stmt)
-            return Int(sqlite3_changes(db))
-        }
-        sqlite3_finalize(stmt)
-        return 0
-    }
-
-    /// Mark a session as successfully synced to iCloud.
-    func markSessionSynced(id: String) {
-        let sql = "UPDATE sessions SET last_synced_at = ? WHERE id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_double(stmt, 1, Date().timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 2, (id as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    struct DirtyRecord {
-        let recordType: String
-        let recordId: String
-        let zoneName: String
-        let operation: String
-    }
-
-    /// Record types belonging to the V2 sync surface. Used to filter
-    /// dirty rows so v1-only / dual-write rows don't starve V2 sends.
-    /// Note: `EnvVarItem` has no V2 suffix but IS v2 — the per-key env
-    /// var record introduced after EnvVarV2 (which is legacy whole-file
-    /// and being phased out, but kept here so any remaining dirty rows
-    /// can still drain).
-    fileprivate static let v2SyncRecordTypes: [String] = [
-        "SessionV2", "MessageV2", "CompactMarkerV2", "SessionFileV2",
-        "FolderV2",
-        "SkillV2", "ProviderConfigV2", "EnvVarV2", "EnvVarItem",
-        "SyncDeviceV2", "SoulV2",
-        // File-backed singletons. Without these in the whitelist,
-        // markDirty wrote a dirty row but loadDirtyRecords(v2Only:true)'s
-        // WHERE-IN clause filtered them out, so they never got pushed
-        // and the CloudKit Dev schema never got auto-created — root
-        // cause of the dashboard's persistent NOT_FOUND on these types
-        // (T-soulv2-memory-whitelist).
-        "MemoryGlobalV2", "MemoryDailyV2",
-        // v3 per-record provider sync (T-provider-sync-v3). The legacy
-        // "ProviderConfigV2" remains in the whitelist too — outbound is
-        // dual-written until all peers upgrade; inbound v2 is dropped
-        // on v3 builds (ProviderV3Bootstrap.isEnabled gate).
-        "ProviderInstanceV3", "ProviderModelEntryV3", "ProviderModelGroupV3",
-        // [T-icloud-thinking-rules-sync] Per-rule custom thinking rules. Omitting a
-        // type here is the exact failure MCPServersV2 hit below: dirty rows get
-        // written but loadDirtyRecords filters them out, so nothing ever uploads
-        // and the type fails SILENTLY.
-        "ProviderThinkingRuleV3",
-        // [batch1 / audit W1C-02] Sub Agents roster — same missing-whitelist
-        // failure mode MCPServersV2 hit: dirty rows written but filtered out,
-        // so nothing ever uploaded and the rows piled up forever.
-        "SubAgentV3",
-        // [T-mcp-per-server-sync] Per-server MCP records, plus the legacy
-        // whole-file type. MCPServersV2 was NEVER in this whitelist — its
-        // dirty rows were written but filtered out by loadDirtyRecords
-        // (v2Only:true), so MCP config never uploaded at all. It's listed
-        // now so (a) the one-time legacy-record op=delete can drain and
-        // (b) any leftover upsert rows drain as no-ops (builder returns nil).
-        "MCPServersV2", "MCPServerItem",
-    ]
-
-    /// Pre-built SQL IN-list fragment for `v2SyncRecordTypes`. Values
-    /// are static identifiers, no user input — safe to interpolate.
-    fileprivate static let v2SyncRecordTypesSQL: String =
-        v2SyncRecordTypes.map { "'\($0)'" }.joined(separator: ",")
-
-    /// Load dirty records for sync. `v2Only=true` filters to record types
-    /// the v2 SyncCore knows how to build (suffix `V2`). Without the filter,
-    /// v1 dual-write rows (Session/Message/...) sit at the head of the
-    /// priority+created_at ordering forever — v2 has no builder for them so
-    /// they get kept-as-dirty every round, starving real V2 rows behind them.
-    /// DIAG (T-memory-row-vanish): one-shot probe — call from SyncCore to
-    /// dump every distinct record_type currently sitting in
-    /// sync_dirty_records, regardless of any v2/v1 whitelist filter.
-    /// Lets us confirm whether MemoryGlobalV2 / MemoryDailyV2 are in the
-    /// table at all when v2Only's WHERE-IN filter would hide them.
-    func dumpAllDirtyTypes() -> [(type: String, count: Int)] {
-        var result: [(type: String, count: Int)] = []
-        var stmt: OpaquePointer?
-        let sql = "SELECT record_type, COUNT(*) FROM sync_dirty_records GROUP BY record_type"
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let t = String(cString: sqlite3_column_text(stmt, 0))
-                let c = Int(sqlite3_column_int(stmt, 1))
-                result.append((t, c))
-            }
-        }
-        sqlite3_finalize(stmt)
-        return result
-    }
-
-    func loadDirtyRecords(v2Only: Bool = false) -> [DirtyRecord] {
-        // Order Sessions first so receiving device creates sessions before messages arrive
-        // Order:
-        //   1. priority ASC — user-driven writes (priority=0) before
-        //      migration backlog (priority=1). Critical so a freshly
-        //      typed message is never starved by 28k legacy rows.
-        //   2. parent type before child type — Session/SessionV2 before
-        //      Message/MessageV2, so a peer applying the inbound batch
-        //      sees parents before their children.
-        //   3. created_at ASC within the same priority/type — push the
-        //      oldest dirty first so the queue drains FIFO.
-        let whereClause = v2Only ? "WHERE record_type IN (\(Self.v2SyncRecordTypesSQL))" : ""
-        // Newest first within each priority+type group: gives perceived
-        // sync responsiveness for what the user just touched while the
-        // backlog drains in the background. Parent types (Session*) still
-        // ship before children (Message*) so peers never receive an
-        // orphan Message before its Session.
-        let sql = """
-            SELECT record_type, record_id, zone_name, operation FROM sync_dirty_records
-            \(whereClause)
-            ORDER BY priority ASC,
-                CASE record_type
-                    WHEN 'Session' THEN 0
-                    WHEN 'SessionV2' THEN 0
-                    WHEN 'Message' THEN 1
-                    WHEN 'MessageV2' THEN 1
-                    ELSE 2
-                END,
-                created_at DESC
-            LIMIT 100
-        """
-        var stmt: OpaquePointer?
-        var records: [DirtyRecord] = []
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                records.append(DirtyRecord(
-                    recordType: String(cString: sqlite3_column_text(stmt, 0)),
-                    recordId: String(cString: sqlite3_column_text(stmt, 1)),
-                    zoneName: String(cString: sqlite3_column_text(stmt, 2)),
-                    operation: String(cString: sqlite3_column_text(stmt, 3))
-                ))
-            }
-        }
-        sqlite3_finalize(stmt)
-        return records
-    }
-
-    /// V2-only dirty counts split by priority. priority=0 → user writes,
-    /// priority=1 → migration backlog. Used by the iCloud Sync sheet to
-    /// show 'Pending push (new)' vs 'Pending push (migration)' rows.
-    func countDirtyV2ByPriority() -> (newCount: Int, migrationCount: Int) {
-        let sql = "SELECT priority, COUNT(*) FROM sync_dirty_records WHERE record_type IN (\(Self.v2SyncRecordTypesSQL)) GROUP BY priority"
-        var stmt: OpaquePointer?
-        var newCount = 0, migrationCount = 0
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let p = Int(sqlite3_column_int(stmt, 0))
-                let c = Int(sqlite3_column_int(stmt, 1))
-                if p == 0 { newCount = c } else { migrationCount += c }
-            }
-        }
-        sqlite3_finalize(stmt)
-        return (newCount, migrationCount)
-    }
-
-    func countDirtyRecords() -> (total: Int, byType: [String: Int]) {
-        let sql = "SELECT record_type, COUNT(*) FROM sync_dirty_records GROUP BY record_type"
-        var stmt: OpaquePointer?
-        var byType: [String: Int] = [:]
-        var total = 0
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let type = String(cString: sqlite3_column_text(stmt, 0))
-                let count = Int(sqlite3_column_int(stmt, 1))
-                byType[type] = count
-                total += count
-            }
-        }
-        sqlite3_finalize(stmt)
-        return (total, byType)
-    }
-
-    /// Mark every record belonging to a session — Session itself, all its
-    /// Messages, CompactMarkers, and SessionFiles — as dirty so they will
-    /// be re-pushed to iCloud on the next send pass. Idempotent. Used by
-    /// the user-facing Force Sync action (long-press a message in chat).
-    /// Returns total dirty rows added.
-    @discardableResult
-    func forceSyncSession(_ sessionId: String) -> Int {
-        guard !syncZoneName.isEmpty else { return 0 }
-        var count = 0
-        markDirty(recordType: "Session", recordId: sessionId)
-        count += 1
-        // Messages
-        var mStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT id FROM messages WHERE session_id = ?", -1, &mStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(mStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(mStmt) == SQLITE_ROW {
-                markDirty(recordType: "Message", recordId: String(cString: sqlite3_column_text(mStmt, 0)))
-                count += 1
-            }
-        }
-        sqlite3_finalize(mStmt)
-        // CompactMarkers
-        var cStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT id FROM compact_markers WHERE session_id = ?", -1, &cStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(cStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(cStmt) == SQLITE_ROW {
-                markDirty(recordType: "CompactMarker", recordId: String(cString: sqlite3_column_text(cStmt, 0)))
-                count += 1
-            }
-        }
-        sqlite3_finalize(cStmt)
-        // SessionFiles via the existing scan
-        let fileCount = scanAndMarkSessionFiles(sessionId: sessionId, priority: 0)
-        count += fileCount
-        iCloudLogger.info("[iCloud] forceSyncSession(\(sessionId.prefix(8))) marked \(count) records dirty")
-        return count
-    }
-
-    /// Outcome of a Force Pull attempt.
-    enum ForcePullOutcome {
-        /// Cloud returned ≥1 record; local was wiped and replaced. localDeleted
-        /// counts messages+markers that existed locally before the swap.
-        case applied(pulledFromCloud: Int, localDeleted: Int)
-        /// Cloud returned 0 records or threw — local rows are preserved
-        /// untouched. The chat view should surface a warning to the user.
-        case cloudEmpty
-        /// Underlying transport threw an error. Local rows preserved.
-        case failed(String)
-    }
-
-    /// Reconcile a session against cloud truth.
-    ///
-    /// New (safe) flow:
-    ///   1. Pull from cloud first — does NOT touch local rows yet.
-    ///   2. If cloud returned 0 records → bail out, keep local intact,
-    ///      surface .cloudEmpty so the UI can warn the user that there
-    ///      is no remote copy to fall back to (avoids the "Force Pull
-    ///      silently wipes everything" footgun).
-    ///   3. If cloud returned ≥1 record → only NOW wipe local rows +
-    ///      clear dirty/pushed bookkeeping, then re-emit the cached cloud
-    ///      portables through the inbound path so they land in SQLite.
-    ///
-    /// This means the pull network round-trip happens with local
-    /// untouched, and the swap is committed atomically only after we
-    /// know cloud has something to give us.
-    func forcePullSession(sessionId: String) async -> ForcePullOutcome {
-        invalidateSessionListCache()
-        iCloudLogger.warning("[ForcePull] sid=\(sessionId.prefix(8)) START — pulling cloud first, local untouched")
-
-        // 1. Cloud first (no local mutation yet). Returns the portables
-        //    so we can replay them after the swap. If the transport
-        //    can't be reached we treat it as a hard failure rather than
-        //    "empty cloud" so the caller can distinguish.
-        let pullResult: ([PortableRecord], Error?)
-        if #available(iOS 17.0, *) {
-            pullResult = await SyncCore.shared.fetchSessionPortables(sessionId: sessionId)
-        } else {
-            iCloudLogger.warning("[ForcePull] sid=\(sessionId.prefix(8)) iOS < 17 — pull unavailable")
-            return .failed(AppLocalized("Force Pull requires iOS 17 or newer."))
-        }
-        let portables = pullResult.0
-        if let err = pullResult.1 {
-            iCloudLogger.warning("[ForcePull] sid=\(sessionId.prefix(8)) transport err: \(err.localizedDescription) — keeping local intact")
-            return .failed(err.localizedDescription)
-        }
-        if portables.isEmpty {
-            iCloudLogger.warning("[ForcePull] sid=\(sessionId.prefix(8)) cloud returned 0 records — keeping local intact")
-            return .cloudEmpty
-        }
-        iCloudLogger.warning("[ForcePull] sid=\(sessionId.prefix(8)) cloud returned \(portables.count) records — committing swap")
-
-        // 2. Now safe to swap. Collect ids for bookkeeping cleanup.
-        var messageIds: [String] = []
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT id FROM messages WHERE session_id = ?", -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                messageIds.append(String(cString: sqlite3_column_text(stmt, 0)))
-            }
-        }
-        sqlite3_finalize(stmt)
-        var markerIds: [String] = []
-        var mStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT id FROM compact_markers WHERE session_id = ?", -1, &mStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(mStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(mStmt) == SQLITE_ROW {
-                markerIds.append(String(cString: sqlite3_column_text(mStmt, 0)))
-            }
-        }
-        sqlite3_finalize(mStmt)
-
-        // 3. Hard-delete local rows (cloud truth will be replayed below).
-        var locallyDeleted = 0
-        var dStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "DELETE FROM messages WHERE session_id = ?", -1, &dStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(dStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            sqlite3_step(dStmt)
-            locallyDeleted += Int(sqlite3_changes(db))
-        }
-        sqlite3_finalize(dStmt)
-        var dmStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "DELETE FROM compact_markers WHERE session_id = ?", -1, &dmStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(dmStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            sqlite3_step(dmStmt)
-            locallyDeleted += Int(sqlite3_changes(db))
-        }
-        sqlite3_finalize(dmStmt)
-
-        // 4. Clear sync_dirty_records and sync_pushed_records so the
-        // replay treats incoming portables as fresh, and so we don't
-        // immediately re-push stale rows.
-        // The dirty table and the pushed ledger key rows by record type;
-        // while V2 is active those rows use the V2 type names
-        // (MessageV2:<id> etc.), so clear both spellings or the V2 rows
-        // survive and the replayed records get re-pushed / filtered.
-        for id in messageIds {
-            clearDirtyRecord(recordName: "Message:\(id)")
-            clearDirtyRecord(recordName: "MessageV2:\(id)")
-        }
-        for id in markerIds {
-            clearDirtyRecord(recordName: "CompactMarker:\(id)")
-            clearDirtyRecord(recordName: "CompactMarkerV2:\(id)")
-        }
-        clearDirtyRecord(recordName: "Session:\(sessionId)")
-        clearDirtyRecord(recordName: "SessionV2:\(sessionId)")
-
-        var pushedClearStmt: OpaquePointer?
-        let clearPushedSQL = "DELETE FROM sync_pushed_records WHERE record_name = ?"
-        if sqlite3_prepare_v2(db, clearPushedSQL, -1, &pushedClearStmt, nil) == SQLITE_OK {
-            for id in messageIds {
-                for name in ["Message:\(id)", "MessageV2:\(id)"] {
-                    sqlite3_bind_text(pushedClearStmt, 1, (name as NSString).utf8String, -1, nil)
-                    sqlite3_step(pushedClearStmt)
-                    sqlite3_reset(pushedClearStmt)
-                }
-            }
-            for id in markerIds {
-                for name in ["CompactMarker:\(id)", "CompactMarkerV2:\(id)"] {
-                    sqlite3_bind_text(pushedClearStmt, 1, (name as NSString).utf8String, -1, nil)
-                    sqlite3_step(pushedClearStmt)
-                    sqlite3_reset(pushedClearStmt)
-                }
-            }
-            for name in ["Session:\(sessionId)", "SessionV2:\(sessionId)"] {
-                sqlite3_bind_text(pushedClearStmt, 1, (name as NSString).utf8String, -1, nil)
-                sqlite3_step(pushedClearStmt)
-                sqlite3_reset(pushedClearStmt)
-            }
-        }
-        sqlite3_finalize(pushedClearStmt)
-
-        iCloudLogger.warning("[ForcePull] sid=\(sessionId.prefix(8)) local cleared: messages=\(messageIds.count) markers=\(markerIds.count) deletedRows=\(locallyDeleted)")
-
-        // 5. Replay cloud portables through SyncCore (same path normal
-        // inbound traffic uses, so hydrators land them in SQLite).
-        await SyncCore.shared.applyPortables(portables, transportName: "ForcePull")
-        iCloudLogger.warning("[ForcePull] sid=\(sessionId.prefix(8)) DONE pulled=\(portables.count) localDeleted=\(locallyDeleted)")
-        return .applied(pulledFromCloud: portables.count, localDeleted: locallyDeleted)
-    }
-
-    /// Drop all priority=1 dirty rows (migration backlog). Used by Cancel
-    /// Migration in the Sync sheet — keeps user-driven (priority=0) rows
-    /// so freshly typed messages keep flowing while history backfill stops.
-    /// Returns the number of rows deleted.
-    @discardableResult
-    func clearMigrationBacklog() -> Int {
-        let sql = "DELETE FROM sync_dirty_records WHERE priority = 1"
-        var stmt: OpaquePointer?
-        var deleted = 0
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_step(stmt)
-            deleted = Int(sqlite3_changes(db))
-        }
-        sqlite3_finalize(stmt)
-        iCloudLogger.info("[iCloud] clearMigrationBacklog: dropped \(deleted) priority=1 rows")
-        return deleted
-    }
-
-    /// Count V2 records that exist locally but have not yet been pushed
-    /// to v2's shared zone (i.e. would be backfilled if migration ran).
-    /// We approximate by total local row counts minus the cumulative
-    /// pushedCumulative counter — exact enough for the "Historical Data"
-    /// label in the Sync sheet.
-    func countLocalV2Eligible() -> Int {
-        let sessions = queryInt64("SELECT COUNT(*) FROM sessions")
-        let messages = queryInt64("SELECT COUNT(*) FROM messages")
-        let markers = queryInt64("SELECT COUNT(*) FROM compact_markers")
-        // session files = (rough heuristic) sum of file_count column if it exists; otherwise 0
-        return Int(sessions + messages + markers)
-    }
-
-    func clearDirtyRecord(recordName: String) {
-        // recordName format is "Type:id"
-        let parts = recordName.split(separator: ":", maxSplits: 1)
-        guard parts.count == 2 else { return }
-        let recordType = String(parts[0])
-        let recordId = String(parts[1])
-        let sql = "DELETE FROM sync_dirty_records WHERE record_type = ? AND record_id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (recordType as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (recordId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    /// Record one or more record names as confirmed saved on iCloud.
-    /// Idempotent — INSERT OR IGNORE on the recordName primary key.
-    /// Used by the v2 transport to feed the migration UI's accurate
-    /// "unique records pushed" counter, which is otherwise inflated by
-    /// every relaunch re-marking already-pushed records dirty.
-    func markRecordsPushed(_ recordNames: [String]) {
-        guard !recordNames.isEmpty else { return }
-        exec("BEGIN TRANSACTION")
-        let sql = "INSERT OR IGNORE INTO sync_pushed_records (record_name) VALUES (?)"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            for name in recordNames {
-                sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
-                sqlite3_step(stmt)
-                sqlite3_reset(stmt)
-            }
-        }
-        sqlite3_finalize(stmt)
-        exec("COMMIT")
-    }
-
-    /// [T-icloud-migration-reset] Wipe the pushed-record ledger so a migration
-    /// restarted from scratch re-counts (and re-pushes) everything.
-    ///
-    /// Only for the explicit "reset migration progress" action. Clearing this
-    /// on any other path would make already-uploaded records look un-pushed and
-    /// send them again. Returns the row count removed, for the log.
-    @discardableResult
-    func clearAllPushedRecords() -> Int {
-        let before = countPushedRecords()
-        exec("DELETE FROM sync_pushed_records")
-        iCloudLogger.info("[iCloud] clearAllPushedRecords: removed \(before) rows")
-        return before
-    }
-
-    /// Distinct count of recordNames in `sync_pushed_records`. The
-    /// migration UI's "Records pushed" numerator.
-    func countPushedRecords() -> Int {
-        var count = 0
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM sync_pushed_records", -1, &stmt, nil) == SQLITE_OK {
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                count = Int(sqlite3_column_int(stmt, 0))
-            }
-        }
-        sqlite3_finalize(stmt)
-        return count
-    }
-
-    // MARK: - Sync Device CRUD
-
-    func upsertSyncDevice(_ device: SyncDevice) {
-        iCloudLogger.info("[iCloud] upsertSyncDevice: id=\(device.id) name=\(device.deviceName) zone=\(device.zoneName) upload=\(device.uploadTypes)")
-        let sql = """
-            INSERT OR REPLACE INTO sync_devices (device_id, device_name, zone_name, last_seen, os_version, upload_types)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (device.id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (device.deviceName as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 3, (device.zoneName as NSString).utf8String, -1, nil)
-            sqlite3_bind_double(stmt, 4, device.lastSeen.timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 5, (device.osVersion as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 6, (device.uploadTypes.joined(separator: ",") as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func listSyncDevices() -> [SyncDevice] {
-        let sql = "SELECT device_id, device_name, zone_name, last_seen, os_version, upload_types FROM sync_devices"
-        var stmt: OpaquePointer?
-        var devices: [SyncDevice] = []
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let uploadTypesStr = sqlite3_column_text(stmt, 5).map { String(cString: $0) } ?? ""
-                let uploadTypes = uploadTypesStr.isEmpty ? [] : uploadTypesStr.components(separatedBy: ",")
-                devices.append(SyncDevice(
-                    id: String(cString: sqlite3_column_text(stmt, 0)),
-                    deviceName: String(cString: sqlite3_column_text(stmt, 1)),
-                    zoneName: String(cString: sqlite3_column_text(stmt, 2)),
-                    lastSeen: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3)),
-                    osVersion: String(cString: sqlite3_column_text(stmt, 4)),
-                    uploadTypes: uploadTypes
-                ))
-            }
-        }
-        sqlite3_finalize(stmt)
-        iCloudLogger.info("[iCloud] listSyncDevices: returning \(devices.count) devices")
-        for d in devices {
-            iCloudLogger.info("[iCloud]   device: id=\(d.id) name=\(d.deviceName) zone=\(d.zoneName)")
-        }
-        // DIAG: when zero devices, dump enough surrounding state to tell at
-        // a glance WHY peer discovery isn't surfacing the other side. Three
-        // common causes — sync not initialized (zoneEmpty), user disabled
-        // upload categories in Settings, no dirty rows queued — each
-        // produces a distinctly identifiable footprint here.
-        if devices.isEmpty {
-            let zoneState = syncZoneName.isEmpty ? "EMPTY(syncNotInitialized)" : syncZoneName
-            let categoryStates = UploadPolicy.Category.allCases.map { cat in
-                "\(cat.rawValue)=\(UploadPolicy.isEnabled(cat))"
-            }.joined(separator: " ")
-            // Count any pending dirty rows so we can tell if writes are
-            // backing up (sync running but push failing) vs no writes
-            // happening at all (markDirty skipped at the source).
-            var dirtyCount = 0
-            var dirtyByType: [String: Int] = [:]
-            var dStmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, "SELECT record_type, COUNT(*) FROM sync_dirty_records GROUP BY record_type", -1, &dStmt, nil) == SQLITE_OK {
-                while sqlite3_step(dStmt) == SQLITE_ROW {
-                    let t = String(cString: sqlite3_column_text(dStmt, 0))
-                    let c = Int(sqlite3_column_int(dStmt, 1))
-                    dirtyByType[t] = c
-                    dirtyCount += c
-                }
-            }
-            sqlite3_finalize(dStmt)
-            let dirtySummary = dirtyByType.isEmpty ? "empty" : dirtyByType.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ",")
-            iCloudLogger.info("[iCloud] listSyncDevices=0 diag: zone=\(zoneState) uploadPolicy=[\(categoryStates)] dirtyQueue=\(dirtyCount){\(dirtySummary)}")
-        }
-        return devices
-    }
-
-    // MARK: - Remote Session CRUD
-
-    func upsertRemoteSession(_ session: ChatSession, deviceId: String) {
-        iCloudLogger.info("[iCloud] upsertRemoteSession: id=\(session.id) title=\(session.title ?? "nil") deviceId=\(deviceId) model=\(session.modelId)")
-        let sql = """
-            INSERT OR REPLACE INTO remote_sessions (id, device_id, title, category, model_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (session.id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            bindOptionalText(stmt, index: 3, value: session.title)
-            bindOptionalText(stmt, index: 4, value: session.category)
-            sqlite3_bind_text(stmt, 5, (session.modelId as NSString).utf8String, -1, nil)
-            sqlite3_bind_double(stmt, 6, session.createdAt.timeIntervalSince1970)
-            sqlite3_bind_double(stmt, 7, session.updatedAt.timeIntervalSince1970)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    /// Merge a remote session into local sessions table (last-write-wins).
-    /// If local doesn't have this session → insert with remote_origin_device_id.
-    /// If local has it but remote updated_at is newer → update title/category/updated_at.
-    /// If local has it and is newer → skip.
-    /// Merge a remote session into local sessions table.
-    /// - `remotePinnedAtRaw`: The raw pinnedAt Date from CKRecord. nil = old device (field absent),
-    ///   epoch 0 = explicitly unpinned, positive = pinned timestamp.
-    /// - `remoteHasFolderField`: whether the inbound record carried the
-    ///   folderId key AT ALL. Old-build peers omit it entirely; for them the
-    ///   local folder assignment must be preserved, whereas a new-build peer
-    ///   sending an explicit nil means "ungrouped on that device" and, when
-    ///   remote is newer, that wins (folder_id rides the session's LWW).
-    func mergeRemoteSession(_ session: ChatSession, fromDeviceId: String, memoryEnabled: Bool = true, modelBinding: String? = nil, remotePinnedAtRaw: Date? = nil, remoteFolderId: String? = nil, remoteHasFolderField: Bool = false, remoteSource: String? = nil, remoteHasSourceField: Bool = false, remoteParentSessionId: String? = nil, remoteParentToolUseId: String? = nil, remoteHasParentField: Bool = false) {
-        invalidateSessionListCache()
-        // [batch7][T-p1-delegate-task] Parent linkage is immutable for the life
-        // of a child (only a future "promote" clears it), so the merge rule is
-        // simple: adopt the peer's value whenever the peer's record carries the
-        // field. An old-build peer omitting it must not clear ours. Runs as a
-        // defer so it covers both the UPDATE and the INSERT paths below.
-        defer {
-            if remoteHasParentField {
-                let pSql = "UPDATE sessions SET parent_session_id = ?, parent_tool_use_id = ? WHERE id = ?"
-                var pStmt: OpaquePointer?
-                if sqlite3_prepare_v2(db, pSql, -1, &pStmt, nil) == SQLITE_OK {
-                    bindOptionalText(pStmt, index: 1, value: remoteParentSessionId)
-                    bindOptionalText(pStmt, index: 2, value: remoteParentToolUseId)
-                    sqlite3_bind_text(pStmt, 3, (session.id as NSString).utf8String, -1, nil)
-                    sqlite3_step(pStmt)
-                }
-                sqlite3_finalize(pStmt)
-            }
-        }
-        var localUpdatedAt: Double?
-        var localPinnedAt: Double?
-        var localFolderId: String?
-        // [batch6b / W3A-08] Metadata clock for the LWW comparison below.
-        var localMetaUpdatedAt: Double?
-        let checkSql = "SELECT updated_at, pinned_at, folder_id, meta_updated_at FROM sessions WHERE id = ?"
-        var checkStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, checkSql, -1, &checkStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(checkStmt, 1, (session.id as NSString).utf8String, -1, nil)
-            if sqlite3_step(checkStmt) == SQLITE_ROW {
-                localUpdatedAt = sqlite3_column_double(checkStmt, 0)
-                if sqlite3_column_type(checkStmt, 1) != SQLITE_NULL {
-                    localPinnedAt = sqlite3_column_double(checkStmt, 1)
-                }
-                localFolderId = sqlite3_column_text(checkStmt, 2).map { String(cString: $0) }
-                if sqlite3_column_type(checkStmt, 3) != SQLITE_NULL {
-                    localMetaUpdatedAt = sqlite3_column_double(checkStmt, 3)
-                }
-            }
-        }
-        sqlite3_finalize(checkStmt)
-
-        let remoteUpdated = session.updatedAt.timeIntervalSince1970
-
-        // Resolve pinned_at merge:
-        // - remotePinnedAtRaw == nil → old device, don't touch local pin state
-        // - remotePinnedAtRaw == epoch 0 → explicit unpin from remote
-        // - remotePinnedAtRaw > 0 → pin from remote
-        // Rule: most recent pin/unpin wins (by timestamp). If remote has no pin info, keep local.
-        let resolvedPinnedAt: Double? = {
-            guard let rawDate = remotePinnedAtRaw else {
-                // Old device didn't send pinnedAt — preserve local state
-                return localPinnedAt
-            }
-            let remoteTs = rawDate.timeIntervalSince1970
-            if remoteTs <= 0 {
-                // Remote explicitly unpinned
-                if let localTs = localPinnedAt {
-                    // Local is pinned — keep local pin (local action is more recent if user pinned locally)
-                    // We can't know which is newer without a dedicated pin_updated_at, so keep local pin
-                    // to avoid accidental unpin from stale remote state
-                    return localTs
-                }
-                return nil // both unpinned
-            } else {
-                // Remote is pinned
-                if let localTs = localPinnedAt {
-                    // Both pinned — keep the more recent pin timestamp
-                    return max(remoteTs, localTs)
-                }
-                // Local not pinned, remote is pinned — adopt remote pin
-                return remoteTs
-            }
-        }()
-
-        if let localTs = localUpdatedAt {
-            // Local exists — only update title/category/etc if remote is newer.
-            // [batch6b / W3A-08] Compare the remote METADATA clock against the
-            // local metadata clock (falling back to updated_at for pre-column
-            // rows): pure message activity no longer wins this comparison.
-            let localCompareTs = localMetaUpdatedAt ?? localTs
-            if remoteUpdated > localCompareTs {
-                iCloudLogger.info("[iCloud] mergeRemoteSession UPDATE (remote newer): id=\(session.id) remoteTs=\(remoteUpdated) localTs=\(localTs) localMetaTs=\(localCompareTs)")
-                // folder_id is written ONLY when the peer's record carried
-                // the field — an old build's record omitting it must not wipe
-                // a local folder assignment (same tolerance pinnedAt got).
-                // `source` follows the identical rule: an old build never
-                // sends it, and its echo must not clear the local origin
-                // marker (e.g. "shortcut").
-                // [batch6b / W3A-08] The accepted remote value now lands in
-                // meta_updated_at (slot 3 — was updated_at). The LOCAL
-                // updated_at is deliberately left alone: it is this device's
-                // activity clock for list ordering, not a sync clock.
-                let sql: String
-                switch (remoteHasFolderField, remoteHasSourceField) {
-                case (true, true):
-                    sql = "UPDATE sessions SET title = ?, category = ?, meta_updated_at = ?, memory_enabled = ?, model_binding = ?, pinned_at = ?, folder_id = ?, source = ? WHERE id = ?"
-                case (true, false):
-                    sql = "UPDATE sessions SET title = ?, category = ?, meta_updated_at = ?, memory_enabled = ?, model_binding = ?, pinned_at = ?, folder_id = ? WHERE id = ?"
-                case (false, true):
-                    sql = "UPDATE sessions SET title = ?, category = ?, meta_updated_at = ?, memory_enabled = ?, model_binding = ?, pinned_at = ?, source = ? WHERE id = ?"
-                case (false, false):
-                    sql = "UPDATE sessions SET title = ?, category = ?, meta_updated_at = ?, memory_enabled = ?, model_binding = ?, pinned_at = ? WHERE id = ?"
-                }
-                var stmt: OpaquePointer?
-                if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                    bindOptionalText(stmt, index: 1, value: session.title)
-                    bindOptionalText(stmt, index: 2, value: session.category)
-                    sqlite3_bind_double(stmt, 3, remoteUpdated)
-                    sqlite3_bind_int(stmt, 4, memoryEnabled ? 1 : 0)
-                    bindOptionalText(stmt, index: 5, value: modelBinding)
-                    if let pinTs = resolvedPinnedAt {
-                        sqlite3_bind_double(stmt, 6, pinTs)
-                    } else {
-                        sqlite3_bind_null(stmt, 6)
-                    }
-                    var nextIndex: Int32 = 7
-                    if remoteHasFolderField {
-                        bindOptionalText(stmt, index: nextIndex, value: remoteFolderId)
-                        nextIndex += 1
-                    }
-                    if remoteHasSourceField {
-                        bindOptionalText(stmt, index: nextIndex, value: remoteSource)
-                        nextIndex += 1
-                    }
-                    sqlite3_bind_text(stmt, nextIndex, (session.id as NSString).utf8String, -1, nil)
-                    sqlite3_step(stmt)
-                }
-                sqlite3_finalize(stmt)
-                // Wake the home list. ContentView observes
-                // .sessionDidUpdate (debounce 3s — fine for title/pin
-                // edits arriving from a peer). Without this post a
-                // remote-newer merge silently updated SQLite while the
-                // list kept showing the stale snapshot until the user
-                // backgrounded the app or pulled-to-refresh
-                // (T-inbound-session-no-refresh).
-                NotificationCenter.default.post(name: .sessionDidUpdate, object: session.id)
-            } else {
-                let delta = localTs - remoteUpdated
-                iCloudLogger.info("[iCloud] mergeRemoteSession SKIP (local newer): id=\(session.id) localTs=\(localTs) remoteTs=\(remoteUpdated) delta=\(String(format: "%+.3f", delta))s from=\(fromDeviceId)")
-                if remoteUpdated > localTs {
-                    iCloudLogger.warning("[iCloud] mergeRemoteSession SKIP despite remote-newer: id=\(session.id) localTs=\(localTs) remoteTs=\(remoteUpdated) — should not happen")
-                }
-                // Folder membership needs the same skip-branch sub-merge as
-                // pin state, and for the same root cause: filing a session
-                // does NOT bump updated_at (an organizational move must not
-                // resort the list), so a peer's folder move arrives with an
-                // unchanged session timestamp, lands in THIS branch, and
-                // would otherwise never apply anywhere.
-                //
-                // Conservative rule, mirroring the stale-unpin guard below:
-                // adopt the remote folder only when we have no local opinion
-                // (local NULL). remote-NULL-vs-local-set and set-vs-set-
-                // different keep local — without a per-field timestamp we
-                // can't rank the two writes, and this is the local-newer
-                // branch. Known accepted limitation (same class as pin's):
-                // a bare "move out of folder" with no other session activity
-                // does not propagate; the dissolve path is unaffected since
-                // it also ships a FolderV2 tombstone that clears members.
-                if remoteHasFolderField, localFolderId == nil, let remoteFid = remoteFolderId {
-                    let fSql = "UPDATE sessions SET folder_id = ? WHERE id = ? AND folder_id IS NULL"
-                    var fStmt: OpaquePointer?
-                    if sqlite3_prepare_v2(db, fSql, -1, &fStmt, nil) == SQLITE_OK {
-                        sqlite3_bind_text(fStmt, 1, (remoteFid as NSString).utf8String, -1, nil)
-                        sqlite3_bind_text(fStmt, 2, (session.id as NSString).utf8String, -1, nil)
-                        sqlite3_step(fStmt)
-                    }
-                    sqlite3_finalize(fStmt)
-                    iCloudLogger.info("[iCloud] mergeRemoteSession folder sub-merge: id=\(session.id.prefix(8)) -> folder \(remoteFid.prefix(8))")
-                    NotificationCenter.default.post(name: .sessionDidUpdate, object: session.id)
-                }
-                // Same conservative adoption for `source`: it is stamped at
-                // creation and never changes, so it also arrives without an
-                // updated_at bump worth ranking — and sessions merged before
-                // `source` sync existed sit locally with source NULL forever
-                // unless this branch adopts it. Only fill a local NULL; a
-                // local value is never overwritten from the skip branch.
-                if remoteHasSourceField, let remoteSrc = remoteSource {
-                    let sSql = "UPDATE sessions SET source = ? WHERE id = ? AND source IS NULL"
-                    var sStmt: OpaquePointer?
-                    if sqlite3_prepare_v2(db, sSql, -1, &sStmt, nil) == SQLITE_OK {
-                        sqlite3_bind_text(sStmt, 1, (remoteSrc as NSString).utf8String, -1, nil)
-                        sqlite3_bind_text(sStmt, 2, (session.id as NSString).utf8String, -1, nil)
-                        sqlite3_step(sStmt)
-                    }
-                    sqlite3_finalize(sStmt)
-                    if sqlite3_changes(db) > 0 {
-                        iCloudLogger.info("[iCloud] mergeRemoteSession source sub-merge: id=\(session.id.prefix(8)) -> \(remoteSrc)")
-                        NotificationCenter.default.post(name: .sessionDidUpdate, object: session.id)
-                    }
-                }
-                // Even if we skip the main update, still merge pin state if remote has pin info
-                // and the resolved pin differs from local
-                if remotePinnedAtRaw != nil, resolvedPinnedAt != localPinnedAt {
-                    let pinSql = "UPDATE sessions SET pinned_at = ? WHERE id = ?"
-                    var pinStmt: OpaquePointer?
-                    if sqlite3_prepare_v2(db, pinSql, -1, &pinStmt, nil) == SQLITE_OK {
-                        if let pinTs = resolvedPinnedAt {
-                            sqlite3_bind_double(pinStmt, 1, pinTs)
-                        } else {
-                            sqlite3_bind_null(pinStmt, 1)
-                        }
-                        sqlite3_bind_text(pinStmt, 2, (session.id as NSString).utf8String, -1, nil)
-                        sqlite3_step(pinStmt)
-                    }
-                    sqlite3_finalize(pinStmt)
-                }
-            }
-        } else {
-            // [T-icloud-deleted-session-resurrection] Refuse to resurrect a
-            // session the user just deleted locally. fetchRecentV2 can pull the
-            // still-present cloud record back before our delete tombstone lands;
-            // without this guard the session reappears (with a ☁️ remote-origin
-            // marker). Only block when the inbound record isn't newer than the
-            // deletion — a genuine newer re-create of the same id still applies.
-            if isResurrectionOfDeleted(session.id, remoteUpdatedAt: Date(timeIntervalSince1970: remoteUpdated)) {
-                iCloudLogger.info("[iCloud] mergeRemoteSession SKIP (recently deleted locally — resurrection blocked): id=\(session.id) remoteTs=\(remoteUpdated)")
-                return
-            }
-            // Local doesn't have this session — insert
-            iCloudLogger.info("[iCloud] mergeRemoteSession INSERT: id=\(session.id) title=\(session.title ?? "nil") from=\(fromDeviceId)")
-            let sql = "INSERT INTO sessions (id, title, category, model_id, created_at, updated_at, remote_origin_device_id, memory_enabled, model_binding, pinned_at, folder_id, source, persona_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, (session.id as NSString).utf8String, -1, nil)
-                bindOptionalText(stmt, index: 2, value: session.title)
-                bindOptionalText(stmt, index: 3, value: session.category)
-                sqlite3_bind_text(stmt, 4, (session.modelId as NSString).utf8String, -1, nil)
-                sqlite3_bind_double(stmt, 5, session.createdAt.timeIntervalSince1970)
-                sqlite3_bind_double(stmt, 6, remoteUpdated)
-                // [T-sync-recovery-v1-parity] An empty origin means "the writer
-                // didn't say" (a peer that predates the source-device stamp),
-                // not "the device whose id is the empty string". Storing "" makes
-                // `remoteDeviceId` non-nil, so the row claims to be remote while
-                // being unattributable — the iCloud badge shows and nothing can
-                // say where it came from. NULL is the honest value.
-                bindOptionalText(stmt, index: 7, value: fromDeviceId.isEmpty ? nil : fromDeviceId)
-                sqlite3_bind_int(stmt, 8, memoryEnabled ? 1 : 0)
-                bindOptionalText(stmt, index: 9, value: modelBinding)
-                if let pinTs = resolvedPinnedAt {
-                    sqlite3_bind_double(stmt, 10, pinTs)
-                } else {
-                    sqlite3_bind_null(stmt, 10)
-                }
-                // A folder_id referencing a folder we don't have yet is fine —
-                // the list renders it as ungrouped until FolderV2 arrives
-                // (fetchRecentV2 ordering gives no cross-type guarantees).
-                bindOptionalText(stmt, index: 11, value: remoteHasFolderField ? remoteFolderId : nil)
-                bindOptionalText(stmt, index: 12, value: remoteHasSourceField ? remoteSource : nil)
-                // ［persona］云端汇入的会话没有人设概念，记 NULL，本地按默认人设归属。
-                sqlite3_bind_null(stmt, 13)
-                sqlite3_step(stmt)
-            }
-            sqlite3_finalize(stmt)
-            // Brand-new remote session — post `.sessionDidCreate` so the
-            // home list reloads immediately (no debounce on this name).
-            // Matches the local-create path at AIChatViewModel.swift:4266
-            // (T-inbound-session-no-refresh).
-            NotificationCenter.default.post(name: .sessionDidCreate, object: session.id)
-        }
-
-        // Backfill: messages may have arrived before this session was merged,
-        // or the session already existed locally and remote messages were stored
-        // only in remote_messages. Always try to backfill missing messages.
-        // [T-ios-listsessions-part-flags] inline bitmask (see backfillRemoteToLocal).
-        let backfillSql = """
-            INSERT OR IGNORE INTO messages (id, session_id, role, parts_json, created_at, token_usage, sort_order, reasoning_content, stream_interrupt_count, updated_at, part_flags)
-            SELECT rm.id, rm.session_id, rm.role, rm.parts_json, rm.created_at, rm.token_usage, rm.sort_order, rm.reasoning_content, rm.stream_interrupt_count, rm.created_at, \(Self.partFlagsSQLExpr("rm.parts_json"))
-            FROM remote_messages rm WHERE rm.session_id = ? AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.id = rm.id)
-        """
-        var bfStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, backfillSql, -1, &bfStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(bfStmt, 1, (session.id as NSString).utf8String, -1, nil)
-            sqlite3_step(bfStmt)
-        }
-        sqlite3_finalize(bfStmt)
-        let backfilled = sqlite3_changes(db)
-        if backfilled > 0 {
-            iCloudLogger.info("[iCloud] mergeRemoteSession backfilled \(backfilled) messages for \(session.id)")
-        }
-    }
-
-    /// Delete a local session if it originated from the given device (remote deletion propagation).
-    func deleteLocalSessionIfFromDevice(id: String, deviceId: String) {
-        invalidateSessionListCache()
-        let sql = "DELETE FROM sessions WHERE id = ? AND remote_origin_device_id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-            let deleted = sqlite3_changes(db)
-            if deleted > 0 {
-                iCloudLogger.info("[iCloud] deleteLocalSessionIfFromDevice: deleted session \(id) (origin: \(deviceId))")
-                // Also clean up messages
-                let delMsgSql = "DELETE FROM messages WHERE session_id = ?"
-                var delMsgStmt: OpaquePointer?
-                if sqlite3_prepare_v2(db, delMsgSql, -1, &delMsgStmt, nil) == SQLITE_OK {
-                    sqlite3_bind_text(delMsgStmt, 1, (id as NSString).utf8String, -1, nil)
-                    sqlite3_step(delMsgStmt)
-                }
-                sqlite3_finalize(delMsgStmt)
-            }
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    /// Merge a remote message into local messages table if the session exists locally.
-    /// Uses conditional upsert: INSERT if new, UPDATE if remote updated_at is newer.
-    func mergeRemoteMessage(
-        id: String, sessionId: String, role: String, partsJson: String,
-        createdAt: Date, tokenUsageJson: String?, sortOrder: Int,
-        reasoningContent: String?, streamInterruptCount: Int,
-        updatedAt: Date? = nil,
-        // [T-token-attribution-snapshot] nil when the sending device predates
-        // these fields. nil means "the remote told us nothing", NOT "the remote
-        // says this is empty" — the UPDATE below preserves the local value in
-        // that case. See the COALESCE note there.
-        modelId: String? = nil, modelDisplayName: String? = nil,
-        providerType: String? = nil, providerInstanceId: String? = nil
-    ) {
-        invalidateSessionListCache()
-        // Defer merging into a session that's actively running locally. While
-        // an agent loop is streaming / running tools, the message list is
-        // volatile and locally authoritative: appends bump sort_order and
-        // updated_at every tool round. A remote message arriving mid-run (often
-        // this device's own just-pushed rows echoed back by CloudKit) would
-        // win LWW or, worse, re-rank sort_order via the insert path's shift —
-        // scrambling the running session so listSessions can't resolve its
-        // preview ("No messages yet") and stale pre-retry content reappears.
-        // CloudKit re-delivers unmerged changes on the next fetch, so skipping
-        // here is safe: the session re-syncs once the run finishes and the
-        // tracker clears. [T-sync-clobbers-running-session]
-        if SessionActivityTracker.isActiveThreadSafe(sessionId) {
-            iCloudLogger.info("[iCloud] mergeRemoteMessage DEFER (session running locally): id=\(id.prefix(8)) sid=\(sessionId.prefix(8))")
-            return
-        }
-
-        // Only merge if the session exists in local sessions table
-        let checkSql = "SELECT id FROM sessions WHERE id = ?"
-        var checkStmt: OpaquePointer?
-        var sessionExists = false
-        if sqlite3_prepare_v2(db, checkSql, -1, &checkStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(checkStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            sessionExists = sqlite3_step(checkStmt) == SQLITE_ROW
-        }
-        sqlite3_finalize(checkStmt)
-        guard sessionExists else { return }
-
-        // [T-icloud-deleted-session-resurrection] Defence in depth: even if the
-        // parent session row somehow exists, refuse to re-insert a message whose
-        // session was just deleted locally and isn't newer than the deletion —
-        // so a stale inbound message can't resurrect content under a tombstoned
-        // session. (The session guard above normally already blocks this, since
-        // a deleted session has no row.)
-        let msgUpdatedAt = updatedAt ?? createdAt
-        if isResurrectionOfDeleted(sessionId, remoteUpdatedAt: msgUpdatedAt) {
-            iCloudLogger.info("[iCloud] mergeRemoteMessage SKIP (parent session recently deleted — resurrection blocked): id=\(id.prefix(8)) sid=\(sessionId.prefix(8))")
-            return
-        }
-
-        // Effective updated_at: use provided value, or fall back to created_at
-        // (old devices don't send updated_at)
-        let effectiveUpdatedAt = (updatedAt ?? createdAt).timeIntervalSince1970
-
-        // Check if message already exists locally and its updated_at
-        var localUpdatedAt: Double?
-        let existSql = "SELECT COALESCE(updated_at, created_at) FROM messages WHERE id = ?"
-        var existStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, existSql, -1, &existStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(existStmt, 1, (id as NSString).utf8String, -1, nil)
-            if sqlite3_step(existStmt) == SQLITE_ROW {
-                localUpdatedAt = sqlite3_column_double(existStmt, 0)
-            }
-        }
-        sqlite3_finalize(existStmt)
-
-        if let localTs = localUpdatedAt {
-            // Message exists — only update if remote is strictly newer
-            guard effectiveUpdatedAt > localTs else {
-                let delta = localTs - effectiveUpdatedAt
-                // Even when LWW says skip, opportunistically heal a
-                // stale local sort_order if the remote value disagrees.
-                // Common case: a previous build pushed sortOrder=0 for
-                // every message and the receiver's collision-by-arrival
-                // path stamped them with arbitrary positions. New build
-                // pushes correct sortOrder but updatedAt is unchanged
-                // (force-sync just re-uploads the same content), so
-                // strict-newer LWW would otherwise stay forever wrong.
-                // Note: previous builds healed local sort_order from the remote integer
-                // here. That's now intentionally dropped — remote sortOrder is a
-                // best-effort hint; the receiver derives its own from (created_at, id)
-                // rank on insert, and `repairSession` fixes any rank inversions on
-                // session open. See sessionNeedsRepair / mergeRemoteMessage insert path.
-                iCloudLogger.info("[iCloud] mergeRemoteMessage SKIP (local newer): id=\(id) localTs=\(localTs) remoteTs=\(effectiveUpdatedAt) delta=\(String(format: "%+.3f", delta))s")
-                return
-            }
-            iCloudLogger.info("[iCloud] mergeRemoteMessage UPDATE (remote newer): id=\(id) remoteTs=\(effectiveUpdatedAt) localTs=\(localTs)")
-            // Don't overwrite local sort_order from remote — receivers own ordering
-            // (derived from created_at rank on insert; repaired by repairSession).
-            // [T-ios-listsessions-part-flags] recompute from the inbound JSON.
-            let partFlags = Self.partFlags(fromPartsJSON: partsJson)
-            // [T-token-attribution-snapshot] The four attribution columns use
-            // COALESCE(?, col) rather than a plain assignment.
-            //
-            // A device running an older build re-sends this message WITHOUT
-            // these fields. A plain `model_id = ?` would then bind NULL and
-            // erase a snapshot this device recorded correctly — and because
-            // conflict resolution is last-write-wins on updated_at, the older
-            // device can legitimately win. The result would be attribution that
-            // silently disappears at random, which is close to impossible to
-            // diagnose from a bug report.
-            //
-            // COALESCE encodes the real semantics: absent means "no opinion",
-            // so keep what we have. Note this is only correct for snapshot-type
-            // columns; parts_json and friends must still be overwritten, since
-            // for those an incoming value genuinely is the newer truth.
-            let updateSql = """
-                UPDATE messages SET parts_json = ?, token_usage = ?, reasoning_content = ?,
-                    stream_interrupt_count = ?, updated_at = ?, part_flags = ?,
-                    model_id = COALESCE(?, model_id),
-                    model_display_name = COALESCE(?, model_display_name),
-                    provider_type = COALESCE(?, provider_type),
-                    provider_instance_id = COALESCE(?, provider_instance_id)
-                WHERE id = ?
-            """
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, updateSql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, (partsJson as NSString).utf8String, -1, nil)
-                if let tu = tokenUsageJson { sqlite3_bind_text(stmt, 2, (tu as NSString).utf8String, -1, nil) }
-                else { sqlite3_bind_null(stmt, 2) }
-                if let r = reasoningContent { sqlite3_bind_text(stmt, 3, (r as NSString).utf8String, -1, nil) }
-                else { sqlite3_bind_null(stmt, 3) }
-                sqlite3_bind_int(stmt, 4, Int32(streamInterruptCount))
-                sqlite3_bind_double(stmt, 5, effectiveUpdatedAt)
-                sqlite3_bind_int64(stmt, 6, Int64(partFlags))
-                // 7-10 feed the COALESCE guards: binding NULL leaves the
-                // existing column untouched, which is what an older sender
-                // (who knows nothing of these fields) must not disturb.
-                bindOptionalText(stmt, index: 7, value: modelId)
-                bindOptionalText(stmt, index: 8, value: modelDisplayName)
-                bindOptionalText(stmt, index: 9, value: providerType)
-                bindOptionalText(stmt, index: 10, value: providerInstanceId)
-                sqlite3_bind_text(stmt, 11, (id as NSString).utf8String, -1, nil)
-                sqlite3_step(stmt)
-            }
-            sqlite3_finalize(stmt)
-        } else {
-            // Message doesn't exist — insert.
-            // Always derive finalSortOrder from (created_at, id) rank against
-            // existing local rows; never trust the wire integer. The remote
-            // sortOrder is a best-effort hint that's wrong whenever sender
-            // and receiver have differing message counts (sender's larger
-            // values would otherwise stick on the receiver and push synced
-            // messages past the local tail). Tiebreak by id lexicographic
-            // to match the canonical (created_at ASC, id ASC) order used by
-            // repairSession at line ~2408.
-            let createdAtTs = createdAt.timeIntervalSince1970
-            let earlierSql = """
-                SELECT COALESCE(MAX(sort_order), -1)
-                FROM messages
-                WHERE session_id = ?
-                  AND (created_at < ? OR (created_at = ? AND id < ?))
-            """
-            var earlierStmt: OpaquePointer?
-            var earlierMax: Int32 = -1
-            if sqlite3_prepare_v2(db, earlierSql, -1, &earlierStmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(earlierStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-                sqlite3_bind_double(earlierStmt, 2, createdAtTs)
-                sqlite3_bind_double(earlierStmt, 3, createdAtTs)
-                sqlite3_bind_text(earlierStmt, 4, (id as NSString).utf8String, -1, nil)
-                if sqlite3_step(earlierStmt) == SQLITE_ROW {
-                    earlierMax = sqlite3_column_int(earlierStmt, 0)
-                }
-            }
-            sqlite3_finalize(earlierStmt)
-
-            let laterSql = """
-                SELECT MIN(sort_order)
-                FROM messages
-                WHERE session_id = ?
-                  AND (created_at > ? OR (created_at = ? AND id > ?))
-            """
-            var laterStmt: OpaquePointer?
-            var hasLater = false
-            var laterMin: Int32 = 0
-            if sqlite3_prepare_v2(db, laterSql, -1, &laterStmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(laterStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-                sqlite3_bind_double(laterStmt, 2, createdAtTs)
-                sqlite3_bind_double(laterStmt, 3, createdAtTs)
-                sqlite3_bind_text(laterStmt, 4, (id as NSString).utf8String, -1, nil)
-                if sqlite3_step(laterStmt) == SQLITE_ROW {
-                    if sqlite3_column_type(laterStmt, 0) != SQLITE_NULL {
-                        hasLater = true
-                        laterMin = sqlite3_column_int(laterStmt, 0)
-                    }
-                }
-            }
-            sqlite3_finalize(laterStmt)
-
-            let finalSortOrder: Int
-            if !hasLater {
-                // Append: nothing comes after.
-                finalSortOrder = Int(earlierMax) + 1
-            } else if earlierMax + 1 < laterMin {
-                // Gap available — slot in without shifting.
-                finalSortOrder = Int(earlierMax) + 1
-            } else {
-                // Shift all later rows up by 1 to make room.
-                let shiftSql = "UPDATE messages SET sort_order = sort_order + 1 WHERE session_id = ? AND sort_order >= ?"
-                var shiftStmt: OpaquePointer?
-                if sqlite3_prepare_v2(db, shiftSql, -1, &shiftStmt, nil) == SQLITE_OK {
-                    sqlite3_bind_text(shiftStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-                    sqlite3_bind_int(shiftStmt, 2, laterMin)
-                    sqlite3_step(shiftStmt)
-                }
-                sqlite3_finalize(shiftStmt)
-                finalSortOrder = Int(laterMin)
-            }
-
-            iCloudLogger.info("[iCloud] mergeRemoteMessage INSERT: id=\(id) session=\(sessionId) sortOrder=\(finalSortOrder) (remoteHint=\(sortOrder))")
-            // [T-ios-listsessions-part-flags] recompute from the inbound JSON.
-            let partFlags = Self.partFlags(fromPartsJSON: partsJson)
-            let insertSql = """
-                INSERT INTO messages (id, session_id, role, parts_json, created_at, token_usage, sort_order, reasoning_content, stream_interrupt_count, updated_at, part_flags, model_id, model_display_name, provider_type, provider_instance_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, insertSql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(stmt, 2, (sessionId as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(stmt, 3, (role as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(stmt, 4, (partsJson as NSString).utf8String, -1, nil)
-                sqlite3_bind_double(stmt, 5, createdAt.timeIntervalSince1970)
-                if let tu = tokenUsageJson { sqlite3_bind_text(stmt, 6, (tu as NSString).utf8String, -1, nil) }
-                else { sqlite3_bind_null(stmt, 6) }
-                sqlite3_bind_int(stmt, 7, Int32(finalSortOrder))
-                if let r = reasoningContent { sqlite3_bind_text(stmt, 8, (r as NSString).utf8String, -1, nil) }
-                else { sqlite3_bind_null(stmt, 8) }
-                sqlite3_bind_int(stmt, 9, Int32(streamInterruptCount))
-                sqlite3_bind_double(stmt, 10, effectiveUpdatedAt)
-                sqlite3_bind_int64(stmt, 11, Int64(partFlags))
-                // [T-token-attribution-snapshot] Carried through so a message
-                // that first arrives from another device keeps the attribution
-                // that device measured. Plain binds (not COALESCE) — on INSERT
-                // there is no local value to protect.
-                bindOptionalText(stmt, index: 12, value: modelId)
-                bindOptionalText(stmt, index: 13, value: modelDisplayName)
-                bindOptionalText(stmt, index: 14, value: providerType)
-                bindOptionalText(stmt, index: 15, value: providerInstanceId)
-                sqlite3_step(stmt)
-            }
-            sqlite3_finalize(stmt)
-        }
-        // Notify the in-process ViewModel cache that this session's
-        // messages have changed via iCloud merge. The foreground-visible
-        // VM already reloads via `.cloudSyncDidFetchChanges` at the end
-        // of the batch (AIChatViewModel:666), but a cached background VM
-        // for a non-active session would otherwise render its stale
-        // messages snapshot the next time the user opens it. The flag
-        // is consumed on the next getOrCreate HIT
-        // (T-inbound-message-cached-vm-stale).
-        let sid = sessionId
-        Task { @MainActor in
-            ViewModelCache.shared.markStale(sessionId: sid)
-        }
-    }
-
-    func deleteRemoteSession(id: String, deviceId: String) {
-        // Parameterized deletes to avoid SQL injection
-        for table in ["remote_messages", "remote_media"] {
-            let sql = "DELETE FROM \(table) WHERE session_id = ? AND device_id = ?"
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-                sqlite3_step(stmt)
-            }
-            sqlite3_finalize(stmt)
-        }
-        let sql = "DELETE FROM remote_sessions WHERE id = ? AND device_id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func listRemoteSessions(deviceId: String) -> [ChatSession] {
-        iCloudLogger.info("[iCloud] listRemoteSessions: querying deviceId=\(deviceId)")
-        let sql = """
-            SELECT id, title, category, model_id, created_at, updated_at
-            FROM remote_sessions WHERE device_id = ? ORDER BY updated_at DESC
-        """
-        var stmt: OpaquePointer?
-        var sessions: [ChatSession] = []
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (deviceId as NSString).utf8String, -1, nil)
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                sessions.append(ChatSession(
-                    id: String(cString: sqlite3_column_text(stmt, 0)),
-                    title: sqlite3_column_text(stmt, 1).map { String(cString: $0) },
-                    category: sqlite3_column_text(stmt, 2).map { String(cString: $0) },
-                    modelId: String(cString: sqlite3_column_text(stmt, 3)),
-                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4)),
-                    updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
-                ))
-            }
-        }
-        sqlite3_finalize(stmt)
-        iCloudLogger.info("[iCloud] listRemoteSessions: deviceId=\(deviceId) returned \(sessions.count) sessions")
-        for s in sessions {
-            iCloudLogger.info("[iCloud]   session: id=\(s.id) title=\(s.title ?? "nil")")
-        }
-        return sessions
-    }
-
-    // MARK: - Remote Message CRUD
-
-    func upsertRemoteMessage(
-        id: String, deviceId: String, sessionId: String, role: String,
-        partsJson: String, createdAt: Date, tokenUsageJson: String?,
-        sortOrder: Int, reasoningContent: String?, streamInterruptCount: Int
-    ) {
-        // Create placeholder session if it doesn't exist yet — messages may arrive
-        // before the Session record on the receiving device.
-        let placeholderSQL = """
-            INSERT OR IGNORE INTO remote_sessions (id, device_id, title, category, model_id, created_at, updated_at)
-            VALUES (?, ?, NULL, NULL, 'unknown', ?, ?)
-        """
-        var pStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, placeholderSQL, -1, &pStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(pStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(pStmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_bind_double(pStmt, 3, createdAt.timeIntervalSince1970)
-            sqlite3_bind_double(pStmt, 4, createdAt.timeIntervalSince1970)
-            sqlite3_step(pStmt)
-        }
-        sqlite3_finalize(pStmt)
-
-        let sql = """
-            INSERT OR REPLACE INTO remote_messages
-            (id, device_id, session_id, role, parts_json, created_at, token_usage, sort_order, reasoning_content, stream_interrupt_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 3, (sessionId as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 4, (role as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 5, (partsJson as NSString).utf8String, -1, nil)
-            sqlite3_bind_double(stmt, 6, createdAt.timeIntervalSince1970)
-            bindOptionalText(stmt, index: 7, value: tokenUsageJson)
-            sqlite3_bind_int64(stmt, 8, Int64(sortOrder))
-            bindOptionalText(stmt, index: 9, value: reasoningContent)
-            sqlite3_bind_int64(stmt, 10, Int64(streamInterruptCount))
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    /// Delete a single message from the local messages table by its message ID.
-    /// Used when a remote device signals a message-level deletion (retry / manual delete)
-    /// that should propagate across devices.
-    func deleteLocalMessage(messageId: String) {
-        invalidateSessionListCache()
-        let sql = "DELETE FROM messages WHERE id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (messageId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        let changes = Int(sqlite3_changes(db))
-        sqlite3_finalize(stmt)
-        if changes > 0 {
-            iCloudLogger.warning("[EditSync] [iCloud] deleteLocalMessage: removed '\(messageId.prefix(8))' from local messages (inbound tombstone applied)")
-        } else {
-            // [T-ios-log-noise-reduction] Downgraded WARN→DEBUG: a delete for a
-            // message that never landed locally (synced from another device that
-            // both created and deleted it while we were away) is the normal
-            // tombstone path, not a warning. Was ~6.4k WARN lines per batch sync.
-            iCloudLogger.debug("[EditSync] [iCloud] deleteLocalMessage: NO-OP '\(messageId.prefix(8))' — message not present locally (already gone or never arrived)")
-        }
-    }
-
-    func deleteRemoteMessage(id: String, deviceId: String) {
-        let sql = "DELETE FROM remote_messages WHERE id = ? AND device_id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func loadRemoteMessages(sessionId: String, deviceId: String) -> [RawMessage] {
-        let sql = """
-            SELECT id, session_id, role, parts_json, created_at, token_usage, reasoning_content, stream_interrupt_count
-            FROM remote_messages WHERE session_id = ? AND device_id = ? ORDER BY sort_order ASC, created_at ASC, id ASC
-        """
-        var stmt: OpaquePointer?
-        var messages: [RawMessage] = []
-
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let id = String(cString: sqlite3_column_text(stmt, 0))
-                let sessionId = String(cString: sqlite3_column_text(stmt, 1))
-                let roleStr = String(cString: sqlite3_column_text(stmt, 2))
-                let partsJson = String(cString: sqlite3_column_text(stmt, 3))
-                let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
-                let tokenUsageStr = sqlite3_column_text(stmt, 5).map { String(cString: $0) }
-                let reasoningContent = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
-                let streamInterruptCount = Int(sqlite3_column_int(stmt, 7))
-
-                let role = MessageRole(rawValue: roleStr) ?? .user
-                let parts = (try? JSONDecoder().decode([ContentPart].self, from: Data(partsJson.utf8))) ?? []
-                let tokenUsage = tokenUsageStr.flatMap { str in
-                    try? JSONDecoder().decode(StoredTokenUsage.self, from: Data(str.utf8))
-                }
-
-                messages.append(RawMessage(
-                    id: id, sessionId: sessionId, role: role, parts: parts,
-                    createdAt: createdAt, tokenUsage: tokenUsage,
-                    reasoningContent: reasoningContent,
-                    streamInterruptCount: streamInterruptCount
-                ))
-            }
-        }
-        sqlite3_finalize(stmt)
-        return messages
-    }
-
-    // MARK: - Remote Media CRUD
-
-    func upsertRemoteMedia(
-        id: String, deviceId: String, sessionId: String,
-        relativePath: String, mimeType: String?,
-        originalFileName: String?, localCachePath: String?
-    ) {
-        let sql = """
-            INSERT OR REPLACE INTO remote_media
-            (id, device_id, session_id, relative_path, mime_type, original_file_name, local_cache_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 3, (sessionId as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 4, (relativePath as NSString).utf8String, -1, nil)
-            bindOptionalText(stmt, index: 5, value: mimeType)
-            bindOptionalText(stmt, index: 6, value: originalFileName)
-            bindOptionalText(stmt, index: 7, value: localCachePath)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    // MARK: - Remote Skill CRUD
-
-    func upsertRemoteSkill(
-        id: String, deviceId: String, name: String, description: String,
-        version: String, importSource: String, isEnabled: Bool,
-        installedAt: Date, updatedAt: Date, bodyText: String
-    ) {
-        let sql = """
-            INSERT OR REPLACE INTO remote_skills
-            (id, device_id, name, description, version, import_source, is_enabled, installed_at, updated_at, body_text)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 3, (name as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 4, (description as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 5, (version as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 6, (importSource as NSString).utf8String, -1, nil)
-            sqlite3_bind_int(stmt, 7, isEnabled ? 1 : 0)
-            sqlite3_bind_double(stmt, 8, installedAt.timeIntervalSince1970)
-            sqlite3_bind_double(stmt, 9, updatedAt.timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 10, (bodyText as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func deleteRemoteSkill(id: String, deviceId: String) {
-        let sql = "DELETE FROM remote_skills WHERE id = ? AND device_id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func listRemoteSkills(deviceId: String) -> [Skill] {
-        let sql = """
-            SELECT id, name, description, version, import_source, is_enabled, installed_at, updated_at, body_text
-            FROM remote_skills WHERE device_id = ?
-        """
-        var stmt: OpaquePointer?
-        var skills: [Skill] = []
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (deviceId as NSString).utf8String, -1, nil)
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                skills.append(Skill(
-                    id: String(cString: sqlite3_column_text(stmt, 0)),
-                    name: String(cString: sqlite3_column_text(stmt, 1)),
-                    description: String(cString: sqlite3_column_text(stmt, 2)),
-                    version: String(cString: sqlite3_column_text(stmt, 3)),
-                    importSource: SkillImportSource.fromDB(String(cString: sqlite3_column_text(stmt, 4))),
-                    isEnabled: sqlite3_column_int(stmt, 5) == 1,
-                    installedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6)),
-                    updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 7)),
-                    body: String(cString: sqlite3_column_text(stmt, 8))
-                ))
-            }
-        }
-        sqlite3_finalize(stmt)
-        return skills
-    }
-
-    // MARK: - Remote Memory CRUD
-
-    func upsertRemoteMemory(
-        id: String, deviceId: String, fileName: String,
-        content: String, updatedAt: Date
-    ) {
-        let sql = """
-            INSERT OR REPLACE INTO remote_memories (id, device_id, file_name, content, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-        """
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 3, (fileName as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 4, (content as NSString).utf8String, -1, nil)
-            sqlite3_bind_double(stmt, 5, updatedAt.timeIntervalSince1970)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func deleteRemoteMemory(id: String, deviceId: String) {
-        let sql = "DELETE FROM remote_memories WHERE id = ? AND device_id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func listRemoteMemories(deviceId: String) -> [RemoteMemory] {
-        let sql = "SELECT id, device_id, file_name, content, updated_at FROM remote_memories WHERE device_id = ?"
-        var stmt: OpaquePointer?
-        var memories: [RemoteMemory] = []
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (deviceId as NSString).utf8String, -1, nil)
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                memories.append(RemoteMemory(
-                    id: String(cString: sqlite3_column_text(stmt, 0)),
-                    deviceId: String(cString: sqlite3_column_text(stmt, 1)),
-                    fileName: String(cString: sqlite3_column_text(stmt, 2)),
-                    content: String(cString: sqlite3_column_text(stmt, 3)),
-                    updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
-                ))
-            }
-        }
-        sqlite3_finalize(stmt)
-        return memories
-    }
-
-    // MARK: - Remote Provider Configs
-
-    func upsertRemoteProviderConfig(deviceId: String, configJson: String, updatedAt: Date) {
-        let sql = """
-            INSERT OR REPLACE INTO remote_provider_configs (device_id, config_json, updated_at)
-            VALUES (?, ?, ?)
-        """
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (configJson as NSString).utf8String, -1, nil)
-            sqlite3_bind_double(stmt, 3, updatedAt.timeIntervalSince1970)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func deleteRemoteProviderConfig(deviceId: String) {
-        let sql = "DELETE FROM remote_provider_configs WHERE device_id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func loadRemoteProviderConfig(deviceId: String) -> (configJson: String, updatedAt: Date)? {
-        let sql = "SELECT config_json, updated_at FROM remote_provider_configs WHERE device_id = ?"
-        var stmt: OpaquePointer?
-        var result: (String, Date)?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (deviceId as NSString).utf8String, -1, nil)
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                let json = String(cString: sqlite3_column_text(stmt, 0))
-                let date = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1))
-                result = (json, date)
-            }
-        }
-        sqlite3_finalize(stmt)
-        return result
-    }
-
-    // MARK: - Remote Env Vars
-
-    func upsertRemoteEnvVars(deviceId: String, envVarsJson: String, updatedAt: Date) {
-        let sql = """
-            INSERT OR REPLACE INTO remote_env_vars (device_id, env_vars_json, updated_at)
-            VALUES (?, ?, ?)
-        """
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(stmt, 2, (envVarsJson as NSString).utf8String, -1, nil)
-            sqlite3_bind_double(stmt, 3, updatedAt.timeIntervalSince1970)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func deleteRemoteEnvVars(deviceId: String) {
-        let sql = "DELETE FROM remote_env_vars WHERE device_id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (deviceId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    func loadRemoteEnvVars(deviceId: String) -> (envVarsJson: String, updatedAt: Date)? {
-        let sql = "SELECT env_vars_json, updated_at FROM remote_env_vars WHERE device_id = ?"
-        var stmt: OpaquePointer?
-        var result: (String, Date)?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (deviceId as NSString).utf8String, -1, nil)
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                let json = String(cString: sqlite3_column_text(stmt, 0))
-                let date = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1))
-                result = (json, date)
-            }
-        }
-        sqlite3_finalize(stmt)
-        return result
-    }
-
-    // MARK: - Clear Remote Tables
-
-    /// Clear all remote reference tables AND pending dirty records.
-    /// Used only by full state reset flows.
-    func clearAllRemoteTables() {
-        clearRemoteReferenceTables()
-        exec("DELETE FROM sync_dirty_records")
-    }
-
-    /// Clear remote reference/mirror tables only.
-    /// Preserves sync_dirty_records so pending local changes still get pushed.
-    func clearRemoteReferenceTables() {
-        exec("DELETE FROM remote_sessions")
-        exec("DELETE FROM remote_messages")
-        exec("DELETE FROM remote_media")
-        exec("DELETE FROM remote_skills")
-        exec("DELETE FROM remote_memories")
-        exec("DELETE FROM remote_provider_configs")
-        exec("DELETE FROM remote_env_vars")
-        exec("DELETE FROM sync_devices")
-    }
-
-    // MARK: - Single Message Lookup (for sync)
-
-    func messageSortOrder(id: String) -> Int {
-        let sql = "SELECT sort_order FROM messages WHERE id = ?"
-        var stmt: OpaquePointer?
-        var order = 0
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                order = Int(sqlite3_column_int(stmt, 0))
-            }
-        }
-        sqlite3_finalize(stmt)
-        return order
-    }
-
-    /// Return updated_at for a message, falling back to created_at if NULL (pre-migration data).
-    func messageUpdatedAt(id: String) -> Date {
-        let sql = "SELECT COALESCE(updated_at, created_at) FROM messages WHERE id = ?"
-        var stmt: OpaquePointer?
-        var ts: Double = 0
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                ts = sqlite3_column_double(stmt, 0)
-            }
-        }
-        sqlite3_finalize(stmt)
-        return Date(timeIntervalSince1970: ts)
-    }
-
-    func loadSingleMessage(id: String) -> RawMessage? {
-        let sql = """
-            SELECT id, session_id, role, parts_json, created_at, token_usage, reasoning_content, stream_interrupt_count, sort_order
-            FROM messages WHERE id = ?
-        """
-        var stmt: OpaquePointer?
-        var message: RawMessage?
-
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                let msgId = String(cString: sqlite3_column_text(stmt, 0))
-                let sessionId = String(cString: sqlite3_column_text(stmt, 1))
-                let roleStr = String(cString: sqlite3_column_text(stmt, 2))
-                let partsJson = String(cString: sqlite3_column_text(stmt, 3))
-                let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
-                let tokenUsageStr = sqlite3_column_text(stmt, 5).map { String(cString: $0) }
-                let reasoningContent = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
-                let streamInterruptCount = Int(sqlite3_column_int(stmt, 7))
-                let sortOrder = Int(sqlite3_column_int64(stmt, 8))
-
-                let role = MessageRole(rawValue: roleStr) ?? .user
-                let parts = (try? JSONDecoder().decode([ContentPart].self, from: Data(partsJson.utf8))) ?? []
-                let tokenUsage = tokenUsageStr.flatMap { str in
-                    try? JSONDecoder().decode(StoredTokenUsage.self, from: Data(str.utf8))
-                }
-
-                var raw = RawMessage(
-                    id: msgId, sessionId: sessionId, role: role, parts: parts,
-                    createdAt: createdAt, tokenUsage: tokenUsage,
-                    reasoningContent: reasoningContent,
-                    streamInterruptCount: streamInterruptCount
-                )
-                raw.sortOrder = sortOrder
-                message = raw
-            }
-        }
-        sqlite3_finalize(stmt)
-        return message
-    }
-
-    // MARK: - Size Estimation for Sync Categories
-
-    /// Estimated size of all sessions + messages in the database.
-    func estimateSessionsSize() -> Int64 {
-        var total: Int64 = 0
-        // Sessions table size (rough: count * avg row ~200 bytes)
-        let sessionCount = queryInt64("SELECT COUNT(*) FROM sessions")
-        total += sessionCount * 200
-
-        // Messages: sum of parts_json lengths + overhead
-        let partsSize = queryInt64("SELECT COALESCE(SUM(LENGTH(parts_json)), 0) FROM messages")
-        let msgCount = queryInt64("SELECT COUNT(*) FROM messages")
-        total += partsSize + msgCount * 100 // overhead per row
-        return total
-    }
-
-    /// Estimated size of all session files (attachments, offloads, workspace, browser).
-    func estimateFilesSize() -> Int64 {
-        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let minisBase = library.appendingPathComponent("MinisChat/minis")
-        return directorySize(minisBase)
-    }
-
-    /// Estimated size of memory files.
-    func estimateMemoriesSize() -> Int64 {
-        return directorySize(AIChatViewModel.minisMemoryPersistentDir)
-    }
-
-    /// Estimated size of skills (db entries + skill files).
-    func estimateSkillsSize() -> Int64 {
-        return directorySize(AIChatViewModel.minisSkillsPersistentDir)
-    }
-
-    /// Estimated size of provider config JSON.
-    func estimateProvidersSize() -> Int64 {
-        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let configURL = library.appendingPathComponent("MinisChat/provider-config.json")
-        return (try? configURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { Int64($0) } ?? 0
-    }
-
-    /// Estimated size of env vars JSON.
-    func estimateEnvVarsSize() -> Int64 {
-        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let envURL = library.appendingPathComponent("MinisChat/env-vars.json")
-        return (try? envURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { Int64($0) } ?? 0
-    }
-
-    private func queryInt64(_ sql: String) -> Int64 {
-        var stmt: OpaquePointer?
-        var result: Int64 = 0
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                result = sqlite3_column_int64(stmt, 0)
-            }
-        }
-        sqlite3_finalize(stmt)
-        return result
-    }
-
-    private func directorySize(_ url: URL) -> Int64 {
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) else { return 0 }
-        var total: Int64 = 0
-        for case let fileURL as URL in enumerator {
-            if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
-                total += Int64(size)
-            }
-        }
-        return total
-    }
 }
 
 
@@ -8316,29 +5274,21 @@ extension ChatStore {
 
 /// Restore-side writes for the backup importer (docs/backup-restore-design.md §8.3).
 ///
-/// These deliberately do NOT reuse `mergeRemoteSession` / `mergeRemoteMessage`.
-/// Those are the CloudKit inbound path and carry three behaviours that are
-/// correct for sync and wrong for a restore:
+/// Dedicated restore-side writes. They differ from a plain local write in
+/// three ways:
 ///
-///  1. **`remote_origin_device_id`** — the sync insert stamps the originating
-///     device, which makes the row render with a ☁️ remote badge and become
-///     eligible for `deleteLocalSessionIfFromDevice`. Restored data is THIS
-///     device's data; it must be indistinguishable from locally-authored rows,
-///     so this column stays NULL. (The parameter is a non-optional `String`, so
-///     the sync path physically cannot write NULL — passing "" would read back
-///     as non-nil and still show the badge.)
-///  2. **Tombstone resurrection guards** — `isResurrectionOfDeleted` silently
-///     drops a record whose id was recently deleted locally. That is right for
-///     a late CloudKit echo and wrong for a user explicitly asking to restore a
-///     backup: they would get a "success" report with rows missing. The
-///     importer clears the tombstone first (see `clearRestoreTombstone`).
-///  3. **`SessionActivityTracker` deferral** — a running agent loop makes the
-///     sync path skip the session entirely. A restore must not silently skip;
-///     the importer refuses to touch a running session up front and reports it
-///     instead.
+///  1. **`remote_origin_device_id`** — restored data is THIS device's data;
+///     it must be indistinguishable from locally-authored rows, so this
+///     column stays NULL.
+///  2. **Deletion tombstones** — a record whose id was recently deleted
+///     locally is still restorable on explicit user request: otherwise the
+///     user would get a "success" report with rows missing.
+///  3. **Running sessions** — a running agent loop owns its message list.
+///     A restore must not silently skip it; the importer refuses to touch a
+///     running session up front and reports it instead.
 ///
 /// Everything here is "last-writer-wins by updated_at", matching §8.2's Merge
-/// semantics, and none of it writes `sync_pushed_records` or tombstones (§8.3).
+/// semantics (§8.3).
 extension ChatStore {
 
     enum RestoreOutcome {
@@ -8520,8 +5470,7 @@ extension ChatStore {
     /// Delegates the write to `insertCompactMarker` rather than re-deriving its
     /// column list: that table has eleven columns including four legacy
     /// migration fields, and a hand-written copy here would silently rot the
-    /// next time one is added. Its internal `markDirty` is exactly what §8.3
-    /// asks for, so it is left in place.
+    /// next time one is added.
     func restoreCompactMarker(_ marker: CompactMarker) -> RestoreOutcome {
         var parentExists = false
         var stmt: OpaquePointer?
@@ -8545,49 +5494,6 @@ extension ChatStore {
         return .inserted
     }
 
-    // MARK: - Tombstones
-
-    /// Clear any local delete tombstone for `sessionId` so a restore can put the
-    /// session back.
-    ///
-    /// Without this the resurrection guards would silently drop exactly the rows
-    /// a user is asking to recover — the "I deleted it, then restored an older
-    /// backup to get it back" case, which is a primary reason to have backups at
-    /// all. Restoring is an explicit user action, so it outranks the guard.
-    func clearRestoreTombstone(sessionId: String) {
-        // Both tables: the session tombstone blocks the session itself, and the
-        // per-record table (keyed by record_type + record_id) blocks its
-        // messages / compact markers. Matching on record_id alone clears every
-        // type for this id, which is what a full-session restore needs.
-        for sql in ["DELETE FROM deleted_session_tombstones WHERE session_id = ?",
-                    "DELETE FROM deleted_record_tombstones WHERE record_id = ?"] {
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-                sqlite3_step(stmt)
-            }
-            sqlite3_finalize(stmt)
-        }
-    }
-
-    /// Delete the delete-tombstone row for exactly (`type`, `id`) in the
-    /// per-record table, when the record is live again.
-    ///
-    /// A group that came back alive — a peer's newer edit won LWW, or a
-    /// backup restore put it back — must not keep a tombstone row behind:
-    /// the roster merge guard (`isRecordDeleted`) would otherwise keep
-    /// stripping sub-agents' pointers at a group that is alive. Scoped to
-    /// the (type, id) pair on purpose: unlike `clearRestoreTombstone`,
-    /// which matches on record_id alone because a session restore needs
-    /// every type for that id, a group id must only clear its own row.
-    func clearRecordTombstone(type: String, id: String) {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "DELETE FROM deleted_record_tombstones WHERE record_type = ? AND record_id = ?", -1, &stmt, nil) == SQLITE_OK else { return }
-        sqlite3_bind_text(stmt, 1, (type as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (id as NSString).utf8String, -1, nil)
-        sqlite3_step(stmt)
-    }
 
     /// True when a session is mid agent-loop. The importer refuses to write into
     /// one rather than silently skipping it the way the sync path does.

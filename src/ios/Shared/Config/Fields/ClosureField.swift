@@ -74,8 +74,8 @@ struct HiddenField: ConfigField {
 }
 
 /// Wraps a real field's registration for a feature that does not exist on
-/// this device / OS version (iCloud Sync on iOS 16, Live Activity on
-/// unsupported hardware). Keeping the path registered — instead of just not
+/// this device / OS version (Live Activity on unsupported hardware, a feature
+/// that needs a newer iOS). Keeping the path registered — instead of just not
 /// registering it — lets the bridge answer with a precise
 /// `feature_unavailable` error rather than a confusing `unknown_path`, and
 /// keeps `--help` honest about why the setting can't be changed. The bridge

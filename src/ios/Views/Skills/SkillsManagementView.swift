@@ -30,11 +30,6 @@ struct SkillsManagementView: View {
     @State private var showImportSheet = false
     @State private var showSkillsBrowser = false
     @State private var searchQuery = ""
-    @State private var forceSyncAllToast: String?
-    /// Subscribed mirror of `SyncV2Bootstrap.isEnabled` so the
-    /// Force-iCloud-Sync menu entry shows / hides reactively when
-    /// the user flips the toggle in Settings.
-    @AppStorage("cloudSync.v2.enabled") private var iCloudSyncEnabled: Bool = false
     @AppStorage("skillsList.sortKey") private var sortKeyRaw: String = SkillSortKey.name.rawValue
     @AppStorage("skillsList.sortAscending") private var sortAscending: Bool = true
 
@@ -141,17 +136,6 @@ struct SkillsManagementView: View {
                     } label: {
                         Label(AppLocalized("嘟嘟 Skills"), systemImage: "globe")
                     }
-                    // Skill iCloud sync is wired through SyncV2; hide the
-                    // force-sync entry entirely when the user has the
-                    // feature off in Settings (no-op otherwise).
-                    if #available(iOS 17.0, *), iCloudSyncEnabled {
-                        Divider()
-                        Button {
-                            forceSyncAllSkills()
-                        } label: {
-                            Label(AppLocalized("Force iCloud Sync All"), systemImage: "icloud.and.arrow.up")
-                        }
-                    }
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -165,29 +149,8 @@ struct SkillsManagementView: View {
         }) {
             MinisSkillsBrowserView()
         }
-        .overlay(alignment: .top) {
-            if let msg = forceSyncAllToast {
-                Text(msg)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(MinisTheme.accent, in: Capsule())
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .settingsPage()
-        .animation(.spring(response: 0.3), value: forceSyncAllToast)
     }
 
-    private func forceSyncAllSkills() {
-        let count = store.skills.count
-        for s in store.skills { store.forceMarkDirty(s.id) }
-        SyncCore.shared.scheduleSend(delay: 0.5)
-        forceSyncAllToast = AppLocalized("Queued \(count) skills for sync")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { forceSyncAllToast = nil }
-    }
 
     @ViewBuilder
     private func importSourceBadge(_ source: SkillImportSource) -> some View {
@@ -440,14 +403,8 @@ private struct SkillDetailView: View {
     @State private var editingName: String = ""
     @State private var isEditingName = false
     @State private var showRescanDone = false
-    @State private var showForceSyncDone = false
     @State private var showDeleteConfirm = false
     @Environment(\.dismiss) private var dismiss
-    /// Mirrors `SyncV2Bootstrap.isEnabled` so the per-skill Force iCloud
-    /// Sync button shows / hides reactively when the user flips the
-    /// iCloud Sync toggle in Settings. Same gating predicate used by
-    /// the parent SkillsManagementView plus-menu (commit 47fd61ef).
-    @AppStorage("cloudSync.v2.enabled") private var iCloudSyncEnabled: Bool = false
 
     private var skill: Skill? {
         store.skills.first(where: { $0.id == skillId })
@@ -601,30 +558,6 @@ private struct SkillDetailView: View {
                         }
                     }
 
-                    // Same iCloud-toggle gate the parent SkillsManagementView
-                    // plus-menu uses (47fd61ef). Hide the button outright
-                    // when iCloud sync is disabled — the action would no-op
-                    // (markDirty + scheduleSend on a disabled engine).
-                    if #available(iOS 17.0, *), iCloudSyncEnabled {
-                        Button {
-                            store.forceMarkDirty(skillId)
-                            SyncCore.shared.scheduleSend(delay: 0.5)
-                            showForceSyncDone = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showForceSyncDone = false }
-                        } label: {
-                            HStack {
-                                Label {
-                                    Text(AppLocalized("Force iCloud Sync"))
-                                } icon: {
-                                    SettingsActionIcon(systemImage: "icloud.and.arrow.up", color: .indigo)
-                                }
-                                Spacer()
-                                if showForceSyncDone {
-                                    Text(AppLocalized("Queued")).foregroundStyle(MinisTheme.success).font(.caption)
-                                }
-                            }
-                        }
-                    }
                 }
 
                 // ── Body preview ──────────────────────────────────────

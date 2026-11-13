@@ -786,8 +786,6 @@ private enum SessionMenuAction {
     case lockSession(String)
     case unlockSession(String)
     case duplicate(String)
-    case forceSync(String)
-    case forcePull(String)
     case select(String)
     case moveToFolder(String)
     case delete(String)
@@ -837,7 +835,6 @@ enum ToolSheet: String, Identifiable {
     case rootfsManagement
     case browser
     case browserManagement
-    case syncMigrationDetail
     var id: String { rawValue }
 }
 
@@ -1001,44 +998,7 @@ struct ContentView: View {
     /// Subtitle state shown under the "Minis" sidebar title. nil hides the
     /// row; otherwise it renders as small capsules per type or a single
     /// status string. Refreshed by a 5s timer.
-    @State private var migrationSubtitle: SyncSubtitleState?
-
-    enum SyncSubtitleState: Equatable {
-        case paused
-        case migrating(percent: Int, byType: [(label: String, count: Int)])
-        case syncing(byType: [(label: String, count: Int)])
-        case upToDate
-        /// Engine is not running yet (boot delay / transport still
-        /// connecting / coming back from background). Title shows a
-        /// neutral 'waiting' icon — not an error.
-        case waiting
-
-        static func == (a: SyncSubtitleState, b: SyncSubtitleState) -> Bool {
-            switch (a, b) {
-            case (.paused, .paused): return true
-            case (.upToDate, .upToDate): return true
-            case (.waiting, .waiting): return true
-            case (.migrating(let p1, let t1), .migrating(let p2, let t2)):
-                return p1 == p2 && t1.map { $0.label + "\($0.count)" } == t2.map { $0.label + "\($0.count)" }
-            case (.syncing(let t1), .syncing(let t2)):
-                return t1.map { $0.label + "\($0.count)" } == t2.map { $0.label + "\($0.count)" }
-            default: return false
-            }
-        }
-    }
-    // [T-ios-migration-timer-sessionlist-uaf-crash] The migration-subtitle
-    // refresh cadence used to be a process-lived `Timer.publish(every:5).autoconnect()`
-    // subscribed via `.onReceive` on the sidebar Group (see sessionList). A
-    // process-lived Combine publisher whose sink attribute AttributeGraph rebuilds
-    // on every body transaction is a use-after-free hazard: a 5s tick delivered into
-    // the sink while the graph tears down/rebuilds that attribute releases a dangling
-    // sink closure (crash below). Replaced with a `.task`-driven async loop whose
-    // lifetime SwiftUI owns and cancels deterministically — no graph-bound publisher.
-    // See migrationSubtitleRefreshInterval / migrationSubtitleLoop.
     // showSettings consolidated into activeToolSheet (.settings)
-    /// [remote-device-label] deviceId → 显示名，用于在会话行上标出「这条来自哪台设备」。
-    /// 只装远程设备的条目；本地会话不查表。
-    @State private var deviceNamesById: [String: String] = [:]
     @State private var showAlarmList = false
     @State private var hasAlarms = false
     @State private var activeToolSheet: ToolSheet?
@@ -1086,23 +1046,12 @@ struct ContentView: View {
     /// Launch screen preference: 0=Auto, 1=Last Session, 2=New Chat.
     @AppStorage("launchScreen") private var launchScreen: Int = 0
     /// FAB position preference: false = right (default), true = left.
-    /// Mirror of `SyncV2Bootstrap.isEnabled` so SwiftUI re-evaluates
-    /// the iCloud-gated menu entries (per-session Force Sync / Force
-    /// Pull and the multi-select Force Sync) the moment the user
-    /// flips the toggle in Settings — without this, calling the
-    /// static getter inline would only re-read on the next unrelated
-    /// state change. `SyncV2Bootstrap.setEnabled` writes the same key.
-    @AppStorage("cloudSync.v2.enabled") private var iCloudSyncEnabled: Bool = false
     /// Current drag offset of the FAB (reset to 0 on drop).
     @State private var fabDragOffset: CGFloat = 0
 
     // Multi-select
     @State private var isSelecting = false
     @State private var selectedIds: Set<String> = []
-    /// Transient banner shown after a Force Sync action runs against
-    /// a selection. Cleared after a few seconds via DispatchQueue.
-    @State private var forceSyncToast: String? = nil
-    @State private var forceSyncInFlight = false
     @State private var scrollToId: String?
     @State private var showDeleteConfirm = false
     @State private var isComputingDelete = false
@@ -1417,8 +1366,8 @@ struct ContentView: View {
             didInitialLoad = true
             fetchAlarmsIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .cloudSyncDidFetchChanges)) { _ in
-            // [T-ios-state-publish-offmain-crash] cloud-sync fetch fires off-main;
+        .onReceive(NotificationCenter.default.publisher(for: .localStoresDidChange)) { _ in
+            // [T-ios-state-publish-offmain-crash] the reload fires off-main;
             // force the @State write onto the main thread.
             Task { @MainActor in
                 refreshSessionList()
@@ -1509,7 +1458,7 @@ struct ContentView: View {
             // hangs ~1.5s. So DELAY the outgoing-preview refresh well past the
             // incoming load (which completes in ~50-150ms) instead of racing it
             // onto the actor. Content changes are already covered by
-            // .sessionDidUpdate / .sessionDidCreate / .cloudSyncDidFetchChanges
+            // .sessionDidUpdate / .sessionDidCreate / .localStoresDidChange
             // / pin / delete / edit, so this delayed refresh is belt-and-braces.
             if hadOutgoingRealSession {
                 scheduleOutgoingPreviewRefresh()
@@ -1687,9 +1636,9 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { phase in
             // [T-ios-scenephase-active-sigkill] Defer ALL .active work off the
-            // synchronous callback. Writing @Published (SyncCore.isAppInBackground)
-            // here triggers objectWillChange → SwiftUI view invalidation in the
-            // same runloop tick as the foreground view-graph re-evaluation → SIGTRAP.
+            // synchronous callback. Writing @Published state here triggers
+            // objectWillChange → SwiftUI view invalidation in the same runloop
+            // tick as the foreground view-graph re-evaluation → SIGTRAP.
             if phase == .active {
                 Task { @MainActor in
                     await Task.yield()
@@ -1704,9 +1653,6 @@ struct ContentView: View {
                     // foreground-transition tick.
                     flushPendingBackgroundNavigation()
                     fetchAlarmsIfNeeded()
-                    if #available(iOS 17.0, *) {
-                        SyncCore.shared.isAppInBackground = false
-                    }
                     #if DEBUG
                     // [T-home-bottom-bar-v2] The DEBUG "Keep Screen Awake"
                     // toggle lived in the old terminal Menu; the bar is all
@@ -1730,9 +1676,6 @@ struct ContentView: View {
                     }
                 }
             } else {
-                if #available(iOS 17.0, *) {
-                    SyncCore.shared.isAppInBackground = (phase != .active)
-                }
             }
         }
     }
@@ -1832,15 +1775,6 @@ struct ContentView: View {
             case .browserManagement:
                 NavigationStack {
                     BrowserManagementView(pool: browserPool)
-                }
-            case .syncMigrationDetail:
-                NavigationStack {
-                    SyncMigrationDetailView()
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Done") { activeToolSheet = nil }
-                            }
-                        }
                 }
             }
         }
@@ -2115,14 +2049,6 @@ struct ContentView: View {
                     stackLayout
                 }
             }
-            .overlay(alignment: .top) {
-                if let toast = forceSyncToast {
-                    ForceSyncToastBanner(text: toast)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .padding(.top, 8)
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: forceSyncToast)
             .onChange(of: wide) { newWide in
                 isWideLayout = newWide
             }
@@ -2882,12 +2808,6 @@ struct ContentView: View {
         // and a 5s tick delivered while that attribute is being torn down/rebuilt
         // releases the dangling sink closure → use-after-free (KERN_PROTECTION_FAILURE
         // in _AppearanceActionModifier.MergedCallbacks.updateValue → swift_release_dealloc).
-        // The `.task` loop has no graph-bound publisher: SwiftUI owns the Task's
-        // lifetime by view identity and cancels it deterministically on teardown, so
-        // there is no sink to release mid-transaction. The loop also parks while the
-        // app is backgrounded (the crash reproduced with the app in the background).
-        // refreshMigrationSubtitle is idempotent (Task{@MainActor} + diff-before-assign).
-        .task { await migrationSubtitleLoop() }
         // [fix 2026-11-13] Re-read the list whenever it becomes visible again
         // (pop back from a chat, return from the restore sheet). The launch
         // .task loads once, and every other refresh path is conditional — a
@@ -2906,7 +2826,7 @@ struct ContentView: View {
         }
         // [T-ios-soul-name-sidebar-stale] Refresh the sidebar title from SOUL.md.
         // Moved here off the churny toolbar `titleLabel` Text (which rebuilds on
-        // every canOpenSync/soulName/migrationSubtitle/isSelecting change) for the
+        // every soulName/isSelecting change) for the
         // same reason as the migration timer above: this Group's identity is stable
         // across the sidebar's life, so the sink is never torn down mid-transaction
         // and can't drop a .soulMdChanged notification arriving during reconstruction.
@@ -2963,8 +2883,6 @@ struct ContentView: View {
                                 isSuspended: sidebarConcurrencyManager.isSuspended(session.id),
                                 highlightQuery: isSearching ? searchText : nil,
                                 matchSnippet: isSearching ? searchMatchSnippets[session.id] : nil,
-                                // [remote-device-label] 远程会话标来源设备；本地会话为 nil。
-                                remoteDeviceName: session.remoteDeviceId.flatMap { deviceNamesById[$0] }
                             )
                                 // [T-ios-session-list-equatable-jank] Gate
                                 // parent-driven re-eval on SessionRow's cheap
@@ -3118,8 +3036,6 @@ struct ContentView: View {
                                 isSuspended: sidebarConcurrencyManager.isSuspended(session.id),
                                 highlightQuery: isSearching ? searchText : nil,
                                 matchSnippet: isSearching ? searchMatchSnippets[session.id] : nil,
-                                // [remote-device-label] 远程会话标来源设备；本地会话为 nil。
-                                remoteDeviceName: session.remoteDeviceId.flatMap { deviceNamesById[$0] }
                             )
                                 // [T-ios-session-list-equatable-jank] Gate
                                 // parent-driven re-eval on SessionRow's cheap
@@ -3279,200 +3195,6 @@ struct ContentView: View {
     // MARK: - Sidebar Toolbar
 
     /// Refresh cadence for the sidebar migration subtitle, in seconds.
-    private static let migrationSubtitleRefreshInterval: UInt64 = 5
-
-    /// [T-ios-migration-timer-sessionlist-uaf-crash] Self-cancelling refresh loop
-    /// for `migrationSubtitle`, driven by `.task` on the identity-stable sidebar
-    /// Group. Replaces the process-lived `Timer.publish().autoconnect()` +
-    /// `.onReceive` that AttributeGraph could tear down mid-transaction (UAF).
-    ///
-    /// SwiftUI cancels this Task when the Group's identity ends, so the loop stops
-    /// cleanly with no dangling subscription. It parks (no refresh, cheap poll)
-    /// while the app is backgrounded — the crash reproduced with the app in the
-    /// background, and a hidden sidebar has nothing to display anyway.
-    @MainActor
-    private func migrationSubtitleLoop() async {
-        // Mirror the old `.onAppear { refreshMigrationSubtitle() }`: refresh once
-        // immediately so the subtitle is correct as soon as the sidebar appears.
-        refreshMigrationSubtitle()
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(nanoseconds: Self.migrationSubtitleRefreshInterval * 1_000_000_000)
-            } catch {
-                return  // cancelled during sleep
-            }
-            // Skip the refresh while backgrounded; keep looping so it resumes on
-            // return to foreground without needing a separate scene-phase wake.
-            // Read the process-level flag (kept current by the scenePhase observer)
-            // rather than the `@Environment(\.scenePhase)` captured in this `.task`
-            // closure's `self` snapshot, which would be stale.
-            let backgrounded: Bool
-            if #available(iOS 17.0, *) {
-                backgrounded = SyncCore.shared.isAppInBackground
-            } else {
-                backgrounded = false
-            }
-            if !backgrounded {
-                refreshMigrationSubtitle()
-            }
-        }
-    }
-
-    private func refreshMigrationSubtitle() {
-        guard #available(iOS 17.0, *), SyncV2Bootstrap.isEnabled else {
-            if migrationSubtitle != nil { migrationSubtitle = nil }
-            return
-        }
-        Task { @MainActor in
-            // Engine reports paused first regardless of dirty queue.
-            if SyncCore.shared.pausedUntil != nil {
-                if migrationSubtitle != .paused { migrationSubtitle = .paused }
-                return
-            }
-            let counts = await ChatStore.shared.countDirtyRecords()
-            let byType = Self.formatV2DirtyByType(counts.byType)
-            let engineUp = SyncCore.shared.isRunning
-            // Engine down but dirty queue is non-empty → stalled, not
-            // syncing. The rotating icon would lie about progress.
-            if !engineUp, !byType.isEmpty {
-                if migrationSubtitle != .waiting { migrationSubtitle = .waiting }
-                return
-            }
-            if let summary = await MigrationEngine.shared.progressSummary() {
-                let pct = summary.pushTotal > 0 ? Int(Double(summary.pushDone) * 100.0 / Double(summary.pushTotal)) : 0
-                let next: SyncSubtitleState = engineUp
-                    ? .migrating(percent: pct, byType: byType)
-                    : .waiting
-                if migrationSubtitle != next { migrationSubtitle = next }
-                return
-            }
-            if !byType.isEmpty {
-                let next: SyncSubtitleState = engineUp ? .syncing(byType: byType) : .waiting
-                if migrationSubtitle != next { migrationSubtitle = next }
-            } else {
-                // No active sync work — hide the subtitle entirely so the
-                // "Minis" title sits at its normal size.
-                if migrationSubtitle != nil { migrationSubtitle = nil }
-            }
-        }
-    }
-
-    /// Map v2 dirty-by-type counts → display capsules. Only types with
-    /// dirty>0 are returned, sorted by count desc, top 3.
-    private static func formatV2DirtyByType(_ byType: [String: Int]) -> [(label: String, count: Int)] {
-        let labels: [String: String] = [
-            "SessionV2": "Ses",
-            "MessageV2": "Msg",
-            "SessionFileV2": "Fil",
-            "CompactMarkerV2": "Cmp",
-            "ProviderConfigV2": "Prv",
-            "EnvVarV2": "Env",
-            "SyncDeviceV2": "Dev",
-            "SkillV2": "Skl",
-        ]
-        return byType
-            .compactMap { (k, v) -> (String, Int)? in
-                guard v > 0, let label = labels[k] else { return nil }
-                return (label, v)
-            }
-            .sorted { $0.1 > $1.1 }
-            .prefix(3)
-            .map { (label: $0.0, count: $0.1) }
-    }
-
-    /// Tiny indicator next to the "Minis" title showing the sync state.
-    @ViewBuilder
-    private func titleSyncIndicator(for state: SyncSubtitleState?) -> some View {
-        switch state {
-        case .none, .upToDate:
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(MinisTheme.success)
-        case .paused:
-            Image(systemName: "pause.circle.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(MinisTheme.warning)
-        case .migrating, .syncing:
-            PulseRotateIcon()
-        case .waiting:
-            Image(systemName: "clock")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(MinisTheme.secondaryText)
-        }
-    }
-
-    @ViewBuilder
-    private func syncSubtitleView(_ state: SyncSubtitleState) -> some View {
-        HStack(spacing: 5) {
-            switch state {
-            case .paused:
-                Image(systemName: "pause.circle.fill")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(MinisTheme.secondaryText)
-                Text("Sync paused")
-                    .font(.caption2)
-                    .foregroundStyle(MinisTheme.secondaryText)
-            case .migrating(let pct, let byType):
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(MinisTheme.secondaryText)
-                Text("\(pct)%")
-                    .font(.caption2.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(MinisTheme.secondaryText)
-                ForEach(byType.indices, id: \.self) { i in
-                    syncTypeChip(label: byType[i].label, count: byType[i].count)
-                }
-            case .syncing(let byType):
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(MinisTheme.secondaryText)
-                ForEach(byType.indices, id: \.self) { i in
-                    syncTypeChip(label: byType[i].label, count: byType[i].count)
-                }
-            case .upToDate:
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(MinisTheme.success)
-                Text("Up to date")
-                    .font(.caption2)
-                    .foregroundStyle(MinisTheme.secondaryText)
-            case .waiting:
-                Image(systemName: "clock")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(MinisTheme.secondaryText)
-                Text("Waiting")
-                    .font(.caption2)
-                    .foregroundStyle(MinisTheme.secondaryText)
-            }
-        }
-        .lineLimit(1)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(Color.secondary.opacity(0.12), in: Capsule())
-    }
-
-    @ViewBuilder
-    private func syncTypeChip(label: String, count: Int) -> some View {
-        HStack(spacing: 3) {
-            Text(label)
-                .font(.system(size: fontSettings.scaledApp(9), weight: .semibold))
-                .foregroundStyle(MinisTheme.secondaryText)
-            Text(formatCompact(count))
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(MinisTheme.secondaryText)
-        }
-    }
-
-    /// Compact integer formatting: 89,401 → "89k", 1,234 → "1.2k", 740 → "740".
-    private func formatCompact(_ n: Int) -> String {
-        if n < 1000 { return "\(n)" }
-        if n < 10_000 {
-            let v = Double(n) / 1000.0
-            return String(format: "%.1fk", v)
-        }
-        return "\(n / 1000)k"
-    }
-
     @ToolbarContentBuilder
     private var sidebarToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .principal) {
@@ -3480,27 +3202,13 @@ struct ContentView: View {
                 Text(selectedIds.isEmpty ? "Select Sessions" : "\(selectedIds.count) Selected")
                     .font(.headline)
             } else {
-                let canOpenSync: Bool = {
-                    if #available(iOS 17.0, *) { return SyncV2Bootstrap.isEnabled }
-                    return false
-                }()
-                // Title text comes from SOUL.md (falls back to "Minis"). The
-                // leading sync indicator floats as an overlay so it doesn't
-                // take layout space — title stays perfectly centered in the
-                // navigation bar regardless of whether the indicator is visible.
-                // When iCloud sync isn't enabled the title is a plain Text;
-                // wrapping it in a `.disabled` Button would drain SwiftUI's
-                // default disabled-button tint into the label and render the
-                // SOUL name grey, which read as a styling bug rather than the
-                // intended "no sync detail to open" state.
                 // [T-ios-soul-name-sidebar-stale] The `.onReceive(soulMdChanged)`
                 // that refreshes `soulName` used to live HERE. It was moved to the
-                // stable `sessionList(useNavigationLinks:)` body for the SAME reason
-                // the migration timer was (see the T-ios-migration-timer note below):
-                // this toolbar principal item rebuilds on every canOpenSync /
-                // soulName / migrationSubtitle / isSelecting change, so a sink
-                // attached here gets torn down and re-created constantly and can
-                // drop a .soulMdChanged notification that arrives during the gap.
+                // stable `sessionList(useNavigationLinks:)` body: this toolbar
+                // principal item rebuilds on every soulName / isSelecting change,
+                // so a sink attached here gets torn down and re-created constantly
+                // and can drop a .soulMdChanged notification that arrives during
+                // the gap.
                 // This Text now only READS `soulName`.
                 let titleLabel = HStack(spacing: 4) {
                     Text(soulName)
@@ -3511,30 +3219,6 @@ struct ContentView: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(MinisThemeList.subtitle)
                 }
-                .overlay(alignment: .leading) {
-                        if canOpenSync {
-                            Button {
-                                activeToolSheet = .syncMigrationDetail
-                            } label: {
-                                titleSyncIndicator(for: migrationSubtitle)
-                                    .contentShape(Rectangle())
-                                    .padding(4)
-                            }
-                            .buttonStyle(.plain)
-                            .offset(x: -27)
-                        }
-                    }
-                // [T-ios-migration-timer-toolbar-uaf-crash] The migration-subtitle
-                // refresh driver used to live HERE, on this `titleLabel` Text inside
-                // the churny toolbar principal item. That item rebuilds whenever
-                // canOpenSync / soulName / migrationSubtitle / isSelecting change, so
-                // AttributeGraph repeatedly tore down the driver's sink — a
-                // use-after-free release in the setBody transaction (EXC_BAD_ACCESS,
-                // build 309). The driver now lives on the stable
-                // `sessionList(useNavigationLinks:)` body (identity-stable across the
-                // sidebar lifetime) as a `.task` async loop, not a Combine timer sink
-                // (see migrationSubtitleLoop, T-ios-migration-timer-sessionlist-uaf-crash);
-                // this Text only READS the `migrationSubtitle` @State.
 
                 // [B2 · 10-15 醒醒] 顶部标题点击 → 直接切人设；同步详情入口
                 // 保留在标题左侧的小指示器上（本按钮不再指向它）。
@@ -4038,10 +3722,6 @@ struct ContentView: View {
                         selectedSessionId = dup.id
                     }
                 }
-            case .forceSync(let sid):
-                runForceSyncOnSelection(singleSession: sid)
-            case .forcePull(let sid):
-                runForcePullOnSession(sid)
             case .select(let sid):
                 isSelecting = true
                 selectedIds = [sid]
@@ -4368,17 +4048,6 @@ struct ContentView: View {
             // never as top-level conversations.
             sessions = await ChatStore.shared.listSessions().filter { !$0.isChild }
             folders = await ChatStore.shared.listFolders()
-            // [remote-device-label] 只有列表里真出现远程会话时才去查设备表，
-            // 单机用户一次多余查询都不做。
-            if sessions.contains(where: { $0.isRemote }) {
-                let devices = await ChatStore.shared.listSyncDevices()
-                let me = DeviceIdentity.deviceId
-                var names: [String: String] = [:]
-                for d in devices where d.id != me { names[d.id] = d.deviceName }
-                if names != deviceNamesById { deviceNamesById = names }
-            } else if !deviceNamesById.isEmpty {
-                deviceNamesById = [:]
-            }
             clearSelectionIfDangling()
             sessionRefreshInFlight = false
             // [T-ios-listsessions-perf] Stamp the COMPLETION instant — the
@@ -4942,26 +4611,6 @@ struct ContentView: View {
             }
             .disabled(selectedIds.isEmpty)
 
-            // Force Sync is gated to iOS 17+ — CloudKit features (queryable
-            // record fields, fetchRecordZoneChanges async APIs) used by the
-            // v2 sync engine require iOS 17. iOS 16 users see the action bar
-            // without this button rather than seeing it hit a no-op.
-            // Same gate as the single-session menu — drop the action bar
-            // entry entirely when iCloud sync is off.
-            if #available(iOS 17.0, *), iCloudSyncEnabled {
-                Button {
-                    runForceSyncOnSelection()
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: forceSyncInFlight ? "arrow.triangle.2.circlepath" : "icloud.and.arrow.up")
-                            .font(.system(size: 20))
-                        Text("Force Sync")
-                            .font(.caption2)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .disabled(selectedIds.isEmpty || forceSyncInFlight)
-            }
 
             Button(role: .destructive) {
                 deleteInfo = nil
@@ -4992,85 +4641,8 @@ struct ContentView: View {
         .background(homeChromeFill)
     }
 
-    /// Force-sync the given sessions: bumps each session, its messages,
-    /// compact markers, and SessionFiles into the v2 dirty queue, and
-    /// tells SyncCore to push immediately. Shows a transient
-    /// confirmation toast with the total record count and auto-
-    /// dismisses selection mode if engaged.
     ///
-    /// Pass `singleSession` for the row-level swipe-action / context-
-    /// menu path; falls back to `selectedIds` for the multi-select
-    /// toolbar.
-    private func runForceSyncOnSelection(singleSession: String? = nil) {
-        let ids: Set<String> = singleSession.map { Set([$0]) } ?? selectedIds
-        guard !ids.isEmpty, !forceSyncInFlight else { return }
-        forceSyncInFlight = true
-        Task {
-            var totalMarked = 0
-            for sid in ids {
-                let n = await ChatStore.shared.forceSyncSession(sid)
-                totalMarked += n
-            }
-            // Kick the v2 transport so the freshly-marked rows leave
-            // local SQLite in this minute rather than waiting for the
-            // ambient debounce.
-            if #available(iOS 17.0, *) {
-                await MainActor.run { SyncCore.shared.scheduleSend(delay: 0.5) }
-            }
-            await MainActor.run {
-                let sessionCount = ids.count
-                forceSyncToast = AppLocalized("Marked \(sessionCount) sessions (\(totalMarked) records) for sync. iCloud is syncing now.")
-                forceSyncInFlight = false
-                if singleSession == nil {
-                    // Multi-select path also exits selection mode for the user.
-                    isSelecting = false
-                    selectedIds.removeAll()
-                }
-            }
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            await MainActor.run {
-                if forceSyncToast != nil { forceSyncToast = nil }
-            }
-        }
-    }
 
-    /// Force Pull a single session from iCloud: queries cloud for the
-    /// session's MessageV2 / CompactMarkerV2 / SessionV2 records, and
-    /// only commits the local swap if cloud returned a non-empty set.
-    /// Reuses the toast banner from runForceSyncOnSelection.
-    private func runForcePullOnSession(_ sessionId: String) {
-        guard !forceSyncInFlight else { return }
-        forceSyncInFlight = true
-        forceSyncToast = AppLocalized("Pulling from iCloud…")
-        // [T-ios-sessionrow-destroy-crash] Isolate the whole Task to @MainActor.
-        // This is the site 6687cf1a (T-ios-state-publish-offmain-crash) MISSED:
-        // a bare `Task {}` started from this non-isolated func inherits a
-        // background cooperative thread, so the `sessions =` @State write after
-        // the `forcePullSession` actor-hop await lands off-main → it concurrently
-        // mutates the [ChatSession] AttributeGraph state while the main thread is
-        // mid-transaction destroying the old SessionRow value graph (the crash:
-        // BodyAccessor.setBody → assignWithCopy for Button → release →
-        // `outlined destroy of SessionRow` → freed ChatSession backing). Forcing
-        // the Task onto MainActor makes the @State write main-thread, matching
-        // every other session-write site fixed in 6687cf1a.
-        Task { @MainActor in
-            let outcome = await ChatStore.shared.forcePullSession(sessionId: sessionId)
-            switch outcome {
-            case .applied(let pulled, let deleted):
-                forceSyncToast = AppLocalized("Pulled \(pulled) records · removed \(deleted) local")
-            case .cloudEmpty:
-                forceSyncToast = AppLocalized("iCloud has no records for this chat — local messages preserved")
-            case .failed(let msg):
-                forceSyncToast = AppLocalized("Force Pull failed: \(msg) — local messages preserved")
-            }
-            forceSyncInFlight = false
-            // Refresh sessions so any title/updatedAt that came down from
-            // the SessionV2 record reflects in the list.
-            refreshSessionList()
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            if forceSyncToast != nil { forceSyncToast = nil }
-        }
-    }
 
     // MARK: - Delete Info
 
@@ -6048,18 +5620,6 @@ private struct SessionContextMenu: View, Equatable {
             Label(LocalizedStringKey(key.filed ? "Change Group" : "Move to Group"),
                   systemImage: key.filed ? "folder.badge.gearshape" : "folder.fill")
         }
-        if iCloudSyncVisible {
-            Button {
-                actions.send(.forceSync(key.sid))
-            } label: {
-                Label("Force iCloud Sync", systemImage: "icloud.and.arrow.up")
-            }
-            Button {
-                actions.send(.forcePull(key.sid))
-            } label: {
-                Label("Force Pull Messages", systemImage: "icloud.and.arrow.down")
-            }
-        }
         Button {
             actions.send(.select(key.sid))
         } label: {
@@ -6082,12 +5642,6 @@ private struct SessionContextMenu: View, Equatable {
         }
     }
 
-    private var iCloudSyncVisible: Bool {
-        if #available(iOS 17.0, *) {
-            return UserDefaults.standard.bool(forKey: "cloudSync.v2.enabled")
-        }
-        return false
-    }
 }
 
 /// Value key for the sidebar session context menu — only these fields change what
@@ -6240,7 +5794,6 @@ private struct SessionRow: View, Equatable {
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.highlightQuery == rhs.highlightQuery
             && lhs.matchSnippet == rhs.matchSnippet
-            && lhs.remoteDeviceName == rhs.remoteDeviceName
             && lhs.isActiveOverride == rhs.isActiveOverride
             && lhs.isSuspendedOverride == rhs.isSuspendedOverride
     }
@@ -6254,9 +5807,6 @@ private struct SessionRow: View, Equatable {
     /// title matches keep the highlighted title in the title slot and fall
     /// back to `lastMessage` below. (T-search-highlight 8edb74f2)
     var matchSnippet: String? = nil
-    /// [remote-device-label] 这条会话是从哪台设备同步来的（设备名）。
-    /// nil = 本地会话，或设备记录还没同步过来。不显示占位。
-    var remoteDeviceName: String? = nil
     /// Running / suspended state passed in as VALUES by the sidebar list so a
     /// flip changes this view's value and re-evaluates `body` in place (same
     /// ForEach identity — no cell rebuild / scroll jump). When nil (e.g. the
@@ -6283,15 +5833,13 @@ private struct SessionRow: View, Equatable {
          isActive: Bool? = nil,
          isSuspended: Bool? = nil,
          highlightQuery: String? = nil,
-         matchSnippet: String? = nil,
-         remoteDeviceName: String? = nil) {
+         matchSnippet: String? = nil) {
         self.session = session
         self.isHighlighted = isHighlighted
         self.isActiveOverride = isActive
         self.isSuspendedOverride = isSuspended
         self.highlightQuery = highlightQuery
         self.matchSnippet = matchSnippet
-        self.remoteDeviceName = remoteDeviceName
     }
 
     private var isActive: Bool {
@@ -6370,9 +5918,6 @@ private struct SessionRow: View, Equatable {
                     } else if session.source == "shortcut" {
                         badgeCircle(icon: "bolt.fill", color: MinisTheme.warning)
                             .offset(x: 2, y: 2)
-                    } else if session.isRemote {
-                        badgeCircle(icon: "icloud.fill", color: MinisTheme.accent, iconSize: 7)
-                            .offset(x: 2, y: 2)
                     }
                 }
                 // [T-ios-session-unread-badge] Top-trailing red unread dot,
@@ -6442,18 +5987,6 @@ private struct SessionRow: View, Equatable {
                 Text(relativeDate(session.updatedAt))
                     .font(.system(size: fontSettings.scaledApp(13)))
                     .foregroundStyle(MinisThemeList.meta)
-                // [remote-device-label] 来源设备名。放日期下面一行小字，
-                // 不做第二套「按设备浏览」导航 —— 列表里能看出是哪台就够了。
-                if let deviceName = remoteDeviceName, !deviceName.isEmpty, !isVisuallyLocked {
-                    HStack(spacing: 2) {
-                        Image(systemName: "iphone")
-                            .font(.system(size: 8))
-                        Text(deviceName)
-                            .font(.system(size: fontSettings.scaledApp(10)))
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(MinisThemeList.meta.opacity(0.85))
-                }
                 if isVisuallyLocked {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10))
@@ -6492,16 +6025,14 @@ private struct SessionRow: View, Equatable {
     }
 
     /// [T-ios-session-paused-badge] Maps a queued badge state to its corner
-    /// badge. Reuses the same `badgeCircle` layout/size/position as the iCloud
-    /// and lock badges so all session badges sit identically on the icon corner.
+    /// badge. Reuses the same `badgeCircle` layout/size/position as the other
+    /// badges so all session badges sit identically on the icon corner.
     @ViewBuilder
     private func badgeCircle(for state: SessionBadgeState) -> some View {
         switch state {
         case .paused:
-            // Pause glyph (⏸), orange to distinguish from the blue iCloud badge.
+            // Pause glyph (⏸), orange.
             badgeCircle(icon: "pause.fill", color: MinisTheme.warning, iconSize: 8)
-        case .iCloudSyncing:
-            badgeCircle(icon: "icloud.fill", color: MinisTheme.accent, iconSize: 7)
         case .unread:
             // [T-ios-session-unread-badge] `.unread` renders as a separate
             // top-trailing red dot (see the .topTrailing overlay), never through
@@ -7223,19 +6754,6 @@ private struct SettingsSheet: View {
                             QuietAppIcon(id: QuietIconSlot.mounts.id, systemName: QuietIconSlot.mounts.systemName)
                         }
                     }
-                    if #available(iOS 17.0, *) {
-                        NavigationLink {
-                            // v2 is the default sync engine; legacy v1
-                            // settings page is unreachable from here.
-                            CloudSyncSettingsV2View()
-                        } label: {
-                            Label {
-                                Text("iCloud Sync")
-                            } icon: {
-                                QuietAppIcon(id: QuietIconSlot.icloud.id, systemName: QuietIconSlot.icloud.systemName)
-                            }
-                        }
-                    }
                     NavigationLink {
                         BackupAndRestoreView()
                     } label: {
@@ -7634,83 +7152,5 @@ private struct SettingsSheet: View {
     ContentView()
 }
 
-/// Rotate-and-pause animation for the "syncing" title indicator. Period
-/// scales with the active throttle so the user can tell at a glance how
-/// fast sync is going: full speed = quick pulses, background = slow.
-///
-/// Loop is driven by a `.task` whose Task is cancelled automatically when
-/// the view disappears. Earlier versions used `onAppear { tick() }` with
-/// a self-rescheduling `DispatchQueue.main.asyncAfter` chain, which never
-/// stopped the old chain — so each tab-switch back to home spawned a new
-/// chain on top of the previous one, doubling/quadrupling perceived
-/// rotation speed until the view tree rebuilt.
-private struct PulseRotateIcon: View {
-    @State private var rotation: Double = 0
-    var body: some View {
-        Image(systemName: "arrow.triangle.2.circlepath")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.primary)
-            .rotationEffect(.degrees(rotation))
-            .task { await pulseLoop() }
-    }
-    /// Reads SyncCore's currentSendDelay (5s sync sheet → 60s background)
-    /// and converts to an animation cadence: animation phase ≈ delay/4,
-    /// hold phase ≈ delay/4. Clamped so it never feels frozen or frantic.
-    private func currentPeriod() -> (anim: TimeInterval, hold: TimeInterval) {
-        let delay: TimeInterval
-        if #available(iOS 17.0, *) {
-            delay = SyncCore.shared.currentSendDelay
-        } else {
-            delay = 10
-        }
-        // 5s → 1.0s anim + 1.0s hold → ~2s period (active)
-        // 15s → 1.5s anim + 1.5s hold
-        // 30s → 2.0s anim + 2.0s hold
-        // 60s → 2.5s anim + 2.5s hold (slow)
-        let anim = max(0.8, min(2.5, delay / 12 + 0.5))
-        let hold = anim
-        return (anim, hold)
-    }
-    @MainActor
-    private func pulseLoop() async {
-        while !Task.isCancelled {
-            let (anim, hold) = currentPeriod()
-            withAnimation(.easeInOut(duration: anim)) {
-                rotation += 180
-            }
-            let total = UInt64((anim + hold) * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: total)
-        }
-    }
-}
 
-/// Transient confirmation banner shown after a Force Sync runs against
-/// a multi-session selection. Floats at the top of the home view, fades
-/// in and out over ~4s. Mirrors the iOS system "Now playing" pill.
-private struct ForceSyncToastBanner: View {
-    let text: String
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "icloud.and.arrow.up")
-                .font(.system(size: 14, weight: .semibold))
-                // [T-32] 白字写死：强调色调到浅黄/浅粉就彻底看不见。
-                // 和提问弹窗一样，按 WCAG 在黑白之间挑前景。
-                .foregroundStyle(CSSThemeVariables.accentFg(scope: .global))
-            Text(text)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(CSSThemeVariables.accentFg(scope: .global))
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(MinisTheme.accent.opacity(0.92))
-        )
-        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
-        .padding(.horizontal, 16)
-        .frame(maxWidth: 480)
-    }
-}
 

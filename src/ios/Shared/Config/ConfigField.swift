@@ -210,7 +210,7 @@ enum ConfigAccess { case hidden, readonly, readwrite }
 ///
 ///   .normal       — neutral; default for almost every UI preference.
 ///   .sensitive    — amber; toggling matters but is reversible (e.g.
-///                   disabling iCloud sync; flipping background-keep-
+///                   disabling a scheduled task; flipping background-keep-
 ///                   alive; modality removals).
 ///   .destructive  — red; harder to recover from (e.g. removing a
 ///                   custom model entry that's a member of a group).
@@ -243,8 +243,8 @@ protocol ConfigField {
     var revertable: Bool { get }
 
     /// Non-nil when the field's underlying feature does not exist on this
-    /// device / OS version (e.g. iCloud Sync on iOS 16, Live Activities on
-    /// unsupported hardware). The offload bridge short-circuits both reads
+    /// device / OS version (e.g. Live Activities on unsupported hardware, a
+    /// feature that needs a newer iOS). The offload bridge short-circuits both reads
     /// and writes with a `feature_unavailable` error BEFORE validation or
     /// the confirmation sheet — the Settings UI hides these entries
     /// entirely, and minis-config must not be a side door around that gate.

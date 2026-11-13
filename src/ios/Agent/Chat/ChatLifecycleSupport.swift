@@ -106,9 +106,9 @@ final class SessionActivityTracker: ObservableObject {
     }
 
     /// Thread-safe mirror of `activeSessions` + `draftAliases`, readable from
-    /// non-MainActor contexts — notably the ChatStore actor's iCloud merge
-    /// path, which must know whether a session is mid-run before applying a
-    /// remote message. The `@MainActor`-isolated published state can't be read
+    /// non-MainActor contexts — notably the ChatStore actor's restore
+    /// path, which must know whether a session is mid-run before applying
+    /// restored messages. The `@MainActor`-isolated published state can't be read
     /// off-main, so every mutation also refreshes this lock-guarded snapshot.
     private static let mirrorLock = NSLock()
     nonisolated(unsafe) private static var activeSessionsMirror: Set<String> = []
@@ -379,21 +379,9 @@ final class ViewModelCache {
             MainActor.assumeIsolated { self?.evictOnMemoryWarning() }
         }
     }
-    /// Session IDs whose underlying SQLite rows were mutated by an
-    /// inbound iCloud merge while the user was NOT on that session's
-    /// chat screen. The next `getOrCreate` HIT for one of these IDs
-    /// returns `isStale=true` so AIChatView can trigger a reload
-    /// instead of rendering the cached `messages` snapshot. The set is
-    /// consumed (drained) on read — a single reload pays off the debt.
-    /// See ChatStore.mergeRemoteMessage for the producer side
-    /// (T-inbound-message-cached-vm-stale).
-    private var staleSessionIds: Set<String> = []
 
     /// Get an existing ViewModel for the session, or create and cache a new one.
     /// Returns `(vm, isNew)` — caller should only call `loadSession()` when `isNew` is true.
-    /// For staleness-aware callers (e.g. AIChatView's init), additionally check
-    /// `consumeStaleFlag(sessionId:)` AFTER this call and trigger a reload
-    /// when it returns true.
     func getOrCreate(for sessionId: String) -> (vm: AIChatViewModel, isNew: Bool) {
         if let existing = cache[sessionId] {
             touch(sessionId)
@@ -404,10 +392,6 @@ final class ViewModelCache {
         vm.sessionId = sessionId
         cache[sessionId] = vm
         touch(sessionId)
-        // A brand-new cache entry doesn't need the stale signal — its
-        // `isNew` path already triggers loadSession — clear any
-        // accumulated marker so we don't carry it past a remove+recreate.
-        staleSessionIds.remove(sessionId)
         let isStillActive = SessionActivityTracker.shared.activeSessions.contains(sessionId)
         logger.info("🔄SESSION ViewModelCache MISS session=\(sessionId) vm=\(vm.vmInstanceId) — created new, trackerActive=\(isStillActive)")
         if isStillActive {
@@ -415,25 +399,6 @@ final class ViewModelCache {
         }
         evictIfOverCap()
         return (vm, true)
-    }
-
-    /// Returns true if the given session was marked stale by an inbound
-    /// iCloud merge since the cached VM last loaded, and consumes the
-    /// flag in the same call so a single reload pays off the debt. Safe
-    /// to call even when no VM is cached (returns false).
-    func consumeStaleFlag(sessionId: String) -> Bool {
-        staleSessionIds.remove(sessionId) != nil
-    }
-
-    /// Mark a cached session as having stale messages (e.g. iCloud merged
-    /// new MessageV2 rows into SQLite). No-op when the session has no
-    /// cached VM. When the session IS the foreground-visible one,
-    /// `.cloudSyncDidFetchChanges` already drove an in-place reload via
-    /// `reloadMessagesFromDB`, so this only matters for background
-    /// sessions opened later (T-inbound-message-cached-vm-stale).
-    func markStale(sessionId: String) {
-        guard cache[sessionId] != nil else { return }
-        staleSessionIds.insert(sessionId)
     }
 
     /// Get an existing cached ViewModel without creating a new one.
@@ -518,8 +483,6 @@ final class ViewModelCache {
         vm.cancel()
         cache.removeValue(forKey: sessionId)
         lruOrder.removeAll { $0 == sessionId }
-        // Clearing the stale marker too — a rebuilt VM loads fresh from SQLite.
-        staleSessionIds.remove(sessionId)
         logger.info("🔄SESSION ViewModelCache EVICT session=\(sessionId) vm=\(vm.vmInstanceId) (\(reason))")
     }
 

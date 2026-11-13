@@ -55,7 +55,6 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
     /// the SwiftUI chat root so V3's UIKit cell has no alert lifecycle race.
     var onRequestDeleteAssistant: ((UUID) -> Void)?
     var onRevertCompact: (() -> Void)?
-    var onForceSync: (() -> Void)?
     var onScreenshotImage: ((UIImage) -> Void)?
     /// Expand a browser preview to the full browser (from the turn drawer).
     var onExpandBrowser: ((URL) -> Void)?
@@ -118,7 +117,6 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
         coord.onCompact = onCompact
         coord.onRequestDeleteAssistant = onRequestDeleteAssistant
         coord.onRevertCompact = onRevertCompact
-        coord.onForceSync = onForceSync
         coord.onScreenshotImage = onScreenshotImage
         coord.onExpandBrowser = onExpandBrowser
         coord.maxContentWidth = maxContentWidth
@@ -472,14 +470,6 @@ private struct BridgedAssistantBlockV3: View {
                             Label(AppLocalized("Copy Screenshot"), systemImage: "camera.viewfinder")
                         }
                     }
-                    if let onForceSync = bridge.onForceSync {
-                        Divider()
-                        Button {
-                            onForceSync()
-                        } label: {
-                            Label(AppLocalized("Force Sync"), systemImage: "arrow.triangle.2.circlepath.icloud")
-                        }
-                    }
                     if let onCompact = bridge.onCompact {
                         Divider()
                         Button(role: .destructive) {
@@ -629,14 +619,6 @@ private struct BridgedAssistantFooterV3: View {
                             onCopyScreenshot()
                         } label: {
                             Label(AppLocalized("Copy Screenshot"), systemImage: "camera.viewfinder")
-                        }
-                    }
-                    if let onForceSync = bridge.onForceSync {
-                        Divider()
-                        Button {
-                            onForceSync()
-                        } label: {
-                            Label(AppLocalized("Force Sync"), systemImage: "arrow.triangle.2.circlepath.icloud")
                         }
                     }
                     if let onCompact = bridge.onCompact {
@@ -854,7 +836,6 @@ extension CollectionViewMessageListV3 {
         var onCompact: ((UUID) -> Void)?
         var onRequestDeleteAssistant: ((UUID) -> Void)?
         var onRevertCompact: (() -> Void)?
-        var onForceSync: (() -> Void)?
         var onScreenshotImage: ((UIImage) -> Void)?
         var onExpandBrowser: ((URL) -> Void)?
         var maxContentWidth: CGFloat = 0
@@ -1897,8 +1878,6 @@ extension CollectionViewMessageListV3 {
             let deleteFrom = onDeleteFrom
             let deleteSingle = onDeleteSingle
             let compact = onCompact
-            let forceSync = onForceSync
-            bridge.onForceSync = forceSync
 
             bridge.onShowCompactSummary = { [weak self] summary in
                 guard let self else { return }
@@ -3702,7 +3681,7 @@ extension CollectionViewMessageListV3 {
                 // session: a cold start at 16:02:49 that built cells from
                 // INCOMPLETE data (lastTextLen=23, the agent loop was still
                 // running server-side), then a reload at 16:04:35 after the
-                // iCloud sync-hold released, with the complete data
+                // reload-hold released, with the complete data
                 // (lastTextLen=226). Both times the trace is identical:
                 //
                 //   16:02:49.722  caller=flushPending(updateUIVC-backstop) totalItems=77

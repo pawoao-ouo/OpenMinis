@@ -18,23 +18,16 @@ private let logger = AppLogger(category: "SessionBadgeStore")
 ///
 /// The design is a per-session *queue* rather than a single flag so multiple
 /// concurrent statuses can coexist (e.g. a session is both background-paused and
-/// iCloud-syncing): the highest-priority one is shown, and when it's cleared the
+/// unread): the highest-priority one is shown, and when it's cleared the
 /// next one surfaces. Only `.paused` is produced today; the enum + queue exist so
-/// future states (`.iCloudSyncing`, `.error`, `.uploading`, …) drop in without a
+/// future states (`.error`, `.uploading`, …) drop in without a
 /// rearchitecture, and so iOS/Android stay structurally aligned.
 ///
-/// Note: the existing iCloud badge in `SessionRow` is *derived* from
-/// `ChatSession.isRemote` and is intentionally left as the render fallback — it
-/// is not migrated into this queue. The queue owns the new, transient states.
 enum SessionBadgeState: String, Codable {
     /// The session's agent task was suspended by the system while backgrounded
     /// (the "Interrupted — tap Resume" condition). Cleared once the user opens
     /// the session. Rendered as an orange circle with a white exclamation mark.
     case paused
-
-    /// Reserved for future use — an explicit iCloud-syncing state, should we ever
-    /// move the derived `isRemote` badge into the queue. Not produced yet.
-    case iCloudSyncing
 
     /// [T-ios-session-unread-badge] A background task finished and posted its
     /// completion notification, so this session has an unread new message.

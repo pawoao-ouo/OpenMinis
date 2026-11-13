@@ -32,10 +32,7 @@ private let logger = AppLogger(category: "SubAgentStore")
 /// ## Shape
 ///
 /// Modelled on `EnvVarStore`: a `@MainActor` singleton over one atomic JSON
-/// file in `Library/MinisChat`, publishing its list, emitting per-item
-/// `markDirty` on every mutation. Sync is per-record (`SubAgentV3`) rather than
-/// whole-file, so two devices editing different agents merge as a natural union
-/// instead of one overwriting the other.
+/// file in `Library/MinisChat`, publishing its list.
 @MainActor
 final class SubAgentStore: ObservableObject {
     static let shared = SubAgentStore()
@@ -56,7 +53,7 @@ final class SubAgentStore: ObservableObject {
     // MARK: - Persistence
 
     /// Never throws and never returns a roster without the built-in: this reads
-    /// data that may have arrived over iCloud from a newer build, and a bad
+    /// data that may have been written by a newer build, and a bad
     /// roster must not be able to block startup.
     private static func load(from url: URL) -> [SubAgentDefinition] {
         guard let data = try? Data(contentsOf: url) else {
@@ -79,8 +76,8 @@ final class SubAgentStore: ObservableObject {
         }
     }
 
-    /// Re-read from disk. Used after an inbound sync merge writes the file
-    /// underneath us, mirroring `EnvVarStore.reloadFromDisk`.
+    /// Re-read from disk. Used after an external write (e.g. a restore)
+    /// replaces the file underneath us.
     func reloadFromDisk() {
         subAgents = Self.load(from: fileURL)
     }
@@ -93,8 +90,8 @@ final class SubAgentStore: ObservableObject {
 
     /// Whether another definition already uses this name.
     ///
-    /// Folded through `SubAgentRoster.nameKey`, the same key the sync merge and
-    /// `resolve(name:)` use, so "already taken" means exactly "the model could
+    /// Folded through `SubAgentRoster.nameKey`, the same key
+    /// `resolve(name:)` uses, so "already taken" means exactly "the model could
     /// not tell these two apart".
     func subAgentNameIsTaken(_ name: String, excluding id: String?) -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -117,8 +114,8 @@ final class SubAgentStore: ObservableObject {
         // [T-sub-agents-v1] The built-in's identity is not the user's to change:
         // its name and description are what the delegating model reads, and it
         // is the fallback for every delegation that names no agent. The editor
-        // already shows them read-only; enforcing it here too covers a synced
-        // payload written by another device or a future caller. Model and
+        // already shows them read-only; enforcing it here too covers a payload
+        // written by a future caller. Model and
         // instructions are kept as supplied.
         if incoming.isBuiltIn {
             let canonical = SubAgentDefinition.makeBuiltIn()
@@ -151,12 +148,6 @@ final class SubAgentStore: ObservableObject {
         list.removeAll { $0.id == id }
         subAgents = SubAgentRoster.normalize(list)
         persist()
-        // [T-subagent-own-store] The row is really removed; the anti-resurrection
-        // guarantee is the tombstone that markDirty(op: "delete") writes, the
-        // same mechanism the provider V3 types use. Without it a fetchRecentV2
-        // racing ahead of the cloud delete would re-pull the live record and the
-        // merger would re-insert the agent the user just deleted.
-        Task { await ChatStore.shared.markDirty(recordType: "SubAgentV3", recordId: id, operation: "delete") }
     }
 
     /// Reorder the custom entries. Order is disclosure order in the roster the
@@ -176,8 +167,9 @@ final class SubAgentStore: ObservableObject {
         let normalized = SubAgentRoster.normalize(list)
         // [T-subagent-own-store] One upsert PER id: a single record cannot
         // express "the list moved", and sortOrder lives on each definition.
-        // Same reasoning as the thinking-rule reorder emission.
-        apply(normalized, dirtyIds: normalized.map(\.id))
+        // Same reasoning as the thinking-rule reorder.
+        subAgents = normalized
+        persist()
     }
 
     /// Clear a dangling group reference. Called when a model group is emptied or
@@ -193,33 +185,10 @@ final class SubAgentStore: ObservableObject {
             touched.append(list[i].id)
         }
         guard !touched.isEmpty else { return }
-        apply(SubAgentRoster.normalize(list), dirtyIds: touched)
-    }
-
-    /// Replace the whole roster from an inbound sync merge, WITHOUT re-emitting
-    /// markDirty — the caller decides what to push back.
-    func applyMergedFromSync(_ roster: [SubAgentDefinition]) {
-        subAgents = SubAgentRoster.normalize(roster)
+        subAgents = SubAgentRoster.normalize(list)
         persist()
     }
 
-    private func apply(_ roster: [SubAgentDefinition], dirtyIds: [String]) {
-        subAgents = roster
-        persist()
-        // Only push ids that still exist — normalize's count bound can drop a
-        // record, and pushing a missing id would upload nothing anyway (the
-        // builder returns nil) while leaving a dirty row behind.
-        let live = Set(roster.map(\.id))
-        for id in dirtyIds where live.contains(id) {
-            Task { await ChatStore.shared.markDirty(recordType: "SubAgentV3", recordId: id, operation: "upsert") }
-        }
-    }
 
-    /// Re-emit an upsert for every definition. Used by the force-sync path so a
-    /// device can re-push its whole roster.
-    func markAllDirty() {
-        for d in subAgents {
-            Task { await ChatStore.shared.markDirty(recordType: "SubAgentV3", recordId: d.id, operation: "upsert") }
-        }
-    }
+
 }

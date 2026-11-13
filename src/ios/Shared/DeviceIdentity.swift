@@ -3,7 +3,7 @@ import Security
 import UIKit
 
 /// Stable device identity persisted in Keychain (survives app reinstall).
-/// Used for per-device CKRecordZone naming in iCloud sync.
+/// Used in the device-name suffix and debug info.
 enum DeviceIdentity {
     private static let keychainService = "com.openminis.clone.device"
     private static let keychainAccount = "deviceId"
@@ -15,16 +15,14 @@ enum DeviceIdentity {
     /// zero-length or whitespace-only item decodes to `Optional("")` — non-nil, so
     /// the old `if let` accepted it and skipped UUID generation entirely.
     ///
-    /// That empty id then flowed straight into
-    /// `CKRecord.ID(recordName: DeviceIdentity.deviceId, …)` in
-    /// `CloudSyncEngine.queueDeviceRecord()`, which is the ONE CKRecord.ID
-    /// construction site with neither a pre-check nor an ObjC try/catch. CloudKit
-    /// raises NSInvalidArgumentException on an empty recordName, and an ObjC
-    /// exception crossing Swift frames is uncatchable — it reaches objc_terminate
-    /// and aborts. Field signature: SIGABRT on the main thread right after
-    /// foregrounding (the 180s foreground sync timer and the CloudKit
-    /// accountChange handler both call queueDeviceRecord from a @MainActor Task),
-    /// and it stopped when the user turned iCloud sync off.
+    /// That empty id used to flow straight into a CloudKit record id in the
+    /// (now deleted) sync engine, which had neither a pre-check nor an ObjC
+    /// try/catch — CloudKit raises NSInvalidArgumentException on an empty
+    /// recordName, and an ObjC exception crossing Swift frames is uncatchable,
+    /// so it aborted the app (SIGABRT on the main thread right after
+    /// foregrounding). The sync engine is gone, but the validation stays: the
+    /// id still feeds backup filenames and the device-name suffix, where a
+    /// blank value would silently collide.
     ///
     /// Trimming before the emptiness test matters: a stray newline written by an
     /// older build (or a partially-restored Keychain item) yields a name that is
@@ -235,11 +233,6 @@ enum DeviceIdentity {
         return macMap[hwModel] ?? (hwModel.hasPrefix("Mac") ? "Mac" : nil)
     }
     #endif
-
-    /// CKRecordZone name for this device.
-    static var zoneName: String {
-        "device-\(deviceId)"
-    }
 
     /// OS version string (e.g. "18.3.2").
     static var osVersion: String {

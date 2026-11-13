@@ -1172,10 +1172,6 @@ class FileBrowserViewModel: ObservableObject {
                 // to tell the FileProvider to re-enumerate the parent.
                 Self.signalFileProviderParent(forLinuxPath: linux)
             }
-            // iCloud Sync: if the removed file lives under a session's
-            // workspace tree (Library/MinisChat/minis/<sid>/...), queue
-            // a SessionFile cloud-delete so peers stop seeing it.
-            Self.queueSessionFileCloudDelete(forRemovedURL: removedURL)
             loadItems()
         } catch {
             errorMessage = "Cannot delete \"\(item.name)\": \(error.localizedDescription)"
@@ -1232,46 +1228,6 @@ class FileBrowserViewModel: ObservableObject {
     /// cloud-delete so peer devices stop seeing the file. Silent when the URL
     /// is outside any session tree (e.g. shared/skills/memory deletes — those
     /// are not SessionFile-scoped) or when sync isn't configured.
-    private static func queueSessionFileCloudDelete(forRemovedURL removedURL: URL) {
-        let baseURL = ChatStore.shared.minisBaseURL
-            .resolvingSymlinksInPath().standardized
-        let removed = removedURL.resolvingSymlinksInPath().standardized
-        let basePath = baseURL.path
-        let removedPath = removed.path
-        let prefix = basePath + "/"
-        guard removedPath.hasPrefix(prefix) else { return }
-
-        let after = String(removedPath.dropFirst(prefix.count))
-        // Layout: "<sid>/<subdir>/<rest>". Need at least sid + subdir + 1
-        // path component to constitute a SessionFile recordId.
-        let parts = after.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2 else { return }
-        let sid = String(parts[0])
-        let rel = String(parts[1])
-        guard !sid.isEmpty, !rel.isEmpty else { return }
-
-        // Only the session-scoped subdirs are SessionFiles. Filter early
-        // so global trees (memory/skills/shared) and stray dirs don't
-        // produce phantom cloud deletes.
-        let firstSlash = rel.firstIndex(of: "/")
-        let subdir: String = firstSlash.map { String(rel[..<$0]) } ?? rel
-        let scoped: Set<String> = ["workspace", "attachments", "browser", "offloads"]
-        guard scoped.contains(subdir) else { return }
-
-        let traceLogger = AppLogger(category: "SessionFileTracker")
-        traceLogger.info("[SessionFileTracker] FileBrowser delete → cloud delete queued: sid=\(sid.prefix(8)) rel=\(rel.prefix(80))")
-        Task.detached(priority: .utility) {
-            await ChatStore.shared.markSessionFileForCloudDeletion(
-                sessionId: sid, relPath: rel)
-            // Drain any tracker entry for the same path so a stale
-            // upsert event recorded just before the user-driven delete
-            // doesn't race the explicit op=delete row we just queued.
-            _ = await SessionFileChangeTracker.shared.drainSession(sid)
-            if #available(iOS 17.0, *) {
-                await MainActor.run { SyncCore.shared.scheduleSend() }
-            }
-        }
-    }
 
     /// Emit an `[FPSyncTrace]` line describing a host-filesystem write/copy/move
     /// that lands inside one of the three FileProvider-exposed roots

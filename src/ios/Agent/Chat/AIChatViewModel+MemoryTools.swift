@@ -161,21 +161,6 @@ extension AIChatViewModel {
         let linuxPath = "\(Self.minisMemoryLinuxDir)/personas/\(pid)/\(fileName)"
         ensureFakefsMetadata(for: linuxPath, isDirectory: false)
 
-        // Enqueue for iCloud v2 sync. Reuse fileName's stem (no second
-        // Date() call) so the dateKey matches what was actually written
-        // even across a midnight boundary.
-        //
-        // [audit-E1] Every persona's daily log syncs now, under a
-        // persona-scoped record id ("<pid>/<date>"; the default persona keeps
-        // the historic bare date, so existing cloud records keep working).
-        // The old code only marked the default persona on purpose — a shared
-        // date-singleton id made personas overwrite each other.
-        let dateStrForSync = (fileName as NSString).deletingPathExtension
-        Task { @MainActor in
-            await ChatStore.shared.markDirty(
-                recordType: "MemoryDailyV2",
-                recordId: MemorySyncRecordID.scoped(pid: pid, base: dateStrForSync))
-        }
         NotificationCenter.default.post(name: .memoryFilesDidChange, object: nil)
 
         return FileToolResult(output: "Memory saved to \(fileName) (\(content.count) chars)", success: true)

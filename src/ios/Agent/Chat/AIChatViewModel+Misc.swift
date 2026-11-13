@@ -41,12 +41,6 @@ extension AIChatViewModel {
                         kernelStatus = .failed("Kernel boot failed: \(err)")
                         return
                     }
-                    // Wire fakefs change events into the iCloud Sync v2
-                    // SessionFile dirty pipeline. Must be done after boot
-                    // (the C-side dispatch source is created by this call)
-                    // and before any bind mount, so the first realfs op
-                    // already has a consumer registered.
-                    installSessionFileChangeTracker(kernel: ISHKernel.shared)
 
                     // Install per-session path-translate hook. Must run
                     // before any session task is spawned so the first

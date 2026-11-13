@@ -155,8 +155,8 @@ struct BackupManifest: Codable {
     var snapshotAt: Date?
     var app: AppInfo
     /// Display-only. Deliberately NOT the deviceId — that identifier is on the
-    /// never-backup list (§3.1) because restoring it makes two devices fight
-    /// over one CloudKit zone.
+    /// never-backup list (§3.1) because restoring it makes two devices share
+    /// one identity (same backup filenames, same device-name suffix).
     var deviceName: String
     var backupId: String
     var categories: [String: CategoryStat]

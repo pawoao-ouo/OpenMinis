@@ -129,12 +129,12 @@ struct ModelEntry: Identifiable, Codable, Hashable {
     var isCustom: Bool
     var isHidden: Bool
     /// Timestamp of the last user modification to `overrides`, `isHidden`, or `isCustom`.
-    /// Nil for legacy entries written before this field existed. Used by iCloud merge to
+    /// Nil for legacy entries written before this field existed. Used by the restore merge to
     /// resolve same-field conflicts (last-write-wins by timestamp) and to avoid applying
     /// stale override names from old devices that never stamped a modification time.
     var userModifiedAt: Date?
 
-    /// True if this entry carries any user intent that should propagate via iCloud sync.
+    /// True if this entry carries any user intent that should be carried by a backup package.
     /// Purely derived from existing state — no extra field to maintain. New override fields
     /// plug in automatically via `ModelOverrides.isEmpty`.
     var isUserModified: Bool {

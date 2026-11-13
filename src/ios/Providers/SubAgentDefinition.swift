@@ -282,8 +282,8 @@ enum SubAgentRoster {
     /// mirrored inputs and must reach the SAME winner without talking to each
     /// other, or they re-upload rival rosters forever. Newer `updatedAt` wins;
     /// on a tie the lexicographically smaller id wins — the same rule, and the
-    /// same reasoning, as the model-group name collapse in
-    /// `CloudSyncEngine.mergeProviderConfig`.
+    /// same reasoning, as the model-group name collapse in the restore merge
+    /// (`BackupImporter.mergeProviderConfigForRestore`).
     ///
     /// The built-in never loses and is never deduped away: `normalize` pins it
     /// first and restores its canonical name, so a remote record that collides

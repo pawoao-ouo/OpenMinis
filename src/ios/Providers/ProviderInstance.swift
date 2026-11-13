@@ -275,7 +275,7 @@ struct ProviderInstance: Identifiable, Codable, Hashable {
     ///   - Multiple call sites (group router, single-model resolver, UI
     ///     subtitle) need exactly the same answer. Centralizing avoids the
     ///     "router accepts X, factory bails on X" footgun that produced this
-    ///     bug (iCloud-synced OAuth instance with no token still won the
+    ///     bug (restored OAuth instance with no token still won the
     ///     fallback race because the router didn't filter on credential).
     ///
     /// Synchronous because all Keychain lookups underneath are synchronous;

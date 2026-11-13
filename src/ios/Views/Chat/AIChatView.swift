@@ -29,18 +29,6 @@ private final class CachedViewModel: ObservableObject {
             let (cached, isNew) = ViewModelCache.shared.getOrCreate(for: sessionId)
             self.vm = cached
             self.isNew = isNew
-            // If the cached VM is stale (iCloud merged new MessageV2 rows
-            // for this session while we were on a DIFFERENT session and
-            // the foreground reload signal never reached us), trigger a
-            // fresh loadSession so the bubble list matches SQLite
-            // (T-inbound-message-cached-vm-stale). Cache HIT only —
-            // `isNew` already loads from scratch.
-            if !isNew, ViewModelCache.shared.consumeStaleFlag(sessionId: sessionId) {
-                minisLogger.info("🔑DRAFT CachedViewModel.init sessionId=\(sessionId) — STALE flag consumed, scheduling reload")
-                Task { @MainActor [weak vm = cached] in
-                    await vm?.loadSession()
-                }
-            }
             minisLogger.info("🔑DRAFT CachedViewModel.init sessionId=\(sessionId) vm=\(cached.vmInstanceId) isNew=\(isNew)")
         } else {
             let draft = ViewModelCache.shared.createDraft()
@@ -398,7 +386,6 @@ struct AIChatView: View {
     /// menu while the current session is still streaming: stopping the task is
     /// destructive enough to warrant an explicit confirm.
     @State private var showNewChatStopConfirm = false
-    @State private var showForcePullConfirm = false
     // [inline-voice] Inline voice input mode: the composer's text area becomes a
     // VAD waveform + live transcript when active. Backed by a shared in-memory
     // preference so the voice/text choice carries across sessions (reset on cold
@@ -409,7 +396,6 @@ struct AIChatView: View {
         nonmutating set { voiceMode.isVoiceActive = newValue }
     }
     @StateObject private var voiceVM = VoiceInputViewModel()
-    @AppStorage("cloudSync.v2.enabled") private var iCloudSyncEnabled: Bool = false
     /// [T-codex-fast-mode] 快速模式。开关本体在模型选择页
     /// （SessionModelPicker），这里只观察同一个键，用来给标题上的 ⚡ 角标
     /// 和工具栏重绘用。
@@ -422,8 +408,6 @@ struct AIChatView: View {
     // new `String(localized:)` result through to `updateUIView`, which
     // already syncs the placeholder UILabel via its viewWithTag(999) path.
     @AppStorage("appLanguage") private var observedAppLanguage: String = ""
-    @State private var isForcePulling = false
-    @State private var forcePullToast: String?
     @State private var compactConfirmMessageId: UUID?
     @State private var showModelPicker = false
     /// [T-together-room-entry 11-11] 加号抽屉里「一起听」的整页入口。
@@ -747,7 +731,7 @@ struct AIChatView: View {
                     //  • ENTERING the session (first load, nothing rendered yet)
                     //    → centered soft loading card with a gentle fade+scale
                     //    exit, replacing the abrupt bare system spinner.
-                    //  • Any LATER reload (iCloud sync, compaction, stale-cache
+                    //  • Any LATER reload (restore, compaction, stale-cache
                     //    refresh) while content is on screen → keep the small
                     //    unobtrusive spinner; the big card must never cover
                     //    content the user is already reading.
@@ -865,14 +849,6 @@ struct AIChatView: View {
                 titlePillEditSession = nil
             }
         }
-        .alert(AppLocalized("Force Pull Messages"), isPresented: $showForcePullConfirm) {
-            Button(AppLocalized("Pull from iCloud"), role: .destructive) {
-                runForcePull()
-            }
-            Button(AppLocalized("Cancel"), role: .cancel) {}
-        } message: {
-            Text(AppLocalized("This will delete all local messages for this chat and re-download them from iCloud. Local changes that haven't synced yet will be lost. Continue?"))
-        }
         // [T-ios-json-open-provider-import-prompt] Shared/opened Provider-export
         // JSON: let the user choose import-as-provider vs add-as-attachment.
         // Extracted into a single modifier so the body's type-check stays cheap.
@@ -882,19 +858,6 @@ struct AIChatView: View {
             onImport: { json in configStore.importInstanceJSON(json) },
             onAttach: { url in vm.addFileAttachment(from: url) }
         ))
-        .overlay(alignment: .top) {
-            if let msg = forcePullToast {
-                Text(msg)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(ChatColors.primaryText)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(ChatColors.accent.opacity(0.92), in: Capsule())
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.spring(response: 0.3), value: forcePullToast)
         // [T-browser-download-ux-v2] Downloads panel opened from the floating
         // download button (mounted next to the scroll buttons, see
         // downloadFloatingButton). Completed rows jump to the file browser
@@ -2261,57 +2224,6 @@ struct AIChatView: View {
         }
     }
 
-    // MARK: - Force Sync / Pull
-
-    private func runForceSync() {
-        guard let sid = vm.sessionId, !isForcePulling else { return }
-        isForcePulling = true
-        forcePullToast = AppLocalized("Marking for upload…")
-        Task {
-            let n = await ChatStore.shared.forceSyncSession(sid)
-            if #available(iOS 17.0, *) {
-                await MainActor.run { SyncCore.shared.scheduleSend(delay: 0.5) }
-            }
-            await MainActor.run {
-                isForcePulling = false
-                forcePullToast = AppLocalized("Marked \(n) records for sync. iCloud is uploading now.")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                    forcePullToast = nil
-                }
-            }
-        }
-    }
-
-    private func runForcePull() {
-        guard let sid = vm.sessionId, !isForcePulling else { return }
-        isForcePulling = true
-        forcePullToast = AppLocalized("Pulling from iCloud…")
-        Task {
-            let outcome = await ChatStore.shared.forcePullSession(sessionId: sid)
-            // Inbound hydration runs asynchronously after applyPortables
-            // hands batches off to MainActor.processInbound, so wait a
-            // beat before reloading. Two reloads cover the case where
-            // the first one lands mid-batch.
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            await vm.reloadMessagesFromDB(reason: "forcePull-tick1")
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            await vm.reloadMessagesFromDB(reason: "forcePull-tick2")
-            await MainActor.run {
-                isForcePulling = false
-                switch outcome {
-                case .applied(let pulled, let deleted):
-                    forcePullToast = AppLocalized("Pulled \(pulled) records · removed \(deleted) local")
-                case .cloudEmpty:
-                    forcePullToast = AppLocalized("iCloud has no records for this chat — local messages preserved")
-                case .failed(let msg):
-                    forcePullToast = AppLocalized("Force Pull failed: \(msg) — local messages preserved")
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                    forcePullToast = nil
-                }
-            }
-        }
-    }
 
     // MARK: - Navigation Title + Model Selector
 
@@ -2364,8 +2276,6 @@ struct AIChatView: View {
             navTitle: navTitleKey,
             messagesEmpty: vm.messages.isEmpty,
             hasSession: vm.sessionId != nil,
-            isForcePulling: isForcePulling,
-            iCloudSyncEnabled: iCloudSyncEnabled,
             memoryEnabled: vm.memoryEnabled
             // [plus-panel-two-pages] 快速模式/增强缓存搬进模型选择页后，
             // 工具栏不再显示它们（trailing 本来就是 EmptyView），
@@ -3015,15 +2925,6 @@ struct AIChatView: View {
                 onCompact: { msgId in compactConfirmMessageId = msgId },
                 onRequestDeleteAssistant: { msgId in pendingAssistantDeleteId = msgId },
                 onRevertCompact: { Task { await vm.revertCompact() } },
-                onForceSync: { [self] in
-                    guard let sid = vm.sessionId else { return }
-                    Task {
-                        let count = await ChatStore.shared.forceSyncSession(sid)
-                        if #available(iOS 17.0, *), count > 0 {
-                            SyncCore.shared.scheduleSend(delay: 1)
-                        }
-                    }
-                },
                 onScreenshotImage: { image in
                     screenshotPreview = ChatScreenshotPreview(image: image)
                 },
@@ -3323,7 +3224,7 @@ struct AIChatView: View {
             }
         } else {
             // File doesn't exist on disk — likely deleted, from a pruned
-            // session, or iCloud sync hasn't brought it down yet. Surface
+            // session, or never restored. Surface
             // a dismissable alert so the tap isn't silently ignored.
             let name = url.lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
             missingMinisFileName = name.isEmpty ? url.absoluteString : name
@@ -5749,8 +5650,6 @@ private struct ChatToolbarKey: Equatable {
     let navTitle: NavTitleKey
     let messagesEmpty: Bool
     let hasSession: Bool
-    let isForcePulling: Bool
-    let iCloudSyncEnabled: Bool
     let memoryEnabled: Bool
 }
 
@@ -5795,8 +5694,6 @@ private struct ChatToolbarHost<Title: View, Trailing: View>: View, Equatable {
             }
             if lhs.key.messagesEmpty != rhs.key.messagesEmpty { diffs.append("messagesEmpty") }
             if lhs.key.hasSession != rhs.key.hasSession { diffs.append("hasSession") }
-            if lhs.key.isForcePulling != rhs.key.isForcePulling { diffs.append("isForcePulling") }
-            if lhs.key.iCloudSyncEnabled != rhs.key.iCloudSyncEnabled { diffs.append("iCloudSyncEnabled") }
             if lhs.key.memoryEnabled != rhs.key.memoryEnabled { diffs.append("memoryEnabled") }
             NavbarEvalStats.logger.info("[NavbarEval] host == FALSE diffs=[\(diffs.joined(separator: ","))]")
         }

@@ -59,10 +59,6 @@ let extrasCommands = read(here.appendingPathComponent("NativeOffloads/ThemeOfflo
 let skillStore = read(here.appendingPathComponent("Agent/Session/SkillStore.swift"))
 let markdown = read(here.appendingPathComponent("Views/Chat/SelectableMarkdownView.swift"))
 let toolLive = read(here.appendingPathComponent("Views/Chat/ToolLiveSheet.swift"))
-let transport = read(here.appendingPathComponent("Agent/Sync/V2/ICloudSharedZoneTransport.swift"))
-let engine = read(here.appendingPathComponent("Agent/Sync/CloudSyncEngine.swift"))
-let migration = read(here.appendingPathComponent("Agent/Sync/V2/MigrationEngine.swift"))
-let bootstrap = read(here.appendingPathComponent("Agent/Sync/V2/SyncV2Bootstrap.swift"))
 let entitlements = read(here.appendingPathComponent("Minis.entitlements"))
 
 check("pack file", !pack.isEmpty)
@@ -163,17 +159,6 @@ check("interrupt uses warning", chat.contains("ChatColors.warning"))
 check("markdown links use accent", markdown.contains("uiColorSnapshot(.accent)"))
 check("no chat capsule green leftover", !think.contains("accentColor: .green"))
 check("no tool live purple leftover", !toolLive.contains("return .purple"))
-check("clone icloud container", transport.contains("iCloud.com.openminis.clone"))
-check("no default CKContainer call", !transport.contains("CKContainer.default().privateCloudDatabase"))
-check("probeAccount exists", bootstrap.contains("probeAccount()"))
-check("disable sync when icloud missing", bootstrap.contains("disabling sync so launch can continue"))
-check("v1 delete uses clone container", transport.contains("let db = container.privateCloudDatabase"))
-check("entitlement gate exists", transport.contains("hasCloneICloudEntitlement"))
-check("probe gated on entitlement", transport.contains("guard hasCloneICloudEntitlement() else"))
-check("v1 gated on entitlement", engine.contains("guard ICloudSharedZoneTransport.hasCloneICloudEntitlement() else"))
-check("migration shim gated ×4", migration.components(separatedBy: "hasCloneICloudEntitlement()").count > 4)
-check("entitlements clone icloud", entitlements.contains("iCloud.com.openminis.clone"))
-check("entitlements not official icloud", !entitlements.contains("iCloud.com.openminis.app"))
 
 // --- Partial packs must not destroy user images (2026-10-18) ---
 // A missing categoryImages key used to mean "delete that file". Any AI call
