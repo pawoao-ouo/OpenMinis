@@ -2122,12 +2122,40 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     private(set) var keepAliveSystemPrompt: String?
     private(set) var keepAliveTools: [AgentToolDefinition] = []
 
+    /// [S12] Drop the cache keep-alive snapshot and stop its pending warmup.
+    ///
+    /// `CacheKeepAliveManager` replays `keepAliveHistory` verbatim to warm the
+    /// provider's prompt cache. It is a copy of the last request's context, so
+    /// any path that rewrites the conversation — retry, truncate, clear chat —
+    /// must drop it, otherwise the next warmup re-primes the cache with turns
+    /// the user just deleted or retried away (transmitting deleted content).
+    func clearKeepAliveSnapshot() {
+        keepAliveHistory = []
+        keepAliveSystemPrompt = nil
+        keepAliveTools = []
+        if let sessionId {
+            CacheKeepAliveManager.shared.cancelKeepAlive(sessionId: sessionId)
+        }
+    }
+
     // MARK: - Compact Marker (Phase B)
     /// Cached latest compact marker for this session. Phase B agent loop uses this
     /// (via effectiveAgentHistory) to inject the summary at inference time instead
     /// of mutating agentHistory. Updated by loadSession, compactBefore, and any
     /// path that writes a new marker.
-    var cachedLatestMarker: CompactMarker?
+    var cachedLatestMarker: CompactMarker? {
+        didSet {
+            // [S12] `clearChat()` empties messages/agentHistory and then nils
+            // the cached marker — that marker write is the one change the
+            // clear-chat path makes that is observable from this file. Drop
+            // the keep-alive snapshot then, so a pending warmup cannot replay
+            // the just-deleted conversation. (`retry()` clears the snapshot
+            // itself; truncation paths go through postTruncationCleanup.)
+            if newValue == nil, messages.isEmpty {
+                clearKeepAliveSnapshot()
+            }
+        }
+    }
     /// The session's persisted model id (from ChatStore.getSession). Cached at
     /// loadSession time so resolveCurrentEntry can fall back to it without an
     /// async hop to the actor. Empty string means "not yet loaded" — treat as
@@ -3103,6 +3131,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         if !rolledBackDbIds.isEmpty, let sid = sessionId {
             Task { await ChatStore.shared.deleteMessagesByIds(sessionId: sid, ids: rolledBackDbIds) }
         }
+
+        // [S12] The failed answer was rolled back from agentHistory, but the
+        // keep-alive snapshot still holds it — a pending warmup would re-prime
+        // the provider's cache with the reply the user just asked to discard.
+        // Drop the snapshot and cancel the timer; the rerun's own request
+        // re-installs a fresh snapshot via recordRequest.
+        clearKeepAliveSnapshot()
 
         let existingMsgIdx = messages.count - 1
         let existingBlockCount = lastMsg.blocks.count
