@@ -3349,29 +3349,79 @@ enum ProviderKeychainHelper {
         UserDefaults.standard.set(date, forKey: apiKeySavedAtUDKey(instanceId: instanceId))
     }
 
-    static func saveAPIKey(_ key: String, instanceId: String, caller: String = #function) {
-        let service = "com.openminis.clone.provider.\(instanceId)"
-        // Delete both legacy (non-sync) and synchronizable entries
-        let deleteQuery: [String: Any] = [
+    /// [P0-2] Single write path for every provider Keychain value.
+    ///
+    /// Previously every save did delete-then-add and reported success
+    /// unconditionally: if the add failed, the old key was already gone and
+    /// the caller still believed the save worked (and stamped a fresh LWW
+    /// time on top of the loss). Now — same pattern as
+    /// `EnvVarStore.saveValue`: update-in-place first, add only when the
+    /// item genuinely doesn't exist, fall back to update on a duplicate
+    /// race, read the value back and compare it, and only then drop the
+    /// legacy non-synchronizable item. A failed write leaves the old value
+    /// intact and returns false. Item attributes (service/account/access
+    /// group) are unchanged.
+    private static func writeKeychainValue(_ data: Data, service: String, account: String, kind: String, caller: String) -> Bool {
+        let syncMatch: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: true,
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
-        var syncDelete = deleteQuery
-        syncDelete[kSecAttrSynchronizable as String] = true
-        SecItemDelete(syncDelete as CFDictionary)
-        // Save with iCloud Keychain sync enabled
-        var addQuery = deleteQuery
-        addQuery[kSecValueData as String] = Data(key.utf8)
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        addQuery[kSecAttrSynchronizable as String] = true
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        // Stamp the local save time for iCloud LWW conflict resolution.
+        let attrs: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]
+
+        var status = SecItemUpdate(syncMatch as CFDictionary, attrs as CFDictionary)
+        if status == errSecItemNotFound {
+            var addQuery = syncMatch
+            addQuery.merge(attrs) { _, new in new }
+            status = SecItemAdd(addQuery as CFDictionary, nil)
+            // Lost a race: the item appeared between our update and add.
+            // Update it instead of failing — this is the exact case that
+            // used to blank the value.
+            if status == errSecDuplicateItem {
+                status = SecItemUpdate(syncMatch as CFDictionary, attrs as CFDictionary)
+            }
+        }
+        guard status == errSecSuccess else {
+            AppLogger(category: "Keychain").error("write \(kind) FAILED status=\(status) — prior value left intact caller=\(caller)")
+            return false
+        }
+        // Verify-after-write: read the synchronizable item back and compare.
+        var readQuery = syncMatch
+        readQuery[kSecReturnData as String] = true
+        readQuery[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: AnyObject?
+        guard SecItemCopyMatching(readQuery as CFDictionary, &result) == errSecSuccess,
+              let readBack = result as? Data, readBack == data else {
+            AppLogger(category: "Keychain").error("write \(kind) VERIFY FAILED — stored value does not match caller=\(caller)")
+            return false
+        }
+        // Only now drop the legacy non-synchronizable item (reads prefer sync).
+        var legacy = syncMatch
+        legacy[kSecAttrSynchronizable as String] = false
+        SecItemDelete(legacy as CFDictionary)
+        return true
+    }
+
+    /// Returns true only when the key is written AND reads back identical.
+    /// A failed write leaves the previous key intact, stamps no LWW time,
+    /// and notifies nothing — it never reports success.
+    @discardableResult
+    static func saveAPIKey(_ key: String, instanceId: String, caller: String = #function) -> Bool {
+        let service = "com.openminis.clone.provider.\(instanceId)"
+        guard writeKeychainValue(Data(key.utf8), service: service, account: account, kind: "apiKey", caller: caller) else {
+            return false
+        }
+        // Stamp the local save time for iCloud LWW conflict resolution —
+        // only on a verified write, so a failed save can never poison LWW.
         stampAPIKeySavedAt(Date(), instanceId: instanceId)
-        AppLogger(category: "Keychain").info("write apiKey instanceId=\(instanceId.prefix(8)) keyLen=\(key.count) addStatus=\(addStatus) caller=\(caller)")
+        AppLogger(category: "Keychain").info("write apiKey instanceId=\(instanceId.prefix(8)) keyLen=\(key.count) verified caller=\(caller)")
         // Refresh credential-derived UI (provider list "configured" dot, etc).
         notifyAuthChanged(instanceId: instanceId)
+        return true
     }
 
     static func loadAPIKey(instanceId: String, caller: String = #function) -> String? {
@@ -3448,27 +3498,16 @@ enum ProviderKeychainHelper {
     /// (which would also silently drop any provider type added later). These
     /// read/write the exact same Keychain item as the typed
     /// `saveOAuthToken`/`loadOAuthToken` pair.
-    static func saveRawOAuthToken(_ data: Data, instanceId: String) {
+    /// Returns true only when the blob is written AND reads back identical.
+    @discardableResult
+    static func saveRawOAuthToken(_ data: Data, instanceId: String, caller: String = #function) -> Bool {
         let service = "com.openminis.clone.provider.\(instanceId)"
         let acct = "oauth-token"
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: acct,
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-        var syncDelete = deleteQuery
-        syncDelete[kSecAttrSynchronizable as String] = true
-        SecItemDelete(syncDelete as CFDictionary)
-        var addQuery = deleteQuery
-        addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        addQuery[kSecAttrSynchronizable as String] = true
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        if status != errSecSuccess {
-            AppLogger(category: "Keychain").warning("write rawOAuthToken instanceId=\(instanceId.prefix(8)) status=\(status)")
+        guard writeKeychainValue(data, service: service, account: acct, kind: "rawOAuthToken", caller: caller) else {
+            return false
         }
         clearOAuthNeedsReauth(instanceId: instanceId)
+        return true
     }
 
     static func loadRawOAuthToken(instanceId: String) -> Data? {
@@ -3486,30 +3525,23 @@ enum ProviderKeychainHelper {
         return result as? Data
     }
 
-    static func saveOAuthToken<T: Codable>(_ token: T, instanceId: String, caller: String = #function) {
+    /// Returns false on encode failure or on a failed/unverified write.
+    /// A failed write leaves the previous token intact.
+    @discardableResult
+    static func saveOAuthToken<T: Codable>(_ token: T, instanceId: String, caller: String = #function) -> Bool {
         guard let data = try? JSONEncoder().encode(token) else {
             AppLogger(category: "Keychain").warning("write oauthToken instanceId=\(instanceId.prefix(8)) ENCODE FAILED caller=\(caller)")
-            return
+            return false
         }
         let service = "com.openminis.clone.provider.\(instanceId)"
         let acct = "oauth-token"
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: acct,
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-        var syncDelete = deleteQuery
-        syncDelete[kSecAttrSynchronizable as String] = true
-        SecItemDelete(syncDelete as CFDictionary)
-        var addQuery = deleteQuery
-        addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        addQuery[kSecAttrSynchronizable as String] = true
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        AppLogger(category: "Keychain").info("write oauthToken instanceId=\(instanceId.prefix(8)) blobLen=\(data.count) addStatus=\(addStatus) caller=\(caller)")
+        guard writeKeychainValue(data, service: service, account: acct, kind: "oauthToken", caller: caller) else {
+            return false
+        }
+        AppLogger(category: "Keychain").info("write oauthToken instanceId=\(instanceId.prefix(8)) blobLen=\(data.count) verified caller=\(caller)")
         clearOAuthNeedsReauth(instanceId: instanceId)
         notifyAuthChanged(instanceId: instanceId)
+        return true
     }
 
     static func loadOAuthToken<T: Codable>(instanceId: String, as type: T.Type, caller: String = #function) -> T? {
@@ -3611,24 +3643,16 @@ enum ProviderKeychainHelper {
 
     // MARK: - OAuth Strings (per-instance, e.g. email, project ID)
 
-    static func saveOAuthString(_ value: String, instanceId: String, account: String, caller: String = #function) {
+    /// Returns true only when the value is written AND reads back identical.
+    @discardableResult
+    static func saveOAuthString(_ value: String, instanceId: String, account: String, caller: String = #function) -> Bool {
         let service = "com.openminis.clone.provider.\(instanceId)"
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-        var syncDelete = deleteQuery
-        syncDelete[kSecAttrSynchronizable as String] = true
-        SecItemDelete(syncDelete as CFDictionary)
-        var addQuery = deleteQuery
-        addQuery[kSecValueData as String] = Data(value.utf8)
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        addQuery[kSecAttrSynchronizable as String] = true
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        AppLogger(category: "Keychain").info("write oauthString instanceId=\(instanceId.prefix(8)) acct=\(account) valLen=\(value.count) addStatus=\(addStatus) caller=\(caller)")
+        guard writeKeychainValue(Data(value.utf8), service: service, account: account, kind: "oauthString", caller: caller) else {
+            return false
+        }
+        AppLogger(category: "Keychain").info("write oauthString instanceId=\(instanceId.prefix(8)) acct=\(account) valLen=\(value.count) verified caller=\(caller)")
         notifyAuthChanged(instanceId: instanceId)
+        return true
     }
 
     static func loadOAuthString(instanceId: String, account: String, caller: String = #function) -> String? {
