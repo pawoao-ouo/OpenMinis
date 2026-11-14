@@ -599,7 +599,7 @@ actor BackupExporter {
             total += treeSize(AppearanceStudio.appearanceAssetsDirectory)
             // [A2] The avatar bytes now ride in this category too, so the
             // disk-space estimate must count them or preflight under-counts.
-            total += treeSize(SoulStore.avatarsDirectory())
+            total += treeSize(SoulIconImage.avatarsDirectory())
         }
         if categories.contains(.stickers) {
             total += treeSize(AIChatViewModel.minisStickersPersistentDir)
@@ -1338,7 +1338,7 @@ actor BackupExporter {
         // "avatar = avatars/x.png" but not x.png — every avatar silently fell
         // back to the default glyph with no warning. Carry the bytes here so
         // the category round-trips them under their own `avatars/` prefix.
-        let avatarDir = SoulStore.avatarsDirectory()
+        let avatarDir = SoulIconImage.avatarsDirectory()
         let a = try trees.export(root: avatarDir, logicalPrefix: "avatars",
                                  category: .appearance)
         var bytes = r.bytesIncluded + a.bytesIncluded

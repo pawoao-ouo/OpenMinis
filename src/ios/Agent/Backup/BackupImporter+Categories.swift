@@ -500,7 +500,7 @@ extension BackupImporter {
         // AppearanceStudio rather than inside it — so they get their own
         // restore pass, checked against the avatars root's containment rather
         // than AppearanceStudio's.
-        let avatarDir = SoulStore.avatarsDirectory()
+        let avatarDir = SoulIconImage.avatarsDirectory()
         let avatars = try restoreFileTree(
             root: root, fileIndex: fileIndex, category: .appearance,
             containmentRootOverride: avatarDir,
