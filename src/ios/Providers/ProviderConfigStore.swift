@@ -6,6 +6,35 @@ import os.log
 
 private let logger = AppLogger(category: "ProviderConfigStore")
 
+// MARK: - V3 bootstrap / feature flag
+//
+// Restored after commit 31160806 (iCloud sync deletion) removed the whole
+// Sync/V2 tree that housed this enum but left its three readers in this
+// file, breaking the build. The v3 per-record SYNC surface is gone, but
+// the flag still gates whether the V3 DB is treated as authoritative for
+// ProviderConfig data; default ON, kill-switch via the same UserDefaults
+// key. No setter callers remain (the debug RPC toggle went with the sync
+// deletion), so in practice this reads the stored value or true.
+
+/// Controls whether the v3 per-record sync surface is the authoritative
+/// inbound path for ProviderConfig data. When ON:
+///   - Outbound: v2 (legacy whole-file) + v3 (per-record) are emitted.
+///   - Inbound: v3 is merged; v2 is silently dropped (S7 short-circuit).
+/// Default ON for builds that include this commit. Kill-switch via
+/// UserDefaults key `cloudSync.providerV3.enabled` lets us flip back to
+/// V2-only behavior in the field if v3 has unforeseen bugs.
+@MainActor
+enum ProviderV3Bootstrap {
+    private static let key = "cloudSync.providerV3.enabled"
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? true
+    }
+    static func setEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: key)
+        logger.info("[v3] ProviderV3Bootstrap.setEnabled(\(enabled))")
+    }
+}
+
 // MARK: - Persisted Config
 
 /// One soft-delete record. Persisted in `ProviderConfig` so the deletion
