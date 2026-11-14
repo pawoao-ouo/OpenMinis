@@ -2144,7 +2144,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // the keep-alive snapshot then, so a pending warmup cannot replay
             // the just-deleted conversation. (`retry()` clears the snapshot
             // itself; truncation paths go through postTruncationCleanup.)
-            if newValue == nil, messages.isEmpty {
+            // NOTE: this is `didSet`, so the new value is the property
+            // itself — `newValue` only exists in `willSet`.
+            if cachedLatestMarker == nil, messages.isEmpty {
                 clearKeepAliveSnapshot()
             }
         }
