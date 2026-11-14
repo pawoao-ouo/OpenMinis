@@ -43,6 +43,23 @@ struct BackupSkippedFilesView: View {
 
     private var shownCount: Int { record.skippedEntries.count }
 
+    /// [A8] The reason an entry was left out, in the user's language.
+    /// Nil for the size cap (and for records written before reasons were
+    /// tracked): that was the only reason this list ever showed, so it
+    /// needs no label.
+    private func reasonLabel(for entry: BackupHistory.SkippedEntry) -> String? {
+        switch entry.reason {
+        case "not_downloaded":
+            return AppLocalized("Not downloaded")
+        case "unreadable":
+            return AppLocalized("Unreadable")
+        case "after_snapshot":
+            return AppLocalized("Changed after snapshot")
+        default:
+            return nil
+        }
+    }
+
     var body: some View {
         List {
             Section {
@@ -64,10 +81,22 @@ struct BackupSkippedFilesView: View {
                 Section {
                     ForEach(group.entries) { e in
                         HStack {
-                            Text(e.fileName)
-                                .font(.system(size: fontSettings.scaledApp(16)))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(e.fileName)
+                                    .font(.system(size: fontSettings.scaledApp(16)))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                // [A8] Size-cap exclusions need no label — that
+                                // is what this list used to show exclusively.
+                                // Anything else gets its reason, so a file left
+                                // out because it was not downloaded does not
+                                // read as "too big".
+                                if let reason = reasonLabel(for: e) {
+                                    Text(reason)
+                                        .font(.system(size: fontSettings.scaledApp(12)))
+                                        .foregroundStyle(MinisTheme.secondaryText)
+                                }
+                            }
                             Spacer(minLength: 12)
                             Text(ByteCountFormatter.string(fromByteCount: e.size,
                                                            countStyle: .file))

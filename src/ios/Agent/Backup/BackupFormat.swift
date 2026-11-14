@@ -317,23 +317,43 @@ struct BackupManifest: Codable {
         var maxFileBytes: Int64?
         var skippedFiles: Int
         var skippedBytes: Int64
+        /// [A8] Files left out because they live in iCloud/a FileProvider
+        /// and were not downloaded to this device. Distinct from the size
+        /// cap: the remedy is to download and back up again.
+        var notDownloadedFiles: Int
+        /// [A8] Files the export could not read at all.
+        var unreadableFiles: Int
+        /// [A10] Files modified after the snapshot cut-off, tombstoned in
+        /// `files.index.jsonl` like any other exclusion.
+        var afterSnapshotFiles: Int
 
         enum CodingKeys: String, CodingKey {
             case maxFileBytes = "max_file_bytes"
             case skippedFiles = "skipped_files"
             case skippedBytes = "skipped_bytes"
+            case notDownloadedFiles = "not_downloaded_files"
+            case unreadableFiles = "unreadable_files"
+            case afterSnapshotFiles = "after_snapshot_files"
         }
 
-        init(maxFileBytes: Int64?, skippedFiles: Int, skippedBytes: Int64) {
+        init(maxFileBytes: Int64?, skippedFiles: Int, skippedBytes: Int64,
+             notDownloadedFiles: Int = 0, unreadableFiles: Int = 0,
+             afterSnapshotFiles: Int = 0) {
             self.maxFileBytes = maxFileBytes
             self.skippedFiles = skippedFiles
             self.skippedBytes = skippedBytes
+            self.notDownloadedFiles = notDownloadedFiles
+            self.unreadableFiles = unreadableFiles
+            self.afterSnapshotFiles = afterSnapshotFiles
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             maxFileBytes = try c.decodeIfPresent(Int64.self, forKey: .maxFileBytes)
             skippedFiles = try c.decodeIfPresent(Int.self, forKey: .skippedFiles) ?? 0
             skippedBytes = try c.decodeIfPresent(Int64.self, forKey: .skippedBytes) ?? 0
+            notDownloadedFiles = try c.decodeIfPresent(Int.self, forKey: .notDownloadedFiles) ?? 0
+            unreadableFiles = try c.decodeIfPresent(Int.self, forKey: .unreadableFiles) ?? 0
+            afterSnapshotFiles = try c.decodeIfPresent(Int.self, forKey: .afterSnapshotFiles) ?? 0
         }
 
         static let unlimited = Limits(maxFileBytes: nil, skippedFiles: 0, skippedBytes: 0)
@@ -403,6 +423,11 @@ struct BackupFileIndexEntry: Codable {
     /// - `"not_downloaded"` — an iCloud/FileProvider placeholder that could not
     ///   be materialised (review S9).
     /// - `"unreadable"` — the file could not be read at all.
+    /// - `"after_snapshot"` — [A10] modified after the snapshot cut-off, so
+    ///   outside this backup's point in time. Tombstoned like any other
+    ///   exclusion: the previous code dropped these silently, so the user
+    ///   could not tell whether 0 or 500 files changed during the export
+    ///   and were left out.
     var skipped: String?
     var isDirectory: Bool?
 
@@ -436,6 +461,15 @@ struct BackupFileIndexEntry: Codable {
     static func notDownloaded(path: String, size: Int64, category: BackupCategory) -> Self {
         .init(path: path, size: size, sha256: nil, category: category.rawValue,
               skipped: "not_downloaded", isDirectory: nil)
+    }
+
+    /// [A10] A file modified after the snapshot cut-off. Outside this
+    /// backup's point in time, so excluded — but tombstoned, never silently
+    /// dropped: the restore side counts these from the index, and the
+    /// export counts them in `manifest.limits`.
+    static func afterSnapshot(path: String, size: Int64, category: BackupCategory) -> Self {
+        .init(path: path, size: size, sha256: nil, category: category.rawValue,
+              skipped: "after_snapshot", isDirectory: nil)
     }
 
     /// Empty directories would otherwise vanish, since nothing references them.

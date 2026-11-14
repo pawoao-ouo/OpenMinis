@@ -26,15 +26,21 @@ extension BackupImporter {
 
     // MARK: - File index
 
-    func readFileIndex(at root: URL) -> [BackupFileIndexEntry] {
+    func readFileIndex(at root: URL) -> (entries: [BackupFileIndexEntry], dropped: Int) {
         let url = root.appendingPathComponent("files.index.jsonl")
-        guard let data = try? Data(contentsOf: url) else { return [] }
+        guard let data = try? Data(contentsOf: url) else { return ([], 0) }
         let decoder = JSONDecoder()
         var out: [BackupFileIndexEntry] = []
+        // [A11] One bad line is still skipped, never fatal — but the count
+        // is returned so the import report can say the index was damaged
+        // instead of silently losing track of files.
+        var dropped = 0
         for line in data.split(separator: 0x0A) where !line.isEmpty {
             // §2.2 rule 3: one bad line is skipped, never fatal.
             if let e = try? decoder.decode(BackupFileIndexEntry.self, from: Data(line)) {
                 out.append(e)
+            } else {
+                dropped += 1
             }
         }
         // A resumed export re-runs an interrupted category from scratch
@@ -46,7 +52,8 @@ extension BackupImporter {
         for (i, e) in out.enumerated() {
             lastIndex["\(e.category)\u{0}\(e.path)"] = i
         }
-        return out.enumerated().filter { lastIndex["\($0.element.category)\u{0}\($0.element.path)"] == $0.offset }.map(\.element)
+        let deduped = out.enumerated().filter { lastIndex["\($0.element.category)\u{0}\($0.element.path)"] == $0.offset }.map(\.element)
+        return (deduped, dropped)
     }
 
     /// Fix 3 — the session ids this package carries, from
@@ -61,7 +68,7 @@ extension BackupImporter {
     func packageSessionIds(root: URL) -> Set<String> {
         let dataDir = root.appendingPathComponent("data", isDirectory: true)
         return Set(readJSONL(dataDir, base: "sessions",
-                             as: SessionIDRecord.self).map(\.session.id))
+                             as: SessionIDRecord.self).records.map(\.session.id))
     }
 
     // MARK: - Rollback
@@ -311,7 +318,10 @@ extension BackupImporter {
 
         // Folders first: sessions carry a folderId, and applying the folder
         // beforehand means the reference resolves immediately.
-        for env in readJSONL(dataDir, base: "folders", as: ChatFolder.self) {
+        // [A11] Dropped lines are counted on the report, not swallowed.
+        let (folderRecords, folderDropped) = readJSONL(dataDir, base: "folders", as: ChatFolder.self)
+        report.droppedLines += folderDropped
+        for env in folderRecords {
             await store.applyRemoteFolder(env)
         }
 
@@ -327,7 +337,10 @@ extension BackupImporter {
             let memoryEnabled: Bool
             let modelBinding: String?
         }
-        for rec in readJSONL(dataDir, base: "sessions", as: SessionRecord.self) {
+        // [A11] Dropped lines are counted on the report, not swallowed.
+        let (sessionRecords, sessionDropped) = readJSONL(dataDir, base: "sessions", as: SessionRecord.self)
+        report.droppedLines += sessionDropped
+        for rec in sessionRecords {
             let sid = rec.session.id
             packageSessionIds.insert(sid)
             // Refuse rather than silently skip: a running agent loop owns its
@@ -354,8 +367,10 @@ extension BackupImporter {
             }
         }
 
-        let messageRecords = readJSONL(dataDir, base: "messages", as: RawMessage.self)
-        let markerRecords = readJSONL(dataDir, base: "compact_markers", as: CompactMarker.self)
+        let (messageRecords, messageDropped) = readJSONL(dataDir, base: "messages", as: RawMessage.self)
+        let (markerRecords, markerDropped) = readJSONL(dataDir, base: "compact_markers", as: CompactMarker.self)
+        // [A11] Dropped lines are counted on the report, not swallowed.
+        report.droppedLines += messageDropped + markerDropped
         // A session can also be running locally without its row being in
         // this package (its messages/markers still resolve to the local
         // parent row). Extend the same refusal to those ids before any
@@ -584,7 +599,10 @@ extension BackupImporter {
             let sourceURL: String?
         }
         var lwwSkippedIds: Set<String> = []
-        for rec in readJSONL(dataDir, base: "skills", as: SkillRecord.self) {
+        // [A11] Dropped lines are counted on the report, not swallowed.
+        let (skillRecords, skillDropped) = readJSONL(dataDir, base: "skills", as: SkillRecord.self)
+        report.droppedLines += skillDropped
+        for rec in skillRecords {
             // importSkillRecord preserves the id and applies its own LWW,
             // which is exactly Merge semantics; the rescan below stages
             // the changes instead.
@@ -904,9 +922,11 @@ extension BackupImporter {
         // would resolve to nothing, silently.
         //
         // Absent in packages written by older builds — that is not an error,
-        // the file simply isn't there and `readJSONL` returns [].
-        let rules = readJSONL(root.appendingPathComponent("data", isDirectory: true),
+        // the file simply isn't there and `readJSONL` returns no records.
+        let (rules, rulesDropped) = readJSONL(root.appendingPathComponent("data", isDirectory: true),
                               base: "thinking_rules", as: BackupThinkingRuleRecord.self)
+        // [A11] Dropped lines are counted on the report, not swallowed.
+        report.droppedLines += rulesDropped
         if !rules.isEmpty {
             let outcome = await Self.importThinkingRules(rules)
             report.imported += outcome.written
@@ -1682,7 +1702,10 @@ extension BackupImporter {
         // a restored dictionary keeps its terms but its frequencies re-converge
         // through use. Faithful counter restore needs a set-exact API; recorded
         // as a known limitation rather than silently pretending otherwise.
-        for rec in readJSONL(dataDir, base: "voice_correction", as: ConfusionRecord.self)
+        // [A11] Dropped lines are counted on the report, not swallowed.
+        let (confusionRecords, confusionDropped) = readJSONL(dataDir, base: "voice_correction", as: ConfusionRecord.self)
+        report.droppedLines += confusionDropped
+        for rec in confusionRecords
         where !rec.correctedTerm.isEmpty {
             await db.upsertConfusion(
                 phoneticKey: rec.phoneticKey,
@@ -1691,7 +1714,10 @@ extension BackupImporter {
                 contextSample: nil, asrProvider: "restore", source: rec.source)
             report.imported += 1
         }
-        for rec in readJSONL(dataDir, base: "voice_correction", as: VocabularyRecord.self)
+        // [A11] Dropped lines are counted on the report, not swallowed.
+        let (vocabularyRecords, vocabularyDropped) = readJSONL(dataDir, base: "voice_correction", as: VocabularyRecord.self)
+        report.droppedLines += vocabularyDropped
+        for rec in vocabularyRecords
         where !rec.term.isEmpty {
             await db.upsertVocabulary(
                 term: rec.term, phoneticKey: rec.phoneticKey, locale: rec.locale,
@@ -1849,7 +1875,7 @@ extension BackupImporter {
         let dataDir = root.appendingPathComponent("data", isDirectory: true)
         guard jsonlExists(dir: dataDir, base: "sessions") else { return nil }
         let packageIds = Set(readJSONL(dataDir, base: "sessions",
-                                       as: SessionIDRecord.self).map(\.session.id))
+                                       as: SessionIDRecord.self).records.map(\.session.id))
         let store = ChatStore.shared
         var keep = packageIds
         for pid in packageIds {
@@ -2036,7 +2062,7 @@ extension BackupImporter {
         let dataDir = root.appendingPathComponent("data", isDirectory: true)
         guard jsonlExists(dir: dataDir, base: "skills") else { return nil }
         let packageIds = Set(readJSONL(dataDir, base: "skills",
-                                       as: SkillIDRecord.self).map(\.id))
+                                       as: SkillIDRecord.self).records.map(\.id))
         return await MainActor.run {
             SkillStore.shared.skills
                 .filter { !packageIds.contains($0.id) && $0.importSource != .bundled }
@@ -2450,7 +2476,12 @@ extension BackupImporter {
     }
 
     /// Read every shard of a JSONL stream, unwrapping the `t`/`v`/`d` envelope.
-    func readJSONL<T: Codable>(_ dir: URL, base: String, as type: T.Type) -> [T] {
+    ///
+    /// Returns the decoded records plus how many lines could not be decoded.
+    /// Per-line tolerance (§2.2 rule 3) still applies — one bad record never
+    /// fails the import — but [A11] the count is returned so callers can
+    /// report a damaged package instead of silently dropping records.
+    func readJSONL<T: Codable>(_ dir: URL, base: String, as type: T.Type) -> (records: [T], dropped: Int) {
         let fm = FileManager.default
         let names = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? [])
             .filter { $0 == "\(base).jsonl" || ($0.hasPrefix("\(base)-") && $0.hasSuffix(".jsonl")) }
@@ -2459,6 +2490,7 @@ extension BackupImporter {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         var out: [T] = []
+        var dropped = 0
         for name in names {
             guard let data = try? Data(contentsOf: dir.appendingPathComponent(name)) else { continue }
             for line in data.split(separator: 0x0A) where !line.isEmpty {
@@ -2466,10 +2498,12 @@ extension BackupImporter {
                 // parse is skipped, and the rest of the file still imports.
                 if let env = try? decoder.decode(BackupRecordEnvelope<T>.self, from: Data(line)) {
                     out.append(env.d)
+                } else {
+                    dropped += 1
                 }
             }
         }
-        return out
+        return (out, dropped)
     }
 
     private func encodeParts(_ parts: [ContentPart]) -> String? {

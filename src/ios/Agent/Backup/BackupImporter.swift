@@ -51,6 +51,17 @@ actor BackupImporter {
         /// exporting device. Distinct from the size cap because the remedy is
         /// different: download the files and back up again.
         var notDownloadedInPackage = 0
+        /// [A8] Tombstones for files the source device could not read at
+        /// all. Previously skipped in `restoreFileTree` without a count.
+        var unreadableInPackage = 0
+        /// [A10] Tombstones for files that changed after the backup's
+        /// snapshot cut-off. Previously dropped silently at export, so no
+        /// count existed anywhere; now tombstoned and counted end-to-end.
+        var afterSnapshotInPackage = 0
+        /// [A11] JSONL records in this category's streams that could not be
+        /// decoded and were skipped. Per-line tolerance used to drop these
+        /// silently; the count makes a damaged package visible.
+        var droppedLines = 0
         /// [review S7] Index entries whose content blob is MISSING from the
         /// package — the export was not a snapshot, so a file added between the
         /// index write and the blob copy can be referenced but absent.
@@ -82,6 +93,10 @@ actor BackupImporter {
         var categories: [CategoryReport] = []
         var integrityChecked = 0
         var integrityFailed: [String] = []
+        /// [A11] Lines in `files.index.jsonl` that could not be decoded and
+        /// were skipped. A corrupt index line used to vanish silently; the
+        /// count makes a damaged package visible instead.
+        var droppedIndexLines = 0
         var rolledBack: [String] = []
         var wasEncrypted = false
         var warnings: [String] = []
@@ -243,7 +258,10 @@ actor BackupImporter {
 
         // Index the package's file tree once; every file-carrying category
         // filters this rather than re-reading the index per category.
-        let fileIndex = readFileIndex(at: root)
+        // [A11] The index itself can have corrupt lines — count them on the
+        // report instead of silently dropping them.
+        let (fileIndex, droppedIndexLines) = readFileIndex(at: root)
+        report.droppedIndexLines = droppedIndexLines
 
         // Fix 2 — MANDATORY pre-step for overwrite, before ANY wipe: a full
         // current-state export (every backupable category, no credentials,
@@ -315,6 +333,14 @@ actor BackupImporter {
                 // device.
                 cat.notDownloadedInPackage = fileIndex
                     .filter { $0.category == category.rawValue && $0.skipped == "not_downloaded" }.count
+                // [A8/A10] Same treatment for the two reasons the restore
+                // used to skip without counting: files the source device
+                // could not read, and files that changed after the
+                // backup's snapshot cut-off.
+                cat.unreadableInPackage = fileIndex
+                    .filter { $0.category == category.rawValue && $0.skipped == "unreadable" }.count
+                cat.afterSnapshotInPackage = fileIndex
+                    .filter { $0.category == category.rawValue && $0.skipped == "after_snapshot" }.count
                 report.categories.append(cat)
             } catch {
                 logger.error("[Restore] category \(category.rawValue) failed: \(error.localizedDescription)")
@@ -470,6 +496,16 @@ actor BackupImporter {
     ///
     /// Runs BEFORE any write, so a truncated or tampered package is rejected
     /// while the device is still untouched.
+    /// [A11] What this does and does not prove. The map lives inside the
+    /// manifest it protects and `manifest.json` itself is excluded (it
+    /// cannot hash itself), so on an UNENCRYPTED package this only detects
+    /// accidental damage — a deliberate editor can rewrite the manifest
+    /// and its hashes consistently, and no in-package value can stop that
+    /// without an external trust anchor. Tamper-proofing for a package
+    /// comes from the manifest MAC instead: encrypted packages authenticate
+    /// `manifest.json` byte-for-byte via the `manifest.mac` sidecar, and
+    /// `verifyManifestMAC` is now fail-closed — a missing MAC fails the
+    /// import rather than passing it.
     private func verifyIntegrity(manifest: BackupManifest, root: URL) -> (Int, [String]) {
         var checked = 0
         var failed: [String] = []
@@ -632,7 +668,7 @@ actor BackupImporter {
             .appendingPathComponent("minisbak-preview-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: work) }
         guard let root = try? unpack(packageURL, to: work) else { return [:] }
-        let fileIndex = readFileIndex(at: root)
+        let (fileIndex, _) = readFileIndex(at: root)
         var out: [BackupCategory: Int] = [:]
         for category in orderedCategories(categories) {
             if let n = await overwriteDeletionCount(category, root: root, fileIndex: fileIndex) {

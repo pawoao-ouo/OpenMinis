@@ -31,6 +31,9 @@ struct BackupFileTreeExporter {
 
     struct Result {
         var filesIncluded = 0
+        /// Every file left out of the package, all reasons combined
+        /// (size cap, not downloaded, unreadable, after snapshot). The
+        /// reason breakdowns below are subsets of this total.
         var filesSkipped = 0
         var bytesIncluded: Int64 = 0
         var directories = 0
@@ -40,10 +43,26 @@ struct BackupFileTreeExporter {
         /// include" is a setting they chose, "not downloaded" is fixable by
         /// downloading the files and running the backup again.
         var filesNotDownloaded = 0
+        /// [A8] Subset of `filesSkipped` that could not be read at all.
+        /// Tracked separately because the remedy differs from the size cap
+        /// and from not-downloaded: there is nothing to re-download, the
+        /// file itself is broken or unreadable on the source device.
+        var filesUnreadable = 0
         /// Files excluded because they were modified after the snapshot
         /// cut-off. NOT a gap in the backup — they are simply outside this
-        /// backup's point in time, so they get no tombstone.
+        /// backup's point in time. [A10] They now get a tombstone in
+        /// `files.index.jsonl` (skipped `"after_snapshot"`) like every other
+        /// exclusion, so the export and the restore can both count them
+        /// instead of silently dropping them.
         var filesAfterSnapshot = 0
+        /// [A8/A10] The non-size-cap exclusions, with paths, for the export
+        /// summary and the history "Files excluded" list. The size-cap
+        /// exclusions already live in `BackupBlobStore.skippedPaths`, so
+        /// they are deliberately NOT repeated here.
+        ///
+        /// `reason` is one of the `BackupFileIndexEntry.skipped` values:
+        /// `"not_downloaded"`, `"unreadable"`, `"after_snapshot"`.
+        var skippedDetails: [(path: String, size: Int64, reason: String)] = []
     }
 
     /// True for anything that is itself a backup artifact — a delivered
@@ -207,7 +226,17 @@ struct BackupFileTreeExporter {
                let mtime = try? url.resourceValues(forKeys: [.contentModificationDateKey])
                    .contentModificationDate,
                mtime > snapshotAt {
+                // [A10] Tombstone, never a silent drop — §3.4's rule applies
+                // to the cut-off too. Without it the user cannot tell whether
+                // 0 or 500 files changed during the export and were left out.
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+                    .flatMap { Int64($0) } ?? 0
+                fileIndex.write(.afterSnapshot(path: logicalPath, size: size,
+                                               category: category))
+                result.filesSkipped += 1
                 result.filesAfterSnapshot += 1
+                result.skippedDetails.append((path: logicalPath, size: size,
+                                              reason: "after_snapshot"))
                 continue
             }
 
@@ -221,6 +250,8 @@ struct BackupFileTreeExporter {
                                                category: category))
                 result.filesSkipped += 1
                 result.filesNotDownloaded += 1
+                result.skippedDetails.append((path: logicalPath, size: logicalSize,
+                                              reason: "not_downloaded"))
                 continue
             }
 
@@ -257,6 +288,11 @@ struct BackupFileTreeExporter {
                     path: logicalPath, size: size, sha256: nil,
                     category: category.rawValue, skipped: "unreadable", isDirectory: nil))
                 result.filesSkipped += 1
+                // [A8] Counted separately from the size cap, so the export
+                // summary, history, and restore report can all name it.
+                result.filesUnreadable += 1
+                result.skippedDetails.append((path: logicalPath, size: size,
+                                              reason: "unreadable"))
             }
             }
         }

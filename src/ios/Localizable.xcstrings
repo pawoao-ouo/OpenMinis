@@ -151067,6 +151067,305 @@
           }
         }
       }
+    },
+    "Not backed up: evolution, subagents, TTS settings, and browser history.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not backed up: evolution, subagents, TTS settings, and browser history."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下内容不在备份范围内：演进、子代理、TTS 设置和浏览器历史。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下內容不在備份範圍內：演進、子代理、TTS 設定和瀏覽器歷史。"
+          }
+        }
+      }
+    },
+    "Overwrite deletes local items in the selected categories that are not in this backup. A few things stay as they are on this device: provider default pointers, voice-correction learning, and persona-registry and regex-rule files the package does not carry. A full safety copy of your current data is made first — if the safety copy fails, nothing is deleted and the restore is refused.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overwrite deletes local items in the selected categories that are not in this backup. A few things stay as they are on this device: provider default pointers, voice-correction learning, and persona-registry and regex-rule files the package does not carry. A full safety copy of your current data is made first — if the safety copy fails, nothing is deleted and the restore is refused."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "覆盖会删除所选类别中不在此备份里的本地项目。但有几样东西会保持原样：提供商默认指向、语音纠错学习数据，以及备份包里没有的人设注册表和正则规则文件。恢复前会先完整备份你当前的数据——如果安全备份失败，则不会删除任何内容，恢复也会被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "覆寫會刪除所選類別中不在此備份裡的本地項目。但有幾樣東西會保持原樣：提供商默認指向、語音糾錯學習數據，以及備份包裡沒有的人設註冊表和正則規則文件。恢復前會先完整備份你當前的數據——如果安全備份失敗，則不會刪除任何內容，恢復也會被拒絕。"
+          }
+        }
+      }
+    },
+    "Chats, memory & files as of": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, memory & files as of"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天、记忆与文件截至"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天、記憶與文件截至"
+          }
+        }
+      }
+    },
+    "Other categories as of": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other categories as of"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他类别截至"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他類別截至"
+          }
+        }
+      }
+    },
+    "Excluded (not downloaded)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluded (not downloaded)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排除（未下载）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排除（未下載）"
+          }
+        }
+      }
+    },
+    "Excluded (unreadable)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluded (unreadable)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排除（无法读取）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排除（無法讀取）"
+          }
+        }
+      }
+    },
+    "Excluded (after snapshot)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluded (after snapshot)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排除（快照之后有改动）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排除（快照之後有改動）"
+          }
+        }
+      }
+    },
+    "Not downloaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not downloaded"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未下载"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未下載"
+          }
+        }
+      }
+    },
+    "Changed after snapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changed after snapshot"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快照之后有改动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快照之後有改動"
+          }
+        }
+      }
+    },
+    "%@: %lld file(s) couldn't be read on the device that made this backup, so they weren't in it": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %lld file(s) couldn't be read on the device that made this backup, so they weren't in it"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：有 %2$lld 个文件在制作此备份的设备上无法读取，因此未包含在备份中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：有 %2$lld 個文件在製作此備份的設備上無法讀取，因此未包含在備份中"
+          }
+        }
+      }
+    },
+    "%@: %lld file(s) changed after the backup's snapshot time, so they weren't included — back up again to include them": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %lld file(s) changed after the backup's snapshot time, so they weren't included — back up again to include them"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：有 %2$lld 个文件在备份快照时间之后有改动，因此未包含在内——重新备份即可包含它们"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：有 %2$lld 個文件在備份快照時間之後有改動，因此未包含在內——重新備份即可包含它們"
+          }
+        }
+      }
+    },
+    "%@: %lld record(s) in the backup could not be read and were skipped — the backup may be incomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %lld record(s) in the backup could not be read and were skipped — the backup may be incomplete"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：备份中有 %2$lld 条记录无法读取，已跳过——备份可能不完整"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：備份中有 %2$lld 條記錄無法讀取，已跳過——備份可能不完整"
+          }
+        }
+      }
+    },
+    "%lld line(s) in the package file index could not be read and were skipped — the backup may be incomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld line(s) in the package file index could not be read and were skipped — the backup may be incomplete"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包文件索引中有 %1$lld 行无法读取，已跳过——备份可能不完整"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包文件索引中有 %1$lld 行無法讀取，已跳過——備份可能不完整"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

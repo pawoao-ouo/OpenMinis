@@ -71,7 +71,7 @@ final class BackupHistory: ObservableObject {
         }
     }
 
-    /// One file left out of a package by the per-file size cap.
+    /// One file left out of a package.
     struct SkippedEntry: Codable, Identifiable, Sendable {
         var id: String { path }
         /// Package-relative logical path, e.g. `chats/<sessionId>/uploads/a.mp4`.
@@ -81,8 +81,37 @@ final class BackupHistory: ObservableObject {
         /// Looking it up later would fail for a conversation since deleted —
         /// and a list of bare UUIDs answers none of "which chat was that?".
         var sessionTitle: String?
+        /// [A8] Why the file was left out — a `BackupFileIndexEntry.skipped`
+        /// value: `"size"`, `"not_downloaded"`, `"unreadable"`,
+        /// `"after_snapshot"`. Nil in records written before reasons were
+        /// tracked; those were all size-cap exclusions, so nil reads as
+        /// `"size"`.
+        var reason: String?
 
         var fileName: String { (path as NSString).lastPathComponent }
+
+        /// Hand-written so records written before `reason` existed still
+        /// decode: synthesized Decodable throws `keyNotFound` for a missing
+        /// key even when the property has a default value (see `Record`
+        /// above). The memberwise initializer is unaffected.
+        enum CodingKeys: String, CodingKey {
+            case path, size, sessionTitle, reason
+        }
+
+        init(path: String, size: Int64, sessionTitle: String? = nil, reason: String? = nil) {
+            self.path = path
+            self.size = size
+            self.sessionTitle = sessionTitle
+            self.reason = reason
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            path = try c.decode(String.self, forKey: .path)
+            size = try c.decode(Int64.self, forKey: .size)
+            sessionTitle = try c.decodeIfPresent(String.self, forKey: .sessionTitle)
+            reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        }
     }
 
     /// Cap on how many skipped entries a record keeps. The COUNT is always

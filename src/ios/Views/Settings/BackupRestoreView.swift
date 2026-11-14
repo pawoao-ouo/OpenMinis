@@ -447,9 +447,16 @@ struct BackupRestoreView: View {
             // "Created": anything changed after this instant is deliberately
             // not in the package, and the user should see that before
             // deciding this is the backup they want.
+            // [A9] The snapshot cut-off only governs chats, memory, and
+            // file trees — the database categories (providers, servers,
+            // tasks, settings) are exported as of when the export finished.
+            // Labelling the whole package "Data as of <snapshotAt>" claimed
+            // a single point in time that never existed.
             if let snapshotAt = m.snapshotAt, snapshotAt != m.createdAt {
-                LabeledContent("Data as of",
+                LabeledContent("Chats, memory & files as of",
                                value: snapshotAt.formatted(date: .abbreviated, time: .shortened))
+                LabeledContent("Other categories as of",
+                               value: m.createdAt.formatted(date: .abbreviated, time: .shortened))
             }
             LabeledContent("From", value: "\(m.deviceName) · \(m.app.platform) \(m.app.version)")
             if m.encryption != nil {
@@ -467,6 +474,21 @@ struct BackupRestoreView: View {
                 // learn that here rather than after restoring.
                 LabeledContent("Excluded (size limit)",
                                value: "\(m.limits.skippedFiles) file(s)")
+            }
+            // [A8/A10] The other exclusion reasons, same treatment as the
+            // size cap: the user should learn the package is incomplete
+            // here rather than after restoring.
+            if m.limits.notDownloadedFiles > 0 {
+                LabeledContent("Excluded (not downloaded)",
+                               value: "\(m.limits.notDownloadedFiles) file(s)")
+            }
+            if m.limits.unreadableFiles > 0 {
+                LabeledContent("Excluded (unreadable)",
+                               value: "\(m.limits.unreadableFiles) file(s)")
+            }
+            if m.limits.afterSnapshotFiles > 0 {
+                LabeledContent("Excluded (after snapshot)",
+                               value: "\(m.limits.afterSnapshotFiles) file(s)")
             }
 
             // Escape hatch, kept with the thing it replaces rather than in the
@@ -648,7 +670,7 @@ struct BackupRestoreView: View {
                     .font(.system(size: fontSettings.scaledApp(13)))
                     .foregroundStyle(MinisTheme.secondaryText)
             } else {
-                Text("Overwrite deletes local items in the selected categories that are not in this backup, so this device ends up exactly as the backup was. A full safety copy of your current data is made first — if the safety copy fails, nothing is deleted and the restore is refused.")
+                Text(AppLocalized("Overwrite deletes local items in the selected categories that are not in this backup. A few things stay as they are on this device: provider default pointers, voice-correction learning, and persona-registry and regex-rule files the package does not carry. A full safety copy of your current data is made first — if the safety copy fails, nothing is deleted and the restore is refused."))
                     .font(.system(size: fontSettings.scaledApp(13)))
                     .foregroundStyle(MinisTheme.secondaryText)
                 if previewLoading {
@@ -857,6 +879,29 @@ struct BackupRestoreView: View {
                             .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.warning)
                     }
+                    // [A8] Different remedy again: these files exist on the
+                    // source device but could not be read, so re-exporting
+                    // alone may not bring them back.
+                    if c.unreadableInPackage > 0 {
+                        Text(AppLocalized("\(displayNameRaw(c.category)): \(c.unreadableInPackage) file(s) couldn't be read on the device that made this backup, so they weren't in it"))
+                            .font(.system(size: fontSettings.scaledApp(12)))
+                            .foregroundStyle(MinisTheme.warning)
+                    }
+                    // [A10] Not a gap in the usual sense — these files changed
+                    // after the backup's snapshot time — but the user still
+                    // needs to know they were left out.
+                    if c.afterSnapshotInPackage > 0 {
+                        Text(AppLocalized("\(displayNameRaw(c.category)): \(c.afterSnapshotInPackage) file(s) changed after the backup's snapshot time, so they weren't included — back up again to include them"))
+                            .font(.system(size: fontSettings.scaledApp(12)))
+                            .foregroundStyle(MinisTheme.secondaryText)
+                    }
+                    // [A11] Corrupt records the importer skipped. Shown in
+                    // red: a damaged package must not read as a clean one.
+                    if c.droppedLines > 0 {
+                        Text(AppLocalized("\(displayNameRaw(c.category)): \(c.droppedLines) record(s) in the backup could not be read and were skipped — the backup may be incomplete"))
+                            .font(.system(size: fontSettings.scaledApp(12)))
+                            .foregroundStyle(MinisTheme.destructive)
+                    }
                     // [review S7] The package's own index referenced content it
                     // did not contain — the backup is incomplete. Shown in red:
                     // this is the case that used to be silently swallowed and
@@ -870,6 +915,15 @@ struct BackupRestoreView: View {
             }
             if !r.rolledBack.isEmpty {
                 Text("Rolled back: \(r.rolledBack.joined(separator: ", "))")
+                    .font(.system(size: fontSettings.scaledApp(12)))
+                    .foregroundStyle(MinisTheme.warning)
+            }
+            // [A11] Corrupt lines in the package file index. The categories
+            // above may still report success — the index damage is separate,
+            // and it means files the index once listed may have been lost
+            // track of.
+            if r.droppedIndexLines > 0 {
+                Text(AppLocalized("\(r.droppedIndexLines) line(s) in the package file index could not be read and were skipped — the backup may be incomplete"))
                     .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(MinisTheme.warning)
             }

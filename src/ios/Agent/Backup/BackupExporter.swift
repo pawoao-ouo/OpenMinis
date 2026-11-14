@@ -89,9 +89,21 @@ actor BackupExporter {
         var resumedCategories = 0
         var totalBytes: Int64
         var categories: [String: BackupManifest.CategoryStat]
+        /// [A8] EVERY file left out of the package, all reasons combined
+        /// (size cap + not downloaded + unreadable + after snapshot).
+        /// Previously this was the size cap alone, so the export-complete
+        /// message, the history "Files excluded" count, and the excluded-
+        /// files list all silently omitted the other three reasons.
         var skippedFiles: Int
         var skippedBytes: Int64
         var skippedPaths: [(path: String, size: Int64)]
+        /// [A8/A10] Reason breakdown of `skippedFiles`, and the non-size-cap
+        /// exclusions with paths (the size-cap ones are `skippedPaths`).
+        /// `reason` is a `BackupFileIndexEntry.skipped` value.
+        var notDownloadedFiles: Int = 0
+        var unreadableFiles: Int = 0
+        var afterSnapshotFiles: Int = 0
+        var skippedDetails: [(path: String, size: Int64, reason: String)] = []
         /// Session id → title, for turning a skipped file's path into
         /// something a user recognises. Captured during the export because a
         /// conversation deleted afterwards can no longer be looked up.
@@ -107,6 +119,25 @@ actor BackupExporter {
     /// store would be pure duplicated work that could also disagree with what
     /// actually got written.
     private var rescueSessions: [BackupRescueIndex.SessionSummary] = []
+
+    /// [A8/A10] Tree-export exclusions the blob store never sees: the blob
+    /// store only counts the §3.4 size cap, while the file-tree exporter
+    /// tombstones not-downloaded, unreadable, and after-snapshot files too.
+    /// Accumulated per `trees.export` call and folded into the Summary and
+    /// `manifest.limits` at the end of the run. Reset at the start of every
+    /// `exportBody` — a resumed run must not inherit the previous attempt's
+    /// counts, and the actor instance is long-lived.
+    private var treeNotDownloaded = 0
+    private var treeUnreadable = 0
+    private var treeAfterSnapshot = 0
+    private var treeSkippedDetails: [(path: String, size: Int64, reason: String)] = []
+
+    private func accumulateTreeResult(_ r: BackupFileTreeExporter.Result) {
+        treeNotDownloaded += r.filesNotDownloaded
+        treeUnreadable += r.filesUnreadable
+        treeAfterSnapshot += r.filesAfterSnapshot
+        treeSkippedDetails.append(contentsOf: r.skippedDetails)
+    }
 
     // MARK: - Entry point
 
@@ -167,6 +198,14 @@ actor BackupExporter {
         }
 
         let started = Date()
+
+        // [A8/A10] Fresh exclusion counts for this run (see the accumulator
+        // comment above): a resumed run re-exports its categories from
+        // scratch, so the previous attempt's counts must not carry over.
+        treeNotDownloaded = 0
+        treeUnreadable = 0
+        treeAfterSnapshot = 0
+        treeSkippedDetails = []
 
         // One emit point for every non-transient status line, so a caller that
         // supplied the detailed channel sees ALL of them (not just the chats
@@ -491,8 +530,12 @@ actor BackupExporter {
         // out because a size-capped package has real gaps.
         let elapsed = Date().timeIntervalSince(started)
         let sizeText = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
-        if blobStore.skippedFiles > 0 {
-            say(AppLocalized("Export complete — \(sizeText) in \(BackupProgressReporter.durationText(elapsed)), \(blobStore.skippedFiles) file(s) excluded"))
+        // [A8] Total excluded across all reasons — the size cap alone used
+        // to be reported here, so "Export complete" hid the files that
+        // were not downloaded, unreadable, or past the snapshot cut-off.
+        let totalExcluded = blobStore.skippedFiles + treeNotDownloaded + treeUnreadable + treeAfterSnapshot
+        if totalExcluded > 0 {
+            say(AppLocalized("Export complete — \(sizeText) in \(BackupProgressReporter.durationText(elapsed)), \(totalExcluded) file(s) excluded"))
         } else {
             say(AppLocalized("Export complete — \(sizeText) in \(BackupProgressReporter.durationText(elapsed))"))
         }
@@ -505,8 +548,15 @@ actor BackupExporter {
         return Summary(
             packageURL: packageURL, backupId: backupId,
             resumedCategories: resumedCategories, totalBytes: total,
-            categories: stats, skippedFiles: blobStore.skippedFiles,
+            categories: stats,
+            // [A8] Total excluded across all reasons — the size cap alone
+            // used to be reported here, hiding the other three.
+            skippedFiles: blobStore.skippedFiles + treeNotDownloaded + treeUnreadable + treeAfterSnapshot,
             skippedBytes: blobStore.skippedBytes, skippedPaths: blobStore.skippedPaths,
+            notDownloadedFiles: treeNotDownloaded,
+            unreadableFiles: treeUnreadable,
+            afterSnapshotFiles: treeAfterSnapshot,
+            skippedDetails: treeSkippedDetails,
             sessionTitles: titles,
             duration: Date().timeIntervalSince(started))
     }
@@ -813,6 +863,7 @@ actor BackupExporter {
                 .appendingPathComponent(sid, isDirectory: true)
             let r = try trees.export(root: dir, logicalPrefix: "chats/\(sid)",
                                      category: .chats, sessionId: sid)
+            accumulateTreeResult(r)
             fileCount += r.filesIncluded
             fileBytes += r.bytesIncluded
         }
@@ -929,6 +980,7 @@ actor BackupExporter {
                                      category: .ishUserData,
                                      includeHiddenFiles: true,
                                      skipSymlinks: true)
+            accumulateTreeResult(r)
             fileCount += r.filesIncluded
             fileBytes += r.bytesIncluded
         }
@@ -946,6 +998,7 @@ actor BackupExporter {
         let r = try trees.export(root: AIChatViewModel.minisSharedPersistentDir,
                                  logicalPrefix: "shared",
                                  category: .sharedFiles)
+        accumulateTreeResult(r)
         return BackupManifest.CategoryStat(
             entries: r.filesIncluded, bytes: r.bytesIncluded, encrypted: false)
     }
@@ -957,6 +1010,7 @@ actor BackupExporter {
         let r = try trees.export(root: AIChatViewModel.minisStickersPersistentDir,
                                  logicalPrefix: "stickers",
                                  category: .stickers)
+        accumulateTreeResult(r)
         return BackupManifest.CategoryStat(
             entries: r.filesIncluded, bytes: r.bytesIncluded, encrypted: false)
     }
@@ -979,6 +1033,7 @@ actor BackupExporter {
             let dir = await MainActor.run { SkillStore.shared.skillDirectoryURL(for: row.id) }
             let r = try trees.export(root: dir, logicalPrefix: "skills/\(row.id)",
                                      category: .skills)
+            accumulateTreeResult(r)
             fileBytes += r.bytesIncluded
             fileCount += r.filesIncluded
         }
@@ -1330,6 +1385,7 @@ actor BackupExporter {
         let dir = await MainActor.run { AppearanceStudio.appearanceAssetsDirectory }
         let r = try trees.export(root: dir, logicalPrefix: "appearance",
                                  category: .appearance)
+        accumulateTreeResult(r)
         // [A2] Avatar PNGs live in `Application Support/avatars/`, BESIDE the
         // AppearanceStudio directory rather than inside it. The Appearance
         // category only ever archived the references (personas.json /
@@ -1341,6 +1397,7 @@ actor BackupExporter {
         let avatarDir = SoulIconImage.avatarsDirectory()
         let a = try trees.export(root: avatarDir, logicalPrefix: "avatars",
                                  category: .appearance)
+        accumulateTreeResult(a)
         var bytes = r.bytesIncluded + a.bytesIncluded
         var entries = r.filesIncluded + a.filesIncluded
         let values = await MainActor.run { AppearanceStudio.shared.collectBackupDefaults() }
@@ -1593,7 +1650,13 @@ actor BackupExporter {
             limits: BackupManifest.Limits(
                 maxFileBytes: blobStore.maxFileBytesForManifest,
                 skippedFiles: blobStore.skippedFiles,
-                skippedBytes: blobStore.skippedBytes),
+                skippedBytes: blobStore.skippedBytes,
+                // [A8/A10] The blob store only ever counted the size cap;
+                // the other three reasons are accumulated from the tree
+                // exporter (see `accumulateTreeResult`).
+                notDownloadedFiles: treeNotDownloaded,
+                unreadableFiles: treeUnreadable,
+                afterSnapshotFiles: treeAfterSnapshot),
             encryption: encryption,
             integrity: integrity,
             manifestMac: nil,

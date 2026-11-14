@@ -211,20 +211,26 @@ struct BackupSettingsView: View {
                 // that a skipped file leaves a tombstone rather than silently
                 // vanishing — the user should know that before it happens, not
                 // discover it at restore time.
-                if selected.contains(where: \.carriesFileTree),
-                   maxFileSizeMB == Self.noFilesTag {
-                    // Worth stating plainly: this is the one setting that makes
-                    // the backup unable to restore a conversation's files at
-                    // all, so it should not read like just another size.
-                    Text("Chats includes every file in each conversation, not just the messages. File contents are not being backed up — the backup lists which files existed, but restoring won't bring them back.")
-                } else if selected.contains(where: \.carriesFileTree),
-                          maxFileSizeMB != Self.unlimitedTag {
-                    Text("Chats includes every file in each conversation, not just the messages. Files larger than \(maxFileSizeMB) MB are listed in the backup but not included.")
-                } else {
-                    // Fix 3 — unlimited is the default: every file is
-                    // included, so there is no "left out" case to warn about.
-                    // Picking a size above reintroduces one.
-                    Text("Chats includes every file in each conversation, not just the messages. No per-file size limit — every file is included.")
+                VStack(alignment: .leading, spacing: 4) {
+                    if selected.contains(where: \.carriesFileTree),
+                       maxFileSizeMB == Self.noFilesTag {
+                        // Worth stating plainly: this is the one setting that makes
+                        // the backup unable to restore a conversation's files at
+                        // all, so it should not read like just another size.
+                        Text("Chats includes every file in each conversation, not just the messages. File contents are not being backed up — the backup lists which files existed, but restoring won't bring them back.")
+                    } else if selected.contains(where: \.carriesFileTree),
+                              maxFileSizeMB != Self.unlimitedTag {
+                        Text("Chats includes every file in each conversation, not just the messages. Files larger than \(maxFileSizeMB) MB are listed in the backup but not included.")
+                    } else {
+                        // Fix 3 — unlimited is the default: every file is
+                        // included, so there is no "left out" case to warn about.
+                        // Picking a size above reintroduces one.
+                        Text("Chats includes every file in each conversation, not just the messages. No per-file size limit — every file is included.")
+                    }
+                    // [A1] Four whole areas never enter any package — say so
+                    // here, next to the category list, instead of letting
+                    // "all 12 boxes ticked" read as "everything backed up".
+                    Text(AppLocalized("Not backed up: evolution, subagents, TTS settings, and browser history."))
                 }
             }
 
@@ -448,10 +454,29 @@ struct BackupSettingsView: View {
                         // told here rather than discovering it at restore time.
                         // "too large" would be wrong when files were left out
                         // on purpose — nothing exceeded anything.
-                        LabeledContent(maxFileSizeMB == Self.noFilesTag
-                                       ? "Files not included"
-                                       : "Excluded (too large)",
-                                       value: "\(result.skippedFiles) file(s)")
+                        // [A8] `skippedFiles` is now the all-reasons total, so
+                        // the size-cap label must only cover the size-cap part
+                        // (`skippedPaths`); the other reasons get their own
+                        // rows, same as the restore pre-check.
+                        let sizeCapped = result.skippedPaths.count
+                        if sizeCapped > 0 {
+                            LabeledContent(maxFileSizeMB == Self.noFilesTag
+                                           ? "Files not included"
+                                           : "Excluded (too large)",
+                                           value: "\(sizeCapped) file(s)")
+                        }
+                        if result.notDownloadedFiles > 0 {
+                            LabeledContent("Excluded (not downloaded)",
+                                           value: "\(result.notDownloadedFiles) file(s)")
+                        }
+                        if result.unreadableFiles > 0 {
+                            LabeledContent("Excluded (unreadable)",
+                                           value: "\(result.unreadableFiles) file(s)")
+                        }
+                        if result.afterSnapshotFiles > 0 {
+                            LabeledContent("Excluded (after snapshot)",
+                                           value: "\(result.afterSnapshotFiles) file(s)")
+                        }
                     }
                     // Share / Save need the local file — gone once it was
                     // removed after full delivery. The destinations list below
@@ -1413,12 +1438,22 @@ struct BackupSettingsView: View {
                 // Turn each skipped path into something recognisable. Paths are
                 // `chats/<sessionId>/…`, and the title map was captured during
                 // the export so a conversation deleted later still resolves.
-                skippedEntries: summary.skippedPaths.map { item in
+                // [A8] The size-cap paths carry reason "size"; the tree
+                // exporter's other exclusions (not downloaded, unreadable,
+                // after snapshot) ride in `skippedDetails` with their own
+                // reason, so the list names every left-out file, not just
+                // the size-capped ones.
+                skippedEntries: (summary.skippedPaths.map {
+                    (path: $0.path, size: $0.size, reason: "size")
+                } + summary.skippedDetails.map {
+                    (path: $0.path, size: $0.size, reason: $0.reason)
+                }).map { item in
                     let parts = item.path.split(separator: "/")
                     let sid = parts.count > 1 && parts[0] == "chats"
                         ? String(parts[1]) : nil
                     return .init(path: item.path, size: item.size,
-                                 sessionTitle: sid.flatMap { summary.sessionTitles[$0] })
+                                 sessionTitle: sid.flatMap { summary.sessionTitles[$0] },
+                                 reason: item.reason)
                 })
 
             // Kelivo-style primary path: if nothing was delivered to a

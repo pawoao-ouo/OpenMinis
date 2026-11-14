@@ -333,8 +333,16 @@ enum BackupCrypto {
         }
     }
 
+    /// [A11] Fail-closed: an encrypted package whose manifest carries no
+    /// MAC at all has had its authentication stripped (or predates MACs) —
+    /// either way it must not import unauthenticated. Previously this
+    /// returned silently when `manifestMac` was nil, so stripping the MAC
+    /// (and the `manifest.mac` sidecar the importer prefers) passed
+    /// verification outright.
     static func verifyManifestMAC(_ manifest: BackupManifest, key: SymmetricKey) throws {
-        guard let expected = manifest.manifestMac else { return }
+        guard let expected = manifest.manifestMac else {
+            throw CryptoError.manifestTampered
+        }
         let actual = try manifestMAC(manifest, key: key)
         // Constant-time compare via CryptoKit's own equality on the raw bytes.
         guard let a = Data(base64Encoded: actual), let b = Data(base64Encoded: expected),
