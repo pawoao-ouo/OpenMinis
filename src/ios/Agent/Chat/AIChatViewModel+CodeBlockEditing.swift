@@ -93,8 +93,10 @@ extension AIChatViewModel {
     private func replaceCodeInAgentHistory(message: ChatMessage, oldCode: String, newCode: String) {
         guard let rowId = message.dbRowId,
               let hi = agentHistory.firstIndex(where: { $0.dbMessageId == rowId }) else {
+            // NOTE: `rowId` is NOT in scope in a guard-else branch — the
+            // guard-let binding only exists after the guard succeeds.
             AppLogger(category: "AIChatViewModel").warning(
-                "[CodeBlockEdit] no agentHistory entry for bubble dbRowId=\(rowId?.prefix(8) ?? "nil") — history edit skipped")
+                "[CodeBlockEdit] no agentHistory entry for bubble dbRowId=\(message.dbRowId?.prefix(8) ?? "nil") — history edit skipped")
             return
         }
         // Assistant bubbles fold several DB rows into one UI message, so the
