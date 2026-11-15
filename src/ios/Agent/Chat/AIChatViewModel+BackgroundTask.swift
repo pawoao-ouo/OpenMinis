@@ -667,6 +667,20 @@ extension AIChatViewModel {
     }
 
     func clearChat() {
+        // [S10] Snapshot first: the DB deletes below are awaited, and if
+        // they do not land the UI rows + history go back from this snapshot
+        // instead of the cleared transcript silently resurrecting on the
+        // next reload with no error (same pattern as deleteSingleMessage).
+        // `messages` holds ChatMessage objects (a class) — the snapshot
+        // shares them, which is safe: clear/restore only add/remove array
+        // entries, never mutate a message in place. agentHistory /
+        // toolSnapshots / cachedLatestMarker are value types, so their
+        // snapshots are full copies.
+        let snapshotMessages = messages
+        let snapshotHistory = agentHistory
+        let snapshotToolSnapshots = toolSnapshots
+        let snapshotMarker = cachedLatestMarker
+
         messages.removeAll()
         agentHistory.removeAll()
         toolSnapshots.removeAll()
@@ -675,19 +689,89 @@ extension AIChatViewModel {
         toolLoopDetector.reset()
 
         if let sessionId {
-            Task { await ISHExecutionCoordinator.shared.sessionDidTerminate(sessionId: sessionId) }
-            BrowserUseOffloadBridge.releasePool(forSession: sessionId)
-            // [P-22] 「清空」要连会话文件一起删。新会话引导卡写着这些目录
-            // "wiped when the session ends"，但这里只删了 DB 行 ——
-            // workspace/attachments/offloads/browser 全留着。
-            // 走 SessionTeardown 的同一个删除函数（内含 BrowserTabPool 清理），
-            // 保证跟删会话的行为一致。
-            SessionTeardown.deleteSessionFiles(sessionId)
-            Task {
-                await ChatStore.shared.deleteMessages(sessionId: sessionId)
-                await ChatStore.shared.deleteCompactMarkers(sessionId: sessionId)
+            let sid = sessionId
+            Task { await ISHExecutionCoordinator.shared.sessionDidTerminate(sessionId: sid) }
+            BrowserUseOffloadBridge.releasePool(forSession: sid)
+            // [S10] The DB deletes are awaited, not fire-and-forget, and
+            // the truncation guard stays up until they land: a reload
+            // landing in the window would otherwise rebuild `messages`
+            // from a snapshot taken before the commit and resurrect the
+            // cleared transcript. The flag is set synchronously here
+            // (same pattern as deleteSingleMessage) and cleared inside
+            // the Task after the writes; reloadMessagesFromDB also
+            // re-checks the flag after its loadMessages await.
+            isTruncatingForRetry = true
+            Task { @MainActor [weak self] in
+                let messagesOk = await ChatStore.shared.deleteMessages(sessionId: sid)
+                let markersOk = await ChatStore.shared.deleteCompactMarkers(sessionId: sid)
+                guard let self else { return }
+                if messagesOk {
+                    // [P-22] 「清空」要连会话文件一起删。新会话引导卡写着这些目录
+                    // "wiped when the session ends"，但这里只删了 DB 行 ——
+                    // workspace/attachments/offloads/browser 全留着。
+                    // 走 SessionTeardown 的同一个删除函数（内含 BrowserTabPool 清理），
+                    // 保证跟删会话的行为一致。
+                    // Only after the messages DELETE landed: deleting the
+                    // files first would leave restored messages pointing at
+                    // files that no longer exist if the DB write failed.
+                    SessionTeardown.deleteSessionFiles(sid)
+                }
+                if !messagesOk {
+                    self.restoreClearedChat(
+                        messages: snapshotMessages,
+                        agentHistory: snapshotHistory,
+                        toolSnapshots: snapshotToolSnapshots,
+                        marker: snapshotMarker
+                    )
+                    self.errorMessage = AppLocalized("Couldn't clear this conversation — your messages are still here. Please try again.")
+                } else if !markersOk {
+                    // Markers-only failure: nothing to restore (the
+                    // transcript is genuinely gone, so the marker's anchor
+                    // is gone and the marker stays dropped) and nothing
+                    // the user can act on — the visible clear succeeded.
+                    // The failure is logged in ChatStore; a stale marker
+                    // row cannot leak content because its anchor rows no
+                    // longer exist.
+                    logger.warning("[ClearChat] compact markers DELETE did not land — transcript is gone, marker stays dropped")
+                }
+                self.isTruncatingForRetry = false
             }
         }
+    }
+
+    /// [S10] Undo a clear whose messages DELETE did not land: put the UI
+    /// rows, history, tool snapshots and compact marker back instead of
+    /// leaving the user believing the chat is cleared while the DB still
+    /// holds it (it would come back on the next reload anyway, with no
+    /// error shown). Same honesty rule as Batch 6's S7 session delete and
+    /// deleteSingleMessage's restoreSingleDelete. Entries already present
+    /// (a send — or a reload that slipped past the flag — landing during
+    /// the clear window) are skipped, and the snapshot goes back in front
+    /// of them, so a concurrent send cannot duplicate or reorder the
+    /// transcript. The marker goes back only together with the transcript:
+    /// its anchor lives in the restored rows.
+    /// Note: the keep-alive snapshot is NOT restored — nil-ing
+    /// cachedLatestMarker during the clear already dropped it (S12), and
+    /// the next warmup simply uses the live (restored) history instead of
+    /// replaying the pre-clear copy. No message content is lost.
+    private func restoreClearedChat(messages snapshotMessages: [ChatMessage], agentHistory snapshotHistory: [AgentMessage], toolSnapshots snapshotToolSnapshots: [ToolSnapshotItem], marker snapshotMarker: CompactMarker?) {
+        let existingMessageIds = Set(messages.map { $0.id })
+        let missingMessages = snapshotMessages.filter { !existingMessageIds.contains($0.id) }
+        messages = missingMessages + messages
+        let existingHistoryIds = Set(agentHistory.compactMap { $0.dbMessageId })
+        let missingHistory = snapshotHistory.filter { entry in
+            guard let dbId = entry.dbMessageId else { return true }
+            return !existingHistoryIds.contains(dbId)
+        }
+        agentHistory = missingHistory + agentHistory
+        let existingSnapshotIds = Set(toolSnapshots.map { $0.id })
+        let missingSnapshots = snapshotToolSnapshots.filter { !existingSnapshotIds.contains($0.id) }
+        toolSnapshots = missingSnapshots + toolSnapshots
+        if let marker = snapshotMarker, cachedLatestMarker == nil {
+            cachedLatestMarker = marker
+        }
+        if !transitionSuspended { objectWillChange.send() }
+        logger.warning("[ClearChat] DB delete did not land — restored \(missingMessages.count) messages + \(missingHistory.count) history entries")
     }
 
 }

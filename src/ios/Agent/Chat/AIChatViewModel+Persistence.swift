@@ -72,9 +72,15 @@ extension AIChatViewModel {
         // assistant to attach the error to, so it falls back to
         // `vm.errorMessage`). Punt to the idle-drain path which will
         // pick this up after `isProcessing` returns to false.
-        if isProcessing || isCompacting {
+        // [S10] Also re-check isTruncatingForRetry here, not just
+        // isProcessing/isCompacting: a single-delete (or any truncation)
+        // whose DB write landed while loadMessages was awaiting would
+        // otherwise be judged against a snapshot taken before the commit,
+        // and a reload that takes the LOAD branch on some other change
+        // would rebuild from stale rows. Defer and replay on idle instead.
+        if isProcessing || isCompacting || isTruncatingForRetry {
             self.pendingSyncReloadOnIdle = true
-            logger.info("[ReloadTrace] DEFER-AFTER-AWAIT reason=\(reason) sid=\(sessionId.prefix(8)) isProcessing=\(self.isProcessing) isCompacting=\(self.isCompacting) — race detected after loadMessages await, will reload on idle")
+            logger.info("[ReloadTrace] DEFER-AFTER-AWAIT reason=\(reason) sid=\(sessionId.prefix(8)) isProcessing=\(self.isProcessing) isCompacting=\(self.isCompacting) isTruncatingForRetry=\(self.isTruncatingForRetry) — race detected after loadMessages await, will reload on idle")
             return
         }
         let lastDbSortOrder = dbMessages.last?.sortOrder ?? 0

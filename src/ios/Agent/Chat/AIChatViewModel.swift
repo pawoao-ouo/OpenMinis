@@ -2612,6 +2612,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         if overrideText == nil { inputText = "" }
 
         // If editing a previous message, truncate conversation from that point first
+        // [S14] The truncation Task handle: send()'s currentTask awaits it
+        // before the new turn persists anything, so the truncation really
+        // lands before the rerun's rows.
+        var editTruncationTask: Task<Void, Never>?
         if let editIdx = editingMessageIndex {
             editingMessageIndex = nil
             // [T-ios-retry-db-drift 09-27] Captured BEFORE removal: true only
@@ -2697,8 +2701,23 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             let hasMarker = cachedLatestMarker != nil
             logger.info("[DeleteAfter] edit path: sid=\(sessionId?.prefix(8) ?? "nil") keepCount=\(persistedKeepCount) hasMarker=\(hasMarker)")
             if let sessionId {
-                Task { [weak self] in
-                    await ChatStore.shared.deleteMessagesAfter(sessionId: sessionId, keepCount: persistedKeepCount)
+                // [S13] ID-anchored truncation, same pattern as retryFromMessage:
+                // keepCount assumes agentHistory's persisted entries line up 1:1
+                // with DB rows; loadMessages drops rows with unparseable roles
+                // from history, so the count cuts too early and deletes live
+                // rows (ChatStore.swift:3716-3729). Anchor on the last surviving
+                // persisted entry instead; with nothing persisted, keepCount 0
+                // (delete everything) is exact, not an inference.
+                // [S14] Capture the Task: send()'s currentTask awaits it before
+                // the new turn persists anything, so the truncation really lands
+                // before the rerun's rows.
+                let anchorId = agentHistory.last(where: { $0.dbMessageId != nil })?.dbMessageId
+                editTruncationTask = Task { [weak self] in
+                    if let anchorId {
+                        await ChatStore.shared.deleteMessagesAfterId(sessionId: sessionId, anchorId: anchorId, inclusive: false)
+                    } else {
+                        await ChatStore.shared.deleteMessagesAfter(sessionId: sessionId, keepCount: 0)
+                    }
                     // DB 截断落盘后再放开守卫；此后 isProcessing=true 继续压着重载。
                     self?.isTruncatingForRetry = false
                 }
@@ -2809,8 +2828,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         ensureKernelBooted()
         beginBackgroundProcessing()
 
-        currentTask = Task { [weak self] in
+        currentTask = Task { [weak self, editTruncationTask] in
             guard let self else { return }
+
+            // [S14] An edit-resend's truncation must land before this turn
+            // persists anything, or the delete could land after the new rows
+            // and wipe the just-sent turn from the DB.
+            if let editTruncationTask { await editTruncationTask.value }
 
             // Lazily create session before persisting anything
             await self.ensureSession()
@@ -3275,8 +3299,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 agentHistory[i] = AgentMessage(role: .user, parts: cleaned, dbMessageId: agentHistory[i].dbMessageId)
             }
         }
+        // [S11] Capture the rollback-delete Task so the rerun below cannot
+        // persist its new answer before the old rows are gone: retry's
+        // currentTask awaits this handle before runAgentLoop (see below). A
+        // kill between the new persist and the old delete used to leave BOTH
+        // rows in the DB, and the next turn was fed the failed partial answer
+        // AND the new answer as two consecutive assistant turns.
+        var rollbackDeleteTask: Task<Void, Never>?
         if !rolledBackDbIds.isEmpty, let sid = sessionId {
-            Task { await ChatStore.shared.deleteMessagesByIds(sessionId: sid, ids: rolledBackDbIds) }
+            rollbackDeleteTask = Task { await ChatStore.shared.deleteMessagesByIds(sessionId: sid, ids: rolledBackDbIds) }
         }
 
         // [S12] The failed answer was rolled back from agentHistory, but the
@@ -3296,8 +3327,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         ensureKernelBooted()
         beginBackgroundProcessing()
 
-        currentTask = Task { [weak self] in
+        currentTask = Task { [weak self, rollbackDeleteTask] in
             guard let self else { return }
+
+            // [S11] The failed turn's rows must be gone before the rerun
+            // persists its replacement (see rollbackDeleteTask above).
+            if let rollbackDeleteTask { await rollbackDeleteTask.value }
 
             while self.kernelStatus == .booting {
                 try? await Task.sleep(nanoseconds: 100_000_000)
@@ -3835,12 +3870,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         let persistedKeepCount = agentHistory.filter { $0.dbMessageId != nil }.count
         let hasMarkerResend = cachedLatestMarker != nil
         logger.info("[DeleteAfter] resend path: sid=\(sessionId?.prefix(8) ?? "nil") keepCount=\(persistedKeepCount) hasMarker=\(hasMarkerResend)")
+        // [S14] The truncation Task handle: launchRerunAgentLoop awaits it
+        // before the rerun persists anything (see awaitBeforeRun).
+        var truncationTask: Task<Void, Never>?
         if let sessionId {
             // [T-chat-truncate-closed 10-19] id-anchored + awaited, see
             // deleteFromMessage for the reasoning. Here the anchor row is the
             // user message we are re-running, so it must survive → inclusive:false.
             let anchorId = agentHistory.last(where: { $0.dbMessageId != nil })?.dbMessageId
-            Task { @MainActor [weak self] in
+            truncationTask = Task { @MainActor [weak self] in
                 if let anchorId {
                     await ChatStore.shared.deleteMessagesAfterId(sessionId: sessionId, anchorId: anchorId, inclusive: false)
                 } else {
@@ -3857,7 +3895,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
 
         rebuildToolSnapshotsFromMessages()
-        launchRerunAgentLoop(label: "retryFromMessage")
+        launchRerunAgentLoop(label: "retryFromMessage", awaitBeforeRun: truncationTask)
     }
 
     /// [T-ios-delete-from-message] Delete a user message and everything after
@@ -3919,11 +3957,18 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         var anchorFound = false
         if let deletedRowId,
            let di = agentHistory.firstIndex(where: { $0.dbMessageId == deletedRowId }) {
-            // Keep everything strictly BEFORE the deleted row's own entry. If
-            // the deleted row was itself part of a queued N-in-1 merge, its
-            // siblings share the same dbRowId — firstIndex lands on the merged
-            // entry and the whole merge goes, which is correct (deleting any
-            // folded row removes the merged turn).
+            // Keep everything strictly BEFORE the deleted row's own entry.
+            // [S17] The old note here said a deleted row in a queued N-in-1
+            // merge shares its dbRowId with its siblings, so firstIndex lands
+            // on the merged entry and the whole merge goes. That merge no
+            // longer exists: since 10-20, appendQueuedPromptsAsOwnTurns
+            // persists each queued prompt as its own row with its own id
+            // ("one history entry per UI row, 1:1 tagging"), and loadSession
+            // builds one agentHistory entry per raw DB row (only assistant
+            // rows fold into one UI bubble). A user bubble's dbRowId names
+            // exactly one history entry, so firstIndex is exact here — there
+            // is no merged user entry for a single delete to over-remove.
+            // (The same holds for deleteSingleMessage's identical lookup.)
             keepUpTo = di - 1
             anchorFound = true
             logger.info("[DeleteDiag] id-anchored dbRowId=\(deletedRowId.prefix(8)) → cut before historyIdx=\(di)")
@@ -3987,9 +4032,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // and sync merges shift sort_order — either way the count lands on
             // the wrong boundary and deletes live rows.
             //
-            // Also awaited, not fire-and-forget: the truncation window must not
-            // close before the rows are actually gone, or a reload landing in
-            // between resurrects them (the second reported bug).
+            // [S14] The delete runs in a detached Task — no caller awaits it.
+            // The old comment here claimed "awaited, not fire-and-forget";
+            // the await lives inside the detached Task, not in any caller.
+            // What actually closes the truncation window is the
+            // isTruncatingForRetry flag, held from the synchronous start of
+            // this function until this Task finishes the delete (reloads are
+            // blocked while it is set). Rerun paths that need the delete to
+            // land before their first persist pass the Task to
+            // launchRerunAgentLoop via awaitBeforeRun instead.
             let anchorId = agentHistory.last(where: { $0.dbMessageId != nil })?.dbMessageId
             Task { @MainActor [weak self] in
                 if let anchorId {
@@ -4144,6 +4195,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // the array that is about to shrink.
         let removedDbIds: [String] = removedIdxs.compactMap { agentHistory[$0].dbMessageId }
 
+        // [S10] Keep the removed history entries (value types) so a DB
+        // delete that does not land can put them back (see restoreSingleDelete).
+        let removedEntries: [AgentMessage] = removedIdxs.map { agentHistory[$0] }
+
         // Apply: UI → history → DB.
         captureTruncationSnapshot()
         messages.remove(at: idx)
@@ -4154,35 +4209,73 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         discardTruncationSnapshot()
         postTruncationCleanup(removedFromIndex: removedIdxs.min())
 
+        // [S10] The DB delete is awaited, not fire-and-forget, and the
+        // truncation guard stays up until it lands: a reload landing in the
+        // window would otherwise rebuild `messages` from a snapshot taken
+        // before the commit and resurrect the deleted bubble. The flag is
+        // set synchronously here (same pattern as deleteFromMessage) and
+        // cleared inside the Task after the write; reloadMessagesFromDB
+        // also re-checks the flag after its loadMessages await.
+        // A delete that deletes zero rows is treated as a failure: the UI
+        // row and history entries go back and the user is told, instead of
+        // the message silently coming back on the next reload with no error.
         if let sessionId {
             let sid = sessionId
-            if let s = rangeStart, let e = rangeEnd {
-                // Reloaded bubble: the sort range is the DB's own answer for
-                // "which rows make up this bubble" — a superset of what
-                // agentHistory knows, so it stays the first choice.
-                Task { @MainActor in
-                    let n = await ChatStore.shared.deleteMessagesInSortRange(sessionId: sid, fromSortOrder: s, throughSortOrder: e)
-                    logger.info("[SingleDelete] role=\(String(describing: target.role)) rows=\(n) range=\(s)...\(e)")
+            isTruncatingForRetry = true
+            Task { @MainActor [weak self] in
+                var deleted = 0
+                if let s = rangeStart, let e = rangeEnd {
+                    // Reloaded bubble: the sort range is the DB's own answer for
+                    // "which rows make up this bubble" — a superset of what
+                    // agentHistory knows, so it stays the first choice.
+                    deleted = await ChatStore.shared.deleteMessagesInSortRange(sessionId: sid, fromSortOrder: s, throughSortOrder: e)
+                    logger.info("[SingleDelete] role=\(String(describing: target.role)) rows=\(deleted) range=\(s)...\(e)")
+                } else if !removedDbIds.isEmpty {
+                    // Live bubble (never reloaded → no sort range): delete EVERY row
+                    // it owns, not just the first. Continuation rows had no UI twin
+                    // and used to survive, so the bubble came back half-populated
+                    // on the next load.
+                    deleted = await ChatStore.shared.deleteMessagesByIds(sessionId: sid, ids: removedDbIds)
+                    logger.info("[SingleDelete] role=\(String(describing: target.role)) by ids=\(removedDbIds.count) first=\(removedDbIds[0].prefix(8)) deleted=\(deleted)")
+                } else if let dbId = target.dbRowId {
+                    deleted = await ChatStore.shared.deleteMessagesByIds(sessionId: sid, ids: [dbId])
+                    logger.info("[SingleDelete] role=\(String(describing: target.role)) by id=\(dbId.prefix(8)) deleted=\(deleted)")
                 }
-            } else if !removedDbIds.isEmpty {
-                // Live bubble (never reloaded → no sort range): delete EVERY row
-                // it owns, not just the first. Continuation rows had no UI twin
-                // and used to survive, so the bubble came back half-populated
-                // on the next load.
-                Task { @MainActor in
-                    await ChatStore.shared.deleteMessagesByIds(sessionId: sid, ids: removedDbIds)
-                    logger.info("[SingleDelete] role=\(String(describing: target.role)) by ids=\(removedDbIds.count) first=\(removedDbIds[0].prefix(8))")
+                guard let self else { return }
+                if deleted == 0 {
+                    self.restoreSingleDelete(target: target, at: idx, entries: removedEntries, entryIdxs: removedIdxs)
+                    self.errorMessage = AppLocalized("Couldn't delete this message — it's still here. Please try again.")
                 }
-            } else if let dbId = target.dbRowId {
-                Task { @MainActor in
-                    await ChatStore.shared.deleteMessagesByIds(sessionId: sid, ids: [dbId])
-                    logger.info("[SingleDelete] role=\(String(describing: target.role)) by id=\(dbId.prefix(8))")
-                }
+                self.isTruncatingForRetry = false
             }
         }
 
         rebuildToolSnapshotsFromMessages()
         logger.info("[SingleDelete] role=\(String(describing: target.role)) idx=\(idx) historyRemoved=\(removedIdxs.count) messagesLeft=\(self.messages.count)")
+    }
+
+    /// [S10] Undo a single-delete whose DB write did not land: put the UI row
+    /// and its history entries back instead of leaving the user believing the
+    /// message is gone while the DB still holds it (it would come back on the
+    /// next reload anyway, with no error shown). Same honesty rule as Batch 6's
+    /// S7 session delete. Indices are clamped and already-present entries are
+    /// skipped, so a concurrent send/delete in between cannot corrupt the
+    /// arrays. Note: a compact marker dropped by postTruncationCleanup is not
+    /// restored here — the next compaction re-summarizes instead; no message
+    /// content is lost, only the cached summary.
+    private func restoreSingleDelete(target: ChatMessage, at idx: Int, entries: [AgentMessage], entryIdxs: [Int]) {
+        if !messages.contains(where: { $0.id == target.id }) {
+            messages.insert(target, at: min(idx, messages.count))
+        }
+        // Re-insert history entries at their original positions (ascending
+        // indices stay valid as each insert shifts the later ones right).
+        for (entry, entryIdx) in zip(entries, entryIdxs) {
+            if let dbId = entry.dbMessageId, agentHistory.contains(where: { $0.dbMessageId == dbId }) { continue }
+            agentHistory.insert(entry, at: min(entryIdx, agentHistory.count))
+        }
+        rebuildToolSnapshotsFromMessages()
+        if !transitionSuspended { objectWillChange.send() }
+        logger.warning("[SingleDelete] DB delete did not land — restored message + \(entries.count) history entries")
     }
 
     /// True when every `toolResult` has a matching `toolUse` and vice versa.
@@ -4285,7 +4378,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// `isLast && vm.isProcessing && (!hasVisibleContent || isAwaiting…)`
     /// — covered for both cases since `isProcessing = true` is set below and
     /// `messages.last` is the prepared assistant in each case.
-    private func launchRerunAgentLoop(label: String, resumeAt: Int? = nil, resumeBlocks: Int? = nil) {
+    /// [S14] `awaitBeforeRun`: a truncation Task the caller dispatched
+    /// (retryFromMessage / retryFromToolBlock) that must complete before
+    /// this loop persists anything. The truncate-then-rerun order used to
+    /// rest only on actor FIFO + kernel-boot delay — no caller awaited the
+    /// delete — so a late delete could land after the rerun's new rows and
+    /// wipe the just-sent turn from the DB. The rerun Task awaits the
+    /// handle first; the order is structural now, not probabilistic.
+    private func launchRerunAgentLoop(label: String, resumeAt: Int? = nil, resumeBlocks: Int? = nil, awaitBeforeRun: Task<Void, Never>? = nil) {
         AppLogger(category: "RetryDiag").info("[RetryDiag] launchRerunAgentLoop called label=\(label) resumeAt=\(resumeAt.map(String.init) ?? "nil") resumeBlocks=\(resumeBlocks.map(String.init) ?? "nil") messagesCount=\(self.messages.count)")
         errorMessage = nil
         // Clear interrupt badge on the last assistant message if present
@@ -4327,6 +4427,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
         currentTask = Task { [weak self] in
             guard let self else { return }
+
+            // [S14] The caller's truncation must have landed before this loop
+            // persists its first row (see awaitBeforeRun above).
+            if let awaitBeforeRun { await awaitBeforeRun.value }
 
             while self.kernelStatus == .booting {
                 try? await Task.sleep(nanoseconds: 100_000_000)
@@ -4479,13 +4583,27 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
             let keepCount = agentHistory.filter { $0.dbMessageId != nil }.count
             logger.info("[RerunToolBlock] degenerate (no precedingUser) → truncate from assistant start tuId=\(targetToolUseId.prefix(12)) keepCount=\(keepCount)")
+            // [S13] ID-anchored truncation, same pattern as retryFromMessage.
+            // [S14] This path never set the truncation guard and never awaited
+            // its delete — set the flag, capture the Task, and let the rerun
+            // await it before persisting.
+            let anchorId = agentHistory.last(where: { $0.dbMessageId != nil })?.dbMessageId
+            var truncationTask: Task<Void, Never>?
             if let sessionId {
-                Task { await ChatStore.shared.deleteMessagesAfter(sessionId: sessionId, keepCount: keepCount) }
+                isTruncatingForRetry = true
+                truncationTask = Task { [weak self] in
+                    if let anchorId {
+                        await ChatStore.shared.deleteMessagesAfterId(sessionId: sessionId, anchorId: anchorId, inclusive: false)
+                    } else {
+                        await ChatStore.shared.deleteMessagesAfter(sessionId: sessionId, keepCount: 0)
+                    }
+                    self?.isTruncatingForRetry = false
+                }
             }
             rebuildToolSnapshotsFromMessages()
             // No resume target — a fresh assistant message is appended by the
             // agent loop (messages.last is now whatever preceded this turn).
-            launchRerunAgentLoop(label: "retryFromToolBlock")
+            launchRerunAgentLoop(label: "retryFromToolBlock", awaitBeforeRun: truncationTask)
             return
         }
 
@@ -4572,26 +4690,44 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         //    rewrite the trimmed entry's row in place.
         let persistedKeepCount = agentHistory.filter { $0.dbMessageId != nil }.count
         logger.info("[RerunToolBlock] sub-message cut tuId=\(targetToolUseId.prefix(12)) keepCount=\(persistedKeepCount) trimmedRow=\(trimmedEntryDbId?.prefix(8) ?? "nil")")
+        // [S13/S14] The truncation Task handle: the rerun below awaits it
+        // before resuming into the trimmed message.
+        var truncationTask: Task<Void, Never>?
         if let sessionId {
             // [T-ios-retry-from-tool-block-oob] Snapshot the whole trimmed entry
             // (a value type) SYNCHRONOUSLY, before the Task suspends. The Task
-            // below first awaits deleteMessagesAfter; during that suspension the
-            // re-run agent loop (launchRerunAgentLoop, started further down) runs
-            // runAgentLoop's "remove orphaned tool_result" pass, which can shrink
-            // agentHistory (e.g. 19→18). If we then read `agentHistory[entryIdx]`
-            // after the await, entryIdx is stale and the subscript traps with
-            // "Index out of range" (ContiguousArrayBuffer.swift:692, crash
-            // 2026-05-31). buildRawMessage takes an AgentMessage by value, so the
-            // captured snapshot is all we need — never index the live array here.
+            // below first awaits deleteMessagesAfterId; during that suspension the
+            // re-run agent loop used to run runAgentLoop's "remove orphaned
+            // tool_result" pass, which can shrink agentHistory (e.g. 19→18).
+            // If we then read `agentHistory[entryIdx]` after the await, entryIdx
+            // is stale and the subscript traps with "Index out of range"
+            // (ContiguousArrayBuffer.swift:692, crash 2026-05-31). buildRawMessage
+            // takes an AgentMessage by value, so the captured snapshot is all we
+            // need — never index the live array here. [S14] The rerun now awaits
+            // this Task (awaitBeforeRun), so the loop no longer runs during the
+            // suspension — the synchronous snapshot stays as defense.
             let trimmedEntry = agentHistory[entryIdx]
             let trimmedParts = trimmedEntry.parts
             let dbId = trimmedEntryDbId
-            Task {
-                await ChatStore.shared.deleteMessagesAfter(sessionId: sessionId, keepCount: persistedKeepCount)
-                if let dbId {
+            // [S13] ID-anchored truncation: the trimmed entry's own row is the
+            // boundary (it survives, so inclusive:false); if it was never
+            // persisted, the last persisted entry before it is. keepCount
+            // would cut early on rows loadMessages drops from history.
+            // [S14] This path never set the truncation guard — set it here
+            // and clear it in the Task once the delete + rewrite land.
+            let anchorId = dbId ?? agentHistory[..<entryIdx].last(where: { $0.dbMessageId != nil })?.dbMessageId
+            isTruncatingForRetry = true
+            truncationTask = Task { [weak self] in
+                if let anchorId {
+                    await ChatStore.shared.deleteMessagesAfterId(sessionId: sessionId, anchorId: anchorId, inclusive: false)
+                } else {
+                    await ChatStore.shared.deleteMessagesAfter(sessionId: sessionId, keepCount: 0)
+                }
+                if let dbId, let self {
                     let raw = await self.buildRawMessage(trimmedEntry)
                     await ChatStore.shared.updateMessageParts(messageId: dbId, parts: raw?.parts ?? Self.contentPartsFallback(trimmedParts))
                 }
+                self?.isTruncatingForRetry = false
             }
         }
 
@@ -4607,7 +4743,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             else if case .running = block.toolStatus { block.toolStatus = .cancelled }
         }
         rebuildToolSnapshotsFromMessages()
-        launchRerunAgentLoop(label: "retryFromToolBlock", resumeAt: asstMsgIdx, resumeBlocks: blockIdx)
+        launchRerunAgentLoop(label: "retryFromToolBlock", resumeAt: asstMsgIdx, resumeBlocks: blockIdx, awaitBeforeRun: truncationTask)
     }
 
     /// Fallback ContentPart serialization if buildRawMessage returns nil
@@ -5276,6 +5412,32 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         Task { await self.persistErrorInfo(displayDesc) }
     }
 
+    /// [S18] Value-identity check for a stop-flushed tail entry. AgentMessage
+    /// has no id and AgentContentPart is not Equatable, so compare the parts
+    /// by value: same case, same payload (toolUse input dicts are skipped —
+    /// a flushed tail carries text parts only, and ids are what identify the
+    /// tool parts). Used by the Case 1/2 flush Tasks to make sure the entry
+    /// at the captured index is still the flushed one before stamping its
+    /// db id.
+    private static func flushedTailPartsMatch(_ a: [AgentContentPart], _ b: [AgentContentPart]) -> Bool {
+        guard a.count == b.count else { return false }
+        for (x, y) in zip(a, b) {
+            switch (x, y) {
+            case (.text(let t1), .text(let t2)):
+                guard t1 == t2 else { return false }
+            case (.toolUse(let i1, let n1, _), .toolUse(let i2, let n2, _)):
+                guard i1 == i2 && n1 == n2 else { return false }
+            case (.toolResult(let i1, _, _, _, _, _, _, _), .toolResult(let i2, _, _, _, _, _, _, _)):
+                guard i1 == i2 else { return false }
+            case (.imageData(let d1, let m1, _), .imageData(let d2, let m2, _)):
+                guard d1 == d2 && m1 == m2 else { return false }
+            default:
+                return false
+            }
+        }
+        return true
+    }
+
     private func handleUserCancelledCleanup() {
         let blockCount = (messages.last?.role == .assistant) ? messages.last!.blocks.count : -1
         let hasContent = (messages.last?.role == .assistant) ? messages.last!.blocks.contains(where: { !$0.content.isEmpty }) : false
@@ -5346,9 +5508,24 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                         let assistantMsg = AgentMessage(role: .assistant, parts: tailTextParts)
                         let asstIdx = agentHistory.count
                         agentHistory.append(assistantMsg)
+                        // [S18] The persist runs one main-actor turn later. In
+                        // that window the user may have deleted the candidate
+                        // bubble (deleteSingleMessage removes the tail from
+                        // agentHistory too) — persisting anyway would land a DB
+                        // row with no UI twin that loadSession resurrects on the
+                        // next load. Check the deletion first: the candidate
+                        // bubble must still be on screen. And stamp the db id
+                        // only if the entry at asstIdx is still this flushed
+                        // tail (an earlier delete can shift entries, so the
+                        // bounds check alone could stamp the wrong row).
                         Task { @MainActor [weak self] in
                             guard let self else { return }
-                            if let pid = await self.persistAgentMessage(assistantMsg), asstIdx < self.agentHistory.count {
+                            guard self.messages.contains(where: { $0 === last }) else { return }
+                            if let pid = await self.persistAgentMessage(assistantMsg),
+                               asstIdx < self.agentHistory.count,
+                               self.agentHistory[asstIdx].role == .assistant,
+                               self.agentHistory[asstIdx].dbMessageId == nil,
+                               Self.flushedTailPartsMatch(self.agentHistory[asstIdx].parts, assistantMsg.parts) {
                                 self.agentHistory[asstIdx].dbMessageId = pid
                             }
                         }
@@ -5433,9 +5610,19 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     let assistantMsg = AgentMessage(role: .assistant, parts: textParts)
                     let asstIdx = agentHistory.count
                     agentHistory.append(assistantMsg)
+                    // [S18] Same guard as Case 1: the persist runs one
+                    // main-actor turn later, and a delete in that window must
+                    // win — a flushed tail whose bubble is gone must not be
+                    // re-persisted, and the db id must only stamp the entry
+                    // that is still this flushed tail.
                     Task { @MainActor [weak self] in
                         guard let self else { return }
-                        if let pid = await self.persistAgentMessage(assistantMsg), asstIdx < self.agentHistory.count {
+                        guard self.messages.contains(where: { $0 === last }) else { return }
+                        if let pid = await self.persistAgentMessage(assistantMsg),
+                           asstIdx < self.agentHistory.count,
+                           self.agentHistory[asstIdx].role == .assistant,
+                           self.agentHistory[asstIdx].dbMessageId == nil,
+                           Self.flushedTailPartsMatch(self.agentHistory[asstIdx].parts, assistantMsg.parts) {
                             self.agentHistory[asstIdx].dbMessageId = pid
                         }
                     }

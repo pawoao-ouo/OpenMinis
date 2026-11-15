@@ -3143,7 +3143,15 @@ actor ChatStore {
         return false
     }
 
-    func deleteMessages(sessionId: String) {
+    /// [S10] Returns true only when the DELETE step actually ran
+    /// (prepare + step both OK). A row count is the wrong signal for a
+    /// whole-session clear — an empty chat deletes zero rows and that is
+    /// success, not failure — so callers that need to know "did the write
+    /// land" check this Bool, not a count. (Contrast
+    /// deleteMessagesByIds, where the caller knows the rows exist and a
+    /// zero count means the delete missed.)
+    @discardableResult
+    func deleteMessages(sessionId: String) -> Bool {
         invalidateSessionListCache()
         // Mark every message dirty for cloud deletion BEFORE the DELETE so other
         // devices remove them on next sync. Without this, Clear Chat wipes
@@ -3160,11 +3168,19 @@ actor ChatStore {
 
         let sql = "DELETE FROM messages WHERE session_id = ?"
         var stmt: OpaquePointer?
+        var deleted = false
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
+            let rc = sqlite3_step(stmt)
+            deleted = (rc == SQLITE_DONE)
+            if !deleted {
+                logger.error("[S10] deleteMessages step failed sid=\(sessionId.prefix(8)) rc=\(rc): \(String(cString: sqlite3_errmsg(db)))")
+            }
+        } else {
+            logger.error("[S10] deleteMessages prepare failed sid=\(sessionId.prefix(8)): \(String(cString: sqlite3_errmsg(db)))")
         }
         sqlite3_finalize(stmt)
+        return deleted
     }
 
     /// Delete specific message rows by id (local-initiated).
@@ -3177,8 +3193,12 @@ actor ChatStore {
     /// truncation cut one row too early, and the "extra" rows (usually the
     /// most recent AI turns) vanished after the next reload.
     /// propagates to other devices instead of being re-hydrated by sync.
-    func deleteMessagesByIds(sessionId: String, ids: [String]) {
-        guard !ids.isEmpty else { return }
+    /// [S10/S11] Returns the number of rows actually deleted, so callers
+    /// can tell a failed delete (0 rows) from a landed one instead of
+    /// assuming the detached write succeeded.
+    @discardableResult
+    func deleteMessagesByIds(sessionId: String, ids: [String]) -> Int {
+        guard !ids.isEmpty else { return 0 }
         invalidateSessionListCache()
         for id in ids {
         }
@@ -3195,6 +3215,7 @@ actor ChatStore {
         let changes = Int(sqlite3_changes(db))
         sqlite3_finalize(stmt)
         logger.info("[DeleteByIds] sid=\(sessionId.prefix(8)) requested=\(ids.count) deleted=\(changes) ids=\(ids.map { $0.prefix(8) }.joined(separator: ","))")
+        return changes
     }
 
     /// [T-ios-rerun-from-tool-block-position] Rewrite a single message row's
@@ -4172,7 +4193,11 @@ actor ChatStore {
     }
 
     /// Delete all compact markers for a session.
-    func deleteCompactMarkers(sessionId: String) {
+    /// [S10] Same contract as deleteMessages: returns true only when the
+    /// DELETE step actually ran. A row count would be the wrong signal —
+    /// a session with no markers deletes zero rows and that is success.
+    @discardableResult
+    func deleteCompactMarkers(sessionId: String) -> Bool {
         // Mark every marker dirty for cloud deletion BEFORE the DELETE so iCloud
         // doesn't repopulate them. Mirrors the messages-side fix in
         // deleteMessages — required for Clear Chat to actually clear.
@@ -4188,11 +4213,19 @@ actor ChatStore {
 
         let sql = "DELETE FROM compact_markers WHERE session_id = ?"
         var stmt: OpaquePointer?
+        var deleted = false
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
+            let rc = sqlite3_step(stmt)
+            deleted = (rc == SQLITE_DONE)
+            if !deleted {
+                logger.error("[S10] deleteCompactMarkers step failed sid=\(sessionId.prefix(8)) rc=\(rc): \(String(cString: sqlite3_errmsg(db)))")
+            }
+        } else {
+            logger.error("[S10] deleteCompactMarkers prepare failed sid=\(sessionId.prefix(8)): \(String(cString: sqlite3_errmsg(db)))")
         }
         sqlite3_finalize(stmt)
+        return deleted
     }
 
     // MARK: - WebApp Shortcuts
