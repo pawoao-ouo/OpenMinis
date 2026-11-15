@@ -519,6 +519,72 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
             updateSlashMenuState()
             updateMentionMenuState()
+            // [S19] Persist the unsent composer text as the user types, so a
+            // draft switch / cache eviction / relaunch never loses it.
+            // UserDefaults is a memory write + coalesced flush, so this is
+            // cheap per keystroke.
+            saveComposerDraft()
+        }
+    }
+
+    /// [S19] Composer-draft persistence keys. A live session's draft is keyed
+    /// by its session id; a still-draft (never sent) composer is keyed by its
+    /// draft id AND mirrored to `latestDraft`, so the text survives the draft
+    /// row disappearing from the list (switching away clears activeDraftId,
+    /// so the same draft id is never re-opened — the latest mirror is the
+    /// only way back to the unsent text). Internal (not private): the
+    /// +Persistence extension and AIChatView also call these.
+    static let composerDraftKeyPrefix = "minis.composerDraft."
+    static let composerDraftLatestKey = "minis.composerDraft.latestDraft"
+
+    /// [S19] Save the current composer text. A real session writes its own
+    /// key and never touches the draft mirror (draftId is never cleared, so
+    /// gating on sessionId is what keeps a promoted draft from polluting the
+    /// mirror). A still-draft session mirrors to latestDraft so a fresh draft
+    /// opened later can recover the text. The mirror is cleared at the
+    /// promotion point (createSessionForDraft) and when a draft's composer
+    /// is emptied — never while a real session is typing.
+    func saveComposerDraft() {
+        let text = inputText
+        let defaults = UserDefaults.standard
+        if let sessionId {
+            defaults.set(text, forKey: Self.composerDraftKeyPrefix + sessionId)
+            return
+        }
+        if let draftId {
+            defaults.set(text, forKey: Self.composerDraftKeyPrefix + draftId)
+        }
+        if text.isEmpty {
+            defaults.removeObject(forKey: Self.composerDraftLatestKey)
+        } else {
+            defaults.set(text, forKey: Self.composerDraftLatestKey)
+        }
+    }
+
+    /// [S19] Restore a previously saved composer draft, if any. Only fills an
+    /// empty composer — never overwrites text the user is already typing.
+    /// The latestDraft mirror is only consulted while there is still no real
+    /// session (a promoted draft must not resurrect old draft text into a
+    /// live session's composer).
+    func restoreComposerDraft() {
+        guard inputText.isEmpty else { return }
+        let defaults = UserDefaults.standard
+        if let sessionId {
+            if let saved = defaults.string(forKey: Self.composerDraftKeyPrefix + sessionId),
+               !saved.isEmpty {
+                inputText = saved
+            }
+            return
+        }
+        if let draftId,
+           let saved = defaults.string(forKey: Self.composerDraftKeyPrefix + draftId),
+           !saved.isEmpty {
+            inputText = saved
+            return
+        }
+        if let saved = defaults.string(forKey: Self.composerDraftLatestKey),
+           !saved.isEmpty {
+            inputText = saved
         }
     }
     /// Caret position (character offset) published by the input text view.
@@ -2283,6 +2349,28 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     // schedulePostCompactDrain() runs the post-compact queue drain on this
     // task so cancel() can stop it. [T-compact-queued-drain]
     var currentTask: Task<Void, Never>?
+    /// [S21] The provider that produced the current turn's stream, stashed so
+    /// cancel() can abort its in-flight HTTP call synchronously. Set ONLY by
+    /// `stashStreamProvider`, which the stream-establishing functions call
+    /// (via their `onStreamProvider` callback) with the instance that is
+    /// about to open each stream attempt — after a group fallback that is a
+    /// fresh makeAgentProvider instance inside streamWithGroupFallback, NOT
+    /// the loop's `provider` local (applyFallbackSwitch() rebuilds that into
+    /// yet another instance whose registry is empty; stashing it made
+    /// cancel() silently no-op after any fallback). Cleared by runAgentLoop's
+    /// defer on exit. `any AgentProvider` because the concrete provider
+    /// varies per entry.
+    private var activeChatProvider: (any AgentProvider)?
+
+    /// [S21] The single writer of `activeChatProvider`. Handed to the
+    /// stream-establishing functions as their `onStreamProvider` callback,
+    /// so the stash always tracks the instance that actually opened the
+    /// live stream — never the loop's `provider` local. Non-escaping
+    /// callback, called synchronously inside the awaited stream call, so
+    /// the strong `self` capture cannot outlive the call.
+    private func stashStreamProvider(_ provider: any AgentProvider) {
+        activeChatProvider = provider
+    }
     var compactTask: Task<Void, Never>?
     var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
 
@@ -2464,6 +2552,17 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         #endif
         guard !text.isEmpty || !pendingAttachments.isEmpty, !isProcessing else {
             logger.warning("🔑DRAFT [vm=\(self.vmInstanceId)] send() GUARD FAILED — text.isEmpty=\(text.isEmpty) attachments.isEmpty=\(pendingAttachments.isEmpty) isProcessing=\(self.isProcessing)")
+            // [S23] A direct send() while generating must not silently drop the
+            // message: queue it, exactly like Return/swipe does. The guard in
+            // enqueuePrompt() passes in this state (isProcessing is true), so
+            // this cannot bounce back here. A programmatic send (overrideText
+            // != nil) is queued the same way — the caller asked for the text
+            // to reach the model, and dropping it silently is worse than
+            // delaying it one turn. (An empty send still drops: there is
+            // nothing to queue.)
+            if isProcessing, (!text.isEmpty || !pendingAttachments.isEmpty) {
+                enqueuePrompt(overrideText: overrideText)
+            }
             return
         }
 
@@ -4868,6 +4967,29 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         logger.info("exitEditKeepingDraft (attachments kept)")
     }
 
+    /// [S20] Take a batch of queued prompts back into the composer — ALL of
+    /// them, not just the last. Texts are joined with a newline in queue
+    /// order; every prompt's attachments are merged in. Existing composer
+    /// text is kept (the taken-back text is appended after it), never
+    /// overwritten.
+    private func restoreTakenBackPrompts(_ takenBack: [QueuedPrompt]) {
+        let texts = takenBack
+            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !texts.isEmpty {
+            let joined = texts.joined(separator: "\n")
+            if inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                inputText = joined
+            } else {
+                inputText = inputText + "\n" + joined
+            }
+        }
+        let mergedAttachments = takenBack.flatMap { $0.attachments }
+        if !mergedAttachments.isEmpty {
+            attachments.append(contentsOf: mergedAttachments)
+        }
+    }
+
     func cancel() {
         let lastBlocks = (messages.last?.role == .assistant) ? messages.last!.blocks.count : -1
         let lastRole = messages.last.map { $0.role == .assistant ? "assistant" : "user" } ?? "nil"
@@ -4942,6 +5064,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                                          stoppedTimers)
             }
         }
+        // [S21] Synchronously abort the in-flight provider HTTP call BEFORE
+        // cancelling the loop task: Task cancellation is cooperative, and the
+        // SSE iterator only checks it between events, so without this the
+        // stream can keep landing text after Stop. Cancelling a finished task
+        // is a no-op, and the registry is empty when no stream is live, so
+        // this is safe to call on every cancel().
+        (activeChatProvider as? ProviderStreamCancellable)?.cancelActiveStreams()
         currentTask?.cancel()
         currentTask = nil
         autoRetryAttempt = 0
@@ -4959,15 +5088,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         if isCompacting {
             compactTask?.cancel()
             compactTask = nil
-            // Restore all queued compact-and-send messages back to input
-            // (use the last one for inputText since it's the most recent)
+            // Restore all queued compact-and-send messages back to input.
+            // [S20] Every queued prompt comes back (texts joined, attachments
+            // merged) — taking only the last one silently dropped the rest.
             for queued in promptQueue {
                 messages.removeAll { $0.queuedPromptId == queued.id }
             }
-            if let last = promptQueue.last {
-                inputText = last.text
-                attachments = last.attachments
-            }
+            restoreTakenBackPrompts(promptQueue)
             promptQueue.removeAll()
         }
         endBackgroundProcessing()
@@ -4976,7 +5103,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         //
         // 以前 cancel() 只杀当前这轮,200 毫秒后又把排队的那几条接着跑 ——
         // 她那句「点暂停要停的是整队」就是这么来的:点了停,AI 顿一下又自己
-        // 开回去。现在把排队的撤回来:消息从列表里收掉,最后一条的文字和附件
+        // 开回去。现在把排队的撤回来:消息从列表里收掉,全部的文字和附件
         // 放回输入框,不让她丢字,然后不再重开 drain。
         if !isCompacting, !promptQueue.isEmpty {
             let takenBack = promptQueue
@@ -4984,12 +5111,32 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             for queued in takenBack {
                 messages.removeAll { $0.queuedPromptId == queued.id }
             }
-            if editingMessageIndex == nil, let last = takenBack.last {
-                inputText = last.text
-                attachments = last.attachments
+            // [S20] Take the WHOLE queue back, not just the last prompt.
+            // Still gated on editingMessageIndex == nil: while an edit is in
+            // progress the composer holds the edit text, and restoring queued
+            // text there would clobber it. (Narrow known gap: editing + Stop
+            // with queued prompts still drops them — pre-existing behavior,
+            // unchanged by this batch.)
+            if editingMessageIndex == nil {
+                restoreTakenBackPrompts(takenBack)
             }
             logger.info("⏹️ cancel() — took back \(takenBack.count) queued prompt(s)")
         }
+    }
+
+    /// [S24] Single choke point for consuming the prompt queue. Both consumers
+    /// — drainQueuedPromptsInner (post-loop drain) and injectQueuedPromptsAsNewTurn
+    /// (mid-loop, after a tool call closes) — take through here, so a queued
+    /// prompt can only ever be taken once. The take is synchronous on this
+    /// @MainActor class, so take-and-clear is atomic: no second consumer can
+    /// interleave between the read and the clear. No shared boolean guard is
+    /// used on purpose: inject runs nested inside drain's guarded region, so
+    /// a shared boolean would make inject skip prompts drain is already
+    /// handling. isDrainingQueue stays as the drain-vs-drain guard only.
+    private func takeQueuedPrompts() -> [QueuedPrompt] {
+        let queued = promptQueue
+        promptQueue.removeAll()
+        return queued
     }
 
     /// Drain any queued prompts after an agent loop finishes.
@@ -5025,8 +5172,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 logger.info("📨[DRAIN] Task cancelled — leaving \(self.promptQueue.count) prompt(s) in queue")
                 break
             }
-            let queued = self.promptQueue
-            self.promptQueue.removeAll()
+            // [S24] Take via the single choke point — the queue may only ever be
+            // consumed here and in injectQueuedPromptsAsNewTurn, through
+            // takeQueuedPrompts().
+            let queued = self.takeQueuedPrompts()
             logger.info("📨[DRAIN] Draining \(queued.count) queued prompt(s)")
 
             let sid = self.sessionId ?? "unknown"
@@ -5199,8 +5348,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         turnUsage: TokenUsage
     ) async -> Bool {
         guard !promptQueue.isEmpty else { return false }
-        let queued = promptQueue
-        promptQueue.removeAll()
+        // [S24] Take via the single choke point (see takeQueuedPrompts()).
+        let queued = takeQueuedPrompts()
 
         let qSid = sessionId ?? "unknown"
         let qUploadsDir = Self.minisUploadsDir(for: qSid)
@@ -5528,6 +5677,17 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                                Self.flushedTailPartsMatch(self.agentHistory[asstIdx].parts, assistantMsg.parts) {
                                 self.agentHistory[asstIdx].dbMessageId = pid
                             }
+                            // [S22] The partial reply above was kept — say so on
+                            // screen. The disclosure only appears if the bubble
+                            // is STILL on screen after the persist landed: a
+                            // delete in the window means the partial was
+                            // discarded, not kept, so nothing is claimed.
+                            // UI-only (appendSystemInfo never touches
+                            // agentHistory or the DB), and it lands after the
+                            // kept content, in reading order.
+                            if self.messages.contains(where: { $0 === last }) {
+                                self.appendSystemInfo(AppLocalized("提醒：上面这段没写完的内容已经保留在对话里，下一次发言时模型会看到它。"), icon: "pause.circle")
+                            }
                         }
                         // Advance committed counts so the kept blocks survive a later
                         // resume's `removeSubrange(committedBlockCount...)` trim.
@@ -5624,6 +5784,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                            self.agentHistory[asstIdx].dbMessageId == nil,
                            Self.flushedTailPartsMatch(self.agentHistory[asstIdx].parts, assistantMsg.parts) {
                             self.agentHistory[asstIdx].dbMessageId = pid
+                        }
+                        // [S22] Same disclosure as the Case 1 flush above — the
+                        // partial text was kept in agentHistory, so the user is
+                        // told the model will see it next turn. Only when the
+                        // bubble survived the persist window.
+                        if self.messages.contains(where: { $0 === last }) {
+                            self.appendSystemInfo(AppLocalized("提醒：上面这段没写完的内容已经保留在对话里，下一次发言时模型会看到它。"), icon: "pause.circle")
                         }
                     }
                     logger.info("⏹️ Case 2: committed partial text (\(textParts.count) parts) with truncation marker to agentHistory")
@@ -5761,6 +5928,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         defer { AppLogger(category: "RoundMarker").warning("══════════════ ROUND END \(_diagRound) ════════════════ vm=\(self.vmInstanceId) session=\(self.sessionId ?? "nil") history=\(self.agentHistory.count) estimated ~\(self.estimateContextTokens()) tokens") }
         logger.info("🔄SESSION [vm=\(self.vmInstanceId)] runAgentLoop START session=\(self.sessionId ?? "nil") history=\(self.agentHistory.count) resuming=\(existingMsgIdx != nil)")
         defer { logger.info("🔄SESSION [vm=\(self.vmInstanceId)] runAgentLoop END session=\(self.sessionId ?? "nil") history=\(self.agentHistory.count) estimated ~\(self.estimateContextTokens()) tokens") }
+        // [S21] Drop the provider stash when the loop exits, so a later
+        // cancel() cannot abort a stream belonging to a finished turn.
+        defer { activeChatProvider = nil }
 
         let loopSetupStart = CFAbsoluteTimeGetCurrent()
 
@@ -6344,7 +6514,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 lastContextTokens: turnUsage.latestContextTokens,
                 chatMessage: messages[msgIdx],
                 activeGroupId: &activeGroupId,
-                activeEntryId: &activeEntryId
+                activeEntryId: &activeEntryId,
+                onStreamProvider: stashStreamProvider
             )
             // [StreamDiag] (#181) The stream object now exists. Note this is
             // "request accepted / stream handle obtained", NOT first byte — the
@@ -6403,6 +6574,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
 
             await applyFallbackSwitch()
+            // [S21] No stash assignment here: the stash was already set by
+            // the onStreamProvider callback inside streamWithGroupFallback,
+            // with the instance that actually opened this turn's stream.
+            // Assigning `provider` here would clobber it — after a fallback
+            // applyFallbackSwitch() rebuilds `provider` via makeAgentProvider,
+            // a THIRD instance whose task registry is empty.
             scrollToBottomSignal.send()
 
             // Helper: check if a StreamResult is empty (no content produced).
@@ -6480,7 +6657,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                         systemPrompt: userSystemPrompt,
                         tools: tools,
                         maxTokens: dynamicMaxTokens(provider: provider, model: activeModel, lastContextTokens: turnUsage.latestContextTokens),
-                        chatMessage: messages[msgIdx]
+                        chatMessage: messages[msgIdx],
+                        onStreamProvider: stashStreamProvider
                     )
                     let reminderResult = try await processStreamEvents(
                         stream: reminderStream,
@@ -6556,9 +6734,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                         chatMessage: messages[msgIdx],
                         msgIdx: msgIdx,
                         activeGroupId: &activeGroupId,
-                        activeEntryId: &activeEntryId
+                        activeEntryId: &activeEntryId,
+                        onStreamProvider: stashStreamProvider
                     )
                     await applyFallbackSwitch()
+                    // [S21] No stash assignment here — see the main stream
+                    // path above: the callback inside the fallback functions
+                    // already stashed the instance that opened this stream.
                 } else {
                     // Re-resync after the MainActor.run above before the next
                     // messages[msgIdx] read in the retry call.
@@ -6574,7 +6756,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                             systemPrompt: userSystemPrompt,
                             tools: tools,
                             maxTokens: dynamicMaxTokens(provider: provider, model: activeModel, lastContextTokens: turnUsage.latestContextTokens),
-                            chatMessage: messages[msgIdx]
+                            chatMessage: messages[msgIdx],
+                            onStreamProvider: stashStreamProvider
                         )
                         let retryResult = try await processStreamEvents(
                             stream: retryStream,
@@ -6630,9 +6813,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                             chatMessage: messages[msgIdx],
                             msgIdx: msgIdx,
                             activeGroupId: &activeGroupId,
-                            activeEntryId: &activeEntryId
+                            activeEntryId: &activeEntryId,
+                            onStreamProvider: stashStreamProvider
                         )
                         await applyFallbackSwitch()
+                        // [S21] No stash assignment here — see the main stream
+                        // path above: the callback inside the fallback functions
+                        // already stashed the instance that opened this stream.
                     }
                 }
             }

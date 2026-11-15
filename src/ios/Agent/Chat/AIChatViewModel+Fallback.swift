@@ -50,13 +50,19 @@ extension AIChatViewModel {
         return retryStopKeywords.contains { lower.contains($0) }
     }
 
+    /// Retries a stream open on retryable errors with a countdown ladder.
+    /// `onStreamProvider` — when given, called with the provider instance
+    /// that is about to open each attempt (see [S21] below): the model may
+    /// have changed during the countdown rebuild, so the driving instance
+    /// is not necessarily the one the caller handed in.
     func streamWithAutoRetry(
         provider initialProvider: any AgentProvider,
         messages: [AgentMessage],
         systemPrompt: String?,
         tools: [AgentToolDefinition],
         maxTokens: Int,
-        chatMessage: ChatMessage?
+        chatMessage: ChatMessage?,
+        onStreamProvider: ((any AgentProvider) -> Void)? = nil
     ) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
         var lastError: Error?
         var currentProvider = initialProvider
@@ -106,6 +112,12 @@ extension AIChatViewModel {
                 if let entry = resolveCurrentEntry() {
                     thinkLvl = min(thinkLvl, entry.effectiveMaxThinkingLevel)
                 }
+                // [S21] Stash the instance that is about to drive this
+                // attempt, so cancel() aborts the right registry — the
+                // model may have changed during the countdown rebuild above,
+                // and `currentProvider` is then a different object from the
+                // one the caller stashed.
+                onStreamProvider?(currentProvider)
                 let stream = try await currentProvider.streamAgentMessage(
                     messages: messages,
                     systemPrompt: systemPrompt,
@@ -195,6 +207,15 @@ extension AIChatViewModel {
     /// (network, 5xx), retry with countdown on the current entry via
     /// `streamWithAutoRetry`; if retries are exhausted, also fallback to the next
     /// model in the group.
+    ///
+    /// `onStreamProvider` — when given, called with the provider instance
+    /// that is about to open each stream attempt, immediately before the
+    /// `streamAgentMessage` call. [S21] This is the ONLY correct stash
+    /// source: every fallback advance rebuilds `currentProvider` via
+    /// `makeAgentProvider` (a fresh instance with its own task registry),
+    /// and the caller's `provider` is yet another instance after its own
+    /// `applyFallbackSwitch` rebuild — stashing either of those leaves
+    /// cancel() talking to an empty registry.
     func streamWithGroupFallback(
         provider initialProvider: any AgentProvider,
         messages: [AgentMessage],
@@ -205,7 +226,8 @@ extension AIChatViewModel {
         lastContextTokens: Int = 0,
         chatMessage: ChatMessage?,
         activeGroupId: inout String?,
-        activeEntryId: inout String?
+        activeEntryId: inout String?,
+        onStreamProvider: ((any AgentProvider) -> Void)? = nil
     ) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
         var currentProvider = initialProvider
         var currentSystemPrompt = initialSystemPrompt
@@ -264,6 +286,11 @@ extension AIChatViewModel {
                 // parameter; a different member keeps its own thinking.
                 if let thinkingOverride, thinkingOverrideEntryId == currentEntryId { thinkLvl = thinkingOverride }
                 lastAttemptThinkingLevel = thinkLvl
+                // [S21] Stash the instance that is about to drive this
+                // attempt — after a group advance this is a fresh
+                // makeAgentProvider instance, NOT the caller's provider
+                // (see the onStreamProvider doc on this function).
+                onStreamProvider?(currentProvider)
                 let stream = try await currentProvider.streamAgentMessage(
                     messages: effectiveMessages,
                     systemPrompt: currentSystemPrompt,
@@ -485,7 +512,8 @@ extension AIChatViewModel {
                         systemPrompt: currentSystemPrompt,
                         tools: tools,
                         maxTokens: dynamicMaxTokens(provider: currentProvider, model: retryModel, lastContextTokens: lastContextTokens),
-                        chatMessage: chatMessage
+                        chatMessage: chatMessage,
+                        onStreamProvider: onStreamProvider
                     )
                     // Auto-retry succeeded
                     let prevEntryId = activeEntryId
@@ -567,6 +595,10 @@ extension AIChatViewModel {
     /// (HTTP 200 but no content blocks). This handles the case where one provider
     /// is silently failing (e.g. Anthropic overloaded returning empty SSE) and the
     /// group should advance to a different provider (e.g. OpenAI).
+    ///
+    /// `onStreamProvider` is forwarded to the inner `streamWithGroupFallback`
+    /// call — see its doc for why the stash must come from the callback, not
+    /// from the caller's `provider` ([S21]).
     func streamWithGroupFallbackUntilContent(
         provider: any AgentProvider,
         messages: [AgentMessage],
@@ -578,7 +610,8 @@ extension AIChatViewModel {
         chatMessage: ChatMessage?,
         msgIdx: Int,
         activeGroupId: inout String?,
-        activeEntryId: inout String?
+        activeEntryId: inout String?,
+        onStreamProvider: ((any AgentProvider) -> Void)? = nil
     ) async throws -> StreamResult {
         // Track entries we've gotten empty responses from to avoid infinite loops.
         var emptyResponseEntries: Set<String> = []
@@ -600,7 +633,8 @@ extension AIChatViewModel {
                 lastContextTokens: lastContextTokens,
                 chatMessage: chatMessage,
                 activeGroupId: &activeGroupId,
-                activeEntryId: &activeEntryId
+                activeEntryId: &activeEntryId,
+                onStreamProvider: onStreamProvider
             )
             let result = try await processStreamEvents(
                 stream: fbStream,

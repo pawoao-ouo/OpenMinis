@@ -150,6 +150,12 @@ extension AIChatViewModel {
         // ［persona］落定本会话归属人设（NULL 老数据 → 默认人设）。
         sessionPersonaId = await ChatStore.shared.personaId(for: sessionId)
 
+        // [S19] Restore any unsent composer text saved for this session
+        // (per-keystroke UserDefaults write). Runs here — before the
+        // empty-session early return below — so even a session with no
+        // messages yet gets its draft back.
+        restoreComposerDraft()
+
         let sinceAppear = (CFAbsoluteTimeGetCurrent() - Self.onAppearTimestamp) * 1000
         logger.info("[SessionLoad] loadSession START T+\(String(format: "%.0f", sinceAppear))ms session=\(sessionId) msgs=\(self.messages.count)")
 
@@ -839,6 +845,20 @@ extension AIChatViewModel {
         // Case C: last history entry is user with synthetic "Continue" message → text streaming was cancelled
         recheckCanResumeFromHistory()
 
+        // [S22] If the reload just surfaced an interrupted turn whose partial
+        // reply was kept in history, say so on screen — the model will see
+        // that partial next turn, and the user never wrote it. Deliberately
+        // NOT gated on canResume: a kept partial is an assistant entry with
+        // no toolUse, which recheck does not flag as interrupted. The stop
+        // system-reminder marker is the signal instead — a normal finished
+        // reply never carries it. UI-only row (appendSystemInfo never touches
+        // agentHistory or the DB). loadSession rebuilds messages from the DB
+        // each time, so this appends at most one row per load and never
+        // duplicates.
+        if interruptedTailKeptPartialContent() {
+            appendSystemInfo(AppLocalized("提醒：上面这段没写完的内容已经保留在对话里，下一次发言时模型会看到它。"), icon: "pause.circle")
+        }
+
         let totalElapsed = (CFAbsoluteTimeGetCurrent() - loadStart) * 1000
         let totalSinceAppear = (CFAbsoluteTimeGetCurrent() - Self.onAppearTimestamp) * 1000
         logger.info("[SessionLoad] \(sessionId) — TOTAL: \(String(format: "%.1f", totalElapsed))ms T+\(String(format: "%.0f", totalSinceAppear))ms [DB: \(String(format: "%.1f", dbElapsed)) | Build: \(String(format: "%.1f", buildElapsed)) | Snapshots: \(String(format: "%.1f", snapshotElapsed)) | Mount: \(String(format: "%.1f", mountElapsed))]")
@@ -939,6 +959,49 @@ extension AIChatViewModel {
             canResume = false
             logger.info("[SessionLoad] \(sessionId.prefix(8)) — tail NOT interrupted, clearing stale canResume")
         }
+    }
+
+    /// [S22] Whether the history tail the user is about to read actually kept
+    /// a partial reply from an interrupted turn. The signal is the stop
+    /// system-reminder marker handleUserCancelledCleanup appends when it
+    /// commits a partial ("The user stopped this response") — a normal
+    /// finished reply never carries it. Two shapes:
+    ///   - the tail itself is the assistant entry carrying the marker, or
+    ///   - the tail is the synthetic Continue user message (Case C) and the
+    ///     entry before it is the marker-carrying assistant entry.
+    /// A plain unanswered user turn and a tools-completed tail (Case A) carry
+    /// no kept partial reply, so they get no disclosure.
+    private func interruptedTailKeptPartialContent() -> Bool {
+        func entryHasStopMarker(_ entry: AgentMessage) -> Bool {
+            entry.parts.contains {
+                if case .text(let t) = $0, t.contains("The user stopped this response") { return true }
+                return false
+            }
+        }
+        guard let last = agentHistory.last else { return false }
+        if last.role == .assistant {
+            return entryHasStopMarker(last)
+        }
+        // Case C: the tail is the synthetic Continue user message and the
+        // entry before it is the marker-carrying assistant entry. (The
+        // Continue text is "The user stopped the previous response…" —
+        // different wording from the assistant-side marker, so it is checked
+        // separately.)
+        let tailIsContinueMessage: Bool = {
+            if case .text(let t) = last.parts.first,
+               t.contains("The user stopped the previous response") {
+                return true
+            }
+            return false
+        }()
+        if last.role == .user,
+           last.parts.count == 1,
+           tailIsContinueMessage,
+           agentHistory.count >= 2 {
+            let previous = agentHistory[agentHistory.count - 2]
+            return previous.role == .assistant && entryHasStopMarker(previous)
+        }
+        return false
     }
 
     /// Find the tool name for a given toolUseId by scanning all messages for a matching toolUse part.
@@ -1098,6 +1161,15 @@ extension AIChatViewModel {
         sessionId = session.id
         sessionPersonaId = session.personaId
         Self.activeSessionId = session.id
+        // [S19] The draft just became a real session — its text is being
+        // sent, so drop the draft mirror (and this draft's key). Without
+        // this the next fresh draft would resurrect text that was already
+        // sent. The session key itself is written by the composer clear in
+        // send() (via inputText's didSet).
+        if let draftId {
+            UserDefaults.standard.removeObject(forKey: Self.composerDraftKeyPrefix + draftId)
+        }
+        UserDefaults.standard.removeObject(forKey: Self.composerDraftLatestKey)
         // [T-memory-enabled-new-session-bug] Sync the @Published memoryEnabled
         // to the value createSession just persisted from the global default.
         // A draft VM initializes memoryEnabled = true and never runs

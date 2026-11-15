@@ -10,9 +10,41 @@ private let logger = AppLogger(category: "AnthropicAgent")
 private let thinkingLogger = AppLogger(category: "Thinking")
 
 /// AgentProvider implementation that wraps AnthropicProvider for the unified agent loop.
-final class AnthropicAgentProvider: AgentProvider {
+final class AnthropicAgentProvider: AgentProvider, ProviderStreamCancellable {
 
     let provider: AnthropicProvider
+
+    // MARK: - [S21] Synchronous stream cancellation
+    //
+    // The stream-driving Task created in streamAgentMessageClamped is
+    // registered here so cancel() can abort the in-flight HTTP call at Stop
+    // time instead of waiting for the loop's cooperative cancellation (the
+    // SSE iterator only checks cancellation between events). NSLock because
+    // the provider is used from non-MainActor callers too.
+    private let streamTaskLock = NSLock()
+    private var activeStreamTasks: [UUID: Task<Void, Never>] = [:]
+
+    private func registerStreamTask(_ task: Task<Void, Never>) -> UUID {
+        let id = UUID()
+        streamTaskLock.lock()
+        defer { streamTaskLock.unlock() }
+        activeStreamTasks[id] = task
+        return id
+    }
+
+    private func unregisterStreamTask(_ id: UUID) {
+        streamTaskLock.lock()
+        defer { streamTaskLock.unlock() }
+        activeStreamTasks.removeValue(forKey: id)
+    }
+
+    func cancelActiveStreams() {
+        streamTaskLock.lock()
+        let tasks = Array(activeStreamTasks.values)
+        activeStreamTasks.removeAll()
+        streamTaskLock.unlock()
+        for task in tasks { task.cancel() }
+    }
 
     var name: String { provider.name }
     var model: LLMModel { provider.model }
@@ -443,7 +475,14 @@ final class AnthropicAgentProvider: AgentProvider {
                     continuation.finish(throwing: self.provider.mapError(error))
                 }
             }
-            continuation.onTermination = { _ in task.cancel() }
+            // [S21] Register the stream-driving task so cancelActiveStreams()
+            // can abort this HTTP call synchronously at Stop time; unregister
+            // when the stream ends so the registry never holds a dead task.
+            let taskId = registerStreamTask(task)
+            continuation.onTermination = { [weak self] _ in
+                task.cancel()
+                self?.unregisterStreamTask(taskId)
+            }
         }
     }
 

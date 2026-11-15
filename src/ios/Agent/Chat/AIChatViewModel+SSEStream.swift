@@ -1,6 +1,23 @@
 import Foundation
 import UIKit
 
+/// [S21] A provider that can synchronously abort its in-flight stream(s).
+/// Stop is cooperative today: the agent loop only learns it was cancelled
+/// between SSE events, so a pure-text stream can keep landing text after the
+/// user hit Stop. Providers conforming here register every stream-driving
+/// Task they spawn; cancel() calls this to kill the HTTP call at Stop time
+/// instead of waiting for the loop's error handler. A protocol (not a
+/// protocol-extension default) because extension methods are statically
+/// dispatched — the VM must cast to the protocol and call the conforming
+/// implementation. Other providers (Gemini, Kimi, …) are not in this batch's
+/// whitelist and keep the old cooperative path.
+protocol ProviderStreamCancellable: AnyObject {
+    /// Cancel every stream-driving task this provider currently has running.
+    /// Cancelling a finished task is a no-op; safe to call when no stream
+    /// is live.
+    func cancelActiveStreams()
+}
+
 private let logger = AppLogger(category: "AIChatVM")
 
 // MARK: - Stream Stall Timeout

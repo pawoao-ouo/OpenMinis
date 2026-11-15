@@ -1461,6 +1461,10 @@ struct AIChatView: View {
             vm.sessionId = sessionId
             vm.draftId = draftId
             vm.initialGroupId = initialGroupId
+            // [S19] A draft VM never runs loadSession(), so a draft's saved
+            // composer text is restored here instead (loadSession restores
+            // the live-session key). Only fills an empty composer.
+            vm.restoreComposerDraft()
             // Snapshot total session count once so the New-Chat onboarding
             // grid only appears for first-time users (no prior sessions).
             // [T-ios-session-coldload-listsessions-block] Use the bare
@@ -3571,7 +3575,7 @@ struct AIChatView: View {
     }
 
     /// 发送 / 暂停:同一颗键,按状态换字形,不占两个位置(她要的「一颗键切换」)。
-    ///   · 生成中 → 暂停(点下去停整队,见 AIChatViewModel.cancel())
+    ///   · 生成中 → 有内容排队(同回车),没内容才暂停(点下去停整队,见 AIChatViewModel.cancel()) [S23]
     ///   · 编辑中 → 有字提交 / 没字退出编辑
     ///   · 有字   → 箭头发送(排得上队就排队)
     ///   · 空输入 → 灰箭头,看得见点不动;语音入口在加号抽屉里
@@ -3583,8 +3587,8 @@ struct AIChatView: View {
         let editing = vm.editingMessageIndex != nil
         let generating = vm.isProcessing
         let hasText = hasDraftText
-        let showArrow = hasText && !generating
-        let showPause = generating
+        let showArrow = (hasText && !generating) || (generating && canEnqueue)
+        let showPause = generating && !canEnqueue
         let showClose = editing && !hasText && !generating
         let showIdle = !editing && !hasText && !generating
 
@@ -3594,8 +3598,17 @@ struct AIChatView: View {
 
         return Button {
             if generating {
-                stopTapCount &+= 1
-                vm.cancel()
+                // [S23] While generating, a tap with something in the composer
+                // queues it (same as Return) instead of stopping the turn;
+                // the Stop affordance is the tap on an empty composer. (The
+                // canEnqueue gate is text-or-ready-attachment, matching
+                // handleReturnKey — an attachments-only composer queues too.)
+                if canEnqueue {
+                    performEnqueue()
+                } else {
+                    stopTapCount &+= 1
+                    vm.cancel()
+                }
                 return
             }
             voiceSendTapCount &+= 1
@@ -3660,7 +3673,7 @@ struct AIChatView: View {
         .sensoryFeedback(.impact, trigger: stopTapCount)
         .disabled(!generating && !editing && !hasText)
         .accessibilityLabel(Text(generating
-            ? AppLocalized("停止生成")
+            ? (canEnqueue ? AppLocalized("发送") : AppLocalized("停止生成"))
             : (editing ? (hasText ? AppLocalized("提交编辑") : AppLocalized("退出编辑")) : AppLocalized("发送"))))
     }
 

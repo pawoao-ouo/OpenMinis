@@ -1476,6 +1476,17 @@ struct ContentView: View {
             if let outgoingId = previousSelectedSessionId, outgoingId != newValue {
                 if let outgoingVm = ViewModelCache.shared.get(for: outgoingId) {
                     outgoingVm.setSuspendedForTransition(true)
+                    // [S25] Leaving a session really stops it: the 0.4s
+                    // suspension above only pauses UI refreshes — the agent
+                    // loop kept running, writing, and badging unread. Stop
+                    // the outgoing turn outright; cancel() takes the queued
+                    // prompts back into that session's composer (and S19
+                    // persists them), stops shell/browser work, and leaves
+                    // canResume=true, so returning to the session can Resume
+                    // normally.
+                    if outgoingVm.isProcessing {
+                        outgoingVm.cancel()
+                    }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak outgoingVm] in
                         outgoingVm?.setSuspendedForTransition(false)
                     }
@@ -1579,6 +1590,11 @@ struct ContentView: View {
                outgoingId != incomingStackId,
                let outgoingVm = ViewModelCache.shared.get(for: outgoingId) {
                 outgoingVm.setSuspendedForTransition(true)
+                // [S25] Same stop-on-leave as the selectedSessionId path
+                // above: suspension alone does not stop the agent loop.
+                if outgoingVm.isProcessing {
+                    outgoingVm.cancel()
+                }
                 // Unconditional resume on the same 0.4s delay the split path
                 // uses. `weak` so a deallocated vm simply drops it, and
                 // `setSuspendedForTransition` is guarded on an actual change,

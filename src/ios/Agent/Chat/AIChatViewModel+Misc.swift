@@ -81,7 +81,17 @@ extension AIChatViewModel {
             attachments.removeAll { $0.loadState != .ready }
         }
         let text = (overrideText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !attachments.isEmpty, isProcessing else { return }
+        guard !text.isEmpty || !attachments.isEmpty, isProcessing else {
+            // [S23] Mirror image of send()'s fallback: an enqueue attempt while
+            // NOT generating must not silently vanish — send it instead. The
+            // guard in send() passes in this state (!isProcessing), so this
+            // cannot bounce back there. (An empty enqueue still drops: there is
+            // nothing to send.)
+            if !isProcessing, (!text.isEmpty || !attachments.isEmpty) {
+                send(overrideText: overrideText)
+            }
+            return
+        }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let pendingAttachments = overrideText == nil ? attachments : []
         let prompt = QueuedPrompt(text: text, attachments: pendingAttachments)

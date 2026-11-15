@@ -11,7 +11,40 @@ private let thinkingLogger = AppLogger(category: "Thinking")
 
 /// AgentProvider implementation that wraps OpenAIProvider for the unified agent loop.
 /// Handles both Chat Completions (API key) and Responses API (OAuth/Codex) formats.
-final class OpenAIAgentProvider: AgentProvider {
+final class OpenAIAgentProvider: AgentProvider, ProviderStreamCancellable {
+
+    // MARK: - [S21] Synchronous stream cancellation
+    //
+    // Same shape as AnthropicAgentProvider: both stream entry points
+    // (Chat Completions and Responses API) register their stream-driving
+    // Task here so cancel() can abort the in-flight HTTP call at Stop time
+    // instead of waiting for the loop's cooperative cancellation (the SSE
+    // iterator only checks cancellation between events). NSLock because the
+    // provider is used from non-MainActor callers too.
+    private let streamTaskLock = NSLock()
+    private var activeStreamTasks: [UUID: Task<Void, Never>] = [:]
+
+    private func registerStreamTask(_ task: Task<Void, Never>) -> UUID {
+        let id = UUID()
+        streamTaskLock.lock()
+        defer { streamTaskLock.unlock() }
+        activeStreamTasks[id] = task
+        return id
+    }
+
+    private func unregisterStreamTask(_ id: UUID) {
+        streamTaskLock.lock()
+        defer { streamTaskLock.unlock() }
+        activeStreamTasks.removeValue(forKey: id)
+    }
+
+    func cancelActiveStreams() {
+        streamTaskLock.lock()
+        let tasks = Array(activeStreamTasks.values)
+        activeStreamTasks.removeAll()
+        streamTaskLock.unlock()
+        for task in tasks { task.cancel() }
+    }
 
     /// Invisible (zero-width) marker prepended to the localized
     /// "Reasoning: N tokens (encrypted)" placeholder produced by the Responses-API
@@ -497,7 +530,14 @@ final class OpenAIAgentProvider: AgentProvider {
                     continuation.finish(throwing: self.provider.mapError(error))
                 }
             }
-            continuation.onTermination = { _ in task.cancel() }
+            // [S21] Register the stream-driving task so cancelActiveStreams()
+            // can abort this HTTP call synchronously at Stop time; unregister
+            // when the stream ends so the registry never holds a dead task.
+            let taskId = registerStreamTask(task)
+            continuation.onTermination = { [weak self] _ in
+                task.cancel()
+                self?.unregisterStreamTask(taskId)
+            }
         }
     }
 
@@ -923,7 +963,14 @@ final class OpenAIAgentProvider: AgentProvider {
                     continuation.finish(throwing: self.provider.mapError(error))
                 }
             }
-            continuation.onTermination = { _ in task.cancel() }
+            // [S21] Same registration as the Chat Completions path above —
+            // the Responses API stream is a second live stream the Stop must
+            // be able to abort synchronously.
+            let taskId = registerStreamTask(task)
+            continuation.onTermination = { [weak self] _ in
+                task.cancel()
+                self?.unregisterStreamTask(taskId)
+            }
         }
     }
 
