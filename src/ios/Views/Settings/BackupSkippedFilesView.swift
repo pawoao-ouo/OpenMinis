@@ -55,6 +55,8 @@ struct BackupSkippedFilesView: View {
             return AppLocalized("Unreadable")
         case "after_snapshot":
             return AppLocalized("Changed after snapshot")
+        case "sticker_image_missing":
+            return AppLocalized("Sticker image missing")
         default:
             return nil
         }

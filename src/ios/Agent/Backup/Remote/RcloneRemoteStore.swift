@@ -161,6 +161,56 @@ enum RcloneRemoteStore {
         remotes.first { $0.name == name }
     }
 
+    /// [A19] Last-known reachability of a remote, from a real probe.
+    /// Persisted so the picker can show it across launches instead of
+    /// presenting every configured remote as a valid target. Absence of an
+    /// entry means never checked.
+    struct RemoteHealth: Codable, Sendable {
+        var reachable: Bool
+        var lastChecked: Date
+    }
+
+    private static let healthKey = "backup.rclone.remoteHealth"
+
+    static var remoteHealth: [String: RemoteHealth] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: healthKey),
+                  let dict = try? JSONDecoder().decode([String: RemoteHealth].self, from: data)
+            else { return [:] }
+            return dict
+        }
+        set {
+            UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: healthKey)
+        }
+    }
+
+    static func health(for name: String) -> RemoteHealth? { remoteHealth[name] }
+
+    /// [A19] Probe whether a remote answers right now, and record the
+    /// outcome as its last-known state.
+    ///
+    /// Listing the root is the cheapest honest proof that the address,
+    /// credentials and protocol are all right — the same call
+    /// `RcloneAddServerView.connect()` uses at add time. A sleeping NAS, a
+    /// rotated credential or a moved host fails here instead of staying
+    /// listed as a valid destination until a backup actually fails
+    /// against it.
+    @discardableResult
+    static func probe(_ r: Remote) async -> Bool {
+        syncToRclone()
+        let ok: Bool = (try? await Task.detached(priority: .userInitiated) {
+            try RcloneBridge.rpc("operations/list",
+                                 ["fs": fsSpec(for: r), "remote": ""])
+        }.value) != nil
+        var h = remoteHealth
+        h[r.name] = RemoteHealth(reachable: ok, lastChecked: Date())
+        remoteHealth = h
+        if !ok {
+            logger.info("[Rclone] probe failed for '\(r.name)' — shown as unreachable, not removed")
+        }
+        return ok
+    }
+
     // MARK: - Secrets
 
     private static let keychainService = "com.openminis.clone.rclone"
@@ -287,7 +337,15 @@ enum RcloneRemoteStore {
     /// Runs per launch. rclone is told to use a config path under tmp/ so it
     /// never writes credentials to a file we would then have to protect —
     /// the Keychain stays the only copy.
-    static func syncToRclone() {
+    /// Push the stored remotes into rclone's in-memory config.
+    ///
+    /// Returns the names whose `config/create` failed. [A19] That failure
+    /// used to be swallowed with only a log line, leaving the remote listed
+    /// as enabled while every upload failed with an opaque error. Callers
+    /// that deliver must report these remotes as failed instead of
+    /// attempting an upload against a config that does not exist.
+    @discardableResult
+    static func syncToRclone() -> [String] {
         let configPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("rclone-ephemeral.conf").path
         _ = try? RcloneBridge.rpc("config/setpath", ["path": configPath])
@@ -300,6 +358,9 @@ enum RcloneRemoteStore {
         // not quietly lower the bar for every other destination the user has.
         RcloneBridge.setInsecureTLS(remotes.contains { $0.allowInsecureTLS })
 
+        // [A19] Names whose config could not be created. Returned so the
+        // caller can say so instead of logging it only.
+        var configFailed: [String] = []
         for r in remotes {
             var params: [String: Any] = r.params
             params["type"] = r.backend
@@ -390,9 +451,11 @@ enum RcloneRemoteStore {
                 ])
             } catch {
                 logger.error("[Rclone] config/create failed for '\(r.name)': \(error.localizedDescription)")
+                configFailed.append(r.name)
             }
         }
         logger.info("[Rclone] synced \(remotes.count) remote(s) into rclone config")
+        return configFailed
     }
 
     /// Remotes that new backups should actually be delivered to.

@@ -169,6 +169,12 @@ enum BackupDestinations {
         /// which has no remote of either kind.
         var kind: String? = nil
         var remotePath: String? = nil
+        /// [A18] Whether the delivered copy's CONTENTS were verified, not
+        /// just its arrival. Mounted folders are hash-checked in
+        /// `copyToMountedFolder`; rclone uploads are only known not to
+        /// have thrown, so they stay false. The local copy is removed
+        /// only when every destination is content-verified.
+        var contentVerified: Bool = false
         var succeeded: Bool { destination != nil }
     }
 
@@ -232,7 +238,8 @@ enum BackupDestinations {
                             name: target.name, error: nil)
                     }
                     results.append(.init(id: target.id, folderName: target.name,
-                                         destination: dest, error: nil))
+                                         destination: dest, error: nil,
+                                         contentVerified: true))
                 } catch {
                     logger.error("[Backup] delivery to '\(target.name)' failed: \(error.localizedDescription)")
                     await MainActor.run {
@@ -264,11 +271,27 @@ enum BackupDestinations {
         // Disabled remotes stay configured but are skipped.
         let remotes = RcloneRemoteStore.enabledRemotes
         guard !remotes.isEmpty else { return [] }
-        RcloneRemoteStore.syncToRclone()
+        // [A19] A remote whose config could not be created has no rclone
+        // config to upload against. Report it as a failed destination with
+        // the real reason instead of attempting the upload and failing with
+        // an opaque error.
+        let configFailed = Set(RcloneRemoteStore.syncToRclone())
 
         return await Task.detached(priority: .utility) { () -> [DeliveryResult] in
             var out: [DeliveryResult] = []
             for r in remotes {
+                if configFailed.contains(r.name) {
+                    let message = AppLocalized("This server could not be set up — check its address and credentials, then try again.")
+                    await MainActor.run {
+                        BackupTransferStatus.shared.finish(
+                            id: BackupTransferStatus.remoteKey(r.name),
+                            name: r.name, error: message)
+                    }
+                    out.append(.init(id: UUID(), folderName: r.name,
+                                     destination: nil, error: message,
+                                     kind: r.backend, remotePath: r.path))
+                    continue
+                }
                 do {
                     // Report bytes as they go. RcloneTransfer already polls
                     // core/stats for this; nothing was listening, so the UI sat
@@ -293,7 +316,11 @@ enum BackupDestinations {
                     out.append(.init(id: UUID(), folderName: r.name,
                                      destination: URL(fileURLWithPath: "\(r.name):\(r.path)"),
                                      error: nil,
-                                     kind: r.backend, remotePath: r.path))
+                                     kind: r.backend, remotePath: r.path,
+                                     // [A18] The upload did not throw, but
+                                     // nothing read the remote copy back, so
+                                     // this is "accepted", not "verified".
+                                     contentVerified: false))
                 } catch {
                     logger.error("[Backup] upload to '\(r.name)' failed: \(error.localizedDescription)")
                     await MainActor.run {

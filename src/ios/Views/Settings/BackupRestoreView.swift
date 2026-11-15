@@ -902,6 +902,20 @@ struct BackupRestoreView: View {
                             .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.destructive)
                     }
+                    // [A15] Appearance settings that could not be applied.
+                    // Shown in red, per key: "Imported" must not mean "all
+                    // settings applied" when some were left at their
+                    // current-device values.
+                    if c.appearanceSettingsUnreadable {
+                        Text(AppLocalized("\(displayNameRaw(c.category)): the appearance settings file could not be read — no appearance settings were applied"))
+                            .font(.system(size: fontSettings.scaledApp(12)))
+                            .foregroundStyle(MinisTheme.destructive)
+                    }
+                    if !c.appearanceSkipped.isEmpty {
+                        Text(appearanceSkippedLine(for: c))
+                            .font(.system(size: fontSettings.scaledApp(12)))
+                            .foregroundStyle(MinisTheme.destructive)
+                    }
                     // [review S7] The package's own index referenced content it
                     // did not contain — the backup is incomplete. Shown in red:
                     // this is the case that used to be silently swallowed and
@@ -1096,6 +1110,13 @@ struct BackupRestoreView: View {
         }
     }
 
+    /// [A13] The package's manifest backup id, for tying a restore record to
+    /// the package that produced it. Falls back to the file name when the
+    /// manifest has not been read (should not happen for a real run).
+    private var packageBackupID: String {
+        manifest?.backupId ?? localCopyURL?.lastPathComponent ?? ""
+    }
+
     private func runImport() async {
         guard let localCopyURL else { return }
         isWorking = true
@@ -1107,6 +1128,15 @@ struct BackupRestoreView: View {
         options.mode = restoreMode
         options.passphrase = passphrase.isEmpty ? nil : passphrase
 
+        // [A13] A restore now leaves a record in BackupHistory exactly like a
+        // backup does — opened before the work so a crash mid-restore still
+        // leaves a trace, and finished/failed afterwards with the same outcome
+        // semantics (any failed category forces .completedWithIssues). The
+        // record lives past the report screen, so "did that restore work?" is
+        // answerable after dismissal.
+        let restoreRecordID = BackupHistory.shared.beginRestore(
+            backupId: packageBackupID, categories: selected.map(\.rawValue).sorted())
+
         do {
             // [review I5] Same protection for restore — being suspended
             // part-way through writing user data is the worse of the two.
@@ -1117,8 +1147,24 @@ struct BackupRestoreView: View {
             }
             report = r
             statusText = ""
+            // [A13] Same honesty as a backup: a failed category means this
+            // restore was not a clean success rank.
+            let failedCategories = r.categories.filter { $0.failed != nil }.map(\.category)
+            BackupHistory.shared.finishRestore(
+                restoreRecordID,
+                imported: r.totalImported,
+                updated: r.totalUpdated,
+                skipped: r.totalSkipped,
+                failedCategories: failedCategories,
+                verificationNote: r.verificationNote,
+                packageName: localCopyURL.lastPathComponent,
+                totalCategories: r.categories.count)
             logger.info("[Restore] user restore complete imported=\(r.totalImported) skipped=\(r.totalSkipped)")
         } catch {
+            // [A13] A restore that threw is a failed run, same as a backup
+            // that threw.
+            BackupHistory.shared.failRestore(restoreRecordID,
+                                             message: error.localizedDescription)
             // Fix 3 — a running-session refusal is not a dead end: show
             // WHICH chats are running and offer the explicit stop button
             // instead of a bare error line.
@@ -1292,6 +1338,25 @@ struct BackupRestoreView: View {
 
     private func displayNameRaw(_ raw: String) -> String {
         BackupCategory(rawValue: raw).map(displayName) ?? raw
+    }
+
+    /// [A15] One line naming the appearance settings a restore left at
+    /// their current-device values, grouped by reason: a setting the
+    /// package never carried (an old backup) is a different fact from one
+    /// whose stored value was corrupt.
+    private func appearanceSkippedLine(for c: BackupImporter.CategoryReport) -> String {
+        let notInPackage = c.appearanceSkipped.filter { $0.reason == "not_in_package" }
+        let corrupt = c.appearanceSkipped.filter { $0.reason != "not_in_package" }
+        var parts: [String] = []
+        if !notInPackage.isEmpty {
+            let names = notInPackage.map { AppearanceStudio.displayName(forBackupDefaultsKey: $0.key) }
+            parts.append(AppLocalized("\(displayNameRaw(c.category)): \(names.joined(separator: ", ")) left unchanged — this backup was made before these settings were backed up"))
+        }
+        if !corrupt.isEmpty {
+            let names = corrupt.map { AppearanceStudio.displayName(forBackupDefaultsKey: $0.key) }
+            parts.append(AppLocalized("\(displayNameRaw(c.category)): \(names.joined(separator: ", ")) could not be applied — their stored values were unreadable, so they were left unchanged"))
+        }
+        return parts.joined(separator: "\n")
     }
 }
 

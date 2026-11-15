@@ -6705,7 +6705,7 @@ struct ChatStickerPanel: View {
                 if data.count > 15 * 1024 * 1024 { continue }
                 let name = url.deletingPathExtension().lastPathComponent
                 let title = name.isEmpty ? "表情包" : name
-                _ = await MainActor.run {
+                let added = await MainActor.run {
                     store.addSticker(
                         imageData: data,
                         title: title,
@@ -6715,7 +6715,7 @@ struct ChatStickerPanel: View {
                         category: targetCategory
                     )
                 }
-                addedCount += 1
+                if added != nil { addedCount += 1 }
             }
             if addedCount > 0 {
                 await MainActor.run {
@@ -7169,7 +7169,10 @@ struct ChatStickerPanel: View {
                     var addedCount = 0
                     for item in currentItems {
                         if let data = await StickerEditSheet.loadData(from: item) {
-                            let newItem = await MainActor.run {
+                            // [A17] A sticker whose image could not be stored
+                            // is not counted and gets no recognition pass:
+                            // there is nothing to recognise.
+                            guard let newItem = await MainActor.run {
                                 store.addSticker(
                                     imageData: data,
                                     title: "表情包",
@@ -7178,7 +7181,7 @@ struct ChatStickerPanel: View {
                                     shortDesc: nil,
                                     category: targetCategory
                                 )
-                            }
+                            } else { continue }
                             addedCount += 1
                             if VisionGroupResolver.isConfigured {
                                 Task.detached(priority: .utility) {
@@ -7977,6 +7980,14 @@ public final class StickerStore: ObservableObject {
         }
     }
 
+    /// Add a sticker, returning it, or nil when the image could not be
+    /// stored.
+    ///
+    /// [A17] A sticker whose image failed to write or decode must not enter
+    /// the catalog: the model would be told it exists while nothing can
+    /// render it, and the picker would show a permanent spinner. The write
+    /// and the decode are both checked before anything is appended or
+    /// saved; a half-written file is removed again.
     public func addSticker(
         imageData: Data,
         title: String,
@@ -7984,7 +7995,7 @@ public final class StickerStore: ObservableObject {
         scenario: String,
         shortDesc: String?,
         category: String
-    ) -> StickerItem {
+    ) -> StickerItem? {
         var assignedId = String(format: "%03d", nextNumericId)
         while deletedIds.contains(assignedId) || stickers.contains(where: { $0.id == assignedId }) {
             nextNumericId += 1
@@ -7995,11 +8006,12 @@ public final class StickerStore: ObservableObject {
         let ext = Self.imageExtension(for: imageData)
         let filename = "\(assignedId).\(ext)"
         let fileURL = stickersDir.appendingPathComponent(filename)
-        try? imageData.write(to: fileURL, options: .atomic)
-
-        if let uiImg = Self.decodeImage(from: imageData) {
-            imageCache.setObject(uiImg, forKey: assignedId as NSString)
+        guard (try? imageData.write(to: fileURL, options: .atomic)) != nil,
+              let uiImg = Self.decodeImage(from: imageData) else {
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
         }
+        imageCache.setObject(uiImg, forKey: assignedId as NSString)
 
         let sDesc = (shortDesc?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
             ? (title + (content.isEmpty ? "" : " " + String(content.prefix(10))))
@@ -8123,6 +8135,29 @@ public final class StickerStore: ObservableObject {
         return nil
     }
 
+    /// [A17] The catalog as it should be archived: entries whose image file
+    /// is missing from every location `imagePath` checks are left out, so a
+    /// restore never resurrects a sticker that cannot render. Returns the
+    /// encoded catalog plus the excluded entries, or nil when nothing is
+    /// missing (the on-disk catalog is then archived as-is). Encoded the
+    /// same way `saveToDisk` encodes it. Must be called on the main actor.
+    public func exportableCatalog() -> (data: Data, excluded: [StickerItem])? {
+        let excluded = stickers.filter { imagePath(for: $0) == nil }
+        guard !excluded.isEmpty else { return nil }
+        let kept = stickers.filter { imagePath(for: $0) != nil }
+        let catalog = StickerCatalogData(
+            stickers: kept,
+            categories: categories,
+            deletedIds: Array(deletedIds),
+            nextNumericId: nextNumericId
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(catalog) else { return nil }
+        return (data, excluded)
+    }
+
     public func imageData(for sticker: StickerItem) -> Data? {
         let fileURL = stickersDir.appendingPathComponent(sticker.imageFilename)
         if let data = try? Data(contentsOf: fileURL) {
@@ -8234,12 +8269,16 @@ public final class StickerStore: ObservableObject {
     // MARK: - AI 提示词与目录
 
     public func promptCatalogSummary() -> String {
+        // [A17] Only stickers whose image file is actually on disk: the
+        // model cannot see the pictures, so a catalogued sticker with no
+        // file would be offered as sendable and then fail to render.
+        let available = stickers.filter { imagePath(for: $0) != nil }
         let allCategories = categories.filter { $0 != "常用" && $0 != "全部" }
         var lines: [String] = []
         lines.append("当前表情包抽屉列表：\(allCategories.joined(separator: "、"))")
         lines.append("各抽屉常用表情包：")
         for cat in allCategories {
-            let items = stickers.filter { $0.category == cat }
+            let items = available.filter { $0.category == cat }
                 .sorted(by: { $0.useCount > $1.useCount })
                 .prefix(3)
             if !items.isEmpty {
@@ -8247,7 +8286,7 @@ public final class StickerStore: ObservableObject {
                 lines.append("- \(cat): \(descList)")
             }
         }
-        let topUsed = stickers.sorted(by: { $0.useCount > $1.useCount }).prefix(5)
+        let topUsed = available.sorted(by: { $0.useCount > $1.useCount }).prefix(5)
         if !topUsed.isEmpty {
             let topList = topUsed.map { "[\($0.id): \($0.shortDesc)]" }.joined(separator: ", ")
             lines.append("- 最常用推荐: \(topList)")
@@ -8257,7 +8296,9 @@ public final class StickerStore: ObservableObject {
 
     public func promptDrawerContent(drawer: String) -> String {
         let cleanDrawer = drawer.trimmingCharacters(in: .whitespacesAndNewlines)
-        let items = stickers.filter { $0.category == cleanDrawer }
+        // [A17] Same rule as the catalog summary: the browse_stickers tool
+        // must not offer a sticker whose image file is missing.
+        let items = stickers.filter { $0.category == cleanDrawer && imagePath(for: $0) != nil }
         if items.isEmpty {
             return "抽屉【\(cleanDrawer)】目前暂无表情包。当前可用抽屉有：\(categories.joined(separator: "、"))"
         }
@@ -8465,8 +8506,19 @@ public struct StickerThumbnailView: View {
                     )
                     .shadow(color: Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0, alpha: 0.4) : UIColor(white: 0, alpha: 0.06) }), radius: 3, x: 0, y: 1)
             } else {
-                ProgressView()
-                    .frame(width: 80, height: 80)
+                // [A17] Terminal state, not a spinner: `image(for:)` decodes
+                // synchronously, so nil here means the file is gone or
+                // undecodable — it will never arrive, and a spinner would
+                // spin forever in the bubble and the picker alike.
+                VStack(spacing: 4) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.secondary)
+                    Text(AppLocalized("Image unavailable"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: 80, height: 80)
             }
         }
         .buttonStyle(.plain)
@@ -8860,14 +8912,19 @@ struct StickerEditSheet: View {
                 newImageData: data
             )
         } else {
-            _ = store.addSticker(
+            // [A17] If the image could not be stored, say so and stay on
+            // the sheet: dismissing would pretend the sticker was added.
+            guard store.addSticker(
                 imageData: data,
                 title: title,
                 content: content,
                 scenario: scenario,
                 shortDesc: shortDesc.isEmpty ? nil : shortDesc,
                 category: category
-            )
+            ) != nil else {
+                MinisToast.show(AppLocalized("Could not save this sticker — its image could not be written."), systemImage: "exclamationmark.triangle.fill")
+                return
+            }
         }
         dismiss()
     }

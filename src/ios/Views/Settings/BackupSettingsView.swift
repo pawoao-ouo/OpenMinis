@@ -846,7 +846,11 @@ struct BackupSettingsView: View {
     /// Not shown while a backup is running: starting a second one is refused,
     /// and offering the action anyway invites a tap that does nothing.
     private func isResumable(_ r: BackupHistory.Record) -> Bool {
-        guard !runController.isRunning, r.status == .failed,
+        // [A13] Resume is a BACKUP action. A restore record's backupId is the
+        // package's manifest id, which could coincide with an interrupted
+        // backup journal's id and would wrongly offer "Resume" on a restore.
+        guard r.kind == .backup,
+              !runController.isRunning, r.status == .failed,
               !r.backupId.isEmpty,
               let marker = BackupExportJournal.interrupted(),
               marker.backupId == r.backupId
@@ -954,7 +958,11 @@ struct BackupSettingsView: View {
                     NavigationLink {
                         BackupHistoryDetailView(record: r)
                     } label: {
-                        BackupHistoryRow(record: r)
+                        if r.kind == .restore {
+                            restoreHistoryRow(r)
+                        } else {
+                            BackupHistoryRow(record: r)
+                        }
                     }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
@@ -984,6 +992,59 @@ struct BackupSettingsView: View {
             } footer: {
                 Text("Records from the past month. Older ones are removed automatically.")
             }
+        }
+    }
+
+    /// [A13] One row of a restore record. Restores share the history list so
+    /// "did that restore work?" stays answerable after the report screen is
+    /// dismissed; the row says it was a restore and shows the outcome the
+    /// report ended on.
+    private func restoreHistoryRow(_ r: BackupHistory.Record) -> some View {
+        HStack(spacing: 12) {
+            if r.status == .running {
+                // Clock-derived rotation, same approach the backup rows use
+                // (see BackupHistoryDetailView.BackupRunningIndicator): no
+                // animation object to stall or duplicate when the row is
+                // re-realised on scroll.
+                TimelineView(.animation) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .rotationEffect(.degrees(
+                            (t / 1).truncatingRemainder(dividingBy: 1) * 360))
+                }
+                .frame(width: 28, height: 28)
+                .background(Color.blue, in: Circle())
+            } else {
+                Image(systemName: BackupHistoryRow.statusIcon(r.status))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(BackupHistoryRow.statusColour(r.status),
+                                in: Circle())
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(r.startedAt.formatted(date: .abbreviated, time: .shortened))
+                Text(restoreRowSubtitle(r))
+                    .font(.system(size: fontSettings.scaledApp(12)))
+                    .foregroundStyle(r.status == .failed ? .red : .secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func restoreRowSubtitle(_ r: BackupHistory.Record) -> String {
+        switch r.status {
+        case .running:
+            return r.log.last?.message ?? AppLocalized("Working…")
+        case .failed:
+            return r.errorMessage ?? AppLocalized("Failed")
+        case .succeeded, .completedWithIssues:
+            if let note = r.verificationNote, !note.isEmpty { return note }
+            return r.status == .succeeded
+                ? AppLocalized("Restore complete")
+                : AppLocalized("Restore finished with issues")
         }
     }
 
@@ -1393,6 +1454,18 @@ struct BackupSettingsView: View {
                 // NOT count as the "next visit" that clears the finished rows;
                 // only actually leaving and returning does.
                 didPresentFinishedTransfer = true
+                // [A19] Probe each enabled remote before delivery, so a
+                // sleeping NAS or rotated credential is on the record
+                // before the upload fails against it. A failed probe does
+                // not skip the destination — delivery still tries it and
+                // reports per destination — it only makes the state visible
+                // instead of letting the remote stay listed as valid.
+                for remote in RcloneRemoteStore.enabledRemotes {
+                    let ok = await RcloneRemoteStore.probe(remote)
+                    BackupHistory.shared.log(runId, ok
+                        ? AppLocalized("Destination '\(remote.name)' is reachable.")
+                        : AppLocalized("Destination '\(remote.name)' is unreachable — the backup will still try it, and the local copy is kept if it fails."))
+                }
                 deliveryResults = await BackupDestinations.deliver(
                     packageURL: stable, backupId: summary.backupId)
                 BackupTransferStatus.shared.end()
@@ -1406,7 +1479,14 @@ struct BackupSettingsView: View {
             // the phone just spends the user's storage — 236 MB per run adds
             // up fast. Any failure (or having no destinations at all) keeps
             // it, so the backup always exists somewhere.
-            if !deliveryResults.isEmpty, deliveryResults.allSatisfy(\.succeeded) {
+            //
+            // [A18] "Verified" here means the contents were checked, not
+            // just that the copy arrived: mounted folders are hash-checked,
+            // but an rclone upload is only known not to have thrown. The
+            // local copy is removed only when every destination is
+            // content-verified; an upload-accepted remote keeps it.
+            if !deliveryResults.isEmpty,
+               deliveryResults.allSatisfy({ $0.succeeded && $0.contentVerified }) {
                 let freed = (try? FileManager.default.attributesOfItem(
                     atPath: stable.path)[.size] as? Int64) ?? 0
                 try? FileManager.default.removeItem(at: stable)
@@ -1420,8 +1500,13 @@ struct BackupSettingsView: View {
                 BackupTransferStatus.shared.noteCleanup(String(
                     localized: "Local copy removed — \(ByteCountFormatter.string(fromByteCount: freed, countStyle: .file)) freed on this iPhone"))
             } else if !deliveryResults.isEmpty {
-                BackupTransferStatus.shared.noteCleanup(String(
-                    localized: "Local copy kept — not every destination was verified"))
+                if deliveryResults.allSatisfy(\.succeeded) {
+                    BackupTransferStatus.shared.noteCleanup(String(
+                        localized: "Local copy kept — some destinations only confirmed the upload, the copy was not hash-checked, so the copy on this iPhone was kept"))
+                } else {
+                    BackupTransferStatus.shared.noteCleanup(String(
+                        localized: "Local copy kept — not every destination was verified"))
+                }
             }
             // Detached only now that the cleanup note has been recorded.
             BackupTransferStatus.shared.logSink = nil

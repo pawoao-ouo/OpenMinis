@@ -62,6 +62,17 @@ actor BackupImporter {
         /// decoded and were skipped. Per-line tolerance used to drop these
         /// silently; the count makes a damaged package visible.
         var droppedLines = 0
+        /// [A15] Appearance settings keys that could not be applied, with the
+        /// reason each one was left at its current-device value
+        /// (`"corrupt_data"`, `"unknown_kind"`, `"not_in_package"`).
+        /// Surfaced per key in the restore report: a category with skipped
+        /// keys must not read as cleanly imported.
+        var appearanceSkipped: [AppearanceStudio.SkippedDefault] = []
+        /// [A15] True when the package's appearance settings file itself
+        /// could not be read (missing or undecodable), so no appearance
+        /// settings at all were applied — not even the ones the file would
+        /// have carried.
+        var appearanceSettingsUnreadable = false
         /// [review S7] Index entries whose content blob is MISSING from the
         /// package — the export was not a snapshot, so a file added between the
         /// index write and the blob copy can be referenced but absent.
@@ -110,6 +121,10 @@ actor BackupImporter {
         var totalUpdated: Int { categories.reduce(0) { $0 + $1.updated } }
         var totalSkipped: Int { categories.reduce(0) { $0 + $1.skipped } }
         var totalUnreadable: Int { categories.reduce(0) { $0 + $1.unreadable } }
+        /// [A13] A short human sentence describing the finished restore, kept
+        /// on the history record so the row answers "did that restore work?"
+        /// after the report screen is dismissed. Nil for backups.
+        var verificationNote: String? = nil
         /// [A12] True when any category failed. The restore report's header
         /// must not claim "Restore Complete" over a partial restore: the
         /// importer deliberately continues past a failed category, so the
@@ -367,6 +382,13 @@ actor BackupImporter {
         await reloadStores(for: wanted)
 
         report.duration = Date().timeIntervalSince(started)
+        // [A13] Attach the outcome sentence here, where the full report is
+        // in hand, so the caller can hand it straight to the history record.
+        if report.hasFailures {
+            report.verificationNote = AppLocalized("Restore finished with issues: \(report.categories.filter { $0.failed != nil }.count) category(ies) failed.")
+        } else {
+            report.verificationNote = AppLocalized("Restore complete: \(report.totalImported) restored, \(report.totalUpdated) updated, \(report.totalSkipped) already up to date.")
+        }
         logger.info("[Restore] done id=\(manifest.backupId) imported=\(report.totalImported) updated=\(report.totalUpdated) skipped=\(report.totalSkipped)")
         return report
     }

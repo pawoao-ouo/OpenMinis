@@ -162,6 +162,19 @@ enum BackupDelivery {
                     NSLocalizedDescriptionKey: AppLocalized("Copy verification failed: the folder has \(max(got, 0)) bytes but the backup is \(want) bytes."),
                 ])
             }
+            // [A18] Size alone is not verification: a same-size corrupt copy
+            // passes it, and the old copy said "verified" on that basis
+            // before deleting the only local copy. Hash both sides and
+            // compare the contents. A mismatch throws here, before the
+            // rename, so the destination never gains a bad file under a
+            // good name.
+            let wantHash = try BackupBlobStore.sha256OfFile(at: packageURL)
+            let gotHash = try BackupBlobStore.sha256OfFile(at: partial)
+            guard wantHash == gotHash else {
+                throw NSError(domain: "Backup", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: AppLocalized("Copy verification failed: the copy's contents do not match the backup."),
+                ])
+            }
         } catch {
             // Never leave the scratch file behind on a failed transfer.
             try? FileManager.default.removeItem(at: partial)

@@ -140,6 +140,10 @@ struct BackupFileTreeExporter {
     ///   - logicalPrefix: package-relative prefix, e.g. `chats/<sid>`.
     ///   - category: recorded on every index line so a selective restore can
     ///     filter without re-deriving ownership from the path.
+    ///   - skipRelativePaths: paths (relative to `root`) to leave out of the
+    ///     package. The caller writes its own replacement for them — used
+    ///     by the stickers export, which archives a filtered catalog
+    ///     instead of the on-disk one ([A17]).
     ///   - includeHiddenFiles: dotfiles are user data, not bookkeeping, for
     ///     a Unix home directory (`.bashrc`, `.ssh`, `.config`, …) — on by
     ///     default OFF, because every other tree's dotfiles are OS
@@ -154,6 +158,7 @@ struct BackupFileTreeExporter {
                 logicalPrefix: String,
                 category: BackupCategory,
                 sessionId: String? = nil,
+                skipRelativePaths: Set<String> = [],
                 includeHiddenFiles: Bool = false,
                 skipSymlinks: Bool = false) throws -> Result {
         var result = Result()
@@ -182,6 +187,14 @@ struct BackupFileTreeExporter {
                 ? String(url.path.dropFirst(root.path.count + 1))
                 : url.lastPathComponent
             let logicalPath = "\(logicalPrefix)/\(rel)"
+
+            // [A17] A path the caller replaces itself (the stickers catalog,
+            // archived filtered). Skipped here so the on-disk version is
+            // never stored alongside the replacement.
+            if skipRelativePaths.contains(rel) {
+                if values?.isDirectory == true { enumerator.skipDescendants() }
+                continue
+            }
 
             // Never let a backup package become part of the next backup.
             //

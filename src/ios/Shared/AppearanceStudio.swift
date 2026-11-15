@@ -2689,7 +2689,44 @@ extension AppearanceStudio {
     static var backupDefaultsKeys: [String] {
         [Keys.colors, Keys.userAvatar, Keys.surfaceOpacity, Keys.bubbleOpacity,
          Keys.wallpaperShade, wallpaperClearedKey,
-         AppearanceSavedTheme.libraryKey, AppearanceThemePack.currentKey]
+         AppearanceSavedTheme.libraryKey, AppearanceThemePack.currentKey,
+         // [A14] The four live appearance keys a backup used to omit. Glass,
+         // the active preset, the composer icon set and the user display name
+         // are exactly the visible state a restore must round-trip, or the
+         // restore reverts them to defaults with no mention.
+         Keys.glassEnabled, Keys.activePreset, Keys.composerIconSet,
+         Keys.userDisplayName]
+    }
+
+    /// [A14] The four keys above that a package written before this fix
+    /// cannot carry. A restore of such a package leaves them at their
+    /// current-device values and must say so in the report, not pretend
+    /// they were restored.
+    static var newBackupDefaultsKeys: [String] {
+        [Keys.glassEnabled, Keys.activePreset, Keys.composerIconSet,
+         Keys.userDisplayName]
+    }
+
+    /// [A15] A skipped appearance setting, named in the user's language, for
+    /// the restore report. The package keys are UserDefaults strings
+    /// ("appearanceStudio.glassEnabled.v1"), which mean nothing to the user;
+    /// an unknown key falls back to the raw string rather than vanishing.
+    static func displayName(forBackupDefaultsKey key: String) -> String {
+        switch key {
+        case Keys.colors: return AppLocalized("Colours")
+        case Keys.userAvatar: return AppLocalized("Avatar")
+        case Keys.surfaceOpacity: return AppLocalized("Surface opacity")
+        case Keys.bubbleOpacity: return AppLocalized("Bubble opacity")
+        case Keys.wallpaperShade: return AppLocalized("Wallpaper shade")
+        case wallpaperClearedKey: return AppLocalized("Cleared wallpapers")
+        case AppearanceSavedTheme.libraryKey: return AppLocalized("Theme library")
+        case AppearanceThemePack.currentKey: return AppLocalized("Current theme pack")
+        case Keys.glassEnabled: return AppLocalized("Glass effect")
+        case Keys.activePreset: return AppLocalized("Active preset")
+        case Keys.composerIconSet: return AppLocalized("Composer icon set")
+        case Keys.userDisplayName: return AppLocalized("Display name")
+        default: return key
+        }
     }
 
     /// Snapshot the keys above into the package's wire shape. Absent keys
@@ -2713,30 +2750,52 @@ extension AppearanceStudio {
         return out
     }
 
+    /// One setting that could not be applied, for the restore report.
+    /// Sendable: the importer collects these on the main actor and carries
+    /// them back to its own actor in the category report.
+    struct SkippedDefault: Sendable {
+        var key: String
+        /// `"corrupt_file"`, `"unknown_kind"`, `"corrupt_data"`,
+        /// `"not_in_package"`.
+        var reason: String
+    }
+
     /// Write a restored package's values back into UserDefaults (only the
-    /// whitelisted keys; unknown kinds are skipped, not fatal), then
-    /// reload the live instance so the restored look takes effect without
-    /// a relaunch.
-    func applyBackupDefaults(_ values: [String: BackupDefaultsValue]) {
+    /// whitelisted keys), then reload the live instance so the restored look
+    /// takes effect without a relaunch.
+    ///
+    /// [A15] Nothing is skipped silently any more: every value the package
+    /// carries that cannot be applied — a corrupt base64 `data` value, an
+    /// unknown `kind`, or a corrupt settings file — is returned so the
+    /// restore report can count it instead of letting the category read as
+    /// cleanly imported 
+    func applyBackupDefaults(_ values: [String: BackupDefaultsValue]) -> [SkippedDefault] {
         let defaults = UserDefaults.standard
+        var skipped: [SkippedDefault] = []
         for key in Self.backupDefaultsKeys {
             guard let value = values[key] else { continue }
             switch value.kind {
             case "data":
                 if let b64 = value.data, let data = Data(base64Encoded: b64) {
                     defaults.set(data, forKey: key)
+                } else {
+                    skipped.append(.init(key: key, reason: "corrupt_data"))
                 }
             case "string":
                 if let string = value.string { defaults.set(string, forKey: key) }
+                else { skipped.append(.init(key: key, reason: "corrupt_data")) }
             case "strings":
                 if let strings = value.strings { defaults.set(strings, forKey: key) }
+                else { skipped.append(.init(key: key, reason: "corrupt_data")) }
             case "double":
                 if let double = value.double { defaults.set(double, forKey: key) }
+                else { skipped.append(.init(key: key, reason: "corrupt_data")) }
             default:
-                break
+                skipped.append(.init(key: key, reason: "unknown_kind"))
             }
         }
         reloadAfterRestore()
+        return skipped
     }
 
     /// Re-read every piece of appearance state from disk / defaults after

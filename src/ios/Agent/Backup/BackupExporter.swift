@@ -90,7 +90,8 @@ actor BackupExporter {
         var totalBytes: Int64
         var categories: [String: BackupManifest.CategoryStat]
         /// [A8] EVERY file left out of the package, all reasons combined
-        /// (size cap + not downloaded + unreadable + after snapshot).
+        /// (size cap + not downloaded + unreadable + after snapshot +
+        /// sticker images missing).
         /// Previously this was the size cap alone, so the export-complete
         /// message, the history "Files excluded" count, and the excluded-
         /// files list all silently omitted the other three reasons.
@@ -103,6 +104,10 @@ actor BackupExporter {
         var notDownloadedFiles: Int = 0
         var unreadableFiles: Int = 0
         var afterSnapshotFiles: Int = 0
+        /// [A17] Catalog entries left out of the package because their
+        /// sticker image file is gone — counted with the other reasons so
+        /// the headline excluded count includes them.
+        var stickerImagesMissingFiles: Int = 0
         var skippedDetails: [(path: String, size: Int64, reason: String)] = []
         /// Session id → title, for turning a skipped file's path into
         /// something a user recognises. Captured during the export because a
@@ -130,6 +135,11 @@ actor BackupExporter {
     private var treeNotDownloaded = 0
     private var treeUnreadable = 0
     private var treeAfterSnapshot = 0
+    /// [A17] Catalog entries excluded because their sticker image file is
+    /// gone. Counted by `exportStickers` itself — the tree walk never sees
+    /// them, so `accumulateTreeResult` cannot count them. Reset with the
+    /// other tree accumulators at the start of every `exportBody`.
+    private var treeStickerImagesMissing = 0
     private var treeSkippedDetails: [(path: String, size: Int64, reason: String)] = []
 
     private func accumulateTreeResult(_ r: BackupFileTreeExporter.Result) {
@@ -205,6 +215,7 @@ actor BackupExporter {
         treeNotDownloaded = 0
         treeUnreadable = 0
         treeAfterSnapshot = 0
+        treeStickerImagesMissing = 0
         treeSkippedDetails = []
 
         // One emit point for every non-transient status line, so a caller that
@@ -407,7 +418,7 @@ actor BackupExporter {
             try await exportAppearance(dataDir: dataDir, trees: trees)
         }
         try await run(.stickers, AppLocalized("Exporting stickers…")) {
-            try exportStickers(trees: trees)
+            try await exportStickers(trees: trees)
         }
         try await run(.scheduledTasks, AppLocalized("Exporting scheduled tasks…")) {
             try await exportScheduledTasks(dataDir: dataDir)
@@ -533,7 +544,7 @@ actor BackupExporter {
         // [A8] Total excluded across all reasons — the size cap alone used
         // to be reported here, so "Export complete" hid the files that
         // were not downloaded, unreadable, or past the snapshot cut-off.
-        let totalExcluded = blobStore.skippedFiles + treeNotDownloaded + treeUnreadable + treeAfterSnapshot
+        let totalExcluded = blobStore.skippedFiles + treeNotDownloaded + treeUnreadable + treeAfterSnapshot + treeStickerImagesMissing
         if totalExcluded > 0 {
             say(AppLocalized("Export complete — \(sizeText) in \(BackupProgressReporter.durationText(elapsed)), \(totalExcluded) file(s) excluded"))
         } else {
@@ -551,11 +562,12 @@ actor BackupExporter {
             categories: stats,
             // [A8] Total excluded across all reasons — the size cap alone
             // used to be reported here, hiding the other three.
-            skippedFiles: blobStore.skippedFiles + treeNotDownloaded + treeUnreadable + treeAfterSnapshot,
+            skippedFiles: blobStore.skippedFiles + treeNotDownloaded + treeUnreadable + treeAfterSnapshot + treeStickerImagesMissing,
             skippedBytes: blobStore.skippedBytes, skippedPaths: blobStore.skippedPaths,
             notDownloadedFiles: treeNotDownloaded,
             unreadableFiles: treeUnreadable,
             afterSnapshotFiles: treeAfterSnapshot,
+            stickerImagesMissingFiles: treeStickerImagesMissing,
             skippedDetails: treeSkippedDetails,
             sessionTitles: titles,
             duration: Date().timeIntervalSince(started))
@@ -1005,11 +1017,45 @@ actor BackupExporter {
 
     // MARK: - Stickers
 
-    private func exportStickers(trees: BackupFileTreeExporter) throws
+    private func exportStickers(trees: BackupFileTreeExporter) async throws
         -> BackupManifest.CategoryStat {
-        let r = try trees.export(root: AIChatViewModel.minisStickersPersistentDir,
+        // [A17] Export the sticker store — but archive a filtered catalog.
+        // The on-disk catalog may still name stickers whose image file is
+        // gone (written before `addSticker` started refusing them), and
+        // archiving it as-is would make a restore resurrect stickers that
+        // cannot render. So the tree walk skips `stickers_catalog.json`, a
+        // catalog naming only the stickers whose image is in the package is
+        // written in its place, and every excluded entry is counted — the
+        // same pattern as the oversize/undownloaded exclusions ([A8]): it
+        // rides in `skippedDetails` (so the export summary and the history
+        // "Files excluded" list name it) and in `treeStickerImagesMissing`
+        // (so the headline excluded count includes it).
+        let exportable = await MainActor.run { StickerStore.shared.exportableCatalog() }
+        let skipPaths: Set<String> = exportable == nil ? [] : ["stickers_catalog.json"]
+        var r = try trees.export(root: AIChatViewModel.minisStickersPersistentDir,
                                  logicalPrefix: "stickers",
-                                 category: .stickers)
+                                 category: .stickers,
+                                 skipRelativePaths: skipPaths)
+        if let exportable {
+            let outcome = try trees.blobStore.addData(exportable.data, logicalPath: "stickers/stickers_catalog.json")
+            switch outcome {
+            case .stored(let sha, let size), .duplicate(let sha, let size):
+                trees.fileIndex.write(.file(path: "stickers/stickers_catalog.json", size: size, sha256: sha, category: .stickers))
+                r.filesIncluded += 1
+                r.bytesIncluded += size
+            case .skippedTooLarge(let size):
+                // Pathological for a catalog, but follow the tree walk's own
+                // oversize branch: tombstone, count it, no details entry —
+                // the blob store already records it in `skippedPaths`.
+                trees.fileIndex.write(.sizeSkipped(path: "stickers/stickers_catalog.json", size: size, category: .stickers))
+                r.filesSkipped += 1
+            }
+            r.filesSkipped += exportable.excluded.count
+            treeStickerImagesMissing += exportable.excluded.count
+            for item in exportable.excluded {
+                r.skippedDetails.append((path: "stickers/\(item.imageFilename)", size: 0, reason: "sticker_image_missing"))
+            }
+        }
         accumulateTreeResult(r)
         return BackupManifest.CategoryStat(
             entries: r.filesIncluded, bytes: r.bytesIncluded, encrypted: false)

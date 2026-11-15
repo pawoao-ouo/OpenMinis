@@ -32,6 +32,14 @@ final class BackupHistory: ObservableObject {
         case failed
     }
 
+    /// What a record describes: a backup (the original use of this store) or
+    /// a restore ([A13]). Old records predate the field and decode as
+    /// `.backup`, which is also what the UI assumed until now.
+    enum RunKind: String, Codable {
+        case backup
+        case restore
+    }
+
     /// One line of the run's log.
     struct LogEntry: Codable, Identifiable, Sendable {
         var id: UUID = UUID()
@@ -164,6 +172,9 @@ final class BackupHistory: ObservableObject {
 
     struct Record: Codable, Identifiable, Sendable {
         var id: UUID = UUID()
+        /// [A13] What this record describes. `.backup` for every record
+        /// written before the field existed (the decoder defaults it).
+        var kind: RunKind = .backup
         /// The exporter's own backupId, so a record can be tied to the package
         /// it produced (and to a resumed run).
         var backupId: String
@@ -172,6 +183,10 @@ final class BackupHistory: ObservableObject {
         var status: Status
         var categories: [String]
         var encrypted: Bool
+        /// [A13] A human sentence attached to a finished restore record,
+        /// saying what the restore report showed. Nil for backups and for
+        /// old records.
+        var verificationNote: String?
         var totalBytes: Int64
         var skippedFiles: Int
         /// What was left out, so the summary's count can be opened up.
@@ -212,6 +227,8 @@ final class BackupHistory: ObservableObject {
             status = try c.decode(Status.self, forKey: .status)
             categories = try c.decodeIfPresent([String].self, forKey: .categories) ?? []
             encrypted = try c.decodeIfPresent(Bool.self, forKey: .encrypted) ?? false
+            kind = try c.decodeIfPresent(RunKind.self, forKey: .kind) ?? .backup
+            verificationNote = try c.decodeIfPresent(String.self, forKey: .verificationNote)
             totalBytes = try c.decodeIfPresent(Int64.self, forKey: .totalBytes) ?? 0
             skippedFiles = try c.decodeIfPresent(Int.self, forKey: .skippedFiles) ?? 0
             skippedEntries = try c.decodeIfPresent([SkippedEntry].self,
@@ -227,8 +244,10 @@ final class BackupHistory: ObservableObject {
              status: Status, categories: [String], encrypted: Bool, totalBytes: Int64,
              skippedFiles: Int, packageName: String?,
              destinations: [DestinationOutcome], log: [LogEntry],
-             errorMessage: String?, skippedEntries: [SkippedEntry] = []) {
+             errorMessage: String?, skippedEntries: [SkippedEntry] = [],
+             kind: RunKind = .backup, verificationNote: String? = nil) {
             self.id = id
+            self.kind = kind
             self.backupId = backupId
             self.startedAt = startedAt
             self.finishedAt = finishedAt
@@ -242,6 +261,7 @@ final class BackupHistory: ObservableObject {
             self.destinations = destinations
             self.log = log
             self.errorMessage = errorMessage
+            self.verificationNote = verificationNote
         }
     }
 
@@ -308,6 +328,72 @@ final class BackupHistory: ObservableObject {
         records.insert(r, at: 0)   // newest first
         save()
         return r.id
+    }
+
+    /// [A13] Open a record for a restore run.
+    ///
+    /// The restore path previously left no trace: a restore that failed a
+    /// category was unrecorded, so once the report screen was dismissed there
+    /// was no answer to "did that restore work?" — unlike a backup, which has
+    /// always left a 30-day record. The record survives dismissing the report
+    /// because it is stored the same way a backup's is.
+    @discardableResult
+    func beginRestore(backupId: String, categories: [String]) -> UUID {
+        pruneExpired()
+        let r = Record(backupId: backupId, startedAt: Date(), finishedAt: nil,
+                       status: .running, categories: categories, encrypted: false,
+                       totalBytes: 0, skippedFiles: 0, packageName: nil,
+                       destinations: [], log: [], errorMessage: nil,
+                       kind: .restore)
+        records.insert(r, at: 0)   // newest first
+        save()
+        return r.id
+    }
+
+    /// [A13] Finish a restore run with the same outcome semantics a backup
+    /// uses: any failed category forces `.completedWithIssues`, and the
+    /// record keeps the report's summary so the history row can answer "did
+    /// that restore work?". A restore where every attempted category failed
+    /// is `.failed`, not `.completedWithIssues`: nothing was restored.
+    func finishRestore(_ id: UUID, imported: Int, updated: Int, skipped: Int,
+                       failedCategories: [String],
+                       verificationNote: String?, packageName: String? = nil,
+                       totalCategories: Int = 0) {
+        guard let i = records.firstIndex(where: { $0.id == id }) else { return }
+        records[i].finishedAt = Date()
+        records[i].totalBytes = 0
+        records[i].skippedFiles = skipped
+        records[i].packageName = packageName
+        records[i].destinations = []
+        records[i].verificationNote = verificationNote
+        if !failedCategories.isEmpty, totalCategories > 0,
+           failedCategories.count >= totalCategories {
+            records[i].status = .failed
+        } else {
+            records[i].status = failedCategories.isEmpty ? .succeeded : .completedWithIssues
+        }
+        records[i].log.append(LogEntry(
+            at: Date(),
+            message: AppLocalized("Restore finished: \(imported) restored, \(updated) updated, \(skipped) already up to date."),
+            isProblem: false))
+        if !failedCategories.isEmpty {
+            records[i].log.append(LogEntry(
+                at: Date(),
+                message: AppLocalized("Restore finished with issues: \(failedCategories.count) category(ies) failed."),
+                isProblem: true))
+        }
+        save()
+    }
+
+    /// [A13] Mark a restore that threw (failed before a report existed) as
+    /// `.failed`, same as a backup that threw.
+    func failRestore(_ id: UUID, message: String) {
+        guard let i = records.firstIndex(where: { $0.id == id }) else { return }
+        records[i].finishedAt = Date()
+        records[i].status = .failed
+        records[i].errorMessage = message
+        records[i].log.append(LogEntry(at: Date(), message: message, isProblem: true))
+        save()
     }
 
     /// Record the exporter's backupId once the run has one.
@@ -382,12 +468,19 @@ final class BackupHistory: ObservableObject {
 
     /// Mark runs left `.running` by a killed process, so the list doesn't show
     /// a spinner forever for a backup that will never finish.
+    ///
+    /// [A13] Restores count too: a restore record is opened before the work
+    /// starts, so a crash mid-restore leaves it `.running` exactly like a
+    /// backup's. The message names the kind, so the row does not read as a
+    /// backup that never finished.
     func reconcileInterrupted() {
         var changed = false
         for i in records.indices where records[i].status == .running {
             records[i].status = .failed
             records[i].finishedAt = records[i].finishedAt ?? Date()
-            records[i].errorMessage = AppLocalized("Interrupted — the app closed before this backup finished.")
+            records[i].errorMessage = records[i].kind == .restore
+                ? AppLocalized("Interrupted — the app closed before this restore finished.")
+                : AppLocalized("Interrupted — the app closed before this backup finished.")
             changed = true
         }
         if changed {

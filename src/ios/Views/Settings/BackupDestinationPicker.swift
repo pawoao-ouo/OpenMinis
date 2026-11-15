@@ -26,6 +26,10 @@ struct BackupDestinationPicker: View {
 
     @State private var remotes: [RcloneRemoteStore.Remote] = []
     @State private var folders: [MountedFolderEntry] = []
+    /// [A19] Last-known reachability per remote, from a real probe.
+    /// Shown under each server so an unreachable one is never silently
+    /// presented as a valid destination.
+    @State private var remoteHealth: [String: RcloneRemoteStore.RemoteHealth] = [:]
     @State private var showAddServer = false
     @State private var showFolderPicker = false
     @State private var errorText: String?
@@ -83,6 +87,12 @@ struct BackupDestinationPicker: View {
                 }
             }
             .onAppear(perform: reload)
+            .task {
+                // [A19] Probe reachability when the picker opens. The list
+                // shows first from stored state; each probe updates its row
+                // as it answers.
+                await probeRemotes()
+            }
         }
     }
 
@@ -113,6 +123,12 @@ struct BackupDestinationPicker: View {
                                 Text("\(r.backend.uppercased()) · /\(r.path)")
                                     .font(.system(size: fontSettings.scaledApp(12)))
                                     .foregroundStyle(MinisTheme.secondaryText)
+                                // [A19] Last-known reachability. An enabled
+                                // remote that does not answer is shown as
+                                // unreachable — never silently valid.
+                                Text(healthText(for: r))
+                                    .font(.system(size: fontSettings.scaledApp(12)))
+                                    .foregroundStyle(healthColour(for: r))
                             }
                         }
                     }
@@ -225,6 +241,27 @@ struct BackupDestinationPicker: View {
     private func reload() {
         remotes = RcloneRemoteStore.remotes
         folders = BackupDestinations.eligibleFolders
+        remoteHealth = RcloneRemoteStore.remoteHealth
         errorText = nil
+    }
+
+    /// [A19] Probe every configured remote and refresh the shown state.
+    /// Runs on appear; a probe that fails leaves the row marked
+    /// unreachable rather than removing the remote or flipping its toggle.
+    private func probeRemotes() async {
+        for r in RcloneRemoteStore.remotes {
+            _ = await RcloneRemoteStore.probe(r)
+            remoteHealth = RcloneRemoteStore.remoteHealth
+        }
+    }
+
+    private func healthText(for r: RcloneRemoteStore.Remote) -> String {
+        guard let h = remoteHealth[r.name] else { return AppLocalized("Not checked yet") }
+        return h.reachable ? AppLocalized("Reachable") : AppLocalized("Unreachable")
+    }
+
+    private func healthColour(for r: RcloneRemoteStore.Remote) -> Color {
+        guard let h = remoteHealth[r.name] else { return MinisTheme.secondaryText }
+        return h.reachable ? .green : .orange
     }
 }

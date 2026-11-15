@@ -528,10 +528,23 @@ extension BackupImporter {
         report.missingBlobs = files.missingBlobs + avatars.missingBlobs
 
         let settingsURL = root.appendingPathComponent("data/appearance_settings.json")
-        if let data = try? Data(contentsOf: settingsURL),
-           let values = try? JSONDecoder().decode([String: BackupDefaultsValue].self, from: data) {
-            await MainActor.run {
-                AppearanceStudio.shared.applyBackupDefaults(values)
+        // [A15] The old code read this file with `try?` and skipped the whole
+        // `if let` when it was corrupt — the category still counted as
+        // imported and nothing said the settings never landed. Read it with
+        // a real error path now: a missing or undecodable file is a report
+        // fact, not a silent no-op.
+        do {
+            let data = try Data(contentsOf: settingsURL)
+            let values = try JSONDecoder().decode([String: BackupDefaultsValue].self, from: data)
+            let skipped = await MainActor.run {
+                var skipped = AppearanceStudio.shared.applyBackupDefaults(values)
+                // [A14] A package written before this fix cannot carry the
+                // four new keys. They stay at their current-device values,
+                // and the report must say so — the same honesty as A7's
+                // disclosure of what a restore leaves untouched.
+                for key in AppearanceStudio.newBackupDefaultsKeys where values[key] == nil {
+                    skipped.append(.init(key: key, reason: "not_in_package"))
+                }
                 // [batch7 用户-P2-11] 清除标记与文件 merge 语义对齐：以清除
                 // 标记为准——包里没带某页壁纸文件、但标记说该页已清除时，
                 // 本机残留的该页壁纸文件删掉，不让标记变死标记。
@@ -544,8 +557,13 @@ extension BackupImporter {
                     AppearanceStudio.shared.reconcileClearedWallpapersAfterRestore(
                         packagedScopes: Self.packagedWallpaperScopes(in: fileIndex))
                 }
+                return skipped
             }
+            report.appearanceSkipped = skipped
             report.imported += 1
+        } catch {
+            report.appearanceSettingsUnreadable = true
+            logger.warning("[Restore] appearance: settings file could not be read (\(error.localizedDescription)); no appearance settings were applied")
         }
         // [P3-16] Reconcile the theme library with its list: the file tree
         // above merges, but the list was just replaced by the backup's, so
@@ -568,6 +586,13 @@ extension BackupImporter {
     }
 
     /// 包里实际带了壁纸文件的 scope（文件名 appearance/wallpaper-<scope>.jpg）。
+    ///
+    /// [A16] Transparent wallpapers are stored per variant, so the package
+    /// also holds `wallpaper-<scope>-light.jpg` / `-dark.jpg`. Those used to
+    /// fail `AppearanceScope(rawValue:)` ("chat-light" is not a scope), so
+    /// the scope looked unpackaged and `reconcileClearedWallpapersAfterRestore`
+    /// could delete files the restore had just written. Strip the variant
+    /// suffix first: both variants belong to their base scope.
     private static func packagedWallpaperScopes(in fileIndex: [BackupFileIndexEntry])
         -> Set<AppearanceScope> {
         var out = Set<AppearanceScope>()
@@ -576,10 +601,15 @@ extension BackupImporter {
                   entry.skipped == nil,
                   entry.path.hasPrefix("appearance/wallpaper-"),
                   entry.path.hasSuffix(".jpg") else { continue }
-            let raw = entry.path
+            var raw = String(entry.path
                 .dropFirst("appearance/wallpaper-".count)
-                .dropLast(".jpg".count)
-            if let scope = AppearanceScope(rawValue: String(raw)) {
+                .dropLast(".jpg".count))
+            if raw.hasSuffix("-light") {
+                raw = String(raw.dropLast("-light".count))
+            } else if raw.hasSuffix("-dark") {
+                raw = String(raw.dropLast("-dark".count))
+            }
+            if let scope = AppearanceScope(rawValue: raw) {
                 out.insert(scope)
             }
         }
