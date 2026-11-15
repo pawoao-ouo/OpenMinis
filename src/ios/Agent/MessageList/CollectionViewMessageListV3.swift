@@ -1742,7 +1742,10 @@ extension CollectionViewMessageListV3 {
         private func updateBridge(_ bridge: CellStateBridgeV2, message: ChatMessage, in messages: [ChatMessage],
                                   isInitialBridgeSetup: Bool = false) {
             guard let vm else { return }
-            let isLast = message.id == messages.last?.id
+            // [askuser-bubble] The "last" row for affordances is the last REAL message:
+            // a UI-only Q&A bubble sitting after the assistant row must not steal the
+            // retry/resume affordances (or the active-streaming marker) from it.
+            let isLast = message.id == messages.last(where: { !$0.isQABubble })?.id
             let isActive = isLast && vm.isProcessing
 
             // [T-ios-plaf-cache-footer-staleness] Snapshot the height-BEARING
@@ -1891,7 +1894,9 @@ extension CollectionViewMessageListV3 {
                 self.compactSummaryPresenter.summary = summary
             }
 
-            if message.isCompactedHistory || message.role == .compactDivider || message.role == .systemInfo {
+            // [askuser-bubble] Q&A bubbles are UI-only records with no DB/agentHistory
+            // anchor: retry/edit/delete/compact all assume one, so no affordances.
+            if message.isQABubble || message.isCompactedHistory || message.role == .compactDivider || message.role == .systemInfo {
                 bridge.onRetry = nil; bridge.onEdit = nil; bridge.onCompact = nil
                 bridge.onDeleteFrom = nil
                 bridge.onDeleteSingle = nil
@@ -3181,8 +3186,10 @@ extension CollectionViewMessageListV3 {
             // grow one. Scoped to the LAST message and to canResume, so an
             // ordinary user turn mid-history is untouched.
             let orphanTailUserId: UUID? = {
+                // [askuser-bubble] The orphan tail is the last REAL user turn, not a
+                // UI-only Q&A bubble sitting after it.
                 guard vm.canResume, !vm.isProcessing,
-                      let last = messages.last, last.role == .user else { return nil }
+                      let last = messages.last(where: { !$0.isQABubble }), last.role == .user else { return nil }
                 return last.id
             }()
             var previousShownMessage: ChatMessage?
@@ -3364,7 +3371,7 @@ extension CollectionViewMessageListV3 {
                         let footerMsg = messageIndex[footerMsgId].flatMap {
                             $0 < messages.count ? messages[$0] : nil
                         }
-                        let isLastMsg = messages.last?.id == footerMsgId
+                        let isLastMsg = messages.last(where: { !$0.isQABubble })?.id == footerMsgId
                         let hasError = footerMsg?.error != nil
                         let showsResume = isLastMsg && !hasError
                             && vm.canResume && !vm.isProcessing
@@ -4214,10 +4221,16 @@ extension CollectionViewMessageListV3 {
         static func liveAssistantMessageIds(messages: [ChatMessage], isProcessing: Bool) -> Set<UUID> {
             guard isProcessing else { return [] }
             var ids: Set<UUID> = []
-            if let last = messages.last, last.role == .assistant {
-                ids.insert(last.id)
+            // [askuser-bubble] The streaming row is the last ASSISTANT message,
+            // not messages.last: a UI-only Q&A bubble (role .user) appended
+            // after submit must never steal last-ness here, or the growing
+            // assistant row is treated as settled history and frozen at a
+            // stale mid-stream height.
+            let lastAssistant = messages.last(where: { $0.role == .assistant })
+            if let lastAssistant {
+                ids.insert(lastAssistant.id)
             }
-            for msg in messages where msg.role == .assistant && msg.id != messages.last?.id {
+            for msg in messages where msg.role == .assistant && msg.id != lastAssistant?.id {
                 let hasLiveTool = msg.blocks.contains { blk in
                     switch blk.toolStatus {
                     case .running, .streaming: return true

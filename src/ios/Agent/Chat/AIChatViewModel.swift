@@ -3025,7 +3025,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// keeping all previously completed tool blocks and conversation history).
     func retry() {
         guard !isProcessing else { return }
-        guard let lastMsg = messages.last, lastMsg.role == .assistant else { return }
+        // [askuser-bubble] The retried row is the last REAL message, not a UI-only
+        // Q&A bubble sitting after it. (Assign first, then guard: a trailing closure
+        // is not allowed in a guard condition.)
+        let lastIdx = messages.lastIndex(where: { !$0.isQABubble })
+        guard let lastIdx else { return }
+        let lastMsg = messages[lastIdx]
+        guard lastMsg.role == .assistant else { return }
 
         // [T-ios-retry-keyboard] This turn exists because the user re-sent an
         // old failure, so its completion must not be treated as "a reply
@@ -3138,7 +3144,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // re-installs a fresh snapshot via recordRequest.
         clearKeepAliveSnapshot()
 
-        let existingMsgIdx = messages.count - 1
+        let existingMsgIdx = lastIdx
         let existingBlockCount = lastMsg.blocks.count
         errorMessage = nil
         isProcessing = true
@@ -3237,7 +3243,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // the user bubble. Take a separate path that asks for the reply from
         // scratch instead of bailing here, which is what left the session with
         // no recovery affordance whatsoever.
-        guard let lastMsg = messages.last else { return }
+        // [askuser-bubble] The resumed row is the last REAL message, not a UI-only
+        // Q&A bubble sitting after it. Otherwise resume() routes to
+        // resumeUnansweredUserTurn() (fresh loop ending on a model turn -> Gemini 400)
+        // and committedBlockCount gets zeroed by that path. (Assign first, then guard:
+        // a trailing closure is not allowed in a guard condition.)
+        let lastIdx = messages.lastIndex(where: { !$0.isQABubble })
+        guard let lastIdx else { return }
+        let lastMsg = messages[lastIdx]
         if lastMsg.role != .assistant {
             guard lastMsg.role == .user else { return }
             resumeUnansweredUserTurn()
@@ -3288,7 +3301,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
         }
 
-        let existingMsgIdx = messages.count - 1
+        let existingMsgIdx = lastIdx
         let existingBlockCount = lastMsg.blocks.count
         errorMessage = nil
         isProcessing = true

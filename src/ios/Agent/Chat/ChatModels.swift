@@ -65,6 +65,13 @@ final class ChatMessage: Identifiable, ObservableObject {
     @Published var isCompactedHistory = false
     /// True when this compact divider is still loading (LLM generating summary).
     @Published var isCompactLoading = false
+    /// True when this row is a "问：… 答：…" Q&A record appended by the ask-user card.
+    /// UI-only: never enters agentHistory and never persists. resume()/retry() and the
+    /// message-list affordances skip these rows when deciding what the last real
+    /// message is — otherwise a bubble sitting after the assistant row makes resume()
+    /// take the unanswered-user-turn path (fresh loop ending on a model turn -> Gemini 400)
+    /// and silently disables retry().
+    var isQABubble = false
     /// AI-generated one-line summary of this turn's thinking/tool activity.
     /// Written by the turn-end hook (AI text on success, deterministic
     /// fallback on failure); read by TurnSummaryRow. Nil while the turn is
@@ -113,12 +120,13 @@ final class ChatMessage: Identifiable, ObservableObject {
     var createdAt: Date
 
     init(role: ChatMessageRole, content: String, blocks: [AssistantBlock] = [],
-         isQueued: Bool = false, createdAt: Date = Date()) {
+         isQueued: Bool = false, createdAt: Date = Date(), isQABubble: Bool = false) {
         self.role = role
         self.content = content
         self.blocks = blocks
         self.isQueued = isQueued
         self.createdAt = createdAt
+        self.isQABubble = isQABubble
     }
 
     /// [T-p3-agent-callback-cell] A user-role message that is really an

@@ -1609,6 +1609,29 @@ extension AIChatViewModel {
         let orphanedResults = toolResultIds.subtracting(toolUseIds)
         var orphanedUses = toolUseIds.subtracting(toolResultIds)
 
+        // [askuser-dedup] Duplicate tool_results for one tool_use id. A deferred ask
+        // already delivered its tool_result; when the user later answers/skips the
+        // still-visible card, the restored path appends a SECOND result for the same
+        // call (pre-fix sessions already carry both in agentHistory + DB). Two results
+        // for one call is a hard 400. Keep the LAST result — the user's real answer,
+        // which supersedes the stale deferred placeholder. Keeping the FIRST would leave
+        // the request ending on the model's text turn (the exact 400 being fixed), and
+        // the intervening text must be folded back in (see the merge below): verified
+        // live against the relay, [model(call), model(text), user(response)] 400s with
+        // "model content appears before 1 pending functionResponse part(s)", while
+        // [model(call+text), user(response)] returns 200.
+        var resultCounts: [String: Int] = [:]
+        var lastResultPosition: [String: (msg: Int, part: Int)] = [:]
+        for (msgIdx, msg) in history.enumerated() {
+            for (partIdx, part) in msg.parts.enumerated() {
+                if case .toolResult(let id, _, _, _, _, _, _, _) = part {
+                    resultCounts[id, default: 0] += 1
+                    lastResultPosition[id] = (msgIdx, partIdx)
+                }
+            }
+        }
+        let duplicateResultIds = Set(resultCounts.filter { $0.value > 1 }.keys)
+
         // [T-ios-compact-orphan-toolcall] IN-FLIGHT EXEMPTION. The tool_uses in
         // the FINAL assistant message are not orphans when the loop is still
         // between "model asked for tools" and "results appended" — agentHistory
@@ -1627,18 +1650,26 @@ extension AIChatViewModel {
             }
         }
 
-        guard !orphanedResults.isEmpty || !orphanedUses.isEmpty else { return history }
+        guard !orphanedResults.isEmpty || !orphanedUses.isEmpty || !duplicateResultIds.isEmpty else { return history }
 
-        logger.warning("[CompactDiag] orphan tool parts in OUTGOING history — repairing. orphanedOutputs=\(orphanedResults.count) [\(orphanedResults.sorted().prefix(3).joined(separator: ","))] orphanedCalls=\(orphanedUses.count) [\(orphanedUses.sorted().prefix(3).joined(separator: ","))] historyCount=\(history.count)")
+        logger.warning("[CompactDiag] orphan tool parts in OUTGOING history — repairing. orphanedOutputs=\(orphanedResults.count) [\(orphanedResults.sorted().prefix(3).joined(separator: ","))] orphanedCalls=\(orphanedUses.count) [\(orphanedUses.sorted().prefix(3).joined(separator: ","))] duplicateResults=\(duplicateResultIds.count) [\(duplicateResultIds.sorted().prefix(3).joined(separator: ","))] historyCount=\(history.count)")
 
         var cleaned: [AgentMessage] = []
         cleaned.reserveCapacity(history.count)
-        for var msg in history {
-            let kept = msg.parts.filter { part in
+        var droppedDuplicates = 0
+        for (msgIdx, var msg) in history.enumerated() {
+            let kept = msg.parts.enumerated().compactMap { (partIdx, part) -> AgentContentPart? in
                 if case .toolResult(let id, _, _, _, _, _, _, _) = part {
-                    return !orphanedResults.contains(id)
+                    if orphanedResults.contains(id) { return nil }
+                    // [askuser-dedup] Keep only the last result for a duplicated id.
+                    if duplicateResultIds.contains(id),
+                       let last = lastResultPosition[id],
+                       last.msg != msgIdx || last.part != partIdx {
+                        droppedDuplicates += 1
+                        return nil
+                    }
                 }
-                return true
+                return part
             }
             if kept.isEmpty { continue }
             msg.parts = kept
@@ -1666,7 +1697,38 @@ extension AIChatViewModel {
                 ))
             }
         }
-        return cleaned
+        if droppedDuplicates > 0 {
+            logger.warning("[CompactDiag] dropped \(droppedDuplicates) stale duplicate tool_result(s) (kept the last per tool_call_id)")
+        }
+        // [askuser-dedup] Merge adjacent same-role messages. Dropping the stale deferred
+        // result can leave [assistant(call), assistant(text), user(answer)]; a model
+        // content before a pending functionResponse is a hard 400 (verified live, see
+        // above), so fold the later assistant text into the preceding assistant message
+        // (same turn, parts concatenated, first message's metadata kept) instead of
+        // dropping it. Same for user+user adjacency. Logged: reaching here means
+        // upstream history was already corrupt.
+        var merged: [AgentMessage] = []
+        merged.reserveCapacity(cleaned.count)
+        var mergedPairs = 0
+        for msg in cleaned {
+            if let prev = merged.last, prev.role == msg.role {
+                merged[merged.count - 1] = AgentMessage(
+                    role: prev.role,
+                    parts: prev.parts + msg.parts,
+                    isInterrupted: prev.isInterrupted || msg.isInterrupted,
+                    reasoningContent: prev.reasoningContent ?? msg.reasoningContent,
+                    reasoningEcho: prev.reasoningEcho ?? msg.reasoningEcho,
+                    dbMessageId: prev.dbMessageId
+                )
+                mergedPairs += 1
+            } else {
+                merged.append(msg)
+            }
+        }
+        if mergedPairs > 0 {
+            logger.warning("[CompactDiag] merged \(mergedPairs) adjacent same-role message(s) after tool-part repair — upstream history was corrupt")
+        }
+        return merged
     }
 
     func effectiveAgentHistoryUncounted() -> [AgentMessage] {
