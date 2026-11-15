@@ -751,6 +751,99 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// capacity checks stop under-counting by thousands of tokens.
     /// Not @Published — read from estimation paths only.
     var lastRequestFixedTokens = 0
+    /// [F5] Model the fixed-overhead estimate above was computed for.
+    /// send() recomputes the estimate when the model changed, so a model
+    /// switch between turns does not leave the capacity check judging by
+    /// the previous model's system prompt + tool schemas.
+    private var lastFixedTokensModelId: String?
+
+    /// [F5] Fixed per-request overhead (system prompt + tool schemas) in BPE
+    /// tokens — the same recipe runAgentLoop uses every turn, extracted so
+    /// the send-time capacity check can compute it BEFORE the first turn,
+    /// when lastRequestFixedTokens is still 0.
+    private func fixedTokenOverhead(systemPrompt: String, tools: [AgentToolDefinition]) -> Int {
+        var fixed = BPETokenizer.shared.countTokens(systemPrompt)
+        for tool in tools {
+            fixed += BPETokenizer.shared.countTokens(tool.name)
+            fixed += BPETokenizer.shared.countTokens(tool.description)
+            for (pName, param) in tool.parameters {
+                fixed += BPETokenizer.shared.countTokens(pName)
+                fixed += BPETokenizer.shared.countTokens(param.description)
+            }
+            fixed += 8 // per-tool schema structural overhead
+        }
+        return fixed
+    }
+
+    /// [F5] Refresh the fixed overhead when it is stale: never computed (0)
+    /// or computed for a different model. Cheap no-op otherwise. Called from
+    /// send() before the capacity check; runAgentLoop refreshes every turn.
+    private func refreshFixedTokenEstimateIfNeeded(model: LLMModel) {
+        guard lastRequestFixedTokens == 0 || lastFixedTokensModelId != model.id else { return }
+        lastRequestFixedTokens = fixedTokenOverhead(
+            systemPrompt: buildTurnSystemPrompt(base: baseSystemPrompt, model: model),
+            tools: makeAgentTools()
+        )
+        lastFixedTokensModelId = model.id
+    }
+
+    /// [F11] Count hidden system content in the history about to be sent:
+    /// bridge rows, system-reminder-only rows, the persona reminder, sub-agent
+    /// steers, and tool results / text carrying embedded system reminders.
+    /// None of these render as bubbles, so the user cannot see what the model
+    /// is being told. Counts in effectiveAgentHistory() — the same slice the
+    /// request sends — so compacted-away rows are not counted. Detection
+    /// mirrors RawMessage.isInternalBridge / isSystemReminderOnly (ChatStore)
+    /// and the persona marker (Persistence); the persona check comes first
+    /// because the persona reminder sits inside a system-reminder block.
+    /// Returns the hidden-message count and per-kind labels for the
+    /// disclosure line send() appends.
+    private func hiddenContextSummary() -> (total: Int, kinds: [String]) {
+        var bridge = 0, reminder = 0, persona = 0, steer = 0
+        for msg in effectiveAgentHistory() {
+            // Standalone hidden rows: a single text part that is a bridge
+            // note, a system reminder, the persona reminder, or a steer.
+            if msg.parts.count == 1, case .text(let text) = msg.parts[0] {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.contains(Self.kPersonaReminderMarker) {
+                    persona += 1
+                    continue
+                }
+                if (trimmed.hasPrefix("[system-reminder>") && trimmed.hasSuffix("[/system-reminder>"))
+                    || trimmed.range(of: #"^<silent\s*/?>$"#, options: .regularExpression) != nil {
+                    reminder += 1
+                    continue
+                }
+                if msg.role == .assistant && RawMessage.isInternalBridgeText(trimmed) {
+                    bridge += 1
+                    continue
+                }
+                if trimmed.hasPrefix("[Course correction from the delegating agent]") {
+                    steer += 1
+                    continue
+                }
+            }
+            // Embedded reminders: a system-reminder block inside a tool
+            // result or a text part that the UI strips from display. One
+            // count per message, however many parts carry one.
+            for part in msg.parts {
+                if case .toolResult(_, _, let content, _, _, _, _, _) = part, content.contains("[system-reminder>") {
+                    reminder += 1
+                    break
+                }
+                if case .text(let text) = part, text.contains("[system-reminder>") {
+                    reminder += 1
+                    break
+                }
+            }
+        }
+        var kinds: [String] = []
+        if reminder > 0 { kinds.append("\(reminder) system reminder\(reminder == 1 ? "" : "s")") }
+        if persona > 0 { kinds.append("\(persona) persona reminder\(persona == 1 ? "" : "s")") }
+        if bridge > 0 { kinds.append("\(bridge) bridge note\(bridge == 1 ? "" : "s")") }
+        if steer > 0 { kinds.append("\(steer) sub-agent steer\(steer == 1 ? "" : "s")") }
+        return (bridge + reminder + persona + steer, kinds)
+    }
     /// Transient banner / toast message for in-loop notices (e.g. "older
     /// N image(s) elided from request to fit 25MB budget"). Set by the
     /// request-level image budget pass when it had to drop history images;
@@ -1712,14 +1805,23 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
     // MARK: - Private
 
-    /// Approximate current time string, rounded to the hour for cache stability.
+    /// [F15] Current time string, minute precision. It used to be rounded to
+    /// the hour ("Current time (approximate): yyyy-MM-dd HH:00") for cache
+    /// stability; the model was told an hour-rounded time, up to 59 minutes
+    /// off. Minute precision costs a 60-second cache window instead of an
+    /// hour — the prompt still changes at most once a minute, so cache
+    /// stability is barely affected. The label drops "(approximate)".
+    /// Per-message timestamps are still NOT sent: AgentMessage carries no
+    /// timestamp (ChatModels.swift is outside this batch's whitelist), so the
+    /// model still cannot tell when each earlier message was written — only
+    /// the current time and the ambient gap fragment.
     private var _cachedTimeString: String = ""
     private var _cachedTimeDate: Date = .distantPast
-    private var approximateTimeString: String {
+    private var currentTimeString: String {
         let now = Date()
-        if now.timeIntervalSince(_cachedTimeDate) > 3600 {
+        if now.timeIntervalSince(_cachedTimeDate) > 60 {
             let fmt = DateFormatter()
-            fmt.dateFormat = "yyyy-MM-dd HH:00"
+            fmt.dateFormat = "yyyy-MM-dd HH:mm"
             fmt.timeZone = .current
             _cachedTimeString = fmt.string(from: now)
             _cachedTimeDate = now
@@ -1785,7 +1887,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "To wait across turns, use `minis-scheduled` (see the catalog) — do NOT busy-wait with delay for anything that takes longer than one turn. "
             + "NEVER end a turn with a promise of future action: once your turn ends, NOTHING runs until the user's next message. "
             + "If polling to completion is genuinely not worth blocking the turn, close honestly instead.\n\n"
-            + "Current time (approximate): \(approximateTimeString) (\(TimeZone.current.identifier)). "
+            + "Current time: \(currentTimeString) (\(TimeZone.current.identifier)). "
             + "Device languages: \((UserDefaults.standard.object(forKey: "AppleLanguages") as? [String] ?? Locale.preferredLanguages).joined(separator: ", ")).\n\n"
             + "Shared directory /var/minis/ (bidirectional read/write between shell and app):\n"
             + "  /var/minis/attachments/ — Media files (display inline: ![desc](minis-clone://attachments/filename))\n"
@@ -2434,12 +2536,25 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // long session froze the main thread between tap and append. Estimate
             // once here (history is unchanged since trim ran, so the value is
             // identical to what either call would compute) and reuse it for both.
-            // NOTE: offload logs this as source "API" (it keys off
-            // lastContextTokens > 0); the value is a BPE estimate, not an API
-            // baseline — same number, only computed once.
+            // NOTE: offloadContextIfNeeded is told the value is a BPE
+            // estimate (lastContextTokensAreBPE: true), so it uses it as the
+            // accounting baseline directly — no second BPE pass, and the log
+            // no longer mislabels the source as API.
+            // [F5] First turn: lastRequestFixedTokens is still 0 until
+            // runAgentLoop refreshes it, so the estimate below would judge on
+            // history alone. Compute the fixed overhead now, with the same
+            // recipe, so the first turn is judged on the same basis as later
+            // turns. No-op after the first turn (or when the model changes,
+            // the value is recomputed for the new model).
+            refreshFixedTokenEstimateIfNeeded(model: preCheckModel)
             let preSendTokens = estimateContextTokens()
-            offloadContextIfNeeded(model: preCheckModel, lastContextTokens: preSendTokens)
-            switch checkContextBeforeSend(estimatedTokens: preSendTokens) {
+            // [F4] Decide on the POST-offload number: offload frees space, so
+            // judging capacity on the pre-offload estimate would prompt a
+            // compact the freed space no longer needs. The stub left behind
+            // still costs ~30-40 tokens per offloaded part, so this slightly
+            // underestimates — negligible against a 100k+ window.
+            let freedTokens = offloadContextIfNeeded(model: preCheckModel, lastContextTokens: preSendTokens, lastContextTokensAreBPE: true)
+            switch checkContextBeforeSend(estimatedTokens: preSendTokens - freedTokens) {
             case .ok:
                 break
             case .needsCompact:
@@ -2664,6 +2779,21 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // its own append; this is the send path catching up, not a new mechanism.
         userMsg.inputAttachments = pendingAttachments
         messages.append(userMsg)
+
+        // [F11] Disclose hidden system content this turn will send: bridge
+        // rows, system reminders, the persona reminder, sub-agent steers,
+        // and tool results carrying embedded reminders reach the model with
+        // no UI trace. A system-info line (not persisted, not part of
+        // agentHistory) says how many and of what kind, so what the model is
+        // told is no longer invisible. Only when the count is > 0. The
+        // disclosure sits above the user's message because it describes the
+        // context the upcoming turn sends; retries re-send the same turn,
+        // whose line is already in the transcript above them.
+        let hidden = hiddenContextSummary()
+        if hidden.total > 0 {
+            let kindList = hidden.kinds.joined(separator: ", ")
+            appendSystemInfo("Also sent with this turn: \(hidden.total) hidden system message\(hidden.total == 1 ? "" : "s") (\(kindList)). They don't appear as bubbles.", icon: "eye.slash")
+        }
 
         // Snapshot and clear attachments synchronously so the UI clears immediately.
         // [S1-fix] Only a user send clears the composer; a programmatic send leaves
@@ -5536,19 +5666,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // [batch4 / W2C-01] Refresh the fixed-overhead count that
         // estimateContextTokens adds on top of the history: system prompt +
         // tool schemas ride on every request and were never counted before.
-        do {
-            var fixed = BPETokenizer.shared.countTokens(userSystemPrompt)
-            for tool in tools {
-                fixed += BPETokenizer.shared.countTokens(tool.name)
-                fixed += BPETokenizer.shared.countTokens(tool.description)
-                for (pName, param) in tool.parameters {
-                    fixed += BPETokenizer.shared.countTokens(pName)
-                    fixed += BPETokenizer.shared.countTokens(param.description)
-                }
-                fixed += 8 // per-tool schema structural overhead
-            }
-            lastRequestFixedTokens = fixed
-        }
+        // [F5] Same recipe as send()'s pre-check, via fixedTokenOverhead.
+        lastRequestFixedTokens = fixedTokenOverhead(systemPrompt: userSystemPrompt, tools: tools)
+        lastFixedTokensModelId = activeModel.id
 
         let promptBuildMs = (CFAbsoluteTimeGetCurrent() - loopSetupStart) * 1000
         logger.info("⏱️ [runAgentLoop] prompt build elapsed=\(String(format: "%.1f", promptBuildMs))ms history=\(self.agentHistory.count)")
@@ -6462,7 +6582,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // Phase B: must use effectiveAgentHistory so the keep-alive prefix matches
             // what we actually send to Anthropic (summary-prepended view).
             if provider is AnthropicAgentProvider, let sid = sessionId {
-                keepAliveHistory = effectiveAgentHistory()
+                // [F10] The keep-alive warmup must send the same history the
+                // real requests send: apply the persona context limit and the
+                // request image budget, exactly as the send paths do. A bare
+                // effectiveAgentHistory() bypassed both.
+                keepAliveHistory = applyPersonaContextLimit(applyRequestImageBudget(effectiveAgentHistory()))
                 keepAliveSystemPrompt = userSystemPrompt
                 keepAliveTools = tools
                 keepAliveEntry = ProviderConfigStore.shared.entry(for: activeEntryId ?? "")

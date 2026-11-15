@@ -3151,6 +3151,27 @@ actor ChatStore {
         // Mark dirty so the rewritten row syncs to iCloud.
     }
 
+    /// [F7] Load one message row's parts, for the offload stub write-back.
+    /// Returns nil when the row does not exist or its parts cannot be decoded.
+    /// Mirrors replaceTextPartContainingCode's SELECT pattern.
+    func loadMessageParts(messageId: String) -> [ContentPart]? {
+        let selectSQL = "SELECT parts_json FROM messages WHERE id = ? LIMIT 1"
+        var selectStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
+            sqlite3_finalize(selectStmt)
+            return nil
+        }
+        sqlite3_bind_text(selectStmt, 1, (messageId as NSString).utf8String, -1, nil)
+        defer { sqlite3_finalize(selectStmt) }
+        guard sqlite3_step(selectStmt) == SQLITE_ROW,
+              let pointer = sqlite3_column_text(selectStmt, 0),
+              let data = String(cString: pointer).data(using: .utf8),
+              let parts = try? JSONDecoder().decode([ContentPart].self, from: data) else {
+            return nil
+        }
+        return parts
+    }
+
     /// [B28 R10] Replace one fenced code block in the row's persisted text parts.
     /// This keeps an edit made in the fullscreen editor durable across reload.
     func replaceTextPartContainingCode(messageId: String, oldCode: String, newCode: String) -> Bool {

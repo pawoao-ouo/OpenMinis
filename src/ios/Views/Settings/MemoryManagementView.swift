@@ -184,6 +184,26 @@ private struct MemoryFileEditView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
+                // [F14] The agent does not receive the whole file: only the
+                // first 500 lines (up to 20 KB) are injected (MemoryTools).
+                // Say so here, or the editor shows more than the model ever
+                // sees. Hardcoded English, matching the header above.
+                Text("Only the first 500 lines (up to 20 KB) are sent to the agent; anything below that is not injected.")
+                    .font(.system(size: fontSettings.scaledApp(12)))
+                    .foregroundStyle(MinisTheme.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            } else {
+                // [F14] Same disclosure for daily logs: only the first 200
+                // lines of each log are injected, and only the 3 most recent
+                // logs are sent at all.
+                Text("Only the first 200 lines of each daily log are sent to the agent, and only the 3 most recent logs are sent.")
+                    .font(.system(size: fontSettings.scaledApp(12)))
+                    .foregroundStyle(MinisTheme.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
             }
 
             if let saveError {

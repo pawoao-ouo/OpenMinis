@@ -95,8 +95,15 @@ extension AIChatViewModel {
         if let sid = sessionId {
             Task { await ChatStore.shared.setMemoryEnabled(sessionId: sid, enabled: enabled) }
         }
-        let status = enabled ? "enabled" : "disabled"
-        appendSystemInfo("Memory writes \(status). Reads are unaffected.", icon: "brain.head.profile")
+        // [F9] The old line said "Reads are unaffected" — false.
+        // memoryEnabled=false also cuts GLOBAL.md + daily-log injection,
+        // removes the memory tools, and makes the handlers refuse. Say what
+        // actually happens; the toggle's behavior is unchanged.
+        if enabled {
+            appendSystemInfo("Memory writes enabled. The agent will read GLOBAL.md and daily logs, and memory tools are available.", icon: "brain.head.profile")
+        } else {
+            appendSystemInfo("Memory writes disabled. Memory reads are paused too — the agent won't see GLOBAL.md or daily logs, and memory tools are unavailable for this session.", icon: "brain.head.profile")
+        }
     }
 
     /// [T-composer-drawer] 抽屉里的「技能 / 连接器」列表选中一行时走这里：

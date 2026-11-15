@@ -10,8 +10,6 @@ extension AIChatViewModel {
 
     // MARK: - Context Window Offloading
 
-    /// Save context content to disk for later retrieval via file_read.
-    /// Returns the Linux-visible path where the file was saved.
     /// Derive a short unique suffix from a tool ID for use in file names.
     /// Anthropic IDs are `toolu_01XXXX...` (prefix is always `toolu_01`),
     /// so we take the last 12 characters to guarantee uniqueness.
@@ -19,7 +17,18 @@ extension AIChatViewModel {
         String(toolId.suffix(12))
     }
 
-    private func offloadContextContent(_ content: String, toolId: String, toolName: String, ext: String = "txt") -> String {
+    /// Save context content to disk for later retrieval via file_read.
+    /// Returns the Linux-visible path where the file was saved, or nil
+    /// when the write failed or could not be verified.
+    ///
+    /// [F8] This used to return the path unconditionally after a `try?`
+    /// write, so a failed write still produced a "saved to: <path>" stub
+    /// naming a file that was never written — the same shape tools F4
+    /// fixed for offloadToolOutput and 4B F11 fixed for offloadContextImage.
+    /// Verify the file exists and holds exactly the bytes written; anything
+    /// else is a failed offload, reported as nil so callers fall back to
+    /// the no-path stub form instead of naming a dead file.
+    private func offloadContextContent(_ content: String, toolId: String, toolName: String, ext: String = "txt") -> String? {
         let fm = FileManager.default
         let sid = sessionId ?? "unknown"
         let persistDir = Self.minisOffloadsPersistentDir(for: sid)
@@ -30,7 +39,17 @@ extension AIChatViewModel {
         let shortId = Self.shortToolId(toolId)
         let fileName = "\(sanitizedName)_\(shortId).\(ext)"
         let persistPath = persistDir.appendingPathComponent(fileName)
-        try? content.write(to: persistPath, atomically: true, encoding: .utf8)
+        do {
+            try content.write(to: persistPath, atomically: true, encoding: .utf8)
+        } catch {
+            logger.warning("[F8] offloadContextContent write failed for \(fileName): \(error.localizedDescription)")
+            return nil
+        }
+        guard let attrs = try? fm.attributesOfItem(atPath: persistPath.path),
+              (attrs[.size] as? NSNumber)?.intValue == Data(content.utf8).count else {
+            logger.warning("[F8] offloadContextContent verify failed for \(fileName) (missing or size mismatch)")
+            return nil
+        }
 
         return "\(Self.minisOffloadsLinuxDir)/tools/\(fileName)"
     }
@@ -432,7 +451,15 @@ extension AIChatViewModel {
     /// - `force`: When true, skip the threshold check and offload all eligible candidates
     ///   regardless of current context usage. Used after compaction to unconditionally slim down
     ///   the kept messages.
-    func offloadContextIfNeeded(model: LLMModel, lastContextTokens: Int, force: Bool = false) {
+    /// - `lastContextTokensAreBPE`: When true, `lastContextTokens` is a BPE estimate
+    ///   (the send path's `preSendTokens`), not a provider-native count, so it can
+    ///   serve as the accounting baseline directly — no second BPE pass.
+    /// - Returns: BPE tokens freed by offloading (0 when nothing was offloaded).
+    ///   [F4] send() judges capacity on this post-offload number, not the
+    ///   pre-offload estimate. Callers that only want the side effect ignore
+    ///   the return value.
+    @discardableResult
+    func offloadContextIfNeeded(model: LLMModel, lastContextTokens: Int, force: Bool = false, lastContextTokensAreBPE: Bool = false) -> Int {
         let resolved = resolvedContextWindow(for: model)
         let contextWindow = resolved.window
         let policy = ContextPolicy(contextWindow: contextWindow, isUserCap: resolved.isUserCap)
@@ -440,7 +467,7 @@ extension AIChatViewModel {
         // Policy disables offloading for this context window tier
         if !force && policy.offloadThreshold == 0 {
             logger.debug("Context offload: disabled for window \(contextWindow) tokens")
-            return
+            return 0
         }
 
         // When no API baseline exists (first iteration of a new message),
@@ -452,7 +479,7 @@ extension AIChatViewModel {
                 if effectiveTokens < policy.offloadThreshold {
                     let remaining = contextWindow - effectiveTokens
                     logger.debug("Context offload: skipped (estimate \(effectiveTokens)/\(contextWindow), remaining ~\(remaining) tokens)")
-                    return
+                    return 0
                 }
             }
             logger.info("Context offload: no API baseline — using char estimate: ~\(effectiveTokens) tokens")
@@ -464,20 +491,41 @@ extension AIChatViewModel {
             guard effectiveTokens >= policy.offloadThreshold else {
                 let remaining = contextWindow - effectiveTokens
                 logger.debug("Context offload: below threshold — \(effectiveTokens)/\(contextWindow) (\(pct)%), remaining ~\(remaining) tokens")
-                return
+                return 0
             }
+        }
+
+        // [F6] Unit discipline. `effectiveTokens` above is the TRIGGER value:
+        // provider-native when it came from the API, BPE when it came from an
+        // estimate — either way it is judged against the provider window, so
+        // the trigger comparison is consistent. But per-part counts exist only
+        // in BPE (cl100k), so all subtraction arithmetic below must run against
+        // a BPE baseline of the same history — never subtract BPE per-part
+        // counts from an API-native total. When the caller passed a BPE
+        // estimate (send path) that value IS the baseline and no second BPE
+        // pass is paid; when the API total was passed (loop path) one BPE
+        // pass is spent here, only when offload actually runs. A provider-
+        // native per-part count does not exist in this codebase.
+        let bpeBaseline: Int
+        if lastContextTokens == 0 {
+            bpeBaseline = effectiveTokens // already the BPE estimate here
+        } else if lastContextTokensAreBPE {
+            bpeBaseline = lastContextTokens
+        } else {
+            bpeBaseline = estimateContextTokens()
         }
 
         // When forced (post-compact), offload everything eligible — no early stop target.
         let targetTokens = force ? 0 : policy.offloadTarget
-        let beforeTokens = effectiveTokens
-        var currentTokens = effectiveTokens
+        let beforeTokens = bpeBaseline
+        var currentTokens = bpeBaseline
 
-        let source = force ? "post-compact" : (lastContextTokens > 0 ? "API" : "estimate")
+        let source = force ? "post-compact" : (lastContextTokens > 0 ? (lastContextTokensAreBPE ? "BPE estimate" : "API") : "estimate")
         let remaining = contextWindow - beforeTokens
+        let bpePct = Int(Double(beforeTokens) / Double(contextWindow) * 100)
         logger.info("━━━ Context Offload Triggered ━━━")
         logger.info("  Model: \(model.id) (window: \(contextWindow) tokens)")
-        logger.info("  Before: \(beforeTokens) tokens (\(pct)% of window, ~\(remaining) remaining) [source: \(source)]")
+        logger.info("  Before: \(beforeTokens) tokens (BPE accounting baseline, \(bpePct)% of window; trigger was \(effectiveTokens) from \(source), \(pct)%) (~\(remaining) remaining) [source: \(source)]")
         if force {
             logger.info("  Mode: FORCE (post-compact) — offloading all eligible candidates")
         } else {
@@ -568,62 +616,117 @@ extension AIChatViewModel {
 
         var offloadedCount = 0
         var freedTokens = 0
+        // [F7] Parts offloaded this run, to persist back to the DB after the
+        // loop so a reload does not resurrect the full content.
+        var offloadedRecords: [OffloadedPartRecord] = []
 
         for candidate in candidates {
             guard currentTokens > targetTokens else { break }
 
             let part = agentHistory[candidate.msgIdx].parts[candidate.partIdx]
             var linuxPath = ""
+            // The stub that replaces the part in memory; the same stub is
+            // written to the DB row for this message (F7).
+            var stubText: String? = nil
+            var recordKind: OffloadedPartRecord.Kind? = nil
+            var recordToolId: String? = nil
 
             switch part {
             case .toolResult(let id, let name, let content, let isError, let imgData, let imgMime, _, _):
                 // Offload text content
+                var textSavedPath: String? = nil
                 if content.count > 500 {
-                    linuxPath = offloadContextContent(content, toolId: id, toolName: name)
+                    textSavedPath = offloadContextContent(content, toolId: id, toolName: name)
                 }
                 // Offload image data
-                if let imgData = imgData, imgData.count > 1024,
-                   let imgPath = offloadContextImage(imgData, toolId: id, mimeType: imgMime ?? "image/png") {
-                    if linuxPath.isEmpty { linuxPath = imgPath }
+                var imageSavedPath: String? = nil
+                if let imgData = imgData, imgData.count > 1024 {
+                    imageSavedPath = offloadContextImage(imgData, toolId: id, mimeType: imgMime ?? "image/png")
                 }
 
-                let stub = "[CONTEXT OFFLOADED] Content (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) saved to: \(linuxPath)\nUse file_read tool to retrieve if needed."
+                // [F8] Name a path only when a write actually landed. The
+                // text and the image are saved to different files, so the
+                // stub names the one that exists and says plainly when a
+                // part was not saved — never "saved to: " with an empty or
+                // dead path.
+                let stub: String
+                if let textPath = textSavedPath {
+                    linuxPath = textPath
+                    var text = "[CONTEXT OFFLOADED] Content (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) saved to: \(textPath)\nUse file_read tool to retrieve if needed."
+                    if imgData != nil && (imgData?.count ?? 0) > 1024 && imageSavedPath == nil {
+                        text += " The attached image could not be saved and is no longer available in context."
+                    }
+                    stub = text
+                } else if let imgPath = imageSavedPath {
+                    linuxPath = imgPath
+                    stub = "[CONTEXT OFFLOADED] Image (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) saved to: \(imgPath)\nUse file_read tool to retrieve if needed. The text content was not saved and is no longer available in context."
+                } else {
+                    stub = "[CONTEXT OFFLOADED] Content (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) could not be saved — the offload write failed, so the content is no longer available in context."
+                }
                 agentHistory[candidate.msgIdx].parts[candidate.partIdx] = .toolResult(
                     id: id, name: name, content: stub, isError: isError
                 )
+                stubText = stub
+                recordKind = .toolResult
+                recordToolId = id
 
             case .toolUse(let id, let name, let input):
-                if let content = input["content"] as? String {
-                    linuxPath = offloadContextContent(content, toolId: id, toolName: name)
+                if let content = input["content"] as? String,
+                   let savedPath = offloadContextContent(content, toolId: id, toolName: name) {
+                    linuxPath = savedPath
                 }
                 var newInput = input
-                newInput["content"] = "[CONTEXT OFFLOADED] Content (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) saved to: \(linuxPath)\nUse file_read tool to retrieve if needed."
+                // [F8] Same rule as above: no path, no "saved to:" claim.
+                let stub: String
+                if linuxPath.isEmpty {
+                    stub = "[CONTEXT OFFLOADED] Content (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) could not be saved — the offload write failed, so the content is no longer available in context."
+                } else {
+                    stub = "[CONTEXT OFFLOADED] Content (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) saved to: \(linuxPath)\nUse file_read tool to retrieve if needed."
+                }
+                newInput["content"] = stub
                 agentHistory[candidate.msgIdx].parts[candidate.partIdx] = .toolUse(
                     id: id, name: name, input: newInput
                 )
+                stubText = stub
+                recordKind = .toolUseInput
+                recordToolId = id
 
             case .imageData(let data, let mime, _):
+                let stub: String
                 if let imgPath = offloadContextImage(data, toolId: candidate.toolId, mimeType: mime) {
                     linuxPath = imgPath
-                    let stub = "[CONTEXT OFFLOADED] Image (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) saved to: \(linuxPath)\nUse file_read tool to retrieve if needed."
-                    agentHistory[candidate.msgIdx].parts[candidate.partIdx] = .text(stub)
+                    stub = "[CONTEXT OFFLOADED] Image (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) saved to: \(linuxPath)\nUse file_read tool to retrieve if needed."
                 } else {
                     // [F11] The snapshot write failed: do not name a path
                     // that was never written. The bytes are gone from
                     // context either way.
-                    let stub = "[CONTEXT OFFLOADED] Image (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) could not be saved — the offload write failed, so the image is no longer available in context."
-                    agentHistory[candidate.msgIdx].parts[candidate.partIdx] = .text(stub)
+                    stub = "[CONTEXT OFFLOADED] Image (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) could not be saved — the offload write failed, so the image is no longer available in context."
                 }
+                agentHistory[candidate.msgIdx].parts[candidate.partIdx] = .text(stub)
+                stubText = stub
+                recordKind = .imageData
+                recordToolId = nil
 
             case .text:
                 continue
+            }
+
+            // [F7] Remember the stub for the DB write-back. Rows with no
+            // dbMessageId were never persisted; a later persistAgentMessage
+            // writes the stubbed in-memory parts, so there is nothing to do.
+            if let stubText, let recordKind,
+               let dbId = agentHistory[candidate.msgIdx].dbMessageId {
+                offloadedRecords.append(OffloadedPartRecord(
+                    dbMessageId: dbId, partIdx: candidate.partIdx,
+                    toolUseId: recordToolId, stub: stubText, kind: recordKind
+                ))
             }
 
             currentTokens -= candidate.tokens
             freedTokens += candidate.tokens
             offloadedCount += 1
             let afterPct = Int(Double(currentTokens) / Double(contextWindow) * 100)
-            logger.info("  ✂ Offloaded #\(offloadedCount): [\(candidate.toolName)] id:\(candidate.toolId.prefix(8)) ~\(candidate.tokens) tokens (\(candidate.bytes) bytes) → \(linuxPath) [now \(currentTokens) (\(afterPct)%)]")
+            logger.info("  ✂ Offloaded #\(offloadedCount): [\(candidate.toolName)] id:\(candidate.toolId.prefix(8)) ~\(candidate.tokens) tokens (\(candidate.bytes) bytes) → \(linuxPath.isEmpty ? "(not saved)" : linuxPath) [now \(currentTokens) (\(afterPct)%)]")
         }
 
         if offloadedCount > 0 {
@@ -631,9 +734,9 @@ extension AIChatViewModel {
             logger.info("━━━ Context Offload Complete ━━━")
             logger.info("  Parts offloaded: \(offloadedCount)")
             logger.info("  Tokens freed: ~\(freedTokens)")
-            logger.info("  Before: \(beforeTokens)/\(contextWindow) (\(pct)%)")
+            logger.info("  Before: \(beforeTokens)/\(contextWindow) (\(bpePct)%)")
             logger.info("  After:  \(currentTokens)/\(contextWindow) (\(afterPct)%)")
-            logger.info("  Delta:  -\(beforeTokens - currentTokens) tokens (-\(pct - afterPct)pp)")
+            logger.info("  Delta:  -\(beforeTokens - currentTokens) tokens (-\(bpePct - afterPct)pp)")
 
             // List files in offloads/tools directory (top 20 by recency)
             let sid = sessionId ?? "unknown"
@@ -673,6 +776,111 @@ extension AIChatViewModel {
                 logger.info("  Total offload size: \(totalStr) across \(files.count) files")
             }
             logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        }
+
+        // [F7] Persist the stubs to the DB (async: ChatStore is an actor and
+        // this function runs synchronously from send()). Without this, a
+        // reload rebuilds the message from the stored row and resurrects the
+        // full content the offload just removed from memory.
+        if !offloadedRecords.isEmpty {
+            Task { [weak self, records = offloadedRecords] in
+                await self?.persistOffloadedStubs(records)
+            }
+        }
+
+        // [F4] BPE tokens freed, so send() can judge capacity on the
+        // post-offload number instead of the pre-offload estimate.
+        return freedTokens
+    }
+
+    /// One offloaded part to persist back to the DB (F7). `toolUseId` is nil
+    /// for standalone imageData parts, which carry no tool id and are matched
+    /// by part index instead.
+    struct OffloadedPartRecord {
+        let dbMessageId: String
+        let partIdx: Int
+        let toolUseId: String?
+        let stub: String
+        let kind: Kind
+        enum Kind { case toolResult, toolUseInput, imageData }
+    }
+
+    /// [F7] Persist offload stubs to the DB so a reload does not resurrect the
+    /// full content. The in-memory offload rewrites `agentHistory` only;
+    /// `loadSession()` rebuilds from the stored rows, so without this the
+    /// offloaded content comes back on the next launch. Patches the stored
+    /// row's parts in place — only the offloaded part's content is replaced
+    /// (toolResult output, toolUse input["content"], or a mediaRef swapped
+    /// for the stub text); every other field is preserved, so mediaRef /
+    /// snapshot / pageURL / status survive. Rows are grouped so each row is
+    /// loaded/patched/saved once.
+    private func persistOffloadedStubs(_ records: [OffloadedPartRecord]) async {
+        guard !records.isEmpty else { return }
+        let grouped = Dictionary(grouping: records, by: \.dbMessageId)
+        for (dbId, recs) in grouped {
+            guard var rowParts = await ChatStore.shared.loadMessageParts(messageId: dbId) else {
+                logger.warning("[F7] offload persist: row \(dbId.prefix(8))… not found, stub kept in memory only")
+                continue
+            }
+            var patched = 0
+            for rec in recs {
+                switch rec.kind {
+                case .toolResult:
+                    guard let toolId = rec.toolUseId,
+                          let idx = rowParts.firstIndex(where: {
+                              if case .toolResult(let tr) = $0, tr.toolUseId == toolId { return true }
+                              return false
+                          }),
+                          case .toolResult(let tr) = rowParts[idx] else {
+                        logger.warning("[F7] offload persist: toolResult \(rec.toolUseId?.prefix(8) ?? "?") not found in row \(dbId.prefix(8))…, stub kept in memory only")
+                        continue
+                    }
+                    rowParts[idx] = .toolResult(ToolResult(
+                        toolUseId: tr.toolUseId, output: rec.stub, success: tr.success,
+                        mediaRef: tr.mediaRef, snapshot: tr.snapshot,
+                        pageURL: tr.pageURL, status: tr.status
+                    ))
+                    patched += 1
+                case .toolUseInput:
+                    guard let toolId = rec.toolUseId,
+                          let idx = rowParts.firstIndex(where: {
+                              if case .toolUse(let tu) = $0, tu.toolUseId == toolId { return true }
+                              return false
+                          }),
+                          case .toolUse(let tu) = rowParts[idx],
+                          var dict = (try? JSONSerialization.jsonObject(with: Data(tu.input.utf8))) as? [String: Any] else {
+                        logger.warning("[F7] offload persist: toolUse \(rec.toolUseId?.prefix(8) ?? "?") not found or input not JSON in row \(dbId.prefix(8))…, stub kept in memory only")
+                        continue
+                    }
+                    dict["content"] = rec.stub
+                    guard let data = try? JSONSerialization.data(withJSONObject: dict),
+                          let json = String(data: data, encoding: .utf8) else {
+                        logger.warning("[F7] offload persist: toolUse input re-encode failed for row \(dbId.prefix(8))…, stub kept in memory only")
+                        continue
+                    }
+                    rowParts[idx] = .toolUse(ToolUse(
+                        toolUseId: tu.toolUseId, name: tu.name, input: json,
+                        description: tu.description, thoughtSignature: tu.thoughtSignature
+                    ))
+                    patched += 1
+                case .imageData:
+                    // Standalone imageData parts persist as .mediaRef with no
+                    // tool id, so match by part index (buildRawMessage is
+                    // order-preserving, 1:1) and only when the part at that
+                    // index is still a mediaRef.
+                    guard rec.partIdx < rowParts.count,
+                          case .mediaRef = rowParts[rec.partIdx] else {
+                        logger.warning("[F7] offload persist: imageData part \(rec.partIdx) is not a mediaRef in row \(dbId.prefix(8))…, stub kept in memory only")
+                        continue
+                    }
+                    rowParts[rec.partIdx] = .text(rec.stub)
+                    patched += 1
+                }
+            }
+            if patched > 0 {
+                await ChatStore.shared.updateMessageParts(messageId: dbId, parts: rowParts)
+                logger.info("[F7] offload persist: wrote \(patched) stub(s) to row \(dbId.prefix(8))…")
+            }
         }
     }
 
