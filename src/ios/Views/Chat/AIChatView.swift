@@ -7172,7 +7172,7 @@ struct ChatStickerPanel: View {
                             // [A17] A sticker whose image could not be stored
                             // is not counted and gets no recognition pass:
                             // there is nothing to recognise.
-                            guard let newItem = await MainActor.run {
+                            let newItem = await MainActor.run {
                                 store.addSticker(
                                     imageData: data,
                                     title: "表情包",
@@ -7181,7 +7181,8 @@ struct ChatStickerPanel: View {
                                     shortDesc: nil,
                                     category: targetCategory
                                 )
-                            } else { continue }
+                            }
+                            guard let newItem else { continue }
                             addedCount += 1
                             if VisionGroupResolver.isConfigured {
                                 Task.detached(priority: .utility) {
