@@ -7,7 +7,10 @@ import SwiftUI
 // 生成，prompt 里不存在这一行，不是「有值但被过滤」。
 //
 // 底部那段预览是用**真的拼装函数**算出来的（同一次调用，同一份规矩），
-// 所以她在这一页看到什么，模型收到的就是什么——不会出现说明跟实现对不上。
+// 数值也全是真的：时间是现在，间隔取最近一条可见会话最后一次有消息
+// 的时刻（ChatStore 里存着的），电量和网络都是实时读的。这一页没有正
+// 在进行的轮次，所以间隔用的是最近会话的、不是某一轮的——但它绝不
+// 是编出来的数字。
 struct AmbientContextSettingsView: View {
     @ObservedObject private var fontSettings = FontSettings.shared
     @State private var revision = 0
@@ -85,19 +88,28 @@ struct AmbientContextSettingsView: View {
     }
 
     private func refreshPreview() {
-        preview = AmbientContext.fragment(
-            now: Date(),
-            lastConversation: AmbientContextPreview.lastConversationDate(),
-            isSubAgentChild: false
-        ) ?? ""
+        // ChatStore 是 actor，读会话要 await；包在 Task 里，调用点不用动。
+        Task { @MainActor in
+            preview = AmbientContext.fragment(
+                now: Date(),
+                lastConversation: await AmbientContextPreview.lastConversationDate(),
+                isSubAgentChild: false
+            ) ?? ""
+        }
     }
 }
 
-/// 预览用的「上一条消息在什么时候」。拿不到真会话（这个页面不属于任何会话）
-/// 就给一个 11 分钟前的时刻——足够把间隔那一行演示出来，也说明它不是编的
-/// 一个漂亮数字。
+/// 预览用的「上一条消息在什么时候」：最近一条可见会话最后一次有消息
+/// 的时刻。
+///
+/// 取 ChatSession.updatedAt——每次有消息落盘，ChatStore.appendMessages
+/// 都会把它刷成现在（见 touchSession），所以它就是那条会话最后一条
+/// 消息的时刻。子代理的隐藏会话不算（和会话列表同一条过滤）。
+/// 没有会话时返回 nil，间隔那行直接不显示——绝不编一个时间顶上。
+/// （updatedAt 也会被改名刷一下，极少数情况下间隔会是改名那一刻；
+/// 它仍然是真实存着的时间，不是编出来的。）
 enum AmbientContextPreview {
-    static func lastConversationDate() -> Date {
-        Date().addingTimeInterval(-11 * 60)
+    static func lastConversationDate() async -> Date? {
+        await ChatStore.shared.listSessions().filter { !$0.isChild }.first?.updatedAt
     }
 }
