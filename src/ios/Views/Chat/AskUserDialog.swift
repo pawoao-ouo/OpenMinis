@@ -1,12 +1,13 @@
 import SwiftUI
 
-// MARK: - [s2-askuser] 提问小抽屉 (CSS全局变量驱动、胶囊选项与紧凑贴底设计)
+// MARK: - [s2-askuser] 提问小抽屉 (CSS全局变量驱动、素行选项与紧凑贴底设计)
 //
-// 视觉特性：
+// 视觉特性（对齐视频里的提问卡片）：
 // 1. 弹窗高度跟着内容走，绝无大片空白区域；超长时自适应平滑滚动。
 // 2. 卡片紧贴屏幕物理底部，不悬空，安全区自然延展。
-// 3. 精致胶囊选项体系：每个选项为独立药丸胶囊卡片，带选中触感与弹性动效反馈。
-// 4. 全局 CSS 变量系统驱动色彩与样式，零硬编码色。
+// 3. 素行选项：每行纯文字 + 细分隔线，选中行右端打勾；自填行同样一条素行。
+// 4. 右下角胶囊"提交"，旁边一颗文字"跳过"；提交后对话里留一条"问：… 答：…"气泡。
+// 5. 全局 CSS 变量系统驱动色彩与样式，零硬编码色。
 
 // MARK: - CSS 全局色彩变量定义
 //
@@ -221,13 +222,12 @@ private struct AskRoundedCorner: Shape {
     }
 }
 
-// MARK: - 胶囊按压反馈样式
+// MARK: - 素行按压反馈样式（只压暗，不缩放——素行没有卡片可缩）
 
-private struct PillOptionButtonStyle: ButtonStyle {
+private struct AskRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .opacity(configuration.isPressed ? 0.88 : 1.0)
+            .opacity(configuration.isPressed ? 0.55 : 1.0)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
@@ -315,22 +315,15 @@ private struct AskUserDrawerOverlay: View {
 
                 // 抽屉卡片主体 (贴底不悬空，高度随内容紧凑自适应)
                 VStack(spacing: 0) {
-                    // 顶部抓手条 (Grabber)
-                    Capsule()
-                        .fill(CSSThemeVariables.divider())
-                        .frame(width: 40, height: 5)
-                        .padding(.top, 8)
-                        .padding(.bottom, 2)
-
-                    // 抽屉头部 (Head)
-                    ZStack(alignment: .trailing) {
-                        VStack(spacing: 4) {
+                    // 抽屉头部：左对齐粗标题 + 右上 X（视频里的样式，没有抓手条）
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text(displayTitle)
-                                .font(ChatFont.font(15, weight: .semibold))
-                                .tracking(1)
+                                .font(ChatFont.font(17, weight: .semibold))
                                 .foregroundColor(CSSThemeVariables.textMain())
-                                .multilineTextAlignment(.center)
+                                .multilineTextAlignment(.leading)
                                 .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
 
                             if questions.count > 1 {
                                 Text("问题 \(activeQuestionIndex + 1) / \(questions.count)")
@@ -342,12 +335,8 @@ private struct AskUserDrawerOverlay: View {
                                     .foregroundColor(CSSThemeVariables.textDim())
                             }
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 56)
-                        .padding(.top, 10)
-                        .padding(.bottom, 8)
 
-                        // 右上角圆形关闭按钮 (Close Button)
+                        // 右上角圆形关闭按钮 (Close Button)，和"跳过"同一个动作
                         Button(action: dismiss) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 13, weight: .bold))
@@ -357,10 +346,12 @@ private struct AskUserDrawerOverlay: View {
                                 .clipShape(Circle())
                         }
                         .buttonStyle(.plain)
-                        .padding(.trailing, 16)
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 18)
+                    .padding(.bottom, 6)
 
-                    // 抽屉主体：胶囊选项体系 (紧跟内容高度，底部绝无留白)
+                    // 抽屉主体：素行选项 (紧跟内容高度，底部绝无留白)
                     if let q = currentQuestion, activeQuestionIndex < states.count {
                         let isMulti = q.type == "multi"
                         let currentState = states[activeQuestionIndex]
@@ -369,29 +360,27 @@ private struct AskUserDrawerOverlay: View {
                             // [T-manual-phase2-3a] confirm 不是"挑一个"，是
                             // "批不批"。题面下面写清会失去什么，然后两颗键。
                             confirmBody(q: q, currentState: currentState)
-                                .padding(.horizontal, 18)
-                                .padding(.top, 6)
+                                .padding(.horizontal, 20)
+                                .padding(.top, 8)
                                 .padding(.bottom, 8)
                         } else if q.options.count <= 4 {
                             // 选项少时紧贴内容高度渲染，高度由内容自然撑开
                             optionsList(q: q, currentState: currentState, isMulti: isMulti)
-                                .padding(.horizontal, 18)
-                                .padding(.top, 6)
-                                .padding(.bottom, 8)
+                                .padding(.top, 4)
+                                .padding(.bottom, 4)
                         } else {
                             // 选项很多时才限制最大高度并支持滚动
                             ScrollView(.vertical, showsIndicators: true) {
                                 optionsList(q: q, currentState: currentState, isMulti: isMulti)
-                                    .padding(.horizontal, 18)
-                                    .padding(.top, 6)
-                                    .padding(.bottom, 8)
+                                    .padding(.top, 4)
+                                    .padding(.bottom, 4)
                             }
                             .frame(maxHeight: UIScreen.main.bounds.height * 0.46)
                         }
                     }
 
-                    // 抽屉底部操作栏 (Foot)
-                    HStack(spacing: 12) {
+                    // 抽屉底部操作栏 (Foot)：上一题/下一题 + 跳过 + 提交
+                    HStack(spacing: 14) {
                         if questions.count > 1 {
                             // 多题目时的上一题 / 下一题切换
                             if activeQuestionIndex > 0 {
@@ -402,7 +391,6 @@ private struct AskUserDrawerOverlay: View {
                                 }
                                 .font(ChatFont.font(13, weight: .medium))
                                 .foregroundColor(CSSThemeVariables.textDim())
-                                .padding(.leading, 18)
                             }
 
                             if activeQuestionIndex < questions.count - 1 {
@@ -413,27 +401,33 @@ private struct AskUserDrawerOverlay: View {
                                 }
                                 .font(ChatFont.font(13, weight: .medium))
                                 .foregroundColor(CSSThemeVariables.accent())
-                                .padding(.leading, activeQuestionIndex == 0 ? 18 : 0)
                             }
                         }
 
                         Spacer()
 
-                        // 右下角大胶囊发送按钮 (Send Button)
+                        // 文字"跳过"：和右上 X 同一个动作（decision .skipped），
+                        // 卡片上终于有一颗看得见的跳过。
+                        Button("跳过", action: dismiss)
+                            .font(ChatFont.font(15, weight: .medium))
+                            .foregroundColor(CSSThemeVariables.textDim())
+                            .buttonStyle(.plain)
+
+                        // 右下角胶囊提交按钮 (Submit Button)。
+                        // 颜色走主题 accent，不是视频里那个写死的黑。
                         Button(action: submit) {
-                            Text("发送")
-                                .font(ChatFont.font(15, weight: .semibold))
-                                .tracking(2)
+                            Text("提交")
+                                .font(ChatFont.font(16, weight: .semibold))
                                 .foregroundColor(CSSThemeVariables.accentFg())
-                                .frame(minWidth: 120, minHeight: 46)
+                                .frame(minWidth: 110, minHeight: 44)
                                 .background(CSSThemeVariables.accent())
                                 .clipShape(Capsule())
                         }
                         .disabled(!canSubmit || !isSessionReady)
                         .opacity((canSubmit && isSessionReady) ? 1.0 : 0.45)
-                        .padding(.trailing, 18)
                     }
-                    .padding(.top, 8)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
                     .padding(.bottom, 8)
                 }
                 .padding(.bottom, max(bottomInset, 16))
@@ -454,7 +448,7 @@ private struct AskUserDrawerOverlay: View {
         }
     }
 
-    // MARK: - 胶囊选项与自填行
+    // MARK: - 素行选项与自填行
 
     /// [T-manual-phase2-3a] confirm 类型的题面：impact 写在下面，
     /// 然后是批准/拒绝两颗键。颜色只用 ChatColors / CSSThemeVariables，
@@ -510,8 +504,8 @@ private struct AskUserDrawerOverlay: View {
 
     @ViewBuilder
     private func optionsList(q: AskQuestion, currentState: QuestionAnswerState, isMulti: Bool) -> some View {
-        VStack(spacing: 8) {
-            // 胶囊选项列表
+        VStack(spacing: 0) {
+            // 素行选项：纯文字 + 细分隔线，选中行右端打勾（视频里的样式）
             ForEach(Array(q.options.enumerated()), id: \.offset) { optIdx, option in
                 let isSelected = currentState.selected.contains(optIdx)
                 Button {
@@ -522,49 +516,35 @@ private struct AskUserDrawerOverlay: View {
                 } label: {
                     HStack(spacing: 12) {
                         Text(option)
-                            .font(ChatFont.font(14, weight: isSelected ? .semibold : .regular))
+                            .font(ChatFont.font(16, weight: isSelected ? .semibold : .regular))
                             .foregroundColor(CSSThemeVariables.textMain())
                             .multilineTextAlignment(.leading)
                             .lineLimit(3)
 
                         Spacer(minLength: 8)
 
-                        ZStack {
-                            if isSelected {
-                                Image(systemName: isMulti ? "checkmark.square.fill" : "checkmark.circle.fill")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(CSSThemeVariables.accent())
-                                    .transition(.scale.combined(with: .opacity))
-                            } else {
-                                Circle()
-                                    .strokeBorder(CSSThemeVariables.optionBorder(), lineWidth: 1.5)
-                                    .frame(width: 18, height: 18)
-                            }
+                        if isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(CSSThemeVariables.accent())
+                                .transition(.scale.combined(with: .opacity))
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 46)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(isSelected ? CSSThemeVariables.accentSoft() : CSSThemeVariables.optionBg())
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(isSelected ? CSSThemeVariables.accent() : CSSThemeVariables.optionBorder(), lineWidth: isSelected ? 1.5 : 1.0)
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(.horizontal, 20)
+                    .frame(minHeight: 52)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(PillOptionButtonStyle())
+                .buttonStyle(AskRowButtonStyle())
+
+                if optIdx < q.options.count - 1 {
+                    hairline()
+                }
             }
 
-            // 自填回答输入行 (同样为胶囊卡片设计)
-            let hasCustomText = !currentState.otherText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // 自填行：同样一条素行，前面不再有铅笔图标；有字时右端打勾
+            hairline()
             HStack(spacing: 10) {
-                Image(systemName: "pencil.line")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(hasCustomText ? CSSThemeVariables.accent() : CSSThemeVariables.textDim())
-
-                TextField("自填回答…", text: Binding(
+                TextField("输入您的回答...", text: Binding(
                     get: {
                         activeQuestionIndex < states.count ? states[activeQuestionIndex].otherText : ""
                     },
@@ -580,7 +560,7 @@ private struct AskUserDrawerOverlay: View {
                         }
                     }
                 ))
-                .font(ChatFont.font(14))
+                .font(ChatFont.font(15))
                 .foregroundColor(CSSThemeVariables.textMain())
                 .submitLabel(.send)
                 .onSubmit {
@@ -589,28 +569,23 @@ private struct AskUserDrawerOverlay: View {
                     }
                 }
 
-                if !currentState.otherText.isEmpty {
-                    Button {
-                        states[activeQuestionIndex].otherText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 15))
-                            .foregroundColor(CSSThemeVariables.textDim())
-                    }
-                    .buttonStyle(.plain)
+                if !currentState.otherText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(CSSThemeVariables.accent())
                 }
             }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 46)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(CSSThemeVariables.optionBg())
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(hasCustomText ? CSSThemeVariables.accent() : CSSThemeVariables.optionBorder(), lineWidth: hasCustomText ? 1.5 : 1.0)
-            )
+            .padding(.horizontal, 20)
+            .frame(minHeight: 52)
         }
+    }
+
+    /// 一条 1px 的主题分隔线（行与行之间，左端和文字对齐）。
+    private func hairline() -> some View {
+        Rectangle()
+            .fill(CSSThemeVariables.divider())
+            .frame(height: 1 / UIScreen.main.scale)
+            .padding(.leading, 20)
     }
 
     private func toggleOption(questionIndex: Int, optionIndex: Int, isMulti: Bool) {
@@ -635,11 +610,14 @@ private struct AskUserDrawerOverlay: View {
     private func submit() {
         guard let payload else { return }
         var answers: [String: Any] = [:]
+        // 问答气泡用的展示文案，和 JSON 答案同一份逻辑算出来。
+        var qaBubbles: [String] = []
         for (idx, q) in payload.questions.enumerated() {
             let st = idx < states.count ? states[idx] : QuestionAnswerState()
             let isMulti = q.type == "multi"
             if st.skipped {
                 answers[q.id] = NSNull()
+                qaBubbles.append("问：\(q.question)\n答：跳过")
                 continue
             }
             let otherText = st.otherText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -647,9 +625,12 @@ private struct AskUserDrawerOverlay: View {
             // 不是选项文字。模型那边只有 approved 才算授权。
             if q.isConfirm {
                 if let first = st.selected.sorted().first {
-                    answers[q.id] = (first == 0) ? "approved" : "denied"
+                    let approved = first == 0
+                    answers[q.id] = approved ? "approved" : "denied"
+                    qaBubbles.append("问：\(q.question)\n答：\(approved ? "批准" : "拒绝")")
                 } else {
                     answers[q.id] = NSNull()
+                    qaBubbles.append("问：\(q.question)\n答：跳过")
                 }
                 continue
             }
@@ -658,20 +639,38 @@ private struct AskUserDrawerOverlay: View {
                     i < q.options.count ? q.options[i] : nil
                 }
                 if !otherText.isEmpty { picked.append(otherText) }
-                answers[q.id] = picked.isEmpty ? NSNull() : picked
+                if picked.isEmpty {
+                    answers[q.id] = NSNull()
+                    qaBubbles.append("问：\(q.question)\n答：跳过")
+                } else {
+                    answers[q.id] = picked
+                    qaBubbles.append("问：\(q.question)\n答：\(picked.joined(separator: "、"))")
+                }
             } else {
                 if !otherText.isEmpty {
                     answers[q.id] = otherText
+                    qaBubbles.append("问：\(q.question)\n答：\(otherText)")
                 } else if let first = st.selected.sorted().first, first < q.options.count {
                     answers[q.id] = q.options[first]
+                    qaBubbles.append("问：\(q.question)\n答：\(q.options[first])")
                 } else {
                     answers[q.id] = NSNull()
+                    qaBubbles.append("问：\(q.question)\n答：跳过")
                 }
             }
         }
         let json = (try? JSONSerialization.data(withJSONObject: answers, options: [.sortedKeys]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         ToolSuspensionService.shared.respond(id: request.id, decision: .answered(json))
+        // 问答气泡：提交后在对话里留一条"问：… 答：…"记录（视频里的样式）。
+        // 先 respond 再挂气泡：恢复问询那条路里 respond 会同步调 resume()，
+        // resume 按 messages.last 判继续方式，气泡不能抢在它前面。
+        // 注意：气泡只进 UI，不进 agentHistory 也不落盘——答案本身已经
+        // 以 tool_result 进了模型上下文和 DB；重进会话后气泡消失，
+        // 工具块里的摘要还在。
+        for bubble in qaBubbles {
+            vm.messages.append(ChatMessage(role: .user, content: bubble, isQABubble: true))
+        }
     }
 }
 
