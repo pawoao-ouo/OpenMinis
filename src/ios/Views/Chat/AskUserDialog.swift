@@ -6,7 +6,8 @@ import SwiftUI
 // 1. 弹窗高度跟着内容走，绝无大片空白区域；超长时自适应平滑滚动。
 // 2. 卡片紧贴屏幕物理底部，不悬空，安全区自然延展。
 // 3. 素行选项：每行纯文字 + 细分隔线，选中行右端打勾；自填行同样一条素行。
-// 4. 右下角胶囊"提交"，旁边一颗文字"跳过"；提交后对话里留一条"问：… 答：…"气泡。
+// 4. 右下角胶囊"提交"，旁边一颗文字"跳过"；提交后答案只以 tool_result
+//    进模型上下文，屏幕上不再另发一条"问：… 答：…"用户消息。
 // 5. 全局 CSS 变量系统驱动色彩与样式，零硬编码色。
 
 // MARK: - CSS 全局色彩变量定义
@@ -301,6 +302,16 @@ private struct AskUserDrawerOverlay: View {
         return false
     }
 
+    /// True when the user has started answering anything on this card
+    /// (an option picked or free text typed on any question). The
+    /// 3-minute expiry must not fire while this is true.
+    private var hasPartialAnswer: Bool {
+        states.contains { st in
+            !st.selected.isEmpty
+                || !st.otherText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let bottomInset = proxy.safeAreaInsets.bottom
@@ -445,6 +456,34 @@ private struct AskUserDrawerOverlay: View {
             if let payload, states.count != payload.questions.count {
                 states = Array(repeating: QuestionAnswerState(), count: payload.questions.count)
             }
+        }
+        .task(id: request.id) {
+            // [askuser-expiry] 3-minute expiry for a RESTORED (deferred)
+            // ask card only: the clock starts at first presentation (the
+            // service stamps it once and hands back the deadline), and on
+            // expiry the card is dismissed silently — the model already
+            // got the deferred result. Live asks (the model is waiting on
+            // the continuation) never reach here. If the user is
+            // mid-answer, do not pull the card out from under her: wait
+            // in 30s slices until she finishes or clears it. The task is
+            // cancelled when the card goes away, so an expiry can never
+            // fire for a card that is already gone.
+            guard isRestored else { return }
+            do {
+                let deadline = await ToolSuspensionService.shared.restoredAskDeadline(id: request.id)
+                let remaining = deadline.timeIntervalSinceNow
+                if remaining > 0 {
+                    try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                }
+                while await MainActor.run(body: { hasPartialAnswer }) {
+                    try await Task.sleep(nanoseconds: 30_000_000_000)
+                }
+            } catch {
+                // Cancelled (card gone / another request took over): do not expire.
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await ToolSuspensionService.shared.expireRestoredAsk(id: request.id)
         }
     }
 
@@ -610,14 +649,11 @@ private struct AskUserDrawerOverlay: View {
     private func submit() {
         guard let payload else { return }
         var answers: [String: Any] = [:]
-        // 问答气泡用的展示文案，和 JSON 答案同一份逻辑算出来。
-        var qaBubbles: [String] = []
         for (idx, q) in payload.questions.enumerated() {
             let st = idx < states.count ? states[idx] : QuestionAnswerState()
             let isMulti = q.type == "multi"
             if st.skipped {
                 answers[q.id] = NSNull()
-                qaBubbles.append("问：\(q.question)\n答：跳过")
                 continue
             }
             let otherText = st.otherText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -627,10 +663,8 @@ private struct AskUserDrawerOverlay: View {
                 if let first = st.selected.sorted().first {
                     let approved = first == 0
                     answers[q.id] = approved ? "approved" : "denied"
-                    qaBubbles.append("问：\(q.question)\n答：\(approved ? "批准" : "拒绝")")
                 } else {
                     answers[q.id] = NSNull()
-                    qaBubbles.append("问：\(q.question)\n答：跳过")
                 }
                 continue
             }
@@ -641,36 +675,24 @@ private struct AskUserDrawerOverlay: View {
                 if !otherText.isEmpty { picked.append(otherText) }
                 if picked.isEmpty {
                     answers[q.id] = NSNull()
-                    qaBubbles.append("问：\(q.question)\n答：跳过")
                 } else {
                     answers[q.id] = picked
-                    qaBubbles.append("问：\(q.question)\n答：\(picked.joined(separator: "、"))")
                 }
             } else {
                 if !otherText.isEmpty {
                     answers[q.id] = otherText
-                    qaBubbles.append("问：\(q.question)\n答：\(otherText)")
                 } else if let first = st.selected.sorted().first, first < q.options.count {
                     answers[q.id] = q.options[first]
-                    qaBubbles.append("问：\(q.question)\n答：\(q.options[first])")
                 } else {
                     answers[q.id] = NSNull()
-                    qaBubbles.append("问：\(q.question)\n答：跳过")
                 }
             }
         }
         let json = (try? JSONSerialization.data(withJSONObject: answers, options: [.sortedKeys]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        // [askuser-no-bubble] 答案只以 tool_result 进模型上下文和 DB，
+        // 屏幕上不再另发一条"问：… 答：…"用户消息——模型那边已经知道答案了。
         ToolSuspensionService.shared.respond(id: request.id, decision: .answered(json))
-        // 问答气泡：提交后在对话里留一条"问：… 答：…"记录（视频里的样式）。
-        // 先 respond 再挂气泡：恢复问询那条路里 respond 会同步调 resume()，
-        // resume 按 messages.last 判继续方式，气泡不能抢在它前面。
-        // 注意：气泡只进 UI，不进 agentHistory 也不落盘——答案本身已经
-        // 以 tool_result 进了模型上下文和 DB；重进会话后气泡消失，
-        // 工具块里的摘要还在。
-        for bubble in qaBubbles {
-            vm.messages.append(ChatMessage(role: .user, content: bubble, isQABubble: true))
-        }
     }
 }
 

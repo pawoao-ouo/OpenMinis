@@ -391,6 +391,50 @@ final class ToolSuspensionService: ObservableObject {
         )
     }
 
+    // MARK: - 恢复问询的 3 分钟过期
+
+    /// [askuser-expiry] A restored (deferred) ask card may stay on screen
+    /// for 3 minutes from FIRST presentation. The clock starts when the
+    /// card is first shown to the user, not when the question was asked
+    /// while the app was in the background (the user could not see it
+    /// then) — same rule as activate()'s timeout. On relaunch the
+    /// timestamp is gone (in-memory only), so the card gets a fresh
+    /// window from presentation.
+    nonisolated static let restoredAskExpirySeconds: TimeInterval = 180
+
+    /// First-presentation timestamps for restored asks, by request id.
+    private var restoredAskPresentedAt: [String: Date] = [:]
+
+    /// The expiry deadline for a restored ask, stamping first
+    /// presentation if this is the first call for the id. Idempotent:
+    /// later calls return the same deadline.
+    func restoredAskDeadline(id: String) -> Date {
+        if let at = restoredAskPresentedAt[id] {
+            return at.addingTimeInterval(Self.restoredAskExpirySeconds)
+        }
+        let now = Date()
+        restoredAskPresentedAt[id] = now
+        return now.addingTimeInterval(Self.restoredAskExpirySeconds)
+    }
+
+    /// [askuser-expiry] Expire a restored (deferred) ask card: dismiss it
+    /// and drop the persisted record so it never comes back as an
+    /// unanswered question on the next launch. Silent cleanup only — the
+    /// model already got the deferred result at ask time and already
+    /// decided; this must NOT resume the model or deliver any second
+    /// result. Restored asks live in the queue (never in `current`), so
+    /// handleTimeout's current-only guard cannot be reused here; finish()
+    /// on a queued request only removes it from the queue — no
+    /// continuation exists to resume, no promotion happens (wasCurrent
+    /// is false), and .timedOut carries no session grant.
+    func expireRestoredAsk(id: String) {
+        guard requestFor(id: id)?.tag == "ask-user-restored" else { return }
+        logger.info("Restored ask expired without an answer: \(id.prefix(8))")
+        restoredAskPresentedAt[id] = nil
+        removePersistedAsk(id: id)
+        finish(id: id, decision: .timedOut)
+    }
+
     // MARK: - 查询（供调用方去重/映射）
 
     /// 在当前呈现＋排队的请求里找符合条件的。
