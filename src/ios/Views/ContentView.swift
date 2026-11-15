@@ -1438,27 +1438,12 @@ struct ContentView: View {
         // session the user has already left must not yank them home.
         // The handler is idempotent: a double report (VM check + open
         // check) just re-runs the same navigation.
+        // The body lives in handleSessionNotFound(_:) — a one-line
+        // closure here keeps this modifier chain small enough for the
+        // type-checker (the inline body made CI fail with "unable to
+        // type-check this expression in reasonable time", run 43716123449).
         .onReceive(NotificationCenter.default.publisher(for: .sessionNotFound)) { note in
-            guard let missingId = note.object as? String else { return }
-            // [T-ios-state-publish-offmain-crash] hop explicitly — the
-            // post comes out of loadSession's async context, so this
-            // closure can run off-main; the @State writes below must land
-            // on the main thread.
-            Task { @MainActor in
-                let isCurrent = isWideLayout
-                    ? selectedSessionId == missingId
-                    : currentStackSessionId == missingId
-                guard isCurrent else { return }
-                clearLastOpenedSessionIfMatches(missingId)
-                if isWideLayout {
-                    selectedSessionId = nil
-                } else {
-                    commitNavigationPath(NavigationPath())
-                    currentStackSessionId = nil
-                }
-                sessionNoticeMessage = AppLocalized("This conversation was deleted or couldn't be found.")
-                refreshSessionList()
-            }
+            handleSessionNotFound(note)
         }
         // [T-ios-session-list-equatable-jank] Keep the id→session lookup cache
         // in sync with `sessions`. Rebuilding here (on actual list mutation)
@@ -3776,6 +3761,34 @@ struct ContentView: View {
             if !exists {
                 NotificationCenter.default.post(name: .sessionNotFound, object: id)
             }
+        }
+    }
+
+    /// [S8] Handle a session-not-found report: navigate home with a notice
+    /// when the missing id is the one currently on screen. Extracted from
+    /// the effectsWired modifier chain — the inline body made the compiler
+    /// fail with "unable to type-check this expression in reasonable
+    /// time" (run 43716123449).
+    private func handleSessionNotFound(_ note: Notification) {
+        guard let missingId = note.object as? String else { return }
+        // [T-ios-state-publish-offmain-crash] hop explicitly — the
+        // post comes out of loadSession's async context, so this
+        // closure can run off-main; the @State writes below must land
+        // on the main thread.
+        Task { @MainActor in
+            let isCurrent = isWideLayout
+                ? selectedSessionId == missingId
+                : currentStackSessionId == missingId
+            guard isCurrent else { return }
+            clearLastOpenedSessionIfMatches(missingId)
+            if isWideLayout {
+                selectedSessionId = nil
+            } else {
+                commitNavigationPath(NavigationPath())
+                currentStackSessionId = nil
+            }
+            sessionNoticeMessage = AppLocalized("This conversation was deleted or couldn't be found.")
+            refreshSessionList()
         }
     }
 
