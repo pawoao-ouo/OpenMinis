@@ -904,10 +904,50 @@ actor ChatStore {
 
     // MARK: - Session CRUD
 
+    /// [S1] Legacy wrapper: preserves the old unconditional-return behavior
+    /// for programmatic callers (jobs / fork / sub-agent delegation) that
+    /// have not been migrated to the checked variant. When the INSERT fails
+    /// this returns a phantom session that exists nowhere in SQLite — the
+    /// exact defect S1 describes — so callers that need failure handling
+    /// must use `createSessionChecked`. The user-facing draft path already
+    /// does (see `createSessionForDraft`).
     @discardableResult
     func createSession(modelId: String, title: String? = nil, source: String? = nil,
                        parentSessionId: String? = nil, parentToolUseId: String? = nil,
                        personaId: String? = nil) -> ChatSession {
+        if let created = createSessionChecked(modelId: modelId, title: title, source: source,
+                                             parentSessionId: parentSessionId, parentToolUseId: parentToolUseId,
+                                             personaId: personaId) {
+            return created
+        }
+        // Rebuild the same phantom shape the old code returned, so
+        // unmigrated callers see byte-identical behavior.
+        let now = Date()
+        var phantom = ChatSession(
+            id: UUID().uuidString,
+            title: title,
+            category: nil,
+            modelId: modelId,
+            createdAt: now,
+            updatedAt: now,
+            source: source,
+            personaId: personaId ?? PersonaStore.currentID()
+        )
+        phantom.parentSessionId = parentSessionId
+        phantom.parentToolUseId = parentToolUseId
+        logger.error("[S1] createSession INSERT failed — returning phantom session id=\(phantom.id.prefix(8)) (unmigrated caller; use createSessionChecked)")
+        return phantom
+    }
+
+    /// [S1] Checked session creation: returns nil when the INSERT fails
+    /// instead of a phantom session that exists nowhere in SQLite. A failed
+    /// INSERT used to be logged only, and the caller still received a
+    /// valid-looking `ChatSession` with a fresh UUID — the sidebar showed
+    /// it, the user sent messages into it, and the next list refresh
+    /// dropped it. Callers must handle nil (no row, no promotion).
+    func createSessionChecked(modelId: String, title: String? = nil, source: String? = nil,
+                              parentSessionId: String? = nil, parentToolUseId: String? = nil,
+                              personaId: String? = nil) -> ChatSession? {
         invalidateSessionListCache()
         let now = Date()
         // ［persona］不传则归属当前人设。
@@ -949,6 +989,7 @@ actor ChatStore {
 
         let sql = "INSERT INTO sessions (id, title, model_id, created_at, updated_at, source, memory_enabled, persona_id, parent_session_id, parent_tool_use_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         var stmt: OpaquePointer?
+        var inserted = false
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, (session.id as NSString).utf8String, -1, nil)
             bindOptionalText(stmt, index: 2, value: session.title)
@@ -962,10 +1003,19 @@ actor ChatStore {
             bindOptionalText(stmt, index: 10, value: parentToolUseId)
             let rc = sqlite3_step(stmt)
             memDiagLogger.info("[MemDiag] createSession INSERT step rc=\(rc) (101=DONE) sid=\(session.id.prefix(8))")
+            // [S1] The step result is load-bearing now: a failed INSERT must
+            // not yield a session object. Anything other than DONE means no
+            // row was written.
+            inserted = (rc == SQLITE_DONE)
+            if !inserted {
+                logger.error("[S1] createSession INSERT step failed sid=\(session.id.prefix(8)) rc=\(rc): \(String(cString: sqlite3_errmsg(db)))")
+            }
         } else {
             memDiagLogger.error("[MemDiag] createSession prepare FAILED sid=\(session.id.prefix(8))")
+            logger.error("[S1] createSession prepare FAILED sid=\(session.id.prefix(8)): \(String(cString: sqlite3_errmsg(db)))")
         }
         sqlite3_finalize(stmt)
+        guard inserted else { return nil }
 
         // Deliberately NOT marking the Session dirty here. A freshly-created
         // session has no messages yet — it's a placeholder the user may never
@@ -2517,7 +2567,12 @@ actor ChatStore {
         }
     }
 
-    func deleteSession(_ id: String) {
+    /// Returns true only when this session's own row was deleted. A child
+    /// failure is logged but does not flip the parent's result: the parent
+    /// row is what the list shows, and a failed child leaves an invisible
+    /// orphan row rather than a visible one.
+    @discardableResult
+    func deleteSession(_ id: String) -> Bool {
         invalidateSessionListCache()
         // [batch7][T-p1-delegate-task] Cascade to child (sub agent) sessions
         // FIRST — they are reachable only through this parent, so an orphaned
@@ -2525,21 +2580,29 @@ actor ChatStore {
         // occupy storage and sync. Each goes through the full funnel below
         // (local rows).
         for childId in childSessionIds(of: id) {
-            deleteSession(childId)
+            let childOk = deleteSession(childId)
+            if !childOk {
+                logger.error("[DELETE] child session delete failed id=\(childId.prefix(8)) parent=\(id.prefix(8))")
+            }
         }
 
-        deleteSessionLocalRowsOnly(id)
+        return deleteSessionLocalRowsOnly(id)
 
     }
 
     /// Hard-delete a session and its children locally.
     /// Used by the backup importer when overwrite mode replaces a session.
-    func deleteSessionLocalOnly(_ id: String) {
+    /// Returns true only when this session's own row was deleted.
+    @discardableResult
+    func deleteSessionLocalOnly(_ id: String) -> Bool {
         // [batch7][T-p1-delegate-task] Mirror the cascade locally.
         for childId in childSessionIds(of: id) {
-            deleteSessionLocalOnly(childId)
+            let childOk = deleteSessionLocalOnly(childId)
+            if !childOk {
+                logger.error("[DELETE] child session local-only delete failed id=\(childId.prefix(8)) parent=\(id.prefix(8))")
+            }
         }
-        deleteSessionLocalRowsOnly(id)
+        return deleteSessionLocalRowsOnly(id)
     }
 
     /// [batch7][T-p1-delegate-task] Ids of the hidden child sessions of
@@ -2573,16 +2636,23 @@ actor ChatStore {
         return sqlite3_step(stmt) == SQLITE_ROW
     }
 
-    private func deleteSessionLocalRowsOnly(_ id: String) {
+    /// [S7] Returns true only when the sessions-row DELETE actually landed.
+    /// The UI removes the row optimistically before awaiting this call, so
+    /// a silent false here is what used to resurrect a "deleted" session
+    /// on the next refresh with no error anywhere.
+    @discardableResult
+    private func deleteSessionLocalRowsOnly(_ id: String) -> Bool {
         // [T-ios-listsessions-cache] Invalidate here (the low-level row delete)
         // so ALL callers are covered — deleteSession AND deleteSessionLocalOnly.
         invalidateSessionListCache()
-        deleteMessages(sessionId: id)
-        deleteCompactMarkers(sessionId: id)
-        deleteSessionMedia(id)
-
+        // [S7] Delete the session row FIRST, before its messages/markers/
+        // media. If this step fails, nothing else has been touched, so the
+        // failure is clean: the session stays whole and the caller can put
+        // its row back and tell the user. (Previously the messages went
+        // first, so a failed row delete left a row with no messages behind.)
         let sql = "DELETE FROM sessions WHERE id = ?"
         var stmt: OpaquePointer?
+        var rowDeleted = false
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
             let stepRc = sqlite3_step(stmt)
@@ -2592,11 +2662,19 @@ actor ChatStore {
             // logs — the row simply reappeared on the next refresh. Surface it.
             if stepRc != SQLITE_DONE {
                 logger.error("[DELETE] sessions row delete failed id=\(id.prefix(8)) rc=\(stepRc): \(String(cString: sqlite3_errmsg(db)))")
+            } else {
+                rowDeleted = true
             }
         } else {
             logger.error("[DELETE] sessions delete prepare failed id=\(id.prefix(8)): \(String(cString: sqlite3_errmsg(db)))")
         }
         sqlite3_finalize(stmt)
+        guard rowDeleted else { return false }
+
+        deleteMessages(sessionId: id)
+        deleteCompactMarkers(sessionId: id)
+        deleteSessionMedia(id)
+
         // [T-ios-session-paused-badge] Drop any badge state for a deleted session
         // so a stale "paused" badge can't linger in the persisted store.
         Task { @MainActor in SessionBadgeStore.shared.clearAll(for: id) }
@@ -2611,6 +2689,7 @@ actor ChatStore {
             SessionActivityTracker.shared.setInactive(id, source: "sessionDeleted")
             AgentLiveActivityManager.shared.handleSessionDeleted(id)
         }
+        return true
     }
 
     // MARK: - Message CRUD
@@ -5318,6 +5397,10 @@ extension ChatStore {
         case skippedLocalNewer
         /// Parent session missing, so the row would dangle.
         case skippedNoParent
+        /// [S2] The UPDATE/INSERT itself failed (prepare or step error) —
+        /// no row was written, so the importer must not count this record
+        /// as imported or updated.
+        case failed
     }
 
     // MARK: - Sessions
@@ -5356,6 +5439,7 @@ extension ChatStore {
                 WHERE id = ?
                 """
             var up: OpaquePointer?
+            var updated = false
             if sqlite3_prepare_v2(db, sql, -1, &up, nil) == SQLITE_OK {
                 bindText(up, 1, session.title)
                 bindText(up, 2, session.category)
@@ -5367,10 +5451,19 @@ extension ChatStore {
                 else { sqlite3_bind_null(up, 7) }
                 bindText(up, 8, session.folderId)
                 sqlite3_bind_text(up, 9, (session.id as NSString).utf8String, -1, nil)
-                sqlite3_step(up)
+                // [S2] The step result is the outcome: a failed UPDATE must
+                // not report `.updated` (contrast `restoreMessage`, which
+                // already checks).
+                let rc = sqlite3_step(up)
+                updated = (rc == SQLITE_DONE)
+                if !updated {
+                    logger.error("[S2] restoreSession UPDATE failed id=\(session.id.prefix(8)) rc=\(rc): \(String(cString: sqlite3_errmsg(db)))")
+                }
+            } else {
+                logger.error("[S2] restoreSession UPDATE prepare failed id=\(session.id.prefix(8)): \(String(cString: sqlite3_errmsg(db)))")
             }
             sqlite3_finalize(up)
-            return .updated
+            return updated ? .updated : .failed
         }
 
         // NOTE: remote_origin_device_id is intentionally omitted from the column
@@ -5383,6 +5476,7 @@ extension ChatStore {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
         var ins: OpaquePointer?
+        var inserted = false
         if sqlite3_prepare_v2(db, sql, -1, &ins, nil) == SQLITE_OK {
             sqlite3_bind_text(ins, 1, (session.id as NSString).utf8String, -1, nil)
             bindText(ins, 2, session.title)
@@ -5395,10 +5489,18 @@ extension ChatStore {
             if let p = session.pinnedAt { sqlite3_bind_double(ins, 9, p.timeIntervalSince1970) }
             else { sqlite3_bind_null(ins, 9) }
             bindText(ins, 10, session.folderId)
-            sqlite3_step(ins)
+            // [S2] Same rule as the UPDATE path: a failed INSERT must not
+            // report `.inserted`.
+            let rc = sqlite3_step(ins)
+            inserted = (rc == SQLITE_DONE)
+            if !inserted {
+                logger.error("[S2] restoreSession INSERT failed id=\(session.id.prefix(8)) rc=\(rc): \(String(cString: sqlite3_errmsg(db)))")
+            }
+        } else {
+            logger.error("[S2] restoreSession INSERT prepare failed id=\(session.id.prefix(8)): \(String(cString: sqlite3_errmsg(db)))")
         }
         sqlite3_finalize(ins)
-        return .inserted
+        return inserted ? .inserted : .failed
     }
 
     // MARK: - Messages

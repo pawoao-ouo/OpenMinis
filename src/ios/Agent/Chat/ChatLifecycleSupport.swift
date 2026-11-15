@@ -351,6 +351,14 @@ final class ViewModelCache {
 
     private var cache: [String: AIChatViewModel] = [:]
 
+    // [S5/S6] Draft→real session-id aliases. A draft VM is cached under its
+    // REAL id once `createSessionForDraft` runs, but the sidebar / suspend
+    // lookups may still key off the draft id during the converge window
+    // (and the redirect hack used to paper over exactly this). An alias
+    // lets `get(for:)` find the VM by either id. Cleared when the real id
+    // is removed/evicted, so a stale draft id can never resurrect a VM.
+    private var draftAliases: [String: String] = [:]
+
     /// Session IDs in least-recently-used → most-recently-used order. Kept in
     /// sync with `cache`: appended/moved to the end on every access, removed
     /// with the entry. Drives soft-cap eviction so we don't retain a fully
@@ -402,7 +410,14 @@ final class ViewModelCache {
     }
 
     /// Get an existing cached ViewModel without creating a new one.
+    /// Resolves a draft id through the alias registered by `cacheDraft`
+    /// (S5/S6), so a suspend/lookup keyed off the draft id finds the VM
+    /// that now lives under its real id.
     func get(for sessionId: String) -> AIChatViewModel? {
+        if let realId = draftAliases[sessionId], realId != sessionId, let vm = cache[realId] {
+            touch(realId)
+            return vm
+        }
         if cache[sessionId] != nil { touch(sessionId) }
         return cache[sessionId]
     }
@@ -410,6 +425,9 @@ final class ViewModelCache {
     /// Remove a session's ViewModel from the cache (e.g. on session delete).
     func remove(sessionId: String) {
         lruOrder.removeAll { $0 == sessionId }
+        // [S5/S6] Drop aliases pointing at this id (and aliases keyed by
+        // it) so a stale draft id can never resolve to a removed VM.
+        draftAliases = draftAliases.filter { $0.key != sessionId && $0.value != sessionId }
         if let removed = cache.removeValue(forKey: sessionId) {
             removed.cancel()
             logger.info("🔄SESSION ViewModelCache REMOVE session=\(sessionId) vm=\(removed.vmInstanceId)")
@@ -430,6 +448,13 @@ final class ViewModelCache {
     /// Move a draft ViewModel into the cache once its session ID is assigned.
     func cacheDraft(_ vm: AIChatViewModel, sessionId: String) {
         cache[sessionId] = vm
+        // [S5/S6] Register the draft→real alias (when the VM still carries
+        // its draft id) so lookups keyed off the draft id — outgoing-VM
+        // suspend, sidebar active-state — find this VM under its real id.
+        // Mirrors the `SessionActivityTracker` draft-alias pattern.
+        if let draftId = vm.draftId, draftId != sessionId {
+            draftAliases[draftId] = sessionId
+        }
         touch(sessionId)
         logger.info("🔄SESSION ViewModelCache cacheDraft session=\(sessionId) vm=\(vm.vmInstanceId)")
         evictIfOverCap()
@@ -483,6 +508,9 @@ final class ViewModelCache {
         vm.cancel()
         cache.removeValue(forKey: sessionId)
         lruOrder.removeAll { $0 == sessionId }
+        // [S5/S6] Same alias cleanup as `remove(sessionId:)` — an evicted
+        // VM must not stay reachable through its draft id.
+        draftAliases = draftAliases.filter { $0.key != sessionId && $0.value != sessionId }
         logger.info("🔄SESSION ViewModelCache EVICT session=\(sessionId) vm=\(vm.vmInstanceId) (\(reason))")
     }
 

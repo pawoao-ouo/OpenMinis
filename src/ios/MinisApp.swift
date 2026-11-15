@@ -52,6 +52,11 @@ extension Notification.Name {
     static let newChatRequested = Notification.Name("newChatRequested")
     /// Posted when a new session is persisted to the database. `object` is the session ID (`String`).
     static let sessionDidCreate = Notification.Name("sessionDidCreate")
+    /// [S8] Posted when an open path discovers the session row is gone
+    /// (deleted / never existed). `object` is the session ID (`String`).
+    /// ContentView listens and navigates home with a "deleted / not found"
+    /// notice instead of mounting an empty chat the user can type into.
+    static let sessionNotFound = Notification.Name("sessionNotFound")
     /// Posted when a session's title or messages are updated.
     static let sessionDidUpdate = Notification.Name("sessionDidUpdate")
     /// Posted when an agent loop ends on a VM that is not the currently-displayed one.

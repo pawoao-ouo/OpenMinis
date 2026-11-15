@@ -126,6 +126,21 @@ extension AIChatViewModel {
     func loadSession() async {
         guard let sessionId else { return }
 
+        // [S8] A deleted / missing session must not open as a blank chat the
+        // user can type into. Check existence first: when the row is gone,
+        // post `.sessionNotFound` (ContentView navigates home and shows the
+        // "deleted / not found" notice) and return before mounting anything
+        // — no badge clearing, no spinner, no `hasCompletedInitialLoad`.
+        // The check is async (ChatStore is an actor), so the programmatic
+        // open path (openSession/switchToSession, synchronous) runs the same
+        // check separately; this handler is idempotent, so a double report
+        // is harmless.
+        guard await ChatStore.shared.sessionExists(id: sessionId) else {
+            logger.error("[S8] loadSession: session no longer exists id=\(sessionId.prefix(8)) — refusing to mount an empty chat")
+            NotificationCenter.default.post(name: .sessionNotFound, object: sessionId)
+            return
+        }
+
         // ［persona］落定本会话归属人设（NULL 老数据 → 默认人设）。
         sessionPersonaId = await ChatStore.shared.personaId(for: sessionId)
 
@@ -1060,7 +1075,20 @@ extension AIChatViewModel {
         // ［persona］新会话打上"草稿锁定的"人设（createDraft 已锁定；未走
         // createDraft 的路径——如测试直建——再回退当前人设）。[batch9e / W2B-12]
         let lockedPersona = sessionPersonaId ?? PersonaStore.currentID()
-        let session = await ChatStore.shared.createSession(modelId: model.id, source: sessionSource, personaId: lockedPersona)
+        // [S1] The checked variant returns nil when the INSERT fails — the
+        // old call returned a phantom session that existed nowhere, and
+        // everything below (cache, mount, .sessionDidCreate) then promoted
+        // a UUID the DB never stored. On failure: set nothing, cache
+        // nothing, mount nothing, notify nobody. The caller
+        // (`ensureSessionReturningId`) returns "" — the codebase's existing
+        // "no session" sentinel — so the send only runs in memory and the
+        // user gets an honest error instead of a chat that vanishes on
+        // the next list refresh.
+        guard let session = await ChatStore.shared.createSessionChecked(modelId: model.id, source: sessionSource, personaId: lockedPersona) else {
+            logger.error("[S1] createSessionForDraft INSERT failed — no session created, draft stays a draft")
+            errorMessage = AppLocalized("Couldn't create this conversation — your message wasn't saved. Please try again.")
+            return ""
+        }
         sessionId = session.id
         sessionPersonaId = session.personaId
         Self.activeSessionId = session.id

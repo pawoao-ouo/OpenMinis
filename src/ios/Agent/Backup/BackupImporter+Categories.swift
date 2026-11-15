@@ -337,6 +337,11 @@ extension BackupImporter {
             let memoryEnabled: Bool
             let modelBinding: String?
         }
+        // [S2] Sessions/messages/markers whose write actually failed
+        // (prepare or step error in the store). Counted separately from
+        // `skipped`: a failed write is not a merge decision, and the
+        // report must not count the record as imported or updated.
+        var failedWrites = 0
         // [A11] Dropped lines are counted on the report, not swallowed.
         let (sessionRecords, sessionDropped) = readJSONL(dataDir, base: "sessions", as: SessionRecord.self)
         report.droppedLines += sessionDropped
@@ -364,6 +369,9 @@ extension BackupImporter {
             case .updated: report.updated += 1
             case .skippedLocalNewer: report.skipped += 1
             case .skippedNoParent: report.skipped += 1
+            // [S2] The row was not written — count it as a failure, never
+            // as imported/updated, and surface it on the report below.
+            case .failed: failedWrites += 1
             }
         }
 
@@ -412,6 +420,11 @@ extension BackupImporter {
             case .inserted: report.imported += 1
             case .updated: report.updated += 1
             case .skippedLocalNewer, .skippedNoParent: report.skipped += 1
+            // [S2] `restoreMessage` never returns this today, but the
+            // switch must stay exhaustive for the shared enum — and if it
+            // ever does, the record must land in the failure bucket, not
+            // in imported/updated.
+            case .failed: failedWrites += 1
             }
         }
 
@@ -424,7 +437,17 @@ extension BackupImporter {
             case .inserted: report.imported += 1
             case .updated: report.updated += 1
             case .skippedLocalNewer, .skippedNoParent: report.skipped += 1
+            // [S2] Same as the message pass: unreachable today, counted as
+            // a failure if it ever fires.
+            case .failed: failedWrites += 1
             }
+        }
+
+        // [S2] A category with failed writes must not read as cleanly
+        // imported: setting `report.failed` flips `Report.hasFailures`, so
+        // the header cannot claim "Restore Complete" over it (A12's rule).
+        if failedWrites > 0 {
+            report.failed = "\(failedWrites) record(s) could not be written to the database and were not restored."
         }
 
         // Session file trees: rebuild <sid>/ wholesale (§8.3).

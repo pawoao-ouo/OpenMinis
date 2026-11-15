@@ -1045,6 +1045,15 @@ struct ContentView: View {
 
     /// Launch screen preference: 0=Auto, 1=Last Session, 2=New Chat.
     @AppStorage("launchScreen") private var launchScreen: Int = 0
+    /// [S3/S28] The last-opened REAL session id, persisted across launches
+    /// so "Last session" restores the session the user actually had open —
+    /// not the most-recently-updated one. Draft ids are never recorded
+    /// (they exist in no DB row). Cleared when the session is deleted or
+    /// found missing (S7/S8).
+    @AppStorage("session.lastOpened.id") private var lastOpenedSessionId: String?
+    /// [S7/S8] User-facing notice shown when a session could not be deleted
+    /// or was found missing. Rendered by the `.alert` attached in `body`.
+    @State private var sessionNoticeMessage: String?
     /// FAB position preference: false = right (default), true = left.
     /// Current drag offset of the FAB (reset to 0 on drop).
     @State private var fabDragOffset: CGFloat = 0
@@ -1303,10 +1312,33 @@ struct ContentView: View {
         // No share — normal launch screen behavior
         switch launchScreen {
         case 1:
-            if let latest = sessions.first {
+            // [S3] "Last session" means the session the user last had
+            // OPEN — the id persisted by `recordLastOpenedSession` — not
+            // `sessions.first`, which is merely the most-recently-updated
+            // row (a persona switch, a background title refresh, or any
+            // other writer could have touched it since).
+            // [S28 PARTIAL] The lookup below is against the
+            // already-loaded list, and that list is PERSONA-FILTERED
+            // (listSessions() with no argument filters by the current
+            // persona) — so a last-opened session from another persona
+            // is NOT restored here; the user lands on the list. Gating
+            // on existence alone (sessionExists + open directly) would
+            // not stick: every refreshSessionList() ends with
+            // clearSelectionIfDangling(), which clears any selection not
+            // in the current persona's list, so the restored session
+            // would be ejected by the next refresh (the restored
+            // session's own activity posts .sessionDidUpdate, which
+            // triggers a refresh). A durable cross-persona restore
+            // needs a product decision — switch the persona at launch
+            // to the session's persona, or support a cross-persona
+            // selection — and is not done in this batch. What this gate
+            // does guarantee: a missing id never opens a different
+            // session as if it were the last one.
+            if let lastId = lastOpenedSessionId,
+               sessions.contains(where: { $0.id == lastId }) {
                 var tx = Transaction()
                 tx.disablesAnimations = true
-                withTransaction(tx) { openSession(latest.id) }
+                withTransaction(tx) { openSession(lastId) }
             }
         case 2:
             var tx = Transaction()
@@ -1321,7 +1353,12 @@ struct ContentView: View {
                 var tx = Transaction()
                 tx.disablesAnimations = true
                 withTransaction(tx) { openSession(Self.makeNewSessionId()) }
-            } else if isWideLayout, let latest = sessions.first {
+            } else if let latest = sessions.first {
+                // [S4] Auto must also open a recent session on compact
+                // layout (iPhone). The old `isWideLayout` condition made
+                // every branch fall through on iPhone with a minutes-old
+                // latest session, landing the user on an empty list. The
+                // >15 min stale rule above still applies on both layouts.
                 var tx = Transaction()
                 tx.disablesAnimations = true
                 withTransaction(tx) { openSession(latest.id) }
@@ -1331,6 +1368,21 @@ struct ContentView: View {
 
     var body: some View {
         effectsWired
+            // [S7/S8] Honest-error notice: a delete that failed, or a
+            // session that turned out to be gone when something tried to
+            // open it. Same Binding(get/set) shape as the folder alerts.
+            .alert(
+                AppLocalized("Session"),
+                isPresented: Binding(
+                    get: { sessionNoticeMessage != nil },
+                    set: { if !$0 { sessionNoticeMessage = nil } }
+                ),
+                presenting: sessionNoticeMessage
+            ) { _ in
+                Button(AppLocalized("OK"), role: .cancel) { sessionNoticeMessage = nil }
+            } message: { notice in
+                Text(notice)
+            }
     }
 
     /// [T-ios-task-typecheck-overflow] The body's modifier chain used to be
@@ -1379,6 +1431,35 @@ struct ContentView: View {
                 refreshSessionList()
             }
         }
+        // [S8] A session turned out to be gone when something tried to
+        // open it (loadSession's existence check, or the async check in
+        // openSession/switchToSession). Only act when the missing id is
+        // the one currently on screen — a stale notification for a
+        // session the user has already left must not yank them home.
+        // The handler is idempotent: a double report (VM check + open
+        // check) just re-runs the same navigation.
+        .onReceive(NotificationCenter.default.publisher(for: .sessionNotFound)) { note in
+            guard let missingId = note.object as? String else { return }
+            // [T-ios-state-publish-offmain-crash] hop explicitly — the
+            // post comes out of loadSession's async context, so this
+            // closure can run off-main; the @State writes below must land
+            // on the main thread.
+            Task { @MainActor in
+                let isCurrent = isWideLayout
+                    ? selectedSessionId == missingId
+                    : currentStackSessionId == missingId
+                guard isCurrent else { return }
+                clearLastOpenedSessionIfMatches(missingId)
+                if isWideLayout {
+                    selectedSessionId = nil
+                } else {
+                    commitNavigationPath(NavigationPath())
+                    currentStackSessionId = nil
+                }
+                sessionNoticeMessage = AppLocalized("This conversation was deleted or couldn't be found.")
+                refreshSessionList()
+            }
+        }
         // [T-ios-session-list-equatable-jank] Keep the id→session lookup cache
         // in sync with `sessions`. Rebuilding here (on actual list mutation)
         // instead of per body-eval is what removes the per-frame Dictionary.==
@@ -1422,15 +1503,17 @@ struct ContentView: View {
             } else {
                 AIChatViewModel.activeSessionId = nil
             }
+            // [S3/S28] Remember the last-opened REAL session (draft ids are
+            // filtered out by the helper) so "Last session" on relaunch
+            // restores this one, not the most-recently-updated row.
+            recordLastOpenedSession(newValue)
             draftLog.info("🔑DRAFT onChange(selectedSessionId) newValue=\(newValue ?? "nil") realId=\(newSessionRealId ?? "nil") draftId=\(activeDraftId ?? "nil")")
-            // If user taps the real session row that was created from a draft,
-            // redirect back to the draft ID to preserve the AIChatView instance.
-            if let realId = newSessionRealId, newValue == realId,
-               let draftId = activeDraftId {
-                draftLog.info("🔑DRAFT onChange REDIRECT to draftId=\(draftId)")
-                selectedSessionId = draftId
-                return
-            }
+            // [S5] The redirect that used to bounce the selection back to
+            // the draft id is GONE. It existed only because the selection
+            // kept the draft id after promotion; sessionDidCreate now
+            // converges the selection onto the real id and clears the
+            // tracking first, so this check could never fire — and if it
+            // did, it would resurrect the split it was papering over.
             // Clear new-session tracking when navigating to a different session
             if !Self.isNewSessionId(newValue) {
                 draftLog.info("🔑DRAFT onChange CLEAR tracking (non-draft)")
@@ -1937,6 +2020,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .sessionDidCreate)) { note in
             guard let newId = note.object as? String else { return }
+            let noteDraftId = (note.userInfo as? [String: String])?["draftId"]
             guard isWideLayout else {
                 // [fix 2026-11-13] iPhone (compact layout): the old guard
                 // bailed out here entirely, so a chat created on iPhone never
@@ -1944,14 +2028,36 @@ struct ContentView: View {
                 // some unrelated refresh happened. No draft bookkeeping applies
                 // here (the proxy row in displaySessions is wide-only), but the
                 // list still has to learn about the new session.
+                // [S6] Converge the stack onto the REAL id. The draft id was
+                // pushed when the user opened a new chat; the row now exists
+                // under newId, and every later lookup (moveInputToSession,
+                // openSessionFromIntent, the outgoing-VM suspend) keys off
+                // the id on the stack. Only rewrite when the draft is
+                // actually the stack top — another session may have been
+                // pushed since (e.g. a deep link), and rewriting the wrong
+                // entry would strand the user in a different chat. The
+                // stack-top check is also the staleness guard: a late note
+                // from a destroyed draft carries a draft id that no longer
+                // matches the stack, so it only refreshes the list.
                 // [T-ios-state-publish-offmain-crash] hop explicitly — this
                 // onReceive can be delivered off-main; see below.
                 Task { @MainActor in
+                    if let draftId = noteDraftId, currentStackSessionId == draftId {
+                        var next = navigationPath
+                        if !next.isEmpty {
+                            next.removeLast()
+                            next.append(newId)
+                            commitNavigationPath(next)
+                            currentStackSessionId = newId
+                        }
+                        // Empty path: the draft was already popped (the path
+                        // observer clears currentStackSessionId then), so
+                        // there is nothing on screen to converge.
+                    }
                     refreshSessionList()
                 }
                 return
             }
-            let noteDraftId = (note.userInfo as? [String: String])?["draftId"]
             draftLog.info("🔑DRAFT sessionDidCreate realId=\(newId) noteDraftId=\(noteDraftId ?? "nil") selId=\(selectedSessionId ?? "nil") curReal=\(newSessionRealId ?? "nil") curDraft=\(activeDraftId ?? "nil")")
             // Verify this notification came from the currently active draft.
             // A late notification from a previous (now-destroyed) draft must be ignored.
@@ -1974,11 +2080,28 @@ struct ContentView: View {
                 }
                 return
             }
-            newSessionRealId = newId
-            activeDraftId = selId
-            draftLog.info("🔑DRAFT sessionDidCreate ACCEPTED newSessionRealId=\(newId) activeDraftId=\(selId)")
-            // [T-ios-state-publish-offmain-crash] force main-thread @State write
+            draftLog.info("🔑DRAFT sessionDidCreate ACCEPTED draft=\(selId) realId=\(newId)")
+            // [S5] Converge NOW: point the selection at the REAL id and
+            // leave the draft tracking clear. Order matters — onChange fires
+            // on the selection change, and with the tracking already nil
+            // the (now removed) redirect cannot fire. The detail re-mounts
+            // AIChatView for the real id, which hits the SAME VM object via
+            // ViewModelCache.getOrCreate(for:) — messages, input text and
+            // streaming state survive the swap. Badge and active-session
+            // lookups now key off an id that exists in the DB and the
+            // cache, instead of a draft id that exists in neither.
+            // [T-ios-state-publish-offmain-crash] This onReceive can be
+            // delivered off-main, so the converge assignment itself must
+            // live inside the Task { @MainActor in } — a bare
+            // `selectedSessionId = newId` here is the exact crash class
+            // this file already fought (same as the compact branch, whose
+            // converge already runs inside a Task). The ordering
+            // guarantee still holds: the tracking is nil before the Task
+            // runs (it is never set in this branch), so onChange still
+            // sees nil tracking when the selection change fires.
             Task { @MainActor in
+                draftLog.info("🔑DRAFT sessionDidCreate CONVERGED selectedSessionId=\(newId) (draft \(selId.prefix(16)) retired)")
+                selectedSessionId = newId
                 refreshSessionList()
             }
         }
@@ -2145,6 +2268,9 @@ struct ContentView: View {
                                 // publishing into its teardown.
                                 previousStackSessionId = id
                             }
+                            // [S3/S28] Link-tap opens bypass openSession, so
+                            // record here too (draft ids filtered by helper).
+                            recordLastOpenedSession(id)
                             SessionBadgeStore.shared.remove(.unread, for: id)
                             shareLog.info("🔄SESSION stackNav APPEAR id=\(id)")
                         }
@@ -3616,11 +3742,52 @@ struct ContentView: View {
         searchFocused = false
         commitNavigationPath(NavigationPath([id]))
         currentStackSessionId = id
+        // [S8] Compact path bypasses openSession — run the same cached-VM
+        // existence check here.
+        checkSessionExistsAsync(id)
+    }
+
+    /// [S3/S28] Remember the last-opened REAL session id so "Last session"
+    /// on relaunch restores the session the user actually had open, not
+    /// the most-recently-updated row. Draft ids are never recorded: they
+    /// exist in no DB row, and restoring one would open a blank chat.
+    private func recordLastOpenedSession(_ id: String?) {
+        guard let id, !Self.isNewSessionId(id) else { return }
+        lastOpenedSessionId = id
+    }
+
+    /// [S7/S8] Forget the last-opened session when it is deleted or found
+    /// missing, so a later "Last session" launch never tries to open it.
+    private func clearLastOpenedSessionIfMatches(_ id: String) {
+        if lastOpenedSessionId == id { lastOpenedSessionId = nil }
+    }
+
+    /// [S8] Async existence check for the cached-VM path. `loadSession`'s
+    /// own check is skipped when a cached VM with messages is re-entered
+    /// (AIChatView only calls it when the VM is new or empty), so a session
+    /// deleted out-of-band could still mount as a blank chat.
+    /// Fire-and-forget: `.sessionNotFound` is only acted on when the id is
+    /// still the current one, so a slow check racing a navigation away is
+    /// harmless.
+    private func checkSessionExistsAsync(_ id: String) {
+        guard !Self.isNewSessionId(id) else { return }
+        Task {
+            let exists = await ChatStore.shared.sessionExists(id: id)
+            if !exists {
+                NotificationCenter.default.post(name: .sessionNotFound, object: id)
+            }
+        }
     }
 
     /// Opens a session in the appropriate layout mode.
     private func openSession(_ id: String) {
         draftLog.info("🔑DRAFT openSession id=\(id) isWide=\(isWideLayout) prevSel=\(selectedSessionId ?? "nil") prevReal=\(newSessionRealId ?? "nil") prevDraft=\(activeDraftId ?? "nil")")
+        // [S3/S28] Every programmatic open is a last-opened candidate.
+        // (The wide onChange and the compact destination onAppear record
+        // the same id again — harmless, same value.)
+        recordLastOpenedSession(id)
+        // [S8] Cover the cached-VM path (see `checkSessionExistsAsync`).
+        checkSessionExistsAsync(id)
         // Dismiss keyboard when navigating to a session
         searchFocused = false
         if isWideLayout {
@@ -4710,9 +4877,11 @@ struct ContentView: View {
         // (user report: iPad/macOS split view). Clearing the selection resets
         // the detail pane to the empty state; onChange(selectedSessionId)
         // clears the draft tracking ids.
-        if isSessionHighlighted(session.id) {
+        let wasCurrent = isSessionHighlighted(session.id)
+        if wasCurrent {
             selectedSessionId = nil
         }
+        let removedIndex = sessions.firstIndex(where: { $0.id == session.id })
         withAnimation {
             sessions.removeAll { $0.id == session.id }
         }
@@ -4720,7 +4889,33 @@ struct ContentView: View {
             // [batch9c / E2] 统一收尾（VM 缓存 / 浏览器池 / 定时任务与子 agent /
             // 会话文件）——与级联删除链共用同一条实现。
             SessionTeardown.tearDownRuntime(sessionId: session.id)
-            await ChatStore.shared.deleteSession(session.id)
+            // [S7] Await the store result: on failure put the row back and
+            // say so. The old code removed the row optimistically and never
+            // looked back, so a failed DELETE resurrected the session on
+            // the next refresh with no error anywhere.
+            let deleted = await ChatStore.shared.deleteSession(session.id)
+            if deleted {
+                clearLastOpenedSessionIfMatches(session.id)
+            } else {
+                if !sessions.contains(where: { $0.id == session.id }) {
+                    if let idx = removedIndex, idx <= sessions.count {
+                        sessions.insert(session, at: idx)
+                    } else {
+                        sessions.append(session)
+                    }
+                }
+                // The failed row is still in the DB, so the trailing refresh
+                // would bring it back on its own; the manual insert above
+                // only covers the instant before that async refresh lands.
+                refreshSessionList()
+                // The detail was cleared above — put the still-existing
+                // session back on screen (wide only; on compact the stack
+                // was never touched, so the chat is still showing).
+                if wasCurrent && isWideLayout {
+                    selectedSessionId = session.id
+                }
+                sessionNoticeMessage = AppLocalized("Couldn't delete this conversation — it's still here. Please try again.")
+            }
         }
     }
 
@@ -4729,9 +4924,13 @@ struct ContentView: View {
         // Same draft-id-aware matching as deleteSession: clear the selection
         // when ANY deleted id is the one currently displayed (including a
         // draft-created session whose selection id differs from its row id).
-        if ids.contains(where: { isSessionHighlighted($0) }) {
+        // Remember WHICH id was current: on a partial failure only that one
+        // (if it failed) goes back on screen — never a different failed id.
+        let highlightedId = ids.first(where: { isSessionHighlighted($0) })
+        if highlightedId != nil {
             selectedSessionId = nil
         }
+        let removedSessions = sessions.filter { ids.contains($0.id) }
         withAnimation {
             sessions.removeAll { ids.contains($0.id) }
         }
@@ -4741,16 +4940,38 @@ struct ContentView: View {
         let folderToDrop = pendingDeleteFolderId
         pendingDeleteFolderId = nil
         Task { @MainActor in
+            var failedIds: [String] = []
             for id in ids {
                 // [batch9c / E2] 统一收尾，与单删路径同一条。
                 SessionTeardown.tearDownRuntime(sessionId: id)
-                await ChatStore.shared.deleteSession(id)
+                // [S7] Await each store result instead of assuming success.
+                let deleted = await ChatStore.shared.deleteSession(id)
+                if !deleted { failedIds.append(id) }
             }
             // Delete-all-in-folder: the folder is empty now; dissolving it
             // just drops the row (and pushes the FolderV2 tombstone).
             if let fid = folderToDrop {
                 _ = await ChatStore.shared.dissolveFolder(fid)
-                await MainActor.run { refreshSessionList() }
+            }
+            // [S7] Trailing refresh on EVERY batch delete — a failed item
+            // must be visibly still present, not silently resurrected on
+            // some later refresh. (Previously only the dissolve-folder
+            // branch refreshed.) The failed rows are still in the DB, so
+            // this refresh brings them back; the manual re-insert below
+            // only covers the instant before it lands.
+            refreshSessionList()
+            if failedIds.isEmpty {
+                for id in ids { clearLastOpenedSessionIfMatches(id) }
+            } else {
+                for session in removedSessions where failedIds.contains(session.id) {
+                    if !sessions.contains(where: { $0.id == session.id }) {
+                        sessions.append(session)
+                    }
+                }
+                if let current = highlightedId, failedIds.contains(current), isWideLayout {
+                    selectedSessionId = current
+                }
+                sessionNoticeMessage = AppLocalized("Some conversations couldn't be deleted and are still here. Please try again.")
             }
         }
     }
