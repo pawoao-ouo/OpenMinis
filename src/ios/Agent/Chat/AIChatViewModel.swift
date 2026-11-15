@@ -2112,6 +2112,18 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// retries) and either injects warnings or short-circuits execution.
     let toolLoopDetector = ToolLoopDetector()
 
+    /// [F15] Stream-time tool_call_id dedupe state. processStreamEvents
+    /// runs `nonisolated` on a background thread, so the counters cannot
+    /// live as plain @MainActor state — they live in this lock-protected
+    /// holder (see StreamDedupeState in SSEStream.swift), persist across
+    /// turns within one session, and reset when the session changes.
+    /// A provider that reuses an id across turns used to put two
+    /// `tool_use` parts with one id into agentHistory: the request-time
+    /// cleanup (dropOrphanedToolParts) dedupes duplicate tool_results
+    /// but never renames duplicate tool_uses, so the first call's result
+    /// was silently dropped while its call stayed.
+    nonisolated let streamDedupeState = StreamDedupeState()
+
     // MARK: - Cache Keep-Alive State
     /// Snapshot of agent loop state for cache keep-alive warmup requests.
     /// Updated each iteration so the manager can replay the same prefix.
@@ -6703,6 +6715,20 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // task instead of every task whose snapshot window covers it.
             let fileClaimRegistry = BatchFileClaimRegistry()
 
+            // [F8] How many entries in this batch can write into the
+            // /var/minis tree the shell snapshot scans. A shell task, a
+            // file_write/file_edit sibling, or a subagent child (its own
+            // session, same shared filesystem) can each land a write
+            // inside another task's [pre, post] window; when the count is
+            // above 1 the shell path reports changed files with unknown
+            // attribution instead of claiming them as its own product.
+            // browser_use downloads are not counted: they do not land in
+            // the snapshot tree.
+            let batchWriterCount = toolEntries.filter { entry in
+                ["shell_execute", "file_write", "file_edit", "subagent_task"]
+                    .contains(entry.name)
+            }.count
+
             #if DEBUG
             // [T-ios-concurrent-toolcall-dup-id] Per-batch dispatch trace —
             // logs each tool_use's full id + blockIdx so we can see whether
@@ -6719,6 +6745,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // pendingSnapshots[outcome.toolId] below cannot collide, and a
             // second rename layer here would be dead code that risks
             // desyncing the persisted tool_use parts from the streamed blocks.
+            // [F15] The counters behind that rename are session-scoped
+            // (StreamDedupeState), so an id a provider reuses in a LATER
+            // turn is renamed too — not just 2nd+ occurrences in one turn.
             // This DEBUG check stays as the tripwire: if dedupe ever breaks,
             // it fires before any silent overwrite.
             let _batchBlockCount = (msgIdx >= 0 && msgIdx < self.messages.count) ? self.messages[msgIdx].blocks.count : -1
@@ -6780,7 +6809,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                         let evoToolStart = Date()
                         let outcome = await self.executeSingleToolUse(
                             tu: tu, msgIdx: msgIdx, tools: toolsSnapshot, batchBudget: imageBudgetActor,
-                            batchFileClaims: fileClaimRegistry, deferredAssistantRaw: deferredAssistantRaw
+                            batchFileClaims: fileClaimRegistry, deferredAssistantRaw: deferredAssistantRaw,
+                            concurrentWriterCount: batchWriterCount
                         )
                         // [S2-2][evolution] trace hook — redacted, detached,
                         // no-op when recording is off.

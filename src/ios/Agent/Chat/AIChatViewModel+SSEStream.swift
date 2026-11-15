@@ -258,6 +258,53 @@ extension AIChatViewModel {
         units.append(s)
     }
 
+    /// [F15] Session-scoped tool_call_id dedupe counters for the stream.
+    ///
+    /// `processStreamEvents` runs `nonisolated` on a background thread, so
+    /// these counters cannot live as plain @MainActor state on the view
+    /// model. They live here behind a lock (same pattern as
+    /// BrowserTabPool.GateBox / RelayRequestLedger) and persist across
+    /// turns within one session; a session change resets them. The rename
+    /// rule is unchanged from the old per-turn locals: first occurrence
+    /// keeps the raw id, second becomes "<id>-2", third "<id>-3", etc.,
+    /// counted separately for start / complete events so the two rewrites
+    /// agree as long as the provider emits them in the same order.
+    final class StreamDedupeState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var startCounts: [String: Int] = [:]
+        private var completeCounts: [String: Int] = [:]
+        private var sessionId: String? = nil
+
+        func resetIfSessionChanged(_ sid: String?) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard sessionId != sid else { return }
+            startCounts.removeAll()
+            completeCounts.removeAll()
+            sessionId = sid
+        }
+
+        func dedupeStartId(_ raw: String) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            let n = (startCounts[raw] ?? 0) + 1
+            startCounts[raw] = n
+            if n == 1 { return raw }
+            let renamed = "\(raw)-\(n)"
+            logger.warning("[ToolDedupe] duplicate tool_call id on stream start: '\(raw)' #\(n) → renamed '\(renamed)'")
+            return renamed
+        }
+
+        func dedupeCompleteId(_ raw: String) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            let n = (completeCounts[raw] ?? 0) + 1
+            completeCounts[raw] = n
+            if n == 1 { return raw }
+            return "\(raw)-\(n)"
+        }
+    }
+
     /// Process SSE stream events on a background thread, dispatching batched UI updates to MainActor.
     /// This keeps CFNetwork HTTP/2 HPACK decoding and JSON parsing off the main thread.
     nonisolated func processStreamEvents(
@@ -296,21 +343,19 @@ extension AIChatViewModel {
         // get the same rewrite as long as the provider emits them in the
         // same order (which OpenAI-style streams do — both are driven by
         // the `index` field).
-        var dedupeStartCounts: [String: Int] = [:]
-        var dedupeCompleteCounts: [String: Int] = [:]
+        //
+        // [F15] The counters used to be locals here and reset every turn,
+        // so a provider reusing an id in a LATER turn put two `tool_use`
+        // parts with one id into agentHistory. They now live in
+        // streamDedupeState (lock-protected, session-scoped) so a reused
+        // id is renamed in every turn, not just the first.
+        let streamSessionId = await MainActor.run { self.sessionId }
+        streamDedupeState.resetIfSessionChanged(streamSessionId)
         func dedupeToolStartId(_ raw: String) -> String {
-            let n = (dedupeStartCounts[raw] ?? 0) + 1
-            dedupeStartCounts[raw] = n
-            if n == 1 { return raw }
-            let renamed = "\(raw)-\(n)"
-            logger.warning("[ToolDedupe] duplicate tool_call id on stream start: '\(raw)' #\(n) → renamed '\(renamed)'")
-            return renamed
+            streamDedupeState.dedupeStartId(raw)
         }
         func dedupeToolCompleteId(_ raw: String) -> String {
-            let n = (dedupeCompleteCounts[raw] ?? 0) + 1
-            dedupeCompleteCounts[raw] = n
-            if n == 1 { return raw }
-            return "\(raw)-\(n)"
+            streamDedupeState.dedupeCompleteId(raw)
         }
 
         let stallTimeoutSeconds: TimeInterval = 120

@@ -319,15 +319,35 @@ final class ToolLoopDetector {
         return nil
     }
 
+    /// Which tools poll by re-issuing the same call and waiting for the
+    /// world to change — these get the no-progress STREAK check (contiguous
+    /// identical outcomes), not the generic total-count check.
+    ///
+    /// [F13] The old list matched "command_status" and "process", neither
+    /// of which exists in makeAgentTools() or the dispatcher, so the poll
+    /// rules never fired while claiming protection. The real polling tools
+    /// in this tree are:
+    /// - shell_execute: there is no command-status tool; re-running the
+    ///   same shell command (cat a log, check a file, `ps`) IS the poll.
+    /// - browser_use: re-reading a page waiting for it to change.
+    /// - subagent_task with action=status: the old agent_status tool was
+    ///   folded into this action (ProgrammaticPrompt.swift:519), so a
+    ///   status check is a poll; delegate/steer/resume/cancel are not.
     private func isPollTool(_ toolName: String, _ params: [String: Any]) -> Bool {
-        if toolName == "command_status" { return true }
-        if toolName == "process" {
+        switch toolName {
+        case "shell_execute", "browser_use":
+            return true
+        case "subagent_task":
+            // executeSubAgentTask lowercases the action before switching on
+            // it, so "Status" is a status poll too.
             if let action = params["action"] as? String,
-               action == "poll" || action == "log" {
+               action.lowercased() == "status" {
                 return true
             }
+            return false
+        default:
+            return false
         }
-        return false
     }
 
     /// Walk the history backwards. For records that match (toolName, argsHash),

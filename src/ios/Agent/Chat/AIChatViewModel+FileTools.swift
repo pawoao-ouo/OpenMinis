@@ -281,10 +281,16 @@ extension AIChatViewModel {
         let sampleSize = min(fileData.count, 512)
         let sample = fileData.prefix(sampleSize)
         if sample.contains(0) {
+            // [F12] A binary file was NOT read — only a 64-byte hex preview
+            // came back. Reporting success would let the model claim it
+            // read the file (same shape as F6: a non-read must not report
+            // success). The preview and size stay in the output so the
+            // model still learns what the file is; it just cannot claim
+            // the read succeeded. For images, read_image is the reader.
             let hexPreview = fileData.prefix(64).map { String(format: "%02x", $0) }.joined(separator: " ")
             return FileToolResult(
-                output: "[\(path) | \(fileData.count) bytes | binary file]\nHex preview: \(hexPreview)",
-                success: true
+                output: "Error: [\(path) | \(fileData.count) bytes | binary file] was not read as text.\nHex preview: \(hexPreview)\nIf this is an image, use read_image to view it.",
+                success: false
             )
         }
 

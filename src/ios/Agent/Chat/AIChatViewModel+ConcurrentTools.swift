@@ -110,7 +110,11 @@ extension AIChatViewModel {
         tools: [AgentToolDefinition],
         batchBudget: BatchImageBudget,
         batchFileClaims: BatchFileClaimRegistry,
-        deferredAssistantRaw: RawMessage?
+        deferredAssistantRaw: RawMessage? = nil,
+        // [F8] How many entries in this batch can write into the /var/minis
+        // tree the shell snapshot scans. Defaults to 1 so any other caller
+        // keeps exact attribution; the dispatcher passes the real count.
+        concurrentWriterCount: Int = 1
     ) async -> ToolExecOutcome {
         let blockIdx = tu.blockIdx
 
@@ -261,6 +265,15 @@ extension AIChatViewModel {
                 cancelled: false
             )
         }
+
+        // [F13] A pre-check warning used to be dropped on the floor: only
+        // .critical short-circuits here, and the post-record re-evaluation
+        // suppresses the same warning (shouldEmitWarning already consumed
+        // the bucket), so the model never saw it at all. Keep it so it can
+        // be appended to this call's result below, next to the post-record
+        // warning — the bucket throttle means at most one of the two fires.
+        let loopPreWarning: String? =
+            (loopPreCheck.level == .warning) ? loopPreCheck.message : nil
 
         // JSON Repair (T-tool-json-repair b2c4f8a6).
         var toolArgs: [String: Any] = tu.args
@@ -623,7 +636,20 @@ extension AIChatViewModel {
                     ensureParentDirsInMetaDB(for: path)
                     ensureFakefsMetadata(for: path, isDirectory: isDir.boolValue)
                 }
-                toolOutput += "\n\n[minis] New/modified files:"
+                // [F8] First-claim-wins used to report a sibling's write as
+                // this tool's product: sibling shell tasks in the same batch
+                // execute truly concurrently, so their writes land inside this
+                // task's [pre, post] window and the registry handed each path
+                // to whoever claimed it first. When this batch has more than
+                // one writer, the changed files are listed once (via the claim
+                // registry, as before) but with attribution UNKNOWN — never as
+                // this tool's files. With a single writer the attribution is
+                // exact and the wording stays as it was.
+                if concurrentWriterCount > 1 {
+                    toolOutput += "\n\n[minis] Files changed during this concurrent batch (attribution unknown — a sibling tool may have written them, do not credit them to this call):"
+                } else {
+                    toolOutput += "\n\n[minis] New/modified files:"
+                }
                 for path in newOrModified.sorted() {
                     if let url = linuxPathToMinisURL(path) {
                         toolOutput += "\n  \(url)"
@@ -1130,7 +1156,17 @@ extension AIChatViewModel {
             }()
             let content = StickerStore.shared.promptDrawerContent(drawer: drawer)
             toolOutput = content
-            toolSuccess = true
+            // [F12] The browse used to report success unconditionally, so a
+            // nonexistent (or emptied) drawer came back as a success with a
+            // "no stickers here" message. Mirror promptDrawerContent's own
+            // predicate (AIChatView.swift:8298-8305: a sticker counts only
+            // when its category matches AND its image file exists): when
+            // the drawer yields nothing, the browse failed. The store's
+            // message stays as the output — it already lists the drawers
+            // that do exist, so the model can retry with a real one.
+            toolSuccess = !drawer.isEmpty && StickerStore.shared.stickers.contains {
+                $0.category == drawer && StickerStore.shared.imagePath(for: $0) != nil
+            }
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
                 messages[msgIdx].blocks[blockIdx].content = toolOutput
             }
@@ -1173,11 +1209,22 @@ extension AIChatViewModel {
             let action = (toolArgs["action"] as? String ?? "read").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             if action == "write" || action == "set" {
                 let textToSet = toolArgs["text"] as? String ?? ""
-                await MainActor.run {
-                    UIPasteboard.general.string = textToSet
+                // [F12] Writing "" sets the pasteboard to empty and used to
+                // report "Successfully wrote ... (0 characters)" — a
+                // non-write reported as success (same shape as F6). An
+                // empty write is a missing argument, not a write; refuse
+                // it so the model cannot claim it put text on the
+                // clipboard. There is no "clear clipboard" action.
+                if textToSet.isEmpty {
+                    toolOutput = "Error: No text provided — nothing was written to the clipboard. Call clipboard again with the text to write in `text`."
+                    toolSuccess = false
+                } else {
+                    await MainActor.run {
+                        UIPasteboard.general.string = textToSet
+                    }
+                    toolOutput = "Successfully wrote text to system clipboard (\(textToSet.count) characters)."
+                    toolSuccess = true
                 }
-                toolOutput = "Successfully wrote text to system clipboard (\(textToSet.count) characters)."
-                toolSuccess = true
             } else {
                 let currentClip = await MainActor.run {
                     UIPasteboard.general.string ?? ""
@@ -1439,6 +1486,27 @@ extension AIChatViewModel {
                     let res = try await executeCommand(cmd, timeout: 20) { _ in }
                     toolOutput = res.output.trimmingCharacters(in: .whitespacesAndNewlines)
                     toolSuccess = res.exitCode == 0
+                    // [F9] exitCode == 0 does not mean the due stuck: the
+                    // CLI silently drops a due date it cannot parse and
+                    // still returns ok:true with no due (see
+                    // normalizeISODateTime). A due the model asked for that
+                    // never landed is a semantic failure, not a success.
+                    // Verify against the list — the one read-back whose
+                    // envelope this file already parses (remindersComplete
+                    // below): exactly one title match, and its reminder
+                    // must carry a due value. Anything inconclusive (list
+                    // failed, no match, ambiguous titles) leaves the
+                    // success alone rather than failing a good create.
+                    // The due field is looked up under the names the code
+                    // itself uses for it (`due` in the normalize comment,
+                    // `due_date` in the tool schema).
+                    if toolSuccess, !due.isEmpty,
+                       let dueStored = await reminderDueStored(title: title) {
+                        if !dueStored {
+                            toolSuccess = false
+                            toolOutput = "The reminder '\(title)' was created, but its due date '\(due)' was not saved — the reminder has no due date. Do not create it again; check the reminder list, and if the date is needed, set it with an ISO 8601 date (e.g. 2026-10-21T09:00)."
+                        }
+                    }
                 } catch {
                     toolOutput = "Error: \(error.localizedDescription)"
                     toolSuccess = false
@@ -1921,6 +1989,21 @@ extension AIChatViewModel {
             }
         }
 
+        // [F13] Deliver the pre-check warning (see the capture above). A
+        // warning is not a block — the call already ran — but the model has
+        // to SEE it; before this fix it was emitted (bucket consumed) and
+        // then silently discarded, so the loop never got told to stop.
+        // Appended AFTER record() on purpose: the recorded result hash
+        // must be the plain output, or the warning text itself would break
+        // the no-progress streak it is warning about.
+        if let preWarning = loopPreWarning {
+            if finalOutput.isEmpty {
+                finalOutput = preWarning
+            } else {
+                finalOutput += "\n\n" + preWarning
+            }
+        }
+
         // [T-truncated-args-visibility #119] Tell the MODEL when the call it
         // just got a success for was built from truncated arguments.
         //
@@ -1937,8 +2020,15 @@ extension AIChatViewModel {
                 + "the call with complete arguments if anything is missing.</system-reminder>"
         }
 
+        // [F10] The block above already renders a repaired (truncated-args)
+        // call as failed, but the tool_result sent to the model carried
+        // isError: !toolSuccess — success — so the model saw a clean
+        // success while the user saw a failure. A repaired call ran with
+        // altered arguments; the model must get the same failure signal
+        // the UI shows. (The write-path refusal already returns isError
+        // true before reaching here; this covers the read/shell path.)
         let resultPart = AgentContentPart.toolResult(
-            id: tu.id, name: tu.name, content: finalOutput, isError: !toolSuccess,
+            id: tu.id, name: tu.name, content: finalOutput, isError: !toolSuccess || truncationRepairTag != nil,
             imageData: toolImageData, imageMimeType: toolImageMimeType,
             pageURL: toolPageURL, imageLinuxPath: toolImageLinuxPath
         )
@@ -2088,6 +2178,38 @@ extension AIChatViewModel {
         var s = raw
         s.replaceSubrange(r, with: "T")
         return s
+    }
+
+    /// [F9] Read back a just-created reminder and check its due stuck.
+    ///
+    /// Returns true when exactly one reminder matches `title` and it
+    /// carries a due value; false when exactly one matches and it has
+    /// none (the CLI silently dropped the date); nil when the check itself
+    /// could not run (list failed, output unparsable, no match, ambiguous
+    /// titles) — nil means "cannot verify", never "failed".
+    ///
+    /// Reuses the list envelope remindersComplete already parses
+    /// (`{"data": {"reminders": [...]}}`, items with `title`/`id`); the
+    /// due field is looked up under the names the code itself uses for it.
+    func reminderDueStored(title: String) async -> Bool? {
+        guard let res = try? await executeCommand("apple-reminders list --incomplete --limit 200", timeout: 20, lineCallback: { _ in }),
+              let data = res.output.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = obj["data"] as? [String: Any],
+              let items = dataObj["reminders"] as? [[String: Any]] else {
+            return nil
+        }
+        let matches = items.filter {
+            (($0["title"] as? String) ?? "").caseInsensitiveCompare(title) == .orderedSame
+        }
+        guard matches.count == 1 else { return nil }
+        let item = matches[0]
+        for key in ["due", "due_date", "dueDate"] {
+            if let s = item[key] as? String, !s.isEmpty { return true }
+            // A numeric due (unix timestamp); 0 is the epoch, not a date.
+            if let n = item[key] as? NSNumber, n.doubleValue != 0 { return true }
+        }
+        return false
     }
 }
 

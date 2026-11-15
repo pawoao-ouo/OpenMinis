@@ -36,8 +36,17 @@ extension AIChatViewModel {
     }
 
     /// Save context image data to disk for later retrieval.
-    /// Returns the Linux-visible path where the file was saved.
-    private func offloadContextImage(_ data: Data, toolId: String, mimeType: String) -> String {
+    /// Returns the Linux-visible path where the file was saved, or nil
+    /// when the write did not land.
+    ///
+    /// [F11] This used to return the path unconditionally (`try?` write,
+    /// result discarded) — the same shape F4 fixed for offloadToolOutput:
+    /// a placeholder could name a snapshot file that was never written,
+    /// and the model would then try to read_image a dead path. Verify
+    /// the file exists and holds exactly the bytes written; anything
+    /// else is a failed snapshot, reported as nil so callers fall back
+    /// to the no-path placeholder form instead of naming a dead file.
+    private func offloadContextImage(_ data: Data, toolId: String, mimeType: String) -> String? {
         let fm = FileManager.default
         let sid = sessionId ?? "unknown"
         let persistDir = Self.minisOffloadsPersistentDir(for: sid)
@@ -56,7 +65,16 @@ extension AIChatViewModel {
         let shortId = Self.shortToolId(toolId)
         let fileName = "image_\(shortId).\(ext)"
         let persistPath = persistDir.appendingPathComponent(fileName)
-        try? data.write(to: persistPath)
+        do {
+            try data.write(to: persistPath)
+        } catch {
+            logger.warning("[F11] offloadContextImage write failed for \(fileName): \(error.localizedDescription)")
+            return nil
+        }
+        guard let attrs = try? fm.attributesOfItem(atPath: persistPath.path),
+              (attrs[.size] as? NSNumber)?.intValue == data.count else {
+            return nil
+        }
 
         return "\(Self.minisOffloadsLinuxDir)/tools/\(fileName)"
     }
@@ -215,6 +233,11 @@ extension AIChatViewModel {
         let evictCount = totalImages - keep
         var evicted = 0
         var snapshotsWritten = 0
+        // [F11] Evicted tool ids → the placeholder (and the new agentHistory
+        // content) the model now has, so the live UI can be downgraded to
+        // match below. Standalone .imageData parts have no tool id and are
+        // not recorded here.
+        var evictedById: [String: (placeholder: String, newContent: String)] = [:]
 
         for mi in agentHistory.indices {
             if evicted >= evictCount { break }
@@ -243,7 +266,7 @@ extension AIChatViewModel {
                         snapshotPath = nil
                     } else {
                         snapshotPath = offloadContextImage(data, toolId: id, mimeType: mime ?? "image/jpeg")
-                        snapshotsWritten += 1
+                        if snapshotPath != nil { snapshotsWritten += 1 }
                     }
 
                     let placeholder = Self.imagePlaceholderText(
@@ -252,6 +275,7 @@ extension AIChatViewModel {
                         snapshotPath: snapshotPath
                     )
                     let newContent = content.isEmpty ? placeholder : "\(content)\n\n\(placeholder)"
+                    evictedById[id] = (placeholder: placeholder, newContent: newContent)
                     newParts[pi] = .toolResult(
                         id: id, name: name, content: newContent,
                         isError: isError, imageData: nil, imageMimeType: nil, pageURL: pageURL,
@@ -265,7 +289,7 @@ extension AIChatViewModel {
                     // recoverable original path. Always snapshot.
                     let synthId = "img-\(sessionId ?? "s")-\(mi)-\(pi)"
                     let snap = offloadContextImage(data, toolId: synthId, mimeType: mime)
-                    snapshotsWritten += 1
+                    if snap != nil { snapshotsWritten += 1 }
                     let placeholder = Self.imagePlaceholderText(
                         data: data, originalPath: nil, snapshotPath: snap
                     )
@@ -292,6 +316,39 @@ extension AIChatViewModel {
 
         if evicted > 0 {
             logger.info("🖼️ Context image trim: evicted \(evicted) old image(s) (snapshots: \(snapshotsWritten)), kept last \(keep) (total was \(totalImages))")
+        }
+
+        // [F11] The trim above rewrites agentHistory only. The live UI kept
+        // showing the evicted picture — the snapshot bar (toolSnapshots)
+        // and the transcript block (imageFilePath) — while the model only
+        // has the placeholder text. Downgrade both to the same placeholder
+        // so the UI says the image is no longer in model context, with the
+        // re-fetch path the model was given. The persisted DB snapshot is
+        // NOT touched here: a reload rehydrates the image from the stored
+        // mediaRef into both UI and model context (they agree again), and
+        // the trim re-runs at the top of the next turn, re-applying this
+        // downgrade in step.
+        if !evictedById.isEmpty {
+            for i in toolSnapshots.indices {
+                let item = toolSnapshots[i]
+                guard item.snapshot.type == .image,
+                      let evictedEntry = evictedById[item.id] else { continue }
+                toolSnapshots[i] = ToolSnapshotItem(
+                    id: item.id, toolName: item.toolName,
+                    snapshot: ToolSnapshot(type: .text, text: evictedEntry.placeholder, mediaRef: nil, duration: item.snapshot.duration),
+                    mediaResolver: item.mediaResolver
+                )
+            }
+            for mi in messages.indices {
+                for blk in messages[mi].blocks {
+                    guard let tid = blk.toolUseId,
+                          let evictedEntry = evictedById[tid] else { continue }
+                    // The inline picture leaves the transcript; the block
+                    // text becomes exactly what the model now has.
+                    blk.imageFilePath = nil
+                    blk.content = evictedEntry.newContent
+                }
+            }
         }
     }
 
@@ -525,8 +582,8 @@ extension AIChatViewModel {
                     linuxPath = offloadContextContent(content, toolId: id, toolName: name)
                 }
                 // Offload image data
-                if let imgData = imgData, imgData.count > 1024 {
-                    let imgPath = offloadContextImage(imgData, toolId: id, mimeType: imgMime ?? "image/png")
+                if let imgData = imgData, imgData.count > 1024,
+                   let imgPath = offloadContextImage(imgData, toolId: id, mimeType: imgMime ?? "image/png") {
                     if linuxPath.isEmpty { linuxPath = imgPath }
                 }
 
@@ -546,9 +603,17 @@ extension AIChatViewModel {
                 )
 
             case .imageData(let data, let mime, _):
-                linuxPath = offloadContextImage(data, toolId: candidate.toolId, mimeType: mime)
-                let stub = "[CONTEXT OFFLOADED] Image (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) saved to: \(linuxPath)\nUse file_read tool to retrieve if needed."
-                agentHistory[candidate.msgIdx].parts[candidate.partIdx] = .text(stub)
+                if let imgPath = offloadContextImage(data, toolId: candidate.toolId, mimeType: mime) {
+                    linuxPath = imgPath
+                    let stub = "[CONTEXT OFFLOADED] Image (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) saved to: \(linuxPath)\nUse file_read tool to retrieve if needed."
+                    agentHistory[candidate.msgIdx].parts[candidate.partIdx] = .text(stub)
+                } else {
+                    // [F11] The snapshot write failed: do not name a path
+                    // that was never written. The bytes are gone from
+                    // context either way.
+                    let stub = "[CONTEXT OFFLOADED] Image (~\(candidate.tokens) tokens, \(candidate.bytes) bytes) could not be saved — the offload write failed, so the image is no longer available in context."
+                    agentHistory[candidate.msgIdx].parts[candidate.partIdx] = .text(stub)
+                }
 
             case .text:
                 continue
