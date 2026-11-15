@@ -440,24 +440,43 @@ extension AIChatViewModel {
     }
 
     struct OffloadResult {
-        let linuxPath: String
+        /// Linux path of the saved file, or nil when the write failed
+        /// (verified after the write). Never a path that does not exist.
+        let linuxPath: String?
     }
 
     /// Save large tool output to persistent storage.
     /// With bind mounts, writing to persistent storage is automatically visible to iSH.
+    /// [F4] The write is verified after it lands: the file must exist and
+    /// its size must match the bytes written. A failed offload returns
+    /// `linuxPath: nil` instead of a path to a file that was never saved —
+    /// the caller must say so plainly, not claim the output was saved.
     func offloadToolOutput(_ output: String, toolName: String, toolId: String) -> OffloadResult {
         let fm = FileManager.default
         let sid = sessionId ?? "unknown"
 
         // Write to persistent storage (bind-mounted, so iSH sees it automatically)
         let persistDir = Self.minisOffloadsPersistentDir(for: sid)
-        try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
-
         let timestamp = Int(Date().timeIntervalSince1970)
         let sanitizedName = toolName.replacingOccurrences(of: "/", with: "_")
         let fileName = "\(sanitizedName)_\(timestamp)_\(toolId.prefix(8)).txt"
         let persistPath = persistDir.appendingPathComponent(fileName)
-        try? output.write(to: persistPath, atomically: true, encoding: .utf8)
+        do {
+            try fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
+            try output.write(to: persistPath, atomically: true, encoding: .utf8)
+        } catch {
+            return OffloadResult(linuxPath: nil)
+        }
+
+        // Verify the write landed: the file must exist and its size must
+        // match the bytes written. A silent `try?` used to return a path
+        // to a file that was never saved.
+        let expectedBytes = output.utf8.count
+        guard let attributes = try? fm.attributesOfItem(atPath: persistPath.path),
+              let size = attributes[.size] as? NSNumber,
+              size.intValue == expectedBytes else {
+            return OffloadResult(linuxPath: nil)
+        }
 
         let linuxPath = "\(Self.minisOffloadsLinuxDir)/\(fileName)"
         return OffloadResult(linuxPath: linuxPath)

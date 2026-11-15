@@ -161,6 +161,71 @@ extension AIChatViewModel {
             )
         }
 
+        // [persona-whitelist] Enforce the persona tool whitelist at dispatch time.
+        // The schema filter above keeps the model from SEEING a whitelisted-out
+        // tool; this keeps a stale or manual call from RUNNING it.
+        let whitelistPersonaId = sessionPersonaId ?? PersonaStore.currentID()
+        let whitelistPersona = PersonaStore.shared.personas.first(where: { $0.id == whitelistPersonaId })
+        if let whitelistPersona = whitelistPersona,
+           let toolWhitelist = whitelistPersona.localToolIds {
+            let whitelistId: String?
+            switch tu.name {
+            case "timeInfo", "get_time_info":
+                whitelistId = "timeInfo"
+            case "clipboard", "clipboard_tool":
+                whitelistId = "clipboard"
+            case "textToSpeech", "text_to_speech", "send_voice":
+                whitelistId = "textToSpeech"
+            case "askUser", "ask_user_input_v0", "user_ask":
+                whitelistId = "askUser"
+            case "calculate":
+                whitelistId = "calculate"
+            case "calendarQuery":
+                whitelistId = "calendarQuery"
+            case "calendarCreate":
+                whitelistId = "calendarCreate"
+            case "currentLocation":
+                whitelistId = "currentLocation"
+            case "weather":
+                whitelistId = "weather"
+            case "remindersQuery":
+                whitelistId = "remindersQuery"
+            case "remindersCreate":
+                whitelistId = "remindersCreate"
+            case "remindersComplete":
+                whitelistId = "remindersComplete"
+            case "healthSummary":
+                whitelistId = "healthSummary"
+            case "set_env_var":
+                whitelistId = "setEnvVar"
+            case "switch_persona":
+                whitelistId = "switchPersona"
+            case "set_tts_default_group":
+                whitelistId = "setTTSDefaultGroup"
+            default:
+                whitelistId = nil
+            }
+            if let whitelistId = whitelistId, !toolWhitelist.contains(whitelistId) {
+                let whitelistContent = "The tool \"\(tu.name)\" is disabled for this persona (persona whitelist). Do not retry."
+                if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                    messages[msgIdx].blocks[blockIdx].toolStatus = .failed(message: whitelistContent)
+                    messages[msgIdx].blocks[blockIdx].content = whitelistContent
+                }
+                let whitelistSnap = ToolSnapshot(type: .text, text: whitelistContent, mediaRef: nil, duration: nil)
+                let item = ToolSnapshotItem(
+                    id: tu.id, toolName: tu.name, snapshot: whitelistSnap,
+                    mediaResolver: await ChatStore.shared.mediaFileURLResolver()
+                )
+                return ToolExecOutcome(
+                    toolId: tu.id, toolName: tu.name,
+                    resultPart: .toolResult(id: tu.id, name: tu.name, content: whitelistContent, isError: true),
+                    snapshotEntry: (toolName: tu.name, snapshot: whitelistSnap),
+                    snapshotItem: item,
+                    cancelled: false
+                )
+            }
+        }
+
         var toolOutput: String = ""
         var toolSuccess: Bool = false
         var toolImageData: Data?
@@ -879,13 +944,18 @@ extension AIChatViewModel {
                         let viaName = tierOutcome.modelName.map { " via \($0)" } ?? ""
                         ctLogger.info("[read_image] ocr-tier source=\(tierOutcome.source.rawValue)\(viaName) cached=\(tierOutcome.fromCache)")
                     } catch {
-                        // Deliberately a SUCCESSFUL result carrying failure text:
-                        // an errored tool result tends to make models retry in a
-                        // loop, whereas this lets the model tell the user plainly.
+                        // [F6] A failed describe is an error, not a success.
+                        // The old code deliberately returned success so the
+                        // model would not retry in a loop, but isError=false
+                        // on a result that says the image was not described
+                        // lets a model skim past the failure and proceed as
+                        // if it saw the image. The failure text itself
+                        // already tells the model not to guess at the
+                        // contents, so the flag now tells the same truth.
                         let reason = (error as? VisionGroupResolver.VisionError)?.errorDescription
                             ?? error.localizedDescription
                         toolOutput = meta + "\n\n" + VisionGroupResolver.failureText(reason)
-                        toolSuccess = true
+                        toolSuccess = false
                         ctLogger.error("[read_image] vision-group describe FAILED: \(reason)")
                     }
                 }
@@ -923,7 +993,7 @@ extension AIChatViewModel {
             toolOutput = memResult.output
             toolSuccess = memResult.success
 
-        case "ask_user_input_v0":
+        case "ask_user_input_v0", "user_ask":
             // [T-manual-phase2-3a] 模型可以给 timeout_seconds；不给就一直等。
             let askTimeout: TimeInterval? = {
                 if let n = toolArgs["timeout_seconds"] as? Int, n > 0 { return TimeInterval(n) }
@@ -1657,7 +1727,7 @@ extension AIChatViewModel {
         }()
 
     // Create snapshot from tool output.
-        let snapshot: ToolSnapshot
+        var snapshot: ToolSnapshot
         switch tu.name {
         case "browser_use":
             if let imagePath = (msgIdx < messages.count && blockIdx < messages[msgIdx].blocks.count)
@@ -1719,7 +1789,7 @@ extension AIChatViewModel {
         }
 
         let snapshotResolver = await ChatStore.shared.mediaFileURLResolver()
-        let snapshotItem = ToolSnapshotItem(
+        var snapshotItem = ToolSnapshotItem(
             id: tu.id, toolName: tu.name, snapshot: snapshot, mediaResolver: snapshotResolver
         )
 
@@ -1773,7 +1843,6 @@ extension AIChatViewModel {
             finalOutput = "(no output)"
         } else if toolOutput.count > maxToolResultLength {
             let offloadResult = offloadToolOutput(toolOutput, toolName: tu.name, toolId: tu.id)
-            let offloadMinisURL = linuxPathToMinisURL(offloadResult.linuxPath)
             let truncatedBody: String
             if tu.name == "shell_execute" || tu.name == "browser_use" {
                 let halfLen = maxToolResultLength / 2
@@ -1783,12 +1852,41 @@ extension AIChatViewModel {
             } else {
                 truncatedBody = String(toolOutput.prefix(maxToolResultLength))
             }
-            finalOutput = truncatedBody
-                + "\n\n[OUTPUT TRUNCATED] Full output (\(toolOutput.count) chars) saved to: \(offloadResult.linuxPath)"
-                + (offloadMinisURL.map { "\nminis_url: \($0)" } ?? "")
-                + "\nUse file_read tool to read the complete output."
+            if let linuxPath = offloadResult.linuxPath {
+                let offloadMinisURL = linuxPathToMinisURL(linuxPath)
+                finalOutput = truncatedBody
+                    + "\n\n[OUTPUT TRUNCATED] Full output (\(toolOutput.count) chars) saved to: \(linuxPath)"
+                    + (offloadMinisURL.map { "\nminis_url: \($0)" } ?? "")
+                    + "\nUse file_read tool to read the complete output."
+            } else {
+                // [F4] The offload write failed (verified in
+                // offloadToolOutput): do not claim the full output was
+                // saved. The truncated head/tail above is all the model
+                // gets.
+                finalOutput = truncatedBody
+                    + "\n\n[OUTPUT TRUNCATED] Full output (\(toolOutput.count) chars) could not be saved — the offload write failed, so only the truncated output above is available."
+            }
         } else {
             finalOutput = toolOutput
+        }
+
+        // [F5] The user-visible block and the stored snapshot must show
+        // exactly what the model received. When the output was truncated,
+        // the full text the handlers wrote into the block/snapshot is
+        // replaced with the same truncated finalOutput (with its offload
+        // pointer), so the user never assumes the model saw a cut line.
+        // Without truncation finalOutput is the full output, so nothing
+        // changes here and handler summaries (e.g. ask-user) are untouched.
+        if toolOutput.count > maxToolResultLength {
+            if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                messages[msgIdx].blocks[blockIdx].content = finalOutput
+            }
+            if snapshot.type == .text {
+                snapshot = ToolSnapshot(type: .text, text: finalOutput, mediaRef: nil, duration: toolDuration)
+                snapshotItem = ToolSnapshotItem(
+                    id: tu.id, toolName: tu.name, snapshot: snapshot, mediaResolver: snapshotResolver
+                )
+            }
         }
 
         // Image budget: reserve a slot atomically via the actor. If

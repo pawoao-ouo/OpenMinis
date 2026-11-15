@@ -218,6 +218,21 @@ extension AIChatViewModel {
             propertyOrdering: ["tool_title", "questions", "timeout_seconds"]
         ))
 
+        // [F2] user_ask — alias of ask_user_input_v0 with identical behavior
+        // and parameters. Kept so a model that learned this name from the
+        // switch/whitelist text gets a real tool instead of "unknown tool".
+        tools.append(AgentToolDefinition(
+            name: "user_ask",
+            description: "Alias of ask_user_input_v0 — ask the user questions and wait for their answers before continuing. Identical behavior and parameters; prefer ask_user_input_v0 for new calls.",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what you're asking about, shown to the user (e.g. 'Confirm deployment target'). Use the same language as the user."),
+                "questions": AgentToolParam(type: .string, description: "JSON array of question objects, at most 4. Each object: {\"id\": \"q1\", \"question\": \"...\", \"type\": \"single\"|\"multi\", \"options\": [\"option A\", \"option B\"]}. For type 'confirm': {\"id\": \"q1\", \"question\": \"the exact action\", \"type\": \"confirm\", \"impact\": \"what can be lost, and whether it can be undone\", \"risk\": \"high\"|\"medium\"} with no options. Keep option labels short (a few words each). The UI adds 'Other' and 'Skip' automatically to choice questions."),
+                "timeout_seconds": AgentToolParam(type: .integer, description: "Optional. How long to wait for an answer before giving up (default: wait indefinitely). On timeout nothing was applied — decide yourself and say the question timed out. Use it only when the turn must not hang, e.g. an unattended run."),
+            ],
+            required: ["tool_title", "questions"],
+            propertyOrdering: ["tool_title", "questions", "timeout_seconds"]
+        ))
+
         // [s2-search] 第 18 条联网搜索：AI 查资料的成品工具。只在当前选中
         // 的服务商配好 key 后才挂出来（没配好就不让模型看见，避免它空调）。
         if WebSearchService.isConfigured(WebSearchService.selectedProviderId) {
@@ -355,6 +370,17 @@ extension AIChatViewModel {
             propertyOrdering: ["tool_title"]
         ))
 
+        // [F2] get_time_info — alias of timeInfo with identical behavior.
+        tools.append(AgentToolDefinition(
+            name: "get_time_info",
+            description: "Alias of timeInfo — read current device date, day of the week, time, timezone, UTC offset, and timestamp. Identical behavior; prefer timeInfo for new calls.",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "Optional summary shown in UI.")
+            ],
+            required: [],
+            propertyOrdering: ["tool_title"]
+        ))
+
         // 2. clipboard (剪切板)
         tools.append(AgentToolDefinition(
             name: "clipboard",
@@ -368,10 +394,35 @@ extension AIChatViewModel {
             propertyOrdering: ["tool_title", "action", "text"]
         ))
 
+        // [F2] clipboard_tool — alias of clipboard with identical behavior.
+        tools.append(AgentToolDefinition(
+            name: "clipboard_tool",
+            description: "Alias of clipboard — read or write plain text on the device clipboard. Identical behavior; prefer clipboard for new calls.",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "Optional summary shown in UI."),
+                "action": AgentToolParam(type: .string, description: "The clipboard action: 'read' to get clipboard text, or 'write' to set it."),
+                "text": AgentToolParam(type: .string, description: "The text to copy when action is 'write'.")
+            ],
+            required: ["action"],
+            propertyOrdering: ["tool_title", "action", "text"]
+        ))
+
         // 3. textToSpeech (send_voice 的旧别名 —— 裁定：两个名字都保留、共享同一实现)
         tools.append(AgentToolDefinition(
             name: "textToSpeech",
             description: "Alias of send_voice — synthesizes the given text with the configured TTS voice and delivers it as a WeChat-style voice bubble in the chat (auto-plays). Same behavior and the same AI Voice Replies switch as send_voice; prefer send_voice for new calls. Do NOT synthesize audio yourself with shell commands.",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "Optional summary shown in UI."),
+                "text": AgentToolParam(type: .string, description: "The words to speak aloud.")
+            ],
+            required: ["text"],
+            propertyOrdering: ["tool_title", "text"]
+        ))
+
+        // [F2] text_to_speech — alias of textToSpeech with identical behavior.
+        tools.append(AgentToolDefinition(
+            name: "text_to_speech",
+            description: "Alias of textToSpeech — synthesizes the given text with the configured TTS voice and delivers it as a WeChat-style voice bubble in the chat (auto-plays). Same behavior and the same AI Voice Replies switch as send_voice; prefer send_voice for new calls. Do NOT synthesize audio yourself with shell commands.",
             parameters: [
                 "tool_title": AgentToolParam(type: .string, description: "Optional summary shown in UI."),
                 "text": AgentToolParam(type: .string, description: "The words to speak aloud.")
@@ -868,9 +919,157 @@ public final class ToolCatalogRouter: @unchecked Sendable {
         ]
     }
 
+    // [F3] Tool names each catalog item advertises, keyed by item id.
+    // The catalog is static text, but the schema is not: tools disappear
+    // behind the memory toggle, the persona whitelist, the tool switches,
+    // Vision Group availability and the web-search config. Filtering the
+    // fragment against this turn's schema keeps the model from being told
+    // it has a tool it cannot call. Items that describe shell-run CLIs
+    // list "shell_execute": the CLI is only callable while the shell
+    // tool is in the schema.
+    static let catalogItemToolNames: [String: [String]] = [
+        "shell_execute": ["shell_execute"],
+        "file_ops": ["file_read", "file_write", "file_edit"],
+        "minis-config": ["shell_execute"],
+        "minis-scheduled": ["shell_execute"],
+        "minis-sessions-cli": ["shell_execute"],
+        "minis-model-use": ["shell_execute"],
+        "minis-theme": ["shell_execute"],
+        "open_terminal": ["shell_execute"],
+        "together": ["shell_execute", "together_play"],
+        "device_data_tools": ["weather", "currentLocation", "calendarQuery", "calendarCreate", "remindersQuery", "remindersCreate", "remindersComplete", "healthSummary"],
+        "memory_tools": ["memory_write", "memory_get"],
+        "skills_catalog": ["file_read", "shell_execute"],
+        "subagent_task": ["subagent_task"],
+        "ask_user": ["askUser", "ask_user_input_v0", "user_ask"],
+        "device_utility_tools": ["calculate", "timeInfo", "clipboard", "read_image"],
+        "browse_stickers": ["browse_stickers"],
+        "mcp_catalog": ["shell_execute"],
+        "mcp_management": ["add_mcp", "list_mcp", "remove_mcp", "toggle_mcp"],
+    ]
+
+    /// Wildcard name segments in the catalog (e.g. "calendar*" covers both
+    /// calendar tools) and the tool names each one stands for.
+    static let catalogWildcardGroups: [String: [String]] = [
+        "calendar*": ["calendarQuery", "calendarCreate"],
+        "reminders*": ["remindersQuery", "remindersCreate", "remindersComplete"],
+    ]
+
+    /// Filter catalog items to the tools actually available in this turn.
+    /// `availableToolNames` is the set of tool names in the schema
+    /// (`makeAgentTools()`). An item is dropped when none of its tools
+    /// is available; when only some are, the unavailable names are
+    /// removed from its rendered name and quick syntax. Items with no
+    /// entry in `catalogItemToolNames` are kept as-is.
+    func filteredCatalogItems(_ items: [CatalogItem], availableToolNames: Set<String>) -> [CatalogItem] {
+        items.compactMap { item in
+            guard let advertised = Self.catalogItemToolNames[item.id] else { return item }
+            let kept = advertised.filter { availableToolNames.contains($0) }
+            guard !kept.isEmpty else { return nil }
+            guard kept.count != advertised.count else { return item }
+            return CatalogItem(
+                id: item.id,
+                name: Self.filteredCatalogName(item.name, keptToolNames: kept),
+                category: item.category,
+                synopsis: item.synopsis,
+                quickSyntax: Self.filteredQuickSyntax(item.quickSyntax, keptToolNames: kept),
+                docRef: item.docRef
+            )
+        }
+    }
+
+    /// Drop unavailable tool names from a slash-separated catalog name
+    /// ("calculate / timeInfo / clipboard / read_image"). A segment is
+    /// kept when it is an available tool name, a wildcard whose group
+    /// still has an available tool, or not a tool name at all.
+    static func filteredCatalogName(_ name: String, keptToolNames: [String]) -> String {
+        let kept = Set(keptToolNames)
+        let allTools = Set(Self.catalogItemToolNames.values.flatMap { $0 })
+        let segments = name.components(separatedBy: " / ")
+        guard segments.count > 1 else { return name }
+        let keptSegments = segments.filter { segment in
+            if let group = catalogWildcardGroups[segment] {
+                return group.contains { kept.contains($0) }
+            }
+            return kept.contains(segment) || !allTools.contains(segment)
+        }
+        return keptSegments.isEmpty ? name : keptSegments.joined(separator: " / ")
+    }
+
+    /// Drop unavailable tool calls from a "tool call(s): ..." quick
+    /// syntax. Fragments are split on top-level commas (commas inside
+    /// parentheses/brackets/braces/quotes do not split); a fragment is
+    /// kept when the tool name it starts with is available, or when it
+    /// does not name a tool at all. Non-call-list syntaxes are returned
+    /// unchanged.
+    static func filteredQuickSyntax(_ syntax: String, keptToolNames: [String]) -> String {
+        let kept = Set(keptToolNames)
+        let prefix: String
+        let rest: String
+        if syntax.hasPrefix("tool calls: ") {
+            prefix = "tool calls: "
+            rest = String(syntax.dropFirst(prefix.count))
+        } else if syntax.hasPrefix("tool call: ") {
+            prefix = "tool call: "
+            rest = String(syntax.dropFirst(prefix.count))
+        } else {
+            return syntax
+        }
+        let fragments = splitTopLevelCommas(rest)
+        let keptFragments = fragments.filter { fragment in
+            let head = fragment.trimmingCharacters(in: .whitespaces)
+            let name = head.prefix(while: { $0.isLetter || $0.isNumber || $0 == "_" })
+            return name.isEmpty || kept.contains(String(name))
+        }
+        guard !keptFragments.isEmpty else {
+            return prefix + keptToolNames.joined(separator: ", ")
+        }
+        return prefix + keptFragments.joined(separator: ", ")
+    }
+
+    /// Split on commas that are not nested inside (), [], {} or quotes.
+    static func splitTopLevelCommas(_ text: String) -> [String] {
+        var out: [String] = []
+        var depth = 0
+        var inSingle = false
+        var inDouble = false
+        var current = ""
+        for ch in text {
+            switch ch {
+            case "'" where !inDouble:
+                inSingle.toggle()
+                current.append(ch)
+            case "\"" where !inSingle:
+                inDouble.toggle()
+                current.append(ch)
+            case "(", "[", "{" where !inSingle && !inDouble:
+                depth += 1
+                current.append(ch)
+            case ")", "]", "}" where !inSingle && !inDouble:
+                depth = max(0, depth - 1)
+                current.append(ch)
+            case "," where depth == 0 && !inSingle && !inDouble:
+                out.append(current)
+                current = ""
+            default:
+                current.append(ch)
+            }
+        }
+        out.append(current)
+        return out.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
     /// Renders the catalog as a compact, structured Markdown index.
-    public func renderCatalogFragment(items: [CatalogItem]? = nil) -> String {
-        let activeItems = items ?? defaultCatalogItems()
+    /// When `availableToolNames` is given (the tool names in this turn's
+    /// schema), items advertising no available tool are dropped, and
+    /// partially available items list only their available tools; the
+    /// Apple CLI section is dropped when `shell_execute` is unavailable.
+    /// When it is nil, the full static catalog renders as before.
+    public func renderCatalogFragment(items: [CatalogItem]? = nil, availableToolNames: Set<String>? = nil) -> String {
+        var activeItems = items ?? defaultCatalogItems()
+        if let availableToolNames {
+            activeItems = filteredCatalogItems(activeItems, availableToolNames: availableToolNames)
+        }
         var out = "## Capabilities & Tools Catalog (Progressive Disclosure Index)\n"
         out += "All tools and CLIs support `--help` for full flags and syntax. Query details only when needed.\n\n"
 
@@ -887,14 +1086,21 @@ public final class ToolCatalogRouter: @unchecked Sendable {
         // 系统框架的薄封装，绝大多数轮次用不到，但名字必须留着——模型不知道
         // 有 apple-alarm 就会编个 crontab 出来。语法留、docRef 去掉（都是
         // `<cmd> --help`）。见 renderAppleCompactSection。
-        if let compact = ToolCatalogRouter.appleCompactSection(), !compact.isEmpty {
+        if let compact = ToolCatalogRouter.appleCompactSection(availableToolNames: availableToolNames), !compact.isEmpty {
             out += "### Apple Native Frameworks\n" + compact + "\n\n"
         }
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Apple 原生 CLI 的压缩目录。名字 + 一句话 + 语法，一行一条。
-    static func appleCompactSection() -> String? {
+    /// When `availableToolNames` is given, the whole section is omitted
+    /// unless `shell_execute` is available (every row is a shell-run CLI),
+    /// and the structured-wrapper row is omitted unless at least one of
+    /// the device tools it names is available.
+    static func appleCompactSection(availableToolNames: Set<String>? = nil) -> String? {
+        if let availableToolNames, !availableToolNames.contains("shell_execute") {
+            return nil
+        }
         let rows: [(String, String, String)] = [
             ("apple-vision", "Image analysis (OCR, barcodes, faces, similarity, overlap)", "apple-vision ocr|classify|similarity|overlap <img...>"),
             ("apple-healthkit", "Query or record Apple Health data (vitals, sleep, workouts)", "apple-healthkit batch --types <t1,t2> --days N"),
@@ -919,8 +1125,18 @@ public final class ToolCatalogRouter: @unchecked Sendable {
             ("apple-speak", "One-off spoken announcement (not recorded in chat)", "apple-speak <text>"),
             ("weather/currentLocation/calendar*/reminders*/healthSummary", "Structured wrappers over the same frameworks", "tool call: weather(...) | calendarEvents(...)"),
         ]
-        guard !rows.isEmpty else { return nil }
-        return rows.map { "- `\($0.0)` — \($0.1) | `\($0.2)`" }.joined(separator: "\n")
+        // [F3] The last row names the structured device tools, not a CLI:
+        // drop it when none of those tools is in this turn's schema.
+        var keptRows = rows
+        if let availableToolNames {
+            let deviceTools = ["weather", "currentLocation", "calendarQuery", "calendarCreate", "remindersQuery", "remindersCreate", "remindersComplete", "healthSummary"]
+            keptRows = rows.filter { row in
+                guard row.0 == "weather/currentLocation/calendar*/reminders*/healthSummary" else { return true }
+                return deviceTools.contains { availableToolNames.contains($0) }
+            }
+        }
+        guard !keptRows.isEmpty else { return nil }
+        return keptRows.map { "- `\($0.0)` — \($0.1) | `\($0.2)`" }.joined(separator: "\n")
     }
 }
 

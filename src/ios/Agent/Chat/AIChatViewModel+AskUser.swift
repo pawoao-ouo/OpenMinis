@@ -97,6 +97,21 @@ extension AIChatViewModel {
         // —— 决策 → toolOutput ——
         switch decision {
         case .answered(let json):
+            // [F7] A confirm the user denied is not an answer: a denial
+            // must come back as an error, not as {"q1":"denied"} shaped
+            // like an answer — otherwise the model can act on an approval
+            // it never got. The summary still lists each answer (拒绝),
+            // so the user sees what happened; the result shape is what
+            // changes.
+            let answers = (try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]) ?? [:]
+            let deniedConfirms = questions.filter { q in
+                q.isConfirm && (answers[q.id] as? String) == "denied"
+            }
+            if !deniedConfirms.isEmpty {
+                let deniedObject: [String: Any] = ["error": "user denied the confirmation", "denied": deniedConfirms.map(\.id)]
+                let deniedOutput = (try? JSONSerialization.data(withJSONObject: deniedObject)).flatMap { String(data: $0, encoding: .utf8) } ?? "{\"error\":\"user denied the confirmation\"}"
+                return (deniedOutput, false, Self.summarizeAskAnswers(payload: payload, answerJSON: json))
+            }
             var output = json
             if raw.count > Self.askUserMaxQuestions {
                 output += "\n<system-reminder>Only the first \(Self.askUserMaxQuestions) questions were asked; the rest were dropped. Do not re-ask the dropped questions in a follow-up \(Self.askUserToolName) call unless the user asks for more.</system-reminder>"
@@ -104,16 +119,22 @@ extension AIChatViewModel {
             return (output, true, Self.summarizeAskAnswers(payload: payload, answerJSON: json))
         case .skipped:
             // 用户点了跳过：答案全 null，AI 按自己的判断继续。
+            // [F7] No answer arrived, so this is an error result like
+            // .timedOut — the JSON (all nulls) and the summary stay,
+            // only the flag changes.
             let nulls = Dictionary(uniqueKeysWithValues: questions.map { ($0.id, NSNull()) })
             let json = (try? JSONSerialization.data(withJSONObject: nulls)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-            return (json, true, "用户跳过了这 \(questions.count) 道题，按你的判断继续。")
+            return (json, false, "用户跳过了这 \(questions.count) 道题，按你的判断继续。")
         case .timedOut:
             // 只有调用方传了 timeoutSeconds 才会走到这里；超时按调用方的
             // fallback 处理（Q3：退回默认并在结果顶部注明）。
             return ("{\"error\":\"question timed out without an answer\"}", false, "提问超时未回答。")
         case .deferred(let askId):
             // 卡片已经挂上去了，她在 App 里能看到并回答；这一轮不等。
-            return ("{\"status\":\"deferred\",\"ask_id\":\"\(askId)\",\"detail\":\"The question card is on screen. This turn does not wait for it — the answer arrives as the user's next message. Tell the user you asked and carry on with what you can do without the answer.\"}", true, "已提问，等她的回答。")
+            // [F7] No answer arrived in this turn, so this is an error
+            // result like .timedOut — the text still tells the model to
+            // carry on without the answer; only the flag changes.
+            return ("{\"status\":\"deferred\",\"ask_id\":\"\(askId)\",\"detail\":\"The question card is on screen. This turn does not wait for it — the answer arrives as the user's next message. Tell the user you asked and carry on with what you can do without the answer.\"}", false, "已提问，等她的回答。")
         case .approved, .denied:
             return ("{\"error\":\"question dismissed\"}", false, "提问被关闭。")
         }

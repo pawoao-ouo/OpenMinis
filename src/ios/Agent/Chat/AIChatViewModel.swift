@@ -1802,7 +1802,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "Avoid shell heredocs for large files; split content into chunks with append: true. "
             + "Alpine Linux (aarch64): default shell is ash; bashisms run under bash; install packages with apk add.\n\n"
             + "Tool call style & tone: Be concise and direct. Prefer action over explanation. Reply in the language matching the user's input.\n\n"
-            + ToolCatalogRouter.shared.renderCatalogFragment() + "\n\n"
+            // [F3] Filter the catalog against this turn's schema, so the
+            // model is never told it has a tool it cannot call (memory
+            // toggle, persona whitelist, tool switches, Vision Group,
+            // web-search config all gate makeAgentTools()).
+            + ToolCatalogRouter.shared.renderCatalogFragment(availableToolNames: Set(makeAgentTools().map(\.name))) + "\n\n"
             // [T-manual-index] 手册索引常驻。以前提示词里连手册路径都没有，
             // AI 永远不知道有这个文件（审计 P0-4）。索引约 400 token，全文
             // 4000+，所以常驻索引、正文按需 file_read。
