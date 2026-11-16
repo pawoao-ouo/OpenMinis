@@ -1149,19 +1149,19 @@ class FileBrowserViewModel: ObservableObject {
 
     func deleteItem(_ item: FileItem) {
         let fm = FileManager.default
+        // Resolve which URL will actually be removed (same logic as before).
+        let logicalURL = currentPath.resolvingSymlinksInPath().appendingPathComponent(item.name)
+        let targetURL = fm.fileExists(atPath: logicalURL.path) ? logicalURL : item.url
+        // [audit-C8] Collect the session-relative paths of everything about
+        // to be deleted BEFORE the bytes are gone — a deleted directory's
+        // contents cannot be enumerated afterwards.
+        let purgePlan = ChatStore.sessionFilesForDeletion(at: targetURL)
         do {
             // Remove the item (or symlink) at the logical path.
             // Use the path relative to currentPath to ensure we hit the right file
             // in case the URL was resolved differently.
-            let logicalURL = currentPath.resolvingSymlinksInPath().appendingPathComponent(item.name)
-            let removedURL: URL
-            if fm.fileExists(atPath: logicalURL.path) {
-                try MountedFolderCoordinator.remove(at: logicalURL)
-                removedURL = logicalURL
-            } else {
-                try MountedFolderCoordinator.remove(at: item.url)
-                removedURL = item.url
-            }
+            try MountedFolderCoordinator.remove(at: targetURL)
+            let removedURL = targetURL
             if let linux = linuxPath(for: removedURL) {
                 RootfsManager.shared.removeFakefsPath(linux)
                 // If the deleted file lived under one of the FileProvider-exposed
@@ -1171,6 +1171,16 @@ class FileBrowserViewModel: ObservableObject {
                 // container, so the file is already gone from disk — we just need
                 // to tell the FileProvider to re-enumerate the parent.
                 Self.signalFileProviderParent(forLinuxPath: linux)
+            }
+            // [audit-C8] Disk is gone; now scrub the references, or the chat
+            // keeps showing ghost tiles and the model keeps getting stale
+            // paths. The @-mention index is invalidated either way — a
+            // deleted shared/mount file is in it too.
+            Task {
+                if let plan = purgePlan {
+                    _ = await ChatStore.shared.purgeDeletedFileReferences(sessionId: plan.sessionId, sessionRelativePaths: plan.relativePaths)
+                }
+                await FileMentionIndex.shared.invalidateCache(reason: "file deleted in browser")
             }
             loadItems()
         } catch {
@@ -1222,12 +1232,6 @@ class FileBrowserViewModel: ObservableObject {
             NSFileProviderManager(for: domain)?.signalEnumerator(for: targetID) { _ in }
         }
     }
-
-    /// If `removedURL` lives inside a session's per-session minis directory
-    /// (`Library/MinisChat/minis/<sid>/<subdir>/<rel>`), queue a SessionFile
-    /// cloud-delete so peer devices stop seeing the file. Silent when the URL
-    /// is outside any session tree (e.g. shared/skills/memory deletes — those
-    /// are not SessionFile-scoped) or when sync isn't configured.
 
     /// Emit an `[FPSyncTrace]` line describing a host-filesystem write/copy/move
     /// that lands inside one of the three FileProvider-exposed roots

@@ -268,6 +268,8 @@ struct SessionStorageDetailView: View {
 
     @State private var showClearConfirmation = false
     @State private var isClearing = false
+    @State private var showClearError = false
+    @State private var clearErrorMessage = ""
     @State private var currentMinisSize: Int64
 
     init(session: StorageManagementViewModel.SessionStorage, onFilesCleared: (() -> Void)? = nil) {
@@ -345,6 +347,11 @@ struct SessionStorageDetailView: View {
         } message: {
             Text("This will delete \(formatter.string(fromByteCount: totalFileSize)) of files. This action cannot be undone.")
         }
+        .alert(AppLocalized("Couldn't clear session files"), isPresented: $showClearError) {
+            Button(AppLocalized("OK"), role: .cancel) { }
+        } message: {
+            Text(String(format: AppLocalized("The files couldn't be deleted: %@"), clearErrorMessage))
+        }
     }
 
     private func clearFiles() {
@@ -354,9 +361,32 @@ struct SessionStorageDetailView: View {
             let fm = FileManager.default
             let lib = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!
             let minisDir = lib.appendingPathComponent("MinisChat/minis/\(sessionId)", isDirectory: true)
-            try? fm.removeItem(at: minisDir)
-
+            // [audit-C9] Collect the file list BEFORE deleting — the purge
+            // below needs it, and the dir is gone afterwards.
+            let purgePlan = ChatStore.sessionFilesForDeletion(at: minisDir)
+            // [audit-C9] Honest failure: a failed delete used to report 0
+            // anyway. A missing dir is already clear (nothing to delete).
+            if fm.fileExists(atPath: minisDir.path) {
+                do {
+                    try fm.removeItem(at: minisDir)
+                } catch {
+                    await MainActor.run {
+                        isClearing = false
+                        clearErrorMessage = error.localizedDescription
+                        showClearError = true
+                    }
+                    return
+                }
+            }
+            // [audit-C9] The conversation stays, but its references to the
+            // deleted files must go with them — otherwise every attachment
+            // tile in the session is a ghost and every turn re-sends stale
+            // paths to the model.
+            if let plan = purgePlan {
+                _ = await ChatStore.shared.purgeDeletedFileReferences(sessionId: plan.sessionId, sessionRelativePaths: plan.relativePaths)
+            }
             await MainActor.run {
+                FileMentionIndex.shared.invalidateCache(reason: "session files cleared")
                 currentMinisSize = 0
                 isClearing = false
                 onFilesCleared?()

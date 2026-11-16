@@ -26927,6 +26927,29 @@
         }
       }
     },
+    "Couldn't clear session files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't clear session files"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没能清空会话文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒能清空會話文件"
+          }
+        }
+      }
+    },
     "Couldn't connect with these settings, so they weren't saved. %@": {
       "extractionState": "manual",
       "localizations": {
@@ -101718,6 +101741,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "這個檔案播不了"
+          }
+        }
+      }
+    },
+    "The files couldn't be deleted: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The files couldn't be deleted: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件没能删除：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件沒能刪除：%@"
           }
         }
       }

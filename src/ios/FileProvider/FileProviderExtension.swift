@@ -469,22 +469,34 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         }
 
         let url = Self.providerRoot.appendingPathComponent(identifier.rawValue)
-        if FileManager.default.fileExists(atPath: url.path) {
-            do {
-                try FileManager.default.removeItem(at: url)
-            } catch {
-                os_log("deleteItem removeItem error: %{public}@",
-                       log: Self.log, type: .error, error.localizedDescription)
-                completionHandler(error)
-                return Progress()
-            }
-        }
-
         // Derive parent identifier and signal it to re-enumerate.
         let parentPath = (identifier.rawValue as NSString).deletingLastPathComponent
         let parentID = parentPath.isEmpty
             ? NSFileProviderItemIdentifier.rootContainer
             : NSFileProviderItemIdentifier(parentPath)
+        // [audit-C17] A file that is already gone is not a successful delete,
+        // it is a no-op: report noSuchItem (the same error this file already
+        // uses for missing items in item(for:) / fetchContents) instead of
+        // telling Files the delete "succeeded". The parent is still signalled
+        // so Files drops its stale row on re-enumeration.
+        // NOTE: the chat/DB reference to this file survives — this extension
+        // runs in its own sandbox and cannot open the main app's Library
+        // database or the @-mention index (see batch12-report.md).
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            os_log("deleteItem id=%{public}@ already gone", log: Self.log, type: .info, identifier.rawValue)
+            completionHandler(NSFileProviderError(.noSuchItem))
+            signalParent(parentID)
+            return Progress()
+        }
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            os_log("deleteItem removeItem error: %{public}@",
+                   log: Self.log, type: .error, error.localizedDescription)
+            completionHandler(error)
+            return Progress()
+        }
+
         completionHandler(nil)
         signalParent(parentID)
         return Progress()

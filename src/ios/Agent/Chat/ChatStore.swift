@@ -3274,6 +3274,216 @@ actor ChatStore {
         // Mark dirty so the rewritten row syncs to iCloud.
     }
 
+    /// [audit-C8/C9] If `url` lives under `Library/MinisChat/minis/<sid>/...`,
+    /// return the session id plus every file beneath it as paths relative to
+    /// the session dir (a single file yields one entry; a directory yields
+    /// its whole tree). Returns nil when the URL is outside every session
+    /// dir — those files have no chat/DB references to scrub — or when it
+    /// does not exist. Must be called BEFORE the item is deleted: a deleted
+    /// directory cannot be enumerated afterwards.
+    static func sessionFilesForDeletion(at url: URL) -> (sessionId: String, relativePaths: Set<String>)? {
+        let fm = FileManager.default
+        guard let lib = fm.urls(for: .libraryDirectory, in: .userDomainMask).first else { return nil }
+        let base = lib.appendingPathComponent("MinisChat/minis", isDirectory: true).standardized.path
+        let std = url.standardized.path
+        guard std.hasPrefix(base + "/") else { return nil }
+        let remainder = String(std.dropFirst(base.count + 1))
+        let components = remainder.split(separator: "/")
+        guard let sid = components.first else { return nil }
+        let sessionId = String(sid)
+        let sessionDir = lib.appendingPathComponent("MinisChat/minis/\(sessionId)", isDirectory: true)
+        let sessionStd = sessionDir.standardized.path
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: std, isDirectory: &isDir) else { return nil }
+        var paths = Set<String>()
+        if isDir.boolValue {
+            guard let enumerator = fm.enumerator(at: URL(fileURLWithPath: std), includingPropertiesForKeys: [.isDirectoryKey], options: []) else { return nil }
+            for case let fileURL as URL in enumerator {
+                let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey])
+                guard values?.isDirectory == false else { continue }
+                let rel = fileURL.standardized.path
+                guard rel.hasPrefix(sessionStd + "/") else { continue }
+                paths.insert(String(rel.dropFirst(sessionStd.count + 1)))
+            }
+        } else {
+            guard std.hasPrefix(sessionStd + "/") else { return nil }
+            paths.insert(String(std.dropFirst(sessionStd.count + 1)))
+        }
+        return (sessionId, paths)
+    }
+
+    /// [audit-C8/C9] Scrub references to deleted files from one session's
+    /// persisted messages, and report how many rows were rewritten.
+    ///
+    /// A deleted file leaves three structured references behind: `<file
+    /// path="..."/>` elements inside `<user-attached-files>` XML in user
+    /// text parts, `.mediaRef` parts whose `relativePath` / `linuxPath`
+    /// points at the file, and media refs nested inside `.toolResult`
+    /// parts — `tr.mediaRef` (screenshot actions, re-sent to the model on
+    /// reload) and `tr.snapshot.mediaRef` (browser-screenshot image).
+    /// All render as ghost tiles on reload and are re-sent to the model
+    /// verbatim, so every affected row is rewritten via
+    /// `updateMessageParts`. Callers pass the paths relative to the
+    /// session dir (see `sessionFilesForDeletion`); matching is by the
+    /// Linux path (`/var/minis/<rel>`) for XML entries and by both the
+    /// Linux path and the minis-relative path (`<sid>/<rel>`) for media refs.
+    /// Free-text mentions of a path (e.g. an @-mention pasted into the
+    /// prompt) are not structured references and are intentionally untouched.
+    ///
+    /// - Returns: the number of message rows rewritten (0 when nothing
+    ///   referenced the deleted files).
+    @discardableResult
+    func purgeDeletedFileReferences(sessionId: String, sessionRelativePaths: Set<String>) -> Int {
+        guard !sessionRelativePaths.isEmpty else { return 0 }
+        let linuxPaths = Set(sessionRelativePaths.map { "/var/minis/" + $0 })
+        let relPaths = Set(sessionRelativePaths.map { sessionId + "/" + $0 })
+        // Nil out a ref pointing at a deleted file, else return it as-is.
+        // Mirrors the matching in this function's top-level mediaRef path
+        // and the nested walk in rewritingSessionMediaPaths.
+        func scrubRef(_ ref: MediaRef?) -> MediaRef? {
+            guard let ref else { return nil }
+            if relPaths.contains(ref.relativePath)
+                || (ref.linuxPath.map { linuxPaths.contains($0) } ?? false) {
+                return nil
+            }
+            return ref
+        }
+        func scrubSnapshot(_ snap: ToolSnapshot?) -> ToolSnapshot? {
+            guard let snap else { return nil }
+            let mediaRef = scrubRef(snap.mediaRef)
+            guard mediaRef != snap.mediaRef else { return snap }
+            return ToolSnapshot(type: snap.type, text: snap.text,
+                                mediaRef: mediaRef, duration: snap.duration)
+        }
+        var rewritten = 0
+        for msg in loadMessages(sessionId: sessionId) {
+            var parts = msg.parts
+            var changed = false
+            // Drop mediaRef parts pointing at a deleted file.
+            let beforeCount = parts.count
+            parts.removeAll { part in
+                guard case .mediaRef(let ref) = part else { return false }
+                return relPaths.contains(ref.relativePath)
+                    || (ref.linuxPath.map { linuxPaths.contains($0) } ?? false)
+            }
+            if parts.count != beforeCount { changed = true }
+            // Strip <file> elements for deleted files out of the XML block.
+            for i in parts.indices {
+                guard case .text(let s) = parts[i], s.contains("<user-attached-files>") else { continue }
+                if let scrubbed = Self.stripDeletedFiles(fromAttachedFilesXML: s, linuxPaths: linuxPaths), scrubbed != s {
+                    parts[i] = .text(scrubbed)
+                    changed = true
+                }
+            }
+            // Scrub refs nested in tool results: a screenshot action
+            // persists its image as tr.mediaRef (re-sent to the model on
+            // reload) and a browser screenshot as tr.snapshot.mediaRef.
+            // Drop the matching ref (nil); the rest of the result — output
+            // text, success, pageURL, status — stays, so the part itself
+            // is never removed.
+            for i in parts.indices {
+                guard case .toolResult(let tr) = parts[i] else { continue }
+                let newMediaRef = scrubRef(tr.mediaRef)
+                let newSnapshot = scrubSnapshot(tr.snapshot)
+                guard newMediaRef != tr.mediaRef || newSnapshot != tr.snapshot else { continue }
+                parts[i] = .toolResult(ToolResult(
+                    toolUseId: tr.toolUseId,
+                    output: tr.output,
+                    success: tr.success,
+                    mediaRef: newMediaRef,
+                    snapshot: newSnapshot,
+                    pageURL: tr.pageURL,
+                    status: tr.status
+                ))
+                changed = true
+            }
+            guard changed else { continue }
+            // Never persist a part-less row: a message that was only a media
+            // ref keeps a single empty text part so reload still yields a row.
+            if parts.isEmpty { parts = [.text("")] }
+            updateMessageParts(messageId: msg.id, parts: parts)
+            rewritten += 1
+        }
+        if rewritten > 0 {
+            logger.info("[purgeDeletedFileReferences] session=\(sessionId.prefix(8)) rows=\(rewritten) files=\(sessionRelativePaths.count)")
+        }
+        return rewritten
+    }
+
+    /// Remove `<file path="..."/>` elements whose path is in `linuxPaths`
+    /// from a `<user-attached-files>` block, and drop the whole block when
+    /// no `<file>` entries remain. Also handles the legacy `- path: ...`
+    /// YAML lines (removing the entry's `size:` / `modified:` lines with
+    /// it). Returns nil when the text holds no such block, and the input
+    /// unchanged when nothing in the block matches.
+    static func stripDeletedFiles(fromAttachedFilesXML text: String, linuxPaths: Set<String>) -> String? {
+        guard let openRange = text.range(of: "<user-attached-files>") else { return nil }
+        let closeTag = "</user-attached-files>"
+        let body: String
+        let endBound: String.Index
+        let hasClose: Bool
+        if let closeRange = text.range(of: closeTag) {
+            body = String(text[openRange.upperBound..<closeRange.lowerBound])
+            endBound = closeRange.upperBound
+            hasClose = true
+        } else {
+            body = String(text[openRange.upperBound...])
+            endBound = text.endIndex
+            hasClose = false
+        }
+        var newBody = body
+        if body.contains("<file ") {
+            let pattern = #"<file\s+path="([^"]*)"(?:\s+url="[^"]*")?(?:\s+size="[^"]*")?(?:\s+modified="[^"]*")?\s*/>"#
+            guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
+            let nsBody = body as NSString
+            let matches = re.matches(in: body, range: NSRange(location: 0, length: nsBody.length))
+            var mutable = body
+            for match in matches.reversed() {
+                let pathRange = match.range(at: 1)
+                guard pathRange.location != NSNotFound else { continue }
+                guard linuxPaths.contains(nsBody.substring(with: pathRange)) else { continue }
+                var removeRange = match.range
+                // Swallow one trailing newline so no blank line is left behind.
+                let end = removeRange.location + removeRange.length
+                if end < (mutable as NSString).length, (mutable as NSString).character(at: end) == 0x0A {
+                    removeRange.length += 1
+                }
+                mutable = (mutable as NSString).replacingCharacters(in: removeRange, with: "")
+            }
+            newBody = mutable
+        } else if body.contains("- path: ") {
+            // Legacy YAML format: "- path: X" lines with following size: / modified: lines.
+            var out: [String] = []
+            let lines = body.components(separatedBy: "\n")
+            var i = 0
+            while i < lines.count {
+                let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("- path: "),
+                   linuxPaths.contains(String(trimmed.dropFirst("- path: ".count))) {
+                    i += 1
+                    while i < lines.count {
+                        let t = lines[i].trimmingCharacters(in: .whitespaces)
+                        if t.hasPrefix("size: ") || t.hasPrefix("modified: ") { i += 1 } else { break }
+                    }
+                    continue
+                }
+                out.append(lines[i])
+                i += 1
+            }
+            newBody = out.joined(separator: "\n")
+        }
+        // No entries left — drop the whole block.
+        if !newBody.contains("<file ") && !newBody.contains("- path: ") {
+            let head = String(text[..<openRange.lowerBound])
+            let tail = String(text[endBound...])
+            return (head + tail).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var result = String(text[..<openRange.lowerBound]) + "<user-attached-files>" + newBody
+        if hasClose { result += closeTag }
+        result += String(text[endBound...])
+        return result
+    }
+
     /// [F7] Load one message row's parts, for the offload stub write-back.
     /// Returns nil when the row does not exist or its parts cannot be decoded.
     /// Mirrors replaceTextPartContainingCode's SELECT pattern.
