@@ -96832,6 +96832,52 @@
         }
       }
     },
+    "Switch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換"
+          }
+        }
+      }
+    },
+    "Switch Persona?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Persona?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换人设？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換人設？"
+          }
+        }
+      }
+    },
     "Switch the speaking voice to System?": {
       "extractionState": "manual",
       "localizations": {
@@ -97268,6 +97314,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "已切到這條回覆，剛才的朗讀停了。"
+          }
+        }
+      }
+    },
+    "Switching to %@ will close “%@”. You can switch back to reopen it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switching to %@ will close “%@”. You can switch back to reopen it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到“%@”会关闭“%@”。可以随时切回来重新打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換到「%@」會關閉「%@」。可以隨時切回來重新打開。"
           }
         }
       }

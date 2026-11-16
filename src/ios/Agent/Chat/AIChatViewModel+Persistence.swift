@@ -1141,8 +1141,8 @@ extension AIChatViewModel {
     /// most once per draft no matter how many callers are waiting.
     private func createSessionForDraft() async -> String {
         let model = selectedModel
-        // ［persona］新会话打上"草稿锁定的"人设（createDraft 已锁定；未走
-        // createDraft 的路径——如测试直建——再回退当前人设）。[batch9e / W2B-12]
+        // ［persona］新会话打上草稿当时的人设（draft 在首发前跟随当前人
+        // 设，见 S26；未走 createDraft 的路径——如测试直建——再回退当前人设）。
         let lockedPersona = sessionPersonaId ?? PersonaStore.currentID()
         // [S1] The checked variant returns nil when the INSERT fails — the
         // old call returned a phantom session that existed nowhere, and

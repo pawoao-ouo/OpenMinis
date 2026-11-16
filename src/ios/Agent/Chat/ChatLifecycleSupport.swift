@@ -437,9 +437,11 @@ final class ViewModelCache {
     /// Create a fresh (uncached) ViewModel for draft sessions (nil sessionId).
     func createDraft() -> AIChatViewModel {
         let vm = AIChatViewModel()
-        // [batch9e / W2B-12] 草稿创建即锁定人设：此后全局切换不再改变这个草稿
-        // 的身份（身份段 / 工具白名单 / 记忆目录 / 最终落库全程一致）。想给
-        // 别的人设开新会话 → 先切换，再新建。
+        // [batch9e / W2B-12, revised by S26] 草稿创建时按当前人设起一个
+        // 初始身份（身份段 / 工具白名单 / 记忆目录 / 最终落库全程一致），
+        // 但草稿在首发前跟随全局切换（AIChatView 的 .personaDidChange
+        // 处理里重指 sessionPersonaId）——没有已持久化的会话可锁，
+        // 回答的人必须和界面显示的人是同一个。首发落库后会话才锁定人设。
         vm.sessionPersonaId = PersonaStore.currentID()
         logger.info("🔄SESSION ViewModelCache createDraft vm=\(vm.vmInstanceId) persona=\(vm.sessionPersonaId?.prefix(8) ?? "nil")")
         return vm

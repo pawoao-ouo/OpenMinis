@@ -2454,6 +2454,20 @@ struct AIChatView: View {
                         refreshSoulName()
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .personaDidChange)) { _ in
+                        // [S26] A draft has no persisted session yet, so it
+                        // follows the current persona until first send — the
+                        // persona that answers is the one the UI shows.
+                        // A persisted session keeps its own locked persona
+                        // (loadSession re-reads it from SQLite), and a draft
+                        // mid-generation keeps the persona that started the
+                        // turn. Everything persona-bound (system prompt,
+                        // memory, skills, tool whitelist) is derived live
+                        // from sessionPersonaId at send time, so re-pointing
+                        // it is the whole fix — no other draft state is
+                        // snapshotted at creation.
+                        if vm.sessionId == nil, !vm.isProcessing {
+                            vm.sessionPersonaId = PersonaStore.currentID()
+                        }
                         refreshSoulName()
                     }
             }

@@ -1054,6 +1054,12 @@ struct ContentView: View {
     /// [S7/S8] User-facing notice shown when a session could not be deleted
     /// or was found missing. Rendered by the `.alert` attached in `body`.
     @State private var sessionNoticeMessage: String?
+    /// [S27] A persona switch that would close the open chat waits for the
+    /// user here instead of ejecting silently. Tuple, same shape as the
+    /// folder alerts' `renameCollision`: old persona id (to switch back to
+    /// on cancel), new persona name and open session title for the message.
+    /// Rendered by the `.alert` attached in `body`.
+    @State private var pendingPersonaSwitch: (oldPersonaId: String, newPersonaName: String, sessionTitle: String)?
     /// FAB position preference: false = right (default), true = left.
     /// Current drag offset of the FAB (reset to 0 on drop).
     @State private var fabDragOffset: CGFloat = 0
@@ -1383,6 +1389,24 @@ struct ContentView: View {
             } message: { notice in
                 Text(notice)
             }
+            // [S27] Persona switch that would close the open chat: ask
+            // first. Switching proceeds only on confirm; cancelling
+            // restores the old persona. The message names the chat that
+            // would close — the session itself persists and reopens when
+            // the user switches back.
+            .alert(
+                AppLocalized("Switch Persona?"),
+                isPresented: Binding(
+                    get: { pendingPersonaSwitch != nil },
+                    set: { if !$0 { pendingPersonaSwitch = nil } }
+                ),
+                presenting: pendingPersonaSwitch
+            ) { _ in
+                Button(AppLocalized("Cancel"), role: .cancel) { cancelPendingPersonaSwitch() }
+                Button(AppLocalized("Switch")) { confirmPendingPersonaSwitch() }
+            } message: { pending in
+                Text(AppLocalized("Switching to \(pending.newPersonaName) will close “\(pending.sessionTitle)”. You can switch back to reopen it."))
+            }
     }
 
     /// [T-ios-task-typecheck-overflow] The body's modifier chain used to be
@@ -1425,10 +1449,13 @@ struct ContentView: View {
                 refreshSessionList()
             }
         }
-        // ［persona］人设切换 → 会话列表按新的人设重查。
+        // ［persona］人设切换 → 先问会不会关掉正在打开的会话（S27），
+        // 再按新的人设重查列表。The handler body lives in
+        // handlePersonaDidChange() — a one-line closure here keeps this
+        // modifier chain small enough for the type-checker.
         .onReceive(NotificationCenter.default.publisher(for: .personaDidChange)) { _ in
             Task { @MainActor in
-                refreshSessionList()
+                handlePersonaDidChange()
             }
         }
         // [S8] A session turned out to be gone when something tried to
@@ -4226,6 +4253,83 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
     }
 
+    /// [S27] Persona-change entry point. A switch normally re-lists sessions
+    /// under the new persona and `clearSelectionIfDangling()` drops the open
+    /// chat when it belongs to the old persona — with no warning. When the
+    /// switch would close the open session, ask first; the list refresh waits
+    /// for the answer. Cancelling restores the old persona (the switch already
+    /// landed in the store when this notification fired), so the user stays in
+    /// their chat. The cross-persona selection rule itself is untouched —
+    /// whether a session may stay selected across a switch is the pending S28
+    /// product decision.
+    @MainActor
+    private func handlePersonaDidChange() {
+        // A confirm is already up: don't clobber it with a newer switch —
+        // the user answers the one on screen, and the refresh after their
+        // answer re-lists under whatever the current persona is then.
+        guard pendingPersonaSwitch == nil else { return }
+        if let pending = personaSwitchThatWouldCloseOpenSession() {
+            pendingPersonaSwitch = pending
+            return
+        }
+        refreshSessionList()
+    }
+
+    /// The open session's persona vs the new current persona: returns the
+    /// confirm-dialog payload when the switch would eject the open session,
+    /// nil when nothing would close — no open session, a draft (drafts are
+    /// never ejected by clearSelectionIfDangling; S26 covers their persona),
+    /// same persona, the open session isn't in the pre-refresh list so
+    /// its persona is unknown (then the plain refresh runs, as before), or
+    /// the open session's persona no longer exists — deleted, whose
+    /// .personaDidChange is not a switch and has nothing to switch back to.
+    @MainActor
+    private func personaSwitchThatWouldCloseOpenSession() -> (oldPersonaId: String, newPersonaName: String, sessionTitle: String)? {
+        guard let sel = selectedSessionId, !Self.isNewSessionId(sel) else { return nil }
+        guard let open = sessions.first(where: { $0.id == sel }) else { return nil }
+        let openPersonaId = open.personaId ?? PersonaStore.defaultPersonaID
+        let newPersonaId = PersonaStore.currentID()
+        guard openPersonaId != newPersonaId else { return nil }
+        let newName = PersonaStore.shared.personas.first(where: { $0.id == newPersonaId })?.name ?? newPersonaId
+        // [S27] A deleted persona also posts .personaDidChange (deletePersona
+        // resets current to default and broadcasts), but that is not a switch:
+        // the persona and its sessions are gone, so there is nothing to
+        // confirm and no persona to switch back to. Only ask when the open
+        // session's persona still exists. The default persona is undeletable
+        // (deletePersona guards it) and always seeded, so it counts as
+        // existing even if the registry list were ever short.
+        guard openPersonaId == PersonaStore.defaultPersonaID
+            || PersonaStore.shared.personas.contains(where: { $0.id == openPersonaId }) else { return nil }
+        let title = open.title.flatMap { $0.isEmpty ? nil : $0 } ?? AppLocalized("Untitled")
+        return (oldPersonaId: openPersonaId, newPersonaName: newName, sessionTitle: title)
+    }
+
+    /// [S27] User confirmed the switch: refresh under the new persona; the
+    /// open session is ejected by clearSelectionIfDangling(), as before.
+    @MainActor
+    private func confirmPendingPersonaSwitch() {
+        pendingPersonaSwitch = nil
+        refreshSessionList()
+    }
+
+    /// [S27] User cancelled the switch: restore the old persona. setCurrent
+    /// re-posts .personaDidChange; the handler then sees the open session
+    /// belongs to the current persona and refreshes normally instead of
+    /// asking again. But setCurrent silently no-ops when the id is gone from
+    /// personas (its guard) — e.g. the persona was deleted while the dialog
+    /// was up — so in that case fall back to a plain refresh instead of
+    /// leaving the stale old-persona list behind with nothing to show for it.
+    @MainActor
+    private func cancelPendingPersonaSwitch() {
+        guard let pending = pendingPersonaSwitch else { return }
+        pendingPersonaSwitch = nil
+        if PersonaStore.shared.personas.contains(where: { $0.id == pending.oldPersonaId }) {
+            PersonaStore.shared.setCurrent(pending.oldPersonaId)
+        } else {
+            refreshSessionList()
+        }
+    }
+
     /// [T-ios-listsessions-refresh-coalesce] Single serialized entry point for
     /// refreshing `sessions` from the store. If a refresh is already running,
     /// mark one trailing run pending instead of spawning a concurrent Task —
@@ -4238,11 +4342,18 @@ struct ContentView: View {
             return
         }
         sessionRefreshInFlight = true
+        // [S29] Pin the persona for this run: listSessions() defaults to the
+        // *current* persona, so a switch landing while this Task awaits the
+        // store would make the refresh list — and clear the selection — under
+        // the NEW persona, jumping the S27 confirm gate. The pinned list is
+        // the persona the refresh started under; the personaDidChange
+        // handler asks about the switch separately.
+        let refreshPersonaId = PersonaStore.currentID()
         Task(priority: .utility) { @MainActor in
             // [batch7][T-p1-delegate-task] Sub agent child sessions are
             // reachable only through their parent (the transcript sheet) —
             // never as top-level conversations.
-            sessions = await ChatStore.shared.listSessions().filter { !$0.isChild }
+            sessions = await ChatStore.shared.listSessions(personaId: refreshPersonaId).filter { !$0.isChild }
             folders = await ChatStore.shared.listFolders()
             clearSelectionIfDangling()
             sessionRefreshInFlight = false
@@ -4259,6 +4370,12 @@ struct ContentView: View {
     /// 会停在一个已不存在的会话上（死内容）。草稿态由状态机自管：未持久化的
     /// 草稿（newSessionRealId == nil）不在此清理。
     private func clearSelectionIfDangling() {
+        // [S27] A persona-switch confirm is on screen: the user hasn't
+        // decided whether the open chat may close. Never eject while the
+        // dialog is up — an in-flight refresh that started before the
+        // switch would otherwise jump the gate. The answer's refresh
+        // re-runs this check.
+        guard pendingPersonaSwitch == nil else { return }
         guard let sel = selectedSessionId else { return }
         if Self.isNewSessionId(sel) {
             if let real = newSessionRealId, !sessions.contains(where: { $0.id == real }) {
@@ -4310,7 +4427,20 @@ struct ContentView: View {
     @MainActor
     private func scheduleCooldownSessionRefresh(after delay: TimeInterval) {
         sessionRefreshCooldownWork?.cancel()
-        let work = DispatchWorkItem { requestSessionRefresh() }
+        // [S29] Tag the deferred refresh with the session/persona that
+        // requested it. A refresh deferred across a session or persona
+        // switch must not fire under the new identity: it would refresh the
+        // wrong list and could clear the wrong selection through
+        // clearSelectionIfDangling(). On fire, run only if the tag still
+        // matches; otherwise drop it — the new session/persona schedules
+        // its own refresh when it has updates.
+        let taggedSessionId = selectedSessionId
+        let taggedPersonaId = PersonaStore.currentID()
+        let work = DispatchWorkItem {
+            guard taggedSessionId == self.selectedSessionId,
+                  taggedPersonaId == PersonaStore.currentID() else { return }
+            requestSessionRefresh()
+        }
         sessionRefreshCooldownWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }

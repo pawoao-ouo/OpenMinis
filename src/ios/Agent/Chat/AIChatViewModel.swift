@@ -2179,8 +2179,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         didSet { browserTabPool.sessionId = sessionId }
     }
 
-    /// ［persona］本会话归属的人设 id。loadSession / 建会话时落定；
-    /// prompt 组装（身份段、记忆、skill）都按它取，不跟随切换。
+    /// ［persona］本会话归属的人设 id。已持久化的会话在 loadSession /
+    /// 建会话时落定，不跟随切换；草稿（sessionId == nil）在首发前跟随
+    /// 当前人设（S26）。prompt 组装（身份段、记忆、skill）都按它取。
     var sessionPersonaId: String?
 
     /// In-flight draft-session creation, shared by concurrent
