@@ -31,11 +31,12 @@ enum SessionBadgeState: String, Codable {
 
     /// [T-ios-session-unread-badge] A background task finished and posted its
     /// completion notification, so this session has an unread new message.
-    /// Cleared the moment the user opens the session (loadSession). Rendered as
-    /// a small red dot at the icon's TOP-trailing corner — a different corner
-    /// from `.paused` (bottom-trailing), so the two can coexist. Intentionally
-    /// NOT persisted (see `persist()`): it's a transient, lightweight hint that
-    /// is fine to lose on relaunch.
+    /// Cleared once the session's content has actually loaded AND is
+    /// displayed (S33) — not on open, not on selection. Rendered as a
+    /// small red dot at the icon's TOP-trailing corner — a different corner
+    /// from `.paused` (bottom-trailing), so the two can coexist.
+    /// [S32] Persisted like every other badge state: the dot survives
+    /// relaunch until the user actually reads the session.
     case unread
 }
 
@@ -63,6 +64,17 @@ final class SessionBadgeStore: ObservableObject {
 
     private init() {
         restore()
+        // [S32] Prune dots for sessions that no longer exist, so the
+        // restored badge list and the session list agree. Async: the
+        // store is a MainActor singleton whose init is synchronous, and
+        // ChatStore is an actor. A nil id set means "unknown" (DB not
+        // ready) — never prune on that, or a slow launch would wipe
+        // every dot. The prune is idempotent.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let ids = await ChatStore.shared.existingSessionIds() else { return }
+            self.pruneUnknownSessions(existingIds: ids)
+        }
     }
 
     // MARK: - Query
@@ -418,21 +430,22 @@ final class SessionBadgeStore: ObservableObject {
         // Encode [String: [String]] (rawValues) so a future enum-case addition
         // can't fail to decode the whole store — unknown cases are skipped on
         // restore instead.
-        // [T-ios-session-unread-badge] `.unread` is a transient hint that must
-        // not survive relaunch (a completed-in-background task the user hasn't
-        // read yet should not re-flag a red dot forever). Strip it before
-        // encoding; queues that held only `.unread` drop out entirely.
+        // [S32] `.unread` is persisted like every other state: a dot is a
+        // promise ("something finished here while you were away") and must
+        // survive relaunch until the user actually reads the session (S33).
+        // Dots for sessions that no longer exist are pruned on restore
+        // (see pruneUnknownSessions), not by stripping at write time.
         let raw = badgeStates
-            .mapValues { $0.filter { $0 != .unread }.map(\.rawValue) }
+            .mapValues { $0.map(\.rawValue) }
             .filter { !$0.value.isEmpty }
         if let data = try? JSONEncoder().encode(raw) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
         }
-        // Entry stamps ride a parallel key with the same strip-unread rule.
+        // Entry stamps ride a parallel key with the same rule.
         let rawTs = badgeTimestamps
             .mapValues { perState -> [String: Double] in
                 var out: [String: Double] = [:]
-                for (state, date) in perState where state != .unread {
+                for (state, date) in perState {
                     out[state.rawValue] = date.timeIntervalSince1970
                 }
                 return out
@@ -466,5 +479,19 @@ final class SessionBadgeStore: ObservableObject {
             }
             badgeTimestamps = ts
         }
+    }
+
+    // MARK: - Pruning
+
+    /// [S32] Drops badge + timestamp entries for sessions that no longer
+    /// exist, so the restored dot list and the session list agree. Only
+    /// prunes when the caller hands in a real id set; a nil set (DB not
+    /// ready) must never reach this method — see init.
+    func pruneUnknownSessions(existingIds: Set<String>) {
+        let before = badgeStates.count + badgeTimestamps.count
+        badgeStates = badgeStates.filter { existingIds.contains($0.key) }
+        badgeTimestamps = badgeTimestamps.filter { existingIds.contains($0.key) }
+        guard badgeStates.count + badgeTimestamps.count != before else { return }
+        persist()
     }
 }

@@ -1100,6 +1100,29 @@ actor ChatStore {
         return sqlite3_step(stmt) == SQLITE_ROW ? Int(sqlite3_column_int64(stmt, 0)) : 0
     }
 
+    /// [S32] All live session ids, for pruning badge state that outlived its
+    /// session. Read-only, no schema change. Separate from the existing
+    /// `allSessionIds() -> [String]` (which returns [] when the query
+    /// cannot even prepare): this one returns nil in that case, so callers
+    /// can treat nil as "unknown" and prune nothing, never as "no
+    /// sessions" — an empty set on a not-ready DB would wipe every dot.
+    /// Empty ids (NULL/blank rows — see the
+    /// [T-ios-listsessions-cstring-trap] note below) are skipped, so a
+    /// dirty row can never wipe real dots. Uses the safe `colText`
+    /// reader, not `String(cString:)`.
+    func existingSessionIds() -> Set<String>? {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT id FROM sessions", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        var ids: Set<String> = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let id = Self.colText(stmt, 0)
+            guard !id.isEmpty else { continue }
+            ids.insert(id)
+        }
+        return ids
+    }
+
     // MARK: - Safe column readers
 
     // [T-ios-listsessions-cstring-trap] `String(cString:)` traps the process on a

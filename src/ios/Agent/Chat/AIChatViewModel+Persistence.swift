@@ -124,6 +124,15 @@ extension AIChatViewModel {
             // is still false, the detail page shows no "Interrupted" banner
             // even though the list shows ⏸. Re-run the lightweight check here.
             recheckCanResumeFromHistory()
+            // [S33] Cached VM re-enter: the content is already in memory
+            // and displayed, and loadSession's end-of-load clear does not
+            // run on this path — so clear here instead. Live gate only:
+            // this reload is dispatched from a view that is showing this
+            // session (or from a deferred drain on a detached VM, where
+            // activeSessionId != sessionId and the dot must stay).
+            if Self.activeSessionId == sessionId {
+                SessionBadgeStore.shared.remove(.unread, for: sessionId)
+            }
         }
     }
 
@@ -131,6 +140,14 @@ extension AIChatViewModel {
     /// matching how they appeared during the live session.
     func loadSession() async {
         guard let sessionId else { return }
+
+        // [S33] Snapshot the "user is viewing this session" signal BEFORE
+        // the load starts. The unread dot is cleared only at the END of a
+        // successful load, and only if the user was already viewing this
+        // session when the load began AND is still viewing it when the
+        // load lands. A background/child/intent load must never clear a
+        // dot for a session the user is not looking at.
+        let wasActiveAtStart = Self.activeSessionId == sessionId
 
         // [S8] A deleted / missing session must not open as a blank chat the
         // user can type into. Check existence first: when the row is gone,
@@ -188,12 +205,24 @@ extension AIChatViewModel {
         let stack = Thread.callStackSymbols.prefix(10).joined(separator: " | ")
         logger.info("[ReloadTrace] loadSession() → spinner ON sid=\(sessionId.prefix(8)) callerStack=\(stack)")
 
-        Self.activeSessionId = sessionId
-        // [T-ios-session-unread-badge] Opening the session reads its new message,
-        // so clear the transient red "unread" dot. Only `.unread` is removed; the
+        // [S33] `activeSessionId` is owned by the view/selection layer
+        // (AIChatView.onAppear and ContentView's selectedSessionId
+        // onChange set it before any load is dispatched). A load must
+        // NEVER claim it: most loadSession callers are NOT the displayed
+        // session — sub-agent child VMs, Shortcut intents, scheduled/job
+        // runners, debug RPC — and an unconditional assignment here used
+        // to hijack the "user is viewing" signal, which
+        // endBackgroundProcessing, the job-completion notice, the
+        // turn-done toast, and the unread clear all read. A displayed
+        // load re-affirms nothing; a background load claims nothing.
+        // (The S33 clear at the end of this method reads the live value
+        // instead, gated on wasActiveAtStart above.)
+        // [T-ios-session-unread-badge] No clear-on-open here any more
+        // (S33): the dot is cleared only after the content has actually
+        // loaded AND is displayed — see the gated clear at the end of
+        // this method. Only `.unread` is ever removed by it; the
         // `.paused` entry (a different concern) is left to its canResume-driven
         // lifecycle below.
-        SessionBadgeStore.shared.remove(.unread, for: sessionId)
         // [T-session-paused-badge-active-false-positive] No clear-on-open here:
         // merely opening an interrupted session doesn't resolve it. The PAUSED
         // badge is driven by `canResume` (AIChatViewModel's canResume didSet) —
@@ -246,6 +275,16 @@ extension AIChatViewModel {
         // Track the highest sortOrder and count so reload triggers fire for new or removed messages.
         lastKnownDbSortOrder = rawMessages.last?.sortOrder ?? 0
         lastKnownDbCount = rawMessages.count
+        // [T1] Set the unread-dot baseline HERE, the moment the DB rows
+        // are in hand — not after the history is built further down.
+        // rawMessages and the agentHistory built from them are 1:1 (every
+        // raw row appends one AgentMessage; bridge rows are skipped for
+        // the UI only, never for history), so the count is identical.
+        // Setting it late left a window where a turn ending on this VM
+        // saw the -1 initial value and re-badged a session the user had
+        // already read. The later assignment (see the
+        // [T-ios-unread-dot-reappears] note) re-asserts the same count.
+        lastBadgedAssistantTurnCount = rawMessages.reduce(0) { $0 + ($1.role == .assistant ? 1 : 0) }
         // [T-ios-token-usage-reload-per-iteration] Zero the session token
         // accumulators BEFORE the empty-session early return below, so switching
         // this vm from a non-empty session to an empty one doesn't leave the old
@@ -262,6 +301,14 @@ extension AIChatViewModel {
             // Still mount minis even for empty sessions so /var/minis works in terminal
             logger.info("🔍MOUNT loadSession empty-session fallback, still mounting for \(sessionId)")
             mountMinis(for: sessionId)
+            // [S33] An empty session has no content to read, so a dot here
+            // is stale by definition — clear it, but only under the same
+            // two-part gate as the end-of-load clear (was viewing when the
+            // load began AND still viewing now). The T1 baseline above is
+            // already 0 on this path, so no turn can re-badge it.
+            if wasActiveAtStart && Self.activeSessionId == sessionId {
+                SessionBadgeStore.shared.remove(.unread, for: sessionId)
+            }
             return
         }
 
@@ -872,6 +919,19 @@ extension AIChatViewModel {
         let totalElapsed = (CFAbsoluteTimeGetCurrent() - loadStart) * 1000
         let totalSinceAppear = (CFAbsoluteTimeGetCurrent() - Self.onAppearTimestamp) * 1000
         logger.info("[SessionLoad] \(sessionId) — TOTAL: \(String(format: "%.1f", totalElapsed))ms T+\(String(format: "%.0f", totalSinceAppear))ms [DB: \(String(format: "%.1f", dbElapsed)) | Build: \(String(format: "%.1f", buildElapsed)) | Snapshots: \(String(format: "%.1f", snapshotElapsed)) | Mount: \(String(format: "%.1f", mountElapsed))]")
+
+        // [S33] Clear the unread dot HERE — and only here (plus the
+        // empty-session early return above and the SKIP-LOAD branch):
+        // the content has actually loaded and the session is displayed.
+        // Two-part gate: the user was already viewing this session when
+        // the load began (wasActiveAtStart) AND is still viewing it now.
+        // If they navigated away mid-load, or this load ran on a
+        // background/child/intent VM, the dot stays until they really
+        // open the session. A failed load never reaches this line (the
+        // S8 early return above skips it, as does every throw path).
+        if wasActiveAtStart && Self.activeSessionId == sessionId {
+            SessionBadgeStore.shared.remove(.unread, for: sessionId)
+        }
     }
 
     /// [T-ios-paused-badge-desync] Lightweight interrupted-loop tail check.

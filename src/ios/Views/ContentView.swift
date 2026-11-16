@@ -1518,7 +1518,11 @@ struct ContentView: View {
             }
             previousSelectedSessionId = newValue
             if let sid = newValue {
-                SessionBadgeStore.shared.remove(.unread, for: sid)
+                // [S33] No clear-on-select here any more: selecting a
+                // session is not reading it — the detail view has not
+                // appeared and its content has not loaded. The dot is
+                // cleared by the VM once the load lands (see loadSession
+                // and the SKIP-LOAD branch in AIChatViewModel+Persistence).
                 AIChatViewModel.activeSessionId = sid
             } else {
                 AIChatViewModel.activeSessionId = nil
@@ -2295,7 +2299,11 @@ struct ContentView: View {
                             // [S3/S28] Link-tap opens bypass openSession, so
                             // record here too (draft ids filtered by helper).
                             recordLastOpenedSession(id)
-                            SessionBadgeStore.shared.remove(.unread, for: id)
+                            // [S33] No clear-on-appear here any more: the
+                            // view has appeared but its content has not
+                            // loaded yet. The dot is cleared by the VM once
+                            // the load lands (see loadSession and the
+                            // SKIP-LOAD branch in AIChatViewModel+Persistence).
                             shareLog.info("🔄SESSION stackNav APPEAR id=\(id)")
                         }
                         .onDisappear { shareLog.info("🔄SESSION stackNav DISAPPEAR id=\(id)") }
@@ -2572,7 +2580,11 @@ struct ContentView: View {
                 for s in m {
                     if !g.anyUnread, unreadIds.contains(s.id) { g.anyUnread = true }
                     if !g.anyActive, activeIds.contains(s.id) { g.anyActive = true }
-                    if !g.anyPaused, freshCornerIds.contains(s.id) { g.anyPaused = true }
+                    // [S34] Mirror the row's visibleBadge: a running session
+                    // suppresses its pause badge while spinning, so the
+                    // collapsed folder must not light for it either. The
+                    // 24h window is unchanged (documented intent).
+                    if !g.anyPaused, freshCornerIds.contains(s.id), !activeIds.contains(s.id) { g.anyPaused = true }
                     if g.anyUnread, g.anyActive, g.anyPaused { break }
                 }
             }

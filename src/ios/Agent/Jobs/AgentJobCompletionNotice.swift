@@ -47,7 +47,7 @@ final class AgentJobCompletionNotice {
         ) { note in
             // 观察闭包不在 main actor 隔离域内，跳回来再读 registry。
             Task { @MainActor in
-                AgentJobCompletionNotice.shared.handle(note)
+                await AgentJobCompletionNotice.shared.handle(note)
             }
         }
     }
@@ -63,7 +63,7 @@ final class AgentJobCompletionNotice {
 
     // MARK: - Handling
 
-    private func handle(_ note: Notification) {
+    private func handle(_ note: Notification) async {
         guard let jobId = note.object as? String else { return }
         guard !announced.contains(jobId) else { return }
         // `finish` 已经把这个 job 从 running/pending 挪走了，registry 里还在
@@ -76,6 +76,12 @@ final class AgentJobCompletionNotice {
         // 用户自己按的停止，不该再被提醒一遍。
         guard state != .cancelled else { return }
         guard let sessionId = targetSessionId(for: job), !sessionId.isEmpty else { return }
+
+        // [T2] 会话已经不存在了（删了 / 恢复失败），点它没有任何地方可去 —
+        // 别打点、别发通知。检查放在 announced.insert 之前：不存在的
+        // 会话不该占去重名额。失败的 job 不跳过：通知文案会写“失败了”，
+        // 用户点进去能看到失败原因（回调卡是否总会落下未验，见报告）。
+        guard await ChatStore.shared.sessionExists(id: sessionId) else { return }
 
         announced.insert(jobId)
         announcedOrder.append(jobId)
