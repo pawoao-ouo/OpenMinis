@@ -853,63 +853,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         lastFixedTokensModelId = model.id
     }
 
-    /// [F11] Count hidden system content in the history about to be sent:
-    /// bridge rows, system-reminder-only rows, the persona reminder, sub-agent
-    /// steers, and tool results / text carrying embedded system reminders.
-    /// None of these render as bubbles, so the user cannot see what the model
-    /// is being told. Counts in effectiveAgentHistory() — the same slice the
-    /// request sends — so compacted-away rows are not counted. Detection
-    /// mirrors RawMessage.isInternalBridge / isSystemReminderOnly (ChatStore)
-    /// and the persona marker (Persistence); the persona check comes first
-    /// because the persona reminder sits inside a system-reminder block.
-    /// Returns the hidden-message count and per-kind labels for the
-    /// disclosure line send() appends.
-    private func hiddenContextSummary() -> (total: Int, kinds: [String]) {
-        var bridge = 0, reminder = 0, persona = 0, steer = 0
-        for msg in effectiveAgentHistory() {
-            // Standalone hidden rows: a single text part that is a bridge
-            // note, a system reminder, the persona reminder, or a steer.
-            if msg.parts.count == 1, case .text(let text) = msg.parts[0] {
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.contains(Self.kPersonaReminderMarker) {
-                    persona += 1
-                    continue
-                }
-                if (trimmed.hasPrefix("[system-reminder>") && trimmed.hasSuffix("[/system-reminder>"))
-                    || trimmed.range(of: #"^<silent\s*/?>$"#, options: .regularExpression) != nil {
-                    reminder += 1
-                    continue
-                }
-                if msg.role == .assistant && RawMessage.isInternalBridgeText(trimmed) {
-                    bridge += 1
-                    continue
-                }
-                if trimmed.hasPrefix("[Course correction from the delegating agent]") {
-                    steer += 1
-                    continue
-                }
-            }
-            // Embedded reminders: a system-reminder block inside a tool
-            // result or a text part that the UI strips from display. One
-            // count per message, however many parts carry one.
-            for part in msg.parts {
-                if case .toolResult(_, _, let content, _, _, _, _, _) = part, content.contains("[system-reminder>") {
-                    reminder += 1
-                    break
-                }
-                if case .text(let text) = part, text.contains("[system-reminder>") {
-                    reminder += 1
-                    break
-                }
-            }
-        }
-        var kinds: [String] = []
-        if reminder > 0 { kinds.append("\(reminder) system reminder\(reminder == 1 ? "" : "s")") }
-        if persona > 0 { kinds.append("\(persona) persona reminder\(persona == 1 ? "" : "s")") }
-        if bridge > 0 { kinds.append("\(bridge) bridge note\(bridge == 1 ? "" : "s")") }
-        if steer > 0 { kinds.append("\(steer) sub-agent steer\(steer == 1 ? "" : "s")") }
-        return (bridge + reminder + persona + steer, kinds)
-    }
     /// Transient banner / toast message for in-loop notices (e.g. "older
     /// N image(s) elided from request to fit 25MB budget"). Set by the
     /// request-level image budget pass when it had to drop history images;
@@ -3001,21 +2944,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // its own append; this is the send path catching up, not a new mechanism.
         userMsg.inputAttachments = pendingAttachments
         messages.append(userMsg)
-
-        // [F11] Disclose hidden system content this turn will send: bridge
-        // rows, system reminders, the persona reminder, sub-agent steers,
-        // and tool results carrying embedded reminders reach the model with
-        // no UI trace. A system-info line (not persisted, not part of
-        // agentHistory) says how many and of what kind, so what the model is
-        // told is no longer invisible. Only when the count is > 0. The
-        // disclosure sits above the user's message because it describes the
-        // context the upcoming turn sends; retries re-send the same turn,
-        // whose line is already in the transcript above them.
-        let hidden = hiddenContextSummary()
-        if hidden.total > 0 {
-            let kindList = hidden.kinds.joined(separator: ", ")
-            appendSystemInfo("Also sent with this turn: \(hidden.total) hidden system message\(hidden.total == 1 ? "" : "s") (\(kindList)). They don't appear as bubbles.", icon: "eye.slash")
-        }
 
         // Snapshot and clear attachments synchronously so the UI clears immediately.
         // [S1-fix] Only a user send clears the composer; a programmatic send leaves
