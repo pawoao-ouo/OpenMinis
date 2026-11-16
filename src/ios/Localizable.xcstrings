@@ -39884,6 +39884,12 @@
             "state": "translated",
             "value": "加载失败"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "載入失敗"
+          }
         }
       }
     },
@@ -151385,6 +151391,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "未下載"
+          }
+        }
+      }
+    },
+    "Stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stale"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已过期"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已過期"
           }
         }
       }

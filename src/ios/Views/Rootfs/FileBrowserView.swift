@@ -536,14 +536,63 @@ private struct FilePreviewSheet: View {
         case .markdown:
             MarkdownFilePreview(url: resolved, item: item)
         case .html:
-            HTMLFilePreview(url: resolved)
+            DownloadGatedPreview(item: item, url: resolved) { HTMLFilePreview(url: $0) }
         case .text:
             TextFilePreview(url: resolved, item: item)
         case .quickLook:
-            QuickLookPreview(url: resolved)
+            DownloadGatedPreview(item: item, url: resolved) { QuickLookPreview(url: $0) }
         case .info:
             FileInfoView(item: item)
         }
+    }
+}
+
+/// Download gate for previews whose reader is the OS, not this app
+/// (QuickLook, WKWebView): a not-yet-downloaded placeholder must show a
+/// downloading spinner (then the real preview) or an error, instead of
+/// handing the placeholder to the system reader and previewing it as an
+/// empty/corrupt file. Same loading/failed states as the Markdown/Text
+/// previews. `ensureDownloaded` is a no-op for local files, so non-mount
+/// previews are unaffected.
+private struct DownloadGatedPreview<Content: View>: View {
+    let item: FileItem
+    let url: URL
+    @ViewBuilder let content: (URL) -> Content
+
+    @State private var gateState: GateState = .loading
+
+    private enum GateState {
+        case loading
+        case ready
+        case failed(String)
+    }
+
+    var body: some View {
+        Group {
+            switch gateState {
+            case .loading:
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed(let msg):
+                FileLoadErrorView(item: item, message: msg)
+            case .ready:
+                content(url)
+            }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        let url = self.url
+        let result: GateState = await Task.detached(priority: .userInitiated) {
+            do {
+                try MountedFolderCoordinator.ensureDownloaded(url)
+                return .ready
+            } catch {
+                return .failed(error.localizedDescription)
+            }
+        }.value
+        await MainActor.run { self.gateState = result }
     }
 }
 
@@ -627,7 +676,13 @@ private struct MarkdownFilePreview: View {
         let url = self.url
         let result: LoadState = await Task.detached(priority: .userInitiated) {
             do {
-                let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                // Route through the mount coordinator, not a bare read:
+                // for a not-yet-downloaded placeholder this triggers the
+                // download and waits (up to the coordinator's timeout)
+                // instead of reading 0 bytes and rendering an empty file.
+                // Off-mount it falls through to Data(contentsOf:), so
+                // non-mount previews are byte-identical.
+                let data = try MountedFolderCoordinator.read(at: url)
                 let text = String(data: data, encoding: .utf8)
                     ?? String(data: data, encoding: .isoLatin1)
                     ?? ""
@@ -701,6 +756,12 @@ private struct TextFilePreview: View {
         // Cap at 2 MB for safety — large files fall through to QuickLook elsewhere.
         let result: MarkdownFilePreview.LoadState = await Task.detached(priority: .userInitiated) {
             do {
+                // Same download gate as the Markdown preview: a
+                // not-yet-downloaded placeholder must trigger its download
+                // (and surface a timeout as .failed) instead of opening a
+                // 0-byte handle and rendering a blank file. No-op for
+                // local / already-downloaded files.
+                try MountedFolderCoordinator.ensureDownloaded(url)
                 let handle = try FileHandle(forReadingFrom: url)
                 defer { try? handle.close() }
                 let data = try handle.read(upToCount: 2 * 1024 * 1024) ?? Data()

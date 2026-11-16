@@ -981,6 +981,14 @@ final class MountedFoldersManager {
         activationStates[entry.id] = state
         cacheCanonicalPath(for: entry.id, url: url)
         mountLog.info("activated '\(entry.name)' -> \(url.path)")
+        // Same contents-materialisation check as the launch path
+        // (commitResolved): a freshly-added iCloud/NutStore/Aliyun-backed
+        // mount can resolve and acquire scope while stat() is ENOENT. The
+        // check runs off the main actor and, if the contents never
+        // materialize, downgrades to .contentsUnavailable + drops the mount
+        // from activeURLs, so the mount is never shown .active while
+        // pointing at nothing.
+        ensureContentsMaterialized(entry: entry, url: url, idPrefix: String(entry.id.uuidString.prefix(8)))
         return state
     }
 

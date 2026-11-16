@@ -190,6 +190,7 @@ struct MountedFoldersSettingsView: View {
             externalMountId: entry.id,
             isOSWritable: entry.isWritable,
             initialUserAllowWrite: entry.userAllowWrite,
+            activationState: model.state(for: entry.id),
             sharedFolderName: nil,
             initialVisibleInFiles: true,
             isReadOnlyFromFiles: false
@@ -280,10 +281,10 @@ private struct MountedFolderRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Image(systemName: "folder.fill")
-                    .foregroundStyle(MinisTheme.accent)
+                    .foregroundStyle(state.isActive ? MinisTheme.accent : MinisTheme.secondaryText)
                 Text(entry.name)
                     .font(.system(size: fontSettings.scaledApp(17), weight: .medium))
-                accessBadge
+                statusBadge
                 Spacer()
             }
             Text("/var/minis/mounts/\(entry.name)")
@@ -296,14 +297,49 @@ private struct MountedFolderRow: View {
                 .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                 .lineLimit(1)
                 .truncationMode(.middle)
+            // A failed mount says why, so a dead mount is not just a pill:
+            // the message comes from the activation error (empty when the
+            // state is only the missing-state fallback).
+            if case .failed(let message) = state, !message.isEmpty {
+                Text(verbatim: message)
+                    .font(.system(size: fontSettings.scaledApp(11)))
+                    .foregroundStyle(MinisTheme.destructive)
+                    .lineLimit(2)
+            }
         }
         .padding(.vertical, 2)
+    }
+
+    /// Status pill for this mount. When the mount is live it is the write
+    /// badge (R/W / Locked / Read-only); when it is not live the pill names
+    /// the activation state instead — a dead mount never claims R/W, and a
+    /// failed / stale / contents-unavailable mount no longer looks healthy.
+    @ViewBuilder
+    private var statusBadge: some View {
+        if state.isActive {
+            accessBadge
+        } else {
+            switch state {
+            case .active:
+                accessBadge // Unreachable (isActive above); keeps the switch exhaustive.
+            case .stale:
+                badgePill(text: AppLocalized("Stale"), color: .orange)
+            case .permissionDenied:
+                badgePill(text: AppLocalized("Denied"), color: .red)
+            case .failed:
+                badgePill(text: AppLocalized("Failed"), color: .red)
+            case .contentsUnavailable:
+                badgePill(text: AppLocalized("Not downloaded"), color: .orange)
+            }
+        }
     }
 
     /// Small pill reflecting the effective write state of this mount:
     /// - "R/W": the OS allows writes AND the user allowed writes
     /// - "Locked": the OS allows writes but the user set Allow Writes = off
     /// - "Read-only": the OS itself does not allow writes (user choice n/a)
+    /// Only shown when the mount is live (see statusBadge); a dead mount
+    /// shows its activation state instead.
     @ViewBuilder
     private var accessBadge: some View {
         if !entry.isWritable {

@@ -49,6 +49,12 @@ struct MountDetailContext: Equatable {
     let isOSWritable: Bool
     /// Current user-intent allow-writes flag.
     let initialUserAllowWrite: Bool
+    /// Activation state of this mount, when known. Nil for shared folders
+    /// (which have no activation step). Drives the status pill in the
+    /// header: a live mount keeps its write badge, a dead mount names its
+    /// state instead. Defaults to nil so call sites that have no state
+    /// (shared folders) compile unchanged.
+    let activationState: MountActivationState? = nil
 
     // Shared-folders-only state
     /// For shared folders: the UserDefaults key / subdir name.
@@ -176,6 +182,60 @@ struct MountDetailView: View {
 
     // MARK: - Sections
 
+    /// Status pill in the header, mirroring the row's language
+    /// (MountedFolderRow.statusBadge): a live mount keeps its write badge
+    /// (R/W / Locked / Read-only); a dead mount names its activation state
+    /// instead, so a dead mount never claims R/W here either. Nil (shared
+    /// folders, which have no activation step) shows nothing.
+    @ViewBuilder
+    private var statusPill: some View {
+        if let state = context.activationState {
+            if state.isActive {
+                writeBadge
+            } else {
+                switch state {
+                case .active:
+                    writeBadge // Unreachable (isActive above); keeps the switch exhaustive.
+                case .stale:
+                    badgePill(text: AppLocalized("Stale"), color: .orange)
+                case .permissionDenied:
+                    badgePill(text: AppLocalized("Denied"), color: .red)
+                case .failed:
+                    badgePill(text: AppLocalized("Failed"), color: .red)
+                case .contentsUnavailable:
+                    badgePill(text: AppLocalized("Not downloaded"), color: .orange)
+                }
+            }
+        }
+    }
+
+    /// Write badge for a live mount, mirroring the row's accessBadge:
+    /// "R/W" when the OS and the user both allow writes, "Locked" when
+    /// the user turned Allow Writes off, "Read-only" when the OS itself
+    /// forbids writes. Reads the saved context values (not the pending
+    /// toggle), same as the row reads the saved entry.
+    @ViewBuilder
+    private var writeBadge: some View {
+        if !context.isOSWritable {
+            badgePill(text: AppLocalized("Read-only"), color: .orange)
+        } else if !context.initialUserAllowWrite {
+            badgePill(text: AppLocalized("Locked"), color: .purple)
+        } else {
+            badgePill(text: AppLocalized("R/W"), color: .green)
+        }
+    }
+
+    private func badgePill(text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: fontSettings.scaledApp(11), weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                Capsule().strokeBorder(color.opacity(0.5), lineWidth: 1)
+            )
+    }
+
     private var headerSection: some View {
         Section {
             HStack(alignment: .top, spacing: 12) {
@@ -187,6 +247,7 @@ struct MountDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(context.initialName)
                         .font(.system(size: fontSettings.scaledApp(17), weight: .semibold))
+                    statusPill
                     Text(context.linuxPath)
                         .font(.system(size: fontSettings.scaledApp(12)).monospaced())
                         .foregroundStyle(MinisTheme.secondaryText)
@@ -202,6 +263,15 @@ struct MountDetailView: View {
                         Text(subtitle)
                             .font(.system(size: fontSettings.scaledApp(11)))
                             .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
+                    }
+                    // A failed mount says why, mirroring the row: the message
+                    // comes from the activation error (empty when the state
+                    // is only the missing-state fallback).
+                    if case .failed(let message) = context.activationState, !message.isEmpty {
+                        Text(verbatim: message)
+                            .font(.system(size: fontSettings.scaledApp(11)))
+                            .foregroundStyle(MinisTheme.destructive)
+                            .lineLimit(2)
                     }
                 }
                 Spacer()
