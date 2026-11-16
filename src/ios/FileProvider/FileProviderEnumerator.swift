@@ -91,7 +91,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         // bug. Instead, replay every current item via `didUpdate` and finish
         // with the new anchor: iOS dedups by itemIdentifier and refreshes
         // metadata for items that already existed, while picking up newly-
-        // appeared ones — plus `didDelete` for anything that vanished.
+        // appeared ones — plus `didDeleteItems(withIdentifiers:)` for anything that vanished.
         let previousIDs = EnumeratorSnapshotStore.identifiers(forKey: snapshotKey) ?? []
         let deletedIDs = previousIDs.subtracting(currentIDs).sorted()
         if !deletedIDs.isEmpty {
@@ -99,7 +99,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
                    log: Self.log, type: .info,
                    containerItemIdentifier.rawValue, deletedIDs.count)
             FPSyncTraceLog.log("enumerateChanges id=\(containerItemIdentifier.rawValue) deleted=\(deletedIDs.count)")
-            observer.didDelete(deletedIDs.map { NSFileProviderItemIdentifier($0) })
+            observer.didDeleteItems(withIdentifiers: deletedIDs.map { NSFileProviderItemIdentifier($0) })
         }
         observer.didUpdate(items)
         observer.finishEnumeratingChanges(upTo: currentAnchor, moreComing: false)
@@ -326,7 +326,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
 // MARK: - Enumeration snapshot store (C1)
 
 /// Persists the last listing reported to Files, per enumerator, so
-/// `enumerateChanges` can report deletions via `didDelete`.
+/// `enumerateChanges` can report deletions via `didDeleteItems(withIdentifiers:)`.
 ///
 /// Why disk, not instance state: the system creates a fresh
 /// `FileProviderEnumerator` per enumeration request, so an instance snapshot
