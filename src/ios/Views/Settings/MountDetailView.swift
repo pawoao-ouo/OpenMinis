@@ -62,6 +62,46 @@ struct MountDetailContext: Equatable {
     let initialVisibleInFiles: Bool
     /// Read-only badge for shared folders (skills/memory are read-only from Files).
     let isReadOnlyFromFiles: Bool
+
+    /// Explicit initializer: the memberwise one does not accept
+    /// `activationState` (a defaulted property), so the external-mount
+    /// call site cannot pass it. This init takes every field, with
+    /// `activationState` defaulting to nil for shared folders.
+    init(
+        kind: MountDetailKind,
+        linuxPath: String,
+        sourceDisplayName: String?,
+        hostURL: URL,
+        iconName: String,
+        iconColor: Color,
+        subtitle: String?,
+        initialName: String,
+        canRename: Bool,
+        externalMountId: UUID?,
+        isOSWritable: Bool,
+        initialUserAllowWrite: Bool,
+        activationState: MountActivationState? = nil,
+        sharedFolderName: String?,
+        initialVisibleInFiles: Bool,
+        isReadOnlyFromFiles: Bool
+    ) {
+        self.kind = kind
+        self.linuxPath = linuxPath
+        self.sourceDisplayName = sourceDisplayName
+        self.hostURL = hostURL
+        self.iconName = iconName
+        self.iconColor = iconColor
+        self.subtitle = subtitle
+        self.initialName = initialName
+        self.canRename = canRename
+        self.externalMountId = externalMountId
+        self.isOSWritable = isOSWritable
+        self.initialUserAllowWrite = initialUserAllowWrite
+        self.activationState = activationState
+        self.sharedFolderName = sharedFolderName
+        self.initialVisibleInFiles = initialVisibleInFiles
+        self.isReadOnlyFromFiles = isReadOnlyFromFiles
+    }
 }
 
 struct MountDetailView: View {
