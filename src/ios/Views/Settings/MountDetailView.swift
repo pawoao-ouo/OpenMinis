@@ -52,9 +52,11 @@ struct MountDetailContext: Equatable {
     /// Activation state of this mount, when known. Nil for shared folders
     /// (which have no activation step). Drives the status pill in the
     /// header: a live mount keeps its write badge, a dead mount names its
-    /// state instead. Defaults to nil so call sites that have no state
-    /// (shared folders) compile unchanged.
-    let activationState: MountActivationState? = nil
+    /// state instead. No default here on purpose: a `let` with a default
+    /// cannot be assigned again in init, and the memberwise init will not
+    /// take it as an argument either — the default lives on the explicit
+    /// init's parameter instead, so shared-folder call sites still omit it.
+    let activationState: MountActivationState?
 
     // Shared-folders-only state
     /// For shared folders: the UserDefaults key / subdir name.
