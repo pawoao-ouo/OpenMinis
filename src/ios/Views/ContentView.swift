@@ -1503,17 +1503,14 @@ struct ContentView: View {
             if let outgoingId = previousSelectedSessionId, outgoingId != newValue {
                 if let outgoingVm = ViewModelCache.shared.get(for: outgoingId) {
                     outgoingVm.setSuspendedForTransition(true)
-                    // [S25] Leaving a session really stops it: the 0.4s
-                    // suspension above only pauses UI refreshes — the agent
-                    // loop kept running, writing, and badging unread. Stop
-                    // the outgoing turn outright; cancel() takes the queued
-                    // prompts back into that session's composer (and S19
-                    // persists them), stops shell/browser work, and leaves
-                    // canResume=true, so returning to the session can Resume
-                    // normally.
-                    if outgoingVm.isProcessing {
-                        outgoingVm.cancel()
-                    }
+                    // [S25 REVERTED 2026-11-16, user decision] Leaving a
+                    // session does NOT stop its turn: the 0.4s suspension
+                    // above only pauses UI refreshes, and the agent loop
+                    // keeps running, writing, and badging unread in the
+                    // background. The Batch 8 stop-on-leave (cancel() here)
+                    // was reverted by the user's explicit product decision:
+                    // generation continues after switching away, and coming
+                    // back shows the ongoing generation / Resume as before.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak outgoingVm] in
                         outgoingVm?.setSuspendedForTransition(false)
                     }
@@ -1617,11 +1614,10 @@ struct ContentView: View {
                outgoingId != incomingStackId,
                let outgoingVm = ViewModelCache.shared.get(for: outgoingId) {
                 outgoingVm.setSuspendedForTransition(true)
-                // [S25] Same stop-on-leave as the selectedSessionId path
-                // above: suspension alone does not stop the agent loop.
-                if outgoingVm.isProcessing {
-                    outgoingVm.cancel()
-                }
+                // [S25 REVERTED 2026-11-16, user decision] Same as the
+                // selectedSessionId path above: leaving does NOT stop the
+                // turn — suspension alone only pauses UI refreshes, and
+                // the agent loop keeps generating in the background.
                 // Unconditional resume on the same 0.4s delay the split path
                 // uses. `weak` so a deallocated vm simply drops it, and
                 // `setSuspendedForTransition` is guarded on an actual change,
