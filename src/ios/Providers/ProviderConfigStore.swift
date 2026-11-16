@@ -313,6 +313,17 @@ final class ProviderConfigStore: ObservableObject {
         } else {
             registerDegradedRecovery()
         }
+        // [ThinkingBackfill] Run the stored-`.off` removal on the JSON-seeded
+        // config now, without stamping the one-time flag: this closes the
+        // window where a session loaded before adoptDB replaces the config
+        // from the V3 DB would still read a stored `.off`. The flag is only
+        // stamped by adoptDB below, once the authoritative config is known.
+        // The removal itself is still gated on the flag being unset: without
+        // that gate it would re-run on every launch and wipe a `.off` the
+        // user deliberately set afterwards (setThinkingLevel persists it).
+        if !UserDefaults.standard.bool(forKey: Self.storedThinkingOffBackfillFlag), loaded.degradation == .none, removeStoredThinkingOffConfigs() > 0 {
+            save()
+        }
         Self.setupDBAndMigrate(jsonURL: fileURL) { [weak self] db in
             Task { @MainActor in
                 await self?.adoptDB(db)
@@ -329,7 +340,13 @@ final class ProviderConfigStore: ObservableObject {
     /// re-run the same adoption after protected data becomes available.
     private func adoptDB(_ db: ProviderConfigDB?) async {
                 self.db = db
-                guard let db else { return }
+                guard let db else {
+                    // DB never opened: the JSON config is the live one.
+                    // init() already removed stored `.off` values from it;
+                    // this stamps the one-time flag so we never scan again.
+                    runStoredThinkingOffBackfillIfNeeded()
+                    return
+                }
                 // [T-thinking-rules-phase2] Prime the synchronous thinking-rule cache the
                 // resolver reads during request assembly. Done here because this is the
                 // first point where the DB is known-open; before this the cache is empty,
@@ -358,6 +375,9 @@ final class ProviderConfigStore: ObservableObject {
                 let dbNonEmpty = !(await db.isEmpty())
                 guard ProviderV3Bootstrap.isEnabled, (migratedFlag || dbNonEmpty) else {
                     logger.info("[GroupLoad] init: staying on V2 JSON config (v3Enabled=\(ProviderV3Bootstrap.isEnabled) migrated=\(migratedFlag) dbNonEmpty=\(dbNonEmpty))")
+                    // Staying on the JSON config: init() already removed
+                    // stored `.off` values from it; stamp the flag here.
+                    runStoredThinkingOffBackfillIfNeeded()
                     return
                 }
                 if !migratedFlag && dbNonEmpty {
@@ -401,6 +421,12 @@ final class ProviderConfigStore: ObservableObject {
                 } else {
                     logger.info("[CompositeKeyMigrate] init: normalizeReferences no-op (no uuid refs matched lmap; \(danglingBefore) dangling refs need a cloud entry record to normalize)")
                 }
+                // [ThinkingBackfill] The DB dump is the authoritative config
+                // now, so any stored `.off` the DB still holds must be
+                // removed here — the init-time run only saw the JSON seed.
+                // Runs before the prunedAtLoad snapshot below, so that
+                // snapshot already includes the removal.
+                runStoredThinkingOffBackfillIfNeeded()
                 logger.info("[GroupLoad] init: loaded authoritative config from V3 DB — groups=\(deduped.modelGroups.count) entries=\(deduped.modelEntries.count) groupMembers(json=\(jsonGroupMembers)→db=\(dbGroupMembers)) prunedDuplicates=\(prunedAtLoad.count)")
                 self.ensureVoiceTemplateModels()
                 self.objectWillChange.send()
@@ -2072,6 +2098,47 @@ final class ProviderConfigStore: ObservableObject {
     func removeInferenceConfig(for sessionId: String) {
         config.sessionInferenceConfigs.removeValue(forKey: sessionId)
         save()
+    }
+
+    /// One-time backfill flag: stored `.off` thinking levels are treated as
+    /// system-written poison, not user preferences. The group-fallback clamp
+    /// removed in 76165fa8 used to write `.off` permanently into a session's
+    /// stored config whenever a fallback landed on a non-reasoning entry —
+    /// an automatic fallback must not permanently poison a setting the user
+    /// never chose (the user confirmed she never turned thinking off in any
+    /// session herself). So this migration removes every pre-existing stored
+    /// `.off` config once, letting the display helper fall back to
+    /// pending -> group default and show history thinking again.
+    /// The manual path is preserved: if the user deliberately turns thinking
+    /// off in a session afterwards, `setThinkingLevel(.off)` writes `.off`
+    /// through `setInferenceConfig` and it sticks, because this removal runs
+    /// once (flag below) and only clears values that were already stored.
+    private static let storedThinkingOffBackfillFlag = "thinking.storedOffBackfillCompleted.v1"
+
+    /// Removes every stored per-session config whose thinkingLevel == .off
+    /// from the live config. Returns how many were removed. Does NOT touch
+    /// the one-time flag and does NOT persist — callers decide both, so the
+    /// store-init call can close the pre-adoptDB window without stamping
+    /// the flag before the authoritative config is known.
+    @discardableResult
+    private func removeStoredThinkingOffConfigs() -> Int {
+        let offIds = config.sessionInferenceConfigs.filter { $0.value.thinkingLevel == .off }.map(\.key)
+        guard !offIds.isEmpty else { return 0 }
+        for id in offIds { config.sessionInferenceConfigs.removeValue(forKey: id) }
+        logger.info("[ThinkingBackfill] removed \(offIds.count) stored .off thinking configs")
+        return offIds.count
+    }
+
+    /// Runs the stored-`.off` backfill once per install. Skipped while the
+    /// config load is degraded (`save()` would be suppressed by the
+    /// RebootGuard, so the removal could not persist) — it retries on a
+    /// later launch instead of stamping the flag on a removal that did not
+    /// stick.
+    private func runStoredThinkingOffBackfillIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.storedThinkingOffBackfillFlag) else { return }
+        guard loadDegradation == .none else { return }
+        if removeStoredThinkingOffConfigs() > 0 { save() }
+        UserDefaults.standard.set(true, forKey: Self.storedThinkingOffBackfillFlag)
     }
 
     // MARK: - Sampling Config (Phase 1: temperature / top_p / penalties)
