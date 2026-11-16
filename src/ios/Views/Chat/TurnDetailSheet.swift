@@ -19,6 +19,10 @@ import Translation
 
 struct TurnDetailSheet: View {
     @ObservedObject var message: ChatMessage
+    /// Block IDs of the tapped thinking/tool run, in order. When nil the
+    /// drawer shows the whole turn (legacy behaviour); when set it shows
+    /// only that run's blocks.
+    var memberIDs: [UUID]? = nil
     var toolSnapshots: [ToolSnapshotItem] = []
     var browserPool: BrowserTabPool?
     var onExpandBrowser: ((URL) -> Void)?
@@ -39,14 +43,24 @@ struct TurnDetailSheet: View {
     @State private var systemTranslationText = ""
     @State private var currentTargetLanguage = "中文"
 
-    /// Thinking/tool blocks in turn order.
-    private var timelineBlocks: [AssistantBlock] {
-        message.blocks.filter { $0.kind == .thinking || $0.kind.isToolKind }
+    /// Blocks this drawer shows: the tapped run's members, resolved against
+    /// the live message.blocks (in tap order, so streaming growth is picked
+    /// up), or the whole turn when no run was passed. Falls back to the
+    /// whole turn if the IDs resolve to nothing (stale IDs after a reload).
+    private var scopedBlocks: [AssistantBlock] {
+        guard let memberIDs, !memberIDs.isEmpty else { return message.blocks }
+        let resolved = memberIDs.compactMap { id in message.blocks.first(where: { $0.id == id }) }
+        return resolved.isEmpty ? message.blocks : resolved
     }
 
-    /// Tool blocks in this message with a toolStatus.
+    /// Thinking/tool blocks in turn order — scoped to the tapped run.
+    private var timelineBlocks: [AssistantBlock] {
+        scopedBlocks.filter { $0.kind == .thinking || $0.kind.isToolKind }
+    }
+
+    /// Tool blocks in this message with a toolStatus — scoped to the tapped run.
     private var toolBlocks: [AssistantBlock] {
-        message.blocks.filter { $0.toolStatus != nil }
+        scopedBlocks.filter { $0.toolStatus != nil }
     }
 
     /// Whether this turn only contains thinking process without any tool executions.

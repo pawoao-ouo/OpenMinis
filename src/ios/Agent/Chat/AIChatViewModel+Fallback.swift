@@ -313,14 +313,13 @@ extension AIChatViewModel {
                     if let entry = ProviderConfigStore.shared.entry(for: currentEntryId) {
                         Task { await ChatStore.shared.updateSessionModelId(sid, modelId: entry.model.id) }
                     }
-                    if let newEntry = ProviderConfigStore.shared.entry(for: currentEntryId) {
-                        let maxLevel = newEntry.effectiveMaxThinkingLevel
-                        if var cfg = ProviderConfigStore.shared.inferenceConfig(for: sid),
-                           cfg.thinkingLevel > maxLevel {
-                            cfg.thinkingLevel = maxLevel
-                            ProviderConfigStore.shared.setInferenceConfig(cfg, for: sid)
-                        }
-                    }
+                    // [thinking-fallback-clamp] Do NOT write the new entry's
+                    // ceiling back into the stored config: one fallback onto
+                    // a non-reasoning entry used to permanently set the
+                    // stored level to .off, which then hid ALL historical
+                    // thinking on every reload. The request path already
+                    // clamps per-turn on read (currentThinkingLevel), so
+                    // dropping the write-back changes no request behaviour.
                     logger.info("🔀ROUTE binding updated to entry \(currentEntryId)")
                 } else {
                     logger.info("🔀ROUTE success with original entry=\(currentEntryId ?? "nil")")

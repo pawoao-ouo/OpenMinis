@@ -389,6 +389,9 @@ struct ChatMessageRow: View {
     @State private var detailBlock: AssistantBlock?
     /// The message whose turn summary drawer is currently presented.
     @State private var turnSheetMessage: ChatMessage?
+    /// Member block IDs of the tapped run, set together with
+    /// turnSheetMessage so the drawer shows only that run.
+    @State private var turnSheetMemberIDs: [UUID]?
 
     /// All text block contents joined, for "Copy All".
     private var fullReplyText: String {
@@ -847,7 +850,10 @@ struct ChatMessageRow: View {
                         message: message,
                         memberIDs: blocks.map(\.id),
                         isWorking: isActiveMessage,
-                        onTap: { turnSheetMessage = message }
+                        onTap: {
+                            turnSheetMemberIDs = blocks.map(\.id)
+                            turnSheetMessage = message
+                        }
                     )
                 }
             }
@@ -970,6 +976,7 @@ struct ChatMessageRow: View {
         .sheet(item: $turnSheetMessage) { msg in
             TurnDetailSheet(
                 message: msg,
+                memberIDs: turnSheetMemberIDs,
                 toolSnapshots: toolSnapshots,
                 browserPool: browserPool,
                 onExpandBrowser: nil,

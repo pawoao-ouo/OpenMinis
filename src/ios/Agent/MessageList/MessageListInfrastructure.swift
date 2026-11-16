@@ -1249,6 +1249,10 @@ final class CellStateBridgeV2: ObservableObject {
     /// Turn summary sheet — set when a TurnSummaryRow is tapped; forwarded
     /// to the VC-level TurnSheetPresenter (same pattern as detailBlock).
     @Published var turnSheetMessageId: UUID?
+    /// Member block IDs of the tapped thinking/tool run, set in the same tap
+    /// as turnSheetMessageId (IDs first — the forwarding sink fires on the
+    /// message id and reads these in the same pass).
+    @Published var turnSheetMemberIDs: [UUID]?
     /// Token usage visibility — toggled by double-tap on block cells, read by footer.
     @Published var showUsage: Bool = false
     @Published var usageContentVisible: Bool = false

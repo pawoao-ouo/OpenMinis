@@ -1521,7 +1521,13 @@ extension CollectionViewMessageListV3 {
                         message: message,
                         memberIDs: memberBlocks.map(\.id),
                         isWorking: bridge.isActiveMessage,
-                        onTap: { bridge.turnSheetMessageId = message.id }
+                        onTap: {
+                            // Set the run's IDs BEFORE the message id: the
+                            // forwarding sink fires on the message id and
+                            // reads the IDs in the same pass.
+                            bridge.turnSheetMemberIDs = memberBlocks.map(\.id)
+                            bridge.turnSheetMessageId = message.id
+                        }
                     )
                     .frame(maxWidth: width > 0 ? width : nil, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1724,6 +1730,7 @@ extension CollectionViewMessageListV3 {
                     self.turnSheetPresenter.sheetData = TurnSheetPresenter.SheetData(
                         id: message.id,
                         message: message,
+                        memberIDs: bridge.turnSheetMemberIDs,
                         browserPool: bridge.browserPool,
                         onExpandBrowser: self.onExpandBrowser,
                         toolSnapshots: bridge.toolSnapshots,
@@ -1732,6 +1739,7 @@ extension CollectionViewMessageListV3 {
                     )
                     self.turnSheetPresenter.onDismiss = { [weak bridge] in
                         bridge?.turnSheetMessageId = nil
+                        bridge?.turnSheetMemberIDs = nil
                     }
                 }
             return bridge
@@ -6236,6 +6244,9 @@ private final class TurnSheetPresenter: ObservableObject {
     struct SheetData: Identifiable {
         let id: UUID
         let message: ChatMessage
+        /// Member block IDs of the tapped thinking/tool run, in order;
+        /// nil shows the whole turn (legacy behaviour).
+        var memberIDs: [UUID]? = nil
         let browserPool: BrowserTabPool?
         let onExpandBrowser: ((URL) -> Void)?
         var toolSnapshots: [ToolSnapshotItem] = []
@@ -6288,6 +6299,7 @@ private struct SheetOverlayView: View {
             .sheet(item: $turnPresenter.sheetData) { data in
                 TurnDetailSheet(
                     message: data.message,
+                    memberIDs: data.memberIDs,
                     toolSnapshots: data.toolSnapshots,
                     browserPool: data.browserPool,
                     onExpandBrowser: data.onExpandBrowser,

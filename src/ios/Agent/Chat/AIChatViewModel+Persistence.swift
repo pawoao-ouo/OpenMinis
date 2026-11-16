@@ -324,8 +324,15 @@ extension AIChatViewModel {
         // The current merged assistant ChatMessage (accumulates blocks across loop iterations)
         var currentAssistant: ChatMessage? = nil
 
-        // Determine whether thinking blocks should be shown based on session config
-        let showThinking = ProviderConfigStore.shared.inferenceConfig(for: sessionId)?.thinkingLevel.isEnabled ?? false
+        // Determine whether thinking blocks should be shown based on session config.
+        // [thinking-reload-gate] Same fallback chain as the live request path
+        // (stored → pending → group default): a session with no stored config
+        // still shows its thinking when the group default enables it. The old
+        // stored-only read hid ALL thinking on reload whenever the stored
+        // config was nil, while the live path kept thinking new turns.
+        // Note: a stored .off still hides history (indistinguishable from a
+        // deliberate user choice) — only the nil case is rescued here.
+        let showThinking = thinkingLevelForDisplay().isEnabled
 
         for raw in rawMessages {
             // Always rebuild agent history (every message matters for API context).

@@ -8113,6 +8113,23 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         return levels.last(where: { $0 <= clamped }) ?? levels[0]
     }
 
+    /// Resolved thinking level for DISPLAY decisions (e.g. the reload gate),
+    /// using the same fallback chain as the live request path:
+    /// stored session config → pending level → group default.
+    ///
+    /// Deliberately NOT clamped to the current entry's ceiling, unlike
+    /// `currentThinkingLevel`: historical thinking was produced under past
+    /// entries, and the gate must not hide it just because the session
+    /// currently sits on a non-reasoning entry (e.g. after a group
+    /// fallback). The request path still clamps per-turn on read, so this
+    /// changes display only, never what is sent to the model.
+    func thinkingLevelForDisplay() -> ThinkingLevel {
+        if let sid = sessionId, let cfg = ProviderConfigStore.shared.inferenceConfig(for: sid) {
+            return cfg.thinkingLevel
+        }
+        return pendingThinkingLevel ?? defaultGroupThinkingLevel
+    }
+
     /// Flush pending thinking level to the store once sessionId is available.
     /// Returns `true` if a user-chosen level was written, so the caller can
     /// keep the group-default seeding (createInitialBinding) from clobbering it.
