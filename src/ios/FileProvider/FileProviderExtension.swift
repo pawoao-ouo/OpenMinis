@@ -179,6 +179,19 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
     // MARK: - Item Lookup
 
+    /// True if `identifier` is a top-level shared folder the user hid from
+    /// the Files app, or anything inside one. [audit-C3] The root listing
+    /// filters hidden folders, but `item(for:)` and direct subfolder
+    /// enumeration did not — a cached identifier could still resolve a
+    /// "hidden" folder.
+    static func isHiddenTopLevelFolder(_ identifier: NSFileProviderItemIdentifier) -> Bool {
+        let first = identifier.rawValue
+            .split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
+            .first.map(String.init) ?? identifier.rawValue
+        guard SharedFolderVisibility.allFolderNames.contains(first) else { return false }
+        return !SharedFolderVisibility.isVisible(first)
+    }
+
     func item(for identifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest,
               completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void) -> Progress {
         os_log("item(for: %{public}@)", log: Self.log, type: .debug, identifier.rawValue)
@@ -187,6 +200,12 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             return Progress()
         }
         if identifier == .trashContainer {
+            completionHandler(nil, NSFileProviderError(.noSuchItem))
+            return Progress()
+        }
+        // [audit-C3] Do not resolve a hidden folder (or anything inside it)
+        // through a cached identifier.
+        if Self.isHiddenTopLevelFolder(identifier) {
             completionHandler(nil, NSFileProviderError(.noSuchItem))
             return Progress()
         }
@@ -236,18 +255,72 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         let parentID = parentPath.isEmpty
             ? NSFileProviderItemIdentifier.rootContainer
             : NSFileProviderItemIdentifier(parentPath)
-        let item = FileProviderItem(url: url, parentIdentifier: parentID)
 
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        // [audit-C6] Stage the copy in a recognisably-prefixed temp dir so
+        // stale copies left behind by a killed extension can be pruned on the
+        // next fetch (see pruneStaleFetchTempDirs).
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("minis-fp-" + UUID().uuidString)
         do {
+            Self.pruneStaleFetchTempDirs()
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             let tempFile = tempDir.appendingPathComponent(url.lastPathComponent)
             try FileManager.default.copyItem(at: url, to: tempFile)
+            // [audit-C6] Re-check existence AFTER the copy and build the item
+            // from freshly-read attributes: the file may have vanished between
+            // enumerate and fetch. Serve noSuchItem rather than a stale
+            // size/mtime from enumerate time.
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                try? FileManager.default.removeItem(at: tempDir)
+                completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
+                return Progress()
+            }
+            let item = FileProviderItem(url: url, parentIdentifier: parentID)
             completionHandler(tempFile, item, nil)
+            // [audit-C6] The framework reads the copy after this returns;
+            // remove the staging dir once it has had ample time to consume it.
+            Self.scheduleFetchTempCleanup(tempDir)
         } catch {
-            completionHandler(nil, nil, error)
+            try? FileManager.default.removeItem(at: tempDir)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
+            } else {
+                completionHandler(nil, nil, error)
+            }
         }
         return Progress()
+    }
+
+    /// Delay after which a staged fetch copy is removed. The framework reads
+    /// the copy promptly after `fetchContents` returns; five minutes is ample
+    /// for a local disk copy of any size, and bounds the leak to one staging
+    /// dir per fetch at most. [audit-C6]
+    private static let fetchTempCleanupDelay: TimeInterval = 300
+
+    /// Remove a staged fetch temp dir after `fetchTempCleanupDelay`. Fire-and-
+    /// forget: if the extension is killed before the timer fires, the dir is
+    /// picked up by `pruneStaleFetchTempDirs` on the next fetch.
+    private static func scheduleFetchTempCleanup(_ tempDir: URL) {
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + fetchTempCleanupDelay) {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+    }
+
+    /// Remove `minis-fp-*` staging dirs older than one hour — leftovers from
+    /// extension processes killed before their delayed cleanup fired. Only
+    /// touches our own prefixed dirs; never throws.
+    private static func pruneStaleFetchTempDirs() {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+        guard let entries = try? fm.contentsOfDirectory(
+            at: tmp, includingPropertiesForKeys: [.contentModificationDateKey], options: []) else { return }
+        let cutoff = Date().addingTimeInterval(-3600)
+        for entry in entries where entry.lastPathComponent.hasPrefix("minis-fp-") {
+            let values = try? entry.resourceValues(forKeys: [.contentModificationDateKey])
+            if let mtime = values?.contentModificationDate, mtime < cutoff {
+                try? fm.removeItem(at: entry)
+            }
+        }
     }
 
     // MARK: - Create Item

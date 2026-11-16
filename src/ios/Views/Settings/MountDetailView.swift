@@ -253,7 +253,7 @@ struct MountDetailView: View {
                     Text("Show in Files app")
                     Text(visibleInFiles
                          ? AppLocalized("This folder appears in Files → On My iPhone → 嘟嘟.")
-                         : AppLocalized("This folder is hidden from the iOS Files app."))
+                         : AppLocalized("Hidden from the iOS Files app only. AI, shell, and @-mention can still read this folder."))
                         .font(.system(size: fontSettings.scaledApp(12)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }

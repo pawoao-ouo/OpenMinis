@@ -40,6 +40,27 @@ final class AppGroupChangeWatcher {
     private let signalCoalesceMs = 250
     private var started = false
 
+    /// Directories skipped because the cap was hit. Together with
+    /// `watches.count` this gives watched-vs-total coverage. [audit-C7]
+    /// Skipped dirs stay unwatched until the next cold start (see
+    /// `coverageSummary`).
+    private var cappedSkipCount = 0
+
+    /// Human-readable watch coverage, e.g. "watching 180/243 directories
+    /// (cap 180)". Total = watched + skipped-by-cap. A directory skipped at
+    /// startup stays skipped: the reconcile walk only attaches watches for
+    /// newly-appeared subdirs, and a skipped dir is already in its parent's
+    /// baseline, so it is never re-offered.
+    var coverageSummary: String {
+        let watched = watches.count
+        let total = watched + cappedSkipCount
+        return "watching \(watched)/\(total) directories (cap \(maxWatches))"
+            + (cappedSkipCount > 0 ? " — coverage incomplete" : "")
+    }
+
+    /// True once any directory has been skipped because of the cap.
+    var isCoverageCapped: Bool { cappedSkipCount > 0 }
+
     private init() {}
 
     /// Start watching the three exposed roots. Idempotent — calling twice is a no-op.
@@ -64,7 +85,7 @@ final class AppGroupChangeWatcher {
             logger.info("[FPSyncTrace] root=\(rootKey) path=\(rootURL.path) watchesAttached=\(attached) topLevelChildren=\(topChildren)")
         }
 
-        logger.info("started — watching \(self.watches.count) directories")
+        logCoverageSummary(context: "started")
 
         // When the app returns to foreground, kqueue events that fired while
         // suspended may have been dropped. Force a full reconciliation: re-walk
@@ -72,6 +93,17 @@ final class AppGroupChangeWatcher {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleForeground),
             name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    /// Log watched-vs-total coverage so a capped tree is visible in logs
+    /// instead of silently unwatched. [audit-C7] There is no Settings UI for
+    /// this by design (the brief forbids inventing a new screen); the log
+    /// line plus `coverageSummary` are the observable surface.
+    private func logCoverageSummary(context: String) {
+        logger.info("[FPSyncTrace] \(context) — \(self.coverageSummary)")
+        if isCoverageCapped {
+            logger.warning("[audit-C7] watch cap (\(self.maxWatches)) reached: \(self.coverageSummary). Subtrees past the cap are not live-watched — Files may show stale listings there until the next cold start.")
+        }
     }
 
     @objc private func handleForeground() {
@@ -88,6 +120,9 @@ final class AppGroupChangeWatcher {
                 self.scheduleSignal(itemID: NSFileProviderItemIdentifier(rootKey))
             }
             self.scheduleSignal(itemID: .workingSet)
+            // Coverage can change while suspended (new dirs appeared past the
+            // cap, or watched dirs vanished); log it again here.
+            self.logCoverageSummary(context: "foreground-reconcile")
         }
     }
 
@@ -113,6 +148,7 @@ final class AppGroupChangeWatcher {
     private func attachWatch(at url: URL, rootKey: String, relativePath: String) {
         guard watches[url] == nil else { return }
         guard watches.count < maxWatches else {
+            cappedSkipCount += 1
             logger.warning("watch cap reached (\(self.maxWatches)); skipping \(url.path)")
             return
         }

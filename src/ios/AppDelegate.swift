@@ -52,6 +52,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         Task { @MainActor in
             QuickActionRouter.registerShortcutItems()
         }
+
+        // [audit-C7] Start the FileProvider change watcher on every
+        // process launch, including headless ones (background fetch,
+        // intents) that never reach MinisApp's onAppear. `start()` is
+        // idempotent — the MinisApp call is a no-op once this ran.
+        Task { @MainActor in
+            AppGroupChangeWatcher.shared.start()
+        }
         logger.info("didFinishLaunching (scene-based; shortcut routing happens in SceneDelegate)")
         // In a scene-based SwiftUI app, `launchOptions[.shortcutItem]`
         // is NOT populated for cold-launch shortcuts — the item is

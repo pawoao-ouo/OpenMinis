@@ -45503,6 +45503,28 @@
         }
       }
     },
+    "Hidden from the iOS Files app only. AI, shell, and @-mention can still read this folder.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden from the iOS Files app only. AI, shell, and @-mention can still read this folder."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅在 iOS“文件”App 中隐藏。AI、Shell 和 @ 提及仍可读取此文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅在 iOS“文件”App 中隱藏。AI、Shell 和 @ 提及仍可讀取此文件夾。"
+          }
+        }
+      }
+    },
     "Hidden models won't appear in the model picker.": {
       "localizations": {
         "de": {

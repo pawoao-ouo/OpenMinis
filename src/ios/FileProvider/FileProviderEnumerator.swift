@@ -31,6 +31,10 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             FPSyncTraceLog.log("enumerateItems id=\(containerItemIdentifier.rawValue) recursive=\(recursive) count=\(items.count)")
             observer.didEnumerate(items)
             observer.finishEnumerating(upTo: nil)
+            // [audit-C1] A full enumeration is a complete report; the next
+            // incremental diff is measured against it.
+            EnumeratorSnapshotStore.store(
+                Set(items.map { $0.itemIdentifier.rawValue }), forKey: snapshotKey)
         } catch {
             os_log("enumerateItems container=%{public}@ failed: %{public}@",
                    log: Self.log, type: .error,
@@ -43,8 +47,22 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     // MARK: - Change enumeration (incremental updates)
 
     func enumerateChanges(for observer: NSFileProviderChangeObserver, from syncAnchor: NSFileProviderSyncAnchor) {
-        let currentAnchor = buildSyncAnchor()
-        let items = listItems()
+        // [audit-C2] Fail honestly: a directory we cannot read is an error,
+        // not an empty folder. `listItems()` used to swallow the error into
+        // `[]`, which is indistinguishable from a genuinely empty folder.
+        let items: [FileProviderItem]
+        let currentAnchor: NSFileProviderSyncAnchor
+        do {
+            items = try listItemsThrowing()
+            currentAnchor = Self.anchor(for: items)
+        } catch {
+            os_log("enumerateChanges container=%{public}@ list failed: %{public}@",
+                   log: Self.log, type: .error,
+                   containerItemIdentifier.rawValue, error.localizedDescription)
+            FPSyncTraceLog.log("enumerateChanges id=\(containerItemIdentifier.rawValue) ERROR=\(error.localizedDescription)")
+            observer.finishEnumeratingWithError(error)
+            return
+        }
         os_log("enumerateChanges container=%{public}@ anchorMatch=%d itemCount=%d",
                log: Self.log, type: .info,
                containerItemIdentifier.rawValue,
@@ -52,13 +70,20 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
                items.count)
         FPSyncTraceLog.log("enumerateChanges id=\(containerItemIdentifier.rawValue) anchorOld=\(Self.hex(syncAnchor.rawValue)) anchorNew=\(Self.hex(currentAnchor.rawValue)) match=\(syncAnchor == currentAnchor) count=\(items.count)")
 
+        let currentIDs = Set(items.map { $0.itemIdentifier.rawValue })
         if syncAnchor == currentAnchor {
+            // Nothing changed — but bootstrap the snapshot if this container
+            // never stored one (e.g. first run after upgrade), so the next
+            // real change can diff against something.
+            EnumeratorSnapshotStore.storeIfMissing(currentIDs, forKey: snapshotKey)
             observer.finishEnumeratingChanges(upTo: currentAnchor, moreComing: false)
             return
         }
 
-        // External writes (iSH shell, FileBrowserView, etc.) cause the anchor to
-        // change but we have no per-anchor history to compute a precise diff.
+        // [audit-C1] Diff against the last reported listing and report
+        // deletions. External writes (iSH shell, FileBrowserView, etc.)
+        // change the anchor but carry no per-anchor history; the persisted
+        // snapshot is that history.
         //
         // Empirically, returning `.syncAnchorExpired` here causes iOS Files to
         // refuse re-enumeration in many cases — the container stays stuck on
@@ -66,16 +91,27 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         // bug. Instead, replay every current item via `didUpdate` and finish
         // with the new anchor: iOS dedups by itemIdentifier and refreshes
         // metadata for items that already existed, while picking up newly-
-        // appeared ones. We can't report deletions this way, but in-app
-        // deletions go through `deleteItem` (which signals directly) and
-        // external deletions are handled by the AppGroupChangeWatcher's
-        // periodic foreground reconciliation.
+        // appeared ones — plus `didDelete` for anything that vanished.
+        let previousIDs = EnumeratorSnapshotStore.identifiers(forKey: snapshotKey) ?? []
+        let deletedIDs = previousIDs.subtracting(currentIDs).sorted()
+        if !deletedIDs.isEmpty {
+            os_log("enumerateChanges container=%{public}@ deleted=%d",
+                   log: Self.log, type: .info,
+                   containerItemIdentifier.rawValue, deletedIDs.count)
+            FPSyncTraceLog.log("enumerateChanges id=\(containerItemIdentifier.rawValue) deleted=\(deletedIDs.count)")
+            observer.didDelete(deletedIDs.map { NSFileProviderItemIdentifier($0) })
+        }
         observer.didUpdate(items)
         observer.finishEnumeratingChanges(upTo: currentAnchor, moreComing: false)
+        // Report first, persist second (see EnumeratorSnapshotStore): a crash
+        // between the two just re-reports the same deletions next time.
+        EnumeratorSnapshotStore.store(currentIDs, forKey: snapshotKey)
     }
 
     func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
-        completionHandler(buildSyncAnchor())
+        // [audit-C2] An unreadable directory yields no anchor (nil) rather
+        // than a fake empty-folder anchor.
+        completionHandler(try? buildSyncAnchor())
     }
 
     /// Hex-encode an 8-byte anchor for human-readable log lines. Falls back
@@ -115,6 +151,13 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         return false
     }
 
+    /// Snapshot key for this enumerator. The recursive working-set listing
+    /// covers the whole subtree, so it must not share a snapshot with the
+    /// plain root listing. [audit-C1]
+    private var snapshotKey: String {
+        "\(containerItemIdentifier.rawValue)|recursive=\(recursive)"
+    }
+
     private func directoryURL() -> URL {
         if containerItemIdentifier == .rootContainer {
             return FileProviderExtension.providerRoot
@@ -132,6 +175,12 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private func listItemsThrowing() throws -> [FileProviderItem] {
         // Trash is not supported — always return empty.
         if containerItemIdentifier == .trashContainer {
+            return []
+        }
+
+        // [audit-C3] A hidden top-level folder must not leak its contents
+        // when enumerated directly by identifier.
+        if FileProviderExtension.isHiddenTopLevelFolder(containerItemIdentifier) {
             return []
         }
 
@@ -230,9 +279,14 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     /// Build a compact, deterministic sync anchor from directory contents.
     /// Uses a fixed-size 8-byte representation to avoid exceeding the system's
     /// vendor-token size limit (which causes an assertion in FPXObserver).
-    private func buildSyncAnchor() -> NSFileProviderSyncAnchor {
-        let items = listItems()
+    /// [audit-C2] Throwing: an unreadable directory is an error, not an
+    /// empty-folder anchor.
+    private func buildSyncAnchor() throws -> NSFileProviderSyncAnchor {
+        try Self.anchor(for: listItemsThrowing())
+    }
 
+    /// Hash a listing into a fixed-size 8-byte anchor.
+    private static func anchor(for items: [FileProviderItem]) -> NSFileProviderSyncAnchor {
         // Base hash: item count (even 0 is fine — we still fold visibility in below).
         var hash: UInt64 = UInt64(items.count)
 
@@ -267,4 +321,86 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         return NSFileProviderSyncAnchor(Data(bytes: &hashBytes, count: 8))
     }
 
+}
+
+// MARK: - Enumeration snapshot store (C1)
+
+/// Persists the last listing reported to Files, per enumerator, so
+/// `enumerateChanges` can report deletions via `didDelete`.
+///
+/// Why disk, not instance state: the system creates a fresh
+/// `FileProviderEnumerator` per enumeration request, so an instance snapshot
+/// would be empty on the next call — and the extension process itself can be
+/// killed at any time. The snapshot lives in
+/// `MinisConfig/fp-enumerator-snapshots.json` in the App Group container
+/// (the same container the extension already reads and writes).
+///
+/// Ordering rule — report first, persist second: if the extension dies
+/// between reporting a deletion and persisting the new snapshot, the next
+/// `enumerateChanges` recomputes the same deletion (idempotent). Persisting
+/// first would lose deletions Files never saw.
+///
+/// If the App Group container is unavailable, the store degrades to
+/// in-memory only: deletions are still reported while the extension process
+/// lives, and silently missed after a restart (same as before this fix).
+private enum EnumeratorSnapshotStore {
+    private static let queue = DispatchQueue(label: "com.openminis.clone.fp-snapshots")
+    private static var cache: [String: Set<String>]?
+    private static let fileName = "fp-enumerator-snapshots.json"
+
+    private static func snapshotsURL() -> URL? {
+        guard let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.com.openminis.clone") else { return nil }
+        return container.appendingPathComponent("MinisConfig", isDirectory: true)
+            .appendingPathComponent(fileName)
+    }
+
+    private static func loadIfNeeded() {
+        if cache != nil { return }
+        guard let url = snapshotsURL(),
+              let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) else {
+            cache = [:]
+            return
+        }
+        cache = decoded.mapValues { Set($0) }
+    }
+
+    /// Identifiers in the last stored snapshot for `key`, or nil if none was ever stored.
+    static func identifiers(forKey key: String) -> Set<String>? {
+        queue.sync {
+            loadIfNeeded()
+            return cache?[key]
+        }
+    }
+
+    /// Store `identifiers` as the snapshot for `key`. Call AFTER reporting.
+    static func store(_ identifiers: Set<String>, forKey key: String) {
+        queue.sync {
+            loadIfNeeded()
+            cache?[key] = identifiers
+            persistLocked()
+        }
+    }
+
+    /// Store only if no snapshot exists yet (first-run bootstrap on the anchor-match path).
+    static func storeIfMissing(_ identifiers: Set<String>, forKey key: String) {
+        queue.sync {
+            loadIfNeeded()
+            guard cache?[key] == nil else { return }
+            cache?[key] = identifiers
+            persistLocked()
+        }
+    }
+
+    /// Must be called with `queue` held. Never throws — a failed write just
+    /// means the next enumeration re-derives from the older snapshot.
+    private static func persistLocked() {
+        guard let url = snapshotsURL(), let cache else { return }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let plain = cache.mapValues { Array($0).sorted() }
+        guard let data = try? JSONEncoder().encode(plain) else { return }
+        try? data.write(to: url, options: [.atomic])
+    }
 }
