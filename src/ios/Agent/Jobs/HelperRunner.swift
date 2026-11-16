@@ -1083,8 +1083,22 @@ extension AIChatViewModel {
                     self.removeQueuedPrompt(id: pending)
                 }
                 job.pendingProgressPromptId = nil
-                let outcome = self.submitProgrammaticPrompt(text, origin: .job(jobId: job.id), silent: true)
-                if outcome == .queued { job.pendingProgressPromptId = self.promptQueue.last?.id }
+                // [turn-done-notice] A progress report is mid-run chatter, not a
+                // user turn: it must not toast or post a background notification
+                // (the job notice owns job completion). Routed per prompt — the
+                // parent is usually busy when this fires, so the report queues,
+                // and a VM flag set here would be consumed by the parent turn's
+                // epilogue instead.
+                let outcome = self.submitProgrammaticPrompt(text, origin: .job(jobId: job.id), silent: true, suppressCompletionNotice: true)
+                // [turn-done-notice] The id comes from the outcome, not the
+                // queue's tail: the staged shape of `.queued` carries nil
+                // (its prompt is not in the queue), and reading
+                // `promptQueue.last?.id` here could name another prompt —
+                // the next report's replacement cleanup would delete it
+                // (removeQueuedPrompt drops the queued prompt AND its UI
+                // message) and the compact drain would then bail on an empty
+                // queue, silently losing the original turn.
+                if case .queued(let queuedId) = outcome { job.pendingProgressPromptId = queuedId }
                 logger.info("[delegate_task] progress \(job.id.prefix(8)) level=\(job.progressLevel) elapsed=\(elapsed)s outcome=\(String(describing: outcome))")
             }
         }

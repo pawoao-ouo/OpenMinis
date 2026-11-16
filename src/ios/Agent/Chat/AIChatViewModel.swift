@@ -2218,7 +2218,96 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// same session later and sends a message by hand, that run must still get
     /// its normal completion notification. A sticky flag would silence the
     /// session forever. Not persisted; each intent sets it fresh.
+    ///
+    /// `submitProgrammaticPrompt(suppressCompletionNotice:)` is the per-prompt
+    /// way to set this: it sets the flag only when the turn starts at once,
+    /// and records the prompt id in `queuedPromptsSuppressingNotice` when it
+    /// queues (see `takeQueuedPrompts()`). Never set this flag directly at a
+    /// submit site — a prompt that queues would have it consumed by whatever
+    /// turn happens to be running instead.
+    ///
+    /// Abandoned or declined turns are the exception to "consumed on read":
+    /// `clearStaleSuppressFlagIfNoLiveTurn()` clears the flag when the turn it
+    /// was set for will never run (cancelled compact prompt, `.exhausted`
+    /// decline), so the suppression cannot leak into the next hand send.
     var suppressGeneralCompletionNotification: Bool = false
+    /// [turn-done-notice] One-shot carrier for a STAGED prompt's silence.
+    /// When a suppressing programmatic prompt declines into the user-facing
+    /// "Context Near Capacity" prompt (see the staged branch in
+    /// `submitProgrammaticPrompt`), its silence cannot live on the VM flag
+    /// alone: `endBackgroundProcessing` reads-and-clears the flag on ANY
+    /// turn's epilogue, so an intervening turn's drain (e.g. a prompt that
+    /// was already compact-queued) would consume the flag before the user
+    /// taps "Compact & Send", and `compactAndSend()` would then find the
+    /// flag false and let the staged turn announce (review 8 F1). This Bool
+    /// carries the staged prompt's silence from stage time to "Compact &
+    /// Send" and is never touched by a turn epilogue, the take rule, or
+    /// `endBackgroundProcessing`.
+    ///
+    /// Set only in the staged branch of `submitProgrammaticPrompt`, and
+    /// only when that call is suppressing (`suppressCompletionNotice`).
+    /// Consumed by `compactAndSend()`: when it records the queued prompt
+    /// on this Bool's strength it clears it. Cleared, unconditionally, at
+    /// the same three abandon sites as
+    /// `clearStaleSuppressFlagIfNoLiveTurn()` — `cancelCompactBeforeSend()`,
+    /// `send()`'s `.exhausted` branch, and `loadSession()`'s staged-prompt
+    /// abandon block — where the staged prompt will never run. The clear is
+    /// unconditional (unlike the flag helper's guard) because the Bool
+    /// belongs only to the staged prompt being abandoned, never to a live
+    /// turn. Deliberately NOT cleared in the `.needsCompact` prompt branch
+    /// itself: that staged prompt is still live and its "Compact & Send"
+    /// must stay silent.
+    ///
+    /// Inherited narrow limitation (review 6 O1): if a staged prompt's
+    /// text is overwritten by a later `send()` before "Compact & Send",
+    /// this Bool outlives the prompt it was set for. That replace is not
+    /// reachable from repo code (the modal prompt blocks hand sends; only
+    /// the alert binding setter on view teardown could trigger it), so it
+    /// is disclosed here, not fixed.
+    var stagedPromptSuppressesNotice: Bool = false
+    /// [turn-done-notice] Clear the suppress flag when the turn it was set for
+    /// will never run. The flag is consumed only by a turn's epilogue
+    /// (`endBackgroundProcessing`) or the take rule, so without this a declined
+    /// turn's suppression leaks into the next hand send and silences the user's
+    /// own turn (review 5 F1). The guard is the ownership check: a running turn
+    /// (`isProcessing`) or a queued/draining turn (`promptQueue` non-empty) may
+    /// own the flag — its epilogue or the take rule consumes it, so leave it
+    /// alone there. Clearing unconditionally would steal a live turn's
+    /// suppression. Call sites: cancelCompactBeforeSend(), send()'s
+    /// `.exhausted` branch, loadSession()'s staged-prompt abandon block.
+    func clearStaleSuppressFlagIfNoLiveTurn() {
+        guard !isProcessing, promptQueue.isEmpty else { return }
+        suppressGeneralCompletionNotification = false
+    }
+    /// [turn-done-notice] Ids of queued prompts whose drained turn must stay
+    /// silent. The suppress state travels WITH the queued prompt (by id), not
+    /// on the VM flag: the flag is consumed by the running turn's epilogue, so
+    /// setting it at submit time would suppress the wrong turn (the running
+    /// one) while the queued prompt's turn notified anyway. A stored property
+    /// on `QueuedPrompt` itself would be the cleaner home, but that struct
+    /// lives in ChatModels.swift (outside this change's scope); the id set has
+    /// identical semantics because `takeQueuedPrompts()` is the single choke
+    /// point for consuming the queue. Pruned whenever the queue is taken or
+    /// discarded.
+    var queuedPromptsSuppressingNotice: Set<UUID> = []
+    /// [turn-done-notice] Sticky record of whether any batch taken since the
+    /// last reset carried a user-initiated prompt. Set by `takeQueuedPrompts()`
+    /// — the single choke point, so it covers both consumers: the post-loop
+    /// drain and mid-loop injection (`injectQueuedPromptsAsNewTurn`), which
+    /// joins the same turn the drain Task toasts for — and never cleared
+    /// there. Reset and read ONLY by the post-compact drain Task in
+    /// `schedulePostCompactDrain()`, which derives its epilogue's silence
+    /// from what that drain actually ran (review 9 F1): a recorded id alone
+    /// cannot re-arm the flag — the take rule only clears it, and
+    /// `endBackgroundProcessing` consumes whatever an intervening turn left
+    /// — so the flag is derived immediately before the only epilogue that
+    /// reads it. The five starters' drains never read this: their batches
+    /// join the outer turn, whose epilogue owns the toast and is governed
+    /// by the take rule's clear. A prompt removed without running (cancel
+    /// take-back, `removeQueuedPrompt`, `withdrawQueuedMessage`) never
+    /// reaches a take, so it can never set this and never affects a later
+    /// turn's silence.
+    var takenBatchHadUserPrompt = false
     var helperWrapUpRequested: Bool = false
     var pendingSteerMessages: [String] = []
     var lastEffectiveModel: EffectiveModelRecord? = nil
@@ -2680,6 +2769,20 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 logger.info("[Context] Near capacity — prompting user to compact before send")
                 return
             case .exhausted:
+                // [turn-done-notice] No turn will run from this branch: the
+                // shortcut path only appends an error, and the staged prompt
+                // below can only return to the composer via
+                // cancelCompactBeforeSend() (the exhausted alert has no send
+                // button). Clear the flag here — it cannot break an intent's
+                // Compact-&-Send, because there is none on this path. The
+                // helper skips the clear while a live turn owns the flag.
+                // The staged silence Bool is cleared unconditionally
+                // alongside it: the staged prompt below can only return to
+                // the composer via cancelCompactBeforeSend(), and the
+                // exhausted alert has no send button, so no staged prompt
+                // survives this branch to run later.
+                clearStaleSuppressFlagIfNoLiveTurn()
+                stagedPromptSuppressesNotice = false
                 if sessionSource == "shortcut" {
                     // Shortcut sessions can't show UI — set inline error
                     logger.info("[Context] Exhausted — shortcut session cannot continue")
@@ -3189,6 +3292,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             if case .failed(let msg) = self.kernelStatus {
                 self.errorMessage = "Kernel not available: \(msg)"
                 self.isProcessing = false
+                self.announceTurnFinishedIfNeeded()
                 self.endBackgroundProcessing()
                 return
             }
@@ -3201,7 +3305,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 self.isSuspended = false
             } catch {
                 self.isSuspended = false
+                self.errorMessage = "Couldn't start this turn — too many conversations are running. Please try again."
                 self.isProcessing = false
+                self.announceTurnFinishedIfNeeded()
                 self.endBackgroundProcessing()
                 return
             }
@@ -3281,7 +3387,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
 
             logger.info("🔄SESSION [vm=\(self.vmInstanceId)] send DONE session=\(self.sessionId ?? "nil")")
-            self.playCompletionHaptic()
+            self.finishTurn()
             self.isProcessing = false
             self.endBackgroundProcessing()
         }
@@ -3440,6 +3546,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             if case .failed(let msg) = self.kernelStatus {
                 self.errorMessage = "Kernel not available: \(msg)"
                 self.isProcessing = false
+                self.announceTurnFinishedIfNeeded()
                 self.endBackgroundProcessing()
                 return
             }
@@ -3453,7 +3560,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 self.isSuspended = false
             } catch {
                 self.isSuspended = false
+                self.errorMessage = "Couldn't start this turn — too many conversations are running. Please try again."
                 self.isProcessing = false
+                self.announceTurnFinishedIfNeeded()
                 self.endBackgroundProcessing()
                 return
             }
@@ -3504,7 +3613,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
             await self.drainQueuedPrompts()
             logger.info("🔄SESSION [vm=\(self.vmInstanceId)] retry DONE session=\(self.sessionId ?? "nil")")
-            self.playCompletionHaptic()
+            self.finishTurn()
             self.isProcessing = false
             self.endBackgroundProcessing()
         }
@@ -3595,6 +3704,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             if case .failed(let msg) = self.kernelStatus {
                 self.errorMessage = "Kernel not available: \(msg)"
                 self.isProcessing = false
+                self.announceTurnFinishedIfNeeded()
                 self.endBackgroundProcessing()
                 return
             }
@@ -3607,7 +3717,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 self.isSuspended = false
             } catch {
                 self.isSuspended = false
+                self.errorMessage = "Couldn't start this turn — too many conversations are running. Please try again."
                 self.isProcessing = false
+                self.announceTurnFinishedIfNeeded()
                 self.endBackgroundProcessing()
                 return
             }
@@ -3658,7 +3770,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
             await self.drainQueuedPrompts()
             logger.info("🔄SESSION [vm=\(self.vmInstanceId)] resume DONE session=\(self.sessionId ?? "nil")")
-            self.playCompletionHaptic()
+            self.finishTurn()
             self.isProcessing = false
             self.endBackgroundProcessing()
         }
@@ -3715,6 +3827,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             if case .failed(let msg) = self.kernelStatus {
                 self.errorMessage = "Kernel not available: \(msg)"
                 self.isProcessing = false
+                self.announceTurnFinishedIfNeeded()
                 self.endBackgroundProcessing()
                 return
             }
@@ -3727,7 +3840,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 self.isSuspended = false
             } catch {
                 self.isSuspended = false
+                self.errorMessage = "Couldn't start this turn — too many conversations are running. Please try again."
                 self.isProcessing = false
+                self.announceTurnFinishedIfNeeded()
                 self.endBackgroundProcessing()
                 return
             }
@@ -3764,7 +3879,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
             await self.drainQueuedPrompts()
             logger.info("🔄SESSION [vm=\(self.vmInstanceId)] orphan-tail resume DONE session=\(self.sessionId ?? "nil")")
-            self.playCompletionHaptic()
+            self.finishTurn()
             self.isProcessing = false
             self.endBackgroundProcessing()
         }
@@ -4538,6 +4653,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             if case .failed(let msg) = self.kernelStatus {
                 self.errorMessage = "Kernel not available: \(msg)"
                 self.isProcessing = false
+                self.announceTurnFinishedIfNeeded()
                 self.endBackgroundProcessing()
                 return
             }
@@ -4551,7 +4667,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 self.isSuspended = false
             } catch {
                 self.isSuspended = false
+                self.errorMessage = "Couldn't start this turn — too many conversations are running. Please try again."
                 self.isProcessing = false
+                self.announceTurnFinishedIfNeeded()
                 self.endBackgroundProcessing()
                 return
             }
@@ -4602,7 +4720,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
             await self.drainQueuedPrompts()
             logger.info("🔄SESSION [vm=\(self.vmInstanceId)] \(label) DONE session=\(self.sessionId ?? "nil")")
-            self.playCompletionHaptic()
+            self.finishTurn()
             self.isProcessing = false
             self.endBackgroundProcessing()
         }
@@ -5097,6 +5215,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
             restoreTakenBackPrompts(promptQueue)
             promptQueue.removeAll()
+            // [turn-done-notice] The taken-back prompts never run, so their
+            // recorded silence is moot.
+            queuedPromptsSuppressingNotice.removeAll()
         }
         endBackgroundProcessing()
 
@@ -5109,6 +5230,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         if !isCompacting, !promptQueue.isEmpty {
             let takenBack = promptQueue
             promptQueue.removeAll()
+            // [turn-done-notice] The taken-back prompts never run, so their
+            // recorded silence is moot.
+            queuedPromptsSuppressingNotice.removeAll()
             for queued in takenBack {
                 messages.removeAll { $0.queuedPromptId == queued.id }
             }
@@ -5137,6 +5261,29 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     private func takeQueuedPrompts() -> [QueuedPrompt] {
         let queued = promptQueue
         promptQueue.removeAll()
+        // [turn-done-notice] A taken batch joins the turn that is running (or
+        // the one the drain is about to run) — it has no epilogue of its own,
+        // so there is no per-batch flag to set. The only correct move here is
+        // the other direction: if the batch carries any prompt the user
+        // initiated (anything not recorded in `queuedPromptsSuppressingNotice`
+        // — hand-queued sends, compact-and-send prompts that arrived on a
+        // user path; a compact-and-send prompt that arrived on a silent path
+        // IS recorded by compactAndSend), the combined turn is
+        // user-meaningful, so clear the suppress flag and let it announce.
+        // An all-silent batch leaves the flag exactly as the outer turn set it.
+        // [turn-done-notice] Also record whether this batch carried a
+        // user-initiated prompt in `takenBatchHadUserPrompt` (sticky; reset
+        // only by the post-compact drain Task). The take is the single choke
+        // point for both consumers, so this also covers batches injected
+        // mid-loop, which join the same turn the drain Task toasts for.
+        if queued.contains(where: { !queuedPromptsSuppressingNotice.contains($0.id) }) {
+            suppressGeneralCompletionNotification = false
+            takenBatchHadUserPrompt = true
+        }
+        // The queue is empty now, so any id still in the set belongs to a
+        // prompt that was removed without running (removeQueuedPrompt,
+        // withdrawQueuedMessage, cancel's take-back) and can never drain.
+        queuedPromptsSuppressingNotice.removeAll()
         return queued
     }
 
@@ -5151,20 +5298,30 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// [T-ios-concurrent-stop-double-request]
     /// `internal` (not `private`) so `compactAndSend` in the +Compaction
     /// extension file can drain through this same path after a compact.
-    func drainQueuedPrompts() async {
+    ///
+    /// [turn-done-notice] Returns whether this call actually ran a turn:
+    /// false when it early-returns (another drain is active) or the queue
+    /// was empty / cancelled before anything was taken. The post-compact
+    /// drain Task uses this so it toasts only when it drained something
+    /// (review 9 F2): the old unconditional `finishTurn()` toasted
+    /// "completed" for a prompt that had not run yet, and the prompt's own
+    /// epilogue toasted a second time.
+    @discardableResult
+    func drainQueuedPrompts() async -> Bool {
         guard !self.isDrainingQueue else {
             logger.info("📨[DRAIN] Already draining in another task — skipping duplicate drain")
-            return
+            return false
         }
         self.isDrainingQueue = true
         defer { self.isDrainingQueue = false }
-        await drainQueuedPromptsInner()
+        return await drainQueuedPromptsInner()
     }
 
     /// The actual drain loop. Unguarded so its own tail-recursion for late
     /// arrivals (below) doesn't trip the reentrancy guard — that guard only
     /// gates cross-Task duplicate entry, which all goes through the wrapper.
-    private func drainQueuedPromptsInner() async {
+    private func drainQueuedPromptsInner() async -> Bool {
+        var drainedAny = false
         while !self.userDidCancel && !self.promptQueue.isEmpty {
             // If the Task itself is cancelled (e.g. user tapped stop), don't
             // consume queue items — cancel() already took the queue back
@@ -5177,6 +5334,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // consumed here and in injectQueuedPromptsAsNewTurn, through
             // takeQueuedPrompts().
             let queued = self.takeQueuedPrompts()
+            // [turn-done-notice] Set at take time (before runAgentLoop), so a
+            // turn that fails still counts as drained — its failure toast must
+            // fire. A batch taken but never run (Task cancelled before the
+            // take) leaves this false.
+            drainedAny = true
             logger.info("📨[DRAIN] Draining \(queued.count) queued prompt(s)")
 
             let sid = self.sessionId ?? "unknown"
@@ -5251,8 +5413,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             logger.info("📨[DRAIN] Late arrivals after yield: \(self.promptQueue.count)")
             // Recurse on the INNER worker (we already hold the reentrancy guard)
             // so late-arrival handling isn't skipped by our own guard.
-            await drainQueuedPromptsInner()
+            let lateDrained = await drainQueuedPromptsInner()
+            drainedAny = drainedAny || lateDrained
         }
+        return drainedAny
     }
 
     /// [T-ios-queued-message-continues-prev-turn] Drain any prompts the user
@@ -5529,8 +5693,98 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
     }
 
-    private func playCompletionHaptic() {
+    /// [turn-done-notice] Single turn-end funnel: every turn epilogue
+    /// (send / retry / resume / resumeUnansweredUserTurn /
+    /// launchRerunAgentLoop) ends here, after the queue drain and before
+    /// `isProcessing = false`. The drain's own turns do not come through
+    /// here, so one call covers one user-visible turn. A superseded task's
+    /// epilogue returns early on `Task.isCancelled` before reaching this,
+    /// so a turn is announced at most once. The haptic fires
+    /// unconditionally; the notice below is gated (cancelled / child /
+    /// programmatic / viewing / background).
+    ///
+    /// Internal (not private) on purpose: `schedulePostCompactDrain()`
+    /// (AIChatViewModel+Compaction.swift) is this turn's only epilogue on
+    /// the compact-and-send path, and Swift `private` is file-scoped.
+    func finishTurn() {
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        announceTurnFinishedIfNeeded()
+    }
+
+    /// [turn-done-notice] "写完提醒": a turn finished while she wasn't
+    /// looking at this session, so tell her instead of letting her come
+    /// back and discover it finished long ago.
+    ///
+    /// Why here and not in `endBackgroundProcessing`: that funnel is hit
+    /// from ~15 sites, including cancel cleanup and the bg-task-expiry
+    /// handler (a SUSPENDED turn, not a finished one) — it cannot tell a
+    /// finished turn from those. This funnel is reached exactly once per
+    /// finished turn, with the outcome known.
+    ///
+    /// Three outlets, mirroring AgentJobCompletionNotice:
+    /// 1. Foreground + viewing this session -> nothing (the answer is in
+    ///    front of her). 2. Foreground + elsewhere -> toast (this method).
+    /// 3. App in background -> local notification (endBackgroundProcessing
+    ///    already does this; this method stays out of its way).
+    ///
+    /// Skipped: user-cancelled turns (Stop means quiet); sub-agent child
+    /// turns (the job notice owns child completion — one notice per job,
+    /// not one per child turn, and a child session is hidden so its id
+    /// would point nowhere tappable); programmatic turns that set
+    /// `suppressGeneralCompletionNotification` (Shortcuts intents own their
+    /// notification).
+    ///
+    /// Scheduled fires, follow-up deliveries and progress reports pass
+    /// `suppressCompletionNotice: true` to `submitProgrammaticPrompt`, which
+    /// carries the silence per prompt (VM flag on `.sent`, recorded id on
+    /// `.queued`) — setting the VM flag directly at those call sites would
+    /// be consumed by whatever turn happens to be running instead. Gating
+    /// on `sessionSource` instead would misclassify later hand-sent turns
+    /// in the same session (the flag's own doc comment says why).
+    private func announceTurnFinishedIfNeeded() {
+        guard !userDidCancel else { return }
+        guard !isSubAgentChild else { return }
+        guard !suppressGeneralCompletionNotification else { return }
+        guard let sid = sessionId, !sid.isEmpty else { return }
+        // Background: the local notification in endBackgroundProcessing owns
+        // this outlet; a toast has no visible window there anyway.
+        guard UIApplication.shared.applicationState == .active else { return }
+        guard Self.activeSessionId != sid else { return }
+        // Same failure signal endBackgroundProcessing uses: errorMessage is
+        // cleared at every turn entry point — the five starters, and the
+        // post-compact drain Task, which is a turn entry of its own
+        // (send()'s .needsCompact branch returns before the starter clear)
+        // — so a non-nil value here means THIS turn failed (provider
+        // timeouts surface as errors, so there is no separate timeout
+        // wording for chat turns).
+        let failed = messages.last?.error != nil || errorMessage != nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Re-check: she may have navigated back while the title loaded.
+            guard Self.activeSessionId != sid else { return }
+            let name = await self.turnDoneDisplayName(sessionId: sid)
+            MinisToast.show(
+                String(format: AppLocalized(failed ? "「%@」失败了" : "「%@」完成了"), name),
+                duration: 2.4,
+                systemImage: failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+            )
+        }
+    }
+
+    /// Display name for the turn-done notice: session title, then the
+    /// session persona's name, then Untitled. Never a raw id, never
+    /// hardcoded English.
+    private func turnDoneDisplayName(sessionId sid: String) async -> String {
+        if let session = await ChatStore.shared.getSession(sid),
+           let t = session.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+            return t
+        }
+        let personaId = sessionPersonaId ?? PersonaStore.currentID()
+        if let name = PersonaStore.shared.personas.first(where: { $0.id == personaId })?.name.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            return name
+        }
+        return AppLocalized("Untitled")
     }
 
     /// [T-ios-error-banner-lost] Surface a turn failure that has no assistant

@@ -254,7 +254,12 @@ enum ScheduledJobRunner {
             }
 
             let text = scheduledEnvelope(job, prompt: prompt)
-            let outcome = vm.submitProgrammaticPrompt(text, origin: ProgrammaticPromptOrigin.job(jobId: job.id), silent: true)
+            // [turn-done-notice] Scheduled fires are silent by rule: this turn
+            // must not toast or post a background notification. Routed per
+            // prompt, not a VM flag set here — the fire may queue behind a
+            // running turn, and a flag set now would be consumed by that
+            // turn's epilogue instead.
+            let outcome = vm.submitProgrammaticPrompt(text, origin: ProgrammaticPromptOrigin.job(jobId: job.id), silent: true, suppressCompletionNotice: true)
             logger.info("[Sched] FIRE \(job.logLabel) → new session \(session.id.prefix(8)) outcome=\(String(describing: outcome))")
             let ok: Bool
             var firePreview = String(prompt.prefix(60))
@@ -300,7 +305,12 @@ enum ScheduledJobRunner {
             }
 
             let text = scheduledEnvelope(job, prompt: prompt)
-            let outcome = vm.submitProgrammaticPrompt(text, origin: ProgrammaticPromptOrigin.job(jobId: job.id), silent: true)
+            // [turn-done-notice] Scheduled fires are silent by rule: this turn
+            // must not toast or post a background notification. Routed per
+            // prompt, not a VM flag set here — the fire may queue behind a
+            // running turn, and a flag set now would be consumed by that
+            // turn's epilogue instead.
+            let outcome = vm.submitProgrammaticPrompt(text, origin: ProgrammaticPromptOrigin.job(jobId: job.id), silent: true, suppressCompletionNotice: true)
             logger.info("[Sched] FIRE \(job.logLabel) → follow-up \(sid.prefix(8)) outcome=\(String(describing: outcome))")
             let ok: Bool
             if case .rejected = outcome { ok = false } else { ok = true }

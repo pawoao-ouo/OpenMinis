@@ -225,6 +225,16 @@ extension AIChatViewModel {
             showCompactBeforeSendPrompt = false
             pendingSendText = nil
             pendingSendAttachments = []
+            // [turn-done-notice] The staged prompt is abandoned on this reload
+            // — it will never run, so a suppress flag set for it must not
+            // survive into the next hand send (review 5 F1 class:
+            // compactAndSend would record the hand prompt as silent). The
+            // helper skips the clear while a live turn owns the flag. The
+            // staged silence Bool is cleared unconditionally alongside it:
+            // it belongs only to the staged prompt dropped here, never to
+            // a live turn.
+            clearStaleSuppressFlagIfNoLiveTurn()
+            stagedPromptSuppressesNotice = false
         }
 
         let loadStart = CFAbsoluteTimeGetCurrent()

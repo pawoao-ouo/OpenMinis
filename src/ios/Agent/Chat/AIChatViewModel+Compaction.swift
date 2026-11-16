@@ -58,6 +58,28 @@ extension AIChatViewModel {
         // Show the message as queued immediately
         let queuedPrompt = QueuedPrompt(text: text, attachments: atts)
         promptQueue.append(queuedPrompt)
+        // [turn-done-notice] Record the id when the prompt arrived on a
+        // silent path. The VM flag covers the direct paths; the staged
+        // Bool covers a prompt that was staged by a suppressing call and
+        // is only now running via "Compact & Send" — the flag may have
+        // been consumed by an intervening turn's drain in the meantime
+        // (review 8 F1), so the Bool is the only surviving carrier. The
+        // Bool is consumed here when it records on its strength (it is a
+        // one-shot for the staged prompt, not a standing mode); no turn
+        // epilogue or take rule ever clears it.
+        let suppressViaStagedPrompt = stagedPromptSuppressesNotice
+        if suppressGeneralCompletionNotification || suppressViaStagedPrompt {
+            // [turn-done-notice] The prompt arrived on a silent path: a
+            // submitProgrammaticPrompt `.sent` whose send() declined into
+            // this compact queue, or a Shortcuts intent whose turn hit
+            // .needsCompact (shortcut sessions auto-compact). The VM flag
+            // was set for THIS turn, so record the id — the drain's take
+            // rule treats an all-silent batch as silent. A hand-sent prompt
+            // finds the flag false here and is never recorded, so the take
+            // rule clears the flag and the turn announces as usual.
+            queuedPromptsSuppressingNotice.insert(queuedPrompt.id)
+            if suppressViaStagedPrompt { stagedPromptSuppressesNotice = false }
+        }
         let chatMsg = ChatMessage(role: .user, content: text, isQueued: true)
         chatMsg.queuedPromptId = queuedPrompt.id
         chatMsg.inputAttachments = atts
@@ -117,13 +139,74 @@ extension AIChatViewModel {
         currentTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.postCompactDrainPending = false }
+            // [turn-done-notice] Clear the failure signal BEFORE the drained
+            // turn runs: send()'s .needsCompact branch returns before its
+            // `errorMessage = nil` (AIChatViewModel.swift:2942), so a previous
+            // turn's failure would otherwise survive into this turn's
+            // finishTurn()/endBackgroundProcessing() and a successful drained
+            // turn would toast/notify "failed". This Task is the drain's entry
+            // point for every caller (compactAndSend, compactBefore's success
+            // tail, the debug RPC, the failure backstop), so the clear belongs
+            // here, not in compactAndSend. The drained turn can still set
+            // errorMessage fresh afterwards — this runs before it starts.
+            self.errorMessage = nil
+            // [turn-done-notice] Snapshot the state this Task is about to
+            // claim: when the drain runs nothing (another drain is active
+            // or the queue emptied first), the unwind below must restore
+            // what was here, not blindly clear a flag a still-running turn
+            // owns (review 9 F2: the second Task must not clobber the first
+            // drain's turn). `taskWasAlreadyActive` tracks whether
+            // beginBackgroundProcessing below actually started a task or
+            // found one already held — only the former is this Task's to end.
+            let wasProcessing = self.isProcessing
+            let taskWasAlreadyActive = self.backgroundTaskID != .invalid
             self.isProcessing = true
             self.beginBackgroundProcessing()
-            await self.drainQueuedPrompts()
+            // [turn-done-notice] Reset the taken-batch record before
+            // draining: the flag for this Task's epilogue is derived from
+            // what THIS drain ran (see below). takeQueuedPrompts() sets it
+            // for every batch taken — including batches injected mid-loop,
+            // which join this same turn. The reset and the read below are
+            // in the same Task with the reentrancy guard held across the
+            // drain, so no other drain can interleave and set it.
+            self.takenBatchHadUserPrompt = false
+            let drainedAny = await self.drainQueuedPrompts()
             // Stop during the drained run hands state ownership to cancel()
             // (and possibly a fresh resumeQueueAfterCancel task) — don't
             // clobber it from the superseded task.
             guard !Task.isCancelled else { return }
+            // [turn-done-notice] F2: toast only when THIS Task actually
+            // drained a turn. drainQueuedPrompts() early-returns when
+            // another drain is active (isDrainingQueue) or the queue is
+            // empty — the old unconditional finishTurn() toasted
+            // "completed" for a prompt that had not run yet, and the
+            // prompt's own epilogue toasted a second time. Unwind only
+            // what this Task claimed; a still-running turn's state is left
+            // alone.
+            guard drainedAny else {
+                self.isProcessing = wasProcessing
+                if !taskWasAlreadyActive {
+                    self.endBackgroundProcessing()
+                }
+                return
+            }
+            // [turn-done-notice] F1: arm the flag from what the drain
+            // actually ran. A recorded id alone cannot re-arm it — the take
+            // rule only clears it, and endBackgroundProcessing consumes
+            // whatever an intervening turn left — so the flag is derived
+            // here, immediately before the only epilogue that reads it
+            // (finishTurn's toast gate and endBackgroundProcessing's
+            // notification gate both read it synchronously, with no await
+            // between this assignment and those reads). An all-silent drain
+            // stays silent; any user prompt in the drained turn announces.
+            // This also overwrites a stale true left by an abandoned staged
+            // prompt, so silence can never leak into the next hand turn.
+            // This Task is the turn's only epilogue on the compact-and-send
+            // path (send() returns without one), so the toast outlet lives
+            // here; postCompactDrainPending dedups the two schedulers, so no
+            // double toast is possible.
+            self.suppressGeneralCompletionNotification = !self.takenBatchHadUserPrompt
+            self.finishTurn()
             self.isProcessing = false
             self.endBackgroundProcessing()
         }
@@ -136,6 +219,18 @@ extension AIChatViewModel {
         attachments = pendingSendAttachments
         pendingSendText = nil
         pendingSendAttachments = []
+        // [turn-done-notice] The staged prompt is abandoned here — it will
+        // never run, so a suppress flag set for it must not survive into the
+        // next hand send (review 5 F1: compactAndSend would record the hand
+        // prompt as silent). The intent's own "Compact & Send" silence is
+        // untouched — that path runs compactAndSend(), not this. The helper
+        // skips the clear while a live turn owns the flag. The staged
+        // silence Bool is cleared unconditionally: it belongs only to the
+        // staged prompt being abandoned, never to a live turn, so a stale
+        // Bool must not survive to silence a later hand prompt's
+        // "Compact & Send" either.
+        clearStaleSuppressFlagIfNoLiveTurn()
+        stagedPromptSuppressesNotice = false
     }
 
     /// Number of recent user-text turns kept verbatim as inference anchors when

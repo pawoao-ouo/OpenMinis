@@ -54,9 +54,21 @@ enum ProgrammaticPromptOrigin: Equatable {
 enum ProgrammaticSubmitOutcome: Equatable {
     /// No loop was running; a new turn started immediately.
     case sent
-    /// A loop was running; the prompt is in `promptQueue` and will run as a
-    /// fresh turn when that loop ends (or via the idle-drain rescue).
-    case queued
+    /// The prompt will run as a fresh turn, but not immediately. Carries the
+    /// id of the queued prompt when one was appended to `promptQueue`, so a
+    /// caller that needs to track or withdraw it reads the id from the
+    /// outcome instead of guessing from the queue's tail:
+    /// - a loop was running and the prompt is in `promptQueue` (it runs when
+    ///   that loop ends, or via the idle-drain rescue), or `send()` declined
+    ///   into the compact queue (compactAndSend appended it; it runs in the
+    ///   post-compact drain) — the associated id is that prompt's id;
+    /// - `send()` declined into the "Context Near Capacity" prompt and the
+    ///   text is staged in `pendingSendText` (it runs when the user taps
+    ///   "Compact & Send") — no prompt is in the queue, so the associated
+    ///   id is nil. A caller must record nothing for this shape: reading
+    ///   `promptQueue.last?.id` here would name some other prompt, and a
+    ///   later replacement cleanup would delete that prompt instead.
+    case queued(UUID?)
     /// The vm declined it. `reason` is a stable snake_case token for callers
     /// that surface it to a script or a Shortcut result.
     case rejected(reason: String)
@@ -78,11 +90,20 @@ extension AIChatViewModel {
     ///   - silent: suppress the send/enqueue haptic and, for a `.sent` turn,
     ///     the completion haptic. A `.queued` prompt drains inside the user's
     ///     own loop, whose completion haptic is theirs and is kept.
+    ///   - suppressCompletionNotice: this turn must stay silent (no toast, no
+    ///     background notification). Carried PER PROMPT, not as a VM flag set
+    ///     at submit time: a prompt that queues behind a running turn would
+    ///     otherwise have its flag consumed by THAT turn's epilogue (silencing
+    ///     the user's own notice) while the drained turn notified anyway. On
+    ///     `.sent` the VM flag is set before `send()`; on `.queued` the
+    ///     prompt's id is recorded in `queuedPromptsSuppressingNotice` and the
+    ///     drain applies the take rule (see `takeQueuedPrompts()`).
     @MainActor
     @discardableResult
     func submitProgrammaticPrompt(_ text: String,
                                   origin: ProgrammaticPromptOrigin,
-                                  silent: Bool = true) -> ProgrammaticSubmitOutcome {
+                                  silent: Bool = true,
+                                  suppressCompletionNotice: Bool = false) -> ProgrammaticSubmitOutcome {
         let tag = "📨[Programmatic] origin=\(origin.logLabel) vm=\(vmInstanceId) sid=\(sessionId?.prefix(8) ?? "nil")"
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -133,18 +154,97 @@ extension AIChatViewModel {
             let before = promptQueue.count
             let prompt = QueuedPrompt(text: text, attachments: [])
             promptQueue.append(prompt)
+            if suppressCompletionNotice {
+                // [turn-done-notice] Do NOT set the VM flag here: it would be
+                // consumed by the running turn's epilogue. Record the id; the
+                // drain's take rule decides from it.
+                queuedPromptsSuppressingNotice.insert(prompt.id)
+            }
             let chatMsg = ChatMessage(role: .user, content: text, isQueued: true)
             chatMsg.queuedPromptId = prompt.id
             messages.append(chatMsg)
             scrollToBottomSignal.send()
             logger.info("\(tag) QUEUED — position \(self.promptQueue.count), loop still running")
-            return .queued
+            return .queued(prompt.id)
         }
 
         // Idle: start a loop. `overrideText` carries the prompt, so `send()`
         // never reads (and never clears) the composer's draft.
+        if suppressCompletionNotice {
+            // [turn-done-notice] `.sent`: the turn starts now, so the VM flag
+            // is consumed by THIS turn's epilogue and no other.
+            suppressGeneralCompletionNotification = true
+        }
+        // [turn-done-notice] Snapshot the queue before send(): a send() that
+        // declines into a compact queue appends exactly one prompt
+        // (compactAndSend) without starting a loop, so isProcessing stays
+        // false — the same shape as a real decline. The two are told apart
+        // below by whether THIS call appended a prompt the compact path
+        // recorded as suppressing. (On @MainActor send() runs synchronously,
+        // so no other code can append between the snapshot and the check.)
+        let queueCountBeforeSend = promptQueue.count
         send(overrideText: text)
         guard isProcessing else {
+            if suppressCompletionNotice,
+               promptQueue.count > queueCountBeforeSend,
+               queuedPromptsSuppressingNotice.contains(promptQueue[queueCountBeforeSend].id) {
+                // send() declined into the compact queue: the prompt will run
+                // in the post-compact drain and the take rule keeps the flag
+                // for it. Do NOT reset the flag, and report .queued — the
+                // prompt is in the queue, not rejected. (Returning .rejected
+                // here would also wrongly mark a scheduled fire as failed in
+                // its history row.)
+                logger.info("\(tag) QUEUED — compact queue (post-compact drain will run it)")
+                return .queued(promptQueue[queueCountBeforeSend].id)
+            }
+            if showCompactBeforeSendPrompt,
+               !showContextExhaustedPrompt,
+               pendingSendText == trimmed {
+                // [turn-done-notice] send() declined into the user-facing
+                // "Context Near Capacity" prompt: this call's text is staged
+                // in pendingSendText and will run when the user taps
+                // "Compact & Send" — compactAndSend() records the id then.
+                // Do NOT reset the flag, and report .queued: the prompt is
+                // staged, not rejected. (Returning .rejected here would
+                // wrongly mark a scheduled fire as failed in its history
+                // row, and the drained job turn would announce because
+                // compactAndSend would find the flag false.)
+                //
+                // The staged silence also rides `stagedPromptSuppressesNotice`
+                // from here to "Compact & Send": the flag alone is not
+                // enough — an intervening turn's drain consumes the flag
+                // (take rule / endBackgroundProcessing) before the user
+                // taps, and compactAndSend would then find it false and
+                // let this turn announce (review 8 F1). The Bool is set
+                // only for a suppressing call; a hand-staged prompt leaves
+                // it false, so its turn announces as usual. It is consumed
+                // by compactAndSend() and cleared at the abandon sites
+                // (see its declaration).
+                if suppressCompletionNotice { stagedPromptSuppressesNotice = true }
+                //
+                // Why no before-snapshot is needed: between the queue
+                // snapshot above and this check only send() runs,
+                // synchronously on @MainActor, and its only early returns
+                // before the context check cannot fire for this call (the
+                // empty-text / isProcessing guard: trimmed is non-empty and
+                // isProcessing is false; the edit-truncation return: it is
+                // gated by editingMessageIndex, never set on the
+                // programmatic path). The non-auto .needsCompact branch is
+                // the only writer that leaves the compact prompt showing
+                // with a staged text, and it always writes this call's
+                // trimmed text; the only other stager, the .exhausted
+                // branch, raises showContextExhaustedPrompt instead and
+                // clears the flag itself — hence the exclusion above. A
+                // pre-existing staging of the identical text is the same
+                // text with the same outcome, so excluding it would only
+                // reintroduce the announce harm.
+                logger.info("\(tag) QUEUED — staged for Compact & Send (user taps to run it)")
+                return .queued(nil)
+            }
+            // send() declined with nothing staged and no loop (e.g. context
+            // exhausted): no turn will run, so a flag set above must not
+            // linger into the next turn.
+            if suppressCompletionNotice { suppressGeneralCompletionNotification = false }
             let reason = showContextExhaustedPrompt ? "context_exhausted" : "send_declined"
             logger.warning("\(tag) REJECTED — send() did not start a loop (\(reason))")
             return .rejected(reason: reason)
@@ -158,12 +258,14 @@ extension AIChatViewModel {
 
 extension AIChatViewModel {
 
-    /// The id of the prompt `submitProgrammaticPrompt` just queued, or nil when
-    /// the outcome was not `.queued`. Read it IMMEDIATELY after the submit, on
-    /// the main actor, before anything else can touch the queue.
+    /// The id of the prompt `submitProgrammaticPrompt` just queued, carried by
+    /// the outcome itself — nil when the outcome was not `.queued`, and nil
+    /// for the staged shape of `.queued`, whose prompt is not in the queue.
+    /// Callers must not read `promptQueue.last?.id` for this: the queue's
+    /// tail may be another prompt entirely.
     func lastQueuedProgrammaticPromptId(for outcome: ProgrammaticSubmitOutcome) -> UUID? {
-        guard outcome == .queued else { return nil }
-        return promptQueue.last?.id
+        guard case .queued(let id) = outcome else { return nil }
+        return id
     }
 
     /// Suspends until the turn carrying a programmatic prompt has finished.
@@ -1079,7 +1181,10 @@ extension AIChatViewModel {
                                             budgetMinutes: budgetMinutes)
 
         let outcome = child.submitProgrammaticPrompt(promptText, origin: .job(jobId: job.id), silent: true)
-        guard outcome == .sent || outcome == .queued else {
+        switch outcome {
+        case .sent, .queued:
+            break
+        default:
             registry.finish(job.id, state: .failed, result: nil)
             return reject("child_start_failed", "The sub agent's session could not be started (\(outcome)). Nothing was delegated.")
         }

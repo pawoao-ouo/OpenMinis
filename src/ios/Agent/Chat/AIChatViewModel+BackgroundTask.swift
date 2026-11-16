@@ -243,6 +243,20 @@ extension AIChatViewModel {
             if suppressGenericNotification {
                 logger.info("[BackgroundNotification] suppressed — a Shortcuts intent owns this run's notification")
             }
+            // [turn-done-notice] Capture the turn-end state synchronously,
+            // before the Task below: a "completed" notification must not go
+            // out for a turn the user stopped (Stop means quiet), for a
+            // sub-agent child turn (the job notice owns child completion and
+            // a hidden child session id points nowhere tappable), or for a
+            // turn that was only SUSPENDED by bg-task expiry (it resumes on
+            // foreground; backgroundSuspended is cleared on resume, so a
+            // real completion later still notifies).
+            let wasCancelled = userDidCancel
+            let isChildTurn = isSubAgentChild
+            let wasSuspended = backgroundSuspended
+            if wasCancelled || isChildTurn || wasSuspended {
+                logger.info("[BackgroundNotification] suppressed — cancelled=\(wasCancelled) child=\(isChildTurn) suspended=\(wasSuspended)")
+            }
             let otherActive = SessionActivityTracker.shared.activeSessions
                 .filter { $0 != sid }
             logger.info("[BKA][BGTask] otherActive=\(otherActive.count) ids=[\(otherActive.map { $0.prefix(8) }.joined(separator: ","))] before Task")
@@ -264,7 +278,7 @@ extension AIChatViewModel {
                 } else {
                     sessionTitle = fallbackTitle
                 }
-                if !suppressGenericNotification {
+                if !suppressGenericNotification && !wasCancelled && !isChildTurn && !wasSuspended {
                     BackgroundKeepAliveManager.shared.postBackgroundTaskNotification(
                         sessionTitle: sessionTitle, responseSummary: responseSummary, sessionId: sid, isError: hasError, wasBackground: wasBackground
                     )

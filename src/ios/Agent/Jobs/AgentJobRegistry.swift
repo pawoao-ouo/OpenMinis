@@ -1282,7 +1282,12 @@ final class AgentJobRegistry: ObservableObject {
                     logger.info("[Jobs] then.followUpParent \(job.id.prefix(8)) dropped — parent \(parent.prefix(8)) was stopped by the user")
                     return
                 }
-                let outcome = vm.submitProgrammaticPrompt(payload, origin: .job(jobId: job.id), silent: true)
+                // [turn-done-notice] A follow-up delivery is a job callback, not
+                // a user turn: it must not toast or post a background notification.
+                // (The job notice owns job completion.) Routed per prompt — a
+                // VM flag set here would be consumed by the parent turn that
+                // happens to be running instead.
+                let outcome = vm.submitProgrammaticPrompt(payload, origin: .job(jobId: job.id), silent: true, suppressCompletionNotice: true)
                 logger.info("[Jobs] then.followUpParent \(job.id.prefix(8)) → parent \(parent.prefix(8)) outcome=\(String(describing: outcome))")
             }
         }
