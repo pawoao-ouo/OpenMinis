@@ -2680,9 +2680,28 @@ actor ChatStore {
         // instead. The row DELETE below is still the success gate: if it
         // fails, we log and return false and the UI restores the row and
         // tells the user.
-        deleteMessages(sessionId: id)
-        deleteCompactMarkers(sessionId: id)
-        deleteSessionMedia(id)
+        // [batch16-P1] The reorder is atomic: the child deletes and the row
+        // DELETE run inside ONE transaction (nested-safe, same pattern as
+        // appendMessages — BEGIN/COMMIT/ROLLBACK only when this call owns
+        // the transaction). If any step fails we roll back and return false,
+        // so the session stays whole — the old S7 guarantee, restored. A
+        // child failure is reported as a child failure, not misblamed on
+        // the row DELETE later. deleteSessionMedia is filesystem-only and
+        // cannot be rolled back, so it runs only AFTER a successful COMMIT,
+        // never before the gate.
+        let ownsTransaction = sqlite3_get_autocommit(db) != 0
+        if ownsTransaction { exec("BEGIN TRANSACTION") }
+
+        if !deleteMessages(sessionId: id) {
+            if ownsTransaction { exec("ROLLBACK") }
+            logger.error("[DELETE] deleteMessages failed id=\(id.prefix(8)) — aborting delete, session kept whole")
+            return false
+        }
+        if !deleteCompactMarkers(sessionId: id) {
+            if ownsTransaction { exec("ROLLBACK") }
+            logger.error("[DELETE] deleteCompactMarkers failed id=\(id.prefix(8)) — aborting delete, session kept whole")
+            return false
+        }
 
         let sql = "DELETE FROM sessions WHERE id = ?"
         var stmt: OpaquePointer?
@@ -2703,7 +2722,18 @@ actor ChatStore {
             logger.error("[DELETE] sessions delete prepare failed id=\(id.prefix(8)): \(String(cString: sqlite3_errmsg(db)))")
         }
         sqlite3_finalize(stmt)
-        guard rowDeleted else { return false }
+        guard rowDeleted else {
+            if ownsTransaction { exec("ROLLBACK") }
+            return false
+        }
+
+        if ownsTransaction { exec("COMMIT") }
+
+        // [batch16-P1] Files cannot be rolled back: delete the session's
+        // media only now that the DB delete has committed. Running this
+        // before the gate meant a failed row DELETE left an empty-shell
+        // session — row restored by the UI, content already gone.
+        deleteSessionMedia(id)
 
         // [T-ios-session-paused-badge] Drop any badge state for a deleted session
         // so a stale "paused" badge can't linger in the persisted store.
