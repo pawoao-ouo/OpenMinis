@@ -150600,6 +150600,29 @@
         }
       }
     },
+    "人设没能删掉，请重试。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人设没能删掉，请重试。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The persona couldn't be deleted. Please try again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人設沒能刪掉，請重試。"
+          }
+        }
+      }
+    },
     "头像没能存下来，请重试。": {
       "extractionState": "manual",
       "localizations": {

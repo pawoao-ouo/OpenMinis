@@ -221,8 +221,15 @@ struct PersonaContactsView: View {
         )) {
             Button("删除", role: .destructive) {
                 if let target = deleteTarget {
-                    store.deletePersona(target.id)
                     deleteTarget = nil
+                    // [D7/P3-7] 降级时删除只在内存里生效、重启会回来：报出来。
+                    guard store.deletePersona(target.id) else {
+                        MinisToast.show(store.registryDegraded
+                            ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                            : AppLocalized("人设没能删掉，请重试。"),
+                            systemImage: "exclamationmark.triangle.fill")
+                        return
+                    }
                 }
             }
             Button("取消", role: .cancel) {
@@ -544,7 +551,14 @@ struct PersonaDetailHomeView: View {
 
                             if !p.isBuiltIn && store.personas.count > 1 {
                                 Button(role: .destructive) {
-                                    store.deletePersona(p.id)
+                                    // [D7/P3-7] 没删掉就别关页面：关了她会以为删掉了。
+                                    guard store.deletePersona(p.id) else {
+                                        MinisToast.show(store.registryDegraded
+                                            ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                                            : AppLocalized("人设没能删掉，请重试。"),
+                                            systemImage: "exclamationmark.triangle.fill")
+                                        return
+                                    }
                                     dismiss()
                                 } label: {
                                     Label("删除人设", systemImage: "trash.fill")

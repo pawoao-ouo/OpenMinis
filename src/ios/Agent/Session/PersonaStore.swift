@@ -899,7 +899,12 @@ final class PersonaStore: ObservableObject {
         try? FileManager.default.createDirectory(at: Self.memoryDir(for: p.id),
                                                 withIntermediateDirectories: true)
         personas.append(p)
-        persist()
+        // [D7/P3-7] 新建只进内存、重启就没：记下来。返回值还是 Persona 本身
+        // （PersonaListSheet 也调这里，改签名会动白名单外的文件），
+        // 所以这里只能记日志；调用方看不到 Bool。
+        if !persist() {
+            AppLogger(category: "PersonaStore").error("[D7] addPersona: registry write failed — new persona \(p.id.prefix(8)) exists only in memory and will not survive relaunch")
+        }
         return p
     }
 
@@ -920,20 +925,30 @@ final class PersonaStore: ObservableObject {
             try? fm.createDirectory(at: dstDir, withIntermediateDirectories: true)
         }
         personas.append(copy)
-        persist()
+        // [D7/P3-7] 同 addPersona：签名得留着 Persona?（调用方用返回的副本
+        // 切过去），失败只能记日志。
+        if !persist() {
+            AppLogger(category: "PersonaStore").error("[D7] duplicatePersona: registry write failed — copy \(copy.id.prefix(8)) exists only in memory and will not survive relaunch")
+        }
         return copy
     }
 
     /// 删除人设：不许删最后一个，不许删内置；级联删它的会话（Task 跑后台，避免卡 UI）。
-    func deletePersona(_ id: String) {
-        guard let idx = personas.firstIndex(where: { $0.id == id }) else { return }
-        guard !personas[idx].isBuiltIn else { return }
+    /// [D7/P3-7] 返回这次删除到底落盘没有：false = 只在内存里删了，重启会回来。
+    /// 调用方（通讯录的删除确认 / 详情菜单）要把失败报出来，不能当删掉了报。
+    @discardableResult
+    func deletePersona(_ id: String) -> Bool {
+        guard let idx = personas.firstIndex(where: { $0.id == id }) else { return false }
+        guard !personas[idx].isBuiltIn else { return false }
         // P2-1：default 人设是迁移锚点（老会话 persona_id 为空时的归属），
         // 删了它等于把"家"拆了——标成不可删。
-        guard id != Self.defaultPersonaID else { return }
-        guard personas.count > 1 else { return }
+        guard id != Self.defaultPersonaID else { return false }
+        guard personas.count > 1 else { return false }
         let removed = personas.remove(at: idx)
-        persist()
+        let persisted = persist()
+        if !persisted {
+            AppLogger(category: "PersonaStore").error("[D7] deletePersona: registry write failed — persona \(id.prefix(8)) was removed from memory only and will reappear on relaunch")
+        }
         // [P0-3] Also drop the dead per-persona background file, if the
         // removed persona ever set one, so it cannot linger as an orphan.
         let bgName = SoulIconImage.storedName(prefix: "bg-\(removed.id)", id: removed.id)
@@ -950,6 +965,7 @@ final class PersonaStore: ObservableObject {
             await ChatStore.shared.deleteSessions(forPersonaId: id)
         }
         broadcastPersonaChange()
+        return persisted
     }
 
     /// 重命名（同步写回该人设 SOUL.md 的 frontmatter，保持一处真相）。
@@ -995,7 +1011,11 @@ final class PersonaStore: ObservableObject {
     func movePersona(from source: IndexSet, to destination: Int) {
         personas.move(fromOffsets: source, toOffset: destination)
         for (i, _) in personas.enumerated() { personas[i].sortOrder = i }
-        persist()
+        // [D7/P3-7] 拖拽排序没有报错面（.onMove 回调）：失败只能记日志，
+        // 顺序只在内存里变了，重启会回到旧顺序。
+        if !persist() {
+            AppLogger(category: "PersonaStore").error("[D7] movePersona: registry write failed — the new order exists only in memory and will revert on relaunch")
+        }
     }
 
     /// 切换当前人设。
@@ -1060,7 +1080,11 @@ final class PersonaStore: ObservableObject {
             }
         }
         guard changed else { return }
-        persist()
+        // [D7/P3-7] SOUL.md 身份回写没有报错面（缓存刷新路径触发）：失败记日志，
+        // 名字/头像只在内存里变了，重启会回到旧值。
+        if !persist() {
+            AppLogger(category: "PersonaStore").error("[D7] syncIdentityFromSoul: registry write failed for \(personaID.prefix(8)) — the SOUL.md identity change exists only in memory and will revert on relaunch")
+        }
         broadcastPersonaChange()
     }
 
