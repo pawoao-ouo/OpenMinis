@@ -135,8 +135,13 @@ enum BackupSecretsImporter {
             } else if let raw = Data(base64Encoded: m.token),
                       let tokens = try? JSONDecoder().decode(
                           MCPOAuthController.StoredTokens.self, from: raw) {
-                MCPOAuthController.restoreTokens(tokens, server: m.serverId)
-                result.mcpOAuthRestored += 1
+                // [A-F7] Only count a restore when the Keychain write
+                // actually landed; a failed write is NOT a restore.
+                if MCPOAuthController.restoreTokens(tokens, server: m.serverId) {
+                    result.mcpOAuthRestored += 1
+                } else {
+                    logger.error("[Restore] MCP OAuth tokens for '\(m.serverId)' could NOT be saved to Keychain — NOT restored")
+                }
             } else {
                 // No local token AND the package's copy cannot be decoded —
                 // NOT "kept existing"; the credential simply did not restore.
@@ -145,7 +150,11 @@ enum BackupSecretsImporter {
             if let b64 = m.clientSecret {
                 if let secret = decode(b64) {
                     if MCPOAuthController.clientSecret(server: m.serverId) == nil {
-                        MCPOAuthController.setClientSecret(secret, server: m.serverId)
+                        // [A-F7] A failed Keychain write is not a restore —
+                        // report it instead of silently dropping the secret.
+                        if !MCPOAuthController.setClientSecret(secret, server: m.serverId) {
+                            logger.error("[Restore] MCP OAuth client secret for '\(m.serverId)' could NOT be saved to Keychain — NOT restored")
+                        }
                     }
                 } else {
                     result.credentialsUndecodable += 1

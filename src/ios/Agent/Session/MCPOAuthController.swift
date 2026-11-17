@@ -77,12 +77,17 @@ final class MCPOAuthController: NSObject, ObservableObject {
         case badConfig(String)
         case cancelled
         case exchangeFailed(String)
+        // [A-F7] The token exchange succeeded but the Keychain write failed:
+        // authorize must not log OK or materialize the bridge file on a
+        // never-persisted token.
+        case keychainFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .badConfig(let m): return m
             case .cancelled: return AppLocalized("Authorization was cancelled.")
             case .exchangeFailed(let m): return m
+            case .keychainFailed(let m): return m
             }
         }
     }
@@ -91,7 +96,10 @@ final class MCPOAuthController: NSObject, ObservableObject {
 
     nonisolated private static let keychainService = "com.openminis.clone.mcp-oauth"
 
-    nonisolated private static func keychainSet(_ data: Data, account: String) {
+    // [A-F7] Returns whether the write actually landed; false = Keychain
+    // didn't take it. Callers must not report success on a failed write.
+    @discardableResult
+    nonisolated private static func keychainSet(_ data: Data, account: String) -> Bool {
         let match: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -109,7 +117,9 @@ final class MCPOAuthController: NSObject, ObservableObject {
         }
         if status != errSecSuccess {
             AppLogger(category: "MCPOAuth").error("[Keychain] save failed account=\(account) status=\(status)")
+            return false
         }
+        return true
     }
 
     nonisolated private static func keychainGet(account: String) -> Data? {
@@ -136,14 +146,18 @@ final class MCPOAuthController: NSObject, ObservableObject {
 
     // MARK: - Client secret
 
-    static func setClientSecret(_ secret: String, server: String) {
+    // [A-F7] Returns whether the secret actually landed in the Keychain;
+    // false = it didn't. Callers must not report success on a failed write.
+    // Empty input clears (delete is best-effort) and returns true.
+    @discardableResult
+    static func setClientSecret(_ secret: String, server: String) -> Bool {
         let account = "\(server)#secret"
         let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             keychainDelete(account: account)
-        } else {
-            keychainSet(Data(trimmed.utf8), account: account)
+            return true
         }
+        return keychainSet(Data(trimmed.utf8), account: account)
     }
 
     static func clientSecret(server: String) -> String? {
@@ -164,7 +178,13 @@ final class MCPOAuthController: NSObject, ObservableObject {
               let secret = String(data: data, encoding: .utf8)?
                   .trimmingCharacters(in: .whitespacesAndNewlines),
               !secret.isEmpty else { return false }
-        setClientSecret(secret, server: server)
+        // [A-F7] Only delete the seed file once the secret is verified in
+        // the Keychain — the file is the only copy, and deleting it after a
+        // failed write would lose the secret for good.
+        guard setClientSecret(secret, server: server) else {
+            AppLogger(category: "MCPOAuth").error("[SeedSecret] client secret for '\(server)' could NOT be saved to Keychain — seed file kept for a later retry")
+            return false
+        }
         try? FileManager.default.removeItem(at: url)
         AppLogger(category: "MCPOAuth").info("[SeedSecret] imported CLI-seeded client secret for '\(server)' into Keychain")
         return true
@@ -184,9 +204,12 @@ final class MCPOAuthController: NSObject, ObservableObject {
     /// Narrow entry point so the importer doesn't need `keychainSet` (private)
     /// widened for everyone. Takes the already-decoded blob so the importer
     /// never has to know this type's storage layout.
-    static func restoreTokens(_ tokens: StoredTokens, server: String) {
-        guard let data = try? JSONEncoder().encode(tokens) else { return }
-        keychainSet(data, account: "\(server)#tokens")
+    /// [A-F7] Returns whether the write actually landed; the importer must
+    /// only count a restore on true.
+    @discardableResult
+    static func restoreTokens(_ tokens: StoredTokens, server: String) -> Bool {
+        guard let data = try? JSONEncoder().encode(tokens) else { return false }
+        return keychainSet(data, account: "\(server)#tokens")
     }
 
     static func tokens(server: String) -> StoredTokens? {
@@ -415,7 +438,13 @@ final class MCPOAuthController: NSObject, ObservableObject {
             refreshToken: obj["refresh_token"] as? String,
             expiresAt: expiresIn > 0 ? Date().timeIntervalSince1970 + expiresIn : 0
         )
-        Self.keychainSet(try JSONEncoder().encode(stored), account: "\(server)#tokens")
+        // [A-F7] The exchange succeeded but the Keychain write failed: do
+        // NOT materialize the bridge file or log OK on a never-persisted
+        // token — throw so the form reports the failure instead.
+        guard Self.keychainSet(try JSONEncoder().encode(stored), account: "\(server)#tokens") else {
+            logger.error("[Authorize] '\(server)' token could not be saved to Keychain")
+            throw OAuthError.keychainFailed(AppLocalized("The authorization could not be saved to the Keychain. Please try again."))
+        }
         Self.materializeBridge(server: server, oauth: oauth, tokens: stored)
         logger.info("[Authorize] '\(server)' OK (hasRefresh=\(stored.refreshToken != nil), expiresIn=\(Int(expiresIn))s)")
     }

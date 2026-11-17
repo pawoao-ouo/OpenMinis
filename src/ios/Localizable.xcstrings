@@ -21414,6 +21414,29 @@
         }
       }
     },
+    "The authorization could not be saved to the Keychain. Please try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The authorization could not be saved to the Keychain. Please try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授权没能存进钥匙串，请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授權沒能存進鑰匙串，請重試。"
+          }
+        }
+      }
+    },
     "Client Secret (optional)": {
       "localizations": {
         "es": {
