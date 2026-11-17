@@ -51,7 +51,6 @@ struct SharedFoldersSettingsView: View {
 
     private func detailContext(for entry: SharedFolderEntry) -> MountDetailContext {
         MountDetailContext(
-            kind: .shared,
             linuxPath: entry.linuxPath,
             sourceDisplayName: nil,
             hostURL: entry.hostURL,
@@ -59,10 +58,6 @@ struct SharedFoldersSettingsView: View {
             iconColor: entry.iconColor,
             subtitle: nil,
             initialName: entry.displayName,
-            canRename: false,
-            externalMountId: nil,
-            isOSWritable: entry.isWritableFromFiles,
-            initialUserAllowWrite: true,
             sharedFolderName: entry.name,
             initialVisibleInFiles: model.isVisible(entry.name),
             isReadOnlyFromFiles: !entry.isWritableFromFiles
