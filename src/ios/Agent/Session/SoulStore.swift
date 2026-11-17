@@ -314,6 +314,10 @@ enum SoulIconSource {
         case tooLarge(String)
         case notAnImage(String)
         case unreadable
+        case encodeFailed
+        case directoryFailed
+        case writeFailed
+        case diskFull
         case notFound(String)
         case outsideAllowedDirs(String)
         case badURL(String)
@@ -329,6 +333,14 @@ enum SoulIconSource {
                 return "that isn't a decodable image (\(detail))"
             case .unreadable:
                 return "the image could not be re-encoded"
+            case .encodeFailed:
+                return "the image could not be encoded for storage"
+            case .directoryFailed:
+                return "the avatar directory could not be created"
+            case .writeFailed:
+                return "the image could not be written to storage"
+            case .diskFull:
+                return "the device storage is full"
             case .notFound(let p):
                 return "no file at \(p)"
             case .outsideAllowedDirs(let p):
@@ -408,10 +420,17 @@ enum SoulIconSource {
         // The shared rules. Not reimplemented — this is the picker's function.
         // No stored-size check: store never refuses an image for its size.
         switch SoulIconImage.store(image, named: name) {
-        // [D3] 存盘侧现在分得出解码 / 编码 / 建目录 / 写盘 / 磁盘满，
-        // 但这条配置路径的错误表没有存储类错误，保持原来的坍缩，
-        // 只改穷举：别因为新 case 编不过。
-        case .failure: throw SourceError.unreadable
+        // [D3/P3-6] 存盘侧分得出解码 / 编码 / 建目录 / 写盘 / 磁盘满，
+        // 以前这里全坍成 .unreadable，磁盘满也报"图读不出来"——正是 D3
+        // 要修的误诊，只是换了一条路径。按原因映射过去。
+        case .failure(let reason):
+            switch reason {
+            case .unreadable: throw SourceError.unreadable
+            case .encodeFailed: throw SourceError.encodeFailed
+            case .directoryFailed: throw SourceError.directoryFailed
+            case .writeFailed: throw SourceError.writeFailed
+            case .diskFull: throw SourceError.diskFull
+            }
         case .success(let path):
             return path
         }
