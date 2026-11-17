@@ -318,12 +318,19 @@ extension AIChatViewModel {
         if let sid = sessionId, let binding = store.binding(for: sid) {
             switch binding.primarySource {
             case .directEntry(let entryId, _):
-                if let entry = store.entry(for: entryId) {
+                // [A-F3] A direct pick must pass the same enabled + credential
+                // gate the group path enforces (#34): a disabled or
+                // credential-less provider must not keep receiving requests
+                // from directly-bound sessions. Unusable == deleted here:
+                // fall through to the default group.
+                if let entry = store.entry(for: entryId),
+                   let inst = store.instance(for: entry.providerInstanceId),
+                   inst.isEnabled, inst.hasAnyCredential {
                     logger.info("🔀RESOLVE directEntry=\(entryId) model=\(entry.model.id)")
                     return entry
                 }
                 // Entry was deleted (e.g. provider removed) — fall through to default group
-                logger.warning("🔀RESOLVE directEntry=\(entryId) missing, falling back to default group")
+                logger.warning("🔀RESOLVE directEntry=\(entryId) missing or unusable (disabled/credential-less), falling back to default group")
             case .group(let groupId, let resolvedEntryId):
                 // [T-ios-disabled-provider-still-selectable-via-group #34] Only
                 // honor the cached resolvedEntryId when its provider instance is
@@ -498,9 +505,17 @@ extension AIChatViewModel {
         switch source {
         case .directEntry(let entryId, _):
             // Explicit user pick: honor it as long as the entry still exists
-            // (deleted → nil so the caller can fall through, mirroring the
-            // historical auto-path behavior).
-            return store.entry(for: entryId)
+            // AND its provider is still usable (enabled + credentialed) —
+            // the group path already re-routes on a disabled/credential-less
+            // member (#34); a direct pick must not bypass that gate.
+            // (deleted/unusable → nil so the caller can fall through,
+            // mirroring the historical auto-path behavior).
+            if let entry = store.entry(for: entryId),
+               let inst = store.instance(for: entry.providerInstanceId),
+               inst.isEnabled, inst.hasAnyCredential {
+                return entry
+            }
+            return nil
         case .group(let groupId, let resolvedEntryId):
             if let group = store.group(for: groupId),
                let freshEntryId = ModelGroupRouter.resolve(group: group, sessionId: sessionId, store: store),
@@ -598,7 +613,12 @@ extension AIChatViewModel {
         if !sid.isEmpty, let binding = store.binding(for: sid) {
             switch binding.primarySource {
             case .directEntry(let entryId, _):
-                if let entry = store.entry(for: entryId) { return entry }
+                // [A-F3] Same enabled + credential gate as the group branch
+                // below: a disabled/credential-less provider must not be
+                // returned for a directly-bound session.
+                if let entry = store.entry(for: entryId),
+                   let inst = store.instance(for: entry.providerInstanceId),
+                   inst.isEnabled, inst.hasAnyCredential { return entry }
             case .group(let groupId, let resolvedEntryId):
                 if let entry = store.entry(for: resolvedEntryId),
                    let inst = store.instance(for: entry.providerInstanceId),
