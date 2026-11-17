@@ -246,14 +246,12 @@ enum DebugMethodRegistry {
         ),
         MethodSpec(
             name: "debug.backup.destinations",
-            description: "Inspect/set backup destination mounted folders (§6.2 path 2), and optionally deliver a package to them.",
+            description: "Inspect configured rclone remotes as backup destinations, and optionally deliver a package to them.",
             params: [
-                ParamSpec(name: "select", type: "array", required: false, default: nil,
-                          description: "Mount ids to set as destinations"),
                 ParamSpec(name: "deliver", type: "string", required: false, default: nil,
                           description: "Path to a .minisbak to copy to every destination"),
             ],
-            returns: "{mounts, selectedIds, eligibleCount, packagesInDestinations, delivered?}",
+            returns: "{remotes, enabledCount, delivered?}",
             example: [:]
         ),
         MethodSpec(
