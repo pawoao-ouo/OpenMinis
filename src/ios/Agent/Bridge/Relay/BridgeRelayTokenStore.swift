@@ -18,13 +18,17 @@ enum BridgeRelayTokenStore {
     private static let log = AppLogger(category: "BridgeRelay")
 
     /// 保存口令。空白视为清除（与仓内其他 secret 存储同口径）。
-    static func save(_ token: String) {
+    /// [A-F6] 返回这次写盘到底落没落；false = Keychain 没写上，调用方别
+    /// 拿没落盘的新口令去重连。清空那条路返回 true（删除是 best-effort，
+    /// 旧代码也从不报删失败）。
+    @discardableResult
+    static func save(_ token: String) -> Bool {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             delete()
-            return
+            return true
         }
-        keychainSet(Data(trimmed.utf8))
+        return keychainSet(Data(trimmed.utf8))
     }
 
     /// 读口令。取不到（没填 / 钥匙串异常）返回 nil；调用方据此提示
@@ -80,7 +84,7 @@ enum BridgeRelayTokenStore {
 
     // MARK: Keychain primitives（与 MCPOAuthController 同形）
 
-    private static func keychainSet(_ data: Data) {
+    private static func keychainSet(_ data: Data) -> Bool {
         let match: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -99,7 +103,9 @@ enum BridgeRelayTokenStore {
         if status != errSecSuccess {
             // 只记状态码，绝不记口令内容。
             log.error("[Keychain] relay token save failed status=\(status)")
+            return false
         }
+        return true
     }
 
     /// 钥匙串读取（含状态区分）：errSecSuccess→值；errSecItemNotFound→没配过；

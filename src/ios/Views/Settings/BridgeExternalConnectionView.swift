@@ -370,7 +370,11 @@ struct BridgeExternalConnectionView: View {
         if on {
             // 先把输入框里的口令落钥匙串、地址落 UserDefaults，
             // 再让客户端去连——顺序反了会拿旧口令白撞一次中继。
-            BridgeRelayTokenStore.save(tokenInput)
+            // [A-F6] 口令没写上就别往下走：拿没落盘的口令去连，重启就丢。
+            guard BridgeRelayTokenStore.save(tokenInput) else {
+                flashSaveFeedback(AppLocalized("保存失败，口令没存上，请重试。"))
+                return
+            }
             BridgeRelayPreferences.host = host
             do {
                 try BridgeExternalMCPService.shared.ensureRunning()
@@ -388,7 +392,11 @@ struct BridgeExternalConnectionView: View {
 
     /// 地址/口令改完提交：先落盘，开着中继就用新配置重连。
     private func applyConfigChange() {
-        BridgeRelayTokenStore.save(tokenInput)
+        // [A-F6] 口令没写上就不重连：别拿没落盘的口令去连，重启就丢。
+        guard BridgeRelayTokenStore.save(tokenInput) else {
+            flashSaveFeedback(AppLocalized("保存失败，口令没存上，请重试。"))
+            return
+        }
         BridgeRelayPreferences.host = host
         if relay.isEnabled {
             relay.reconnect()
@@ -438,7 +446,13 @@ struct BridgeExternalConnectionView: View {
     /// 换成新的，两步才算换完，回来时 App 已自动连上。
     private func rotateToken() {
         let newToken = BridgeRelayTokenStore.generateStrongToken()
-        BridgeRelayTokenStore.save(newToken)
+        // [A-F6] 新口令没写上就中止轮换：旧口令继续活着。以前是先 Void
+        // 存、再 beginTokenRotation——写失败的话，活着的会话用的是一个
+        // 从没落过盘的口令，旧口令当场作废，重启就丢。
+        guard BridgeRelayTokenStore.save(newToken) else {
+            flashSaveFeedback(AppLocalized("保存失败，口令没存上，请重试。"))
+            return
+        }
         tokenInput = newToken
         if relay.isEnabled {
             relay.beginTokenRotation()

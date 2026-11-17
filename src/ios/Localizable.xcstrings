@@ -122799,6 +122799,29 @@
         }
       }
     },
+    "保存失败，口令没存上，请重试。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save failed — the token was not stored. Please try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存失败，口令没存上，请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存失敗，口令沒存上，請重試。"
+          }
+        }
+      }
+    },
     "保存、导入、导出主题": {
       "extractionState": "manual",
       "localizations": {
