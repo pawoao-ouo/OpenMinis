@@ -1164,6 +1164,15 @@ final class ProviderConfigStore: ObservableObject {
                 return ProviderKeychainHelper.loadOAuthToken(instanceId: instanceId, as: XAITokenStorage.self).flatMap { try? JSONEncoder().encode($0) }
             case .kimiCode:
                 return ProviderKeychainHelper.loadOAuthToken(instanceId: instanceId, as: KimiTokenStorage.self).flatMap { try? JSONEncoder().encode($0) }
+            case .antigravity:
+                // [A-F8] Same dropped-blob hole as BackupSecrets.oauthTokenBlob:
+                // Antigravity's tokens live in AntigravityTokenStorage.
+                return ProviderKeychainHelper.loadOAuthToken(instanceId: instanceId, as: AntigravityTokenStorage.self).flatMap { try? JSONEncoder().encode($0) }
+            case .openAIResponses:
+                // [A-F8] .openAIResponses has no own OAuth flow (API-key-only);
+                // a blob can still exist under the shared Codex storage, so
+                // back it up via CodexTokenStorage; no blob → nil.
+                return ProviderKeychainHelper.loadOAuthToken(instanceId: instanceId, as: CodexTokenStorage.self).flatMap { try? JSONEncoder().encode($0) }
             default:
                 return nil
             }
@@ -1297,6 +1306,18 @@ final class ProviderConfigStore: ObservableObject {
                 }
             case .kimiCode:
                 if let t = try? JSONDecoder().decode(KimiTokenStorage.self, from: blob) {
+                    ProviderKeychainHelper.saveOAuthToken(t, instanceId: instance.id)
+                }
+            case .antigravity:
+                // [A-F8] Import twin of the export case above; without it an
+                // exported Antigravity blob was silently dropped on import.
+                if let t = try? JSONDecoder().decode(AntigravityTokenStorage.self, from: blob) {
+                    ProviderKeychainHelper.saveOAuthToken(t, instanceId: instance.id)
+                }
+            case .openAIResponses:
+                // [A-F8] Mirrors .openAI (same Codex storage family).
+                if let t = (try? JSONDecoder().decode(CodexTokenStorage.self, from: blob))
+                    ?? Self.decodeCodexTokenFromRawOAuth(blob) {
                     ProviderKeychainHelper.saveOAuthToken(t, instanceId: instance.id)
                 }
             default:

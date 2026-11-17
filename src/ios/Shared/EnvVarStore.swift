@@ -188,7 +188,11 @@ final class EnvVarStore: ObservableObject {
     }
 
     /// Non-isolated write for use from background threads (backup restore).
-    nonisolated static func saveValueSync(_ value: String, forKey key: String) {
+    /// [A-F8] Returns whether the write actually landed; saveValue already
+    /// computed this Bool and threw it away, so the importer counted
+    /// env-var restores it never verified.
+    @discardableResult
+    nonisolated static func saveValueSync(_ value: String, forKey key: String) -> Bool {
         saveValue(value, forKey: key)
     }
 

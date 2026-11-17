@@ -162,6 +162,21 @@ enum BackupSecretsCollector {
         case .kimiCode:
             return ProviderKeychainHelper.loadOAuthToken(instanceId: id, as: KimiTokenStorage.self)
                 .flatMap { try? JSONEncoder().encode($0) }
+        case .antigravity:
+            // [A-F8] Antigravity's OAuth tokens live in AntigravityTokenStorage
+            // (AntigravityOAuthManager saves them there); the old default:
+            // nil silently dropped them from every backup.
+            return ProviderKeychainHelper.loadOAuthToken(instanceId: id, as: AntigravityTokenStorage.self)
+                .flatMap { try? JSONEncoder().encode($0) }
+        case .openAIResponses:
+            // [A-F8] .openAIResponses has no own OAuth flow — only API keys
+            // (AddProviderView offers Codex login for .openAI only, and the
+            // model refresh notes .openAIResponses/.oauth is API-key-only).
+            // A blob can still exist under the shared Codex storage (same
+            // account family as .openAI), so back it up via CodexTokenStorage;
+            // no blob → nil, nothing written.
+            return ProviderKeychainHelper.loadOAuthToken(instanceId: id, as: CodexTokenStorage.self)
+                .flatMap { try? JSONEncoder().encode($0) }
         default:
             return nil
         }

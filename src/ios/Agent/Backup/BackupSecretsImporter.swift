@@ -122,8 +122,13 @@ enum BackupSecretsImporter {
                 continue
             }
             if EnvVarStore.loadValueSync(forKey: e.name) == nil {
-                EnvVarStore.saveValueSync(value, forKey: e.name)
-                result.envVarsRestored += 1
+                // [A-F8] Only count a restore when the Keychain write
+                // actually landed, like the provider-fields path above.
+                if EnvVarStore.saveValueSync(value, forKey: e.name) {
+                    result.envVarsRestored += 1
+                } else {
+                    logger.error("[Restore] env var '\(e.name)' could NOT be saved to Keychain — NOT restored")
+                }
             } else {
                 result.envVarsSkippedExisting += 1
             }
