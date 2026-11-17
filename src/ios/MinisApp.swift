@@ -464,12 +464,6 @@ struct MinisApp: App {
                     // Start watching shared/skills/memory subtrees so iSH writes
                     // and FileBrowserView mutations propagate to the Files app.
                     AppGroupChangeWatcher.shared.start()
-                    // Activate security scopes for user-mounted external folders
-                    // (e.g. Obsidian vault in iCloud Drive). Held for app lifetime.
-                    MountedFoldersManager.shared.activateAll()
-                    // Create /var/minis/mounts/<name> symlinks in the fakefs now
-                    // that the rootfs exists and mounts are active.
-                    AIChatViewModel.refreshMountedFolderSymlinks()
                 }
         }
         .commands {
@@ -591,7 +585,6 @@ struct MinisApp: App {
                 SkillStore.shared.reload()
 
                 Self.signalFileProvider()
-                MountedFoldersManager.shared.refreshAllWritability()
 
                 // Credential-presence diagnostic (Keychain reads off-main)
                 let credInstances: [(id: String, type: ProviderType, cred: String, enabled: Bool)] =

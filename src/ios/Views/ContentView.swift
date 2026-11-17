@@ -6789,7 +6789,6 @@ private enum SettingsDestination: Hashable {
     case soul
     case memory
     case storage
-    case mountedFolders
     case sharedFolders
     case logs
     case appearance
@@ -7106,15 +7105,6 @@ private struct SettingsSheet: View {
                         }
                     }
                     NavigationLink {
-                        MountedFoldersSettingsView()
-                    } label: {
-                        Label {
-                            Text("Mount External Folders")
-                        } icon: {
-                            QuietAppIcon(id: QuietIconSlot.mounts.id, systemName: QuietIconSlot.mounts.systemName)
-                        }
-                    }
-                    NavigationLink {
                         BackupAndRestoreView()
                     } label: {
                         Label {
@@ -7254,8 +7244,6 @@ private struct SettingsSheet: View {
                     MemoryManagementView()
                 case .storage:
                     StorageManagementView()
-                case .mountedFolders:
-                    MountedFoldersSettingsView()
                 case .sharedFolders:
                     SharedFoldersSettingsView()
                 case .logs:
@@ -7370,8 +7358,6 @@ private struct SettingsSheet: View {
             navPath.append(SettingsDestination.memory)
         case .storage:
             navPath.append(SettingsDestination.storage)
-        case .mountedFolders:
-            navPath.append(SettingsDestination.mountedFolders)
         case .sharedFolders:
             navPath.append(SettingsDestination.sharedFolders)
         case .logs:

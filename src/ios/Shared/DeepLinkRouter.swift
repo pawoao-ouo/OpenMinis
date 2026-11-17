@@ -157,10 +157,6 @@ enum DeepLinkRouter {
         case "storage":
             coord.pendingSettingsTarget = .storage
 
-        case "mount-external", "mount_external", "mounts",
-             "mounted-folders", "mounted_folders":
-            coord.pendingSettingsTarget = .mountedFolders
-
         case "shared-folders", "shared_folders":
             coord.pendingSettingsTarget = .sharedFolders
 

@@ -19,7 +19,6 @@ enum SettingsDeepLinkTarget: Equatable {
     case soul
     case memory
     case storage
-    case mountedFolders
     case sharedFolders
     case logs
     case appearance
