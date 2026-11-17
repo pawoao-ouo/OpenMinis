@@ -145,8 +145,15 @@ import UIKit
     private static func storeAvatar(_ image: UIImage, personaID: String,
                                     role: String, fallback: Persona) -> [String: Any] {
         let name = SoulIconImage.storedName(prefix: "persona", id: personaID)
-        guard case .success(let path) = SoulIconImage.store(image, named: name) else {
-            return fail("save_failed", "Could not store the image.")
+        // [D3/P3-5] 以前 guard 掉整个 Result，磁盘满了也只回一句通用的
+        // "Could not store the image."——AI 没法告诉她是存储满了。
+        // 按原因报：reason.localizedDescription 就是拾取器用的那句中文。
+        let path: String
+        switch SoulIconImage.store(image, named: name) {
+        case .success(let stored):
+            path = stored
+        case .failure(let reason):
+            return fail("save_failed", reason.localizedDescription)
         }
         var target = PersonaStore.shared.personas.first(where: { $0.id == personaID }) ?? fallback
         target.avatar = path
