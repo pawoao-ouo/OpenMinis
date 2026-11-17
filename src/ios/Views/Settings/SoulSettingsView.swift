@@ -249,10 +249,13 @@ struct SoulSettingsView: View {
     }
 
     private func save() {
+        save(currentFile)
+    }
+
+    private func save(_ file: SoulFile) {
         do {
-            let f = currentFile
-            try SoulStore.save(f)
-            loadedRef.value = f
+            try SoulStore.save(file)
+            loadedRef.value = file
             saveError = nil
             withAnimation { didJustSave = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -268,14 +271,17 @@ struct SoulSettingsView: View {
         let parsed = SoulMDParser.parse(SoulStore.defaultContent)
         name = parsed.metadata.name
         rawEmoji = parsed.metadata.emoji
-        // The default content carries no icon, so this resets to "" (default
-        // presentation). Omitting it left the custom icon in place AND let
-        // the save() below write it into the "restored" file permanently.
-        icon = parsed.metadata.icon
         style = parsed.metadata.style
         lang = parsed.metadata.lang
         bodyText = parsed.body
-        save()
+        // [D4/P2-1] 默认内容本来就没有头像，这里直接写 icon: "" 的文件，
+        // 不走 save()/currentFile：currentFile 的 icon 是 displayIcon
+        // （通讯录那份），只要通讯录还有头像，恢复默认就会把旧头像镜像
+        // 又写回"恢复好的"文件里，等于没清掉。
+        icon = ""
+        var file = SoulFile(metadata: parsed.metadata, body: parsed.body)
+        file.metadata.icon = ""
+        save(file)
     }
 
     private final class LoadedFileRef: ObservableObject {
