@@ -42,7 +42,16 @@ struct PersonaSettingsView: View {
                         }
                     }
                     TextField("名字", text: $name)
-                        .onSubmit { saveName() }
+                        .onSubmit {
+                            // [D7/P1-1] 回车改名也是改名入口：失败要报，不能静默丢掉。
+                            guard saveName() else {
+                                MinisToast.show(store.registryDegraded
+                                    ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                                    : AppLocalized("改名没能存下来，请重试。"),
+                                    systemImage: "exclamationmark.triangle.fill")
+                                return
+                            }
+                        }
                 }
 
                 Section("人设提示词") {
