@@ -233,7 +233,16 @@ struct SoulSettingsView: View {
     }
 
     private var isDirty: Bool {
-        currentFile != loadedRef.value
+        // [D4/P3-1] icon 不参与比较：这页改不了头像（头像在通讯录里换），
+        // 而 currentFile 的 icon 是 displayIcon（通讯录那份），loadedRef 是
+        // 盘上 SOUL.md 的镜像——两边一分叉，没改任何东西保存按钮也亮着。
+        // 分叉本身是镜像滞后（P3-4 的 SOUL 同步失败、P2-1 恢复默认都会留
+        // 下它），不是本页的未保存改动；保存时 currentFile 仍会把显示的
+        // 那份写回去顺手修好镜像，这里只管按钮状态不说谎。
+        var current = currentFile
+        var loaded = loadedRef.value
+        current.metadata.icon = loaded.metadata.icon
+        return current != loaded
     }
 
     private func reload() {
