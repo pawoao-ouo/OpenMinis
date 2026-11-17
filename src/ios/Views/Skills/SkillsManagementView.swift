@@ -712,7 +712,7 @@ private struct SkillDetailView: View {
         // out-of-process "Save" folder panel / "Copy" file-promise consumer
         // has actually read the file. Deleting on dismissal raced that
         // consumer: the user picked a folder and nothing landed (and pasting
-        // into a mounted folder failed), intermittently — small zips
+        // into a folder failed), intermittently — small zips
         // sometimes won the race. Exports live in per-share directories
         // under tmp/ and are swept by sweepStaleSkillExports() after 24h
         // (plus the system's own tmp purge), so nothing leaks.

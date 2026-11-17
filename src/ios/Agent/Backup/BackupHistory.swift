@@ -134,7 +134,7 @@ final class BackupHistory: ObservableObject {
         /// [T-backup-destination-detail] Backend tag (`smb`, `webdav`, `sftp`,
         /// `s3`, …) and the folder the package was written to, so the row can
         /// say WHERE a backup went rather than only which saved destination was
-        /// picked. A mounted-folder destination has a kind but no remote path.
+        /// picked.
         ///
         /// Both optional: records written before this existed decode with nil
         /// and the UI simply omits the subtitle.

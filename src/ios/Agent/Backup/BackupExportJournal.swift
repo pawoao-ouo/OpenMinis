@@ -184,7 +184,7 @@ enum BackupExportJournal {
         //   minisbak-        pre-resume export staging; import/peek work dirs
         //   backup-          a half-written STREAMING package produced by a
         //                    build older than [T-backup-package-name-device]
-        //   restore-         a package downloaded from a mounted folder
+        //   restore-         a package downloaded during a restore
         //   server-restore-  a package downloaded from an rclone remote
         //
         // Plus ANY `*.minisbak` in tmp/, which is what actually catches the
