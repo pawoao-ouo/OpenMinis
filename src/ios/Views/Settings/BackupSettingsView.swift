@@ -1097,6 +1097,7 @@ struct BackupSettingsView: View {
                 // backed up when nothing had left the device.
                 Text("No destinations — optional. A backup works without one: when it finishes, a Save to Files sheet opens so you can save it by hand.")
                     .foregroundStyle(MinisTheme.secondaryText)
+            }
             // ONE entry point. The picker shows saved servers first and
             // offers to add a new one.
             Button {
