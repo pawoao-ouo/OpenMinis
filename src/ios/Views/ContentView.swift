@@ -2023,7 +2023,7 @@ struct ContentView: View {
                     handleNewChatRequest()
                 }
             }
-            // The Appearance language picker wrote "pendingSettingsReopen"
+            // The General sheet inside Appearance wrote "pendingSettingsReopen"
             // right before changing appLanguage, which forced the root
             // `.id(appLanguage)` rebuild that just dropped + re-mounted us.
             // Reopen the Settings sheet so the user lands back where they
@@ -6793,9 +6793,8 @@ private enum SettingsDestination: Hashable {
     case sharedFolders
     case logs
     case appearance
-    // [A-落地] 设置 → 聊天 / 通用两页（行为归设置，视觉归装扮）。
-    case chat
-    case general
+    // 聊天 / 通用已搬进装扮中心（DressingShopView 的聊天、通用两张卡），
+    // 设置列表里不再保留入口，Behavior 分区也随之删掉。
     case background
     case about
     case permissions
@@ -6926,33 +6925,6 @@ private struct SettingsSheet: View {
                         } icon: {
                             QuietAppIcon(id: QuietIconSlot.appearance.id, systemName: QuietIconSlot.appearance.systemName)
                         }
-                    }
-                    NavigationLink {
-                        ChatSettingsView()
-                    } label: {
-                        Label(AppLocalized("聊天"), systemImage: "bubble.left.and.bubble.right.fill")
-                    }
-                    NavigationLink {
-                        GeneralSettingsView()
-                    } label: {
-                        Label(AppLocalized("通用"), systemImage: "gearshape.2.fill")
-                    }
-                }
-
-                // [A-落地] 行为归设置：聊天与通用两页。聊天 4 个控件
-                // （自动分组、回车键、自动聚焦、工具预览），通用 3 个
-                // （启动会话、语言、屏幕常亮）。行图标直接用 SF Symbol，
-                // 不新开 QuietIconSlot（那要动 AppearanceStudio.swift）。
-                Section("Behavior") {
-                    NavigationLink {
-                        ChatSettingsView()
-                    } label: {
-                        Label(AppLocalized("聊天"), systemImage: "bubble.left.and.bubble.right.fill")
-                    }
-                    NavigationLink {
-                        GeneralSettingsView()
-                    } label: {
-                        Label(AppLocalized("通用"), systemImage: "gearshape.2.fill")
                     }
                 }
 
@@ -7295,10 +7267,6 @@ private struct SettingsSheet: View {
                         .onAppear { deepLink.pendingLogsTab = nil }
                 case .appearance:
                     AppearanceSettingsView()
-                case .chat:
-                    ChatSettingsView()
-                case .general:
-                    GeneralSettingsView()
                 case .background:
                     EnhancedBackgroundSettingsView()
                 case .about:
@@ -7339,21 +7307,22 @@ private struct SettingsSheet: View {
                     deepLink.showPermissions = false
                 }
                 // Restore the user's location after a language-change rebuild.
-                // AppearanceSettingsView's language picker writes this flag
-                // right before flipping `appLanguage`, knowing the root
+                // The General sheet inside Appearance writes this flag right
+                // before flipping `appLanguage`, knowing the root
                 // `.id(appLanguage)` will tear the whole tree down. ContentView
                 // re-opens the sheet on re-mount; here we push back to the
                 // destination so the user lands where they were, now rendered
-                // in the new language.
+                // in the new language. "general" lands on the moved General
+                // sheet: push Appearance, and DressingShopView opens the
+                // General drawer from pendingDressingSheet on appear.
                 if let dest = UserDefaults.standard.string(forKey: "pendingSettingsReopen") {
                     UserDefaults.standard.removeObject(forKey: "pendingSettingsReopen")
                     switch dest {
                     case "appearance":
                         navPath.append(SettingsDestination.appearance)
-                    case "chat":
-                        navPath.append(SettingsDestination.chat)
                     case "general":
-                        navPath.append(SettingsDestination.general)
+                        UserDefaults.standard.set("general", forKey: "pendingDressingSheet")
+                        navPath.append(SettingsDestination.appearance)
                     default:
                         break
                     }
