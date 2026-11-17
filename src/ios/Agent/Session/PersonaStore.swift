@@ -976,8 +976,10 @@ final class PersonaStore: ObservableObject {
         guard let idx = personas.firstIndex(where: { $0.id == id }) else { return false }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        // 名字没变就不用写：免得一次无改动的保存被 SOUL 同步失败挡住。
-        guard personas[idx].name != trimmed else { return true }
+        // [P2] 名字没变也不直接返回 true：上一次改名可能只写进了注册表、
+        // SOUL.md 的 name 还停在旧名字上。重试同一个名字时也要去核对
+        // SOUL.md，不一致就写一次，没写上就报失败，别当改上了。
+        // 注册表那份也照写：上一次 persist() 也可能没落盘。
         personas[idx].name = trimmed
         let persisted = persist()
         // 同步 SOUL.md frontmatter 的 name 字段
@@ -986,16 +988,19 @@ final class PersonaStore: ObservableObject {
         if let data = try? Data(contentsOf: url),
            let text = String(data: data, encoding: .utf8) {
             var file = SoulMDParser.parse(text)
-            file.metadata.name = trimmed
-            if let encoded = SoulMDParser.serialize(file).data(using: .utf8) {
-                do {
-                    try encoded.write(to: url, options: .atomic)
-                } catch {
-                    AppLogger(category: "PersonaStore").error("[D7] rename: SOUL.md frontmatter sync failed (\(error.localizedDescription)) — registry has the new name, SOUL.md still has the old one")
+            // 已经对齐就不用重写：无改动保存别因为一次多余写盘失败。
+            if file.metadata.name != trimmed {
+                file.metadata.name = trimmed
+                if let encoded = SoulMDParser.serialize(file).data(using: .utf8) {
+                    do {
+                        try encoded.write(to: url, options: .atomic)
+                    } catch {
+                        AppLogger(category: "PersonaStore").error("[D7] rename: SOUL.md frontmatter sync failed (\(error.localizedDescription)) — registry has the new name, SOUL.md still has the old one")
+                        soulOK = false
+                    }
+                } else {
                     soulOK = false
                 }
-            } else {
-                soulOK = false
             }
         }
         // [B1 · 10-15] 当前人设改名：刷新 Soul 缓存并广播（refreshCache 内部
