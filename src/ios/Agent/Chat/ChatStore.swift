@@ -880,6 +880,23 @@ actor ChatStore {
         }
     }
 
+    /// Bool-returning variant of `exec`, for the few statements whose failure
+    /// must change control flow (BEGIN/COMMIT in deleteSessionLocalRowsOnly).
+    /// `exec` stays Void — it has many call sites that only need the log.
+    /// Returns false with the SQLite error (and rc) logged when the
+    /// statement fails.
+    private func execChecked(_ sql: String) -> Bool {
+        var errMsg: UnsafeMutablePointer<CChar>?
+        let result = sqlite3_exec(db, sql, nil, nil, &errMsg)
+        if result != SQLITE_OK {
+            let msg = errMsg.map { String(cString: $0) } ?? "unknown"
+            logger.error("SQL error: \(msg) (rc=\(result))")
+            sqlite3_free(errMsg)
+            return false
+        }
+        return true
+    }
+
     /// Returns true if `column` exists on `table`. Uses `PRAGMA table_info`.
     private func columnExists(table: String, column: String) -> Bool {
         var stmt: OpaquePointer?
@@ -2663,6 +2680,15 @@ actor ChatStore {
     /// The UI removes the row optimistically before awaiting this call, so
     /// a silent false here is what used to resurrect a "deleted" session
     /// on the next refresh with no error anywhere.
+    /// Precondition: callers must NOT wrap deleteSession /
+    /// deleteSessionLocalOnly in an outer transaction. This function owns
+    /// the transaction when autocommit is on (BEGIN/COMMIT/ROLLBACK itself);
+    /// called inside an outer transaction it skips all three, and
+    /// deleteSessionMedia would then run before the outer COMMIT — files
+    /// deleted for a session whose row delete may still roll back. No
+    /// caller does this today (ContentView, SessionsOffloadBridge,
+    /// DebugRPCProviderChat, BackupImporter all call it with no open
+    /// transaction); keep it that way. The debug assertion below enforces it.
     @discardableResult
     private func deleteSessionLocalRowsOnly(_ id: String) -> Bool {
         // [T-ios-listsessions-cache] Invalidate here (the low-level row delete)
@@ -2690,7 +2716,19 @@ actor ChatStore {
         // cannot be rolled back, so it runs only AFTER a successful COMMIT,
         // never before the gate.
         let ownsTransaction = sqlite3_get_autocommit(db) != 0
-        if ownsTransaction { exec("BEGIN TRANSACTION") }
+        // [batch16-P1] Enforce the no-outer-transaction precondition (see the
+        // doc comment): in debug, a wrapped call fails loudly here instead of
+        // silently running the media delete ahead of an outer COMMIT. In
+        // release the nested-safe fallback below is unchanged.
+        assert(ownsTransaction, "[DELETE] deleteSessionLocalRowsOnly must not be called inside an outer transaction")
+        // [batch16-P1] A failed BEGIN must abort the delete: without it the
+        // DELETEs below would run one-by-one in autocommit and atomicity
+        // would silently dissolve. No ROLLBACK here — a failed BEGIN leaves
+        // no transaction open.
+        if ownsTransaction, !execChecked("BEGIN TRANSACTION") {
+            logger.error("[DELETE] BEGIN failed id=\(id.prefix(8)): \(String(cString: sqlite3_errmsg(db))) — aborting delete, session kept whole")
+            return false
+        }
 
         if !deleteMessages(sessionId: id) {
             if ownsTransaction { exec("ROLLBACK") }
@@ -2727,12 +2765,25 @@ actor ChatStore {
             return false
         }
 
-        if ownsTransaction { exec("COMMIT") }
+        // [batch16-P1] A failed COMMIT must abort the delete: the transaction
+        // stays open, so the row is still there and the media must NOT be
+        // deleted, and the UI must NOT be told success. Roll back (best
+        // effort) so the leaked transaction cannot poison later writes —
+        // with autocommit off, appendMessages and other delete paths would
+        // think they are inside an outer transaction, skip BEGIN/COMMIT,
+        // and pile uncommitted writes into the leaked transaction.
+        if ownsTransaction {
+            if !execChecked("COMMIT") {
+                logger.error("[DELETE] COMMIT failed id=\(id.prefix(8)): \(String(cString: sqlite3_errmsg(db))) — rolling back, session kept whole")
+                if !execChecked("ROLLBACK") {
+                    logger.error("[DELETE] ROLLBACK after failed COMMIT also failed id=\(id.prefix(8)): \(String(cString: sqlite3_errmsg(db))) — transaction left open, later writes may be affected")
+                }
+                return false
+            }
+        }
 
-        // [batch16-P1] Files cannot be rolled back: delete the session's
-        // media only now that the DB delete has committed. Running this
-        // before the gate meant a failed row DELETE left an empty-shell
-        // session — row restored by the UI, content already gone.
+        // Files cannot be rolled back: media runs only now that the DB
+        // delete has committed (see the function comment above).
         deleteSessionMedia(id)
 
         // [T-ios-session-paused-badge] Drop any badge state for a deleted session
