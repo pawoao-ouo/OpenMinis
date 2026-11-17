@@ -2668,11 +2668,22 @@ actor ChatStore {
         // [T-ios-listsessions-cache] Invalidate here (the low-level row delete)
         // so ALL callers are covered — deleteSession AND deleteSessionLocalOnly.
         invalidateSessionListCache()
-        // [S7] Delete the session row FIRST, before its messages/markers/
-        // media. If this step fails, nothing else has been touched, so the
-        // failure is clean: the session stays whole and the caller can put
-        // its row back and tell the user. (Previously the messages went
-        // first, so a failed row delete left a row with no messages behind.)
+        // [FK reorder] Child rows go FIRST. `messages.session_id` and
+        // `compact_markers.session_id` both carry a declared FK to
+        // `sessions(id)` with no ON DELETE CASCADE, and `PRAGMA
+        // foreign_keys=ON` is set, so deleting the parent row while any child
+        // row exists fails with SQLITE_CONSTRAINT — every real conversation
+        // (any messages at all) could never be deleted, which is exactly the
+        // user-reported "Couldn't delete this conversation" failure. The old
+        // row-first order (S7) was meant to keep a failed delete clean, but
+        // with FK enforcement it made the delete fail deterministically
+        // instead. The row DELETE below is still the success gate: if it
+        // fails, we log and return false and the UI restores the row and
+        // tells the user.
+        deleteMessages(sessionId: id)
+        deleteCompactMarkers(sessionId: id)
+        deleteSessionMedia(id)
+
         let sql = "DELETE FROM sessions WHERE id = ?"
         var stmt: OpaquePointer?
         var rowDeleted = false
@@ -2693,10 +2704,6 @@ actor ChatStore {
         }
         sqlite3_finalize(stmt)
         guard rowDeleted else { return false }
-
-        deleteMessages(sessionId: id)
-        deleteCompactMarkers(sessionId: id)
-        deleteSessionMedia(id)
 
         // [T-ios-session-paused-badge] Drop any badge state for a deleted session
         // so a stale "paused" badge can't linger in the persisted store.
