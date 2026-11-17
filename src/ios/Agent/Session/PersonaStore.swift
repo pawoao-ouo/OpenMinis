@@ -1065,8 +1065,11 @@ final class PersonaStore: ObservableObject {
     }
 
     /// 更新某人设的白名单 / 模型绑定；名字或头像有变化时同步到对话侧显示源。
-    /// [D7] 返回这次改动到底落盘没有：false = 只改了内存，重启会丢。
+    /// [D7] 返回这次改动到底落盘没有：false = 没完全落盘。
+    /// 注册表和 SOUL.md 同步都算——SOUL 同步失败时聊天侧还挂着旧头像/旧名，
     /// 调用方（拾取器、AI 命令）要把失败报出来，不能当成功报。
+    /// （SOUL 同步失败不影响注册表那份：下次启动 migrateAvatarSource 会按
+    /// 通讯录重对齐，所以这是"这次没写上"，不是"丢了"。）
     @discardableResult
     func updatePersona(_ persona: Persona) -> Bool {
         guard let idx = personas.firstIndex(where: { $0.id == persona.id }) else { return false }
@@ -1091,7 +1094,14 @@ final class PersonaStore: ObservableObject {
             if soul.metadata.icon != (p.avatar ?? "") {
                 soul.metadata.icon = p.avatar ?? ""
             }
-            try? SoulStore.save(soul, for: p.id)
+            // [P3-4] 以前 try? 掉：SOUL 没写上还照旧返回 persisted，
+            // 注释却说"返回改动到底落没落盘"。SOUL 没落就是没完全落。
+            do {
+                try SoulStore.save(soul, for: p.id)
+            } catch {
+                AppLogger(category: "PersonaStore").error("[D7] SOUL.md sync failed for persona \(p.id.prefix(8)) (\(error.localizedDescription)) — chat side still shows the old avatar/name")
+                return false
+            }
         }
         return persisted
     }
