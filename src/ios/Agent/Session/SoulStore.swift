@@ -177,7 +177,11 @@ enum SoulIconImage {
         } catch {
             // [D3] 写盘失败以前也报"图读不出来"。磁盘满了是存储问题，
             // 不是图的问题，别让她拿一张好图反复重试。
-            if (error as NSError).code == CocoaError.fileWriteOutOfSpace.rawValue {
+            // [P3-2] 只比 code 不够：别的 domain 也可能撞上同一个数值，
+            // 必须同时认 NSCocoaErrorDomain 才算磁盘满。
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain
+                && nsError.code == CocoaError.fileWriteOutOfSpace.rawValue {
                 return .failure(.diskFull)
             }
             return .failure(.writeFailed)
