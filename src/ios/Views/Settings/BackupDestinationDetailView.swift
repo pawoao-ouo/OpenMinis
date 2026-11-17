@@ -16,12 +16,7 @@ struct BackupDestinationDetailView: View {
     @ObservedObject private var fontSettings = FontSettings.shared
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
-    enum Target {
-        case remote(RcloneRemoteStore.Remote)
-        case folder(MountedFolderEntry)
-    }
-
-    let target: Target
+    let target: RcloneRemoteStore.Remote
     var onChanged: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -45,23 +40,9 @@ struct BackupDestinationDetailView: View {
     @State private var pendingDelete: RcloneTransfer.RemotePackage?
     @State private var isDeleting = false
 
-    /// [T-backup-folder-delete] The folder equivalent of `pendingDelete`, and
-    /// separate from it because the two lists hold different types — a server
-    /// package is an `RcloneTransfer.RemotePackage` addressed through rclone,
-    /// a folder one is a `FoundPackage` with a real file URL.
-    @State private var pendingFolderDelete: BackupDestinations.FoundPackage?
-    /// Packages in the folder destination. Loaded in a `.task` rather than
-    /// computed in `body`: the listing enumerates a mounted directory, which
-    /// on a NAS or a cloud provider is real I/O, and doing that inside a view
-    /// body blocks the main thread on every redraw.
-    @State private var folderPackages: [BackupDestinations.FoundPackage] = []
-
     var body: some View {
         Form {
-            switch target {
-            case .remote(let r): remoteSections(r)
-            case .folder(let f): folderSections(f)
-            }
+            remoteSections(target)
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -111,8 +92,7 @@ struct BackupDestinationDetailView: View {
         } message: {
             Text("Backups already on the server are not deleted.")
         }
-        // [K-6] Deleting one package on a server (or a mounted folder that has
-        // to be woken) takes seconds. `isDeleting` was set and never read, so
+        // [K-6] Deleting one package on a server takes seconds. `isDeleting` was set and never read, so
         // the screen looked frozen and there was no sign the tap landed.
         .overlay {
             if isDeleting {
@@ -154,22 +134,6 @@ struct BackupDestinationDetailView: View {
                 secondaryButton: .cancel(Text(AppLocalized("Cancel")))
             )
         }
-        // [T-backup-folder-delete] Same treatment for a folder destination.
-        // Worded for a folder rather than a server, because "deleted from this
-        // server" would be wrong for a local or iCloud Drive directory.
-        .alert(item: $pendingFolderDelete) { pkg in
-            Alert(
-                title: Text(AppLocalized("Delete this backup file?")),
-                message: Text(String(
-                    format: AppLocalized("“%1$@” (%2$@) will be permanently deleted from this folder. There is no trash to recover it from, and any data only in this backup will be lost. This cannot be undone."),
-                    pkg.url.lastPathComponent,
-                    ByteCountFormatter.string(fromByteCount: pkg.size, countStyle: .file))),
-                primaryButton: .destructive(Text(AppLocalized("Delete Backup"))) {
-                    Task { await deleteFolderPackage(pkg) }
-                },
-                secondaryButton: .cancel(Text(AppLocalized("Cancel")))
-            )
-        }
     }
 
     /// [T-backup-remote-delete] Remove one package from the server, then
@@ -191,56 +155,14 @@ struct BackupDestinationDetailView: View {
         }
     }
 
-    /// [T-backup-folder-delete] List the packages in a folder destination.
-    ///
-    /// Detached because enumerating a mounted directory is real I/O — the
-    /// folder may be a NAS or a cloud provider that has to be woken — and this
-    /// used to run synchronously inside `body`, blocking the main thread on
-    /// every redraw of the screen.
-    private func loadFolderPackages(_ f: MountedFolderEntry) async {
-        let id = f.id
-        folderPackages = await Task.detached(priority: .userInitiated) {
-            BackupDestinations.listPackages(folderId: id)
-        }.value
-    }
-
-    /// [T-backup-folder-delete] Delete one package from a folder destination.
-    ///
-    /// Goes through `MountedFolderCoordinator.remove` rather than
-    /// `FileManager.removeItem`: the file may live under a mount owned by a
-    /// FileProvider, where an uncoordinated delete either fails or races the
-    /// provider. `remove` also enforces the mount's writability, so a
-    /// read-only destination reports an error instead of appearing to work.
-    private func deleteFolderPackage(_ pkg: BackupDestinations.FoundPackage) async {
-        guard case .folder(let f) = target else { return }
-        isDeleting = true
-        defer { isDeleting = false }
-        do {
-            let url = pkg.url
-            try await Task.detached(priority: .utility) {
-                try MountedFolderCoordinator.remove(at: url)
-            }.value
-            await loadFolderPackages(f)
-        } catch {
-            // Surfaced, not swallowed: a failed delete that silently drops the
-            // row would tell the user the file is gone when it is still there.
-            errorText = error.localizedDescription
-        }
-    }
-
     /// The remote as it currently stands — the edited copy once something has
     /// been changed, otherwise the one this view was opened with.
     private var activeRemote: RcloneRemoteStore.Remote? {
-        if let edited { return edited }
-        if case .remote(let r) = target { return r }
-        return nil
+        edited ?? target
     }
 
     private var title: String {
-        switch target {
-        case .remote(let r): return r.name
-        case .folder(let f): return f.name
-        }
+        target.name
     }
 
     // MARK: - Server
@@ -460,66 +382,6 @@ struct BackupDestinationDetailView: View {
         } catch {
             errorText = error.localizedDescription
         }
-    }
-
-    // MARK: - Folder
-
-    @ViewBuilder
-    private func folderSections(_ f: MountedFolderEntry) -> some View {
-        Section {
-            LabeledContent("Source", value: f.sourceDisplayName)
-            LabeledContent("Can save backups",
-                           value: f.effectiveWritable ? AppLocalized("Yes")
-                                                      : AppLocalized("No"))
-            LabeledContent("Added", value: f.createdAt.formatted(date: .abbreviated,
-                                                                 time: .shortened))
-        } header: {
-            Text("Configuration")
-        } footer: {
-            // Says where the folder really lives, since the same row could be
-            // a local directory or a server mounted in Files.
-            Text("Folders come from the Files app — on this iPhone, iCloud Drive, or a connected server.")
-        }
-
-        Section {
-            if folderPackages.isEmpty {
-                Text("No backups found here yet.").foregroundStyle(MinisTheme.secondaryText)
-            } else {
-                ForEach(folderPackages) { p in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(p.url.lastPathComponent)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Text("\(ByteCountFormatter.string(fromByteCount: p.size, countStyle: .file)) · \(p.modified.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.system(size: fontSettings.scaledApp(12)))
-                            .foregroundStyle(MinisTheme.secondaryText)
-                    }
-                    // [T-backup-folder-delete] Swipe to delete the file in the
-                    // folder, matching the server list above — a user who has
-                    // learned the gesture on one destination should not find
-                    // it missing on the other. Same safeguards: confirmed by
-                    // name, and `allowsFullSwipe: false` so the gesture cannot
-                    // complete without a deliberate tap on the button.
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            pendingFolderDelete = p
-                        } label: {
-                            Label(AppLocalized("Delete"), systemImage: "trash")
-                        }
-                    }
-                }
-            }
-        } header: {
-            Text("Backups Stored Here")
-        } footer: {
-            // The gesture is invisible until tried, and what it does here is
-            // irreversible — so it is stated rather than left to be
-            // discovered by someone swiping to see what happens.
-            if !folderPackages.isEmpty {
-                Text("Swipe a backup left to delete it. Deleted backup files cannot be recovered.")
-            }
-        }
-        .task(id: f.id) { await loadFolderPackages(f) }
     }
 
     // MARK: - Actions

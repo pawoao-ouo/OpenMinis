@@ -199,45 +199,27 @@ enum DebugRPCBackup {
         ]
     }
 
-    /// `debug.backup.destinations` — inspect and drive §6.2 path 2 (delivery
-    /// into user-authorised mounted folders) without the UI.
+    /// `debug.backup.destinations` — inspect §6.2 path 2 (delivery to
+    /// configured rclone remotes) without the UI.
     ///
     /// Params (all optional):
-    ///   - `select`: [String] mount ids to set as the destination list.
-    ///   - `deliver`: String, path to a package to copy to every destination.
+    ///   - `deliver`: String, path to a package to upload to every remote.
     ///
-    /// With no params it just reports the current state, which is what makes
-    /// "did my selection persist / is this mount actually writable" answerable
-    /// from a test harness.
+    /// With no params it just reports the current state.
     @MainActor
     static func destinations(params: [String: Any]) async throws -> [String: Any] {
-        if let ids = params["select"] as? [String] {
-            BackupDestinations.selectedIds = ids.compactMap(UUID.init(uuidString:))
-        }
-
-        let manager = MountedFoldersManager.shared
-        let mounts: [[String: Any]] = manager.entries.map { e in
-            let resolved = manager.resolvedURL(for: e.id)
-            return [
-                "id": e.id.uuidString,
-                "name": e.name,
-                "source": e.sourceDisplayName,
-                "isWritable": e.isWritable,
-                "userAllowWrite": e.userAllowWrite,
-                "effectiveWritable": e.effectiveWritable,
-                "available": resolved != nil,
-                "path": resolved?.path ?? "",
-                "selected": BackupDestinations.isSelected(e.id),
+        let remotes: [[String: Any]] = RcloneRemoteStore.remotes.map { r in
+            [
+                "name": r.name,
+                "backend": r.backend,
+                "path": r.path,
+                "enabled": r.enabled,
             ]
         }
 
         var out: [String: Any] = [
-            "mounts": mounts,
-            "selectedIds": BackupDestinations.selectedIds.map(\.uuidString),
-            "eligibleCount": BackupDestinations.eligibleFolders.count,
-            "packagesInDestinations": BackupDestinations.listPackages().map {
-                ["name": $0.url.lastPathComponent, "folder": $0.folderName, "size": $0.size]
-            },
+            "remotes": remotes,
+            "enabledCount": RcloneRemoteStore.enabledRemotes.count,
         ]
 
         if let path = params["deliver"] as? String {

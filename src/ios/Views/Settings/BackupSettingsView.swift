@@ -106,14 +106,8 @@ struct BackupSettingsView: View {
     @State private var showShare = false
     @State private var showSaveToFiles = false
 
-    /// §6.2 path 2 — mounted folders this backup is also delivered into.
-    /// Mirrored into @State so toggling redraws; the source of truth stays in
-    /// `BackupDestinations` (UserDefaults).
-    @State private var destinationIds: [UUID] = []
     /// Per-destination outcome of the last export.
     @State private var deliveryResults: [BackupDestinations.DeliveryResult] = []
-    /// Set when a just-picked destination fails its writability probe.
-    @State private var destinationWarning: String?
     @State private var showAddDestination = false
     @ObservedObject private var history = BackupHistory.shared
     @ObservedObject private var runController = BackupRunController.shared
@@ -140,9 +134,6 @@ struct BackupSettingsView: View {
     /// push also means the pushed screen sees current data rather than a copy
     /// captured when the row was tapped.
     @State private var openedRemoteName: String?
-    /// Folder destination whose detail screen should be pushed — see above.
-    @State private var openedFolderId: UUID?
-
     /// [T-backup-device-name-setting] Working copy of the user's device name.
     ///
     /// Held in @State and committed on change rather than bound straight to
@@ -581,7 +572,6 @@ struct BackupSettingsView: View {
             if !transfer.destinations.isEmpty { didPresentFinishedTransfer = true }
             loadSelectedCategories()
             migrateLegacySizeCapIfNeeded()
-            destinationIds = BackupDestinations.selectedIds
             remotes = RcloneRemoteStore.remotes
             // rclone's config is in-memory only, so it must be rebuilt each
             // time this screen appears (and after a relaunch).
@@ -616,21 +606,8 @@ struct BackupSettingsView: View {
                 // snapshot of a destination that no longer exists.
                 if let name = openedRemoteName,
                    let r = RcloneRemoteStore.remotes.first(where: { $0.name == name }) {
-                    BackupDestinationDetailView(target: .remote(r)) {
+                    BackupDestinationDetailView(target: r) {
                         remotes = RcloneRemoteStore.remotes
-                    }
-                }
-            } label: { EmptyView() }
-                .opacity(0)
-
-            NavigationLink(isActive: Binding(
-                get: { openedFolderId != nil },
-                set: { if !$0 { openedFolderId = nil } }
-            )) {
-                if let id = openedFolderId,
-                   let folder = BackupDestinations.eligibleFolders.first(where: { $0.id == id }) {
-                    BackupDestinationDetailView(target: .folder(folder)) {
-                        destinationIds = BackupDestinations.selectedIds
                     }
                 }
             } label: { EmptyView() }
@@ -638,9 +615,7 @@ struct BackupSettingsView: View {
         }
         .sheet(isPresented: $showAddDestination) {
             BackupDestinationPicker {
-                destinationIds = BackupDestinations.selectedIds
                 remotes = RcloneRemoteStore.remotes
-                destinationWarning = nil
             }
         }
         .sheet(isPresented: $showShare) {
@@ -1050,15 +1025,10 @@ struct BackupSettingsView: View {
 
     // MARK: - Destinations (§6.2 path 2)
 
-    /// Lets the user send every backup to one or more mounted folders.
-    ///
-    /// No networking lives behind this: an SMB / AFP / WebDAV / cloud folder
-    /// mounted in Files and authorised in Minis is just a directory, and
-    /// iOS's FileProvider does the protocol work. That is why the same list
-    /// covers a NAS and iCloud Drive without either being special-cased.
+    /// Lets the user send every backup to one or more configured servers
+    /// (SMB / WebDAV / SFTP / S3 / FTP), via rclone.
     @ViewBuilder
     private var destinationSection: some View {
-        let eligible = BackupDestinations.eligibleFolders
         Section {
             // Network drives added in-app (SMB / WebDAV / SFTP / S3 / FTP).
             // Listed first: a user who went to the trouble of typing in a
@@ -1117,7 +1087,7 @@ struct BackupSettingsView: View {
                 }
             }
 
-            if eligible.isEmpty && remotes.isEmpty {
+            if remotes.isEmpty {
                 // Empty is the NORMAL starting state, so this reads as the
                 // next step rather than a problem to fix.
                 //
@@ -1130,53 +1100,8 @@ struct BackupSettingsView: View {
                 // backed up when nothing had left the device.
                 Text("No destinations — optional. A backup works without one: when it finishes, a Save to Files sheet opens so you can save it by hand.")
                     .foregroundStyle(MinisTheme.secondaryText)
-            } else if !eligible.isEmpty {
-                // Same badge treatment as the category rows above, so the two
-                // lists read as one screen rather than two styles.
-                ForEach(eligible) { folder in
-                    // Same shape as the server rows above — no NavigationLink
-                    // inside the Toggle, so no chevron pinched against the
-                    // switch.
-                    HStack(spacing: 12) {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(AppearanceStudio.shared.color(.primaryText))
-                            .frame(width: 28, height: 28)
-                            .background(AppearanceStudio.shared.color(.surface), in: Circle())
-                            .overlay(Circle().stroke(AppearanceStudio.shared.color(.border).opacity(0.4), lineWidth: 0.6))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(folder.name)
-                            Text(folder.sourceDisplayName)
-                                .font(.system(size: fontSettings.scaledApp(12)))
-                                .foregroundStyle(MinisTheme.secondaryText)
-                        }
-                        Spacer(minLength: 8)
-                            .contentShape(Rectangle())
-                        Toggle("", isOn: destinationBinding(for: folder))
-                            .labelsHidden()
-                            .fixedSize()
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { openedFolderId = folder.id }
-                    .swipeActions(edge: .trailing) {
-                        // Removes it from THIS list only. The underlying mount
-                        // survives, because the user may also have added it for
-                        // the agent and deleting that from here would be a
-                        // surprise.
-                        Button(role: .destructive) {
-                            BackupDestinations.forget(folder.id)
-                            destinationIds = BackupDestinations.selectedIds
-                        } label: {
-                            Label("Remove", systemImage: "trash")
-                        }
-                    }
-                }
-            }
-            // ONE entry point. Two buttons ("Add Folder" / "Add Server")
-            // asked the user to know which mechanism they wanted before they
-            // knew what was on offer — and a server they had already set up
-            // was invisible until they guessed correctly. The picker shows
-            // saved servers first and offers both ways to add a new one.
+            // ONE entry point. The picker shows saved servers first and
+            // offers to add a new one.
             Button {
                 showAddDestination = true
             } label: {
@@ -1189,51 +1114,11 @@ struct BackupSettingsView: View {
                     Text("Add Backup Destination…")
                 }
             }
-
-            if let destinationWarning {
-                Text(destinationWarning)
-                    .font(.system(size: fontSettings.scaledApp(13)))
-                    .foregroundStyle(MinisTheme.warning)
-            }
         } header: {
             Text("Backup Destinations")
         } footer: {
-            if eligible.isEmpty {
-                Text("Optional: a folder here also gets a copy of each backup — including a server connected in the Files app (SMB, WebDAV) or a cloud provider. Without one, each backup is still saved by hand through the Save to Files sheet when it finishes; there is no silent scheduled copy to a fixed folder.")
-            } else {
-                Text("Each new backup is also copied to the selected folders — including servers connected in the Files app (SMB, WebDAV) and cloud providers. A folder that is offline is reported and skipped; the local copy is always kept.")
-            }
+            Text("Optional: each backup is also uploaded to the enabled servers. Without one, each backup is still saved by hand through the Save to Files sheet when it finishes; there is no silent scheduled copy to a fixed folder.")
         }
-    }
-
-    private func destinationBinding(for folder: MountedFolderEntry) -> Binding<Bool> {
-        Binding(
-            get: { destinationIds.contains(folder.id) },
-            set: { on in
-                destinationWarning = nil
-                if on {
-                    // Probe before accepting the choice. A mount can be listed
-                    // and authorised but still unwritable right now — the share
-                    // is offline, or the provider dropped the scope. Finding
-                    // that out here beats finding out at the end of a
-                    // multi-hundred-MB export.
-                    if let root = MountedFoldersManager.shared.resolvedURL(for: folder.id) {
-                        if !MountedFoldersManager.probeWritable(at: root) {
-                            destinationWarning = String(
-                                format: AppLocalized("“%@” isn't writable right now. It may need to be reconnected in the Files app."),
-                                folder.name)
-                            return
-                        }
-                    } else {
-                        destinationWarning = String(
-                            format: AppLocalized("“%@” isn't available right now. Open it once in the Files app, then try again."),
-                            folder.name)
-                        return
-                    }
-                }
-                BackupDestinations.toggle(folder.id, on: on)
-                destinationIds = BackupDestinations.selectedIds
-            })
     }
 
     // MARK: - Export
@@ -1420,20 +1305,13 @@ struct BackupSettingsView: View {
 
             // §6.2 path 2. Runs AFTER the local copy is safely in place, so a
             // dead network share can never cost the user the backup itself.
-            // Guard covers BOTH kinds of destination — checking only the
-            // folder selection silently skipped delivery for a user whose
-            // sole destination was a server.
-            if !BackupDestinations.selectedIds.isEmpty
-                || !RcloneRemoteStore.enabledRemotes.isEmpty {
+            if !RcloneRemoteStore.enabledRemotes.isEmpty {
                 statusText = AppLocalized("Copying to destinations…")
                 let packageBytes = (try? FileManager.default.attributesOfItem(
                     atPath: stable.path)[.size] as? Int64) ?? summary.totalBytes
-                let names = BackupDestinations.selectedFolders.map(\.name)
-                    + RcloneRemoteStore.enabledRemotes.map(\.name)
+                let names = RcloneRemoteStore.enabledRemotes.map(\.name)
                 let entries: [(id: String, name: String)] =
-                    BackupDestinations.selectedFolders.map {
-                        (BackupTransferStatus.mountKey($0.id), $0.name)
-                    } + RcloneRemoteStore.enabledRemotes.map {
+                    RcloneRemoteStore.enabledRemotes.map {
                         (BackupTransferStatus.remoteKey($0.name), $0.name)
                     }
                 // Mirror transfer events into this run's record. The live rows

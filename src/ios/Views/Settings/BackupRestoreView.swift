@@ -234,28 +234,12 @@ struct BackupRestoreView: View {
     /// predecessor) wrote to a folder or server the user set up. So they are
     /// shown up front, one row each, and tapping one browses its packages.
     ///
-    /// Folders and servers are deliberately in ONE list rather than split by
-    /// mechanism. To the user they are both "the place my backups go"; which
-    /// of them happens to be a Files bookmark and which an rclone remote is an
-    /// implementation detail, and grouping by it would make the screen read as
-    /// two half-empty lists.
+    /// Configured server destinations, shown up front, one row each, and
+    /// tapping one browses its packages.
     @ViewBuilder
     private var destinationsSection: some View {
-        let folders = BackupDestinations.selectedFolders
-        if !folders.isEmpty || !remotes.isEmpty {
+        if !remotes.isEmpty {
             Section {
-                ForEach(folders) { folder in
-                    NavigationLink {
-                        FolderPackageListView(folder: folder, onPicked: load)
-                    } label: {
-                        destinationRow(
-                            name: folder.name,
-                            subtitle: AppLocalized("Shared Folder"),
-                            systemName: "externaldrive.connected.to.line.below.fill",
-                            tint: .teal)
-                    }
-                    .disabled(isWorking)
-                }
                 ForEach(remotes) { r in
                     NavigationLink {
                         ServerPackageListView(remote: r, onPicked: load)
@@ -1025,18 +1009,7 @@ struct BackupRestoreView: View {
             .appendingPathComponent("restore-\(UUID().uuidString).\(BackupFormat.fileExtension)")
         do {
             try? FileManager.default.removeItem(at: dest)
-            // A package sitting in a mounted folder needs the coordinated read
-            // path, not a bare copyItem: on a NAS or a cloud provider the file
-            // may still be a placeholder, and MountedFolderCoordinator.copy
-            // both materialises it (ensureDownloaded) and coordinates with the
-            // owning FileProvider. A plain copy would either fail or produce a
-            // truncated package — the second being far worse, since it would
-            // surface later as a corrupt archive.
-            if MountedFolderCoordinator.isUnderMount(url) {
-                try MountedFolderCoordinator.copy(from: url, to: dest)
-            } else {
-                try FileManager.default.copyItem(at: url, to: dest)
-            }
+            try FileManager.default.copyItem(at: url, to: dest)
         } catch {
             errorText = "Couldn't read that file: \(error.localizedDescription)"
             return
@@ -1357,120 +1330,6 @@ struct BackupRestoreView: View {
             parts.append(AppLocalized("\(displayNameRaw(c.category)): \(names.joined(separator: ", ")) could not be applied — their stored values were unreadable, so they were left unchanged"))
         }
         return parts.joined(separator: "\n")
-    }
-}
-
-// MARK: - Browse one shared folder
-
-/// The `.minisbak` packages inside a single mounted destination folder.
-///
-/// [T-restore-destinations-first] The counterpart of `ServerPackageListView`
-/// for folder destinations, so both kinds of destination behave the same way:
-/// tap the destination, see its backups, tap one to select it. Previously
-/// folders had no per-destination view at all — one sheet listed the packages
-/// from EVERY selected folder together, with the folder name relegated to a
-/// subtitle, which is the wrong shape once destinations are the top-level
-/// thing the user picks from.
-struct FolderPackageListView: View {
-    @ObservedObject private var fontSettings = FontSettings.shared
-    let folder: MountedFolderEntry
-    var onPicked: (URL) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var packages: [BackupDestinations.FoundPackage] = []
-    @State private var loading = true
-    /// 批七 P2-6：本目录快照台账里的包 URL（权威判定"自动快照"用）。
-    @State private var snapshotURLs: Set<URL> = []
-
-    var body: some View {
-        List {
-            // [T-restore-breadcrumb] No breadcrumb here, unlike the server
-            // browser: a folder destination is a single bookmarked directory
-            // with no descent, so there is no path to walk and nothing for an
-            // Up control to do. The filter is stated in the footer instead of
-            // a header Section, which gave chrome the same inset-card shape as
-            // the content.
-            Section {
-            if loading {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Looking for backups…").foregroundStyle(MinisTheme.secondaryText)
-                }
-            } else if packages.isEmpty {
-                // Distinguishes "nothing there" from "couldn't reach it" — an
-                // offline share contributes no rows, and the user needs to
-                // know that is a connectivity problem, not an empty NAS.
-                // Hand-rolled rather than ContentUnavailableView: the
-                // deployment target is iOS 16 and that is iOS 17+.
-                VStack(spacing: 10) {
-                    Image(systemName: "externaldrive.badge.questionmark")
-                        .font(.system(size: 40))
-                        .foregroundStyle(MinisTheme.secondaryText)
-                    Text("No .minisbak files in this folder.")
-                        .font(.system(size: fontSettings.scaledApp(17), weight: .semibold))
-                    Text("If it's on a server, open it once in the Files app to reconnect, then pull down to refresh.")
-                        .font(.system(size: fontSettings.scaledApp(13)))
-                        .foregroundStyle(MinisTheme.secondaryText)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
-                .listRowBackground(Color.clear)
-            }
-
-            ForEach(packages) { pkg in
-                Button {
-                    // Pop back to the restore screen: the summary it is about
-                    // to show is up there, and leaving the user on a list they
-                    // have finished with would hide the result of their tap.
-                    dismiss()
-                    onPicked(pkg.url)
-                } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(pkg.url.lastPathComponent)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(MinisTheme.primaryText)
-                        // 批七 P2-6：种类标注打头——自动快照/手动备份（含凭据·加密）
-                        // /手动备份（不含凭据），恢复前先看清。
-                        Text("\(restorePackageKind(fileName: pkg.url.lastPathComponent, isSnapshot: snapshotURLs.contains(pkg.url)).label) · \(ByteCountFormatter.string(fromByteCount: pkg.size, countStyle: .file)) · \(pkg.modified.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.system(size: fontSettings.scaledApp(12)))
-                            .foregroundStyle(MinisTheme.secondaryText)
-                    }
-                }
-            }
-            } footer: {
-                if !packages.isEmpty {
-                    Text("Showing .minisbak files in this folder.")
-                }
-            }
-        }
-        .refreshable { await reload() }
-        .navigationTitle(folder.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .task { await reload() }
-    }
-
-    private func reload() async {
-        loading = true
-        // Enumerating a mounted share can block on I/O (it may be a NAS that
-        // has to be woken), so it is kept off the main actor — the same reason
-        // the server list detaches its rclone calls.
-        let id = folder.id
-        let found = await Task.detached(priority: .userInitiated) {
-            BackupDestinations.listPackages(folderId: id)
-        }.value
-        packages = found
-        // 批七 P2-6：读本目录的快照台账，权威判定哪些是自动快照。
-        // 快照只存在本机，NAS 目录没有台账时就是空集，全按手动备份标。
-        // listSnapshots 是 @MainActor 隔离的，这里显式回到主线程读。
-        let dir = found.first?.url.deletingLastPathComponent()
-        let snapURLs: Set<URL> = await MainActor.run {
-            guard let dir else { return Set<URL>() }
-            return Set(BackupSnapshotService.listSnapshots(in: dir).map(\.url))
-        }
-        snapshotURLs = snapURLs
-        loading = false
     }
 }
 

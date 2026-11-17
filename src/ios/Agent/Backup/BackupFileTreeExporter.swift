@@ -86,6 +86,38 @@ struct BackupFileTreeExporter {
         case notDownloaded(size: Int64)
     }
 
+    /// Start the download of an iCloud placeholder and wait for it (up to
+    /// 8s), polling with `Thread.sleep` — which is why this must stay off
+    /// the main thread. Never blocks the main thread: there it only fires
+    /// the download request and returns immediately.
+    private func ensureDownloaded(_ url: URL) throws {
+        let keys: Set<URLResourceKey> = [
+            .isUbiquitousItemKey,
+            .ubiquitousItemDownloadingStatusKey,
+        ]
+        guard let values = try? url.resourceValues(forKeys: keys),
+              values.isUbiquitousItem == true else { return }
+        if values.ubiquitousItemDownloadingStatus == .current { return }
+
+        try FileManager.default.startDownloadingUbiquitousItem(at: url)
+
+        if Thread.isMainThread {
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            let v = try url.resourceValues(forKeys: keys)
+            if v.ubiquitousItemDownloadingStatus == .current { return }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        throw NSError(
+            domain: "Backup",
+            code: -1,
+            userInfo: [NSLocalizedDescriptionKey: AppLocalized("Timed out downloading file from iCloud.")]
+        )
+    }
+
     /// Ensure a file's real bytes are present locally, or report that they are
     /// not.
     ///
@@ -96,9 +128,6 @@ struct BackupFileTreeExporter {
     /// must not hang forever on one file — so the wait is capped and anything
     /// still absent becomes an explicit tombstone rather than a fake empty file.
     ///
-    /// `MountedFolderCoordinator.ensureDownloaded` is reused deliberately: it
-    /// already encapsulates the start-download-then-poll dance and its own
-    /// timeout, and duplicating that logic here would let the two drift.
     /// It polls with `Thread.sleep`, which is why this must stay off the main
     /// thread — `BackupExporter` is an actor, so it already is.
     private func ensureLocallyAvailable(_ url: URL) -> DownloadOutcome {
@@ -118,7 +147,7 @@ struct BackupFileTreeExporter {
         let logicalSize = values.fileSize.map(Int64.init) ?? 0
 
         do {
-            try MountedFolderCoordinator.ensureDownloaded(url)
+            try ensureDownloaded(url)
         } catch {
             logger.warning("[Backup] iCloud download failed/timed out for \(url.lastPathComponent): \(error.localizedDescription)")
             return .notDownloaded(size: logicalSize)

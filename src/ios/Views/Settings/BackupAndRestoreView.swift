@@ -78,49 +78,6 @@ struct BackupAndRestoreView: View {
     }
 }
 
-/// Folder picker for choosing a backup destination.
-///
-/// A thin wrapper over `UIDocumentPickerViewController(forOpeningContentTypes:
-/// [.folder])` — the same control Settings ▸ Mount External Folders uses, which
-/// is deliberately not shared from there because that copy is `private` to its
-/// file and this needed no changes to it.
-///
-/// This IS the "pick a network drive, browse into a directory, save here" flow
-/// the feature calls for: servers connected in the Files app (SMB, WebDAV) and
-/// cloud accounts all appear in this picker as browsable locations, and iOS
-/// handles their protocols and credentials. Writing our own server browser
-/// would mean shipping SMB/WebDAV clients to duplicate that.
-struct BackupFolderPicker: UIViewControllerRepresentable {
-    let onPick: (URL) -> Void
-
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        // NOTE: deliberately NOT asCopy. The picked folder is bookmarked as a
-        // live destination (MountedFoldersManager.bookmarkData) and backups are
-        // written into it; a copy would point the bookmark at a tmp snapshot
-        // that iOS may purge. The resigned-build silent-tap issue therefore
-        // remains open here — see the fix report for this change.
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
-        picker.delegate = context.coordinator
-        picker.allowsMultipleSelection = false
-        return picker
-    }
-
-    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
-
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: (URL) -> Void
-        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
-
-        func documentPicker(_ controller: UIDocumentPickerViewController,
-                            didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
-            onPick(url)
-        }
-    }
-}
-
 /// Applies a navigation title only when a view is presented standalone.
 ///
 /// `.navigationTitle("")` is NOT a no-op — an empty title is still a title, and

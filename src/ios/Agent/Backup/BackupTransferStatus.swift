@@ -83,7 +83,6 @@ final class BackupTransferStatus: ObservableObject {
 
     private init() {}
 
-    static func mountKey(_ id: UUID) -> String { "mount:\(id.uuidString)" }
     static func remoteKey(_ name: String) -> String { "remote:\(name)" }
 
     func begin(entries: [(id: String, name: String)], totalBytes: Int64) {
