@@ -152214,6 +152214,52 @@
           }
         }
       }
+    },
+    "分组、回车键、聚焦与工具预览": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分组、回车键、聚焦与工具预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分組、回車鍵、聚焦與工具預覽"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grouping, return key, focus & tool preview"
+          }
+        }
+      }
+    },
+    "启动会话、语言与屏幕常亮": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动会话、语言与屏幕常亮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟動會話、語言與螢幕常亮"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Launch screen, language & screen lock"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
