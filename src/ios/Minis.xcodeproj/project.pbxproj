@@ -441,9 +441,6 @@
 		E5M000007 /* MarkdownRenderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5M000017 /* MarkdownRenderView.swift */; };
 		E5MDS0003 /* MarkdownStripper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5MDS0013 /* MarkdownStripper.swift */; };
 		E5MDT0001 /* ModelDisplayTraits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5MDT0011 /* ModelDisplayTraits.swift */; };
-		E5MNT0001 /* MountedFoldersManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5MNT0101 /* MountedFoldersManager.swift */; };
-		E5MNT0002 /* MountedFolderCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5MNT0102 /* MountedFolderCoordinator.swift */; };
-		E5MNT0003 /* MountedFoldersSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5MNT0103 /* MountedFoldersSettingsView.swift */; };
 		E5MSC0001 /* MarkdownSnapshotCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5MSC0011 /* MarkdownSnapshotCollector.swift */; };
 		E5N0000012F3B941A00049557 /* SkillStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5N0000112F3B941A00049557 /* SkillStore.swift */; };
 		E5N0000022F3B941A00049557 /* SessionSkillsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5N0000122F3B941A00049557 /* SessionSkillsView.swift */; };
@@ -1240,9 +1237,6 @@
 		E5M000017 /* MarkdownRenderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownRenderView.swift; sourceTree = "<group>"; };
 		E5MDS0013 /* MarkdownStripper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownStripper.swift; sourceTree = "<group>"; };
 		E5MDT0011 /* ModelDisplayTraits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDisplayTraits.swift; sourceTree = "<group>"; };
-		E5MNT0101 /* MountedFoldersManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MountedFoldersManager.swift; sourceTree = "<group>"; };
-		E5MNT0102 /* MountedFolderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MountedFolderCoordinator.swift; sourceTree = "<group>"; };
-		E5MNT0103 /* MountedFoldersSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MountedFoldersSettingsView.swift; sourceTree = "<group>"; };
 		E5MSC0011 /* MarkdownSnapshotCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownSnapshotCollector.swift; sourceTree = "<group>"; };
 		E5N0000112F3B941A00049557 /* SkillStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillStore.swift; sourceTree = "<group>"; };
 		E5N0000122F3B941A00049557 /* SessionSkillsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSkillsView.swift; sourceTree = "<group>"; };
@@ -2667,9 +2661,6 @@
 				RCL000220 /* BackupCategoryIcon.swift */,
 				RCL000216 /* BackupDestinationDetailView.swift */,
 				BKP000216 /* BackupRestoreView.swift */,
-				E5MNT0101 /* MountedFoldersManager.swift */,
-				E5MNT0102 /* MountedFolderCoordinator.swift */,
-				E5MNT0103 /* MountedFoldersSettingsView.swift */,
 				E5SHV0101 /* SharedFolderVisibility.swift */,
 				E5SHV0103 /* SharedFoldersSettingsView.swift */,
 				E5SHV0104 /* MountDetailView.swift */,
@@ -3226,9 +3217,6 @@
 				AA0838C32F3B941A00049557 /* RootfsManagementView.swift in Sources */,
 				AA0838FF2F3B941A00049557 /* MirrorSpeedTestView.swift in Sources */,
 				AA0838CC2F3B941A00049557 /* StorageManagementView.swift in Sources */,
-				E5MNT0001 /* MountedFoldersManager.swift in Sources */,
-				E5MNT0002 /* MountedFolderCoordinator.swift in Sources */,
-				E5MNT0003 /* MountedFoldersSettingsView.swift in Sources */,
 				E5SHV0001 /* SharedFolderVisibility.swift in Sources */,
 				E5SHV0003 /* SharedFoldersSettingsView.swift in Sources */,
 				E5SHV0004 /* MountDetailView.swift in Sources */,
