@@ -154,7 +154,6 @@ extension AIChatViewModel {
     nonisolated static let minisMcpServersLinuxDir = "/var/minis/mcp-servers"
     nonisolated static let minisStickersLinuxDir = "/var/minis/stickers"
     nonisolated static let minisPersonasLinuxDir = "/var/minis/personas"
-    nonisolated static let minisMountsLinuxDir = "/var/minis/mounts"
 
     /// iOS persistent base for all minis data (Library/MinisChat/minis/).
     nonisolated static var minisPersistentBase: URL {

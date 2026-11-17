@@ -138,15 +138,15 @@ actor ISHExecutionCoordinator {
     }
     private var perSessionInflight: [String: [InflightExec]] = [:]
 
-    /// Set of sessions for which the static (memory/skills/shared/external)
+    /// Set of sessions for which the static (memory/skills/shared)
     /// mount layer has been initialized. The per-session 4 buckets are now
     /// handled by MinisFsRouter's hook, not by bind_mount, so they don't
     /// need to be re-mounted on session switch.
     private var staticMountsInitialized: Set<String> = []
 
     /// Maps linux mount paths (e.g. "/var/minis/memory") to their host
-    /// persistent URLs. Holds only the static (global) mounts and external
-    /// folders today. Per-session buckets are no longer in this map; use
+    /// persistent URLs. Holds only the static (global) mounts today.
+    /// Per-session buckets are no longer in this map; use
     /// MinisFsRouter to resolve their host paths.
     private var mountedPaths: [String: URL] = [:]
 
@@ -228,11 +228,7 @@ actor ISHExecutionCoordinator {
     /// this just kicks off the one-time static mount layer and remembers
     /// the most-recently-active session for backward-compat consumers.
     func mountForSession(_ sessionId: String) {
-        // [MOUNT-DIAG] So we can see the exact ordering between session load
-        // and the deferred external-mount snapshot apply.
         let booted = ISHKernel.shared.isBooted
-        let snapCount = Self.getExternalMountSnapshot().count
-        logger.info("MOUNT-DIAG mountForSession-entry sid=\(sessionId) booted=\(booted) externalSnapshotCount=\(snapCount) staticInit=\(self.staticMountsInitialized.count)")
         guard booted else {
             logger.warning("MOUNT mountForSession(\(sessionId)) skipped — kernel not booted")
             mountedSessionId = nil
@@ -243,7 +239,7 @@ actor ISHExecutionCoordinator {
         mountedSessionId = sessionId
     }
 
-    /// Ensure the static mount layer (memory/skills/shared + external folders)
+    /// Ensure the static mount layer (memory/skills/shared)
     /// is in place. Safe to call repeatedly; idempotent at the iSH kernel level.
     func ensureMounted(for sessionId: String) {
         guard ISHKernel.shared.isBooted else {
@@ -264,17 +260,9 @@ actor ISHExecutionCoordinator {
         staticMountsInitialized.insert(sessionId)
     }
 
-    #if DEBUG
-    /// DEBUG-only snapshot of the current mount table, for diagnostic logging
-    /// from call sites that need to print mount state.
-    func debugMountSnapshot() -> (sessionId: String?, paths: [String: URL]) {
-        return (mountedSessionId, mountedPaths)
-    }
-    #endif
-
     /// Resolve a Linux path under /var/minis/ to its current host URL.
-    /// Tries the static bind-mount table first (memory/skills/shared +
-    /// external folders), then falls back to MinisFsRouter for the per-
+    /// Tries the static bind-mount table first (memory/skills/shared),
+    /// then falls back to MinisFsRouter for the per-
     /// session buckets. Per-session lookups need a sessionId because the
     /// router routes by fs_context; pass it via `sessionId` for those paths.
     func hostURL(for linuxPath: String, sessionId: String? = nil) -> URL? {
@@ -558,16 +546,6 @@ actor ISHExecutionCoordinator {
 
         logger.info("MOUNT START for session \(sid)")
 
-        // [MOUNT-DIAG] Capture external-snapshot state as performMount sees it.
-        // If this prints 0 entries on a cold launch where the user has mounts
-        // configured, the cold-start race is confirmed: performMount ran
-        // before MountedFoldersManager.activateAll's resolve task pushed the
-        // snapshot. The subsequent applyExternalMountSnapshot() (kicked from
-        // pushExternalMountSnapshot once resolve finishes) should fix it up.
-        let extSnap = Self.getExternalMountSnapshot()
-        let booted = ISHKernel.shared.isBooted
-        logger.info("MOUNT-DIAG performMount-entry sid=\(sid) booted=\(booted) snapshotCount=\(extSnap.count) staticInit=\(self.staticMountsInitialized.count)")
-
         // Ensure parent dirs exist in meta.db
         ensureParentDirsInMetaDB(for: "\(AIChatViewModel.minisLinuxBaseDir)/placeholder")
         ensureFakefsMetadata(for: AIChatViewModel.minisLinuxBaseDir, isDirectory: true)
@@ -698,30 +676,9 @@ actor ISHExecutionCoordinator {
             }
         }
 
-        // After session-scoped mounts, also bind-mount every user-mounted
-        // external folder (see MountedFoldersManager) so iSH shell can read/write
-        // them just like /var/minis/shared.
-        mountExternalFoldersLocked()
-
         let elapsed = (CFAbsoluteTimeGetCurrent() - mountStart) * 1000
         logger.info("MOUNT bind-mounted \(subdirs.count) dirs for session \(sid) in \(String(format: "%.1f", elapsed))ms")
     }
-
-    /// One entry in an external-folder mount snapshot.
-    struct ExternalMountSpec: Sendable {
-        let linuxDir: String
-        let hostPath: String
-        /// When true, iSH will expose this mount as a read-only directory
-        /// (mode 0555), so shell writes fail with EACCES.
-        let readOnly: Bool
-    }
-
-    /// Thread-safe shared snapshot of external-folder mounts. Written by
-    /// MountedFoldersManager (main actor) and read by the coordinator actor
-    /// during `performMount`. Using a lock instead of actor-isolated state
-    /// avoids cross-actor hops during synchronous mount code.
-    private static let externalMountLock = NSLock()
-    nonisolated(unsafe) private static var externalMountSnapshotStorage: [ExternalMountSpec] = []
 
     /// Lock-protected mirror of `mountedSessionId`, kept in sync by the
     /// actor's `didSet` observer. Exposed via `mountedSessionIdSnapshot` so
@@ -792,126 +749,6 @@ actor ISHExecutionCoordinator {
         mountedSidLock.lock()
         defer { mountedSidLock.unlock() }
         return mountedSidStorage
-    }
-
-    static func setExternalMountSnapshot(_ snapshot: [ExternalMountSpec]) {
-        externalMountLock.lock()
-        externalMountSnapshotStorage = snapshot
-        externalMountLock.unlock()
-    }
-
-    private static func getExternalMountSnapshot() -> [ExternalMountSpec] {
-        externalMountLock.lock()
-        defer { externalMountLock.unlock() }
-        return externalMountSnapshotStorage
-    }
-
-    /// Tracks the set of external-folder linux paths currently bind-mounted so
-    /// we can unbind stale ones when the user renames or removes a mount.
-    private var externalMountLinuxPaths: Set<String> = []
-
-    /// Apply the current shared snapshot to the kernel bind-mount table.
-    /// Called by MountedFoldersManager after it updates the shared snapshot.
-    /// No-op if kernel not booted (the snapshot will be applied on the next
-    /// performMount when shell execution begins).
-    func applyExternalMountSnapshot() {
-        // [MOUNT-DIAG] Caller-side dump so we can see exactly what state the
-        // coordinator was in when MountedFoldersManager pushed a snapshot —
-        // particularly whether the kernel had booted by the time we got
-        // here (vs the push falling on deaf ears at cold start).
-        let snapshot = Self.getExternalMountSnapshot()
-        let booted = ISHKernel.shared.isBooted
-        logger.info("MOUNT-DIAG apply-entry snapshotCount=\(snapshot.count) booted=\(booted) staticInit=\(self.staticMountsInitialized.count) currentLinuxPaths=\(self.externalMountLinuxPaths.sorted())")
-        for (i, e) in snapshot.enumerated() {
-            logger.info("MOUNT-DIAG apply-entry [\(i)] \(e.linuxDir) -> \(e.hostPath) (ro=\(e.readOnly))")
-        }
-        guard booted else {
-            logger.info("MOUNT external: kernel not booted, will apply snapshot on next performMount")
-            return
-        }
-        mountExternalFoldersLocked()
-    }
-
-    /// Internal: actually perform the external-folder bind mounts.
-    /// Reconciles the bind-mount table against the shared snapshot —
-    /// unbinds stale ones, binds new ones, updates changed host paths.
-    /// Caller guarantees kernel is booted.
-    private func mountExternalFoldersLocked() {
-        let snapshot = Self.getExternalMountSnapshot()
-        logger.info("MOUNT external: applying snapshot with \(snapshot.count) entries")
-        let desiredPaths = Set(snapshot.map(\.linuxDir))
-
-        // Unbind any stale external mounts (renamed or removed entries).
-        for stale in externalMountLinuxPaths.subtracting(desiredPaths) {
-            let err = ISHKernel.shared.bindUnmountPath(stale)
-            if err < 0 {
-                logger.warning("MOUNT external: bindUnmountPath(\(stale)) err=\(err)")
-            } else {
-                logger.info("MOUNT external: unbound stale \(stale)")
-            }
-            mountedPaths.removeValue(forKey: stale)
-        }
-        externalMountLinuxPaths = desiredPaths
-
-        guard !snapshot.isEmpty else { return }
-
-        // Ensure the parent /var/minis/mounts dir exists in meta.db so fakefs
-        // can list it.
-        ensureParentDirsInMetaDB(for: "\(AIChatViewModel.minisMountsLinuxDir)/placeholder")
-        ensureFakefsMetadata(for: AIChatViewModel.minisMountsLinuxDir, isDirectory: true)
-
-        for (idx, entry) in snapshot.enumerated() {
-            logger.info("MOUNT external [\(idx)] \(entry.linuxDir) -> \(entry.hostPath) (ro=\(entry.readOnly))")
-
-            // [MOUNT-DIAG] Verify the host path is reachable from this process
-            // BEFORE asking the kernel to bind it. Reports stat result + iCloud
-            // FileProvider container state — common failure shapes:
-            //   - ENOENT: bookmark resolved to a path that no longer exists
-            //   - EPERM: security scope wasn't acquired (or expired)
-            //   - EACCES: scope acquired but parent dir not readable yet (XPC
-            //             still warming up after cold start)
-            var hostStat = stat()
-            let statRC = stat(entry.hostPath, &hostStat)
-            if statRC == 0 {
-                let isDir = (hostStat.st_mode & S_IFMT) == S_IFDIR
-                logger.info("MOUNT-DIAG host-pre-check [\(idx)] OK isDir=\(isDir) mode=0o\(String(hostStat.st_mode & 0o777, radix: 8)) size=\(hostStat.st_size)")
-            } else {
-                let errStr = String(cString: strerror(errno))
-                logger.error("MOUNT-DIAG host-pre-check [\(idx)] stat() FAILED errno=\(errno) (\(errStr)) — host path unreachable from app sandbox; bind will likely still 'succeed' but reads will fail")
-            }
-
-            let bindStart = CFAbsoluteTimeGetCurrent()
-            let err = ISHKernel.shared.bindMountPath(
-                entry.linuxDir,
-                toHostPath: entry.hostPath,
-                readOnly: entry.readOnly
-            )
-            let bindMs = (CFAbsoluteTimeGetCurrent() - bindStart) * 1000
-            if err < 0 {
-                logger.error("MOUNT external [\(idx)] bind mount FAILED err=\(err) bindMs=\(String(format: "%.1f", bindMs))")
-                continue
-            }
-            logger.info("MOUNT-DIAG bind [\(idx)] OK err=\(err) bindMs=\(String(format: "%.1f", bindMs))")
-            mountedPaths[entry.linuxDir] = URL(fileURLWithPath: entry.hostPath)
-
-            // Register the top-level mount dir in meta.db. We deliberately do
-            // NOT enumerate + register every file recursively: external vaults
-            // can be huge, and fakefs auto-creates inodes on demand via
-            // bind_mount_ensure_inode() when the shell actually touches a path.
-            ensureFakefsMetadata(for: entry.linuxDir, isDirectory: true)
-
-            // [MOUNT-DIAG] Post-bind verification: try to list one host-path
-            // entry. If this comes back empty/fails after a successful stat
-            // above, the security scope likely lapsed between resolve and bind.
-            if let urls = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: entry.hostPath), includingPropertiesForKeys: nil) {
-                let names = urls.prefix(3).map { $0.lastPathComponent }
-                logger.info("MOUNT-DIAG host-post-check [\(idx)] readable, \(urls.count) entries — sample: \(names)")
-            } else {
-                logger.error("MOUNT-DIAG host-post-check [\(idx)] contentsOfDirectory FAILED — host scope likely not held; iSH `ls` will return empty")
-            }
-        }
-
-        logger.info("MOUNT external: bind-mounted \(snapshot.count) external folder(s)")
     }
 
     // MARK: - Fakefs Metadata (inline copies for coordinator use)

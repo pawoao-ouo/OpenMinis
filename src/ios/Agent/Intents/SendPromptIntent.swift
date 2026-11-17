@@ -96,16 +96,6 @@ struct SendPromptIntent: AppIntent {
             eagerKeepAliveSkippedReason: eagerSkipReason
         )
 
-        // [audit-F6 / T-headless-mount-activation] A headless run
-        // (openAppWhenRun=false, e.g. a Shortcuts automation after the app was
-        // force-quit) never builds the root view, so `activateAll()` never ran:
-        // no security scope, empty external-mount snapshot, and
-        // /var/minis/mounts/<name> missing. Await the bounded activation pass
-        // before the VM or its session is touched. 12s because a cold iCloud
-        // FileProvider takes ~5s per bookmark on device and the resolves run
-        // concurrently, so this clears a realistic mount set with headroom
-        // without ever being the thing that hangs a Shortcut.
-        await MountedFoldersManager.shared.ensureActivated(timeout: 12)
 
         let vm: AIChatViewModel
         let isNewSession: Bool
