@@ -87,8 +87,24 @@ enum SoulIconImage {
     /// renders as a normal small avatar. Keeping the refusal would have meant
     /// turning away the majority of images a user might pick, to solve a
     /// problem the renderer already solves.
-    enum RejectionReason: Error {
+    /// [D3] 以前所有失败都坍成 .unreadable：磁盘满了也报"图读不出来"，
+    /// 两个拾取器干脆一声不吭。现在按阶段区分，界面按原因报。
+    enum RejectionReason: LocalizedError {
         case unreadable
+        case encodeFailed
+        case directoryFailed
+        case writeFailed
+        case diskFull
+
+        var errorDescription: String? {
+            switch self {
+            case .unreadable: return "这张图读不出来，换一张试试。"
+            case .encodeFailed: return "这张图转存失败，换一张试试。"
+            case .directoryFailed: return "头像文件夹建不起来，请重试。"
+            case .writeFailed: return "头像没能存下来，请重试。"
+            case .diskFull: return "手机存储空间满了，头像存不进去。"
+            }
+        }
     }
 
     /// Normalize a picked image into the legacy stored form: square,
@@ -119,7 +135,7 @@ enum SoulIconImage {
             square.draw(in: CGRect(origin: .zero, size: target))
         }
 
-        guard let png = scaled.pngData() else { return .failure(.unreadable) }
+        guard let png = scaled.pngData() else { return .failure(.encodeFailed) }
         return .success(prefix + png.base64EncodedString())
     }
 
@@ -147,13 +163,22 @@ enum SoulIconImage {
             square.draw(in: CGRect(origin: .zero, size: target))
         }
 
-        guard let png = scaled.pngData() else { return .failure(.unreadable) }
+        guard let png = scaled.pngData() else { return .failure(.encodeFailed) }
         let dir = avatarsDirectory()
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            return .failure(.directoryFailed)
+        }
+        do {
             try png.write(to: dir.appendingPathComponent("\(name).png"), options: .atomic)
         } catch {
-            return .failure(.unreadable)
+            // [D3] 写盘失败以前也报"图读不出来"。磁盘满了是存储问题，
+            // 不是图的问题，别让她拿一张好图反复重试。
+            if (error as NSError).code == CocoaError.fileWriteOutOfSpace.rawValue {
+                return .failure(.diskFull)
+            }
+            return .failure(.writeFailed)
         }
         // Fixed filename = overwrite in place: drop the cached image so the
         // new avatar renders instead of the stale one (P1-1).
@@ -377,7 +402,10 @@ enum SoulIconSource {
         // The shared rules. Not reimplemented — this is the picker's function.
         // No stored-size check: store never refuses an image for its size.
         switch SoulIconImage.store(image, named: name) {
-        case .failure(.unreadable): throw SourceError.unreadable
+        // [D3] 存盘侧现在分得出解码 / 编码 / 建目录 / 写盘 / 磁盘满，
+        // 但这条配置路径的错误表没有存储类错误，保持原来的坍缩，
+        // 只改穷举：别因为新 case 编不过。
+        case .failure: throw SourceError.unreadable
         case .success(let path):
             return path
         }
