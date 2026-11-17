@@ -559,19 +559,38 @@ struct PersonaDetailHomeView: View {
                 .onChange(of: photoItem) { newItem in
                     guard let item = newItem else { return }
                     Task {
-                        if let data = try? await item.loadTransferable(type: Data.self),
-                           let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 512) {
-                            let name = SoulIconImage.storedName(prefix: "persona", id: p.id)
-                            if case .success(let path) = SoulIconImage.store(image, named: name) {
-                                await MainActor.run {
-                                    var updated = p
-                                    updated.avatar = path
-                                    store.updatePersona(updated)
-                                    if store.currentPersonaID == p.id {
-                                        SoulStore.refreshCache()
-                                    }
+                        guard let data = try? await item.loadTransferable(type: Data.self),
+                              let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 512) else {
+                            // [D3] 读不出来以前是静默的：旧头像留着，像没点过一样。
+                            MinisToast.show(AppLocalized("这张图读不出来，换一张试试。"), systemImage: "exclamationmark.triangle.fill")
+                            return
+                        }
+                        let name = SoulIconImage.storedName(prefix: "persona", id: p.id)
+                        switch SoulIconImage.store(image, named: name) {
+                        case .success(let path):
+                            await MainActor.run {
+                                var updated = p
+                                updated.avatar = path
+                                // [D7] 注册表降级时改动只进内存、落不了盘：别让她以为换上了。
+                                guard store.updatePersona(updated) else {
+                                    MinisToast.show(store.registryDegraded
+                                        ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                                        : AppLocalized("头像没能存下来，请重试。"),
+                                        systemImage: "exclamationmark.triangle.fill")
+                                    return
+                                }
+                                // [D1] 「我自己」那张卡的头像事实来源同样是 Persona.avatar；
+                                // 同步一份到 Keys.userAvatar，备份才不会带旧引用。
+                                if p.id == PersonaStore.userProfilePersonaID {
+                                    AppearanceStudio.shared.syncUserAvatarPath(path)
+                                }
+                                if store.currentPersonaID == p.id {
+                                    SoulStore.refreshCache()
                                 }
                             }
+                        case .failure(let reason):
+                            // [D3] 按失败原因报：磁盘满了别赖图。
+                            MinisToast.show(reason.localizedDescription, systemImage: "exclamationmark.triangle.fill")
                         }
                     }
                 }

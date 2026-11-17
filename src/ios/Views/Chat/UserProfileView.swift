@@ -122,15 +122,33 @@ struct UserProfileView: View {
             guard let p = persona else { return }
             Task {
                 guard let data = try? await item.loadTransferable(type: Data.self),
-                      let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 512) else { return }
+                      let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 512) else {
+                    // [D3] 读不出来以前是静默的：旧头像留着，像没点过一样。
+                    MinisToast.show(AppLocalized("这张图读不出来，换一张试试。"), systemImage: "exclamationmark.triangle.fill")
+                    return
+                }
                 let name = SoulIconImage.storedName(prefix: "persona", id: profileId)
-                if case .success(let path) = SoulIconImage.store(image, named: name) {
+                switch SoulIconImage.store(image, named: name) {
+                case .success(let path):
                     await MainActor.run {
                         var updated = p
                         updated.avatar = path
-                        store.updatePersona(updated)
+                        // [D7] 注册表降级时改动只进内存、落不了盘：别让她以为换上了。
+                        guard store.updatePersona(updated) else {
+                            MinisToast.show(store.registryDegraded
+                                ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                                : AppLocalized("头像没能存下来，请重试。"),
+                                systemImage: "exclamationmark.triangle.fill")
+                            return
+                        }
+                        // [D1] 用户头像的事实来源是 Persona.avatar；同步一份到
+                        // Keys.userAvatar，备份导出的才是界面上那一张。
+                        studio.syncUserAvatarPath(path)
                         Self.publishProfileChange()
                     }
+                case .failure(let reason):
+                    // [D3] 按失败原因报：磁盘满了别赖图。
+                    MinisToast.show(reason.localizedDescription, systemImage: "exclamationmark.triangle.fill")
                 }
             }
         }
@@ -316,7 +334,15 @@ struct UserProfileView: View {
     private func removeAvatar() {
         if var p = persona {
             p.avatar = ""
-            store.updatePersona(p)
+            // [D7] 注册表没写上就别清另一边：Persona 还留着旧头像，
+            // 先清 studio 的 key 只会让两边分叉。
+            guard store.updatePersona(p) else {
+                MinisToast.show(store.registryDegraded
+                    ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                    : AppLocalized("头像没能去掉，请重试。"),
+                    systemImage: "exclamationmark.triangle.fill")
+                return
+            }
         }
         studio.removeUserAvatar()
         Self.publishProfileChange()

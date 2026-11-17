@@ -36,7 +36,7 @@ struct PersonaSettingsView: View {
                         Button("换头像") { showPhotoPicker = true }
                             .font(.callout)
                         if avatarURI != nil {
-                            Button("去掉") { avatarURI = nil; saveAvatar() }
+                            Button("去掉") { removeAvatar() }
                                 .font(.callout)
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
@@ -156,10 +156,25 @@ struct PersonaSettingsView: View {
         store.renamePersona(personaID, to: trimmed)
     }
 
-    private func saveAvatar() {
-        guard var p = persona else { return }
+    /// [D7] 返回这次头像改动到底落盘没有：false = 只改了内存，重启会丢。
+    @discardableResult
+    private func saveAvatar() -> Bool {
+        guard var p = persona else { return false }
         p.avatar = avatarURI
-        store.updatePersona(p)
+        return store.updatePersona(p)
+    }
+
+    /// 去掉头像：落盘失败就把预览恢复成原来那张，别挂一张"已去掉"的假象。
+    private func removeAvatar() {
+        let previous = avatarURI
+        avatarURI = nil
+        guard saveAvatar() else {
+            avatarURI = previous
+            iconError = store.registryDegraded
+                ? "人设数据坏了，改了也存不上，重启再试。"
+                : "头像没能去掉，请重试。"
+            return
+        }
     }
 
     private func saveSoul() {
@@ -204,10 +219,20 @@ struct PersonaSettingsView: View {
         case .success(let path):
             await MainActor.run {
                 avatarURI = path
-                saveAvatar()
+                // [D7] 注册表降级时改动只进内存：别让她以为换上了，
+                // 预览也退回原来那张，别挂一张重启就丢的图。
+                guard saveAvatar() else {
+                    avatarURI = persona?.avatar
+                    iconError = store.registryDegraded
+                        ? "人设数据坏了，改了也存不上，重启再试。"
+                        : "头像没能存下来，请重试。"
+                    return
+                }
             }
-        case .failure:
-            await MainActor.run { iconError = "这张图读不出来，换一张试试。" }
+        case .failure(let reason):
+            // [D3] 以前不管什么失败都报"图读不出来"：图明明解出来了，
+            // 是写盘失败，赖图只会让她拿一张好图反复重试。
+            await MainActor.run { iconError = reason.localizedDescription }
         }
     }
 }
