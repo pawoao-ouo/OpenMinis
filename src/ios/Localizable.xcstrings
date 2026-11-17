@@ -21437,6 +21437,29 @@
         }
       }
     },
+    "The change could not be saved. Please try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The change could not be saved. Please try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改动没能存上，请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改動沒能存上，請重試。"
+          }
+        }
+      }
+    },
     "Client Secret (optional)": {
       "localizations": {
         "es": {

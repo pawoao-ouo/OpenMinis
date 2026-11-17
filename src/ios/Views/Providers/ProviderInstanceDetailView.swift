@@ -16,6 +16,9 @@ struct ProviderInstanceDetailView: View {
     @State private var thinkingEditorRequest: ThinkingRuleEditorRequest?
     @State private var fetchError: String?
     @State private var keySaveError: String?
+    // [A-F12] Toggle flips (Enabled / Auto Append "/v1" / Azure) that could
+    // not be persisted — shown as a red caption in the toggle's section.
+    @State private var toggleSaveError: String?
     @State private var fetchWarnings: [String] = []
     @State private var fetchSource: String?
     @State private var showDeleteConfirm = false
@@ -293,9 +296,24 @@ struct ProviderInstanceDetailView: View {
                         AppLogger(category: "Provider").info("toggleEnabled instanceId=\(instance.id.prefix(8)) type=\(instance.providerType.rawValue) old=\(instance.isEnabled) new=\(newValue) hasApiKey=\(hasApiKey) hasOAuth=\(hasOAuth)")
                         var updated = instance
                         updated.isEnabled = newValue
-                        store.updateInstance(updated)
+                        // [A-F12] A failed persist must not leave the switch
+                        // flipped with nothing saved — updateInstance rolls
+                        // the in-memory value back, and the error caption
+                        // below says so.
+                        if store.updateInstance(updated) {
+                            toggleSaveError = nil
+                        } else {
+                            toggleSaveError = AppLocalized("The change could not be saved. Please try again.")
+                        }
                     }
                 ))
+                // Same red-caption error style as keySaveError below.
+                if let toggleError = toggleSaveError {
+                    Text(toggleError)
+                        .font(.caption)
+                        .foregroundStyle(MinisTheme.destructive)
+                        .textSelection(.enabled)
+                }
             }
 
             // MARK: Sampling Parameters [T-phase1-sampling]
@@ -639,9 +657,22 @@ struct ProviderInstanceDetailView: View {
                 set: { newValue in
                     var updated = instance
                     updated.appendV1Suffix = newValue
-                    store.updateInstance(updated)
+                    // [A-F12] See the Enabled toggle: report a failed persist
+                    // instead of leaving the switch flipped with nothing saved.
+                    if store.updateInstance(updated) {
+                        toggleSaveError = nil
+                    } else {
+                        toggleSaveError = AppLocalized("The change could not be saved. Please try again.")
+                    }
                 }
             ))
+            // Same red-caption error style as keySaveError below.
+            if let toggleError = toggleSaveError {
+                Text(toggleError)
+                    .font(.caption)
+                    .foregroundStyle(MinisTheme.destructive)
+                    .textSelection(.enabled)
+            }
         } header: {
             Text("Custom API Base")
         } footer: {
@@ -665,9 +696,22 @@ struct ProviderInstanceDetailView: View {
                 set: { on in
                     var updated = instance
                     updated.azureMode = on
-                    store.updateInstance(updated)
+                    // [A-F12] See the Enabled toggle: report a failed persist
+                    // instead of leaving the switch flipped with nothing saved.
+                    if store.updateInstance(updated) {
+                        toggleSaveError = nil
+                    } else {
+                        toggleSaveError = AppLocalized("The change could not be saved. Please try again.")
+                    }
                 }
             ))
+            // Same red-caption error style as keySaveError below.
+            if let toggleError = toggleSaveError {
+                Text(toggleError)
+                    .font(.caption)
+                    .foregroundStyle(MinisTheme.destructive)
+                    .textSelection(.enabled)
+            }
         } footer: {
             Text(AppLocalized("Use Azure OpenAI authentication (api-key header). Paste your full Azure endpoint into Custom API Base above, including the ?api-version=… query. Works with both API formats."))
         }

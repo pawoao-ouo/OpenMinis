@@ -710,7 +710,14 @@ final class ProviderConfigStore: ObservableObject {
         return config
     }
 
-    private func save() {
+    /// [A-F12] Returns whether provider-config.json actually landed.
+    /// false = the JSON write failed (or the reboot guard suppressed it).
+    /// The v3 SQLite mirror is an async enqueue and is NOT covered by this
+    /// Bool — true means the JSON half persisted. Callers that flip a value
+    /// in memory must roll it back on false, or the UI would show a state
+    /// disk never saw.
+    @discardableResult
+    private func save() -> Bool {
         // [T-ios-reboot-config-loss] HARD STOP while the on-disk config could
         // not be read (pre-first-unlock launch after a device reboot, or a
         // corrupt file pending DB restore). Persisting now would overwrite
@@ -718,7 +725,7 @@ final class ProviderConfigStore: ObservableObject {
         // bulk-replace the V3 SQLite store from it — propagating the loss.
         guard loadDegradation == .none else {
             logger.error("[RebootGuard] save() suppressed — config load was degraded (\(String(describing: self.loadDegradation))); awaiting post-unlock recovery")
-            return
+            return false
         }
         // Any config mutation funnels through here — bump the L1 cache epoch so
         // resolveCurrentEntry re-resolves. [T-new-session-hang-credential-cache]
@@ -733,6 +740,7 @@ final class ProviderConfigStore: ObservableObject {
             try data.write(to: fileURL, options: .atomic)
         } catch {
             logger.error("Failed to save provider config: \(error)")
+            return false
         }
 
         // 2. v3 SQLite mirror — bulk-replace the whole DB from the
@@ -746,7 +754,7 @@ final class ProviderConfigStore: ObservableObject {
                 await db.bulkReplace(from: snapshot)
             }
         }
-
+        return true
     }
 
 
@@ -953,8 +961,12 @@ final class ProviderConfigStore: ObservableObject {
         if changed { save() }
     }
 
-    func updateInstance(_ instance: ProviderInstance) {
-        guard let idx = config.instances.firstIndex(where: { $0.id == instance.id }) else { return }
+    /// [A-F12] Returns whether the change actually persisted. On a failed
+    /// write the in-memory value is restored, so the UI (which reads the
+    /// store) flips back instead of showing a state disk never saw.
+    @discardableResult
+    func updateInstance(_ instance: ProviderInstance) -> Bool {
+        guard let idx = config.instances.firstIndex(where: { $0.id == instance.id }) else { return false }
         // If the user changed the base URL or v1 suffix, the previously probed image
         // endpoint may no longer be valid (different upstream). Drop the cached
         // resolution so the next image-gen request re-probes.
@@ -964,7 +976,11 @@ final class ProviderConfigStore: ObservableObject {
             updated.imageEndpointResolved = nil
         }
         config.instances[idx] = updated
-        save()
+        guard save() else {
+            config.instances[idx] = old
+            return false
+        }
+        return true
     }
 
     /// Persist the probed image-generation endpoint for an instance under `.auto` mode.

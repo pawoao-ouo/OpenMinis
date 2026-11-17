@@ -395,7 +395,11 @@ final class MCPStore: ObservableObject {
         return configs
     }
 
-    func save() {
+    /// [A-F12] Returns whether servers.json actually landed; false = the
+    /// encode or the atomic write failed. Callers that flip a value in
+    /// memory must roll it back on false.
+    @discardableResult
+    func save() -> Bool {
         var map: [String: ServerEntry] = [:]
         for s in servers {
             map[s.id] = ServerEntry(
@@ -418,7 +422,7 @@ final class MCPStore: ObservableObject {
         encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys]
         guard let data = try? encoder.encode(file) else {
             AppLogger(category: "MCPStore").error("Failed to encode servers.json")
-            return
+            return false
         }
         do {
             try fm.createDirectory(at: serversFileURL.deletingLastPathComponent(),
@@ -427,8 +431,10 @@ final class MCPStore: ObservableObject {
             // half-written file.
             try data.write(to: serversFileURL, options: .atomic)
             AppLogger(category: "MCPStore").info("[Save] wrote \(servers.count) server(s), \(data.count) bytes to \(serversFileURL.path)")
+            return true
         } catch {
             AppLogger(category: "MCPStore").error("[Save] FAILED writing \(serversFileURL.path): \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -496,12 +502,24 @@ final class MCPStore: ObservableObject {
         MCPOAuthController.purge(server: id)
     }
 
-    func toggle(id: String) {
-        guard let idx = servers.firstIndex(where: { $0.id == id }) else { return }
+    /// [A-F12] Returns whether the flip actually persisted. No UI calls
+    /// this yet (the MCP list has no enable switch — a row opens the edit
+    /// form), so the Bool is store-level for now; a failed write rolls the
+    /// in-memory value back and logs instead of silently leaving disk
+    /// behind the UI.
+    @discardableResult
+    func toggle(id: String) -> Bool {
+        guard let idx = servers.firstIndex(where: { $0.id == id }) else { return false }
+        let old = servers[idx]
         servers[idx].enabled.toggle()
         servers[idx].updatedAt = Date().timeIntervalSince1970
-        save()
+        guard save() else {
+            servers[idx] = old
+            AppLogger(category: "MCPStore").error("[Toggle] server '\(id)' enable flip could NOT be saved — in-memory value restored")
+            return false
+        }
         noteLocalChange(names: [id])
+        return true
     }
 
     /// [s2-approve] 设置某工具"调用前是否需要批准"。nil（未登记）默认需要批准。
