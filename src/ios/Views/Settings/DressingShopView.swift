@@ -47,7 +47,7 @@ struct DressingShopView: View {
                             // 3. 全局透光与遮罩三旋钮卡片
                             globalDialsCard
 
-                            // 4. 六大核心入口网格 (Bento Grid)
+                            // 4. 八大核心入口网格 (Bento Grid)
                             bentoGrid
 
                             // 5. 底部便捷重置与快速动作
@@ -87,6 +87,9 @@ struct DressingShopView: View {
                     .presentationDragIndicator(.visible)
                     .presentationDetents([.fraction(0.72), .large])
             }
+            .onAppear {
+                consumePendingDressingSheet()
+            }
             .overlay(alignment: .bottom) {
                 if let msg = toastMessage {
                     Text(msg)
@@ -121,6 +124,21 @@ struct DressingShopView: View {
 
     private func haptic() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    /// 语言切换后的回落：通用抽屉改语言前先写 pendingSettingsReopen="general"，
+    /// ContentView 靠它把设置页重新打开并推回外观页；这里再按
+    /// pendingDressingSheet 把通用抽屉打开，用户才落回改语言的那页，
+    /// 而不是只停在装扮中心。标记用完即清，正常进装扮中心时是空操作。
+    private func consumePendingDressingSheet() {
+        guard let raw = UserDefaults.standard.string(forKey: "pendingDressingSheet"),
+              let dest = DressingSheetDestination(rawValue: raw) else { return }
+        UserDefaults.standard.removeObject(forKey: "pendingDressingSheet")
+        // 晚一个 runloop 再推抽屉：NavigationStack 先把 body 挂好，
+        // 否则刚挂载的栈上推抽屉会被丢掉（同 ContentView 里新会话那路）。
+        DispatchQueue.main.async {
+            activeSheet = dest
+        }
     }
 }
 
@@ -393,7 +411,7 @@ extension DressingShopView {
         }
     }
 
-    // 4. 六大核心入口网格 (Bento Grid)
+    // 4. 八大核心入口网格 (Bento Grid)
     private var bentoGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             bentoCard(title: AppLocalized("色彩调控"), sub: AppLocalized("21色分页面分深浅"), icon: "paintpalette.fill", dest: .colorStudio)
@@ -402,6 +420,8 @@ extension DressingShopView {
             bentoCard(title: AppLocalized("字体与排版"), sub: AppLocalized("字号、行距与小说模式"), icon: "textformat", dest: .typography)
             bentoCard(title: AppLocalized("主题存档库"), sub: AppLocalized("保存、分享与导入导出"), icon: "archivebox.fill", dest: .themeLibrary)
             bentoCard(title: AppLocalized("细节与图标"), sub: AppLocalized("静音图标与标签符号"), icon: "sparkle.magnifyingglass", dest: .detailsIcons)
+            bentoCard(title: AppLocalized("聊天"), sub: AppLocalized("分组、回车键、聚焦与工具预览"), icon: "bubble.left.and.bubble.right.fill", dest: .chat)
+            bentoCard(title: AppLocalized("通用"), sub: AppLocalized("启动会话、语言与屏幕常亮"), icon: "gearshape.2.fill", dest: .general)
         }
     }
 
@@ -529,7 +549,8 @@ extension DressingShopView {
     /// 搜索索引：全从本文件已有的东西里取，不新造数据。
     /// 预设 3 + 金色按键 1，颜色角色 21，壁纸 6 页，
     /// 气泡款式 = bubbleStore.packs，字体族 4 + 已导入字体，
-    /// 已存主题 = studio.savedThemes()，主页面控件 4。
+    /// 已存主题 = studio.savedThemes()，聊天控件 4，通用控件 3，
+    /// 主页面控件 4。
     private var searchEntries: [DressingSearchEntry] {
         var entries: [DressingSearchEntry] = []
 
@@ -614,6 +635,39 @@ extension DressingShopView {
                 category: AppLocalized("主题存档库"),
                 icon: "archivebox.fill",
                 destination: .sheet(.themeLibrary)
+            ))
+        }
+
+        // 聊天 4 控件 / 通用 3 控件：已搬进装扮中心，搜得到才找得到。
+        let chatEntries: [(String, String, String)] = [
+            (AppLocalized("自动分组"), AppLocalized("自动分组说明"), "bubble.left.and.bubble.right.fill"),
+            (AppLocalized("回车键"), AppLocalized("回车键说明"), "bubble.left.and.bubble.right.fill"),
+            (AppLocalized("回复后自动聚焦"), AppLocalized("自动聚焦说明"), "bubble.left.and.bubble.right.fill"),
+            (AppLocalized("工具预览"), AppLocalized("工具预览说明"), "bubble.left.and.bubble.right.fill"),
+        ]
+        for (title, subtitle, icon) in chatEntries {
+            entries.append(DressingSearchEntry(
+                id: "chat-\(title)",
+                title: title,
+                subtitle: subtitle,
+                category: AppLocalized("聊天"),
+                icon: icon,
+                destination: .sheet(.chat)
+            ))
+        }
+        let generalEntries: [(String, String, String)] = [
+            (AppLocalized("启动会话"), AppLocalized("启动会话说明"), "gearshape.2.fill"),
+            (AppLocalized("语言"), AppLocalized("语言说明"), "gearshape.2.fill"),
+            (AppLocalized("屏幕常亮"), AppLocalized("屏幕常亮说明"), "gearshape.2.fill"),
+        ]
+        for (title, subtitle, icon) in generalEntries {
+            entries.append(DressingSearchEntry(
+                id: "general-\(title)",
+                title: title,
+                subtitle: subtitle,
+                category: AppLocalized("通用"),
+                icon: icon,
+                destination: .sheet(.general)
             ))
         }
 
@@ -777,6 +831,8 @@ enum DressingSheetDestination: String, Identifiable {
     case typography
     case themeLibrary
     case detailsIcons
+    case chat
+    case general
     case saveTheme
     case importExport
 
@@ -828,6 +884,10 @@ extension DressingShopView {
             )
         case .detailsIcons:
             DressingDetailsIconsSheet(onNotify: { showToast($0) })
+        case .chat:
+            DressingChatSheet()
+        case .general:
+            DressingGeneralSheet()
         case .saveTheme:
             DressingSaveThemeSheet(onSaved: { name in
                 showToast(AppLocalized("已保存主题：") + name)
@@ -4094,5 +4154,273 @@ struct STImportConfirmSheet: View {
                 .font(ChatFont.font(11, weight: .medium))
                 .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
         }
+    }
+}
+
+// MARK: - 11. 聊天抽屉 (DressingChatSheet)
+
+/// 胶囊选项按钮：装扮抽屉里的分段选择统一样式（选中 = 主色底 + 浅字，
+/// 未选 = 浅面底 + 主字），跟字体族那排胶囊同一套。
+struct DressingCapsuleButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        } label: {
+            Text(title)
+                .font(ChatFont.font(12, weight: isSelected ? .bold : .medium))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DressingTokens.Padding.capsuleButtonVertical)
+                .background(isSelected ? CSSThemeVariables.accent(scope: .settings) : CSSThemeVariables.surfaceFill(scope: .settings))
+                .foregroundStyle(isSelected ? CSSThemeVariables.surface(scope: .settings) : CSSThemeVariables.textMain(scope: .settings))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(DressingPressStyle())
+    }
+}
+
+/// 开关行：标题 + 说明在左，开关在右，跟全局玻璃感那行同一套。
+struct DressingToggleRow: View {
+    let title: String
+    let detail: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(ChatFont.font(12, weight: .medium))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+                Text(detail)
+                    .font(ChatFont.font(11))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+            }
+
+            Spacer()
+
+            Toggle(title, isOn: $isOn)
+                .labelsHidden()
+                .tint(CSSThemeVariables.accent(scope: .settings))
+        }
+    }
+}
+
+/// 胶囊选项块：标题 + 说明在上，胶囊排在下，跟字体族那排同一套。
+/// 只覆 Int 选项（回车键、启动会话）；语言选项有自己的换语言回落逻辑，
+/// 不走这里。
+struct DressingOptionBlock: View {
+    let title: String
+    let detail: String
+    let options: [(String, Int)]
+    @Binding var selection: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(ChatFont.font(12, weight: .medium))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+                Text(detail)
+                    .font(ChatFont.font(11))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+            }
+
+            HStack(spacing: 6) {
+                ForEach(options, id: \.0) { option in
+                    DressingCapsuleButton(title: option.0, isSelected: selection == option.1) {
+                        selection = option.1
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 聊天行为控件：原设置 → 聊天页的 4 个控件搬进装扮中心，键与默认值
+/// 一字不动：自动分组默认开（MinisApp.swift 注册 true）、回车键默认换行
+/// （注册表 chat.returnKey defaultIndex 0）、回复后自动聚焦默认开
+/// （AIChatView.swift:1834 `?? true`）、工具预览默认开
+/// （ToolLiveSheet.swift:207 @AppStorage = true）。
+@MainActor
+struct DressingChatSheet: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
+    @AppStorage("autoGroupingEnabled") private var autoGroupingEnabled: Bool = true
+    @AppStorage("returnKeyBehavior") private var returnKeyBehavior: Int = 0
+    @AppStorage("chat.autoFocusAfterReply") private var autoFocusAfterReply: Bool = true
+    @AppStorage("toolPreviewEnabled") private var toolPreviewEnabled: Bool = true
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                DressingSheetHeader(
+                    title: AppLocalized("聊天"),
+                    subtitle: AppLocalized("聊天页说明")
+                )
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 16) {
+                        controlsCard
+                    }
+                    .padding(DressingTokens.Padding.sheet)
+                }
+            }
+            .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+        }
+    }
+
+    private var controlsCard: some View {
+        VStack(spacing: 8) {
+            DressingToggleRow(
+                title: AppLocalized("自动分组"),
+                detail: AppLocalized("自动分组说明"),
+                isOn: $autoGroupingEnabled
+            )
+
+            DressingOptionBlock(
+                title: AppLocalized("回车键"),
+                detail: AppLocalized("回车键说明"),
+                options: [
+                    (AppLocalized("换行"), 0),
+                    (AppLocalized("发送"), 1),
+                ],
+                selection: $returnKeyBehavior
+            )
+
+            DressingToggleRow(
+                title: AppLocalized("回复后自动聚焦"),
+                detail: AppLocalized("自动聚焦说明"),
+                isOn: $autoFocusAfterReply
+            )
+
+            DressingToggleRow(
+                title: AppLocalized("工具预览"),
+                detail: AppLocalized("工具预览说明"),
+                isOn: $toolPreviewEnabled
+            )
+        }
+        .padding(DressingTokens.Padding.section)
+        .background(CSSThemeVariables.card(scope: .settings))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous)
+                .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+        )
+    }
+}
+
+// MARK: - 12. 通用抽屉 (DressingGeneralSheet)
+
+/// 通用控件：原设置 → 通用页的 3 个控件搬进装扮中心，键与默认值一字不动：
+/// 启动会话默认自动（注册表 appearance.launchScreen defaultIndex 0）、
+/// 语言默认跟随系统（appLanguage 默认 ""）、屏幕常亮默认关
+/// （注册表 chat.keepScreenAwake defaultValue false）。
+@MainActor
+struct DressingGeneralSheet: View {
+    @ObservedObject private var fontSettings = FontSettings.shared
+    @AppStorage("launchScreen") private var launchScreen: Int = 0
+    @AppStorage("appLanguage") private var appLanguage: String = ""
+    @AppStorage("keepScreenAwakeDuringTasks") private var keepScreenAwakeDuringTasks: Bool = false
+
+    /// 语言选项：仓库自带的 .lproj 仅此 9 种（de / en / es / fr / ja /
+    /// ko / ru / zh-Hans / zh-Hant），不编别的。行文案写各语言自称，
+    /// 不用本地化。空串 = 跟随系统。
+    private static let languages: [(code: String, name: String)] = [
+        ("en", "English"),
+        ("zh-Hans", "简体中文"),
+        ("zh-Hant", "繁體中文"),
+        ("ja", "日本語"),
+        ("ko", "한국어"),
+        ("de", "Deutsch"),
+        ("fr", "Français"),
+        ("es", "Español"),
+        ("ru", "Русский"),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                DressingSheetHeader(
+                    title: AppLocalized("通用"),
+                    subtitle: AppLocalized("通用页说明")
+                )
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 16) {
+                        controlsCard
+                    }
+                    .padding(DressingTokens.Padding.sheet)
+                }
+            }
+            .background(AppearanceBackdrop(scope: .settings).ignoresSafeArea())
+        }
+    }
+
+    private var controlsCard: some View {
+        VStack(spacing: 8) {
+            DressingOptionBlock(
+                title: AppLocalized("启动会话"),
+                detail: AppLocalized("启动会话说明"),
+                options: [
+                    (AppLocalized("自动"), 0),
+                    (AppLocalized("上次会话"), 1),
+                    (AppLocalized("新会话"), 2),
+                    (AppLocalized("首页"), 3),
+                ],
+                selection: $launchScreen
+            )
+
+            languageBlock
+
+            DressingToggleRow(
+                title: AppLocalized("屏幕常亮"),
+                detail: AppLocalized("屏幕常亮说明"),
+                isOn: $keepScreenAwakeDuringTasks
+            )
+        }
+        .padding(DressingTokens.Padding.section)
+        .background(CSSThemeVariables.card(scope: .settings))
+        .clipShape(RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DressingTokens.Radius.largeCard, style: .continuous)
+                .stroke(CSSThemeVariables.divider(scope: .settings), lineWidth: 0.5)
+        )
+    }
+
+    private var languageBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(AppLocalized("语言"))
+                    .font(ChatFont.font(12, weight: .medium))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: .settings))
+                Text(AppLocalized("语言说明"))
+                    .font(ChatFont.font(11))
+                    .foregroundStyle(CSSThemeVariables.textDim(scope: .settings))
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                DressingCapsuleButton(title: AppLocalized("跟随系统"), isSelected: appLanguage.isEmpty) {
+                    selectLanguage("")
+                }
+                ForEach(Self.languages, id: \.code) { lang in
+                    DressingCapsuleButton(title: lang.name, isSelected: appLanguage == lang.code) {
+                        selectLanguage(lang.code)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 换语言：先写 reopen 标记再改 appLanguage。根 `.id(appLanguage)`
+    /// 重建会把整棵树拆掉重挂，ContentView 靠这个标记把设置页重新打开，
+    /// 装扮中心再按 pendingDressingSheet 把通用抽屉打开，用户才落回
+    /// 改语言的那页。旧通用页就是这个写法。
+    private func selectLanguage(_ code: String) {
+        guard code != appLanguage else { return }
+        UserDefaults.standard.set("general", forKey: "pendingSettingsReopen")
+        appLanguage = code
     }
 }
