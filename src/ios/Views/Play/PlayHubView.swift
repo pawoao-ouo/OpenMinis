@@ -129,17 +129,36 @@ struct PlayHubView: View {
             Task {
                 guard let data = try? await item.loadTransferable(type: Data.self),
                       let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 512) else {
+                    // [D3] 读不出来以前是静默的：旧头像留着，像没点过一样。
+                    importError = "这张图读不出来，换一张试试。"
                     avatarItem = nil
                     return
                 }
-                try? studio.setAssistantAvatar(image)
+                // [D2] 写盘失败以前是 try? 掉：旧头像留着，还悄悄把 Persona
+                // 同步成旧值。现在报出来，失败就不动 Persona。
+                do {
+                    try studio.setAssistantAvatar(image)
+                } catch let reason as SoulIconImage.RejectionReason {
+                    importError = reason.localizedDescription
+                    avatarItem = nil
+                    return
+                } catch {
+                    importError = "头像保存失败，请重试。"
+                    avatarItem = nil
+                    return
+                }
                 soulIcon = SoulStore.cachedMetadata.icon
                 // [B28 R14] 反向同步：这里只写了 SOUL.md，通讯录读的是 Persona.avatar，
                 // 不补这一步就成了"Play 换了头像、通讯录还是旧的"。
                 if var p = PersonaStore.shared.personas.first(where: { $0.id == PersonaStore.currentID() }),
                    p.avatar != soulIcon {
                     p.avatar = soulIcon
-                    PersonaStore.shared.updatePersona(p)
+                    // [D7] 注册表没写上就报出来，别让她以为两边同步了。
+                    if !PersonaStore.shared.updatePersona(p) {
+                        importError = PersonaStore.shared.registryDegraded
+                            ? "人设数据坏了，改了也存不上，重启再试。"
+                            : "头像没能存下来，请重试。"
+                    }
                 }
                 avatarItem = nil
             }
