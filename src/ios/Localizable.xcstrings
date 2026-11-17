@@ -122776,6 +122776,29 @@
         }
       }
     },
+    "保存失败，key 没存上，请重试。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save failed — the key was not stored. Please try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存失败，key 没存上，请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存失敗，key 沒存上，請重試。"
+          }
+        }
+      }
+    },
     "保存、导入、导出主题": {
       "extractionState": "manual",
       "localizations": {

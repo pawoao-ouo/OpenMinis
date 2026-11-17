@@ -30,15 +30,19 @@ enum WebSearchKeys {
     }
 
     /// 存某服务商的全部 key（空数组 = 清除，与仓内其他 secret 存储同口径）。
-    static func save(keys: [String], for providerId: String) {
+    /// [A-F5] 返回这次写盘到底落没落；false = Keychain 没写上，调用方别
+    /// 当存上了报。清空那条路返回 true（删除是 best-effort，旧代码也从
+    /// 不报删失败；设置页本就不会用空数组调这里）。
+    @discardableResult
+    static func save(keys: [String], for providerId: String) -> Bool {
         let clean = keys
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         if clean.isEmpty {
             delete(for: providerId)
-            return
+            return true
         }
-        keychainSet(Data(clean.joined(separator: "\n").utf8), account: providerId)
+        return keychainSet(Data(clean.joined(separator: "\n").utf8), account: providerId)
     }
 
     static func delete(for providerId: String) {
@@ -54,7 +58,7 @@ enum WebSearchKeys {
 
     private static let log = AppLogger(category: "WebSearch")
 
-    private static func keychainSet(_ data: Data, account: String) {
+    private static func keychainSet(_ data: Data, account: String) -> Bool {
         let match: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -73,7 +77,9 @@ enum WebSearchKeys {
         if status != errSecSuccess {
             // 只记状态码，绝不记 key 内容。
             log.error("[Keychain] websearch key save failed account=\(account) status=\(status)")
+            return false
         }
+        return true
     }
 
     private static func keychainGet(account: String) -> Data? {

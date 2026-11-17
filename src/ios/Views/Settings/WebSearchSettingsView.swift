@@ -129,7 +129,14 @@ struct WebSearchSettingsView: View {
         let pid = provider.providerId
         let keys = splitKeys(keyInputs[pid] ?? "")
         guard !keys.isEmpty else { return }
-        WebSearchKeys.save(keys: keys, for: pid)
+        // [A-F5] 以前先 save 再无条件报"已保存"——Keychain 没写上也报成功。
+        // 写失败就报失败，输入框留着原文让她重试，不清空、不改计数。
+        guard WebSearchKeys.save(keys: keys, for: pid) else {
+            testedId = pid
+            testMessage = AppLocalized("保存失败，key 没存上，请重试。")
+            testOk = false
+            return
+        }
         keyInputs[pid] = ""
         reloadCounts()
         testedId = pid
