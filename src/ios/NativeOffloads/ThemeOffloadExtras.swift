@@ -113,13 +113,26 @@ import UIKit
             }
             switch role {
             case "user":
-                clearAvatar(personaID: PersonaStore.userProfilePersonaID)
+                // [D7] 注册表没写上就别清另一边：Persona 还留着旧头像，
+                // 先清 studio 的 key 只会让两边分叉。
+                guard clearAvatar(personaID: PersonaStore.userProfilePersonaID) else {
+                    return fail("save_failed", "The persona registry could not be written; the avatar was not removed.")
+                }
                 AppearanceStudio.shared.removeUserAvatar()
                 return ["ok": true, "avatar": "user", "removed": true]
             case "assistant":
                 let pid = PersonaStore.currentID()
-                clearAvatar(personaID: pid)
-                try? AppearanceStudio.shared.removeAssistantAvatar()
+                // [D2] 先清 SOUL.md 再清 Persona：SOUL 写盘失败就直接报失败，
+                // Persona 还留着旧头像，界面和返回一致。以前先清 Persona 再
+                // try? 掉 SOUL 的失败，旧头像从回落读取里又弹回来，还报了 ok。
+                do {
+                    try AppearanceStudio.shared.removeAssistantAvatar()
+                } catch {
+                    return fail("save_failed", error.localizedDescription)
+                }
+                guard clearAvatar(personaID: pid) else {
+                    return fail("save_failed", "The assistant avatar was removed from SOUL.md, but the persona registry could not be written; the removal may not survive a relaunch.")
+                }
                 return ["ok": true, "avatar": "assistant", "removed": true]
             default:
                 return fail("bad_role", "role must be user or assistant.")
@@ -137,16 +150,27 @@ import UIKit
         }
         var target = PersonaStore.shared.personas.first(where: { $0.id == personaID }) ?? fallback
         target.avatar = path
-        PersonaStore.shared.updatePersona(target)
+        // [D7] 注册表降级时 updatePersona 只改内存、落不了盘：
+        // 图虽然存好了，人设没存上，重启就丢。如实失败，别报 ok。
+        guard PersonaStore.shared.updatePersona(target) else {
+            return fail("save_failed", "The avatar image was stored, but the persona registry could not be written; the change will not survive a relaunch.")
+        }
+        // [D1] 用户头像的事实来源是 Persona.avatar；同步一份到
+        // Keys.userAvatar，备份导出的才是界面上那一张。
+        if role == "user" {
+            AppearanceStudio.shared.syncUserAvatarPath(path)
+        }
         return ["ok": true, "avatar": role, "path": path]
     }
 
+    /// 清掉一个人设的头像引用。返回落盘到底成没成；
+    /// 没有这个人设 = 没什么可清的，算成功。
     @MainActor
-    private static func clearAvatar(personaID: String) {
+    private static func clearAvatar(personaID: String) -> Bool {
         guard var target = PersonaStore.shared.personas.first(where: { $0.id == personaID })
-        else { return }
+        else { return true }
         target.avatar = nil
-        PersonaStore.shared.updatePersona(target)
+        return PersonaStore.shared.updatePersona(target)
     }
 
     // MARK: - Replaceable row icons

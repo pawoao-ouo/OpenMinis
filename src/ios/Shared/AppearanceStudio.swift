@@ -1789,6 +1789,16 @@ final class AppearanceStudio: ObservableObject {
         }
     }
 
+    /// [D1] 用户头像的唯一事实来源是 Persona.avatar（界面读它）。
+    /// AI 换头像只写 Persona 时，备份导出的 Keys.userAvatar 还是旧引用。
+    /// 这里只做镜像：把已经落盘的路径同步进 Keys.userAvatar，
+    /// 让备份导出的就是界面上那一张，而不是上一次遗留的旧引用。
+    /// 只同步路径，不重新存图、不改 Persona。
+    func syncUserAvatarPath(_ path: String) {
+        userAvatar = path
+        UserDefaults.standard.set(path, forKey: Keys.userAvatar)
+    }
+
     func removeUserAvatar() {
         // 只清引用不够：文件还躺在 Application Support/avatars/user.png。
         // userAvatar 是相对路径引用，fileURL 会校验格式（avatars/<名>.png，
@@ -1813,7 +1823,13 @@ final class AppearanceStudio: ObservableObject {
 
     func setAssistantAvatar(_ image: UIImage) throws {
         let name = SoulIconImage.storedName(prefix: "soul", id: PersonaStore.currentID())
-        guard case .success(let path) = SoulIconImage.store(image, named: name) else { return }
+        // [D2] 存图失败以前是静默 return：调用方 try? 掉之后还以为换上了，
+        // 旧头像还留在原地。把失败原因抛出去，调用方必须报出来。
+        let path: String
+        switch SoulIconImage.store(image, named: name) {
+        case .success(let p): path = p
+        case .failure(let reason): throw reason
+        }
         var soul = SoulStore.load() ?? SoulFile(metadata: .default, body: "")
         soul.metadata.icon = path
         try SoulStore.save(soul)
@@ -2734,6 +2750,16 @@ extension AppearanceStudio {
         let defaults = UserDefaults.standard
         var out: [String: BackupDefaultsValue] = [:]
         for key in Self.backupDefaultsKeys {
+            // [D1] 用户头像的事实来源是 Persona.avatar。UserDefaults 里那份
+            // 只是旧镜像——以前 AI 换头像只写 Persona，备份就一直带着旧引用。
+            // 导出时优先用通讯录里那份，已经分叉的旧设备也不再导出旧值；
+            // 通讯录里没有才回落到 defaults 里的值。
+            if key == Keys.userAvatar,
+               let live = PersonaStore.shared.personas.first(where: { $0.id == PersonaStore.userProfilePersonaID })?.avatar,
+               !live.isEmpty {
+                out[key] = BackupDefaultsValue(kind: "string", string: live)
+                continue
+            }
             guard let raw = defaults.object(forKey: key) else { continue }
             if let data = raw as? Data {
                 out[key] = BackupDefaultsValue(kind: "data", data: data.base64EncodedString())
