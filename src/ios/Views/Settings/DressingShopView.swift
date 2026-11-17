@@ -1459,8 +1459,13 @@ struct DressingWallpaperArtSheet: View {
                     if let data = try? await item.loadTransferable(type: Data.self),
                        let uiImage = UIImage(data: data) {
                         await MainActor.run {
-                            studio.setCharacterArtImage(uiImage)
-                            onNotify(AppLocalized("助手立绘已设置"))
+                            // [D5] 写盘失败以前也 toast"已设置"，旧图还留在原地。
+                            // 跟壁纸拾取器一样的诚实报法：成了才报成。
+                            if studio.setCharacterArtImage(uiImage) {
+                                onNotify(AppLocalized("助手立绘已设置"))
+                            } else {
+                                onNotify(AppLocalized("助手立绘没能存下来，请重试"))
+                            }
                         }
                     }
                 }
@@ -1471,8 +1476,11 @@ struct DressingWallpaperArtSheet: View {
                     if let data = try? await item.loadTransferable(type: Data.self),
                        let uiImage = UIImage(data: data) {
                         await MainActor.run {
-                            _ = studio.setThinkingCardImage(uiImage)
-                            onNotify(AppLocalized("思考卡背景已更新"))
+                            if studio.setThinkingCardImage(uiImage) {
+                                onNotify(AppLocalized("思考卡背景已更新"))
+                            } else {
+                                onNotify(AppLocalized("思考卡背景没能存下来，请重试"))
+                            }
                         }
                     }
                 }
@@ -1483,8 +1491,11 @@ struct DressingWallpaperArtSheet: View {
                     if let data = try? await item.loadTransferable(type: Data.self),
                        let uiImage = UIImage(data: data) {
                         await MainActor.run {
-                            _ = studio.setInputBarImage(uiImage)
-                            onNotify(AppLocalized("输入栏背景已更新"))
+                            if studio.setInputBarImage(uiImage) {
+                                onNotify(AppLocalized("输入栏背景已更新"))
+                            } else {
+                                onNotify(AppLocalized("输入栏背景没能存下来，请重试"))
+                            }
                         }
                     }
                 }
