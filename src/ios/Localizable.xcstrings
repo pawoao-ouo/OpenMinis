@@ -10288,10 +10288,46 @@
     },
     "All chats share **shared**, **skills**, and **memory** — persistent across sessions.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Chats teilen **shared**, **skills** und **memory** — sitzungsübergreifend persistent."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "All chats share **shared**, **skills**, and **memory** — persistent across sessions."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos los chats comparten **shared**, **skills** y **memory**, que persisten entre sesiones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les conversations partagent **shared**, **skills** et **memory** — persistants entre sessions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての会話で **shared**、**skills**、**memory** を共有 — セッションをまたいで保持されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 대화가 **shared**, **skills**, **memory**를 공유 — 세션 간에 유지됩니다。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все чаты используют общие **shared**, **skills** и **memory** — они сохраняются между сессиями."
           }
         },
         "zh-Hans": {
