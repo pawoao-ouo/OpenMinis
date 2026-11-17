@@ -848,11 +848,18 @@ final class PersonaStore: ObservableObject {
             AppLogger(category: "PersonaStore").error("[D7] personas.json write failed (\(error.localizedDescription)) — in-memory edit will not survive relaunch")
             return false
         }
-        // 同步写入镜像到 /var/minis/personas/personas.json，打通 AI 数据孤岛
+        // 同步写入镜像到 /var/minis/personas/personas.json，打通 AI 数据孤岛。
+        // [P3-3] 以前 try? 掉：镜像没写上还报 true，AI 那边继续读旧头像/旧名。
+        // 镜像也是"落盘"的一部分，没写上就是这次没完全落盘。
         let mirrorURL = AIChatViewModel.minisPersonasPersistentDir.appendingPathComponent(Self.fileName)
         try? FileManager.default.createDirectory(
             at: mirrorURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: mirrorURL, options: .atomic)
+        do {
+            try data.write(to: mirrorURL, options: .atomic)
+        } catch {
+            AppLogger(category: "PersonaStore").error("[D7] personas.json mirror write failed (\(error.localizedDescription)) — AI side still reads the old avatar/name")
+            return false
+        }
         return true
     }
 
