@@ -211,7 +211,14 @@ final class ClaudeOAuthManager: NSObject, ObservableObject {
         logger.info("Refreshing token on-demand (instance: \(instanceId))...")
         let task = Task<ClaudeTokenStorage, Error> {
             let refreshed = try await perform(staleRefreshToken)
-            ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId)
+            // [A-F1] Mirror the login path's fail-closed guard: a failed
+            // Keychain write must surface, not return a refreshed token that
+            // was never persisted (the old refresh token is already rotated
+            // server-side, so the next launch would replay a revoked token).
+            guard ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId) else {
+                logger.error("OAuth token could not be saved to Keychain (instance: \(instanceId))")
+                throw LLMError.providerError(message: "OAuth token could not be saved. Please try signing in again.")
+            }
             return refreshed
         }
         inFlightRefreshes[instanceId] = task

@@ -218,7 +218,14 @@ final class KimiOAuthManager: ObservableObject {
         let staleRefresh = current.refreshToken ?? ""
         do {
             let refreshed = try await performRefresh(refreshToken: staleRefresh, deviceId: current.deviceId)
-            ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId)
+            // [A-F1] Mirror the login path's fail-closed guard: a failed
+            // Keychain write must surface, not return a refreshed token that
+            // was never persisted (the old refresh token is already rotated
+            // server-side, so the next launch would replay a revoked token).
+            guard ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId) else {
+                logger.error("OAuth token could not be saved to Keychain (instance: \(instanceId))")
+                throw LLMError.providerError(message: "OAuth token could not be saved. Please try signing in again.")
+            }
             return refreshed
         } catch {
             // Route through the pure compare-before-delete coordinator.

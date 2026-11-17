@@ -209,7 +209,14 @@ final class AntigravityOAuthManager: NSObject, ObservableObject {
                 guard let self else { throw LLMError.providerError(message: "OAuth manager deallocated") }
                 logger.info("Refreshing Antigravity token on-demand (instance: \(instanceId))...")
                 let refreshed = try await self.performRefresh(refreshToken: staleRefreshToken)
-                ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId)
+                // [A-F1] Mirror the login path's fail-closed guard: a failed
+                // Keychain write must surface, not return a refreshed token that
+                // was never persisted (the old refresh token is already rotated
+                // server-side, so the next launch would replay a revoked token).
+                guard ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId) else {
+                    logger.error("OAuth token could not be saved to Keychain (instance: \(instanceId))")
+                    throw LLMError.providerError(message: "OAuth token could not be saved. Please try signing in again.")
+                }
                 return refreshed
             }
         } catch {
