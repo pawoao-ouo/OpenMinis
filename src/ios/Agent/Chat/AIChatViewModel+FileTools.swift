@@ -464,82 +464,12 @@ extension AIChatViewModel {
         print("[FileWrite] ▶ START path=\(path) sessionId=\(self.sessionId ?? "<nil>") contentBytes=\(content.utf8.count)")
         #endif
 
-        // Pre-reject writes to read-only mounts using the Linux path directly.
-        // This avoids the firmlink / symlink / case-sensitivity pitfalls of
-        // comparing resolved host URLs, and catches the bypass regardless of
-        // which branch `resolvePathForDirectRead` takes below.
-        if MountedFolderCoordinator.isLinuxPathUnderReadOnlyMount(path) {
-            return FileToolResult(
-                output: "Error: \(path) is inside a read-only mounted folder and cannot be modified. Toggle writability in Settings → Mount External Folders if this is a mistake.",
-                success: false
-            )
-        }
 
-        // If the target is under /var/minis/mounts/ (user-mounted external
-        // folders bind-mounted by iSH), the mount table may not yet be
-        // populated for this session — `performMount` only runs lazily when
-        // the first shell command executes. Without this prime, `hostURL(for:)`
-        // returns nil and we fall back to `resolveHostPath` which writes to
-        // the fakefs data/ directory, silently diverging from the real host
-        // folder. Force a mount prime here so the lookup hits the real path.
-        if path.hasPrefix("/var/minis/mounts/"), let sid = self.sessionId {
-            #if DEBUG
-            let beforeSnap = await ISHExecutionCoordinator.shared.debugMountSnapshot()
-            print("[FileWrite] ensureMounted BEFORE sid=\(sid) mountedSid=\(beforeSnap.sessionId ?? "<nil>") mountedPaths.count=\(beforeSnap.paths.count) keys=\(Array(beforeSnap.paths.keys))")
-            #endif
-            await ISHExecutionCoordinator.shared.ensureMounted(for: sid)
-            #if DEBUG
-            let afterSnap = await ISHExecutionCoordinator.shared.debugMountSnapshot()
-            print("[FileWrite] ensureMounted AFTER sid=\(sid) mountedSid=\(afterSnap.sessionId ?? "<nil>") mountedPaths.count=\(afterSnap.paths.count) keys=\(Array(afterSnap.paths.keys))")
-            for (k, v) in afterSnap.paths {
-                print("[FileWrite]   mount[\(k)] -> \(v.path)")
-            }
-            #endif
-        } else {
-            #if DEBUG
-            if path.hasPrefix("/var/minis/mounts/") {
-                print("[FileWrite] ensureMounted SKIPPED path=\(path) — sessionId is nil")
-            }
-            #endif
-        }
 
-        // Write-specific resolution for /var/minis/mounts/ targets:
-        // `resolvePathForDirectRead` gates its mount-table result on
-        // `fileExists(resolved)` — fine for reads, wrong for writes because a
-        // brand-new file doesn't exist yet. That gate silently falls through
-        // to `resolveMinisURL` which returns a per-session fake path
-        // (`minisPersistentBase/<sid>/mounts/...`) that's not inside the
-        // fakefs `data/` dir, so the defense-in-depth check below also misses
-        // it and the write "succeeds" to a location nobody sees.
-        //
-        // For writes we want the mount-table URL even when the target file
-        // doesn't exist yet — the parent directory will be `mkdir -p`'d below,
-        // and the file will be created at the real host path (bind-mounted
-        // into iSH and visible in iOS Files).
-        let hostURL: URL?
-        if path.hasPrefix("/var/minis/mounts/") {
-            let mountURL = await ISHExecutionCoordinator.shared.hostURL(for: path)
-            #if DEBUG
-            print("[FileWrite] hostURL(for:\(path)) → \(mountURL?.path ?? "<nil>")")
-            #endif
-            if let mountURL {
-                hostURL = mountURL
-                logger.notice("📂[RESOLVE-write] \(path) → \(mountURL.path) (mount table, unconditional for writes)")
-                #if DEBUG
-                print("[FileWrite] using MOUNT-TABLE URL: \(mountURL.path)")
-                #endif
-            } else {
-                hostURL = await resolvePathForDirectRead(path)
-                #if DEBUG
-                print("[FileWrite] mount table miss, resolvePathForDirectRead → \(hostURL?.path ?? "<nil>")")
-                #endif
-            }
-        } else {
-            hostURL = await resolvePathForDirectRead(path)
-            #if DEBUG
-            print("[FileWrite] non-mounts path, resolvePathForDirectRead → \(hostURL?.path ?? "<nil>")")
-            #endif
-        }
+        let hostURL: URL? = await resolvePathForDirectRead(path)
+        #if DEBUG
+        print("[FileWrite] resolvePathForDirectRead → \(hostURL?.path ?? "<nil>")")
+        #endif
 
         guard let hostURL else {
             #if DEBUG
@@ -551,15 +481,6 @@ extension AIChatViewModel {
         print("[FileWrite] FINAL hostURL=\(hostURL.path)")
         #endif
 
-        // Defense-in-depth: also check after host-URL resolution in case the
-        // path didn't match the Linux-prefix form but still resolved into a
-        // mounted folder.
-        if MountedFolderCoordinator.isUnderReadOnlyMount(hostURL) {
-            return FileToolResult(
-                output: "Error: \(path) is inside a read-only mounted folder and cannot be modified. Toggle writability in Settings → Mount External Folders if this is a mistake.",
-                success: false
-            )
-        }
 
         let appendMode = (dict["append"] as? Bool) ?? false
         let createDirs = (dict["create_dirs"] as? Bool) ?? false
@@ -580,13 +501,12 @@ extension AIChatViewModel {
             return FileToolResult(output: "Error: Content is not valid UTF-8", success: false)
         }
 
-        // Defense-in-depth: if the Linux path is under /var/minis/mounts/ but
-        // the resolved hostURL landed anywhere other than the real external
-        // folder (the fakefs `data/var/minis/mounts/` shadow, or a per-session
-        // `minisPersistentBase/<sid>/mounts/` fallback path), the mount-table
-        // lookup missed and we'd be writing to an orphan file invisible to
-        // both iSH and the real host folder. Reject rather than silently
-        // "succeed".
+        // Mount External Folders was removed, so a /var/minis/mounts/ path
+        // can no longer resolve to a real folder. If it lands in the fakefs
+        // `data/var/minis/mounts/` shadow or a per-session
+        // `minisPersistentBase/<sid>/mounts/` fallback path, the write would
+        // go to an orphan file invisible to both iSH and the user. Reject
+        // rather than silently "succeed".
         if path.hasPrefix("/var/minis/mounts/") {
             let resolvedPath = hostURL.standardizedFileURL.path
             let fakefsMountsPrefix = RootfsManager.shared.dataPath
@@ -605,7 +525,7 @@ extension AIChatViewModel {
                 print("[FileWrite] ✗ DEFENSE REJECT path=\(path) resolved=\(resolvedPath)")
                 #endif
                 return FileToolResult(
-                    output: "Error: mount for \(path) is not active — the file would be written to an internal location invisible to both iSH and the real folder. Ensure the folder is mounted in Settings → Mount External Folders, then retry.",
+                    output: "Error: \(path) is under /var/minis/mounts/, but Mount External Folders was removed — there is no mounted folder to write to.",
                     success: false
                 )
             }
@@ -664,26 +584,11 @@ extension AIChatViewModel {
             return FileToolResult(output: refusal, success: false)
         }
 
-        // Pre-reject edits to read-only mounts via Linux path first — immune
-        // to firmlink / case-sensitivity issues that can hide mount membership.
-        if MountedFolderCoordinator.isLinuxPathUnderReadOnlyMount(path) {
-            return FileToolResult(
-                output: "Error: \(path) is inside a read-only mounted folder and cannot be modified. Toggle writability in Settings → Mount External Folders if this is a mistake.",
-                success: false
-            )
-        }
 
         guard let hostURL = await resolvePathForDirectRead(path) else {
             return FileToolResult(output: "Error: Invalid path: \(path)", success: false)
         }
 
-        // Defense-in-depth after host-URL resolution.
-        if MountedFolderCoordinator.isUnderReadOnlyMount(hostURL) {
-            return FileToolResult(
-                output: "Error: \(path) is inside a read-only mounted folder and cannot be modified. Toggle writability in Settings → Mount External Folders if this is a mistake.",
-                success: false
-            )
-        }
 
         guard FileManager.default.fileExists(atPath: hostURL.path) else {
             return FileToolResult(output: "Error: File does not exist: \(path). Use file_write to create new files.", success: false)

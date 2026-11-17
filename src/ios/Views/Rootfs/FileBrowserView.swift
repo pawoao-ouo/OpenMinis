@@ -552,8 +552,8 @@ private struct FilePreviewSheet: View {
 /// downloading spinner (then the real preview) or an error, instead of
 /// handing the placeholder to the system reader and previewing it as an
 /// empty/corrupt file. Same loading/failed states as the Markdown/Text
-/// previews. `ensureDownloaded` is a no-op for local files, so non-mount
-/// previews are unaffected.
+/// previews. Browsed roots are local (rootfs / app-group dirs), so files
+/// are always present and the gate passes through immediately.
 private struct DownloadGatedPreview<Content: View>: View {
     let item: FileItem
     let url: URL
@@ -583,16 +583,8 @@ private struct DownloadGatedPreview<Content: View>: View {
     }
 
     private func load() async {
-        let url = self.url
-        let result: GateState = await Task.detached(priority: .userInitiated) {
-            do {
-                try MountedFolderCoordinator.ensureDownloaded(url)
-                return .ready
-            } catch {
-                return .failed(error.localizedDescription)
-            }
-        }.value
-        await MainActor.run { self.gateState = result }
+        // Browsed roots are local, so there is nothing to download.
+        await MainActor.run { self.gateState = .ready }
     }
 }
 
@@ -676,13 +668,7 @@ private struct MarkdownFilePreview: View {
         let url = self.url
         let result: LoadState = await Task.detached(priority: .userInitiated) {
             do {
-                // Route through the mount coordinator, not a bare read:
-                // for a not-yet-downloaded placeholder this triggers the
-                // download and waits (up to the coordinator's timeout)
-                // instead of reading 0 bytes and rendering an empty file.
-                // Off-mount it falls through to Data(contentsOf:), so
-                // non-mount previews are byte-identical.
-                let data = try MountedFolderCoordinator.read(at: url)
+                let data = try Data(contentsOf: url)
                 let text = String(data: data, encoding: .utf8)
                     ?? String(data: data, encoding: .isoLatin1)
                     ?? ""
@@ -756,12 +742,6 @@ private struct TextFilePreview: View {
         // Cap at 2 MB for safety — large files fall through to QuickLook elsewhere.
         let result: MarkdownFilePreview.LoadState = await Task.detached(priority: .userInitiated) {
             do {
-                // Same download gate as the Markdown preview: a
-                // not-yet-downloaded placeholder must trigger its download
-                // (and surface a timeout as .failed) instead of opening a
-                // 0-byte handle and rendering a blank file. No-op for
-                // local / already-downloaded files.
-                try MountedFolderCoordinator.ensureDownloaded(url)
                 let handle = try FileHandle(forReadingFrom: url)
                 defer { try? handle.close() }
                 let data = try handle.read(upToCount: 2 * 1024 * 1024) ?? Data()
@@ -1221,7 +1201,7 @@ class FileBrowserViewModel: ObservableObject {
             // Remove the item (or symlink) at the logical path.
             // Use the path relative to currentPath to ensure we hit the right file
             // in case the URL was resolved differently.
-            try MountedFolderCoordinator.remove(at: targetURL)
+            try FileManager.default.removeItem(at: targetURL)
             let removedURL = targetURL
             if let linux = linuxPath(for: removedURL) {
                 RootfsManager.shared.removeFakefsPath(linux)
@@ -1334,7 +1314,7 @@ class FileBrowserViewModel: ObservableObject {
                 return false
             }
             let srcURL = currentPath.resolvingSymlinksInPath().appendingPathComponent(item.name)
-            try MountedFolderCoordinator.move(from: srcURL, to: destURL)
+            try FileManager.default.moveItem(at: srcURL, to: destURL)
             if let srcLinux = linuxPath(for: srcURL) {
                 RootfsManager.shared.removeFakefsPath(srcLinux)
             }
@@ -1361,7 +1341,7 @@ class FileBrowserViewModel: ObservableObject {
                 return false
             }
             let srcURL = currentPath.resolvingSymlinksInPath().appendingPathComponent(item.name)
-            try MountedFolderCoordinator.copy(from: srcURL, to: destURL)
+            try FileManager.default.copyItem(at: srcURL, to: destURL)
             RootfsManager.shared.registerSubtreeInMetaDB(hostRoot: destURL)
             Self.tracePotentialFPWrite(op: "copy", destURL: destURL, srcURL: srcURL)
             loadItems()
@@ -1478,17 +1458,17 @@ class FileBrowserViewModel: ObservableObject {
             do {
                 if fm.fileExists(atPath: destURL.path) {
                     let stash = destDir.appendingPathComponent(".minis-import-stash-\(UUID().uuidString)")
-                    try MountedFolderCoordinator.move(from: destURL, to: stash)
+                    try FileManager.default.moveItem(at: destURL, to: stash)
                     stashURL = stash
                     if let destLinux = linuxPath(for: destURL) {
                         RootfsManager.shared.removeFakefsPath(destLinux)
                     }
                 }
-                try MountedFolderCoordinator.copy(from: url, to: destURL)
+                try FileManager.default.copyItem(at: url, to: destURL)
                 RootfsManager.shared.registerSubtreeInMetaDB(hostRoot: destURL)
                 Self.tracePotentialFPWrite(op: "import", destURL: destURL, srcURL: url)
                 if let stashURL {
-                    try? MountedFolderCoordinator.remove(at: stashURL)
+                    try? FileManager.default.removeItem(at: stashURL)
                 }
             } catch {
                 failCount += 1
@@ -1498,12 +1478,12 @@ class FileBrowserViewModel: ObservableObject {
                 // Roll back: drop any partial copy, then put the original back.
                 if let stashURL {
                     if fm.fileExists(atPath: destURL.path) {
-                        try? MountedFolderCoordinator.remove(at: destURL)
+                        try? FileManager.default.removeItem(at: destURL)
                         if let destLinux = linuxPath(for: destURL) {
                             RootfsManager.shared.removeFakefsPath(destLinux)
                         }
                     }
-                    try? MountedFolderCoordinator.move(from: stashURL, to: destURL)
+                    try? FileManager.default.moveItem(at: stashURL, to: destURL)
                     RootfsManager.shared.registerSubtreeInMetaDB(hostRoot: destURL)
                 }
             }
