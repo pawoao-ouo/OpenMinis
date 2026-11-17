@@ -58,7 +58,6 @@ struct FollowUpSessionIntent: AppIntent {
             eagerKeepAliveSkippedReason: eagerResult.skipReason
         )
 
-
         let (vm, isNew) = ViewModelCache.shared.getOrCreate(for: session.id)
         // [T-shortcut-duplicate-completion-notification] See SendPromptIntent.
         // Deliberately not `sessionSource = "shortcut"` — see RetryRunIntent.

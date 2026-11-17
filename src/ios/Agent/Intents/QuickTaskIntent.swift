@@ -115,7 +115,6 @@ struct QuickTaskIntent: AppIntent {
             eagerKeepAliveSkippedReason: eagerResult.skipReason
         )
 
-
         let vm = ViewModelCache.shared.createDraft()
         vm.sessionSource = "shortcut"
         // [T-shortcut-duplicate-completion-notification] See SendPromptIntent.

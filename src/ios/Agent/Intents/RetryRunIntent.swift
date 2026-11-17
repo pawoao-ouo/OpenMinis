@@ -72,7 +72,6 @@ struct RetryRunIntent: AppIntent {
             }
         }
 
-
         let (vm, isNew) = ViewModelCache.shared.getOrCreate(for: session.id)
         // [T-shortcut-duplicate-completion-notification] See SendPromptIntent.
         // Note this deliberately does NOT set `sessionSource = "shortcut"`: this

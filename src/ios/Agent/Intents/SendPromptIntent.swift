@@ -96,7 +96,6 @@ struct SendPromptIntent: AppIntent {
             eagerKeepAliveSkippedReason: eagerSkipReason
         )
 
-
         let vm: AIChatViewModel
         let isNewSession: Bool
         if let session = session {

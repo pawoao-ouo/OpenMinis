@@ -464,8 +464,6 @@ extension AIChatViewModel {
         print("[FileWrite] ▶ START path=\(path) sessionId=\(self.sessionId ?? "<nil>") contentBytes=\(content.utf8.count)")
         #endif
 
-
-
         let hostURL: URL? = await resolvePathForDirectRead(path)
         #if DEBUG
         print("[FileWrite] resolvePathForDirectRead → \(hostURL?.path ?? "<nil>")")
@@ -480,7 +478,6 @@ extension AIChatViewModel {
         #if DEBUG
         print("[FileWrite] FINAL hostURL=\(hostURL.path)")
         #endif
-
 
         let appendMode = (dict["append"] as? Bool) ?? false
         let createDirs = (dict["create_dirs"] as? Bool) ?? false
@@ -584,11 +581,9 @@ extension AIChatViewModel {
             return FileToolResult(output: refusal, success: false)
         }
 
-
         guard let hostURL = await resolvePathForDirectRead(path) else {
             return FileToolResult(output: "Error: Invalid path: \(path)", success: false)
         }
-
 
         guard FileManager.default.fileExists(atPath: hostURL.path) else {
             return FileToolResult(output: "Error: File does not exist: \(path). Use file_write to create new files.", success: false)
