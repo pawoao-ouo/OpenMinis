@@ -14,10 +14,8 @@ final class BackupTransferStatus: ObservableObject {
     static let shared = BackupTransferStatus()
 
     struct Destination: Identifiable {
-        /// Stable row key, namespaced by destination kind ("mount:<uuid>" /
-        /// "remote:<name>"). Mount names and remote names live in independent
-        /// namespaces and CAN collide, so rows are keyed by this — never by
-        /// the display name alone.
+        /// Stable row key, namespaced by destination kind ("remote:<name>").
+        /// Rows are keyed by this — never by the display name alone.
         let id: String
         let name: String
         var bytesSent: Int64 = 0

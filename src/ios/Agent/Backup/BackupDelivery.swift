@@ -119,27 +119,6 @@ enum BackupDelivery {
         }
     }
 
-    /// Copy a package into a user-authorised mounted folder (§6.2 path 2).
-    ///
-    /// This is the unattended path: once the user has mounted a WebDAV / SMB /
-    /// cloud folder in Files and authorised it in Minis, a backup can be
-    /// written straight into it with no share sheet and no network code. Uses
-    /// the existing coordinated-write helper so a third-party FileProvider
-    /// actually sees the write and uploads it.
-    /// [review I1] `nonisolated` so the transfer can run off the main thread —
-    /// see BackupDestinations.deliver. Takes an already-resolved root rather
-    /// than a folder id, because resolving it requires the main actor and this
-    /// deliberately does not.
-    ///
-    /// [review I7] Writes to a `.partial` sibling and renames on success. The
-    /// previous version copied straight to the final name, and NSFileCoordinator
-    /// guarantees coordination with the FileProvider — not atomicity of the
-    /// underlying byte transfer. A suspension or dropped share mid-copy left a
-    /// TRUNCATED file carrying a perfectly valid `.minisbak` name, which then
-    /// appeared in the restore picker with a plausible size and date. The user
-    /// would discover it only when the restore failed, plausibly on a new device
-    /// after wiping the old one. A rename within one volume is atomic and cheap,
-    /// so the final name now appears only once the bytes are all there.
 }
 
 // MARK: - Share sheet

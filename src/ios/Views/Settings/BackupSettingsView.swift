@@ -1031,9 +1031,6 @@ struct BackupSettingsView: View {
     private var destinationSection: some View {
         Section {
             // Network drives added in-app (SMB / WebDAV / SFTP / S3 / FTP).
-            // Listed first: a user who went to the trouble of typing in a
-            // server address is more invested in it than in a folder they
-            // happened to pick from Files.
             ForEach(remotes) { r in
                 // Toggle enables/disables delivery; the row itself opens the
                 // details. Disabling keeps the server and its credential, so
@@ -1359,10 +1356,10 @@ struct BackupSettingsView: View {
             // it, so the backup always exists somewhere.
             //
             // [A18] "Verified" here means the contents were checked, not
-            // just that the copy arrived: mounted folders are hash-checked,
-            // but an rclone upload is only known not to have thrown. The
-            // local copy is removed only when every destination is
-            // content-verified; an upload-accepted remote keeps it.
+            // just that the copy arrived: an rclone upload is only known
+            // not to have thrown. The local copy is removed only when every
+            // destination is content-verified; an upload-accepted remote
+            // keeps it.
             if !deliveryResults.isEmpty,
                deliveryResults.allSatisfy({ $0.succeeded && $0.contentVerified }) {
                 let freed = (try? FileManager.default.attributesOfItem(

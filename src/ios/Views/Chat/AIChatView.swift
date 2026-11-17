@@ -3210,7 +3210,7 @@ struct AIChatView: View {
         }
         // Any minis-clone://settings/<path> goes through DeepLinkRouter so all
         // supported settings sub-paths (logs, providers, model-groups,
-        // usage, skills, memory, storage, mounts, shared-folders,
+        // usage, skills, memory, storage, shared-folders,
         // appearance, background, about, permissions, environments,
         // rootfs, …) reach Settings instead of falling through to the
         // file-resource resolver below — which would treat e.g. `logs`
@@ -4856,7 +4856,6 @@ struct AIChatView: View {
             case .shared:      return "folder.badge.person.crop"
             case .skills:      return "sparkles"
             case .memory:      return "brain.head.profile"
-            case .mount:       return "externaldrive"
             }
         }
     }

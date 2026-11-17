@@ -921,9 +921,9 @@ private struct FileBrowserRow: View {
                         Label("Export", systemImage: "square.and.arrow.up")
                     }
                     if isHTML {
-                        // WebApp entry point — file browser surfaces both
-                        // shared and mounted folders, so this single hook
-                        // covers two of the three required entry points.
+                        // WebApp entry point — file browser surfaces the
+                        // shared folder, so this hook covers one of the
+                        // required entry points.
                         Button { onAddToHome() } label: {
                             Label("Add to Home Screen", systemImage: "rectangle.stack.badge.plus")
                         }
@@ -1216,7 +1216,7 @@ class FileBrowserViewModel: ObservableObject {
             // [audit-C8] Disk is gone; now scrub the references, or the chat
             // keeps showing ghost tiles and the model keeps getting stale
             // paths. The @-mention index is invalidated either way — a
-            // deleted shared/mount file is in it too.
+            // deleted shared file is in it too.
             Task {
                 if let plan = purgePlan {
                     _ = await ChatStore.shared.purgeDeletedFileReferences(sessionId: plan.sessionId, sessionRelativePaths: plan.relativePaths)
