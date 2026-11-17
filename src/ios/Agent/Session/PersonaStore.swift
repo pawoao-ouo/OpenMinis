@@ -1112,21 +1112,36 @@ final class PersonaStore: ObservableObject {
         // 对话侧的头像（PersonAvatarView）与标题读的都是 SOUL 元数据。
         // save(_:for:) 只在"当前人设"时刷缓存并广播 .soulMdChanged；
         // 非当前人设只落文件，等切过去时自然生效。
-        if old.name != p.name || old.avatar != p.avatar {
-            var soul = SoulStore.load(for: p.id) ?? SoulFile(metadata: .default, body: "")
-            if old.name != p.name {
-                soul.metadata.name = p.name
+        // [D7/P3] 同步条件以前比内存新旧值：第一次换头像 SOUL 没写上、
+        // 注册表已是新头像，重试同一张图时新旧相等就跳过同步、报成功，
+        // SOUL.md 里还是旧头像。改成比 SOUL 里存的值：和注册表不一致
+        // 就对齐写一次。
+        if let soul = SoulStore.load(for: p.id) {
+            var file = soul
+            if file.metadata.name != p.name {
+                file.metadata.name = p.name
             }
-            // [B28 R18] 不比较 old/new：同名文件换图时路径不变，
-            // 比较会判定"没变"而跳过，SOUL 就停在旧路径上。
-            // 只要和 SOUL 里存的不一样就对齐，一样就省一次写盘。
-            if soul.metadata.icon != (p.avatar ?? "") {
-                soul.metadata.icon = p.avatar ?? ""
+            if file.metadata.icon != (p.avatar ?? "") {
+                file.metadata.icon = p.avatar ?? ""
             }
-            // [P3-4] 以前 try? 掉：SOUL 没写上还照旧返回 persisted，
-            // 注释却说"返回改动到底落没落盘"。SOUL 没落就是没完全落。
+            if file != soul {
+                // [P3-4] 以前 try? 掉：SOUL 没写上还照旧返回 persisted，
+                // 注释却说"返回改动到底落没落盘"。SOUL 没落就是没完全落。
+                do {
+                    try SoulStore.save(file, for: p.id)
+                } catch {
+                    AppLogger(category: "PersonaStore").error("[D7] SOUL.md sync failed for persona \(p.id.prefix(8)) (\(error.localizedDescription)) — chat side still shows the old avatar/name")
+                    return false
+                }
+            }
+        } else if old.name != p.name || old.avatar != p.avatar {
+            // SOUL.md 还不存在：只有名字/头像真变了才新建一份（老行为），
+            // 白名单这类改动不顺手造文件。
+            var file = SoulFile(metadata: .default, body: "")
+            file.metadata.name = p.name
+            file.metadata.icon = p.avatar ?? ""
             do {
-                try SoulStore.save(soul, for: p.id)
+                try SoulStore.save(file, for: p.id)
             } catch {
                 AppLogger(category: "PersonaStore").error("[D7] SOUL.md sync failed for persona \(p.id.prefix(8)) (\(error.localizedDescription)) — chat side still shows the old avatar/name")
                 return false
