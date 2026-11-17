@@ -828,23 +828,32 @@ final class PersonaStore: ObservableObject {
         }
     }
 
-    private func save(_ list: [Persona]) {
+    /// [D7] 以前返回 Void：降级压住写盘、编码失败、写盘失败全是静默的，
+    /// 调用方（换头像、改名）以为存上了，重启才发现丢了。
+    /// 现在返回写盘到底落没落；false = 内存改了、盘上还是旧的。
+    @discardableResult
+    private func save(_ list: [Persona]) -> Bool {
         // [P0-1] 坏注册表隔离后：不写盘，免得覆盖还没被抢救的坏文件。
         if registryDegraded {
             AppLogger(category: "PersonaStore").warning("[P0-1] save() suppressed — personas.json was corrupt; edit a persona to start a fresh registry (corrupt file kept at \(corruptRegistryQuarantineURL?.lastPathComponent ?? "original path"))")
-            return
+            return false
         }
         let url = jsonURL()
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(list) {
-            try? data.write(to: url, options: .atomic)
-            // 同步写入镜像到 /var/minis/personas/personas.json，打通 AI 数据孤岛
-            let mirrorURL = AIChatViewModel.minisPersonasPersistentDir.appendingPathComponent(Self.fileName)
-            try? FileManager.default.createDirectory(
-                at: mirrorURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: mirrorURL, options: .atomic)
+        guard let data = try? JSONEncoder().encode(list) else { return false }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            AppLogger(category: "PersonaStore").error("[D7] personas.json write failed (\(error.localizedDescription)) — in-memory edit will not survive relaunch")
+            return false
         }
+        // 同步写入镜像到 /var/minis/personas/personas.json，打通 AI 数据孤岛
+        let mirrorURL = AIChatViewModel.minisPersonasPersistentDir.appendingPathComponent(Self.fileName)
+        try? FileManager.default.createDirectory(
+            at: mirrorURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: mirrorURL, options: .atomic)
+        return true
     }
 
     /// 备份恢复/回滚后重载注册表（BackupImporter 调）：读盘 + 补目录。
@@ -854,7 +863,10 @@ final class PersonaStore: ObservableObject {
         ensureDirs()
     }
 
-    private func persist() {
+    /// [D7] 返回这次改动到底落盘没有。降级压住时返回 false，
+    /// 调用方要告诉她"改了但没存上"，不能当存上了报。
+    @discardableResult
+    private func persist() -> Bool {
         // [P0-1] 用户主动改人设 = 接受用内存里这份当新注册表。
         // 只有坏文件已隔离成功才放行写盘；隔离失败时继续压住写盘，
         // 坏文件还留在原路径，不能被覆盖。
@@ -862,7 +874,7 @@ final class PersonaStore: ObservableObject {
             registryDegraded = false
             AppLogger(category: "PersonaStore").info("[P0-1] user edited a persona — leaving degraded mode, registry will be saved fresh; corrupt original kept at \(corruptRegistryQuarantineURL?.lastPathComponent ?? "?")")
         }
-        save(personas)
+        return save(personas)
     }
 
     // MARK: - 管理（照搬 Kelivo AssistantProvider 逻辑）
@@ -1031,14 +1043,17 @@ final class PersonaStore: ObservableObject {
     }
 
     /// 更新某人设的白名单 / 模型绑定；名字或头像有变化时同步到对话侧显示源。
-    func updatePersona(_ persona: Persona) {
-        guard let idx = personas.firstIndex(where: { $0.id == persona.id }) else { return }
+    /// [D7] 返回这次改动到底落盘没有：false = 只改了内存，重启会丢。
+    /// 调用方（拾取器、AI 命令）要把失败报出来，不能当成功报。
+    @discardableResult
+    func updatePersona(_ persona: Persona) -> Bool {
+        guard let idx = personas.firstIndex(where: { $0.id == persona.id }) else { return false }
         // 内置人设的 isBuiltIn 不许经这里翻掉
         var p = persona
         p.isBuiltIn = personas[idx].isBuiltIn
         let old = personas[idx]
         personas[idx] = p
-        persist()
+        let persisted = persist()
         // [B1 · 10-15] 人设列表里改名字/换头像 → 同步写进 SOUL.md——
         // 对话侧的头像（PersonAvatarView）与标题读的都是 SOUL 元数据。
         // save(_:for:) 只在"当前人设"时刷缓存并广播 .soulMdChanged；
@@ -1056,6 +1071,7 @@ final class PersonaStore: ObservableObject {
             }
             try? SoulStore.save(soul, for: p.id)
         }
+        return persisted
     }
 
     // MARK: - 小管家 SOUL.md 初值（写死的 MCP 管家规则）
