@@ -55,10 +55,9 @@ final class MinisMediaCache {
     ///
     /// `minisMediaCacheKey` is evaluated inside `body` (it feeds `.task(id:)`),
     /// so it runs on the main actor once per tile per body pass. Its `stat()`
-    /// was previously uncached, and for a `minis-clone://mounts/<name>/…` source the
-    /// underlying resolve also touches the mount's backing volume — on a slow
-    /// or unreachable SMB / FileProvider share that blocks the main thread and
-    /// trips the scene-update watchdog. A short TTL keeps the mtime-based
+    /// was previously uncached, and on a slow or unreachable network volume
+    /// the underlying resolve blocks the main thread and trips the
+    /// scene-update watchdog. A short TTL keeps the mtime-based
     /// invalidation this key exists for (an agent rewriting a chart at the same
     /// path still refreshes within `fingerprintTTL`) while collapsing a whole
     /// scroll's worth of body passes into at most one `stat()` per file.
@@ -128,16 +127,7 @@ func resolveMinisFileURLCached(url: URL) -> URL? {
         return cached
     }
     if let resolved = resolveMinisFileURL(url: url) {
-        // Don't persist a mount resolution taken on the main thread: that path
-        // is returned unverified (see the mounts branch of resolveMinisFileURL,
-        // which skips `fileExists` on main to avoid blocking on the backing
-        // volume). Caching it would poison later off-main callers, which do
-        // verify. Non-mount resolutions are always verified, so they cache
-        // normally.
-        let isUnverifiedMountGuess = Thread.isMainThread && url.host == "mounts"
-        if !isUnverifiedMountGuess {
-            MinisMediaCache.shared.setResolvedURL(resolved, for: key)
-        }
+        MinisMediaCache.shared.setResolvedURL(resolved, for: key)
         minisLogger.info("[MinisImage][ResolveCache] MISS→resolved url=\(url.absoluteString) → \(resolved.path)")
         return resolved
     }
@@ -175,7 +165,7 @@ func minisMediaCacheKey(for url: URL) -> String {
     }
     let path = fileURL.path
     // This runs inside `body` (it feeds `.task(id:)`), so it must stay cheap
-    // and must never block on a mount's backing volume. Serve a recent
+    // and must never block on a slow backing volume. Serve a recent
     // fingerprint when we have one; see MinisMediaCache.fingerprint(for:).
     if let cached = MinisMediaCache.shared.fingerprint(for: path) {
         return cached
@@ -263,69 +253,16 @@ func resolveMinisFileURL(url: URL) -> URL? {
         }
     }
 
-    // User-mounted external folders: minis-clone://mounts/<name>/<path>
-    // → resolve <name> through MountedFoldersManager, then append <path>.
-    if host == "mounts" {
-        for subPath in subPaths {
-            let pieces = subPath.split(separator: "/", maxSplits: 1)
-            guard let mountName = pieces.first.map(String.init) else { continue }
-            // MountedFoldersManager is @MainActor — hop over briefly when
-            // called from a non-main thread.
-            let mountURL: URL? = {
-                if Thread.isMainThread {
-                    return MainActor.assumeIsolated {
-                        MountedFoldersManager.shared.resolvedURL(forName: mountName)
-                    }
-                } else {
-                    var result: URL?
-                    DispatchQueue.main.sync {
-                        result = MountedFoldersManager.shared.resolvedURL(forName: mountName)
-                    }
-                    return result
-                }
-            }()
-            if let mountURL {
-                let relative = pieces.count > 1 ? String(pieces[1]) : ""
-                // Build the candidate by string concatenation, NOT
-                // `mountURL.appendingPathComponent(relative)`. On a `file:` URL
-                // without an `isDirectory:` hint, `appendingPathComponent` asks
-                // the filesystem whether the base is a directory — on a
-                // FileProvider- or network-backed mount that is a synchronous
-                // XPC round-trip to the owning provider, which stalls whatever
-                // thread we're on. `URL(fileURLWithPath:)` on a fully-formed
-                // path does no such lookup.
-                let candidate: URL = relative.isEmpty
-                    ? mountURL
-                    : URL(fileURLWithPath: mountURL.path + "/" + relative)
-                // `fileExists` on an unreachable mount blocks the same way.
-                // This resolver is reached from `body` via
-                // `minisMediaCacheKey`, so on the main thread we accept the
-                // candidate unverified — a wrong guess just means the async
-                // image load fails and shows a placeholder, whereas a blocked
-                // main thread means a watchdog SIGKILL. Off-main callers keep
-                // the precise check.
-                if Thread.isMainThread {
-                    minisLogger.info("[MinisImage][Resolve] \(url.absoluteString) → mount '\(mountName)' → \(candidate.path) (unverified, main thread)")
-                    return candidate
-                }
-                if fm.fileExists(atPath: candidate.path) {
-                    minisLogger.info("[MinisImage][Resolve] \(url.absoluteString) → mount '\(mountName)' → \(candidate.path)")
-                    return candidate
-                }
-            }
-        }
-    }
-
     // [T-ios-minisurl-cross-session-isolation] DO NOT scan other sessions.
     // minis-clone://attachments/<file> is session-scoped: it must only resolve
     // inside the ACTIVE session's directory (handled above), plus the genuinely
-    // global dirs (skills/memory/shared) and user-mounted folders. The old
+    // global dirs (skills/memory/shared). The old
     // "scan all session directories and return the first same-named file"
     // fallback was a P0 isolation leak — minis-model-use emits fixed names like
     // model-use-zimage-0.jpg, so session B referencing that path would silently
     // resolve to session A's image. Not-found is the correct, safe result for a
     // cross-session reference.
-    minisLogger.warning("[MinisImage][Resolve] \(url.absoluteString) → not found in active session, global dirs, or mounts (cross-session scan disabled for isolation)")
+    minisLogger.warning("[MinisImage][Resolve] \(url.absoluteString) → not found in active session or global dirs (cross-session scan disabled for isolation)")
     return nil
 }
 
@@ -659,10 +596,9 @@ struct PreviewTitleToggle: View {
 /// already-resolved disk URL directly (no minis-clone:// re-resolve).
 private func filePreviewFingerprint(_ url: URL) -> String {
     // Evaluated inline in `body` as a `.task(id:)` argument, so it runs on the
-    // main actor on every body pass. `fileURL` can point into a mounted
-    // external folder, where `stat()` on an unreachable volume blocks the main
-    // thread — go through the shared TTL cache for the same reason
-    // `minisMediaCacheKey` does.
+    // main actor on every body pass. `fileURL` can point at a slow or
+    // unreachable volume, where `stat()` blocks the main thread — go through
+    // the shared TTL cache for the same reason `minisMediaCacheKey` does.
     let path = url.path
     if let cached = MinisMediaCache.shared.fingerprint(for: path) {
         return cached

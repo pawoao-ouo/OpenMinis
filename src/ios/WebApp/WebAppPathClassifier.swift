@@ -6,7 +6,7 @@ private let classifierLogger = AppLogger(category: "WebAppClassifier")
 /// into `(scope, scopeContext, htmlPath)` so the "Add to Home Screen"
 /// flow can persist a stable WebAppShortcut row.
 ///
-/// Returns nil for paths that don't sit inside any of our four scopes —
+/// Returns nil for paths that don't sit inside any of our three scopes —
 /// the caller should refuse to offer "Add to Home Screen" in that case
 /// (rather than persist an unresolvable row).
 @MainActor
@@ -54,27 +54,6 @@ enum WebAppPathClassifier {
         if target.hasPrefix(sharedBase + "/") {
             let rel = String(target.dropFirst(sharedBase.count + 1))
             return Classified(scope: .shared, scopeContext: nil, htmlPath: rel)
-        }
-
-        // 3. User-mounted folder (Files.app / iCloud / external drive).
-        // Walk active mounts and pick the one whose root is a prefix of the
-        // target. We use mount.id (UUID) as the scopeContext so
-        // WebAppPathResolver can re-resolve the URL at launch.
-        let manager = MountedFoldersManager.shared
-        for entry in manager.entries {
-            guard let root = manager.resolvedURL(for: entry.id) else { continue }
-            let rootPath = root.standardizedFileURL.path
-            if target.hasPrefix(rootPath + "/") {
-                let rel = String(target.dropFirst(rootPath.count + 1))
-                return Classified(scope: .mount,
-                                  scopeContext: entry.id.uuidString,
-                                  htmlPath: rel)
-            }
-            if target == rootPath {
-                // The mount root itself is a directory, not an HTML — but
-                // be defensive and treat as no-match.
-                return nil
-            }
         }
 
         classifierLogger.info("classify: target not in any known scope: \(target)")

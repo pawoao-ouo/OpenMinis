@@ -4831,7 +4831,7 @@ struct AIChatView: View {
                         .truncationMode(.middle)
                 }
                 Spacer()
-                Text(entry.mountName ?? entry.scope.displayLabel)
+                Text(entry.scope.displayLabel)
                     .font(ChatFont.font(10, weight: .medium))
                     .foregroundStyle(isSelected ? onSelectedFill.opacity(0.9) : ChatColors.secondaryText)
                     .padding(.horizontal, 6)

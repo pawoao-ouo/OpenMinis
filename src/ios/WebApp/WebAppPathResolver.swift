@@ -15,22 +15,19 @@ enum WebAppPathResolver {
     struct Resolved {
         let htmlURL: URL
         /// The directory passed to `loadFileURL(_:allowingReadAccessTo:)`.
-        /// Always a parent of `htmlURL` (often the same dir). For mounts
-        /// it's the mount root; for sessions it's the session root so
-        /// nested asset folders work.
+        /// Always a parent of `htmlURL` (often the same dir). For sessions
+        /// it's the session root so nested asset folders work.
         let readAccessRoot: URL
     }
 
     enum ResolveError: Error, CustomStringConvertible {
         case missingContext
-        case unknownMount
         case sourceMissing
         case escapesScope
 
         var description: String {
             switch self {
-            case .missingContext: return "WebApp shortcut is missing scope context (sessionId or mountId)."
-            case .unknownMount:   return "Mount no longer exists or hasn't been authorized in this run."
+            case .missingContext: return "WebApp shortcut is missing scope context (sessionId)."
             case .sourceMissing:  return "Source HTML file is missing — the file may have been moved or deleted."
             case .escapesScope:   return "WebApp shortcut path escapes its scope and was rejected."
             }
@@ -39,8 +36,7 @@ enum WebAppPathResolver {
 
     /// Resolve a shortcut to a host URL pair. Caller is responsible for
     /// presenting `ResolveError` to the user (e.g. an offer to remove the
-    /// stale tile). Reads `MountedFoldersManager.shared` on `MainActor`
-    /// when the scope is `.mount`, so call from main.
+    /// stale tile).
     @MainActor
     static func resolve(_ shortcut: WebAppShortcut) throws -> Resolved {
         let base: URL
@@ -53,14 +49,6 @@ enum WebAppPathResolver {
             base = AIChatViewModel.minisWorkspacePersistentDir(for: sid)
         case .shared:
             base = AIChatViewModel.minisSharedPersistentDir
-        case .mount:
-            guard let raw = shortcut.scopeContext, let mountId = UUID(uuidString: raw) else {
-                throw ResolveError.missingContext
-            }
-            guard let mountRoot = MountedFoldersManager.shared.resolvedURL(for: mountId) else {
-                throw ResolveError.unknownMount
-            }
-            base = mountRoot
         }
 
         // Strip any leading slash so appendingPathComponent doesn't anchor
@@ -72,8 +60,8 @@ enum WebAppPathResolver {
         // rather than `standardizedFileURL`.
         //
         // `standardizedFileURL` only collapses "." / ".." lexically; it leaves
-        // symlinks in place. The App Group container backing `shared` (and
-        // `mount`) is reached through symlinked path segments, so the old code
+        // symlinks in place. The App Group container backing `shared` is
+        // reached through symlinked path segments, so the old code
         // — which standardized `candidate` but passed `base` to
         // `readAccessRoot` completely un-normalised — handed WKWebView two
         // paths of different shape. WebKit resolves both to real paths when it
@@ -110,8 +98,7 @@ enum WebAppPathResolver {
         // For sessions, grant read access at the session root so the HTML
         // can pull from sibling folders (workspace/, attachments/, etc. —
         // common when the agent generates a multi-file site under the
-        // session). For mounts we already have the mount root. For shared
-        // the shared dir itself is the natural sandbox.
+        // session). For shared the shared dir itself is the natural sandbox.
         // [T-ios-webapp-shared-blackscreen] Must be normalised EXACTLY like
         // `candidate` above — same operations, same order. Any asymmetry here
         // is what produced the black screen; `candidate` is already resolved,
@@ -123,7 +110,7 @@ enum WebAppPathResolver {
             readAccessRoot = base.deletingLastPathComponent()
                 .standardizedFileURL
                 .resolvingSymlinksInPath()
-        case .shared, .mount:
+        case .shared:
             readAccessRoot = scopeRoot   // already standardized + symlink-resolved
         }
 

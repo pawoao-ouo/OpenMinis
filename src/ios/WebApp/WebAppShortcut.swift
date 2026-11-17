@@ -11,8 +11,6 @@ enum WebAppPathScope: String, Codable, Hashable, Sendable {
     case sessionWorkspace = "session_workspace"
     /// iSH `/var/minis/shared/...` — host-mapped shared space.
     case shared = "shared"
-    /// User-mounted folder (Files.app picker / iCloud / external drive).
-    case mount = "mount"
 }
 
 /// How the home-screen icon should be rendered when launching a WebApp.
@@ -70,7 +68,7 @@ struct WebAppShortcut: Identifiable, Codable, Hashable, Sendable {
     var htmlPath: String
     var pathScope: WebAppPathScope
     /// Session id when `pathScope` is sessionAttachment / sessionWorkspace,
-    /// mount id when `pathScope` is mount, nil for shared.
+    /// nil for shared.
     var scopeContext: String?
     var title: String
     var iconRef: WebAppIconRef

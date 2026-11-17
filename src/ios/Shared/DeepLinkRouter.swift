@@ -29,7 +29,6 @@ extension Notification.Name {
 ///   minis-clone://settings/skills
 ///   minis-clone://settings/memory
 ///   minis-clone://settings/storage
-///   minis-clone://settings/mount-external             (alias: mount_external, mounts, mounted-folders, mounted_folders)
 ///   minis-clone://settings/shared-folders             (alias: shared_folders)
 ///   minis-clone://settings/logs
 ///   minis-clone://settings/appearance
@@ -235,7 +234,6 @@ enum DeepLinkRouter {
     ///   path=attachments/<rest>      → sessionAttachment(ctx=session)
     ///   path=workspace/<rest>        → sessionWorkspace(ctx=session)
     ///   path=shared:<rest>           → shared
-    ///   path=mount:<uuid>/<rest>     → mount(ctx=<uuid>)
     ///
     /// Builds a transient `WebAppShortcut` (no persistence) and posts
     /// `.openWebAppDeepLink` so the SwiftUI root presents the immersive
@@ -274,16 +272,6 @@ enum DeepLinkRouter {
             scope = .shared
             ctx = nil
             htmlPath = String(rawPath.dropFirst("shared:".count))
-        } else if rawPath.hasPrefix("mount:") {
-            // mount:<uuid>/<rest>
-            let rest = rawPath.dropFirst("mount:".count)
-            guard let slash = rest.firstIndex(of: "/") else {
-                deepLinkLog.warning("minis-clone://open path=mount:… missing /<rest>")
-                return
-            }
-            scope = .mount
-            ctx = String(rest[..<slash])
-            htmlPath = String(rest[rest.index(after: slash)...])
         } else {
             deepLinkLog.warning("minis-clone://open unknown path prefix in \(rawPath)")
             return

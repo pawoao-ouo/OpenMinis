@@ -42,8 +42,7 @@ struct WebAppAddToHomeSheet: View {
                     titleSection
                     categorySection
                     if let sid = sourceSessionId,
-                       classification?.scope != .shared,
-                       classification?.scope != .mount {
+                       classification?.scope != .shared {
                         Section {
                             HStack {
                                 Image(systemName: "link").foregroundStyle(MinisTheme.secondaryText)
@@ -103,7 +102,7 @@ struct WebAppAddToHomeSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Can't add this file")
                         .font(.subheadline.weight(.semibold))
-                    Text("Only files inside a session, the shared folder, or a mounted folder can be added to the Home Screen.")
+                    Text("Only files inside a session or the shared folder can be added to the Home Screen.")
                         .font(.caption)
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
@@ -249,7 +248,6 @@ struct WebAppAddToHomeSheet: View {
     ///   session-attachment  →  path=attachments/<htmlPath>, session=<sid>
     ///   session-workspace   →  path=workspace/<htmlPath>,   session=<sid>
     ///   shared              →  path=shared:<htmlPath>       (no session)
-    ///   mount               →  path=mount:<uuid>/<htmlPath> (no session)
     private func buildLauncherURL(classification: WebAppPathClassifier.Classified,
                                   title: String,
                                   category: LauncherCategory) -> URL? {
@@ -273,9 +271,6 @@ struct WebAppAddToHomeSheet: View {
             items.append(URLQueryItem(name: "path", value: "workspace/\(classification.htmlPath)"))
         case .shared:
             items.append(URLQueryItem(name: "path", value: "shared:\(classification.htmlPath)"))
-        case .mount:
-            guard let ctx = classification.scopeContext else { return nil }
-            items.append(URLQueryItem(name: "path", value: "mount:\(ctx)/\(classification.htmlPath)"))
         }
         components.queryItems = items
 

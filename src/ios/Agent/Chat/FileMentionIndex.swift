@@ -3,7 +3,7 @@
 //  MinisApp
 //
 //  Backing index for the chat input's `@` file-mention feature.
-//  Layered scan (session → shared → mounts) with 10-minute cache and
+//  Layered scan (session → shared) with 10-minute cache and
 //  progressive publishing so the UI can refresh as later layers arrive.
 //
 
@@ -15,10 +15,9 @@ struct FileMentionEntry: Identifiable, Equatable, Hashable {
     enum Scope: Int, Comparable {
         // Raw values double as the *default* sort order when no query is
         // active, so the case order here is the user-facing priority:
-        // skills > attachments > mount > shared > workspace > memory.
+        // skills > attachments > shared > workspace > memory.
         case skills = 0
         case attachments
-        case mount
         case shared
         case workspace
         case memory
@@ -29,7 +28,6 @@ struct FileMentionEntry: Identifiable, Equatable, Hashable {
             switch self {
             case .skills:      return "skills"
             case .attachments: return "attachments"
-            case .mount:       return "mount"
             case .shared:      return "shared"
             case .workspace:   return "workspace"
             case .memory:      return "memory"
@@ -44,7 +42,6 @@ struct FileMentionEntry: Identifiable, Equatable, Hashable {
             switch self {
             case .skills:      return 600
             case .attachments: return 500
-            case .mount:       return 400
             case .shared:      return 300
             case .workspace:   return 200
             case .memory:      return 100
@@ -55,8 +52,6 @@ struct FileMentionEntry: Identifiable, Equatable, Hashable {
     /// iSH-visible path (e.g. `/var/minis/workspace/foo/bar.py`). Inserted into input.
     let linuxPath: String
     let scope: Scope
-    /// Name of the specific mount (only set for `.mount`), used for grouping.
-    let mountName: String?
     /// Last modification time of the host file — used for recency sort.
     let modifiedAt: Date
     /// True for directories; we still surface them (useful as context references).
@@ -87,8 +82,6 @@ struct FileMentionEntry: Identifiable, Equatable, Hashable {
 ///        a. Session-scoped dirs (workspace, attachments) synchronously on a
 ///           background queue — published first so the menu opens fast.
 ///        b. Shared dirs (shared, skills, memory) — published next.
-///        c. Each active external mount scanned with bounded depth (3) — each
-///           one published as it finishes, so heavy iCloud mounts don't block.
 ///   4. `entries` is a `@Published` snapshot the UI observes; dedup is applied
 ///      by `linuxPath` so files reached from multiple roots appear once.
 @MainActor
@@ -103,14 +96,12 @@ final class FileMentionIndex: ObservableObject {
 
     /// Cache window — within this interval, repeated `@` triggers reuse results.
     ///
-    /// [T-ios-mention-index-stale-mounts] Was 600s. The mount-set case is now
-    /// handled precisely by `invalidateCache`, but that cannot see the OTHER way
-    /// the roots go stale: files created INSIDE an already-scanned root — by the
-    /// agent itself, by a shell command, or by the user in Files. Those have no
-    /// event to hook, so the TTL is the only thing that recovers them, and ten
-    /// minutes is far too long for a picker whose whole job is "show me what's
-    /// there now" (the reporter described exactly this: newly added files not
-    /// showing up).
+    /// [T-ios-mention-index-stale-mounts] Was 600s. Files created INSIDE an
+    /// already-scanned root — by the agent itself, by a shell command, or by
+    /// the user in Files — have no event to hook, so the TTL is the only thing
+    /// that recovers them, and ten minutes is far too long for a picker whose
+    /// whole job is "show me what's there now" (the reporter described exactly
+    /// this: newly added files not showing up).
     ///
     /// 30s keeps the cache doing its real job — absorbing the burst of repeated
     /// `@` keystrokes within one composing session, where a rescan per character
@@ -121,11 +112,8 @@ final class FileMentionIndex: ObservableObject {
     /// shorter window is not visible in the UI.
     let cacheTTL: TimeInterval = 30
 
-    /// Depth cap applied when walking mount directories.
-    private let mountScanMaxDepth = 3
-
     /// Total number of entries collected across *all* roots in a single scan.
-    /// Acts as a hard upper bound so a giant external mount can't balloon the
+    /// Acts as a hard upper bound so a giant directory can't balloon the
     /// in-memory index past a reasonable size.
     private let globalScanBudget = 5000
 
@@ -150,20 +138,6 @@ final class FileMentionIndex: ObservableObject {
     // MARK: - Public API
 
     /// Drop the cached scan so the next `@` rebuilds the index from disk.
-    ///
-    /// [T-ios-mention-index-stale-mounts] The TTL+session cache assumed the set of
-    /// scan roots is fixed for the life of a session. Mounting or unmounting an
-    /// external folder changes that set underneath it: the user mounts a folder,
-    /// returns to a chat they already used `@` in, and gets "No matching files"
-    /// for up to 10 minutes — while a NEW session (different `sessionId`, so a
-    /// forced rescan) shows the folder immediately. That asymmetry is exactly
-    /// what the bug report describes.
-    ///
-    /// Invalidating rather than rescanning here is deliberate: mount changes
-    /// happen in Settings, where nobody is waiting on the index, and a mount can
-    /// be added and removed several times in a row. Clearing `lastScanAt` makes
-    /// the next `refreshIfNeeded` — i.e. the next `@` the user actually types —
-    /// do the work, on the session that needs it.
     ///
     /// `entries` is intentionally NOT cleared: the current list stays usable
     /// (and the menu stays populated) until the fresh scan replaces it.
@@ -218,12 +192,11 @@ final class FileMentionIndex: ObservableObject {
 
         logger.info("scan start token=\(token.uuidString.prefix(8)) sid=\(sessionId ?? "nil")")
 
-        // Build scan plan on main actor (needs MountedFoldersManager).
+        // Build scan plan on main actor.
         let sessionRoots = Self.sessionRoots(sessionId: sessionId)
         let sharedRoots = Self.sharedRoots()
-        let mountRoots = Self.mountRoots()
         #if DEBUG
-        print("[MentionScan] scan start token=\(token.uuidString.prefix(8)) sid=\(sessionId ?? "nil") sessionRoots=\(sessionRoots.count) sharedRoots=\(sharedRoots.count) mountRoots=\(mountRoots.count) budget=\(globalScanBudget)")
+        print("[MentionScan] scan start token=\(token.uuidString.prefix(8)) sid=\(sessionId ?? "nil") sessionRoots=\(sessionRoots.count) sharedRoots=\(sharedRoots.count) budget=\(globalScanBudget)")
         for r in sessionRoots {
             let exists = FileManager.default.fileExists(atPath: r.hostURL.path)
             print("[MentionScan]   sessionRoot scope=\(r.scope) linuxPrefix=\(r.linuxPrefix) host=\(r.hostURL.path) exists=\(exists)")
@@ -232,10 +205,6 @@ final class FileMentionIndex: ObservableObject {
             let exists = FileManager.default.fileExists(atPath: r.hostURL.path)
             let topLevelCount = (try? FileManager.default.contentsOfDirectory(atPath: r.hostURL.path))?.count ?? -1
             print("[MentionScan]   sharedRoot scope=\(r.scope) linuxPrefix=\(r.linuxPrefix) host=\(r.hostURL.path) exists=\(exists) topLevel=\(topLevelCount)")
-        }
-        for r in mountRoots {
-            let exists = FileManager.default.fileExists(atPath: r.hostURL.path)
-            print("[MentionScan]   mountRoot name=\(r.mountName ?? "?") linuxPrefix=\(r.linuxPrefix) host=\(r.hostURL.path) exists=\(exists)")
         }
         #endif
 
@@ -259,44 +228,7 @@ final class FileMentionIndex: ObservableObject {
                 print("[MentionScan]   skills: \(e.linuxPath) isDir=\(e.isDirectory)")
             }
             #endif
-            self.publish(token: token, newEntries: sharedResults, layer: "shared", done: mountRoots.isEmpty)
-
-            // Layer 3 — each mount separately so slow ones don't block the rest.
-            // Always surface the mount's root directory itself as an entry, so
-            // typing `@<mountName>` can reference the mount as a whole.
-            if mountRoots.isEmpty { return }
-            for (idx, mount) in mountRoots.enumerated() {
-                var mountResults: [FileMentionEntry] = []
-                let mountRootMtime = (try? mount.hostURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                mountResults.append(FileMentionEntry(
-                    linuxPath: mount.linuxPrefix,
-                    scope: .mount,
-                    mountName: mount.mountName,
-                    modifiedAt: mountRootMtime,
-                    isDirectory: true
-                ))
-                if remaining > 0 {
-                    let children = Self.scanRoots([mount], maxDepth: 3, remaining: &remaining)
-                    mountResults.append(contentsOf: children)
-                }
-                let isLast = idx == mountRoots.count - 1
-                self.publish(token: token, newEntries: mountResults, layer: "mount[\(mount.mountName ?? "?")]", done: isLast)
-                if remaining <= 0 && !isLast {
-                    // Budget exhausted — still surface remaining mount roots so
-                    // users can at least @-reference them by name.
-                    for rest in mountRoots.dropFirst(idx + 1) {
-                        let rootEntry = FileMentionEntry(
-                            linuxPath: rest.linuxPrefix,
-                            scope: .mount,
-                            mountName: rest.mountName,
-                            modifiedAt: .distantPast,
-                            isDirectory: true
-                        )
-                        self.publish(token: token, newEntries: [rootEntry], layer: "mount-root[\(rest.mountName ?? "?")]", done: rest.mountName == mountRoots.last?.mountName)
-                    }
-                    break
-                }
-            }
+            self.publish(token: token, newEntries: sharedResults, layer: "shared", done: true)
         }
     }
 
@@ -306,8 +238,8 @@ final class FileMentionIndex: ObservableObject {
     /// Score components (combined additively, biggest first):
     ///   • name-match tier (0 / 1000 … 10 000) — drives the primary order
     ///   • scope.rankBoost (0–600) — secondary preference between scopes
-    ///   • top-level scope-root bonus (0 / 50) — keeps a whole skill or
-    ///     mount above its children
+    ///   • top-level scope-root bonus (0 / 50) — keeps a whole skill
+    ///     above its children
     ///   • recency micro-bonus (0–80) — newer wins on otherwise-equal items
     ///
     /// The smallest gap between adjacent name tiers (1000) is greater than
@@ -439,13 +371,11 @@ final class FileMentionIndex: ObservableObject {
                 scope: .workspace,
                 hostURL: AIChatViewModel.minisWorkspacePersistentDir(for: sid),
                 linuxPrefix: AIChatViewModel.minisWorkspaceLinuxDir,
-                mountName: nil
             ),
             ScanRoot(
                 scope: .attachments,
                 hostURL: AIChatViewModel.minisAttachmentsPersistentDir(for: sid),
                 linuxPrefix: AIChatViewModel.minisAttachmentsLinuxDir,
-                mountName: nil
             ),
         ]
     }
@@ -456,30 +386,18 @@ final class FileMentionIndex: ObservableObject {
                 scope: .shared,
                 hostURL: AIChatViewModel.minisSharedPersistentDir,
                 linuxPrefix: AIChatViewModel.minisSharedLinuxDir,
-                mountName: nil
             ),
             ScanRoot(
                 scope: .skills,
                 hostURL: AIChatViewModel.minisSkillsPersistentDir,
                 linuxPrefix: AIChatViewModel.minisSkillsLinuxDir,
-                mountName: nil
             ),
             ScanRoot(
                 scope: .memory,
                 hostURL: AIChatViewModel.minisMemoryPersistentDir,
                 linuxPrefix: AIChatViewModel.minisMemoryLinuxDir,
-                mountName: nil
             ),
         ]
-    }
-
-    private static func mountRoots() -> [ScanRoot] {
-        let mgr = MountedFoldersManager.shared
-        return mgr.entries.compactMap { entry -> ScanRoot? in
-            guard let url = mgr.resolvedURL(for: entry.id) else { return nil }
-            let linuxPrefix = "\(AIChatViewModel.minisMountsLinuxDir)/\(entry.name)"
-            return ScanRoot(scope: .mount, hostURL: url, linuxPrefix: linuxPrefix, mountName: entry.name)
-        }
     }
 
     // MARK: - Background scanning
@@ -489,7 +407,6 @@ final class FileMentionIndex: ObservableObject {
         let hostURL: URL
         /// Linux-visible path prefix (e.g. `/var/minis/workspace`).
         let linuxPrefix: String
-        let mountName: String?
     }
 
     /// Scan a list of roots, consuming from a shared `remaining` budget.
@@ -539,7 +456,6 @@ final class FileMentionIndex: ObservableObject {
                 results.append(FileMentionEntry(
                     linuxPath: linuxPath,
                     scope: root.scope,
-                    mountName: root.mountName,
                     modifiedAt: mtime,
                     isDirectory: isDir
                 ))
@@ -557,8 +473,7 @@ final class FileMentionIndex: ObservableObject {
     ]
 
     /// True if any `/`-delimited component of `path` contains `query` as a
-    /// substring. Lets `@mounts` match `/var/minis/mounts/<name>/...` even
-    /// when the file's basename doesn't contain "mounts".
+    /// substring.
     private static func anyPathComponentMatches(path: String, query: String) -> Bool {
         for component in path.split(separator: "/") where component.contains(query) {
             return true
@@ -567,14 +482,13 @@ final class FileMentionIndex: ObservableObject {
     }
 
     /// Is this the immediate child of a scope root (e.g. `/var/minis/skills/foo`,
-    /// `/var/minis/mounts/bar`, `/var/minis/shared/baz`)? These top-level
+    /// `/var/minis/shared/baz`)? These top-level
     /// directories are first-class `@` targets, boosted above their descendants.
     private static func isTopLevelScopeRoot(_ entry: FileMentionEntry) -> Bool {
         guard entry.isDirectory else { return false }
         let path = entry.linuxPath
         let tops = [
             "/var/minis/skills/",
-            "/var/minis/mounts/",
             "/var/minis/shared/",
         ]
         for top in tops where path.hasPrefix(top) {
@@ -629,11 +543,11 @@ final class FileMentionIndex: ObservableObject {
         }
     }
 
-    /// Default ordering when no query is active — scope first (session > shared > mount),
+    /// Default ordering when no query is active — scope first (session > shared),
     /// directories below files within a scope, then recency.
     private static func defaultOrdering(_ a: FileMentionEntry, _ b: FileMentionEntry) -> Bool {
         if a.scope != b.scope { return a.scope < b.scope }
-        // Top-level scope roots (a whole skill / mount / shared folder) come
+        // Top-level scope roots (a whole skill / shared folder) come
         // first within their scope — a blank `@` query should present these
         // as the primary targets, ahead of individual files.
         let aTop = Self.isTopLevelScopeRoot(a)
