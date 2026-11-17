@@ -97,12 +97,14 @@ enum SoulIconImage {
         case diskFull
 
         var errorDescription: String? {
+            // [i18n] 经 AppLocalized 走：跟随应用内语言选择；
+            // 文案本身进 Localizable.xcstrings，中 / 英 / 繁三语齐全。
             switch self {
-            case .unreadable: return "这张图读不出来，换一张试试。"
-            case .encodeFailed: return "这张图转存失败，换一张试试。"
-            case .directoryFailed: return "头像文件夹建不起来，请重试。"
-            case .writeFailed: return "头像没能存下来，请重试。"
-            case .diskFull: return "手机存储空间满了，头像存不进去。"
+            case .unreadable: return AppLocalized(runtimeKey: "这张图读不出来，换一张试试。")
+            case .encodeFailed: return AppLocalized(runtimeKey: "这张图转存失败，换一张试试。")
+            case .directoryFailed: return AppLocalized(runtimeKey: "头像文件夹建不起来，请重试。")
+            case .writeFailed: return AppLocalized(runtimeKey: "头像没能存下来，请重试。")
+            case .diskFull: return AppLocalized(runtimeKey: "手机存储空间满了，头像存不进去。")
             }
         }
     }

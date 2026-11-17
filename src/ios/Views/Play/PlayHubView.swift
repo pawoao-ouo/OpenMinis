@@ -130,7 +130,7 @@ struct PlayHubView: View {
                 guard let data = try? await item.loadTransferable(type: Data.self),
                       let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 512) else {
                     // [D3] 读不出来以前是静默的：旧头像留着，像没点过一样。
-                    importError = "这张图读不出来，换一张试试。"
+                    importError = AppLocalized("这张图读不出来，换一张试试。")
                     avatarItem = nil
                     return
                 }
@@ -143,7 +143,7 @@ struct PlayHubView: View {
                     avatarItem = nil
                     return
                 } catch {
-                    importError = "头像保存失败，请重试。"
+                    importError = AppLocalized("头像没能存下来，请重试。")
                     avatarItem = nil
                     return
                 }
@@ -156,8 +156,8 @@ struct PlayHubView: View {
                     // [D7] 注册表没写上就报出来，别让她以为两边同步了。
                     if !PersonaStore.shared.updatePersona(p) {
                         importError = PersonaStore.shared.registryDegraded
-                            ? "人设数据坏了，改了也存不上，重启再试。"
-                            : "头像没能存下来，请重试。"
+                            ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                            : AppLocalized("头像没能存下来，请重试。")
                     }
                 }
                 avatarItem = nil

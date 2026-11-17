@@ -171,8 +171,8 @@ struct PersonaSettingsView: View {
         guard saveAvatar() else {
             avatarURI = previous
             iconError = store.registryDegraded
-                ? "人设数据坏了，改了也存不上，重启再试。"
-                : "头像没能去掉，请重试。"
+                ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                : AppLocalized("头像没能去掉，请重试。")
             return
         }
     }
@@ -210,7 +210,7 @@ struct PersonaSettingsView: View {
         defer { photoItem = nil }
         guard let data = try? await item.loadTransferable(type: Data.self),
               let image = ThumbnailCache.downsampledImage(from: data, maxEdge: 512) else {
-            await MainActor.run { iconError = "这张图读不出来，换一张试试。" }
+            await MainActor.run { iconError = AppLocalized("这张图读不出来，换一张试试。") }
             return
         }
         // [avatar-file] Stored as a file reference, never inline base64.
@@ -224,8 +224,8 @@ struct PersonaSettingsView: View {
                 guard saveAvatar() else {
                     avatarURI = persona?.avatar
                     iconError = store.registryDegraded
-                        ? "人设数据坏了，改了也存不上，重启再试。"
-                        : "头像没能存下来，请重试。"
+                        ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                        : AppLocalized("头像没能存下来，请重试。")
                     return
                 }
             }
