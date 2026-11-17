@@ -150623,6 +150623,29 @@
         }
       }
     },
+    "改名没能存下来，请重试。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改名没能存下来，请重试。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The rename couldn't be saved. Please try again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改名沒能存下來，請重試。"
+          }
+        }
+      }
+    },
     "头像没能去掉，请重试。": {
       "extractionState": "manual",
       "localizations": {

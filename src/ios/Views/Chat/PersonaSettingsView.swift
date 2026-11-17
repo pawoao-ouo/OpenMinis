@@ -114,7 +114,17 @@ struct PersonaSettingsView: View {
                     Button("关闭") { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button("保存") { saveAll(); dismiss() }
+                    Button("保存") {
+                        // [D7/P1-1] 改名没存上就不关页面：关了她会以为改上了。
+                        guard saveAll() else {
+                            MinisToast.show(store.registryDegraded
+                                ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                                : AppLocalized("改名没能存下来，请重试。"),
+                                systemImage: "exclamationmark.triangle.fill")
+                            return
+                        }
+                        dismiss()
+                    }
                 }
             }
             .onAppear { loadOnce() }
@@ -150,10 +160,12 @@ struct PersonaSettingsView: View {
         enabledMcpIds = p.mcpServerIds.map(Set.init) ?? allMcpIds
     }
 
-    private func saveName() {
+    /// [D7/P1-1] 返回改名到底落盘没有；没改名（名字没变 / 为空）算成功。
+    @discardableResult
+    private func saveName() -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        store.renamePersona(personaID, to: trimmed)
+        guard !trimmed.isEmpty else { return true }
+        return store.renamePersona(personaID, to: trimmed)
     }
 
     /// [D7] 返回这次头像改动到底落盘没有：false = 只改了内存，重启会丢。
@@ -198,12 +210,16 @@ struct PersonaSettingsView: View {
         store.updatePersona(p)
     }
 
-    private func saveAll() {
-        saveName()
+    /// [D7/P1-1] 返回改名那一步落盘没有；保存按钮靠它决定要不要关页面。
+    /// 头像 / 提示词 / 开关那几步各有自己的 inline 报错，不进这个返回值。
+    @discardableResult
+    private func saveAll() -> Bool {
+        let nameOK = saveName()
         saveAvatar()
         saveSoul()
         saveSkillWhitelist()
         saveMcpWhitelist()
+        return nameOK
     }
 
     private func applyPickedImage(_ item: PhotosPickerItem) async {

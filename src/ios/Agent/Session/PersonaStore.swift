@@ -946,20 +946,34 @@ final class PersonaStore: ObservableObject {
     }
 
     /// 重命名（同步写回该人设 SOUL.md 的 frontmatter，保持一处真相）。
-    func renamePersona(_ id: String, to name: String) {
-        guard let idx = personas.firstIndex(where: { $0.id == id }) else { return }
+    /// [D7/P1-1] 返回这次改名到底落盘没有：false = 只改了内存，重启会丢。
+    /// 调用方要把失败报出来，不能当改上了报。
+    @discardableResult
+    func renamePersona(_ id: String, to name: String) -> Bool {
+        guard let idx = personas.firstIndex(where: { $0.id == id }) else { return false }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
+        // 名字没变就不用写：免得一次无改动的保存被 SOUL 同步失败挡住。
+        guard personas[idx].name != trimmed else { return true }
         personas[idx].name = trimmed
-        persist()
+        let persisted = persist()
         // 同步 SOUL.md frontmatter 的 name 字段
+        var soulOK = true
         let url = Self.memoryDir(for: id).appendingPathComponent("SOUL.md")
         if let data = try? Data(contentsOf: url),
            let text = String(data: data, encoding: .utf8) {
             var file = SoulMDParser.parse(text)
             file.metadata.name = trimmed
-            try? SoulMDParser.serialize(file).data(using: .utf8)?
-                .write(to: url, options: .atomic)
+            if let encoded = SoulMDParser.serialize(file).data(using: .utf8) {
+                do {
+                    try encoded.write(to: url, options: .atomic)
+                } catch {
+                    AppLogger(category: "PersonaStore").error("[D7] rename: SOUL.md frontmatter sync failed (\(error.localizedDescription)) — registry has the new name, SOUL.md still has the old one")
+                    soulOK = false
+                }
+            } else {
+                soulOK = false
+            }
         }
         // [B1 · 10-15] 当前人设改名：刷新 Soul 缓存并广播（refreshCache 内部
         // 会 post .soulMdChanged），对话侧标题、会话列表标题跟着换。
@@ -967,6 +981,7 @@ final class PersonaStore: ObservableObject {
             SoulStore.refreshCache()
         }
         broadcastPersonaChange()
+        return persisted && soulOK
     }
 
     /// 排序（拖拽）。

@@ -600,7 +600,14 @@ struct PersonaDetailHomeView: View {
                     Button("保存") {
                         let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmed.isEmpty else { return }
-                        store.renamePersona(p.id, to: trimmed)
+                        // [D7/P1-1] 降级时改名只进内存、重启就丢：报出来，别当改上了。
+                        guard store.renamePersona(p.id, to: trimmed) else {
+                            MinisToast.show(store.registryDegraded
+                                ? AppLocalized("人设数据坏了，改了也存不上，重启再试。")
+                                : AppLocalized("改名没能存下来，请重试。"),
+                                systemImage: "exclamationmark.triangle.fill")
+                            return
+                        }
                     }
                 }
             } else {
