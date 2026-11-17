@@ -80,7 +80,7 @@ struct BackupDestinationPicker: View {
                     }
                 )) {
                     NavigationLink {
-                        BackupDestinationDetailView(target: .remote(r)) {
+                        BackupDestinationDetailView(target: r) {
                             reload()
                             onChanged()
                         }
