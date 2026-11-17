@@ -329,7 +329,8 @@ extension AIChatViewModel {
                     logger.info("🔀RESOLVE directEntry=\(entryId) model=\(entry.model.id)")
                     return entry
                 }
-                // Entry was deleted (e.g. provider removed) — fall through to default group
+                // Entry deleted or unusable (disabled/credential-less) —
+                // fall through to default group
                 logger.warning("🔀RESOLVE directEntry=\(entryId) missing or unusable (disabled/credential-less), falling back to default group")
             case .group(let groupId, let resolvedEntryId):
                 // [T-ios-disabled-provider-still-selectable-via-group #34] Only
