@@ -683,9 +683,15 @@ final class TTSServiceStore: @unchecked Sendable {
         return hasAPIKey(for: s)
     }
 
-    func saveAPIKey(_ key: String, for service: TTSServiceOptions) {
-        ProviderKeychainHelper.saveAPIKey(key, instanceId: service.keychainInstanceId, caller: "TTSServiceStore")
+    /// [A-F11] Returns whether the key actually landed in the Keychain;
+    /// the editor must not dismiss the page on a failed save. The presence
+    /// cache is invalidated either way (a failed write leaves nothing to
+    /// cache, and the read-back in the editor is the second check).
+    @discardableResult
+    func saveAPIKey(_ key: String, for service: TTSServiceOptions) -> Bool {
+        let saved = ProviderKeychainHelper.saveAPIKey(key, instanceId: service.keychainInstanceId, caller: "TTSServiceStore")
         invalidateKeyPresence(forServiceId: service.id)
+        return saved
     }
 
     /// [B09-L04 2026-10-22] Remove just the credential, keeping the service
