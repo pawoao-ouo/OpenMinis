@@ -6384,7 +6384,7 @@ private struct EmptyChatDirectoryTimeline: View {
                 .font(ChatFont.font(12))
                 .foregroundStyle(ChatColors.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("All chats share **shared**, **skills**, **memory**, and **mounts** — persistent across sessions.")
+            Text("All chats share **shared**, **skills**, and **memory** — persistent across sessions.")
                 .font(ChatFont.font(12))
                 .foregroundStyle(ChatColors.primaryText)
                 .fixedSize(horizontal: false, vertical: true)

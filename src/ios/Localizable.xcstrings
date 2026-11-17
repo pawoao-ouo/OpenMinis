@@ -10286,60 +10286,24 @@
         }
       }
     },
-    "All chats share **shared**, **skills**, **memory**, and **mounts** — persistent across sessions.": {
+    "All chats share **shared**, **skills**, and **memory** — persistent across sessions.": {
       "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alle Chats teilen **shared**, **skills**, **memory** und **mounts** — sitzungsübergreifend persistent."
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All chats share **shared**, **skills**, **memory**, and **mounts** — persistent across sessions."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Todos los chats comparten **shared**, **skills**, **memory** y **mounts**, que persisten entre sesiones."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toutes les conversations partagent **shared**, **skills**, **memory** et **mounts** — persistants entre sessions."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべての会話で **shared**、**skills**、**memory**、**mounts** を共有 — セッションをまたいで保持されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모든 대화가 **shared**, **skills**, **memory**, **mounts**를 공유 — 세션 간에 유지됩니다。"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Все чаты используют общие **shared**, **skills**, **memory** и **mounts** — они сохраняются между сессиями."
+            "value": "All chats share **shared**, **skills**, and **memory** — persistent across sessions."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "所有会话共用 **shared**、**skills**、**memory**、**mounts** — 跨会话持久保留。"
+            "value": "所有会话共用 **shared**、**skills** 和 **memory** — 跨会话持久保留。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "所有會話共用 **shared**、**skills**、**memory**、**mounts** — 跨會話持久保留。"
+            "value": "所有會話共用 **shared**、**skills** 和 **memory** — 跨會話持久保留。"
           }
         }
       }
