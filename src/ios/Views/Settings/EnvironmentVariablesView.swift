@@ -99,7 +99,13 @@ struct EnvironmentVariablesView: View {
                             newValue: pending.value
                         )
                     } else if currentValue.isEmpty {
-                        store.update(id: existing.id, key: existing.key, value: pending.value)
+                        // Deep-link auto-update must not fail silently
+                        // either: toast the real reason, same as the
+                        // TTS editor's A-F11 failure toast.
+                        if !store.update(id: existing.id, key: existing.key, value: pending.value),
+                           let failure = store.lastSaveFailure {
+                            MinisToast.show(failure.displayText, systemImage: "exclamationmark.triangle.fill")
+                        }
                     }
                 } else {
                     prefillKey = pending.key
@@ -118,7 +124,12 @@ struct EnvironmentVariablesView: View {
             presenting: overwriteConfirm
         ) { request in
             Button(AppLocalized("Replace"), role: .destructive) {
-                store.update(id: request.entryId, key: request.key, value: request.newValue)
+                // A failed replace must not pass silently — the user
+                // tapped Replace expecting the value to change.
+                if !store.update(id: request.entryId, key: request.key, value: request.newValue),
+                   let failure = store.lastSaveFailure {
+                    MinisToast.show(failure.displayText, systemImage: "exclamationmark.triangle.fill")
+                }
             }
             Button(AppLocalized("Cancel"), role: .cancel) {}
         } message: { request in
