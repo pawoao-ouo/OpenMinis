@@ -143578,6 +143578,28 @@
         }
       }
     },
+    "这一句起，%@会不会把这次对话记下来": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From this message on, will %@ remember this conversation?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这一句起，%@会不会把这次对话记下来"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這一句起，%@會不會把這次對話記下來"
+          }
+        }
+      }
+    },
     "这一页有 %d 项和全局不一样。": {
       "extractionState": "manual",
       "localizations": {

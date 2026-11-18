@@ -121,7 +121,7 @@ struct ComposerActionSheet: View {
                 }
                 divider
                 toggleRow(AppLocalized("记忆"),
-                          subtitle: AppLocalized("这一句起，小梦会不会把这次对话记下来"),
+                          subtitle: String(format: AppLocalized("这一句起，%@会不会把这次对话记下来"), ChatAddressing.assistant()),
                           isOn: memoryEnabled) { onSetMemory($0) }
                 divider
                 // [T-together-capsule-only 11-10] 一起听那套旧前端整块删了,
