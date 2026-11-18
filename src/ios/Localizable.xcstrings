@@ -176,6 +176,28 @@
         }
       }
     },
+    "\"%@\" is not a valid variable name. It must start with a letter and contain only letters, digits, and underscores.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" is not a valid variable name. It must start with a letter and contain only letters, digits, and underscores."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”不是有效的变量名，必须以字母开头，只能含字母、数字和下划线。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」不是有效的變數名，必須以字母開頭，只能含字母、數字和底線。"
+          }
+        }
+      }
+    },
     "\"Automatic\" uses the system icon which adapts to Dark Mode on iOS 18+.": {
       "localizations": {
         "de": {
@@ -5975,6 +5997,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "此對話中有任務正在執行。開始新對話會將其停止。"
+          }
+        }
+      }
+    },
+    "A variable named \"%@\" already exists. Edit the existing one instead of adding a new one.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A variable named \"%@\" already exists. Edit the existing one instead of adding a new one."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已经有一个叫“%@”的变量了，改现有的那一个，别再新建。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已經有一個叫「%@」的變數了，改現有的那一個，別再新建。"
           }
         }
       }
@@ -26538,6 +26582,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法讀取文件"
+          }
+        }
+      }
+    },
+    "Could not save the value for \"%@\" to the Keychain — nothing was saved.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save the value for \"%@\" to the Keychain — nothing was saved."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没能把“%@”的值存进钥匙串，什么都没存上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒能把「%@」的值存進鑰匙串，什麼都沒存上。"
+          }
+        }
+      }
+    },
+    "Could not save the variable list to disk — your change was rolled back. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save the variable list to disk — your change was rolled back. Try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没能把变量列表存到磁盘，你的改动已经撤回了，再试一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒能把變數列表存到磁碟，你的改動已經撤回了，再試一次。"
           }
         }
       }
@@ -104099,6 +104187,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "該工具在背景執行期間可能已被系統暫停。開啟增強背景執行可提升背景任務的可靠性。"
+          }
+        }
+      }
+    },
+    "This variable no longer exists — it may have been deleted elsewhere. Close this form and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This variable no longer exists — it may have been deleted elsewhere. Close this form and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个变量已经不存在了，可能在别处被删了。关掉这个表单再试一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個變數已經不存在了，可能在別處被刪了。關掉這個表單再試一次。"
           }
         }
       }
