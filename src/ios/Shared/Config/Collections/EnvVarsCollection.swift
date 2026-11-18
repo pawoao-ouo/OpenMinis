@@ -1,5 +1,7 @@
 import Foundation
 
+private let envVarsLogger = AppLogger(category: "EnvVarsCollection")
+
 /// Exposes EnvVarStore entries under `envvars.<key>.…`.
 ///
 /// IMPORTANT: values are NEVER exposed — neither read nor write here.
@@ -85,8 +87,12 @@ struct EnvVarsCollection: ConfigCollection {
                 guard let e = entry(key) else { throw ConfigError.unknownPath("envvars.\(key)") }
                 // updateNote bypasses the value-aware update path so
                 // we never need to read or rewrite the Keychain
-                // secret to change a description.
-                EnvVarStore.shared.updateNote(id: e.id, note: s)
+                // secret to change a description. A failed note save
+                // is logged, not thrown — the background sync path has
+                // no UI to show it on.
+                if !EnvVarStore.shared.updateNote(id: e.id, note: s) {
+                    envVarsLogger.error("Failed to save note for env var \(key): \(EnvVarStore.shared.lastSaveFailure?.displayText ?? "unknown error") — note change was rolled back")
+                }
             }
         )
     }

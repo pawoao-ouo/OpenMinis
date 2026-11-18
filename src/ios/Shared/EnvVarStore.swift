@@ -33,10 +33,10 @@ struct EnvVarEntry: Identifiable, Codable {
 
 // MARK: - Save failure
 
-/// Why a store write did not land. `add`/`update`/`delete` return Bool for
-/// the success signal; the reason for a failure is stashed in
-/// `lastSaveFailure` so the form can show the actual cause instead of a
-/// generic line. Invariant: every `false` on the add/update/delete path
+/// Why a store write did not land. `add`/`update`/`delete`/`updateNote`
+/// return Bool for the success signal; the reason for a failure is
+/// stashed in `lastSaveFailure` so the form can show the actual cause
+/// instead of a generic line. Invariant: every `false` on these paths
 /// sets `lastSaveFailure` first; it is cleared at the start of each call.
 enum EnvVarSaveFailure: Equatable {
     /// A variable with this name already exists (add, or rename in update).
@@ -378,11 +378,26 @@ final class EnvVarStore: ObservableObject {
     /// Update only the human-readable note without touching the
     /// Keychain-stored value. Used by minis-config so the agent can
     /// annotate variables without ever seeing or overwriting the
-    /// secret.
-    func updateNote(id: String, note: String) {
-        guard let idx = entries.firstIndex(where: { $0.id == id }) else { return }
+    /// secret. Returns whether the note is now persisted; false means
+    /// nothing was changed — the in-memory note was rolled back and
+    /// `lastSaveFailure` says why.
+    @discardableResult
+    func updateNote(id: String, note: String) -> Bool {
+        lastSaveFailure = nil
+        guard let idx = entries.firstIndex(where: { $0.id == id }) else {
+            lastSaveFailure = .entryGone
+            return false
+        }
+        let oldNote = entries[idx].note
         entries[idx].note = note
-        saveEntries()
+        // The JSON write is part of the save: if it fails, roll the note
+        // back so memory and disk never diverge (same shape as ENV-5).
+        guard saveEntries() else {
+            entries[idx].note = oldNote
+            lastSaveFailure = .jsonFailed
+            return false
+        }
+        return true
     }
 
     /// Returns whether the deletion is now persisted. The list is written
