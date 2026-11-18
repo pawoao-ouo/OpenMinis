@@ -76,7 +76,9 @@ struct EnvironmentVariablesView: View {
         }
         .sheet(isPresented: $showingAddSheet) {
             EnvVarFormSheet(mode: .add, initialKey: prefillKey, initialValue: prefillValue, initialNote: prefillNote) { key, value, note in
-                store.add(key: key, value: value, note: note)
+                // [ENV-1/ENV-2/ENV-5] The sheet dismisses only on success;
+                // on failure it reads the real reason from the store.
+                store.add(key: key, value: value, note: note) ? nil : store.lastSaveFailure
             }
             .onDisappear {
                 prefillKey = ""
@@ -129,10 +131,10 @@ struct EnvironmentVariablesView: View {
                 initialValue: store.value(forKey: entry.key) ?? "",
                 initialNote: entry.note,
                 onSave: { key, value, note in
-                    store.update(id: entry.id, key: key, value: value, note: note)
+                    store.update(id: entry.id, key: key, value: value, note: note) ? nil : store.lastSaveFailure
                 },
                 onDelete: {
-                    store.delete(id: entry.id)
+                    store.delete(id: entry.id) ? nil : store.lastSaveFailure
                 }
             )
         }
@@ -214,13 +216,17 @@ private struct EnvVarFormSheet: View {
     var initialKey: String = ""
     var initialValue: String = ""
     var initialNote: String = ""
-    let onSave: (String, String, String) -> Void
-    var onDelete: (() -> Void)? = nil
+    /// Returns nil when the save landed; otherwise the real reason it did
+    /// not, so the sheet can stay open and show it instead of dismissing.
+    let onSave: (String, String, String) -> EnvVarSaveFailure?
+    /// Same contract as onSave for the delete path.
+    var onDelete: (() -> EnvVarSaveFailure?)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var key = ""
     @State private var value = ""
     @State private var note = ""
+    @State private var saveError: EnvVarSaveFailure?
     @State private var showingDeleteConfirm = false
     @FocusState private var focusedField: Field?
 
@@ -233,6 +239,15 @@ private struct EnvVarFormSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                // [ENV-1/ENV-2/ENV-5] A failed save keeps the sheet open
+                // with the typed values intact and says why, inline.
+                if let saveError {
+                    Section {
+                        Text(saveError.displayText)
+                            .foregroundStyle(MinisTheme.destructive)
+                    }
+                }
+
                 Section {
                     TextField("NAME", text: Binding(
                         get: { key },
@@ -304,8 +319,14 @@ private struct EnvVarFormSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(mode == .add ? "Add" : "Save") {
-                        onSave(key, value, note.trimmingCharacters(in: .whitespacesAndNewlines))
-                        dismiss()
+                        // Dismiss only when the save actually landed; on
+                        // failure stay open with the typed values intact.
+                        saveError = nil
+                        if let failure = onSave(key, value, note.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                            saveError = failure
+                        } else {
+                            dismiss()
+                        }
                     }
                     .disabled(!isValid)
                 }
@@ -317,8 +338,13 @@ private struct EnvVarFormSheet: View {
             isPresented: $showingDeleteConfirm
         ) {
             Button(AppLocalized("Delete"), role: .destructive) {
-                onDelete?()
-                dismiss()
+                // Same contract as Save: a failed delete keeps the sheet
+                // open and says why instead of closing on a lie.
+                if let delete = onDelete, let failure = delete() {
+                    saveError = failure
+                } else {
+                    dismiss()
+                }
             }
             Button(AppLocalized("Cancel"), role: .cancel) {}
         }
