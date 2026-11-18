@@ -249,7 +249,7 @@ extension DressingShopView {
                 HStack(alignment: .top, spacing: 8) {
                     miniAvatar(isUser: false)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(AppLocalized("你好，醒醒。今天想怎么打扮我？"))
+                        Text(String(format: AppLocalized("你好，%@。今天想怎么打扮我？"), ChatAddressing.user()))
                             .font(ChatFont.font(12))
                             .foregroundStyle(CSSThemeVariables.textMain(scope: .chat))
                             .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
@@ -3997,7 +3997,7 @@ struct STImportConfirmSheet: View {
                         // 两句示例气泡：和装扮中心顶栏预览同一句文案
                         VStack(spacing: 10) {
                             HStack(alignment: .top, spacing: 8) {
-                                Text(AppLocalized("你好，醒醒。今天想怎么打扮我？"))
+                                Text(String(format: AppLocalized("你好，%@。今天想怎么打扮我？"), ChatAddressing.user()))
                                     .font(ChatFont.font(12))
                                     .foregroundStyle(Color(hex: effectiveTextHex))
                                     .padding(.horizontal, DressingTokens.Padding.contentHorizontal)

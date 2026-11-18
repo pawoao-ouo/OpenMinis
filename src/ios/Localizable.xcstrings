@@ -146244,6 +146244,28 @@
         }
       }
     },
+    "你好，%@。今天想怎么打扮我？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hi %@, how would you like to dress me up today?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你好，%@。今天想怎么打扮我？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你好，%@。今天想怎麼打扮我？"
+          }
+        }
+      }
+    },
     "你好，醒醒。今天想怎么打扮我？": {
       "extractionState": "manual",
       "localizations": {
