@@ -214,13 +214,17 @@ private struct EnvVarFormSheet: View {
     var initialKey: String = ""
     var initialValue: String = ""
     var initialNote: String = ""
-    let onSave: (String, String, String) -> Void
-    var onDelete: (() -> Void)? = nil
+    /// [Batch 20 Fix 1] Returns whether the save actually persisted.
+    /// The sheet dismisses only on true; on false it stays open and
+    /// shows `EnvVarStore.shared.lastSaveFailure` inline.
+    let onSave: (String, String, String) -> Bool
+    var onDelete: (() -> Bool)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var key = ""
     @State private var value = ""
     @State private var note = ""
+    @State private var saveError: String?
     @State private var showingDeleteConfirm = false
     @FocusState private var focusedField: Field?
 
@@ -278,6 +282,16 @@ private struct EnvVarFormSheet: View {
                     }
                 }
 
+                // [Batch 20 Fix 1] A failed save stays visible here, with
+                // the real reason — the typed values are untouched and the
+                // sheet stays open so she can fix it and retry.
+                if let saveError {
+                    Section {
+                        Text(saveError)
+                            .foregroundStyle(MinisTheme.destructive)
+                    }
+                }
+
                 if mode == .edit, onDelete != nil {
                     Section {
                         Button(role: .destructive) {
@@ -304,8 +318,16 @@ private struct EnvVarFormSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(mode == .add ? "Add" : "Save") {
-                        onSave(key, value, note.trimmingCharacters(in: .whitespacesAndNewlines))
-                        dismiss()
+                        saveError = nil
+                        // [Batch 20 Fix 1] Dismiss ONLY on a persisted save.
+                        // On failure the form stays open with the typed
+                        // values intact and the real reason shown inline.
+                        if onSave(key, value, note.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                            dismiss()
+                        } else {
+                            saveError = EnvVarStore.shared.lastSaveFailure?.message
+                                ?? AppLocalized("Could not save this variable. Please try again.")
+                        }
                     }
                     .disabled(!isValid)
                 }
@@ -317,8 +339,14 @@ private struct EnvVarFormSheet: View {
             isPresented: $showingDeleteConfirm
         ) {
             Button(AppLocalized("Delete"), role: .destructive) {
-                onDelete?()
-                dismiss()
+                // [Batch 20 Fix 1] A failed delete keeps the sheet open
+                // with the reason shown, instead of closing as if deleted.
+                if onDelete?() ?? false {
+                    dismiss()
+                } else {
+                    saveError = EnvVarStore.shared.lastSaveFailure?.message
+                        ?? AppLocalized("Could not save this variable. Please try again.")
+                }
             }
             Button(AppLocalized("Cancel"), role: .cancel) {}
         }
