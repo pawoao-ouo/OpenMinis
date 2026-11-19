@@ -2867,13 +2867,22 @@ enum ChatAddressing {
     }
 
     /// 说话的人叫什么（界面可见文案用）。
-    /// [B28 R11] 优先级：通讯录「我自己」档案里的「怎么称呼」
-    /// → 外观工作室填的称呼 → 中性词。哪来的就用哪来的，绝不写死名字。
+    /// [B28 R11] 优先级：外观工作室填的称呼（所有改名路径都同步到
+    /// 这份、且是带 @Published 的那份）→ 通讯录「我自己」档案里的
+    /// 「怎么称呼」→ 人设名 → 中性词。哪来的就用哪来的，绝不写死名字。
+    /// [Batch 22] 顺序反过来了：以前「怎么称呼」排第一，但那份是文件
+    /// 里读的、改名路径（直接改档案正文、人设改名）不一定同步它；
+    /// 工作室那份是所有改名路径都写、视图又盯着的那份，放第一才跟得上。
     static func user() -> String {
+        let n = AppearanceStudio.shared.userDisplayName
+        if !n.isEmpty { return n }
         let fromProfile = SystemPromptBuilder.userProfileAddressingName()
         if !fromProfile.isEmpty { return fromProfile }
-        let n = AppearanceStudio.shared.userDisplayName
-        return n.isEmpty ? AppLocalized("你") : n
+        // 最后的办法：人设自己的名字。但「我自己」只是建档时的占位
+        // 称呼，不是拿来叫她的，走到这一步还用它，问候就成「你好，我自己」。
+        if let personaName = PersonaStore.shared.userProfilePersona?.name,
+           !personaName.isEmpty, personaName != "我自己" { return personaName }
+        return AppLocalized("你")
     }
 
     /// 说话的人叫什么（注入给模型的提示词用）。
