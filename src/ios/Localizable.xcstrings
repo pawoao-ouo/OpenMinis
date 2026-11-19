@@ -6927,7 +6927,117 @@
         }
       }
     },
-    "API key is stored securely in the iOS Keychain.": {
+    "A variable named \"%@\" already exists.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A variable named \"%1$@\" already exists."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有名为“%1$@”的变量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有名為“%1$@”的變數。"
+          }
+        }
+      }
+    },
+    "Could not save \"%@\" to the Keychain. The value was not saved.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save \"%1$@\" to the Keychain. The value was not saved."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@”没存进钥匙串，值没有保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」沒存進鑰匙串，值沒有儲存。"
+          }
+        }
+      }
+    },
+    "Could not save the variable list to disk. Your change was not saved.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save the variable list to disk. Your change was not saved."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "变量列表没存到磁盘上，这次改动没有保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "變數列表沒存到磁碟上，這次改動沒有儲存。"
+          }
+        }
+      }
+    },
+    "Could not save this variable. Please try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save this variable. Please try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个变量没能保存，请再试一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個變數沒能儲存，請再試一次。"
+          }
+        }
+      }
+    },
+    "This variable no longer exists. Please close and reopen the list.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This variable no longer exists. Please close and reopen the list."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个变量已经不存在了，请关闭并重新打开列表。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個變數已經不存在了，請關閉並重新打開列表。"
+          }
+        }
+      }
+    },
+"API key is stored securely in the iOS Keychain.": {
       "localizations": {
         "de": {
           "stringUnit": {
