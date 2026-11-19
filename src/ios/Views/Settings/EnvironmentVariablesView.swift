@@ -76,9 +76,7 @@ struct EnvironmentVariablesView: View {
         }
         .sheet(isPresented: $showingAddSheet) {
             EnvVarFormSheet(mode: .add, initialKey: prefillKey, initialValue: prefillValue, initialNote: prefillNote) { key, value, note in
-                // [ENV-1/ENV-2/ENV-5] The sheet dismisses only on success;
-                // on failure it reads the real reason from the store.
-                store.add(key: key, value: value, note: note) ? nil : store.lastSaveFailure
+                store.add(key: key, value: value, note: note)
             }
             .onDisappear {
                 prefillKey = ""
@@ -99,13 +97,7 @@ struct EnvironmentVariablesView: View {
                             newValue: pending.value
                         )
                     } else if currentValue.isEmpty {
-                        // Deep-link auto-update must not fail silently
-                        // either: toast the real reason, same as the
-                        // TTS editor's A-F11 failure toast.
-                        if !store.update(id: existing.id, key: existing.key, value: pending.value),
-                           let failure = store.lastSaveFailure {
-                            MinisToast.show(failure.displayText, systemImage: "exclamationmark.triangle.fill")
-                        }
+                        store.update(id: existing.id, key: existing.key, value: pending.value)
                     }
                 } else {
                     prefillKey = pending.key
@@ -124,12 +116,7 @@ struct EnvironmentVariablesView: View {
             presenting: overwriteConfirm
         ) { request in
             Button(AppLocalized("Replace"), role: .destructive) {
-                // A failed replace must not pass silently — the user
-                // tapped Replace expecting the value to change.
-                if !store.update(id: request.entryId, key: request.key, value: request.newValue),
-                   let failure = store.lastSaveFailure {
-                    MinisToast.show(failure.displayText, systemImage: "exclamationmark.triangle.fill")
-                }
+                store.update(id: request.entryId, key: request.key, value: request.newValue)
             }
             Button(AppLocalized("Cancel"), role: .cancel) {}
         } message: { request in
@@ -142,10 +129,10 @@ struct EnvironmentVariablesView: View {
                 initialValue: store.value(forKey: entry.key) ?? "",
                 initialNote: entry.note,
                 onSave: { key, value, note in
-                    store.update(id: entry.id, key: key, value: value, note: note) ? nil : store.lastSaveFailure
+                    store.update(id: entry.id, key: key, value: value, note: note)
                 },
                 onDelete: {
-                    store.delete(id: entry.id) ? nil : store.lastSaveFailure
+                    store.delete(id: entry.id)
                 }
             )
         }
@@ -227,17 +214,13 @@ private struct EnvVarFormSheet: View {
     var initialKey: String = ""
     var initialValue: String = ""
     var initialNote: String = ""
-    /// Returns nil when the save landed; otherwise the real reason it did
-    /// not, so the sheet can stay open and show it instead of dismissing.
-    let onSave: (String, String, String) -> EnvVarSaveFailure?
-    /// Same contract as onSave for the delete path.
-    var onDelete: (() -> EnvVarSaveFailure?)? = nil
+    let onSave: (String, String, String) -> Void
+    var onDelete: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var key = ""
     @State private var value = ""
     @State private var note = ""
-    @State private var saveError: EnvVarSaveFailure?
     @State private var showingDeleteConfirm = false
     @FocusState private var focusedField: Field?
 
@@ -250,15 +233,6 @@ private struct EnvVarFormSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                // [ENV-1/ENV-2/ENV-5] A failed save keeps the sheet open
-                // with the typed values intact and says why, inline.
-                if let saveError {
-                    Section {
-                        Text(saveError.displayText)
-                            .foregroundStyle(MinisTheme.destructive)
-                    }
-                }
-
                 Section {
                     TextField("NAME", text: Binding(
                         get: { key },
@@ -330,14 +304,8 @@ private struct EnvVarFormSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(mode == .add ? "Add" : "Save") {
-                        // Dismiss only when the save actually landed; on
-                        // failure stay open with the typed values intact.
-                        saveError = nil
-                        if let failure = onSave(key, value, note.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                            saveError = failure
-                        } else {
-                            dismiss()
-                        }
+                        onSave(key, value, note.trimmingCharacters(in: .whitespacesAndNewlines))
+                        dismiss()
                     }
                     .disabled(!isValid)
                 }
@@ -349,13 +317,8 @@ private struct EnvVarFormSheet: View {
             isPresented: $showingDeleteConfirm
         ) {
             Button(AppLocalized("Delete"), role: .destructive) {
-                // Same contract as Save: a failed delete keeps the sheet
-                // open and says why instead of closing on a lie.
-                if let delete = onDelete, let failure = delete() {
-                    saveError = failure
-                } else {
-                    dismiss()
-                }
+                onDelete?()
+                dismiss()
             }
             Button(AppLocalized("Cancel"), role: .cancel) {}
         }

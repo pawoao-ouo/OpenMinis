@@ -687,18 +687,10 @@ final class TTSServiceStore: @unchecked Sendable {
     /// the editor must not dismiss the page on a failed save. The presence
     /// cache is invalidated either way (a failed write leaves nothing to
     /// cache, and the read-back in the editor is the second check).
-    /// [batch18] On a successful write, post .ttsServicesChanged — same as
-    /// deleteAPIKey below, same meaning as the provider side's
-    /// notifyAuthChanged: the key landed, so open lists re-render with the
-    /// fresh presence instead of keeping the pre-save "no key" frame. A
-    /// failed write notifies nothing (provider side: "notifies nothing").
     @discardableResult
     func saveAPIKey(_ key: String, for service: TTSServiceOptions) -> Bool {
         let saved = ProviderKeychainHelper.saveAPIKey(key, instanceId: service.keychainInstanceId, caller: "TTSServiceStore")
         invalidateKeyPresence(forServiceId: service.id)
-        if saved {
-            NotificationCenter.default.post(name: .ttsServicesChanged, object: nil)
-        }
         return saved
     }
 
