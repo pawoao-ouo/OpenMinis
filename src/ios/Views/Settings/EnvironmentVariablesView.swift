@@ -189,6 +189,7 @@ struct EnvironmentVariablesView: View {
                 initialKey: entry.key,
                 initialValue: store.value(forKey: entry.key) ?? "",
                 initialNote: entry.note,
+                editingEntryId: entry.id,
                 onSave: { key, value, note in
                     let ok = store.update(id: entry.id, key: key, value: value, note: note)
                     if ok { listError = nil }
@@ -314,6 +315,9 @@ private struct EnvVarFormSheet: View {
     var initialKey: String = ""
     var initialValue: String = ""
     var initialNote: String = ""
+    // [Batch 24] The entry being edited, for the pre-save drift check.
+    // Add mode leaves it nil (nothing to drift against).
+    var editingEntryId: String? = nil
     /// [Batch 20 Fix 1] Returns whether the save actually persisted.
     /// The sheet dismisses only on true; on false it stays open and
     /// shows `EnvVarStore.shared.lastSaveFailure` inline.
@@ -330,18 +334,25 @@ private struct EnvVarFormSheet: View {
 
     private enum Field: Hashable { case key, value, note }
 
+    /// [Batch 24] Validate what the store will actually accept: the key
+    /// after the store's own trim+uppercase, and a non-blank value.
+    /// Pasting " FOO " used to fail validation although the store would
+    /// have accepted it; an empty value used to save as a blank line.
     private var isValid: Bool {
-        EnvVarStore.isValidKey(key)
+        EnvVarStore.isValidKey(key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased())
+            && !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("NAME", text: Binding(
-                        get: { key },
-                        set: { key = $0.uppercased() }
-                    ))
+                    // [Batch 24] No live uppercase rewrite: rewriting the
+                    // whole string per keystroke jumped the caret to the end
+                    // and broke IME/composed input. Uppercase still happens
+                    // twice over — .textInputAutocapitalization(.characters)
+                    // below, and the store's trim+uppercase on save.
+                    TextField("NAME", text: $key)
                     .font(.system(size: fontSettings.scaledApp(17), design: .monospaced))
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
@@ -419,6 +430,22 @@ private struct EnvVarFormSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(mode == .add ? "Add" : "Save") {
                         saveError = nil
+                        // [Batch 24] The sheet was seeded when it opened; if
+                        // the entry changed elsewhere since, saving would
+                        // silently overwrite the newer value (or note, or
+                        // rename it back). Compare the CURRENT entry against
+                        // the SEED values — never against the typed text, so
+                        // a rename the user typed herself can't trip this.
+                        // A deleted entry falls through to onSave, which
+                        // fails with .entryMissing and shows its own reason.
+                        if mode == .edit, let entryId = editingEntryId,
+                           let current = EnvVarStore.shared.entry(id: entryId) {
+                            let currentValue = EnvVarStore.shared.value(forKey: current.key) ?? ""
+                            if current.key != initialKey || currentValue != initialValue || current.note != initialNote {
+                                saveError = AppLocalized("This variable changed elsewhere. Close and reopen to edit the latest value.")
+                                return
+                            }
+                        }
                         // [Batch 20 Fix 1] Dismiss ONLY on a persisted save.
                         // On failure the form stays open with the typed
                         // values intact and the real reason shown inline.
@@ -475,7 +502,15 @@ private struct EnvVarFormSheet: View {
             // requesting focus. 0.45s covers both .medium and .large detents
             // on slower devices; if the sheet is dismissed sooner, .task is
             // cancelled and focus is never set.
-            try? await Task.sleep(nanoseconds: 450_000_000)
+            // [Batch 24] try? used to swallow the CancellationError, so the
+            // focus request still fired after dismissal (keyboard churn).
+            // Catch it and stop; also check isCancelled before focusing.
+            do {
+                try await Task.sleep(nanoseconds: 450_000_000)
+            } catch {
+                return
+            }
+            if Task.isCancelled { return }
             if mode == .add {
                 focusedField = .key
             }
