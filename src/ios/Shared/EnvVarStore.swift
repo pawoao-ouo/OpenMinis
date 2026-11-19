@@ -40,6 +40,7 @@ enum EnvVarSaveFailure {
     case invalidKey(String)
     case duplicateKey(String)
     case keychainFailed(String)
+    case keychainVerifyFailed(String)
     case jsonFailed(String)
     case entryMissing
 
@@ -51,6 +52,8 @@ enum EnvVarSaveFailure {
             return AppLocalized("A variable named \"\(key)\" already exists.")
         case .keychainFailed(let key):
             return AppLocalized("Could not save \"\(key)\" to the Keychain. The value was not saved.")
+        case .keychainVerifyFailed(let key):
+            return AppLocalized("Could not verify \"\(key)\" in the Keychain. The change was not saved.")
         case .jsonFailed:
             return AppLocalized("Could not save the variable list to disk. Your change was not saved.")
         case .entryMissing:
@@ -286,11 +289,13 @@ final class EnvVarStore: ObservableObject {
         }
         let entry = EnvVarEntry(key: trimmedKey, note: note)
         entries.append(entry)
-        // JSON write failure must roll the list back: the Keychain value
-        // stays as an orphan (overwritten on retry), but the list never
-        // claims an entry that is gone after restart.
+        // JSON write failure must roll everything back, Keychain included:
+        // no entry references this key (duplicates are rejected), so drop
+        // the value just written — otherwise a secret persists for a
+        // variable the list says was never saved.
         guard saveEntries() else {
             entries.removeAll { $0.id == entry.id }
+            Self.deleteValue(forKey: trimmedKey)
             lastSaveFailure = .jsonFailed(trimmedKey)
             return false
         }
@@ -328,6 +333,12 @@ final class EnvVarStore: ObservableObject {
         }
 
         let cleanValue = Self.sanitizeValue(value)
+        // Read the old value BEFORE overwriting it: on a later JSON
+        // failure the same-key path must put the old secret back, or
+        // "not saved" would be a lie (the new value would already be
+        // live in the Keychain). Nil means the old value was unreadable
+        // and cannot be restored — logged on that path, not hidden.
+        let oldValue = Self.loadValue(forKey: oldKey)
         // Write under the destination key first (same-key path is update-in-place
         // inside saveValue). Only after that succeeds do we delete the old
         // Keychain account on rename — delete-then-write used to lose the
@@ -342,18 +353,30 @@ final class EnvVarStore: ObservableObject {
         if keyChanged {
             guard Self.loadValue(forKey: trimmedKey) != nil else {
                 logger.error("Update env var aborted — Keychain verify failed for \(trimmedKey); prior key \(oldKey) left intact")
-                lastSaveFailure = .keychainFailed(trimmedKey)
+                // The write itself landed, so this is a verify failure, not
+                // a write failure — say so, and drop the orphaned new-key
+                // value so "not saved" stays true.
+                deleteValueIfUnreferenced(forKey: trimmedKey)
+                lastSaveFailure = .keychainVerifyFailed(trimmedKey)
                 return false
             }
         }
 
         entries[idx].key = trimmedKey
         if let note { entries[idx].note = note }
-        // JSON write failure rolls the entry back in memory. The old
-        // Keychain value was never deleted (that happens only below, after
-        // the JSON lands), so memory, disk and Keychain stay in agreement.
+        // JSON write failure rolls everything back. The old Keychain
+        // value was never deleted (that happens only below, after the
+        // JSON lands); the new value is undone here — same key: restore
+        // the old secret; rename: drop the orphaned new-key value.
         guard saveEntries() else {
             entries[idx] = oldEntry
+            if keyChanged {
+                deleteValueIfUnreferenced(forKey: trimmedKey)
+            } else if let oldValue {
+                _ = Self.saveValue(oldValue, forKey: oldKey)
+            } else {
+                logger.error("Update env var rollback incomplete — old value of \(oldKey) was unreadable, new value remains in Keychain")
+            }
             lastSaveFailure = .jsonFailed(trimmedKey)
             return false
         }
@@ -370,10 +393,24 @@ final class EnvVarStore: ObservableObject {
     /// Keychain-stored value. Used by minis-config so the agent can
     /// annotate variables without ever seeing or overwriting the
     /// secret.
-    func updateNote(id: String, note: String) {
-        guard let idx = entries.firstIndex(where: { $0.id == id }) else { return }
+    /// [Batch 20 Fix 1] Returns whether the note actually persisted;
+    /// a JSON failure rolls the note back and records the reason
+    /// instead of failing silently.
+    @discardableResult
+    func updateNote(id: String, note: String) -> Bool {
+        guard let idx = entries.firstIndex(where: { $0.id == id }) else {
+            lastSaveFailure = .entryMissing
+            return false
+        }
+        let oldNote = entries[idx].note
         entries[idx].note = note
-        saveEntries()
+        guard saveEntries() else {
+            entries[idx].note = oldNote
+            lastSaveFailure = .jsonFailed(entries[idx].key)
+            return false
+        }
+        lastSaveFailure = nil
+        return true
     }
 
     /// [Batch 20 Fix 1] Returns whether the deletion actually persisted.

@@ -6971,6 +6971,28 @@
         }
       }
     },
+    "Could not verify \"%@\" in the Keychain. The change was not saved.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not verify \"%1$@\" in the Keychain. The change was not saved."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@”在钥匙串里验证没通过，这次改动没有保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」在鑰匙串裡驗證沒通過，這次改動沒有儲存。"
+          }
+        }
+      }
+    },
     "Could not save the variable list to disk. Your change was not saved.": {
       "localizations": {
         "en": {
