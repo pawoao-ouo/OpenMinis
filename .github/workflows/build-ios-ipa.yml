@@ -1,28 +1,39 @@
-name: Build official OpenMinis iOS IPA
+name: Build unsigned OpenMinis iOS IPA
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-ios:
     runs-on: macos-26
     timeout-minutes: 180
     steps:
-      - name: Checkout official source and submodules
+      - name: Checkout with submodules
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
           submodules: recursive
+
+      - name: Select Xcode 26.2
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.2"
 
       - name: Install native build tools
         run: |
           brew install meson ninja llvm lld libarchive pkg-config
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
-      - name: Set up Go for official Rclone build
+      - name: Set up Go for rclone build
         uses: actions/setup-go@v5
         with:
           go-version-file: deps/rclone-mobile/go.mod
@@ -39,8 +50,7 @@ jobs:
           test -x "$lld_prefix/bin/ld.lld"
           sed -i '' "s#'-fuse-ld=lld'#'-fuse-ld=$lld_prefix/bin/ld.lld'#" \
             deps/ish/vdso/arm64/meson.build
-          grep -F -- "-fuse-ld=$lld_prefix/bin/ld.lld" \
-            deps/ish/vdso/arm64/meson.build
+          grep -F -- "-fuse-ld=$lld_prefix/bin/ld.lld" deps/ish/vdso/arm64/meson.build
 
       - name: Build iOS native dependencies
         run: |
@@ -56,7 +66,7 @@ jobs:
             -project src/ios/Minis.xcodeproj \
             -scheme Minis
 
-      - name: Archive official OpenMinis app unsigned
+      - name: Archive unsigned app
         run: |
           mkdir -p build
           xcodebuild archive \
@@ -70,23 +80,29 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM=""
 
-      - name: Package unsigned IPA
+      - name: Package sideload-ready IPA
         run: |
           set -euo pipefail
           app="build/OpenMinis.xcarchive/Products/Applications/Minis.app"
           test -d "$app"
-          mkdir -p build/Payload
-          cp -R "$app" build/Payload/OpenMinis.app
-          cd build/Payload
-          /usr/bin/zip -qry ../OpenMinis-unsigned.ipa OpenMinis.app
-          cd ../..
+          test -f "$app/Info.plist"
+          lipo -info "$app/Minis" | grep -q arm64
+
+          rm -rf build/ipa
+          mkdir -p build/ipa/Payload
+          cp -R "$app" build/ipa/Payload/OpenMinis.app
+
+          (cd build/ipa && /usr/bin/zip -qry -X ../OpenMinis-unsigned.ipa Payload)
+
+          unzip -l build/OpenMinis-unsigned.ipa | tee build/ipa-listing.txt
+          grep -q "Payload/OpenMinis.app/Info.plist" build/ipa-listing.txt
           /usr/bin/file build/OpenMinis-unsigned.ipa
           /usr/bin/du -h build/OpenMinis-unsigned.ipa
 
-      - name: Upload official OpenMinis IPA
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OpenMinis-iOS-unsigned-${{ github.run_number }}
+          name: OpenMinis-iOS-unsigned-${{ github.sha }}
           path: build/OpenMinis-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
