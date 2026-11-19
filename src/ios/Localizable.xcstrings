@@ -45625,6 +45625,29 @@
         }
       }
     },
+    "Hide value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide value"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏值"
+          }
+        }
+      }
+    },
     "Hide Hidden Files": {
       "localizations": {
         "de": {
@@ -90552,6 +90575,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "顯示譯文"
+          }
+        }
+      }
+    },
+    "Show value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show value"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示值"
           }
         }
       }
