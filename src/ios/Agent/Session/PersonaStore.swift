@@ -982,6 +982,11 @@ final class PersonaStore: ObservableObject {
         // 注册表那份也照写：上一次 persist() 也可能没落盘。
         personas[idx].name = trimmed
         let persisted = persist()
+        // [Batch 22] 「我自己」改名也要写进工作室那份带 @Published 的称呼，
+        // 不然问候语还叫旧名字。别的人设永远不是用户，不碰。
+        if id == Self.userProfilePersonaID {
+            AppearanceStudio.shared.setUserDisplayName(trimmed)
+        }
         // 同步 SOUL.md frontmatter 的 name 字段
         var soulOK = true
         let url = Self.memoryDir(for: id).appendingPathComponent("SOUL.md")
@@ -1075,6 +1080,11 @@ final class PersonaStore: ObservableObject {
             if !trimmed.isEmpty, personas[idx].name != trimmed {
                 personas[idx].name = trimmed
                 changed = true
+                // [Batch 22] 同 renamePersona：用户档案的 SOUL 身份改了，
+                // 工作室那份称呼也要跟着改，不然问候语还叫旧名字。
+                if personaID == Self.userProfilePersonaID {
+                    AppearanceStudio.shared.setUserDisplayName(trimmed)
+                }
             }
         }
         if let icon {
