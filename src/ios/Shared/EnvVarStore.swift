@@ -31,6 +31,34 @@ struct EnvVarEntry: Identifiable, Codable {
     }
 }
 
+// MARK: - EnvVarSaveFailure
+
+/// [Batch 20 Fix 1] One reason per failure path (ENV-1 duplicate,
+/// ENV-2 Keychain, ENV-5 JSON). No generic fixed string: each message
+/// states the actual cause, and the duplicate one names the key.
+enum EnvVarSaveFailure {
+    case invalidKey(String)
+    case duplicateKey(String)
+    case keychainFailed(String)
+    case jsonFailed(String)
+    case entryMissing
+
+    var message: String {
+        switch self {
+        case .invalidKey:
+            return AppLocalized("Must start with a letter and contain only letters, digits, and underscores.")
+        case .duplicateKey(let key):
+            return AppLocalized("A variable named \"\(key)\" already exists.")
+        case .keychainFailed(let key):
+            return AppLocalized("Could not save \"\(key)\" to the Keychain. The value was not saved.")
+        case .jsonFailed:
+            return AppLocalized("Could not save the variable list to disk. Your change was not saved.")
+        case .entryMissing:
+            return AppLocalized("This variable no longer exists. Please close and reopen the list.")
+        }
+    }
+}
+
 // MARK: - EnvVarStore
 
 @MainActor
@@ -38,6 +66,12 @@ final class EnvVarStore: ObservableObject {
     static let shared = EnvVarStore()
 
     @Published private(set) var entries: [EnvVarEntry] = []
+
+    /// [Batch 20 Fix 1] Why the most recent add/update/delete failed, if
+    /// any. The form reads this immediately after a false Bool return —
+    /// same actor, same call — so it always matches that call. Cleared
+    /// on every success.
+    private(set) var lastSaveFailure: EnvVarSaveFailure?
 
     private let fileURL: URL
     nonisolated private static let keychainService = "com.openminis.clone.envvar"
@@ -62,12 +96,18 @@ final class EnvVarStore: ObservableObject {
     }
 
 
-    private func saveEntries() {
+    /// [Batch 20 Fix 1] Returns whether the JSON actually landed on disk.
+    /// Callers must roll their in-memory change back on false — a list that
+    /// looks saved in memory but is gone after restart is the ENV-5 bug.
+    @discardableResult
+    private func saveEntries() -> Bool {
         do {
             let data = try JSONEncoder().encode(entries)
             try data.write(to: fileURL, options: .atomic)
+            return true
         } catch {
             logger.error("Failed to save env var entries: \(error)")
+            return false
         }
     }
 
@@ -218,14 +258,22 @@ final class EnvVarStore: ObservableObject {
 
     // MARK: - Public API
 
-    func add(key: String, value: String, note: String = "") {
+    /// [Batch 20 Fix 1] Returns whether the variable actually persisted
+    /// (Keychain value + JSON list). False means nothing was saved and the
+    /// form must stay open; see `lastSaveFailure` for the reason.
+    @discardableResult
+    func add(key: String, value: String, note: String = "") -> Bool {
         let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !trimmedKey.isEmpty, Self.isValidKey(trimmedKey) else { return }
+        guard !trimmedKey.isEmpty, Self.isValidKey(trimmedKey) else {
+            lastSaveFailure = .invalidKey(trimmedKey)
+            return false
+        }
 
         // Don't allow duplicate keys
         guard !entries.contains(where: { $0.key == trimmedKey }) else {
             logger.warning("Duplicate env var key: \(trimmedKey)")
-            return
+            lastSaveFailure = .duplicateKey(trimmedKey)
+            return false
         }
 
         let cleanValue = Self.sanitizeValue(value)
@@ -233,28 +281,49 @@ final class EnvVarStore: ObservableObject {
         // list entry — otherwise the variable shows up with a blank value.
         guard Self.saveValue(cleanValue, forKey: trimmedKey) else {
             logger.error("Add env var aborted — Keychain write failed for \(trimmedKey)")
-            return
+            lastSaveFailure = .keychainFailed(trimmedKey)
+            return false
         }
         let entry = EnvVarEntry(key: trimmedKey, note: note)
         entries.append(entry)
-        saveEntries()
+        // JSON write failure must roll the list back: the Keychain value
+        // stays as an orphan (overwritten on retry), but the list never
+        // claims an entry that is gone after restart.
+        guard saveEntries() else {
+            entries.removeAll { $0.id == entry.id }
+            lastSaveFailure = .jsonFailed(trimmedKey)
+            return false
+        }
+        lastSaveFailure = nil
         logger.info("Added env var: \(trimmedKey)")
+        return true
     }
 
     /// Update an entry. Pass `note: nil` to leave the existing note untouched
     /// (used by the deep-link overwrite path which only updates the value).
-    func update(id: String, key: String, value: String, note: String? = nil) {
-        guard let idx = entries.firstIndex(where: { $0.id == id }) else { return }
+    /// [Batch 20 Fix 1] Returns whether the update actually persisted;
+    /// false leaves the old entry and the old Keychain value untouched.
+    @discardableResult
+    func update(id: String, key: String, value: String, note: String? = nil) -> Bool {
+        guard let idx = entries.firstIndex(where: { $0.id == id }) else {
+            lastSaveFailure = .entryMissing
+            return false
+        }
 
-        let oldKey = entries[idx].key
+        let oldEntry = entries[idx]
+        let oldKey = oldEntry.key
         let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !trimmedKey.isEmpty, Self.isValidKey(trimmedKey) else { return }
+        guard !trimmedKey.isEmpty, Self.isValidKey(trimmedKey) else {
+            lastSaveFailure = .invalidKey(trimmedKey)
+            return false
+        }
 
         let keyChanged = oldKey != trimmedKey
         if keyChanged {
             guard !entries.contains(where: { $0.key == trimmedKey && $0.id != id }) else {
                 logger.warning("Cannot rename to duplicate key: \(trimmedKey)")
-                return
+                lastSaveFailure = .duplicateKey(trimmedKey)
+                return false
             }
         }
 
@@ -265,25 +334,36 @@ final class EnvVarStore: ObservableObject {
         // secret if SecItemAdd/Update failed after SecItemDelete.
         guard Self.saveValue(cleanValue, forKey: trimmedKey) else {
             logger.error("Update env var aborted — Keychain write failed for \(trimmedKey); prior key \(oldKey) left intact")
-            return
+            lastSaveFailure = .keychainFailed(trimmedKey)
+            return false
         }
         // Confirm the destination account is readable before dropping the old
         // one on rename (mirrors the copy-then-delete migration below).
         if keyChanged {
             guard Self.loadValue(forKey: trimmedKey) != nil else {
                 logger.error("Update env var aborted — Keychain verify failed for \(trimmedKey); prior key \(oldKey) left intact")
-                return
+                lastSaveFailure = .keychainFailed(trimmedKey)
+                return false
             }
         }
 
         entries[idx].key = trimmedKey
         if let note { entries[idx].note = note }
-        saveEntries()
+        // JSON write failure rolls the entry back in memory. The old
+        // Keychain value was never deleted (that happens only below, after
+        // the JSON lands), so memory, disk and Keychain stay in agreement.
+        guard saveEntries() else {
+            entries[idx] = oldEntry
+            lastSaveFailure = .jsonFailed(trimmedKey)
+            return false
+        }
 
         if keyChanged {
             deleteValueIfUnreferenced(forKey: oldKey)
         }
+        lastSaveFailure = nil
         logger.info("Updated env var: \(trimmedKey)")
+        return true
     }
 
     /// Update only the human-readable note without touching the
@@ -296,16 +376,31 @@ final class EnvVarStore: ObservableObject {
         saveEntries()
     }
 
-    func delete(id: String) {
-        guard let idx = entries.firstIndex(where: { $0.id == id }) else { return }
-        let key = entries[idx].key
+    /// [Batch 20 Fix 1] Returns whether the deletion actually persisted.
+    /// The Keychain value is dropped only after the JSON lands — deleting
+    /// it first used to lose the secret when the JSON write then failed
+    /// and the entry came back on restart with a blank value.
+    @discardableResult
+    func delete(id: String) -> Bool {
+        guard let idx = entries.firstIndex(where: { $0.id == id }) else {
+            lastSaveFailure = .entryMissing
+            return false
+        }
+        let entry = entries[idx]
+        let key = entry.key
         entries.remove(at: idx)
+        guard saveEntries() else {
+            entries.insert(entry, at: idx)
+            lastSaveFailure = .jsonFailed(key)
+            return false
+        }
         deleteValueIfUnreferenced(forKey: key)
-        saveEntries()
         // Mark the entry's per-key record for cloud deletion. Peers will
         // hard-delete it via applyEnvVarItemDeletion. The recordId is the
         // entry UUID, not the key — same as upsert path.
+        lastSaveFailure = nil
         logger.info("Deleted env var: \(key)")
+        return true
     }
 
     func value(forKey key: String) -> String? {
