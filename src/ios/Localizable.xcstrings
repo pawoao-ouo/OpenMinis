@@ -7104,6 +7104,29 @@
         }
       }
     },
+    "This variable changed elsewhere. Close and reopen to edit the latest value.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This variable changed elsewhere. Close and reopen to edit the latest value."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个变量在别处被改过了。请关掉再重新打开，编辑最新内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個變數在別處被改過了。請關掉再重新打開，編輯最新內容。"
+          }
+        }
+      }
+    },
     "This variable no longer exists. Please close and reopen the list.": {
       "localizations": {
         "en": {
