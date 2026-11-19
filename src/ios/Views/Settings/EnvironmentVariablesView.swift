@@ -15,12 +15,24 @@ struct EnvironmentVariablesView: View {
     @State private var prefillValue = ""
     @State private var prefillNote = ""
     @State private var overwriteConfirm: OverwriteRequest?
+    // [Batch 23] The list's own failure surface. lastSaveFailure is NOT
+    // @Published, so the footer reads this @State instead — the action
+    // captures the reason here, same pattern as the form's saveError.
+    @State private var listError: String?
+    @State private var copyConfirm: CopyRequest?
 
     private struct OverwriteRequest: Identifiable {
         let id = UUID()
         let entryId: String
         let key: String
         let newValue: String
+    }
+
+    private struct CopyRequest: Identifiable {
+        let id = UUID()
+        let entryId: String
+        let key: String
+        let value: String
     }
 
     private var filteredEntries: [EnvVarEntry] {
@@ -38,6 +50,18 @@ struct EnvironmentVariablesView: View {
                 Text("When enabled, any environment variable value that appears in shell-execute output is replaced with a masked form (e.g. `sk-1********ajhks`) before reaching the model. Values shorter than 8 characters become all `*`. The user-visible output in chat is unchanged.")
             }
 
+            // [Batch 23] One inline place for list-action failures
+            // (deep-link update, Replace, swipe-delete). Rendered from the
+            // @State the action captured — lastSaveFailure itself is not
+            // @Published, so a footer reading it would never appear.
+            if let listError {
+                Section {
+                    Text(listError)
+                        .font(.system(size: fontSettings.scaledApp(12)))
+                        .foregroundStyle(MinisTheme.secondaryText)
+                }
+            }
+
             if store.entries.isEmpty {
                 Section {
                     VStack(spacing: 8) {
@@ -47,6 +71,25 @@ struct EnvironmentVariablesView: View {
                         Text("No Environment Variables")
                             .font(.system(size: fontSettings.scaledApp(17), weight: .semibold))
                         Text("Add variables like API keys or tokens that will be available in the shell environment.")
+                            .font(.system(size: fontSettings.scaledApp(12)))
+                            .foregroundStyle(MinisTheme.secondaryText)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                }
+            } else if filteredEntries.isEmpty {
+                // [Batch 23] Variables exist, the search just matches none —
+                // say so, instead of a blank list. The title is NOT the
+                // true-empty "No Environment Variables": that would be a lie.
+                Section {
+                    VStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.largeTitle)
+                            .foregroundStyle(MinisTheme.secondaryText)
+                        Text("No results")
+                            .font(.system(size: fontSettings.scaledApp(17), weight: .semibold))
+                        Text("Try a different search term.")
                             .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                             .multilineTextAlignment(.center)
@@ -76,7 +119,9 @@ struct EnvironmentVariablesView: View {
         }
         .sheet(isPresented: $showingAddSheet) {
             EnvVarFormSheet(mode: .add, initialKey: prefillKey, initialValue: prefillValue, initialNote: prefillNote) { key, value, note in
-                store.add(key: key, value: value, note: note)
+                let ok = store.add(key: key, value: value, note: note)
+                if ok { listError = nil }
+                return ok
             }
             .onDisappear {
                 prefillKey = ""
@@ -85,27 +130,14 @@ struct EnvironmentVariablesView: View {
             }
         }
         .onAppear {
-            if let pending = deepLink.pendingEnvVarCreate {
-                let normalizedKey = pending.key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-                deepLink.pendingEnvVarCreate = nil
-                if let existing = store.entries.first(where: { $0.key == normalizedKey }) {
-                    let currentValue = store.value(forKey: existing.key) ?? ""
-                    if !currentValue.isEmpty && currentValue != pending.value {
-                        overwriteConfirm = OverwriteRequest(
-                            entryId: existing.id,
-                            key: existing.key,
-                            newValue: pending.value
-                        )
-                    } else if currentValue.isEmpty {
-                        store.update(id: existing.id, key: existing.key, value: pending.value)
-                    }
-                } else {
-                    prefillKey = pending.key
-                    prefillValue = pending.value
-                    prefillNote = pending.note
-                    showingAddSheet = true
-                }
-            }
+            handlePendingEnvVar()
+        }
+        // [Batch 23] A deep link arriving while the page is already open
+        // used to do nothing — pending links were only handled in onAppear.
+        // EnvVarCreate is not Equatable, so watch its key as the token;
+        // the handler clears pending to nil, which separates repeat links.
+        .onChange(of: deepLink.pendingEnvVarCreate?.key) { _ in
+            handlePendingEnvVar()
         }
         .alert(
             AppLocalized("Replace existing value?"),
@@ -116,11 +148,40 @@ struct EnvironmentVariablesView: View {
             presenting: overwriteConfirm
         ) { request in
             Button(AppLocalized("Replace"), role: .destructive) {
-                store.update(id: request.entryId, key: request.key, value: request.newValue)
+                listError = nil
+                if !store.update(id: request.entryId, key: request.key, value: request.newValue) {
+                    listError = store.lastSaveFailure?.message
+                        ?? AppLocalized("Could not save this variable. Please try again.")
+                }
             }
             Button(AppLocalized("Cancel"), role: .cancel) {}
         } message: { request in
-            Text(AppLocalized("\"\(request.key)\" already has a value. Replace it with \"\(request.newValue)\"?"))
+            // [Batch 23] The prompt used to print the new secret in plaintext.
+            // Show the row's masked bullets instead — same masking as the list.
+            Text(AppLocalized("\"\(request.key)\" already has a value. Replace it with \"\(String(repeating: "\u{2022}", count: min(request.newValue.count, 20)))\"?"))
+        }
+        // [Batch 23] Copying also used to write the secret straight to the
+        // pasteboard with no confirmation. Gate it behind the same alert
+        // pattern: the alert shows the key + masked value, and only the
+        // confirm button performs the write.
+        .alert(
+            AppLocalized("Copy"),
+            isPresented: Binding(
+                get: { copyConfirm != nil },
+                set: { if !$0 { copyConfirm = nil } }
+            ),
+            presenting: copyConfirm
+        ) { request in
+            Button(AppLocalized("Copy")) {
+                UIPasteboard.general.string = "\(request.key)=\(request.value)"
+                withAnimation { copiedId = request.entryId }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    withAnimation { if copiedId == request.entryId { copiedId = nil } }
+                }
+            }
+            Button(AppLocalized("Cancel"), role: .cancel) {}
+        } message: { request in
+            Text("\"\(request.key)\" = \(String(repeating: "\u{2022}", count: min(request.value.count, 20)))")
         }
         .sheet(item: $editingEntry) { entry in
             EnvVarFormSheet(
@@ -129,14 +190,48 @@ struct EnvironmentVariablesView: View {
                 initialValue: store.value(forKey: entry.key) ?? "",
                 initialNote: entry.note,
                 onSave: { key, value, note in
-                    store.update(id: entry.id, key: key, value: value, note: note)
+                    let ok = store.update(id: entry.id, key: key, value: value, note: note)
+                    if ok { listError = nil }
+                    return ok
                 },
                 onDelete: {
-                    store.delete(id: entry.id)
+                    let ok = store.delete(id: entry.id)
+                    if ok { listError = nil }
+                    return ok
                 }
             )
         }
         .settingsPage()
+    }
+
+    // [Batch 23] The old onAppear body, extracted verbatim (plus the
+    // failure capture): called on appear AND when a deep link arrives
+    // while the page is already open. Branch logic untouched.
+    private func handlePendingEnvVar() {
+        guard let pending = deepLink.pendingEnvVarCreate else { return }
+        let normalizedKey = pending.key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        deepLink.pendingEnvVarCreate = nil
+        if let existing = store.entries.first(where: { $0.key == normalizedKey }) {
+            let currentValue = store.value(forKey: existing.key) ?? ""
+            if !currentValue.isEmpty && currentValue != pending.value {
+                overwriteConfirm = OverwriteRequest(
+                    entryId: existing.id,
+                    key: existing.key,
+                    newValue: pending.value
+                )
+            } else if currentValue.isEmpty {
+                listError = nil
+                if !store.update(id: existing.id, key: existing.key, value: pending.value) {
+                    listError = store.lastSaveFailure?.message
+                        ?? AppLocalized("Could not save this variable. Please try again.")
+                }
+            }
+        } else {
+            prefillKey = pending.key
+            prefillValue = pending.value
+            prefillNote = pending.note
+            showingAddSheet = true
+        }
     }
 
     @ViewBuilder
@@ -175,31 +270,36 @@ struct EnvironmentVariablesView: View {
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(isRevealed ? AppLocalized("Hide value") : AppLocalized("Show value"))
 
                 Button {
-                    UIPasteboard.general.string = "\(entry.key)=\(currentValue)"
-                    withAnimation { copiedId = entry.id }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        withAnimation { if copiedId == entry.id { copiedId = nil } }
-                    }
+                    copyConfirm = CopyRequest(entryId: entry.id, key: entry.key, value: currentValue)
                 } label: {
                     Image(systemName: copiedId == entry.id ? "checkmark" : "doc.on.clipboard")
                         .font(.system(size: 13))
                         .foregroundStyle(copiedId == entry.id ? .green : .secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(AppLocalized("Copy"))
             }
         }
         .contentShape(Rectangle())
         .onTapGesture {
             editingEntry = entry
         }
+        .accessibilityAction(named: AppLocalized("Edit")) {
+            editingEntry = entry
+        }
     }
 
     private func deleteEntries(at offsets: IndexSet) {
         let entriesToDelete = offsets.map { filteredEntries[$0] }
+        listError = nil
         for entry in entriesToDelete {
-            store.delete(id: entry.id)
+            if !store.delete(id: entry.id) {
+                listError = store.lastSaveFailure?.message
+                    ?? AppLocalized("Could not delete this variable. Please try again.")
+            }
         }
     }
 }
