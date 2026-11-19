@@ -3963,6 +3963,10 @@ struct STImportConfirmSheet: View {
     let onCancel: () -> Void
 
     @ObservedObject private var fontSettings = FontSettings.shared
+    // [Batch 22] 这张确认页画了问候语（ChatAddressing.user()，读的是
+    // 工作室里带 @Published 的称呼）。以前它不盯工作室，问候语在打开
+    // 那一刻就冻住了：改完名字再看，后面那句还是旧名字。
+    @ObservedObject private var studio = AppearanceStudio.shared
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -3999,7 +4003,7 @@ struct STImportConfirmSheet: View {
                             HStack(alignment: .top, spacing: 8) {
                                 Text(String(format: AppLocalized("你好，%@。今天想怎么打扮我？"), ChatAddressing.user()))
                                     .font(ChatFont.font(12))
-                                    .foregroundStyle(Color(hex: effectiveTextHex))
+                                    .foregroundStyle(Color(hex: effectiveAssistantBubbleTextHex))
                                     .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
                                     .padding(.vertical, DressingTokens.Padding.contentVertical)
                                     .background(Color(hex: hex(.assistantBubble)))
@@ -4011,7 +4015,7 @@ struct STImportConfirmSheet: View {
                                 Spacer(minLength: 20)
                                 Text(AppLocalized("做简单、精致、iOS 26 质感～"))
                                     .font(ChatFont.font(12))
-                                    .foregroundStyle(Color(hex: effectiveTextHex))
+                                    .foregroundStyle(Color(hex: effectiveUserBubbleTextHex))
                                     .padding(.horizontal, DressingTokens.Padding.contentHorizontal)
                                     .padding(.vertical, DressingTokens.Padding.contentVertical)
                                     .background(Color(hex: hex(.userBubble)))
@@ -4116,6 +4120,20 @@ struct STImportConfirmSheet: View {
     private var effectiveTextHex: String {
         var fg = AppearanceContrast.enforce(hex(.primaryText), on: hex(.canvas), level: .body)
         fg = AppearanceContrast.enforce(fg, on: hex(.surface), level: .body)
+        return fg
+    }
+
+    /// 示例气泡的字色：和真聊天同一对搭配（用户气泡是面色压在强调色上，
+    /// AI 气泡是正文色压在卡片面上），再对着真正的气泡底色各 enforcement
+    /// 一次。effectiveTextHex 只对底色和卡片面做过 enforcement，一个字色
+    /// 通吃两个气泡，深底浅底都可能糊成一团。 [Batch 22]
+    private var effectiveUserBubbleTextHex: String {
+        AppearanceContrast.enforce(hex(.surface), on: hex(.userBubble), level: .body)
+    }
+
+    private var effectiveAssistantBubbleTextHex: String {
+        var fg = effectiveTextHex
+        fg = AppearanceContrast.enforce(fg, on: hex(.assistantBubble), level: .body)
         return fg
     }
 
