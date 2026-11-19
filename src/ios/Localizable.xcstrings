@@ -6993,24 +6993,24 @@
         }
       }
     },
-    "Could not restore the previous value of \"%@\". Please check the Keychain.": {
+    "Could not undo the change to \"%@\" in the Keychain. Please check the Keychain.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not restore the previous value of \"%1$@\". Please check the Keychain."
+            "value": "Could not undo the change to \"%1$@\" in the Keychain. Please check the Keychain."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@”之前的旧值没能恢复，请检查钥匙串。"
+            "value": "“%1$@”在钥匙串里的改动没能撤销，请检查钥匙串。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%1$@」之前的舊值沒能恢復，請檢查鑰匙串。"
+            "value": "「%1$@」在鑰匙串裡的改動沒能撤銷，請檢查鑰匙串。"
           }
         }
       }

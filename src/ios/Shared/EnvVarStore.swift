@@ -58,7 +58,7 @@ enum EnvVarSaveFailure {
         case .jsonFailed:
             return AppLocalized("Could not save the variable list to disk. Your change was not saved.")
         case .rollbackFailed(let key):
-            return AppLocalized("Could not restore the previous value of \"\(key)\". Please check the Keychain.")
+            return AppLocalized("Could not undo the change to \"\(key)\" in the Keychain. Please check the Keychain.")
         case .entryMissing:
             return AppLocalized("This variable no longer exists. Please close and reopen the list.")
         }
@@ -206,16 +206,23 @@ final class EnvVarStore: ObservableObject {
         return String(data: data, encoding: .utf8)
     }
 
-    nonisolated private static func deleteValue(forKey key: String) {
+    /// Returns whether no item is left behind under this key.
+    /// "Not found" counts as success — the goal is absence, not that
+    /// something was deleted. Callers that must know the value is gone
+    /// use deleteValueVerified, which also reads back.
+    @discardableResult
+    nonisolated private static func deleteValue(forKey key: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
         var syncQuery = query
         syncQuery[kSecAttrSynchronizable as String] = true
-        SecItemDelete(syncQuery as CFDictionary)
+        let syncStatus = SecItemDelete(syncQuery as CFDictionary)
+        return (status == errSecSuccess || status == errSecItemNotFound)
+            && (syncStatus == errSecSuccess || syncStatus == errSecItemNotFound)
     }
 
     /// Keychain values are keyed by NAME while entries are per-UUID, and
@@ -231,10 +238,12 @@ final class EnvVarStore: ObservableObject {
     /// Delete a Keychain value and confirm it is really gone. Rollback
     /// paths use this: a delete that silently fails would leave a secret
     /// live while the form reports "not saved", so the caller reports
-    /// .rollbackFailed instead of claiming nothing was saved.
+    /// .rollbackFailed instead of claiming nothing was saved. The
+    /// OSStatus is the direct proof (a nil read alone is not — loadValue
+    /// also returns nil for an item it cannot read); the read-back
+    /// catches a delete that reported success but left a value behind.
     private static func deleteValueVerified(forKey key: String) -> Bool {
-        Self.deleteValue(forKey: key)
-        return Self.loadValue(forKey: key) == nil
+        Self.deleteValue(forKey: key) && Self.loadValue(forKey: key) == nil
     }
 
     /// Non-isolated read for use from background threads (backup, debug RPC).
@@ -371,9 +380,12 @@ final class EnvVarStore: ObservableObject {
                 logger.error("Update env var aborted — Keychain verify failed for \(trimmedKey); prior key \(oldKey) left intact")
                 // The write itself landed, so this is a verify failure, not
                 // a write failure — say so, and drop the orphaned new-key
-                // value so "not saved" stays true.
-                deleteValueIfUnreferenced(forKey: trimmedKey)
-                if Self.loadValue(forKey: trimmedKey) != nil {
+                // value so "not saved" stays true. No entry references the
+                // new key here (the duplicate guard rejected renames to an
+                // in-use key, and this entry still carries the old key),
+                // so delete directly instead of the guarded helper — its
+                // skip would look like a failed delete on read-back.
+                guard Self.deleteValueVerified(forKey: trimmedKey) else {
                     logger.error("Update env var rollback FAILED — orphaned value of \(trimmedKey) could not be deleted from the Keychain")
                     lastSaveFailure = .rollbackFailed(trimmedKey)
                     return false
@@ -395,14 +407,22 @@ final class EnvVarStore: ObservableObject {
         guard saveEntries() else {
             entries[idx] = oldEntry
             if keyChanged {
-                deleteValueIfUnreferenced(forKey: trimmedKey)
-                if Self.loadValue(forKey: trimmedKey) != nil {
+                // No entry references the new key here (the entry was just
+                // restored to the old key), so delete directly — see the
+                // verify-failure path above for why the guarded helper
+                // does not belong in a rollback.
+                guard Self.deleteValueVerified(forKey: trimmedKey) else {
                     logger.error("Update env var rollback FAILED — orphaned value of \(trimmedKey) could not be deleted from the Keychain")
                     lastSaveFailure = .rollbackFailed(trimmedKey)
                     return false
                 }
             } else if let oldValue {
-                guard Self.saveValue(oldValue, forKey: oldKey) else {
+                // Restore the old secret, then read it back: this file
+                // treats a saveValue Bool alone as insufficient anywhere
+                // else (see keychainVerifyFailed), and the rollback is
+                // held to the same standard.
+                guard Self.saveValue(oldValue, forKey: oldKey),
+                      Self.loadValue(forKey: oldKey) == oldValue else {
                     logger.error("Update env var rollback FAILED — old value of \(oldKey) could not be restored; new value remains in Keychain")
                     lastSaveFailure = .rollbackFailed(oldKey)
                     return false
