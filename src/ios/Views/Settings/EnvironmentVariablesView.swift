@@ -338,8 +338,19 @@ private struct EnvVarFormSheet: View {
     /// after the store's own trim+uppercase, and a non-blank value.
     /// Pasting " FOO " used to fail validation although the store would
     /// have accepted it; an empty value used to save as a blank line.
+    /// [Batch 25] isValid covers the value too, so the Name footer must
+    /// NOT read isValid — it blamed the key when only the value was empty.
+    /// The footer reads isKeyValid; the button still reads isValid.
+    private var normalizedKey: String {
+        key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private var isKeyValid: Bool {
+        EnvVarStore.isValidKey(normalizedKey)
+    }
+
     private var isValid: Bool {
-        EnvVarStore.isValidKey(key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased())
+        isKeyValid
             && !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -362,7 +373,7 @@ private struct EnvVarFormSheet: View {
                 } header: {
                     Text("Name")
                 } footer: {
-                    if !key.isEmpty && !isValid {
+                    if !key.isEmpty && !isKeyValid {
                         Text("Must start with a letter and contain only letters, digits, and underscores.")
                             .foregroundStyle(MinisTheme.destructive)
                     }
