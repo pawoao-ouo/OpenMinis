@@ -42,6 +42,7 @@ enum EnvVarSaveFailure {
     case keychainFailed(String)
     case keychainVerifyFailed(String)
     case jsonFailed(String)
+    case rollbackFailed(String)
     case entryMissing
 
     var message: String {
@@ -56,6 +57,8 @@ enum EnvVarSaveFailure {
             return AppLocalized("Could not verify \"\(key)\" in the Keychain. The change was not saved.")
         case .jsonFailed:
             return AppLocalized("Could not save the variable list to disk. Your change was not saved.")
+        case .rollbackFailed(let key):
+            return AppLocalized("Could not restore the previous value of \"\(key)\". Please check the Keychain.")
         case .entryMissing:
             return AppLocalized("This variable no longer exists. Please close and reopen the list.")
         }
@@ -225,6 +228,15 @@ final class EnvVarStore: ObservableObject {
         Self.deleteValue(forKey: key)
     }
 
+    /// Delete a Keychain value and confirm it is really gone. Rollback
+    /// paths use this: a delete that silently fails would leave a secret
+    /// live while the form reports "not saved", so the caller reports
+    /// .rollbackFailed instead of claiming nothing was saved.
+    private static func deleteValueVerified(forKey key: String) -> Bool {
+        Self.deleteValue(forKey: key)
+        return Self.loadValue(forKey: key) == nil
+    }
+
     /// Non-isolated read for use from background threads (backup, debug RPC).
     nonisolated static func loadValueSync(forKey key: String) -> String? {
         loadValue(forKey: key)
@@ -295,7 +307,11 @@ final class EnvVarStore: ObservableObject {
         // variable the list says was never saved.
         guard saveEntries() else {
             entries.removeAll { $0.id == entry.id }
-            Self.deleteValue(forKey: trimmedKey)
+            if !Self.deleteValueVerified(forKey: trimmedKey) {
+                logger.error("Add env var rollback FAILED — value of \(trimmedKey) could not be deleted from the Keychain")
+                lastSaveFailure = .rollbackFailed(trimmedKey)
+                return false
+            }
             lastSaveFailure = .jsonFailed(trimmedKey)
             return false
         }
@@ -357,6 +373,11 @@ final class EnvVarStore: ObservableObject {
                 // a write failure — say so, and drop the orphaned new-key
                 // value so "not saved" stays true.
                 deleteValueIfUnreferenced(forKey: trimmedKey)
+                if Self.loadValue(forKey: trimmedKey) != nil {
+                    logger.error("Update env var rollback FAILED — orphaned value of \(trimmedKey) could not be deleted from the Keychain")
+                    lastSaveFailure = .rollbackFailed(trimmedKey)
+                    return false
+                }
                 lastSaveFailure = .keychainVerifyFailed(trimmedKey)
                 return false
             }
@@ -368,14 +389,33 @@ final class EnvVarStore: ObservableObject {
         // value was never deleted (that happens only below, after the
         // JSON lands); the new value is undone here — same key: restore
         // the old secret; rename: drop the orphaned new-key value.
+        // Every undo is checked: a failed restore or delete reports
+        // .rollbackFailed instead of claiming "not saved" while a
+        // secret is still live.
         guard saveEntries() else {
             entries[idx] = oldEntry
             if keyChanged {
                 deleteValueIfUnreferenced(forKey: trimmedKey)
+                if Self.loadValue(forKey: trimmedKey) != nil {
+                    logger.error("Update env var rollback FAILED — orphaned value of \(trimmedKey) could not be deleted from the Keychain")
+                    lastSaveFailure = .rollbackFailed(trimmedKey)
+                    return false
+                }
             } else if let oldValue {
-                _ = Self.saveValue(oldValue, forKey: oldKey)
+                guard Self.saveValue(oldValue, forKey: oldKey) else {
+                    logger.error("Update env var rollback FAILED — old value of \(oldKey) could not be restored; new value remains in Keychain")
+                    lastSaveFailure = .rollbackFailed(oldKey)
+                    return false
+                }
             } else {
-                logger.error("Update env var rollback incomplete — old value of \(oldKey) was unreadable, new value remains in Keychain")
+                // Old value was unreadable: nothing to restore. Delete the
+                // new value so "not saved" stays true.
+                guard Self.deleteValueVerified(forKey: oldKey) else {
+                    logger.error("Update env var rollback FAILED — new value of \(oldKey) could not be deleted after old value proved unreadable")
+                    lastSaveFailure = .rollbackFailed(oldKey)
+                    return false
+                }
+                logger.error("Update env var rollback — old value of \(oldKey) was unreadable, new value deleted")
             }
             lastSaveFailure = .jsonFailed(trimmedKey)
             return false

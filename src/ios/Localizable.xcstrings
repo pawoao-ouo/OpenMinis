@@ -6993,6 +6993,28 @@
         }
       }
     },
+    "Could not restore the previous value of \"%@\". Please check the Keychain.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not restore the previous value of \"%1$@\". Please check the Keychain."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@”之前的旧值没能恢复，请检查钥匙串。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」之前的舊值沒能恢復，請檢查鑰匙串。"
+          }
+        }
+      }
+    },
     "Could not save the variable list to disk. Your change was not saved.": {
       "localizations": {
         "en": {
