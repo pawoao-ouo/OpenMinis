@@ -687,10 +687,20 @@ final class TTSServiceStore: @unchecked Sendable {
     /// the editor must not dismiss the page on a failed save. The presence
     /// cache is invalidated either way (a failed write leaves nothing to
     /// cache, and the read-back in the editor is the second check).
+    /// [Batch 18] A saved key must refresh the list immediately: the list
+    /// only re-renders on .ttsServicesChanged, and upsert's post fires
+    /// before the key is written, so the list froze on the pre-save frame
+    /// showing "missing API key" until the page was re-entered. Post here,
+    /// after the write lands — mirroring deleteAPIKey and the API side's
+    /// notifyAuthChanged. Only on success: a failed save toasts and stays
+    /// open, and the list already (correctly) shows the key as missing.
     @discardableResult
     func saveAPIKey(_ key: String, for service: TTSServiceOptions) -> Bool {
         let saved = ProviderKeychainHelper.saveAPIKey(key, instanceId: service.keychainInstanceId, caller: "TTSServiceStore")
         invalidateKeyPresence(forServiceId: service.id)
+        if saved {
+            NotificationCenter.default.post(name: .ttsServicesChanged, object: nil)
+        }
         return saved
     }
 
