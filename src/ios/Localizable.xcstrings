@@ -7037,6 +7037,28 @@
         }
       }
     },
+    "Could not delete this variable. Please try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not delete this variable. Please try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个变量没能删掉，请再试一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個變數沒能刪掉，請再試一次。"
+          }
+        }
+      }
+    },
     "Could not save this variable. Please try again.": {
       "localizations": {
         "en": {

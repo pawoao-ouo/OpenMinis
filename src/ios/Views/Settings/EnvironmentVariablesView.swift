@@ -341,11 +341,14 @@ private struct EnvVarFormSheet: View {
             Button(AppLocalized("Delete"), role: .destructive) {
                 // [Batch 20 Fix 1] A failed delete keeps the sheet open
                 // with the reason shown, instead of closing as if deleted.
+                // Clear any earlier save error first so a failed delete
+                // never shows a stale save reason.
+                saveError = nil
                 if onDelete?() ?? false {
                     dismiss()
                 } else {
                     saveError = EnvVarStore.shared.lastSaveFailure?.message
-                        ?? AppLocalized("Could not save this variable. Please try again.")
+                        ?? AppLocalized("Could not delete this variable. Please try again.")
                 }
             }
             Button(AppLocalized("Cancel"), role: .cancel) {}
