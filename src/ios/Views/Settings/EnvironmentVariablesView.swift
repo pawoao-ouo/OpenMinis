@@ -181,7 +181,7 @@ struct EnvironmentVariablesView: View {
             }
             Button(AppLocalized("Cancel"), role: .cancel) {}
         } message: { request in
-            Text("\"\(request.key)\" = \(String(repeating: "\u{2022}", count: min(request.value.count, 20)))")
+            Text(AppLocalized("\"\(request.key)\" = \(String(repeating: "\u{2022}", count: min(request.value.count, 20)))"))
         }
         .sheet(item: $editingEntry) { entry in
             EnvVarFormSheet(
