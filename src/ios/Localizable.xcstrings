@@ -6869,6 +6869,29 @@
         }
       }
     },
+    "API key could not be saved to the Keychain — check Settings → Privacy & Security. This service cannot work until the key is saved.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key could not be saved to the Keychain — check Settings → Privacy & Security. This service cannot work until the key is saved."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 密钥未能保存到钥匙串——请检查“设置 → 隐私与安全性”。在密钥保存成功之前，此服务无法使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 金鑰未能儲存到鑰匙圈——請檢查「設定 → 隱私權與安全性」。在金鑰儲存成功之前，此服務無法使用。"
+          }
+        }
+      }
+    },
     "API key could not be saved to the Keychain — check Settings → Privacy & Security. The service still works but will keep asking.": {
       "localizations": {
         "de": {
@@ -78531,65 +78554,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "從歌單移除"
-          }
-        }
-      }
-    },
-    "Remove saved API key": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gespeicherten API-Schlüssel entfernen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove saved API key"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminar la clave API guardada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer la clé API enregistrée"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存済みのAPIキーを削除"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "저장된 API 키 삭제"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить сохранённый API-ключ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删除已保存的密钥"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "刪除已儲存的金鑰"
           }
         }
       }
