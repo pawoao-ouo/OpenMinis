@@ -453,6 +453,13 @@ private struct UserProfileBodyEditor: View {
             return
         }
         bodyText = text
+        // [Batch 22] 正文里可以直接改「怎么称呼」，不走 commitName——
+        // 存完也同步一份进工作室的称呼，不然问候语还叫旧名字。
+        // 这只编辑器只给「我自己」档案用，还是按 id 卡一道，免得以后
+        // 挪作他用时串了。
+        if personaId == PersonaStore.userProfilePersonaID {
+            studio.setUserDisplayName(SystemPromptBuilder.userProfileAddressingName(for: personaId))
+        }
         MinisToast.show(AppLocalized("已保存，下次对话开始生效"))
         dismiss()
     }
