@@ -35,7 +35,10 @@ struct TTSServiceEditorView: View {
     @State private var model: String = ""
     @State private var voice: String = ""
     @State private var apiKey: String = ""
-    @State private var apiKeyFromKeychain: Bool = false
+    /// The key as loaded from the Keychain — the baseline for save():
+    /// untouched -> no write, changed -> save, cleared -> delete.
+    @State private var loadedKey: String = ""
+    @State private var showKeyRevealed: Bool = false
     /// Vendor-specific knobs. Keyed by TTSKnob.key.
     @State private var extras: [String: String] = [:]
 
@@ -102,20 +105,44 @@ struct TTSServiceEditorView: View {
         Section {
             LabeledTextField(label: "Name", text: $name, placeholder: "My voice")
             LabeledTextField(label: "Base URL", text: $baseURL, placeholder: kind.defaultBaseURL)
-            SecureLabeledTextField(label: "API Key", text: $apiKey,
-                                   placeholder: apiKeyPlaceholder,
-                                   footnote: kind.compoundCredentialFormat)
-            // [B09-L04 2026-10-22] Leaving the field empty means "keep the old
-            // key", so there was no way to remove one — you had to delete the
-            // whole service. Explicit button instead.
-            if apiKeyFromKeychain && apiKey.isEmpty {
-                Button(role: .destructive) {
-                    store.deleteAPIKey(for: service ?? buildDraft())
-                    apiKeyFromKeychain = false
-                    MinisToast.show(AppLocalized("API key removed"), systemImage: "key.slash")
-                } label: {
-                    Text(AppLocalized("Remove saved API key"))
+            // [Batch 21] Same construction as the API side's
+            // apiKeyCredentialView (ProviderInstanceDetailView): a plain
+            // TextField keeps the normal keyboard (SecureField switches to
+            // a password keyboard that blocks some characters), glyphs go
+            // clear when hidden so the field stays tappable, and a bullet
+            // overlay masks the value. Clearing the box means deleting the
+            // key on Save — same rule as the API side, deferred to Save.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("API Key")
+                    .font(.system(size: fontSettings.scaledApp(12)))
+                    .foregroundStyle(MinisTheme.secondaryText)
+                HStack {
+                    ZStack(alignment: .leading) {
+                        TextField("API Key", text: $apiKey, prompt: Text("Paste the API key").foregroundColor(MinisTheme.secondaryText))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .foregroundStyle(showKeyRevealed ? Color.primary : Color.clear)
+                        if !showKeyRevealed {
+                            Text(apiKey.isEmpty ? "" : String(repeating: "•", count: apiKey.count))
+                                .foregroundStyle(.primary)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .font(.system(.body, design: .monospaced))
+                    Button {
+                        showKeyRevealed.toggle()
+                    } label: {
+                        Image(systemName: showKeyRevealed ? "eye.slash" : "eye")
+                            .foregroundStyle(MinisTheme.secondaryText)
+                    }
+                    .buttonStyle(.plain)
                 }
+            }
+            .listRowBackground(MinisTheme.color(.surface, scope: .settings))
+            if let footnote = kind.compoundCredentialFormat {
+                Text(footnote)
+                    .font(.system(size: fontSettings.scaledApp(11)))
+                    .foregroundStyle(MinisTheme.secondaryText)
             }
             LabeledTextField(label: "Model", text: $model, placeholder: kind.defaultModel)
             LabeledTextField(label: "Voice ID", text: $voice, placeholder: kind.defaultVoice)
@@ -194,7 +221,11 @@ struct TTSServiceEditorView: View {
             model = s.model
             voice = s.voice
             extras = s.extras
-            apiKeyFromKeychain = store.hasAPIKey(for: s)
+            // [Batch 21] Load the VALUE, not just its presence — the field
+            // shows the saved key masked (same as the API side), instead of
+            // an empty box with only a "remove" button as the hint.
+            apiKey = store.apiKey(for: s) ?? ""
+            loadedKey = apiKey
         } else {
             name = ""
             kind = .openai
@@ -203,7 +234,8 @@ struct TTSServiceEditorView: View {
             model = ""
             voice = ""
             extras = [:]
-            apiKeyFromKeychain = false
+            apiKey = ""
+            loadedKey = ""
         }
     }
 
@@ -261,14 +293,30 @@ struct TTSServiceEditorView: View {
             // 数据不可用/沙盒限制），当场 toast，别让她带着假配置走。
             let saved = store.saveAPIKey(apiKey, for: draft)
             if !saved || store.apiKey(for: draft) != apiKey {
-                MinisToast.show(AppLocalized("API key could not be saved to the Keychain — check Settings → Privacy & Security. The service still works but will keep asking."),
-                               systemImage: "exclamationmark.triangle.fill")
+                // [Batch 21] A new service whose key never landed cannot
+                // work at all — say so. An existing service keeps its old
+                // key, so the old wording still holds there.
+                if service == nil {
+                    MinisToast.show(AppLocalized("API key could not be saved to the Keychain — check Settings → Privacy & Security. This service cannot work until the key is saved."),
+                                   systemImage: "exclamationmark.triangle.fill")
+                } else {
+                    MinisToast.show(AppLocalized("API key could not be saved to the Keychain — check Settings → Privacy & Security. The service still works but will keep asking."),
+                                   systemImage: "exclamationmark.triangle.fill")
+                }
                 return
             }
+        } else if !loadedKey.isEmpty {
+            // [Batch 21] Clearing the box means deleting the key — same
+            // rule as the API side, deferred to Save. Untouched (loadedKey
+            // empty too) means no write at all.
+            store.deleteAPIKey(for: draft)
+            MinisToast.show(AppLocalized("API key removed"), systemImage: "key.slash")
         }
         // Select the newly created service so it is immediately the voice
-        // in use (mirrors kelivo's add-then-select flow).
-        if service == nil {
+        // in use (mirrors kelivo's add-then-select flow) — but only if it
+        // actually has a key; a keyless service can never speak.
+        // [Batch 21] Guard on Keychain truth, read after the key block.
+        if service == nil && store.hasAPIKey(for: draft) {
             store.setSelectedServiceId(draft.id)
         }
         dismiss()
@@ -307,9 +355,6 @@ struct TTSServiceEditorView: View {
         }
     }
 
-    private var apiKeyPlaceholder: String {
-        apiKeyFromKeychain ? "Saved — leave empty to keep" : "Paste the API key"
-    }
 }
 
 // MARK: - Field helpers
@@ -332,36 +377,6 @@ struct LabeledTextField: View {
                 .foregroundStyle(MinisTheme.secondaryText)
             TextField(label, text: $text, prompt: Text(placeholder).foregroundColor(MinisTheme.secondaryText))
                 .keyboardType(keyboardType)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-        }
-        // [B09-N08 2026-10-22] Was a static surface color; every other voice
-        // page uses the theme-scoped dynamic role, so a custom light/dark theme
-        // left these rows visibly out of step with the rest of the sheet.
-        .listRowBackground(MinisTheme.color(.surface, scope: .settings))
-        if let footnote = footnote {
-            Text(footnote)
-                .font(.system(size: fontSettings.scaledApp(11)))
-                .foregroundStyle(MinisTheme.secondaryText)
-        }
-    }
-}
-
-/// Password-style variant with an optional footnote (compound-credential hint).
-struct SecureLabeledTextField: View {
-    let label: String
-    @Binding var text: String
-    let placeholder: String
-    var footnote: String? = nil
-    @ObservedObject private var fontSettings = FontSettings.shared
-
-    var body: some View {
-        // [B09-L07 2026-10-22] Same fix as LabeledTextField: label first.
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.system(size: fontSettings.scaledApp(12)))
-                .foregroundStyle(MinisTheme.secondaryText)
-            SecureField(label, text: $text, prompt: Text(placeholder).foregroundColor(MinisTheme.secondaryText))
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
         }
