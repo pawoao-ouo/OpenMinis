@@ -279,38 +279,43 @@ struct TTSServiceEditorView: View {
                             systemImage: "exclamationmark.triangle.fill")
         }
         store.upsert(draft)
-        if !apiKey.isEmpty {
-            // [A-F11] The store now reports whether the write landed, and
-            // the read-back check stays as the second line of defense.
-            // A failed save must NOT dismiss the page — she would walk away
-            // believing the key was saved. (The service definition itself
-            // is already upserted above; only the key is missing, and the
-            // page stays open so she can retry.)
-            // [T-tts-key-status 09-13] 醒醒 7: key 保存后回读校验——SecItemAdd
-            // 的状态码旧代码只写日志不报错，保存"成功"实际没落进钥匙串时，
-            // 列表/选择器永远显示 no key 而合成在别处兜底，两个状态对不上。
-            // 这里写完立刻读一次，读不回来说明 Keychain 出了问题（受保护
-            // 数据不可用/沙盒限制），当场 toast，别让她带着假配置走。
-            let saved = store.saveAPIKey(apiKey, for: draft)
-            if !saved || store.apiKey(for: draft) != apiKey {
-                // [Batch 21] A new service whose key never landed cannot
-                // work at all — say so. An existing service keeps its old
-                // key, so the old wording still holds there.
-                if service == nil {
-                    MinisToast.show(AppLocalized("API key could not be saved to the Keychain — check Settings → Privacy & Security. This service cannot work until the key is saved."),
-                                   systemImage: "exclamationmark.triangle.fill")
-                } else {
-                    MinisToast.show(AppLocalized("API key could not be saved to the Keychain — check Settings → Privacy & Security. The service still works but will keep asking."),
-                                   systemImage: "exclamationmark.triangle.fill")
+        // [Batch 21] Three-way compare against the loaded baseline:
+        // untouched (apiKey == loadedKey) -> no Keychain write at all,
+        // so a Keychain outage can never block saving an unedited service;
+        // changed -> save; cleared -> delete.
+        if apiKey != loadedKey {
+            if !apiKey.isEmpty {
+                // [A-F11] The store now reports whether the write landed, and
+                // the read-back check stays as the second line of defense.
+                // A failed save must NOT dismiss the page — she would walk away
+                // believing the key was saved. (The service definition itself
+                // is already upserted above; only the key is missing, and the
+                // page stays open so she can retry.)
+                // [T-tts-key-status 09-13] 醒醒 7: key 保存后回读校验——SecItemAdd
+                // 的状态码旧代码只写日志不报错，保存"成功"实际没落进钥匙串时，
+                // 列表/选择器永远显示 no key 而合成在别处兜底，两个状态对不上。
+                // 这里写完立刻读一次，读不回来说明 Keychain 出了问题（受保护
+                // 数据不可用/沙盒限制），当场 toast，别让她带着假配置走。
+                let saved = store.saveAPIKey(apiKey, for: draft)
+                if !saved || store.apiKey(for: draft) != apiKey {
+                    // [Batch 21] A new service whose key never landed cannot
+                    // work at all — say so. An existing service keeps its old
+                    // key, so the old wording still holds there.
+                    if service == nil {
+                        MinisToast.show(AppLocalized("API key could not be saved to the Keychain — check Settings → Privacy & Security. This service cannot work until the key is saved."),
+                                       systemImage: "exclamationmark.triangle.fill")
+                    } else {
+                        MinisToast.show(AppLocalized("API key could not be saved to the Keychain — check Settings → Privacy & Security. The service still works but will keep asking."),
+                                       systemImage: "exclamationmark.triangle.fill")
+                    }
+                    return
                 }
-                return
+            } else {
+                // [Batch 21] Clearing the box means deleting the key — same
+                // rule as the API side, deferred to Save.
+                store.deleteAPIKey(for: draft)
+                MinisToast.show(AppLocalized("API key removed"), systemImage: "key.slash")
             }
-        } else if !loadedKey.isEmpty {
-            // [Batch 21] Clearing the box means deleting the key — same
-            // rule as the API side, deferred to Save. Untouched (loadedKey
-            // empty too) means no write at all.
-            store.deleteAPIKey(for: draft)
-            MinisToast.show(AppLocalized("API key removed"), systemImage: "key.slash")
         }
         // Select the newly created service so it is immediately the voice
         // in use (mirrors kelivo's add-then-select flow) — but only if it
