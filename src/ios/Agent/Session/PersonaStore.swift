@@ -327,6 +327,15 @@ enum PersonaStore {
         return isPersonaNamespaceComponent(first)
     }
 
+    /// Persona ids carried by live DB sessions (the cache values), as
+    /// noted by warmCache(). Unlike knownPersonaIds() this excludes
+    /// on-disk-only personas — a persona with a memory dir but no live
+    /// session is NOT live, so the orphan sweep must not treat it as one.
+    static func livePersonaIds() -> Set<String> {
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        return Set(cache.values)
+    }
+
     /// True when `component` looks like a persona namespace: "default",
     /// "me", or a UUID-shaped session id (personas ARE sessions — a new
     /// session's persona id IS its session id). Used by the
@@ -334,6 +343,14 @@ enum PersonaStore {
     /// namespace is denied even when this process has never seen it.
     static func isPersonaNamespaceComponent(_ component: String) -> Bool {
         if component == defaultPersonaId || component == userProfilePersonaId { return true }
+        return isUUIDShaped(component)
+    }
+
+    /// True when `component` is a UUID (8-4-4-4-12 hex,
+    /// case-insensitive). Split out of isPersonaNamespaceComponent so
+    /// the orphan sweep can test for UUID-shape alone: "default" and
+    /// "me" are never sweep candidates.
+    static func isUUIDShaped(_ component: String) -> Bool {
         // UUID: 8-4-4-4-12 hex, case-insensitive.
         guard component.count == 36 else { return false }
         let parts = component.split(separator: "-", omittingEmptySubsequences: false)
@@ -378,6 +395,40 @@ enum PersonaStore {
         "\(AIChatViewModel.minisMcpServersLinuxDir)/\(personaId)"
     }
 
+    /// Launch backfill for shared namespaces orphaned before delete-time
+    /// cleanup existed (item 4): a session deleted before that fix left
+    /// its shared/<pid>/ dir behind; after relaunch the persona is
+    /// unknown to knownPersonaIds(), so the flat-shared @-mention scan no
+    /// longer prunes it and the files leak into another persona's @-menu.
+    /// Removes a first-level dir under flat shared ONLY when all three
+    /// hold:
+    ///   - the name is UUID-shaped (never "default"/"me", never runtime
+    ///     dirs like together/ or state/, never files like events.jsonl),
+    ///   - no live session carries that persona id,
+    ///   - no memory/personas/<pid>/ dir exists (a persona with memory
+    ///     is never orphaned — its namespace stays pruned by
+    ///     knownPersonaIds).
+    /// Runs on every launch, right after warmCache(), so the live-session
+    /// set is complete. Removing the dir deletes only shared-namespace
+    /// files; persona memory/SOUL/logs are never touched.
+    static func sweepOrphanedSharedNamespaces() {
+        let fm = FileManager.default
+        let sharedRoot = AIChatViewModel.minisSharedPersistentDir
+        let live = livePersonaIds()
+        guard let entries = try? fm.contentsOfDirectory(
+            at: sharedRoot, includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return }
+        for dir in entries {
+            let name = dir.lastPathComponent
+            guard isUUIDShaped(name), !live.contains(name) else { continue }
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            guard !fm.fileExists(atPath: memoryDir(for: name).path) else { continue }
+            try? fm.removeItem(at: dir)
+            AppLogger(category: "PersonaMigration").info("[PersonaMigration] removed orphaned shared namespace \(name.prefix(8)) (no live session, no memory dir)")
+        }
+    }
+
     // MARK: - One-time legacy migration
 
     /// Shared one-time migration task. Started at app launch (MinisApp
@@ -414,6 +465,11 @@ enum PersonaStore {
         // "not loaded yet" cache (items 1–2). loadSession also awaits
         // this task, so the cache is complete before any prompt builds.
         await warmCache()
+        // Item 4 (small-issues fix): sweep shared namespaces orphaned by
+        // sessions deleted before delete-time cleanup existed. Runs on
+        // every launch, before the flag short-circuit below — the flag
+        // only guards the one-time copy steps, not this sweep.
+        sweepOrphanedSharedNamespaces()
         let defaults = UserDefaults.standard
         if defaults.bool(forKey: migrationFlagKey) { return }
         let fm = FileManager.default
