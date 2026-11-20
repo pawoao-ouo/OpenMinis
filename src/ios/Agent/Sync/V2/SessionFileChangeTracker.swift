@@ -128,7 +128,7 @@ actor SessionFileChangeTracker {
     /// host-FS mtime resolution. Also covers cases where the kernel
     /// flushes mtime slightly *before* we record the open (very tight
     /// schedule races).
-    func drainAllWithMtimeFilter(minisBaseURL: URL) -> [String: [String: Change]] {
+    func drainAllWithMtimeFilter() -> [String: [String: Change]] {
         guard !pending.isEmpty else { return [:] }
         var drained: [String: [String: Change]] = [:]
         var keptCount = 0

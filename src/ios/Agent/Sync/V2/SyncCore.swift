@@ -820,9 +820,7 @@ final class SyncCore {
         // process opens write-mode but never writes. Entries whose
         // mtime hasn't caught up yet stay in the tracker for the next
         // push cycle — the actual write may still be in flight.
-        let baseURL = await ChatStore.shared.minisBaseURL
-        let snapshot = await SessionFileChangeTracker.shared.drainAllWithMtimeFilter(
-            minisBaseURL: baseURL)
+        let snapshot = await SessionFileChangeTracker.shared.drainAllWithMtimeFilter()
         guard !snapshot.isEmpty else { return }
 
         var totalUpsert = 0, totalDelete = 0
