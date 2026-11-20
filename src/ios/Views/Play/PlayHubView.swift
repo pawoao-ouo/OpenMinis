@@ -107,8 +107,8 @@ struct PlayHubView: View {
             await rescan()
         }
         .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            soulIcon = SoulStore.cachedMetadata.icon
-            displayName = SoulStore.cachedMetadata.name
+            soulIcon = Self.currentPersonaIcon()
+            displayName = Self.currentPersonaName()
         }
         .onChange(of: backgroundItem) { item in
             guard let item else { return }
@@ -147,7 +147,7 @@ struct PlayHubView: View {
                     avatarItem = nil
                     return
                 }
-                soulIcon = SoulStore.cachedMetadata.icon
+                soulIcon = Self.currentPersonaIcon()
                 // [B28 R14] 反向同步：这里只写了 SOUL.md，通讯录读的是 Persona.avatar，
                 // 不补这一步就成了"Play 换了头像、通讯录还是旧的"。
                 if var p = PersonaStore.shared.personas.first(where: { $0.id == PersonaStore.currentID() }),
@@ -810,10 +810,24 @@ struct PlayHubView: View {
 
     // MARK: - 数据
 
+    /// [persona] F7: the hub shows the CURRENT persona's identity, read
+    /// from that persona's own SOUL file — not the global cachedMetadata
+    /// slot, which can still hold the previous persona after a switch.
+    /// The name stays raw (empty → the "pick a name" prompt); displayName's
+    /// "嘟嘟" default would hide that prompt.
+    private static func currentPersonaName() -> String {
+        (SoulStore.load(for: PersonaStore.currentID())?.metadata.name ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func currentPersonaIcon() -> String {
+        SoulStore.displayIcon(for: PersonaStore.currentID()) ?? ""
+    }
+
     private func reload() {
         backgroundImage = UIImage(contentsOfFile: Self.backgroundURL.path)
-        soulIcon = SoulStore.cachedMetadata.icon
-        displayName = SoulStore.cachedMetadata.name
+        soulIcon = Self.currentPersonaIcon()
+        displayName = Self.currentPersonaName()
     }
 
     private func rescan() async {
@@ -833,7 +847,7 @@ struct PlayHubView: View {
         var soul = SoulStore.load() ?? SoulFile(metadata: .default, body: "")
         soul.metadata.name = trimmed
         try? SoulStore.save(soul)
-        displayName = SoulStore.cachedMetadata.name
+        displayName = Self.currentPersonaName()
     }
 
     private func removeBackground() {
