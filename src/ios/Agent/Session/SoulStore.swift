@@ -311,7 +311,16 @@ enum SoulIconSource {
     /// NOT allowed — it holds the default persona's pre-migration data,
     /// and memory has no baseline fallback by design.
     private static func allowedRoots() -> [URL] {
-        let pid = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
+        // Unknown active persona → only the global roots (skills +
+        // flat shared). The persona memory/shared/session roots are
+        // omitted, never resolved to the default persona (items 1–2).
+        guard let pid = PersonaStore.personaIdForActiveSession() else {
+            return [
+                PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId),
+                AIChatViewModel.minisSkillsPersistentDir,
+                AIChatViewModel.minisSharedPersistentDir,
+            ]
+        }
         var roots: [URL] = [
             PersonaStore.memoryDir(for: pid),
             PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId),
@@ -321,7 +330,7 @@ enum SoulIconSource {
         ]
         if let sid = AIChatViewModel.activeSessionId {
             roots.append(PersonaStore.sessionDir(
-                for: sid, personaId: PersonaStore.personaId(forSessionId: sid)
+                for: sid, personaId: pid
             ))
         }
         return roots
@@ -676,14 +685,19 @@ enum SoulBodyLimitCheck: Equatable {
 /// sync singletons pass the default persona explicitly instead.
 enum SoulStore {
 
-    /// Persona of the active session ("default" when no session is active,
-    /// e.g. at launch — pre-existing sessions are all default-persona).
-    static var activePersonaId: String {
-        PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
+    /// Persona of the active session. Nil when no session is active or
+    /// its persona is unknown. The no-arg load/save/fileURL/refreshCache
+    /// below fall back to the DEFAULT persona explicitly when this is nil
+    /// (items 13/15: the Settings UI with no active session edits the
+    /// default persona's SOUL; the chat path always passes its own
+    /// persona explicitly, so it never touches this fallback).
+    static var activePersonaId: String? {
+        PersonaStore.personaIdForActiveSession()
     }
 
-    /// SOUL.md of the active session's persona.
-    static var fileURL: URL { fileURL(for: activePersonaId) }
+    /// SOUL.md of the active session's persona (default persona when no
+    /// session is active — the Settings-with-no-session case above).
+    static var fileURL: URL { fileURL(for: activePersonaId ?? PersonaStore.defaultPersonaId) }
 
     /// SOUL.md of one persona.
     static func fileURL(for personaId: String) -> URL {
@@ -805,7 +819,7 @@ enum SoulStore {
     /// Safe to call on every launch — never overwrites existing content.
     /// Defaults to the active session's persona.
     static func ensureExists(personaId: String? = nil) {
-        let url = fileURL(for: personaId ?? activePersonaId)
+        let url = fileURL(for: personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId)
         let fm = FileManager.default
         guard !fm.fileExists(atPath: url.path) else { return }
         // Parent dir is created earlier by registerFileProviderDomain;
@@ -821,7 +835,7 @@ enum SoulStore {
     /// empty body, which callers may want to treat as missing.
     /// Defaults to the active session's persona.
     static func load(personaId: String? = nil) -> SoulFile? {
-        let url = fileURL(for: personaId ?? activePersonaId)
+        let url = fileURL(for: personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId)
         guard FileManager.default.fileExists(atPath: url.path),
               let data = try? Data(contentsOf: url),
               let str = String(data: data, encoding: .utf8) else { return nil }
@@ -839,7 +853,7 @@ enum SoulStore {
     /// Defaults to the active session's persona.
     @MainActor
     static func refreshCache(personaId: String? = nil) {
-        if let file = load(personaId: personaId ?? activePersonaId) {
+        if let file = load(personaId: personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId) {
             cachedMetadata = file.metadata
         } else {
             cachedMetadata = .default
@@ -851,7 +865,7 @@ enum SoulStore {
     /// Defaults to the active session's persona.
     @MainActor
     static func save(_ file: SoulFile, personaId: String? = nil) throws {
-        let url = fileURL(for: personaId ?? activePersonaId)
+        let url = fileURL(for: personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         let text = SoulMDParser.serialize(file)
@@ -862,7 +876,7 @@ enum SoulStore {
         // user's other devices. SoulV2 is the DEFAULT persona's singleton
         // record (recordId "soul"); a non-default persona's soul never
         // rides it — per-persona soul sync does not exist yet.
-        let resolvedPersonaId = personaId ?? activePersonaId
+        let resolvedPersonaId = personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId
         if resolvedPersonaId == PersonaStore.defaultPersonaId {
             Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
         }
@@ -1048,9 +1062,11 @@ enum SystemPromptBuilder {
     }
 
     /// Back-compat shorthand: the active session's persona. Prompt
-    /// assembly should prefer the explicit form above.
+    /// assembly should prefer the explicit form above. No active session
+    /// → the default persona's SOUL (the Settings-with-no-session case);
+    /// the chat path always passes its own persona explicitly.
     static func identitySection() -> String {
-        identitySection(personaId: activePersonaId)
+        identitySection(personaId: SoulStore.activePersonaId ?? PersonaStore.defaultPersonaId)
     }
 
     /// Drop lines that look like an attempt to subvert the system prompt.

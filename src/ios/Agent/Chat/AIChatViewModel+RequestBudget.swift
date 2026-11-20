@@ -92,7 +92,7 @@ extension AIChatViewModel {
         let sha = digest.map { String(format: "%02x", $0) }.joined()
         let attachmentsRoot = PersonaStore.sessionHostDir(
             for: sessionId,
-            personaId: PersonaStore.personaId(forSessionId: sessionId),
+            personaId: PersonaStore.personaIdForSessionDir(forSessionId: sessionId),
             host: "attachments"
         ).appendingPathComponent("spillover", isDirectory: true)
         do {
@@ -244,16 +244,16 @@ extension AIChatViewModel {
 
     /// Persistent storage directory for a specific session's workspace:
     /// <minis>/<personaId>/<sessionId>/workspace. Same persona rule as
-    /// minisOffloadsPersistentDir (cache default "default").
+    /// minisOffloadsPersistentDir (session-dir fallback).
     nonisolated static func minisWorkspacePersistentDir(for sid: String, personaId: String? = nil) -> URL {
-        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaId(forSessionId: sid))
+        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaIdForSessionDir(forSessionId: sid))
             .appendingPathComponent("workspace", isDirectory: true)
     }
 
     /// Persistent storage directory for a specific session's browser snapshots:
     /// <minis>/<personaId>/<sessionId>/browser. Same persona rule as above.
     nonisolated static func minisBrowserPersistentDir(for sid: String, personaId: String? = nil) -> URL {
-        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaId(forSessionId: sid))
+        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaIdForSessionDir(forSessionId: sid))
             .appendingPathComponent("browser", isDirectory: true)
     }
 
@@ -327,9 +327,11 @@ extension AIChatViewModel {
 
         // Primary: resolve via active session, nested under its persona.
         // The persona comes from the PersonaStore cache (populated at
-        // session load/create); a cache miss resolves to "default".
-        let personaId = PersonaStore.personaId(forSessionId: activeSessionId)
-        if let sid = activeSessionId {
+        // session load/create, warmed at launch). A cache miss is NIL —
+        // never "default" (items 1–2): the persona-dependent candidates
+        // below are skipped and only the global baselines are tried.
+        let personaId = PersonaStore.cachedPersonaId(forSessionId: activeSessionId)
+        if let sid = activeSessionId, let personaId {
             for subPath in subPaths {
                 let candidate = PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)
                     .appendingPathComponent(subPath)
@@ -348,11 +350,13 @@ extension AIChatViewModel {
         // (shared skills, by design). Shared keeps its flat dir as the
         // LIVE read/write runtime area (events.jsonl, together/,
         // heartbeat) — second after the persona namespace, never locked.
-        let personaDirs: [(String, URL)] = [
+        var personaDirs: [(String, URL)] = [
             ("skills", PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId)),
-            ("memory", PersonaStore.memoryDir(for: personaId)),
-            ("shared", PersonaStore.sharedDir(for: personaId)),
         ]
+        if let personaId {
+            personaDirs.append(("memory", PersonaStore.memoryDir(for: personaId)))
+            personaDirs.append(("shared", PersonaStore.sharedDir(for: personaId)))
+        }
         let baselineDirs: [(String, URL)] = [
             ("skills", minisSkillsPersistentDir),
             ("shared", minisSharedPersistentDir),
@@ -374,7 +378,7 @@ extension AIChatViewModel {
         // it silently returned another session's — and therefore another
         // persona's — file. A miss is now an explicit failure (nil), never
         // a silent cross-persona read. Callers surface it as an error.
-        logger.warning("[resolveMinisURL] no match host=\(host) sid=\(activeSessionId?.prefix(8) ?? "nil") persona=\(personaId.prefix(8)) — cross-session fallback removed, returning nil")
+        logger.warning("[resolveMinisURL] no match host=\(host) sid=\(activeSessionId?.prefix(8) ?? "nil") persona=\(personaId?.prefix(8) ?? "nil") — cross-session fallback removed, returning nil")
         return nil
     }
 

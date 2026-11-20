@@ -3,11 +3,20 @@
 //  MinisApp
 //
 //  Routes guest paths under /var/minis/{offloads,attachments,workspace,browser}
-//  to per-session host directories, guest paths under
-//  /var/minis/{memory,shared} to per-persona host directories, and guest
-//  paths under /var/minis/{skills,mcp-servers} to the single GLOBAL host
+//  to per-session host directories, guest paths under /var/minis/memory to
+//  the per-persona host directory, and guest paths under
+//  /var/minis/{skills,mcp-servers,shared} to the single GLOBAL host
 //  directories (skills and MCP servers are shared by all personas — user
 //  decision 2026-11-20), via the iSH fakefs path-translate hook.
+//  Shared routes to the FLAT shared/ dir (item 12): the flat dir is the
+//  live read/write runtime area (events.jsonl, together/, heartbeat) and
+//  the app side reads it persona-first-flat-after, so the guest must see
+//  the same flat area — routing it into shared/<pid>/ split every
+//  runtime file per session and hid the live area from the guest. A
+//  persona's own shared namespace stays reachable as a subdir:
+//  /var/minis/shared/<pid>/... maps to shared/<pid>/... (it is a subpath
+//  of the flat dir), and the app-side resolvers keep the persona-first
+//  order for reads.
 //
 //  Each session gets a unique fs_context token (u64) that is stamped on the
 //  task group spawned for that session. When the task (or any of its forked
@@ -23,12 +32,14 @@
 //  loads them from, i.e. skills/default/). mcp-servers lives under
 //  MinisConfig instead of the app group.
 //
-//  Shared routes to the persona namespace (shared/<personaId>/): new shared
-//  data written by a persona is namespaced there. The flat shared/ dir is
-//  NOT routed here and NOT locked — it is the live read/write runtime
-//  area (events.jsonl, together/, heartbeat) for host-side services, and
+//  Shared routes to the flat live area (see globalBuckets). The flat
+//  shared/ dir is NOT locked — it is the live read/write runtime area
+//  (events.jsonl, together/, heartbeat) for host-side services, and
 //  isolation for shared lives in resolution, not in a filesystem lock
-//  (see PersonaStore.isCrossPersonaSharedPath).
+//  (see PersonaStore.isCrossPersonaSharedPath). A persona's own
+//  namespace (shared/<pid>/) is a subdir of that flat area, reachable
+//  from the guest as /var/minis/shared/<pid>/..., and the app-side
+//  resolvers read persona-namespace-first, flat-after.
 //
 
 import Foundation
@@ -48,13 +59,13 @@ final class MinisFsRouter: @unchecked Sendable {
     /// Guest path prefixes that route per-persona (not per-session).
     /// Anything under one of these becomes <hostRoot>/[<personaPrefix>/]<personaId>/<tail>.
     /// Memory carries the "personas" prefix (memory/personas/<id>/ — the
-    /// runtime layout); shared keeps the direct <bucket>/<id>/ layout.
+    /// runtime layout). Shared is NOT here anymore (item 12): it routes
+    /// to the flat live area via globalBuckets below.
     /// These used to fall through to the legacy g_bind_mounts[] table,
     /// where the first session to mount won and every persona saw the
     /// same global files — that is the leak this isolation work closes.
     private let perPersonaBuckets: [(linuxPrefix: String, hostRoot: URL, personaPrefix: String)] = [
         (AIChatViewModel.minisMemoryLinuxDir,     AIChatViewModel.minisMemoryPersistentDir, "personas"),
-        (AIChatViewModel.minisSharedLinuxDir,     AIChatViewModel.minisSharedPersistentDir, ""),
     ]
 
     /// Guest path prefixes that route to a SINGLE global host dir, shared
@@ -63,10 +74,13 @@ final class MinisFsRouter: @unchecked Sendable {
     /// skills and the dir SkillStore loads from; a shell-created skill
     /// written anywhere else would never load. MCP servers route to the
     /// flat <mcp-servers>/ root, where the single global servers.json
-    /// lives (the same file MCPStore reads/writes).
+    /// lives (the same file MCPStore reads/writes). Shared routes to the
+    /// flat shared/ root (item 12) — the live runtime area — so the guest
+    /// sees the same events.jsonl / together/ / heartbeat the host does.
     private let globalBuckets: [(linuxPrefix: String, hostDir: URL)] = [
         (AIChatViewModel.minisSkillsLinuxDir,     PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId)),
         (AIChatViewModel.minisMcpServersLinuxDir, AIChatViewModel.minisMcpServersPersistentDir),
+        (AIChatViewModel.minisSharedLinuxDir,     AIChatViewModel.minisSharedPersistentDir),
     ]
 
     private let lock = NSLock()
@@ -74,8 +88,11 @@ final class MinisFsRouter: @unchecked Sendable {
     private var contextToSid: [UInt64: String] = [:]
     private var sidToContext: [String: UInt64] = [:]
     /// Persona captured when the context was issued (from the PersonaStore
-    /// cache — populated at session load/create, so this is always set by
-    /// the time a task spawns). A session's persona never changes.
+    /// cache — populated at session load/create and warmed at launch, so
+    /// this is set by the time a task spawns). A session's persona never
+    /// changes. No entry means the persona was unknown at issue time:
+    /// persona buckets then fail closed (nil) instead of resolving to
+    /// the default persona's files (items 1–2).
     private var contextToPersona: [UInt64: String] = [:]
 
     /// Host base URL (~/Library/MinisChat/minis). Captured once at install time.
@@ -96,7 +113,13 @@ final class MinisFsRouter: @unchecked Sendable {
         if nextContext == 0 { nextContext = 1 }   // never hand out 0 (= "no override")
         contextToSid[ctx] = sid
         sidToContext[sid] = ctx
-        contextToPersona[ctx] = PersonaStore.personaId(forSessionId: sid)
+        // Capture the persona only when known. A nil (cache miss — the
+        // session was never loaded and warmCache has not run) leaves no
+        // entry, and persona buckets then fail closed in hostPath instead
+        // of silently resolving to the default persona (items 1–2).
+        if let pid = PersonaStore.cachedPersonaId(forSessionId: sid) {
+            contextToPersona[ctx] = pid
+        }
         return ctx
     }
 
@@ -153,11 +176,16 @@ final class MinisFsRouter: @unchecked Sendable {
 
     private func hostPath(forGuest guestPath: String, sid: String, personaId: String? = nil) -> String? {
         // Persona for this session: explicit when the caller has it (the
-        // translate hook uses the context-captured value), else the cache
-        // ("default" on a miss).
-        let personaId = personaId ?? PersonaStore.personaId(forSessionId: sid)
+        // translate hook uses the context-captured value), else the cache.
+        // A nil persona fails CLOSED for per-session and per-persona
+        // buckets (return nil below) — never "default" (items 1–2). Only
+        // the global buckets (skills, mcp-servers, shared) resolve
+        // without a persona, because they have no persona component.
+        let personaId = personaId ?? PersonaStore.cachedPersonaId(forSessionId: sid)
         for bucket in perSessionBuckets {
             if let hit = matchBucket(guestPath, prefix: bucket.linuxPrefix) {
+                // Fail closed: no persona, no per-session path.
+                guard let personaId else { return nil }
                 return minisBaseURL
                     .appendingPathComponent(personaId, isDirectory: true)
                     .appendingPathComponent(sid, isDirectory: true)
@@ -167,6 +195,8 @@ final class MinisFsRouter: @unchecked Sendable {
         }
         for bucket in perPersonaBuckets {
             if let hit = matchBucket(guestPath, prefix: bucket.linuxPrefix) {
+                // Fail closed: no persona, no per-persona path.
+                guard let personaId else { return nil }
                 var url = bucket.hostRoot
                 if !bucket.personaPrefix.isEmpty {
                     url = url.appendingPathComponent(bucket.personaPrefix, isDirectory: true)

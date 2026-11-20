@@ -1757,12 +1757,17 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // keeps its flat live area, both after the persona dir.
         let globalDirs = ["memory", "skills", "shared"]
         if globalDirs.contains(host) {
-            let personaId = PersonaStore.personaId(forSessionId: activeSessionId)
-            let personaDirs: [(String, URL)] = [
-                ("memory", PersonaStore.memoryDir(for: personaId)),
+            // Unknown persona (cache miss) → skip the persona dirs and
+            // try only the global baselines below (items 1–2). Memory has
+            // no baseline, so it resolves to nil.
+            let personaId = PersonaStore.cachedPersonaId(forSessionId: activeSessionId)
+            var personaDirs: [(String, URL)] = [
                 ("skills", PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId)),
-                ("shared", PersonaStore.sharedDir(for: personaId)),
             ]
+            if let personaId {
+                personaDirs.append(("memory", PersonaStore.memoryDir(for: personaId)))
+                personaDirs.append(("shared", PersonaStore.sharedDir(for: personaId)))
+            }
             let baselineDirs: [(String, URL)] = [
                 ("skills", minisSkillsPersistentDir),
                 ("shared", minisSharedPersistentDir),
@@ -1776,7 +1781,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
 
         if let sid = activeSessionId {
-            let personaId = PersonaStore.personaId(forSessionId: sid)
+            let personaId = PersonaStore.cachedPersonaId(forSessionId: sid)
+            guard let personaId else { return nil }
             for subPath in subPaths {
                 let persistURL = PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)
                     .appendingPathComponent(subPath)
@@ -2029,9 +2035,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// Persona this session belongs to (sessions.persona_id). Resolved at
     /// load/create time from ChatStore and cached here and in
     /// PersonaStore's sync cache, so prompt assembly and static resolvers
-    /// never need an actor hop. "default" until the session loads — which
-    /// is also the correct value for every pre-existing session.
-    var personaId: String = PersonaStore.defaultPersonaId
+    /// never need an actor hop. EMPTY ("") until the session loads — a
+    /// VM that has not loaded a session must not resolve to "default"
+    /// (items 1–2): every resolver that uses this guards on non-empty
+    /// and fails closed, so an unloaded VM can never serve the default
+    /// persona's memory.
+    var personaId: String = ""
 
     /// The draft ID assigned by the parent view (e.g. "__new__<UUID>").
     /// Included in `.sessionDidCreate` notification so the parent can correlate.

@@ -153,9 +153,12 @@ extension BackupImporter {
 
         // Sessions before messages — restoreMessage requires the parent row.
         var restoredSessionIds: [String] = []
-        // Persona per restored session, from the package's own persona_id.
-        // The file-tree restore below is a sync closure, so it reads this
-        // map instead of awaiting ChatStore per session.
+        // Persona per restored session. The file-tree restore below is a
+        // sync closure, so it reads this map instead of awaiting ChatStore
+        // per session. It is filled from the PACKAGE here, then corrected
+        // from the DB after restore (see below) — the package's persona_id
+        // is stale for old packages (personaId=default) and wrong whenever
+        // the local row won LWW.
         var restoredPersonas: [String: String] = [:]
         struct SessionRecord: Codable {
             let session: ChatSession
@@ -216,11 +219,20 @@ extension BackupImporter {
         }
 
         // Session file trees: rebuild <pid>/<sid>/ wholesale (§8.3).
-        // The persona comes from the session rows restored above (the
-        // package's own persona_id); a tree for a session not in the
-        // package falls back to the PersonaStore cache, then "default".
-        // Restoring to the old flat <sid>/ would strand the files where
-        // no resolver looks anymore.
+        // Item 6: the persona comes from the DB, re-read AFTER restore
+        // above — never the package's stale persona_id. restoreSession
+        // applies LWW, so for .skippedLocalNewer the local row (and its
+        // real persona) wins; for .inserted/.updated the DB holds what was
+        // just written. Files land in the session's CURRENT persona in all
+        // branches. A tree for a session not in the package falls back to
+        // the session-dir fallback (its own bucket, never another
+        // persona's memory). Restoring to the old flat <sid>/ would strand
+        // the files where no resolver looks anymore.
+        for sid in restoredSessionIds {
+            let pid = await store.getPersonaId(sessionId: sid)
+            restoredPersonas[sid] = pid
+            PersonaStore.notePersonaId(pid, forSessionId: sid)
+        }
         let files = try restoreFileTree(
             root: root, fileIndex: fileIndex, category: .chats,
             destinationFor: { path in
@@ -229,7 +241,7 @@ extension BackupImporter {
                 guard parts.count >= 3, parts[0] == "chats" else { return nil }
                 let sid = parts[1]
                 let personaId = restoredPersonas[sid]
-                    ?? PersonaStore.personaId(forSessionId: sid)
+                    ?? PersonaStore.personaIdForSessionDir(forSessionId: sid)
                 return PersonaStore.sessionDir(for: sid, personaId: personaId)
                     .appendingPathComponent(parts[2])
             })

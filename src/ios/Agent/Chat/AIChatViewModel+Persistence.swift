@@ -208,6 +208,10 @@ extension AIChatViewModel {
         let resolvedPersonaId = await ChatStore.shared.getPersonaId(sessionId: sessionId)
         personaId = resolvedPersonaId
         PersonaStore.notePersonaId(resolvedPersonaId, forSessionId: sessionId)
+        // The Settings UI / minis-config edit this session's persona's
+        // SOUL (items 13/14) — keep the store's active-persona marker in
+        // step with the VM.
+        PersonaStore.activePersonaId = resolvedPersonaId
         // Keep the singleton stores on the same persona: their in-memory
         // lists (skills, MCP servers) back the Settings UI as well as
         // prompt assembly, and a session switch must not serve the old
@@ -1045,6 +1049,7 @@ extension AIChatViewModel {
         // persona_id = session id); it starts with empty memory/SOUL dirs.
         personaId = session.personaId
         PersonaStore.notePersonaId(session.personaId, forSessionId: session.id)
+        PersonaStore.activePersonaId = session.personaId
         // Fresh persona: the stores load its (empty) lists, not the
         // previous session's.
         SkillStore.shared.reload()

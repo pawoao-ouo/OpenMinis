@@ -9,7 +9,10 @@ extension AIChatViewModel {
     /// Load full global memory content for system prompt injection.
     /// Per-persona: reads memory/personas/<personaId>/GLOBAL.md only. A new persona
     /// has no GLOBAL.md yet, so this returns nil for it — by design.
+    /// An empty personaId (no session loaded) returns nil — never the
+    /// default persona's memory (items 1–2).
     nonisolated static func loadGlobalMemoryFragment(personaId: String) -> String? {
+        guard !personaId.isEmpty else { return nil }
         let globalFile = PersonaStore.globalMemoryFileURL(for: personaId)
         guard FileManager.default.fileExists(atPath: globalFile.path),
               let content = try? String(contentsOf: globalFile, encoding: .utf8),
@@ -19,15 +22,18 @@ extension AIChatViewModel {
     }
 
     /// Active-session shorthand — prompt assembly should prefer the
-    /// explicit personaId form above.
+    /// explicit personaId form above. Unknown active persona → nil
+    /// (items 1–2), never the default persona's memory.
     nonisolated static func loadGlobalMemoryFragment() -> String? {
-        loadGlobalMemoryFragment(personaId: PersonaStore.personaId(forSessionId: activeSessionId))
+        guard let pid = PersonaStore.personaIdForActiveSession() else { return nil }
+        return loadGlobalMemoryFragment(personaId: pid)
     }
 
     /// Load the 2 most recent daily memory logs that have content, for system prompt injection (first 100 lines each).
     /// Cut from 3×200 by decisions.md §3: the old 3×200 was the prime
     /// suspect for the ~8.5K unexplained first-round tokens (C2).
     nonisolated static func loadRecentDailyMemoryFragment(personaId: String) -> String? {
+        guard !personaId.isEmpty else { return nil }
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
         let fm = FileManager.default
@@ -72,9 +78,11 @@ extension AIChatViewModel {
     }
 
     /// Active-session shorthand — prompt assembly should prefer the
-    /// explicit personaId form above.
+    /// explicit personaId form above. Unknown active persona → nil
+    /// (items 1–2), never the default persona's memory.
     nonisolated static func loadRecentDailyMemoryFragment() -> String? {
-        loadRecentDailyMemoryFragment(personaId: PersonaStore.personaId(forSessionId: activeSessionId))
+        guard let pid = PersonaStore.personaIdForActiveSession() else { return nil }
+        return loadRecentDailyMemoryFragment(personaId: pid)
     }
 
     /// Execute a memory_write tool call: prepend a timestamped entry to today's daily log.
@@ -90,7 +98,13 @@ extension AIChatViewModel {
 
         let fm = FileManager.default
         // Per-persona: writes land in memory/personas/<personaId>/ only.
-        let personaId = PersonaStore.personaId(forSessionId: sessionId)
+        // Use the VM's own personaId (resolved at load/create) — the
+        // sync cache may not know this session yet. An empty personaId
+        // means this VM never loaded a session: refuse rather than
+        // writing into the default persona's memory (items 1–2).
+        guard !personaId.isEmpty else {
+            return FileToolResult(output: "Error: This chat has no session loaded, so there is no persona memory to write to.", success: false)
+        }
         let persistDir = PersonaStore.memoryDir(for: personaId)
         try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
 
@@ -176,7 +190,12 @@ extension AIChatViewModel {
         var filesToSearch: [(label: String, url: URL)] = []
         let fm = FileManager.default
         // Per-persona: memory_get only ever sees this persona's files.
-        let memDir = PersonaStore.memoryDir(for: PersonaStore.personaId(forSessionId: sessionId))
+        // Use the VM's own personaId (resolved at load/create). An empty
+        // personaId means no session loaded — nothing to search.
+        guard !personaId.isEmpty else {
+            return FileToolResult(output: "No memory files found.", success: true)
+        }
+        let memDir = PersonaStore.memoryDir(for: personaId)
 
         var globalEmpty = false
         if scope == "all" {

@@ -231,9 +231,10 @@ func resolveMinisFileURL(url: URL) -> URL? {
 
     // Primary: resolve via active session → persistent directory.
     // Session dirs are nested under their persona:
-    // <minis>/<personaId>/<sid>/<host>/.
-    if let sid = AIChatViewModel.activeSessionId {
-        let personaId = PersonaStore.personaId(forSessionId: sid)
+    // <minis>/<personaId>/<sid>/<host>/. Unknown persona (cache miss) →
+    // skip the session branch (items 1–2), never the default persona's.
+    if let sid = AIChatViewModel.activeSessionId,
+       let personaId = PersonaStore.cachedPersonaId(forSessionId: sid) {
         for subPath in subPaths {
             let persistURL = PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)
                 .appendingPathComponent(subPath)
@@ -250,13 +251,16 @@ func resolveMinisFileURL(url: URL) -> URL? {
     // them would leak them into every other persona's rendered media.
     // Skills is GLOBAL: skills/default/ first, then its flat baseline;
     // shared keeps its flat live area after the persona namespace.
-    // Mirrors resolveMinisURL's isolation rule.
-    let personaId = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
-    let personaDirs: [(subdir: String, url: URL)] = [
+    // Mirrors resolveMinisURL's isolation rule. Unknown persona →
+    // the memory/shared persona dirs are omitted (items 1–2).
+    let personaId = PersonaStore.cachedPersonaId(forSessionId: AIChatViewModel.activeSessionId)
+    var personaDirs: [(subdir: String, url: URL)] = [
         ("skills", PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId)),
-        ("memory", PersonaStore.memoryDir(for: personaId)),
-        ("shared", PersonaStore.sharedDir(for: personaId)),
     ]
+    if let personaId {
+        personaDirs.append(("memory", PersonaStore.memoryDir(for: personaId)))
+        personaDirs.append(("shared", PersonaStore.sharedDir(for: personaId)))
+    }
     let baselineDirs: [(subdir: String, url: URL)] = [
         ("skills", AIChatViewModel.minisSkillsPersistentDir),
         ("shared", AIChatViewModel.minisSharedPersistentDir),

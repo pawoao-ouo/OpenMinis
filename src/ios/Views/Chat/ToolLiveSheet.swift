@@ -747,14 +747,23 @@ struct ToolLiveSheet: View {
             let host = String(rest[rest.startIndex..<slashIdx])
             let subPath = String(rest[rest.index(after: slashIdx)...])
             guard !subPath.isEmpty else { return nil }
-            let personaId = PersonaStore.personaId(forSessionId: sid)
+            // Unknown persona (cache miss) → fail closed for the
+            // persona/session branches (items 1–2); skills and
+            // mcp-servers are global and resolve without a persona.
+            let personaId = PersonaStore.cachedPersonaId(forSessionId: sid)
             let bases: [URL]
             switch host {
-            case "memory": bases = [PersonaStore.memoryDir(for: personaId)]
+            case "memory":
+                guard let personaId else { return nil }
+                bases = [PersonaStore.memoryDir(for: personaId)]
             case "skills": bases = [PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId), AIChatViewModel.minisSkillsPersistentDir]
-            case "shared": bases = [PersonaStore.sharedDir(for: personaId), AIChatViewModel.minisSharedPersistentDir]
+            case "shared":
+                guard let personaId else { return nil }
+                bases = [PersonaStore.sharedDir(for: personaId), AIChatViewModel.minisSharedPersistentDir]
             case "mcp-servers": bases = [AIChatViewModel.minisMcpServersPersistentDir]
-            default: bases = [PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)]
+            default:
+                guard let personaId else { return nil }
+                bases = [PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)]
             }
             return bases.map { $0.appendingPathComponent(subPath) }
                 .first(where: { fm.fileExists(atPath: $0.path) })

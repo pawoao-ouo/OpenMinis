@@ -452,32 +452,43 @@ final class FileMentionIndex: ObservableObject {
         ]
     }
 
-    /// Persona-scoped roots for @-mentions. Resolves the session's persona
-    /// (cache lookup; "default" when unknown) and scans that persona's
-    /// shared/skills/memory dirs only — the flat legacy roots are never
+    /// Persona-scoped roots for @-mentions. The persona's own
+    /// shared/memory dirs are scanned only when the persona is known
+    /// (cache miss → omitted, never the default persona's — items 1–2),
+    /// plus the global skills dir and the FLAT shared live area
+    /// (events.jsonl, together/, heartbeat — item 11: the app side reads
+    /// shared persona-first-flat-after, so the index must cover the same
+    /// roots the resolvers do). The flat legacy memory root is never
     /// scanned, so one persona's files can't leak into another's menu.
     private static func sharedRoots(sessionId: String?) -> [ScanRoot] {
-        let pid = PersonaStore.personaId(forSessionId: sessionId)
-        return [
-            ScanRoot(
+        var roots: [ScanRoot] = []
+        if let pid = PersonaStore.cachedPersonaId(forSessionId: sessionId) {
+            roots.append(ScanRoot(
                 scope: .shared,
                 hostURL: PersonaStore.sharedDir(for: pid),
                 linuxPrefix: AIChatViewModel.minisSharedLinuxDir,
                 mountName: nil
-            ),
-            ScanRoot(
-                scope: .skills,
-                hostURL: PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId),
-                linuxPrefix: AIChatViewModel.minisSkillsLinuxDir,
-                mountName: nil
-            ),
-            ScanRoot(
+            ))
+            roots.append(ScanRoot(
                 scope: .memory,
                 hostURL: PersonaStore.memoryDir(for: pid),
                 linuxPrefix: AIChatViewModel.minisMemoryLinuxDir,
                 mountName: nil
-            ),
-        ]
+            ))
+        }
+        roots.append(ScanRoot(
+            scope: .skills,
+            hostURL: PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId),
+            linuxPrefix: AIChatViewModel.minisSkillsLinuxDir,
+            mountName: nil
+        ))
+        roots.append(ScanRoot(
+            scope: .shared,
+            hostURL: AIChatViewModel.minisSharedPersistentDir,
+            linuxPrefix: AIChatViewModel.minisSharedLinuxDir,
+            mountName: nil
+        ))
+        return roots
     }
 
     private static func mountRoots() -> [ScanRoot] {

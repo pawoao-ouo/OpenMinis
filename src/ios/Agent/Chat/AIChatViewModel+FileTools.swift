@@ -85,12 +85,19 @@ extension AIChatViewModel {
         // namespace, never locked (crosscheck-verdict §5).
         let bases: [URL]
         switch host {
-        case "memory": bases = [PersonaStore.memoryDir(for: personaId)]
+        case "memory":
+            // Fail closed: this VM has not loaded a session yet, so there
+            // is no persona to resolve to (items 1–2). An empty personaId
+            // must never fall through to the default persona's memory.
+            guard !personaId.isEmpty else { return nil }
+            bases = [PersonaStore.memoryDir(for: personaId)]
         case "skills": bases = [PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId), Self.minisSkillsPersistentDir]
-        case "shared": bases = [PersonaStore.sharedDir(for: personaId), Self.minisSharedPersistentDir]
+        case "shared":
+            guard !personaId.isEmpty else { return nil }
+            bases = [PersonaStore.sharedDir(for: personaId), Self.minisSharedPersistentDir]
         case "mcp-servers": bases = [Self.minisMcpServersPersistentDir]
         default:
-            guard let sid = sessionId else { return nil }
+            guard let sid = sessionId, !personaId.isEmpty else { return nil }
             bases = [PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)]
         }
         let subPaths = MinisURLPathDecoding.subPathCandidates(for: url)

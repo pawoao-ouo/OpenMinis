@@ -44,27 +44,102 @@ enum PersonaStore {
     /// profile, injected as "about the person you're talking to" — NOT a
     /// persona. Must be excluded whenever personas are enumerated.
     static let userProfilePersonaId = "me"
-    static let migrationFlagKey = "personaIsolation.migrationCompleted.v2"
+    /// v3: re-runs the migration on devices that ran v2, so the v2
+    /// skills-step bug (bundled skills copied into skills/default/,
+    /// shadowing bundled upgrades — DeepSeek item 9) gets cleaned up.
+    /// Steps are idempotent (target-missing guards), so a re-run is safe.
+    static let migrationFlagKey = "personaIsolation.migrationCompleted.v3"
 
     // MARK: - Identity
 
     /// In-memory persona cache, keyed by session id. Populated whenever a
-    /// session is loaded or created (AIChatViewModel load/create path) so
-    /// sync call sites (static resolveMinisURL, iSH routing) never need an
-    /// actor hop into ChatStore. A cache miss resolves to "default" — the
-    /// migrated legacy data — never to another persona's data.
+    /// session is loaded or created (AIChatViewModel load/create path) and
+    /// by warmCache() at launch (every DB session), so sync call sites
+    /// (static resolveMinisURL, iSH routing) never need an actor hop into
+    /// ChatStore. A cache miss returns NIL — never "default": resolving an
+    /// unknown session to the default persona would serve the default
+    /// persona's memory to a session that is not it (DeepSeek impl-review
+    /// items 1–2). Callers must fail closed on nil (skip the persona dir)
+    /// or resolve authoritatively via resolvePersonaId(forSessionId:).
+    /// Session-bucket paths (a session's OWN workspace/offloads) are the
+    /// only exception: they use personaIdForSessionDir, which mirrors the
+    /// DB's own fallback (ChatStore.getPersonaId returns "default" for
+    /// unknown/pre-migration rows), because a miss there can only strand
+    /// that session's own files, never another persona's memory.
     private static var cache: [String: String] = [:]
     private static let cacheLock = NSLock()
+    /// Set once warmCache() has noted every DB session. Until then, a
+    /// cache miss means "not loaded yet", not "default".
+    private static var cacheWarm = false
+    /// Persona of the session currently open in the UI, set by
+    /// loadSession/createSession alongside the VM's own personaId.
+    /// Nil when no session is active. This is the identity the
+    /// Settings UI and minis-config edit (items 13/14).
+    private static var _activePersonaId: String?
+
+    static var activePersonaId: String? {
+        get { cacheLock.lock(); defer { cacheLock.unlock() }; return _activePersonaId }
+        set { cacheLock.lock(); defer { cacheLock.unlock() }; _activePersonaId = newValue }
+    }
+
+    static var isCacheWarm: Bool {
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        return cacheWarm
+    }
 
     static func notePersonaId(_ personaId: String, forSessionId sid: String) {
         cacheLock.lock(); defer { cacheLock.unlock() }
         cache[sid] = personaId
     }
 
-    static func personaId(forSessionId sid: String?) -> String {
-        guard let sid else { return defaultPersonaId }
+    /// Sync cache lookup. Returns nil on a miss — callers must fail
+    /// closed (skip the persona dir) or use resolvePersonaId.
+    static func cachedPersonaId(forSessionId sid: String?) -> String? {
+        guard let sid else { return nil }
         cacheLock.lock(); defer { cacheLock.unlock() }
-        return cache[sid] ?? defaultPersonaId
+        return cache[sid]
+    }
+
+    /// Back-compat name for the sync lookup (same nil-on-miss rule).
+    static func personaId(forSessionId sid: String?) -> String? {
+        cachedPersonaId(forSessionId: sid)
+    }
+
+    /// Session-bucket fallback: cache, else the DB's own "default" for
+    /// unknown/pre-migration rows. Use ONLY for a session's own bucket
+    /// dirs (workspace/offloads/attachments/browser) — never for memory,
+    /// SOUL, logs, or shared.
+    static func personaIdForSessionDir(forSessionId sid: String?) -> String {
+        cachedPersonaId(forSessionId: sid) ?? defaultPersonaId
+    }
+
+    /// Authoritative resolution: cache, else the DB (which returns
+    /// "default" for unknown/pre-migration rows — the DB's own answer,
+    /// not a cache-miss guess), then note the cache.
+    static func resolvePersonaId(forSessionId sid: String) async -> String {
+        if let cached = cachedPersonaId(forSessionId: sid) { return cached }
+        let pid = await ChatStore.shared.getPersonaId(sessionId: sid)
+        notePersonaId(pid, forSessionId: sid)
+        return pid
+    }
+
+    /// Note every DB session's persona into the cache. Run at launch
+    /// (first step of migrateLegacyDataIfNeeded, before the flag check)
+    /// so the cache is complete before any session loads or shell runs.
+    static func warmCache() async {
+        let sessions = await ChatStore.shared.listSessions()
+        for session in sessions {
+            notePersonaId(session.personaId, forSessionId: session.id)
+        }
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        cacheWarm = true
+    }
+
+    /// Active session's persona: the stored value set at load/create,
+    /// else the cache lookup for the active session id. Nil when unknown.
+    static func personaIdForActiveSession() -> String? {
+        if let pid = activePersonaId { return pid }
+        return cachedPersonaId(forSessionId: AIChatViewModel.activeSessionId)
     }
 
     static func forgetSession(_ sid: String) {
@@ -180,9 +255,35 @@ enum PersonaStore {
         let first = rest.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
             .first.map(String.init) ?? ""
         guard !first.isEmpty, first != personaId else { return false }
-        // A first component that is a known persona id is a namespace;
-        // anything else (together/, state/, a file) is shared runtime area.
-        return knownPersonaIds().contains(first)
+        // A first component is a persona namespace when it is a known
+        // persona id OR it looks like one (a session id is a UUID;
+        // "default" and "me" are the two named ids). knownPersonaIds()
+        // only covers personas this process has opened or that have a
+        // memory dir, so it cannot be the test — a never-opened persona's
+        // namespace must still be denied (DeepSeek item 5). Anything else
+        // (together/, state/, a user-created subdir, a file) is shared
+        // runtime area.
+        if knownPersonaIds().contains(first) { return true }
+        return isPersonaNamespaceComponent(first)
+    }
+
+    /// True when `component` looks like a persona namespace: "default",
+    /// "me", or a UUID-shaped session id (personas ARE sessions — a new
+    /// session's persona id IS its session id). Used by the
+    /// cross-persona shared-write guard so an unknown persona's
+    /// namespace is denied even when this process has never seen it.
+    static func isPersonaNamespaceComponent(_ component: String) -> Bool {
+        if component == defaultPersonaId || component == userProfilePersonaId { return true }
+        // UUID: 8-4-4-4-12 hex, case-insensitive.
+        guard component.count == 36 else { return false }
+        let parts = component.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 5,
+              parts[0].count == 8, parts[1].count == 4, parts[2].count == 4,
+              parts[3].count == 4, parts[4].count == 12 else { return false }
+        let hexDigits = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+        return parts.allSatisfy { part in
+            !part.isEmpty && part.unicodeScalars.allSatisfy { hexDigits.contains($0) }
+        }
     }
 
     /// Per-session bucket root: <minis>/<personaId>/<sessionId>/
@@ -248,10 +349,24 @@ enum PersonaStore {
     /// Must be called once at app launch (MinisApp), before any session
     /// loads: it needs ChatStore (actor) for session→persona lookups.
     static func migrateLegacyDataIfNeeded() async {
+        // Warm the persona cache first, on every launch — even when the
+        // migration already ran — so sync resolvers never see a
+        // "not loaded yet" cache (items 1–2). loadSession also awaits
+        // this task, so the cache is complete before any prompt builds.
+        await warmCache()
         let defaults = UserDefaults.standard
         if defaults.bool(forKey: migrationFlagKey) { return }
         let fm = FileManager.default
         let legacyMemory = AIChatViewModel.minisMemoryPersistentDir
+        // Item 7: the flag is set ONLY when every step below succeeded.
+        // A failed step leaves the flag clear so the next launch retries
+        // it instead of permanently abandoning the data. Steps are
+        // idempotent (target-missing guards), so a retry is safe.
+        var allStepsOK = true
+        func fail(_ step: String, _ error: Error) {
+            allStepsOK = false
+            AppLogger(category: "PersonaMigration").error("[PersonaMigration] step \(step) FAILED: \(error.localizedDescription) — will retry on next launch")
+        }
 
         // 1. Memory + SOUL: copy flat files into memory/personas/default/.
         //    SOUL.md at the root is copied only when personas/default/
@@ -259,96 +374,154 @@ enum PersonaStore {
         let defaultDir = memoryDir(for: defaultPersonaId)
         do {
             try fm.createDirectory(at: defaultDir, withIntermediateDirectories: true)
-            if let entries = try? fm.contentsOfDirectory(
-                at: legacyMemory, includingPropertiesForKeys: nil
-            ) {
+            if fm.fileExists(atPath: legacyMemory.path) {
+                let entries = try fm.contentsOfDirectory(
+                    at: legacyMemory, includingPropertiesForKeys: nil
+                )
                 for src in entries where src.pathExtension == "md" {
                     let dst = defaultDir.appendingPathComponent(src.lastPathComponent)
                     if !fm.fileExists(atPath: dst.path) {
-                        try? fm.copyItem(at: src, to: dst)
+                        do { try fm.copyItem(at: src, to: dst) } catch { fail("1-memory", error) }
                     }
                 }
             }
-        }
+        } catch { fail("1-memory", error) }
 
         // 1a. v1 layout: memory/<personaId>/*.md → memory/personas/<personaId>/.
         //     The "personas" container itself is skipped; every other direct
         //     subdir is a v1 persona dir. Target-missing guard: a file the
         //     runtime already placed in personas/<id>/ is never overwritten.
-        if let entries = try? fm.contentsOfDirectory(
-            at: legacyMemory, includingPropertiesForKeys: [.isDirectoryKey]
-        ) {
-            for dir in entries where dir.lastPathComponent != "personas" {
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
-                let personaId = dir.lastPathComponent
-                let dstDir = memoryDir(for: personaId)
-                do {
-                    try fm.createDirectory(at: dstDir, withIntermediateDirectories: true)
-                    if let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+        if fm.fileExists(atPath: legacyMemory.path) {
+            do {
+                let entries = try fm.contentsOfDirectory(
+                    at: legacyMemory, includingPropertiesForKeys: [.isDirectoryKey]
+                )
+                for dir in entries where dir.lastPathComponent != "personas" {
+                    var isDir: ObjCBool = false
+                    guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                    let personaId = dir.lastPathComponent
+                    let dstDir = memoryDir(for: personaId)
+                    do {
+                        try fm.createDirectory(at: dstDir, withIntermediateDirectories: true)
+                        let files = try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
                         for src in files where src.pathExtension == "md" {
                             let dst = dstDir.appendingPathComponent(src.lastPathComponent)
                             if !fm.fileExists(atPath: dst.path) {
-                                try? fm.copyItem(at: src, to: dst)
+                                do { try fm.copyItem(at: src, to: dst) } catch { fail("1a-v1", error) }
                             }
                         }
-                    }
+                    } catch { fail("1a-v1", error) }
                 }
-            }
+            } catch { fail("1a-v1", error) }
         }
 
-        // 1b. Skills: copy flat user skill dirs into skills/default/ so
-        // the default persona keeps them. (loadSkills only falls back to
-        // the flat baseline for BUNDLED skills; user skills must live in
-        // the persona dir to load.) Bundled skills stay in the baseline.
+        // 1b. Skills: copy flat USER skill dirs into skills/default/ so
+        // the default persona keeps them. Bundled skills are NEVER copied
+        // (item 9): they live in the flat baseline and installBundledSkills
+        // upgrades them there; a copy in skills/default/ would shadow the
+        // upgrade forever (dirForSkill prefers the user dir when its
+        // SKILL.md exists). Bundled ids come from the skills DB
+        // (importSource == .bundled). A stale bundled copy left by the v2
+        // migration is removed ONLY when it is byte-identical to the flat
+        // baseline copy — a user edit (any difference) is kept.
         // MCP needs no copy: MCPStore falls back to the flat baseline.
         // Shared needs no copy: flat shared/ is the live read/write
         // runtime area (events.jsonl, together/, heartbeat) — it is not
         // a baseline to copy from, and it is not locked read-only.
         let legacySkills = AIChatViewModel.minisSkillsPersistentDir
         let defaultSkills = skillsDir(for: defaultPersonaId)
+        let bundledIds: Set<String> = await MainActor.run {
+            Set(SkillStore.shared.skills
+                .filter { $0.importSource == .bundled }
+                .map { $0.id })
+        }
         do {
             try fm.createDirectory(at: defaultSkills, withIntermediateDirectories: true)
-            if let entries = try? fm.contentsOfDirectory(
-                at: legacySkills, includingPropertiesForKeys: [.isDirectoryKey]
-            ) {
+            if fm.fileExists(atPath: legacySkills.path) {
+                let entries = try fm.contentsOfDirectory(
+                    at: legacySkills, includingPropertiesForKeys: [.isDirectoryKey]
+                )
                 for src in entries {
                     var isDir: ObjCBool = false
                     guard fm.fileExists(atPath: src.path, isDirectory: &isDir), isDir.boolValue else { continue }
-                    let dst = defaultSkills.appendingPathComponent(src.lastPathComponent)
+                    let name = src.lastPathComponent
+                    let dst = defaultSkills.appendingPathComponent(name)
+                    if bundledIds.contains(name) {
+                        if fm.fileExists(atPath: dst.path), dirsAreIdentical(src, dst) {
+                            do { try fm.removeItem(at: dst) } catch { fail("1b-skills", error) }
+                        }
+                        continue
+                    }
                     if !fm.fileExists(atPath: dst.path) {
-                        try? fm.copyItem(at: src, to: dst)
+                        do { try fm.copyItem(at: src, to: dst) } catch { fail("1b-skills", error) }
                     }
                 }
             }
-        }
+        } catch { fail("1b-skills", error) }
 
         // 2. Flat per-session dirs: <minis>/<sid>/ → <minis>/<pid>/<sid>/.
         //    A dir is treated as a flat session dir when ChatStore knows the
         //    session id; persona dirs themselves are session ids too, so the
         //    flag guard above is what prevents a second pass from re-moving.
         let base = AIChatViewModel.minisPersistentBase
-        if let entries = try? fm.contentsOfDirectory(
-            at: base, includingPropertiesForKeys: [.isDirectoryKey]
-        ) {
-            for dir in entries {
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
-                let sid = dir.lastPathComponent
-                let personaId = await ChatStore.shared.getPersonaId(sessionId: sid)
-                // Unknown dir (not a session): leave it alone.
-                guard await ChatStore.shared.getSession(sid) != nil else { continue }
-                let target = sessionDir(for: sid, personaId: personaId)
-                if !fm.fileExists(atPath: target.path) {
-                    try? fm.createDirectory(
-                        at: target.deletingLastPathComponent(),
-                        withIntermediateDirectories: true
-                    )
-                    try? fm.moveItem(at: dir, to: target)
+        if fm.fileExists(atPath: base.path) {
+            do {
+                let entries = try fm.contentsOfDirectory(
+                    at: base, includingPropertiesForKeys: [.isDirectoryKey]
+                )
+                for dir in entries {
+                    var isDir: ObjCBool = false
+                    guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                    let sid = dir.lastPathComponent
+                    // Unknown dir (not a session): leave it alone.
+                    guard await ChatStore.shared.getSession(sid) != nil else { continue }
+                    let personaId = await ChatStore.shared.getPersonaId(sessionId: sid)
+                    let target = sessionDir(for: sid, personaId: personaId)
+                    if !fm.fileExists(atPath: target.path) {
+                        do {
+                            try fm.createDirectory(
+                                at: target.deletingLastPathComponent(),
+                                withIntermediateDirectories: true
+                            )
+                            try fm.moveItem(at: dir, to: target)
+                        } catch { fail("2-session-dirs", error) }
+                    }
                 }
-            }
+            } catch { fail("2-session-dirs", error) }
         }
 
-        defaults.set(true, forKey: migrationFlagKey)
+        // Item 7: only mark the migration done when every step succeeded.
+        // A failure leaves the flag clear so the next launch retries.
+        if allStepsOK {
+            defaults.set(true, forKey: migrationFlagKey)
+        }
+    }
+
+    /// Byte-identical directory comparison (recursive, name set + file
+    /// bytes). Used by step 1b to tell the v2 migration's own stale
+    /// bundled-skill copy apart from a user's edit of that skill.
+    private static func dirsAreIdentical(_ a: URL, _ b: URL) -> Bool {
+        let fm = FileManager.default
+        guard let aFiles = try? fm.contentsOfDirectory(atPath: a.path),
+              let bFiles = try? fm.contentsOfDirectory(atPath: b.path),
+              Set(aFiles) == Set(bFiles) else { return false }
+        for name in aFiles {
+            let aURL = a.appendingPathComponent(name)
+            let bURL = b.appendingPathComponent(name)
+            var aIsDir: ObjCBool = false, bIsDir: ObjCBool = false
+            guard fm.fileExists(atPath: aURL.path, isDirectory: &aIsDir),
+                  fm.fileExists(atPath: bURL.path, isDirectory: &bIsDir),
+                  aIsDir.boolValue == bIsDir.boolValue else { return false }
+            if aIsDir.boolValue {
+                guard dirsAreIdentical(aURL, bURL) else { return false }
+            } else {
+                // An unreadable file is NOT identical — never remove a
+                // copy we could not verify byte-for-byte.
+                guard let aData = try? Data(contentsOf: aURL),
+                      let bData = try? Data(contentsOf: bURL),
+                      aData == bData else { return false }
+            }
+        }
+        return true
     }
 }

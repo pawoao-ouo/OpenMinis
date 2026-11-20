@@ -609,7 +609,7 @@ extension AIChatViewModel {
     private func cleanupMinis(for sid: String) {
         let fm = FileManager.default
         let persistDir = PersonaStore.sessionDir(
-            for: sid, personaId: PersonaStore.personaId(forSessionId: sid))
+            for: sid, personaId: PersonaStore.personaIdForSessionDir(forSessionId: sid))
         try? fm.removeItem(at: persistDir)
     }
 
@@ -681,29 +681,35 @@ extension AIChatViewModel {
         let minisDataDir = dataPath.appendingPathComponent("var/minis")
         try? fm.createDirectory(at: minisDataDir, withIntermediateDirectories: true)
 
-        // Multi-persona isolation: the memory/shared symlinks point at
-        // THIS session's persona dirs, not the flat legacy roots —
-        // memory/personas/<pid>/, shared/<pid>/ (the persona namespace).
-        // Skills and mcp-servers are GLOBAL (user decision 2026-11-20):
-        // skills points at skills/default/ (the dir SkillStore loads
-        // from) and mcp-servers at the flat root (where the single global
-        // servers.json lives), the same dirs the router serves.
+        // Multi-persona isolation: the memory symlink points at THIS
+        // session's persona dir — memory/personas/<pid>/ — never the flat
+        // legacy root. The shared symlink points at the FLAT shared/ dir
+        // (item 12, matching the router): the flat dir is the live
+        // read/write runtime area (events.jsonl, together/, heartbeat),
+        // and the persona namespace is a subdir of it, reachable from the
+        // browser as shared/<pid>/. Skills and mcp-servers are GLOBAL
+        // (user decision 2026-11-20): skills points at skills/default/
+        // (the dir SkillStore loads from) and mcp-servers at the flat root
+        // (where the single global servers.json lives), the same dirs the
+        // router serves.
         // (The shell's runtime view is the MinisFsRouter, not these
         // symlinks; these only feed the file browser — but the browser
-        // must show the same persona the router serves.) The flat
-        // shared/ dir keeps its own live read/write life for host-side
-        // runtime services; the symlink shows the persona namespace.
-        let pid = PersonaStore.personaId(forSessionId: sid)
-        let mappings: [(persistDir: URL, linuxDir: String)] = [
+        // must show the same persona the router serves.) When the persona
+        // is unknown (cache miss), the memory symlink is skipped rather
+        // than pointed at the default persona — fail closed (items 1–2).
+        let pid = PersonaStore.cachedPersonaId(forSessionId: sid)
+        var mappings: [(persistDir: URL, linuxDir: String)] = [
             (Self.minisOffloadsPersistentDir(for: sid), Self.minisOffloadsLinuxDir),
             (Self.minisAttachmentsPersistentDir(for: sid), Self.minisAttachmentsLinuxDir),
             (Self.minisWorkspacePersistentDir(for: sid), Self.minisWorkspaceLinuxDir),
             (Self.minisBrowserPersistentDir(for: sid), Self.minisBrowserLinuxDir),
-            (PersonaStore.memoryDir(for: pid), Self.minisMemoryLinuxDir),
+            (Self.minisSharedPersistentDir, Self.minisSharedLinuxDir),
             (PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId), Self.minisSkillsLinuxDir),
-            (PersonaStore.sharedDir(for: pid), Self.minisSharedLinuxDir),
             (Self.minisMcpServersPersistentDir, Self.minisMcpServersLinuxDir),
         ]
+        if let pid {
+            mappings.insert((PersonaStore.memoryDir(for: pid), Self.minisMemoryLinuxDir), at: 4)
+        }
 
         for (persistDir, linuxDir) in mappings {
             try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)

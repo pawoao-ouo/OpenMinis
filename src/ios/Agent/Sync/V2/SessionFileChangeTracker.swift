@@ -128,7 +128,7 @@ actor SessionFileChangeTracker {
     /// host-FS mtime resolution. Also covers cases where the kernel
     /// flushes mtime slightly *before* we record the open (very tight
     /// schedule races).
-    func drainAllWithMtimeFilter() -> [String: [String: Change]] {
+    func drainAllWithMtimeFilter() async -> [String: [String: Change]] {
         guard !pending.isEmpty else { return [:] }
         var drained: [String: [String: Change]] = [:]
         var keptCount = 0
@@ -150,8 +150,13 @@ actor SessionFileChangeTracker {
                 // <minis>/<sid>/<rel> no longer exists, so the mtime
                 // lookup below would miss every file and the filter
                 // would drain all changes unfiltered.
+                // Item 3: resolve the persona authoritatively from the
+                // DB, not from the memory-only cache — this tracker
+                // runs for NON-current sessions too, and a cache miss
+                // used to resolve them to minis/default/<sid>/...
+                let personaId = await ChatStore.shared.getPersonaId(sessionId: sid)
                 let hostURL = PersonaStore.sessionDir(
-                    for: sid, personaId: PersonaStore.personaId(forSessionId: sid))
+                    for: sid, personaId: personaId)
                     .appendingPathComponent(rel)
                 let attrs = try? FileManager.default.attributesOfItem(atPath: hostURL.path)
                 guard let mtime = attrs?[.modificationDate] as? Date else {

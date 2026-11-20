@@ -129,12 +129,12 @@ extension AIChatViewModel {
 
     /// Persistent storage directory for a specific session's offloads:
     /// <minis>/<personaId>/<sessionId>/offloads. The personaId defaults
-    /// to the PersonaStore cache (populated at session load/create); pass
-    /// it explicitly from call sites that already know it. A cache miss
-    /// resolves to "default", which is correct for every pre-existing
-    /// session and never another persona's dir.
+    /// to the PersonaStore session-dir fallback (cache, else the DB's
+    /// "default" for unknown rows — a miss here can only strand this
+    /// session's own files, never another persona's memory); pass it
+    /// explicitly from call sites that already know it.
     nonisolated static func minisOffloadsPersistentDir(for sid: String, personaId: String? = nil) -> URL {
-        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaId(forSessionId: sid))
+        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaIdForSessionDir(forSessionId: sid))
             .appendingPathComponent("offloads", isDirectory: true)
     }
 
@@ -142,7 +142,7 @@ extension AIChatViewModel {
     /// <minis>/<personaId>/<sessionId>/attachments. Same persona rule as
     /// minisOffloadsPersistentDir above.
     nonisolated static func minisAttachmentsPersistentDir(for sid: String, personaId: String? = nil) -> URL {
-        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaId(forSessionId: sid))
+        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaIdForSessionDir(forSessionId: sid))
             .appendingPathComponent("attachments", isDirectory: true)
     }
 

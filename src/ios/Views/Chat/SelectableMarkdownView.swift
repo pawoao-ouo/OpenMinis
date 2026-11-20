@@ -9097,8 +9097,9 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
     // under their persona: <minis>/<personaId>/<sid>/<host>/ — the old
     // flat <minis>/<sid>/ path was moved by the isolation work and no
     // longer exists, so resolving it here would miss every session file.
-    if let sid = AIChatViewModel.activeSessionId {
-        let personaId = PersonaStore.personaId(forSessionId: sid)
+    // Unknown persona (cache miss) → skip the session branch (items 1–2).
+    if let sid = AIChatViewModel.activeSessionId,
+       let personaId = PersonaStore.cachedPersonaId(forSessionId: sid) {
         for subPath in subPaths {
             let persistURL = PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)
                 .appendingPathComponent(subPath)
@@ -9111,7 +9112,7 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
         }
         imgLogger.info("[MinisImage][Resolve] NOT in active session=\(sid)")
     } else {
-        imgLogger.info("[MinisImage][Resolve] no active session — skipping session lookup")
+        imgLogger.info("[MinisImage][Resolve] no active session or unknown persona — skipping session lookup")
     }
 
     // Persona namespaces (memory/shared, not session-scoped) plus the
@@ -9120,8 +9121,9 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
     // back to them would leak them into every other persona's rendered
     // images — the same rule as resolveMinisURL. Skills is GLOBAL:
     // skills/default/ first, then its flat dir as a read-only baseline,
-    // matching resolveMinisURL.
-    let personaId = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
+    // matching resolveMinisURL. Unknown persona → the memory/shared
+    // persona dirs are omitted (items 1–2); skills still resolves.
+    let personaId = PersonaStore.cachedPersonaId(forSessionId: AIChatViewModel.activeSessionId)
     if host == "skills" {
         for subPath in subPaths {
             for base in [PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId), AIChatViewModel.minisSkillsPersistentDir] {
@@ -9134,7 +9136,7 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
                 }
             }
         }
-    } else if host == "memory" {
+    } else if host == "memory", let personaId {
         for subPath in subPaths {
             let candidate = PersonaStore.memoryDir(for: personaId).appendingPathComponent(subPath)
             imgLogger.info("[MinisImage][Resolve] checking persona memory path=\(candidate.path)")
@@ -9145,8 +9147,13 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
             }
         }
     } else if host == "shared" {
+        // Persona namespace first, flat live area after (items 1–2, 12).
+        // Unknown persona → flat live area only.
+        var sharedBases: [URL] = []
+        if let personaId { sharedBases.append(PersonaStore.sharedDir(for: personaId)) }
+        sharedBases.append(AIChatViewModel.minisSharedPersistentDir)
         for subPath in subPaths {
-            for base in [PersonaStore.sharedDir(for: personaId), AIChatViewModel.minisSharedPersistentDir] {
+            for base in sharedBases {
                 let candidate = base.appendingPathComponent(subPath)
                 imgLogger.info("[MinisImage][Resolve] checking shared path=\(candidate.path)")
                 if fm.fileExists(atPath: candidate.path) {
