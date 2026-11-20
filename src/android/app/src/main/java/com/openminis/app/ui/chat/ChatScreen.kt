@@ -534,6 +534,18 @@ fun ChatScreen(
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    // Multi-persona isolation: derive the memory repo for THIS session's
+    // persona (memory/personas/<id>/) from the app-level repo's null
+    // contract — null stays null (previews / memory disabled), non-null
+    // is re-scoped per session. The derived repo feeds the factory,
+    // the memory-menu null check and the memory sheet below.
+    val sessionMemoryRepository = remember(sessionId, memoryRepository) {
+        memoryRepository?.let {
+            com.openminis.app.data.PersonaStore.memoryRepositoryForSession(
+                context.applicationContext, sessionId,
+            )
+        }
+    }
     // Scoped to a process-level per-session ViewModelStore (ChatViewModelStore)
     // so the ViewModel and its viewModelScope survive:
     //   - configuration changes (rotation — NavBackStackEntry still alive)
@@ -546,7 +558,7 @@ fun ChatScreen(
             chatRepository = chatRepository,
             providerRepository = providerRepository,
             appContext = context.applicationContext,
-            memoryRepository = memoryRepository,
+            memoryRepository = sessionMemoryRepository,
             skillRepository = skillRepository,
             mcpRepository = mcpRepository,
         ),
@@ -2973,7 +2985,7 @@ fun ChatScreen(
                                 )
                             }
                             // Session Memory (iOS parity)
-                            if (memoryRepository != null && menuMemoryEnabled) {
+                            if (sessionMemoryRepository != null && menuMemoryEnabled) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.session_memory_title)) },
                                     onClick = {
@@ -6807,9 +6819,9 @@ fun ChatScreen(
     }
 
     // Memory bottom sheet
-    if (showMemorySheet && memoryRepository != null) {
+    if (showMemorySheet && sessionMemoryRepository != null) {
         SessionMemorySheet(
-            memoryRepository = memoryRepository,
+            memoryRepository = sessionMemoryRepository,
             toolRecords = memoryToolRecords,
             onDismiss = { viewModel.dismissMemorySheet() },
             onRevokeRecord = { record -> viewModel.revokeMemoryRecord(record) },
