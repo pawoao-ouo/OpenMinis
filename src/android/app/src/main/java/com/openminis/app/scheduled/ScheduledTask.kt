@@ -108,6 +108,17 @@ data class ScheduledTask(
     val customDays: Set<Int> = emptySet(),   // Calendar.DAY_OF_WEEK values when repeatMode=CUSTOM
     val prompt: String,
     val targetMode: ScheduledTargetMode = ScheduledTargetMode.NewSession,
+    /**
+     * Multi-persona isolation (crosscheck-verdict §3): the persona this
+     * task runs under. A task fires under its stored personaId — never
+     * derived back from the session it lands in. The manager stamps it
+     * on create (the target session's persona for APPEND_TO/RERUN, the
+     * creator session's persona — or "legacy" when there is none — for
+     * NEW_SESSION). Null = pre-isolation task: the store migration
+     * backfills it from targetMode.sessionIdOrNull, or "legacy" when
+     * there is no target session.
+     */
+    val personaId: String? = null,
     val modelId: String? = null,             // null → use app default (or fall back from modelBinding's resolved entry)
     // [T-android-scheduled-task-model-binding] Mirrors ChatSessionEntity.modelBinding.
     // JSON: `{"type":"group","groupId":"..."}` or `{"type":"entry","entryId":"..."}`
@@ -212,6 +223,7 @@ data class ScheduledTask(
         put("customDays", customDays.joinToString(","))
         put("prompt", prompt)
         put("targetMode", targetMode.encode())
+        if (personaId != null) put("personaId", personaId)
         if (modelId != null) put("modelId", modelId)
         if (modelBinding != null) put("modelBinding", modelBinding)
         put("enabled", enabled)
@@ -242,6 +254,7 @@ data class ScheduledTask(
                 .split(',').mapNotNull { it.trim().toIntOrNull() }.toSet(),
             prompt = o.optString("prompt", ""),
             targetMode = ScheduledTargetMode.decode(o.optString("targetMode", null)),
+            personaId = if (o.has("personaId")) o.optString("personaId", null) else null,
             modelId = if (o.has("modelId")) o.optString("modelId", null) else null,
             modelBinding = if (o.has("modelBinding")) o.optString("modelBinding", null) else null,
             enabled = o.optBoolean("enabled", true),
