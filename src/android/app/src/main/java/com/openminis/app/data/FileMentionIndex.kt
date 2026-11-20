@@ -42,6 +42,15 @@ class FileMentionIndex(
     private val mountsProvider: () -> List<MountEntry> = { emptyList() },
     private val cacheTtlMs: Long = DEFAULT_CACHE_TTL_MS,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    /**
+     * Maps a session id to its persona id. Production passes
+     * PersonaStore.personaIdForSession (a new session is its own
+     * persona; pre-migration sessions resolve to "default"). The
+     * default (identity) is only for tests / call sites without a
+     * persona store — it must never be used in production, where a
+     * legacy session would then scan its own (empty) persona dir.
+     */
+    private val personaIdProvider: (String) -> String = { it },
 ) {
     constructor(context: Context) : this(File(context.filesDir, "minis-global"))
 
@@ -129,13 +138,20 @@ class FileMentionIndex(
                 publish(token, collected)
             }
 
-            // Layer 2: shared roots.
+            // Layer 2: shared roots. MEMORY is scoped to THIS session's
+            // persona dir (memory/personas/<id>/) — scanning the whole
+            // memory/ tree would surface other personas' GLOBAL.md and
+            // daily logs in @-mentions. Skills keeps its flat dir as the
+            // shared baseline; shared keeps its flat live area.
             layerEntries(
                 sessionId = sessionId,
                 layers = listOf(
                     File(filesDir, "shared") to Scope.SHARED,
                     File(filesDir, "skills") to Scope.SKILLS,
-                    File(filesDir, "memory") to Scope.MEMORY,
+                    File(
+                        filesDir,
+                        "memory/personas/${personaIdProvider(sessionId)}",
+                    ) to Scope.MEMORY,
                 ),
                 linuxRootFor = { scope -> "/var/minis/${scope.displayLabel}" },
             ).let { newBatch ->
