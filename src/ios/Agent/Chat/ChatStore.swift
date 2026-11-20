@@ -53,6 +53,11 @@ struct ChatSession: Identifiable, Codable, Hashable {
     var remoteDeviceName: String? // human-readable name of the remote device
     var pinnedAt: Date?       // non-nil if session is pinned; timestamp of when it was pinned
     var folderId: String?     // non-nil if filed into a folder; NULL = ungrouped
+    /// Persona this session belongs to. Multi-persona isolation: a new
+    /// session is its own persona (personaId == session id); rows predating
+    /// this column read back "default" and share the migrated legacy data
+    /// at memory/default/. Fork/duplicate inherit the source session's id.
+    var personaId: String = "default"
 
     /// Whether this session is from a remote device (read-only).
     var isRemote: Bool { remoteDeviceId != nil }
@@ -92,6 +97,7 @@ struct ChatSession: Identifiable, Codable, Hashable {
             // without this the sidebar would keep rendering the row in its old
             // section until some unrelated mutation bumped the diff.
             && lhs.folderId == rhs.folderId
+            && lhs.personaId == rhs.personaId
             && lhs.title == rhs.title
             && lhs.category == rhs.category
             && lhs.source == rhs.source
@@ -589,7 +595,8 @@ actor ChatStore {
                 title       TEXT,
                 model_id    TEXT NOT NULL,
                 created_at  REAL NOT NULL,
-                updated_at  REAL NOT NULL
+                updated_at  REAL NOT NULL,
+                persona_id  TEXT NOT NULL DEFAULT 'default'
             )
         """)
 
@@ -631,6 +638,11 @@ actor ChatStore {
         // leaves references behind). Such orphans render as ungrouped rather
         // than failing a constraint — see foldersById callers in ContentView.
         addColumnIfMissing(table: "sessions", column: "folder_id", definition: "TEXT")
+        // Multi-persona isolation: persona_id also lives in the CREATE TABLE
+        // DDL above, per the add-column wipe trap (a new column must exist in
+        // BOTH places). Existing rows backfill to 'default' via the SQL
+        // DEFAULT, so they keep reading the migrated legacy data.
+        addColumnIfMissing(table: "sessions", column: "persona_id", definition: "TEXT NOT NULL DEFAULT 'default'")
         // Folder pinning (mirrors sessions.pinned_at). Also present in the
         // CREATE TABLE DDL above — per the add-column wipe trap, a new column
         // must exist in BOTH the initial DDL and the idempotent migration.
@@ -1026,14 +1038,19 @@ actor ChatStore {
     func createSession(modelId: String, title: String? = nil, source: String? = nil) -> ChatSession {
         invalidateSessionListCache()
         let now = Date()
+        // Multi-persona isolation: a new session is its own persona, so its
+        // persona_id is its own id. It starts with empty memory/SOUL dirs —
+        // a brand-new persona inherits nothing from any other persona.
+        let newId = UUID().uuidString
         let session = ChatSession(
-            id: UUID().uuidString,
+            id: newId,
             title: title,
             category: nil,
             modelId: modelId,
             createdAt: now,
             updatedAt: now,
-            source: source
+            source: source,
+            personaId: newId
         )
 
         // [T-memory-enabled-new-session-bug] Explicitly write memory_enabled
@@ -1056,7 +1073,7 @@ actor ChatStore {
         let rawObj = UserDefaults.standard.object(forKey: "memory.global.enabled")
         memDiagLogger.info("[MemDiag] createSession sid=\(session.id.prefix(8)) rawDefaults=\(String(describing: rawObj)) resolved=\(globalMemoryEnabled) → bind memory_enabled=\(globalMemoryEnabled ? 1 : 0)")
 
-        let sql = "INSERT INTO sessions (id, title, model_id, created_at, updated_at, source, memory_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        let sql = "INSERT INTO sessions (id, title, model_id, created_at, updated_at, source, memory_enabled, persona_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         var stmt: OpaquePointer?
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, (session.id as NSString).utf8String, -1, nil)
@@ -1066,6 +1083,7 @@ actor ChatStore {
             sqlite3_bind_double(stmt, 5, now.timeIntervalSince1970)
             bindOptionalText(stmt, index: 6, value: source)
             sqlite3_bind_int(stmt, 7, globalMemoryEnabled ? 1 : 0)
+            sqlite3_bind_text(stmt, 8, (session.personaId as NSString).utf8String, -1, nil)
             let rc = sqlite3_step(stmt)
             memDiagLogger.info("[MemDiag] createSession INSERT step rc=\(rc) (101=DONE) sid=\(session.id.prefix(8))")
         } else {
@@ -1298,7 +1316,8 @@ actor ChatStore {
                    -- Appended LAST on purpose: the decode below reads columns
                    -- by index, so a new column goes at the end to leave every
                    -- existing index untouched.
-                   s.folder_id
+                   s.folder_id,
+                   s.persona_id
             FROM sessions s ORDER BY s.updated_at DESC
             """
             // Note: `remote_tombstoned_at` column still exists on the
@@ -1371,13 +1390,17 @@ actor ChatStore {
                 let pinnedAt: Date? = sqlite3_column_type(stmt, 11) != SQLITE_NULL
                     ? Date(timeIntervalSince1970: sqlite3_column_double(stmt, 11)) : nil
                 let folderId = Self.colTextOpt(stmt, 14)
+                // NULL on pre-migration rows (column added after they were
+                // created) reads back as "default" — the migrated legacy data.
+                let personaId = Self.colTextOpt(stmt, 15) ?? "default"
 
                 sessions.append(ChatSession(
                     id: id, title: title, category: category, modelId: modelId,
                     createdAt: createdAt, updatedAt: updatedAt, lastMessage: lastMessage,
                     source: source, lastSyncedAt: lastSyncedAt,
                     remoteDeviceId: remoteDeviceId, pinnedAt: pinnedAt,
-                    folderId: folderId
+                    folderId: folderId,
+                    personaId: personaId
                 ))
             }
         }
@@ -1967,7 +1990,7 @@ actor ChatStore {
     }
 
     func getSession(_ id: String) -> ChatSession? {
-        let sql = "SELECT id, title, model_id, created_at, updated_at, category, source, pinned_at, folder_id FROM sessions WHERE id = ?"
+        let sql = "SELECT id, title, model_id, created_at, updated_at, category, source, pinned_at, folder_id, persona_id FROM sessions WHERE id = ?"
         var stmt: OpaquePointer?
         var session: ChatSession?
 
@@ -1984,10 +2007,13 @@ actor ChatStore {
                     ? Date(timeIntervalSince1970: sqlite3_column_double(stmt, 7)) : nil
                 let folderId = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
 
+                // persona_id is NULL on pre-migration rows; "default" keeps
+                // them reading the migrated legacy data at memory/default/.
+                let personaId = sqlite3_column_text(stmt, 9).map { String(cString: $0) } ?? "default"
                 session = ChatSession(
                     id: id, title: title, category: category, modelId: modelId,
                     createdAt: createdAt, updatedAt: updatedAt, source: source,
-                    pinnedAt: pinnedAt, folderId: folderId
+                    pinnedAt: pinnedAt, folderId: folderId, personaId: personaId
                 )
             }
         }
@@ -3400,6 +3426,39 @@ actor ChatStore {
         }
         sqlite3_finalize(stmt)
         return (memoryEnabled, modelBinding)
+    }
+
+    /// Persona id for a session ("default" for unknown rows and for rows
+    /// created before the persona_id column existed). A failed prepare
+    /// (column missing on a very old DB) also falls back to "default",
+    /// so callers never have to handle a missing persona.
+    func getPersonaId(sessionId: String) -> String {
+        let sql = "SELECT persona_id FROM sessions WHERE id = ?"
+        var stmt: OpaquePointer?
+        var personaId: String?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                personaId = sqlite3_column_text(stmt, 0).map { String(cString: $0) }
+            }
+        }
+        sqlite3_finalize(stmt)
+        return personaId ?? "default"
+    }
+
+    /// Move a session to another persona. Used by fork/duplicate, which
+    /// inherit the source session's persona — the new session keeps the
+    /// same persona id, it is not given a fresh one.
+    func setPersonaId(sessionId: String, personaId: String) {
+        invalidateSessionListCache()
+        let sql = "UPDATE sessions SET persona_id = ? WHERE id = ?"
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (personaId as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 2, (sessionId as NSString).utf8String, -1, nil)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
     }
 
     /// Return the most recent compact marker for a session, or nil if none.
@@ -6174,9 +6233,14 @@ extension ChatStore {
                 // folder_id is written ONLY when the peer's record carried
                 // the field — an old build's record omitting it must not wipe
                 // a local folder assignment (same tolerance pinnedAt got).
+                // persona_id gets the same tolerance via CASE: a record
+                // carrying "default" (old build, no persona field) must not
+                // clobber a real local persona — a persona never legitimately
+                // moves to "default" after creation.
+                let personaCase = "persona_id = CASE WHEN ? = 'default' THEN persona_id ELSE ? END"
                 let sql = remoteHasFolderField
-                    ? "UPDATE sessions SET title = ?, category = ?, updated_at = ?, memory_enabled = ?, model_binding = ?, pinned_at = ?, folder_id = ? WHERE id = ?"
-                    : "UPDATE sessions SET title = ?, category = ?, updated_at = ?, memory_enabled = ?, model_binding = ?, pinned_at = ? WHERE id = ?"
+                    ? "UPDATE sessions SET title = ?, category = ?, updated_at = ?, memory_enabled = ?, model_binding = ?, pinned_at = ?, folder_id = ?, \(personaCase) WHERE id = ?"
+                    : "UPDATE sessions SET title = ?, category = ?, updated_at = ?, memory_enabled = ?, model_binding = ?, pinned_at = ?, \(personaCase) WHERE id = ?"
                 var stmt: OpaquePointer?
                 if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
                     bindOptionalText(stmt, index: 1, value: session.title)
@@ -6191,9 +6255,13 @@ extension ChatStore {
                     }
                     if remoteHasFolderField {
                         bindOptionalText(stmt, index: 7, value: remoteFolderId)
-                        sqlite3_bind_text(stmt, 8, (session.id as NSString).utf8String, -1, nil)
+                        sqlite3_bind_text(stmt, 8, (session.personaId as NSString).utf8String, -1, nil)
+                        sqlite3_bind_text(stmt, 9, (session.personaId as NSString).utf8String, -1, nil)
+                        sqlite3_bind_text(stmt, 10, (session.id as NSString).utf8String, -1, nil)
                     } else {
-                        sqlite3_bind_text(stmt, 7, (session.id as NSString).utf8String, -1, nil)
+                        sqlite3_bind_text(stmt, 7, (session.personaId as NSString).utf8String, -1, nil)
+                        sqlite3_bind_text(stmt, 8, (session.personaId as NSString).utf8String, -1, nil)
+                        sqlite3_bind_text(stmt, 9, (session.id as NSString).utf8String, -1, nil)
                     }
                     sqlite3_step(stmt)
                 }
@@ -6270,7 +6338,7 @@ extension ChatStore {
             }
             // Local doesn't have this session — insert
             iCloudLogger.info("[iCloud] mergeRemoteSession INSERT: id=\(session.id) title=\(session.title ?? "nil") from=\(fromDeviceId)")
-            let sql = "INSERT INTO sessions (id, title, category, model_id, created_at, updated_at, remote_origin_device_id, memory_enabled, model_binding, pinned_at, folder_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            let sql = "INSERT INTO sessions (id, title, category, model_id, created_at, updated_at, remote_origin_device_id, memory_enabled, model_binding, pinned_at, folder_id, persona_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             var stmt: OpaquePointer?
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
                 sqlite3_bind_text(stmt, 1, (session.id as NSString).utf8String, -1, nil)
@@ -6291,6 +6359,10 @@ extension ChatStore {
                 // the list renders it as ungrouped until FolderV2 arrives
                 // (fetchRecentV2 ordering gives no cross-type guarantees).
                 bindOptionalText(stmt, index: 11, value: remoteHasFolderField ? remoteFolderId : nil)
+                // Persona comes from the remote session record; until the
+                // SessionV2 record carries personaId (SyncedTypes change),
+                // ChatSession defaults it to "default".
+                sqlite3_bind_text(stmt, 12, (session.personaId as NSString).utf8String, -1, nil)
                 sqlite3_step(stmt)
             }
             sqlite3_finalize(stmt)
@@ -7240,9 +7312,13 @@ extension ChatStore {
 
         if let local = localUpdatedAt {
             guard incoming > local else { return .skippedLocalNewer }
+            // persona_id CASE: a restored record carrying "default" (old
+            // backup, no persona field) must not clobber a real local
+            // persona — see the mergeRemoteSession note above.
             let sql = """
                 UPDATE sessions SET title = ?, category = ?, model_id = ?, updated_at = ?,
-                                    memory_enabled = ?, model_binding = ?, pinned_at = ?, folder_id = ?
+                                    memory_enabled = ?, model_binding = ?, pinned_at = ?, folder_id = ?,
+                                    persona_id = CASE WHEN ? = 'default' THEN persona_id ELSE ? END
                 WHERE id = ?
                 """
             var up: OpaquePointer?
@@ -7256,7 +7332,9 @@ extension ChatStore {
                 if let p = session.pinnedAt { sqlite3_bind_double(up, 7, p.timeIntervalSince1970) }
                 else { sqlite3_bind_null(up, 7) }
                 bindText(up, 8, session.folderId)
-                sqlite3_bind_text(up, 9, (session.id as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(up, 9, (session.personaId as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(up, 10, (session.personaId as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(up, 11, (session.id as NSString).utf8String, -1, nil)
                 sqlite3_step(up)
             }
             sqlite3_finalize(up)
@@ -7267,8 +7345,8 @@ extension ChatStore {
         // list so it defaults to NULL — see the type doc above.
         let sql = """
             INSERT INTO sessions (id, title, category, model_id, created_at, updated_at,
-                                  memory_enabled, model_binding, pinned_at, folder_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  memory_enabled, model_binding, pinned_at, folder_id, persona_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
         var ins: OpaquePointer?
         if sqlite3_prepare_v2(db, sql, -1, &ins, nil) == SQLITE_OK {
@@ -7283,6 +7361,7 @@ extension ChatStore {
             if let p = session.pinnedAt { sqlite3_bind_double(ins, 9, p.timeIntervalSince1970) }
             else { sqlite3_bind_null(ins, 9) }
             bindText(ins, 10, session.folderId)
+            sqlite3_bind_text(ins, 11, (session.personaId as NSString).utf8String, -1, nil)
             sqlite3_step(ins)
         }
         sqlite3_finalize(ins)
