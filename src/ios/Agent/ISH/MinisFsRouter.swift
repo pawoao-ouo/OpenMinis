@@ -167,6 +167,32 @@ final class MinisFsRouter: @unchecked Sendable {
         if let refused = translatePersonas(guestPath: guestPath, sid: sid) {
             return refused
         }
+        // ［persona］F1: a `..` launched from another namespace (e.g.
+        // /var/minis/shared/../memory/personas/<other>/...) never carries
+        // the memory/personas prefix, so the checks above never see it —
+        // and the static table's `..` behavior is not in this repo
+        // (fakefs C). Judge the landing instead: standardize the path
+        // and re-run the same checks on where it lands. Only paths
+        // containing `..` pay the standardize cost; everything else
+        // falls through exactly as today. A `..` that walks out of
+        // /var/minis entirely lands on /var/MinisConfig/ (the container
+        // root) — no legitimate guest path standardizes there, so it is
+        // refused too; the shell legitimately reads /var/minis/mcp-servers
+        // (minis-mcp-cli), so a landing there is NOT refused here.
+        if guestPath.contains("/..") {
+            let std = (guestPath as NSString).standardizingPath
+            if std != guestPath {
+                if let refused = translateMemory(guestPath: std, sid: sid) {
+                    return refused
+                }
+                if let refused = translatePersonas(guestPath: std, sid: sid) {
+                    return refused
+                }
+                if std == "/var/MinisConfig" || std.hasPrefix("/var/MinisConfig/") {
+                    return blockedPath(forSession: sid)
+                }
+            }
+        }
         return hostPath(forGuest: guestPath, sid: sid)
     }
 
