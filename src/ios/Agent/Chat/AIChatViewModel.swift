@@ -1750,7 +1750,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         let fm = FileManager.default
 
         // Global directories resolve without session ID — through the
-        // active session's persona namespaces, matching resolveMinisURL.
+        // active session's persona namespaces (memory/shared) and the
+        // global skills dir, matching resolveMinisURL.
         // Memory has NO flat-root fallback (the flat files are the default
         // persona's legacy data); skills keeps its flat baseline, shared
         // keeps its flat live area, both after the persona dir.
@@ -1759,7 +1760,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             let personaId = PersonaStore.personaId(forSessionId: activeSessionId)
             let personaDirs: [(String, URL)] = [
                 ("memory", PersonaStore.memoryDir(for: personaId)),
-                ("skills", PersonaStore.skillsDir(for: personaId)),
+                ("skills", PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId)),
                 ("shared", PersonaStore.sharedDir(for: personaId)),
             ]
             let baselineDirs: [(String, URL)] = [
@@ -1789,9 +1790,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // persona's legacy data). The old fallback resolved
         // data/var/minis/<host>/<subPath>, which on a pre-update install
         // is a stale symlink into the flat legacy dirs — serving another
-        // persona's files to this chat. The stale symlinks are also
-        // unlinked at mount time (ISHExecutionCoordinator.performMount),
-        // but this resolver must never depend on that.
+        // persona's files to this chat. (Stale symlinks there are replaced
+        // by ensureMinisSymlinks on session mount, but this resolver must
+        // never depend on that.)
         return nil
     }
 

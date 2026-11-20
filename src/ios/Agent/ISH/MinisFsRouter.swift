@@ -3,9 +3,11 @@
 //  MinisApp
 //
 //  Routes guest paths under /var/minis/{offloads,attachments,workspace,browser}
-//  to per-session host directories, and guest paths under
-//  /var/minis/{memory,skills,shared,mcp-servers} to per-persona host
-//  directories, via the iSH fakefs path-translate hook.
+//  to per-session host directories, guest paths under
+//  /var/minis/{memory,shared} to per-persona host directories, and guest
+//  paths under /var/minis/{skills,mcp-servers} to the single GLOBAL host
+//  directories (skills and MCP servers are shared by all personas — user
+//  decision 2026-11-20), via the iSH fakefs path-translate hook.
 //
 //  Each session gets a unique fs_context token (u64) that is stamped on the
 //  task group spawned for that session. When the task (or any of its forked
@@ -14,7 +16,11 @@
 //  ~/Library/.../minis/<personaId>/<sid>/<bucket>/...
 //  Per-persona buckets rewrite to <app-group>/<bucket>/<personaId>/...
 //  except memory, which rewrites to <app-group>/memory/personas/<personaId>/
-//  (the runtime layout, crosscheck-verdict §4). mcp-servers lives under
+//  (the runtime layout, crosscheck-verdict §4). Skills and MCP servers are
+//  NOT per-persona: they route to the single global dirs in globalBuckets
+//  below (user decision 2026-11-20 — splitting them would make the model
+//  download duplicates; the shell must write new skills where SkillStore
+//  loads them from, i.e. skills/default/). mcp-servers lives under
 //  MinisConfig instead of the app group.
 //
 //  Shared routes to the persona namespace (shared/<personaId>/): new shared
@@ -42,16 +48,25 @@ final class MinisFsRouter: @unchecked Sendable {
     /// Guest path prefixes that route per-persona (not per-session).
     /// Anything under one of these becomes <hostRoot>/[<personaPrefix>/]<personaId>/<tail>.
     /// Memory carries the "personas" prefix (memory/personas/<id>/ — the
-    /// runtime layout); skills/shared/mcp-servers keep the direct
-    /// <bucket>/<id>/ layout. These used to fall through to the legacy
-    /// g_bind_mounts[] table, where the first session to mount won and
-    /// every persona saw the same global files — that is the leak this
-    /// isolation work closes.
+    /// runtime layout); shared keeps the direct <bucket>/<id>/ layout.
+    /// These used to fall through to the legacy g_bind_mounts[] table,
+    /// where the first session to mount won and every persona saw the
+    /// same global files — that is the leak this isolation work closes.
     private let perPersonaBuckets: [(linuxPrefix: String, hostRoot: URL, personaPrefix: String)] = [
         (AIChatViewModel.minisMemoryLinuxDir,     AIChatViewModel.minisMemoryPersistentDir, "personas"),
-        (AIChatViewModel.minisSkillsLinuxDir,     AIChatViewModel.minisSkillsPersistentDir, ""),
         (AIChatViewModel.minisSharedLinuxDir,     AIChatViewModel.minisSharedPersistentDir, ""),
-        (AIChatViewModel.minisMcpServersLinuxDir, AIChatViewModel.minisMcpServersPersistentDir, ""),
+    ]
+
+    /// Guest path prefixes that route to a SINGLE global host dir, shared
+    /// by all personas (no persona component in the host path).
+    /// Skills route to skills/default/ — the 1b migration copy of user
+    /// skills and the dir SkillStore loads from; a shell-created skill
+    /// written anywhere else would never load. MCP servers route to the
+    /// flat <mcp-servers>/ root, where the single global servers.json
+    /// lives (the same file MCPStore reads/writes).
+    private let globalBuckets: [(linuxPrefix: String, hostDir: URL)] = [
+        (AIChatViewModel.minisSkillsLinuxDir,     PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId)),
+        (AIChatViewModel.minisMcpServersLinuxDir, AIChatViewModel.minisMcpServersPersistentDir),
     ]
 
     private let lock = NSLock()
@@ -161,6 +176,13 @@ final class MinisFsRouter: @unchecked Sendable {
                     .path + hit
             }
         }
+        // Global buckets: no persona component — every persona's shell
+        // writes to the same dir the app-side stores load from.
+        for bucket in globalBuckets {
+            if let hit = matchBucket(guestPath, prefix: bucket.linuxPrefix) {
+                return bucket.hostDir.path + hit
+            }
+        }
         return nil
     }
 
@@ -176,13 +198,15 @@ final class MinisFsRouter: @unchecked Sendable {
         return String(guestPath[prefixEnd...])
     }
 
-    /// Reverse hook: given a host APFS path under <minisBaseURL>/<personaId>/<sid>/<bucket>
-    /// or under a per-persona bucket root (<app-group>/<bucket>/[<personaPrefix>/]<personaId>),
+    /// Reverse hook: given a host APFS path under <minisBaseURL>/<personaId>/<sid>/<bucket>,
+    /// under a per-persona bucket root (<app-group>/<bucket>/[<personaPrefix>/]<personaId>),
+    /// or under a global bucket dir (skills/default/, flat mcp-servers/),
     /// return the canonical guest path /var/minis/<bucket>/<tail>.
     /// Returns nil if the path doesn't live under any routed bucket
     /// (caller falls back to the static bind_mount_resolve table).
     private func reverse(hostPath: String) -> String? {
         if let hit = reverseSessionBucket(hostPath: hostPath) { return hit }
+        if let hit = reverseGlobalBucket(hostPath: hostPath) { return hit }
         return reversePersonaBucket(hostPath: hostPath)
     }
 
@@ -213,6 +237,27 @@ final class MinisFsRouter: @unchecked Sendable {
         else { return nil }
         let tail = parts.count == 4 ? "/" + parts[3] : ""
         return bucket.linuxPrefix + tail
+    }
+
+    /// Reverse for the global buckets: a host path under a global bucket
+    /// dir maps back to /var/minis/<bucket>/<tail>, with no persona
+    /// component. Skills only reverse under skills/default/ (the global
+    /// home); bundled skills under the flat skills/ root are not routed
+    /// forward, so they do not reverse either. MCP servers reverse from
+    /// the flat root, including legacy <pid>/servers.json paths, which
+    /// forward to the same flat location.
+    private func reverseGlobalBucket(hostPath: String) -> String? {
+        for bucket in globalBuckets {
+            let basePath = bucket.hostDir.path
+            var stripped = hostPath
+            if hostPath.hasPrefix("/private/var/") && basePath.hasPrefix("/var/") {
+                stripped = String(hostPath.dropFirst("/private".count))
+            }
+            guard stripped.hasPrefix(basePath + "/") else { continue }
+            let tail = stripped.dropFirst(basePath.count)
+            return bucket.linuxPrefix + tail
+        }
+        return nil
     }
 
     private func reversePersonaBucket(hostPath: String) -> String? {

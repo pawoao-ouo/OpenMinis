@@ -159,10 +159,10 @@ final class MCPOAuthController: NSObject, ObservableObject {
     /// not a storage location. Returns true when a seed was imported.
     @discardableResult
     static func importPendingSecretIfAny(server: String) -> Bool {
-        // Multi-persona isolation: the seed lives in the ACTIVE persona's
+        // MCP servers are GLOBAL: the seed lives in the flat global
         // mcp-servers dir, matching where the guest writes it and where
         // the router serves /var/minis/mcp-servers from.
-        let url = PersonaStore.mcpServersDir(for: PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId))
+        let url = AIChatViewModel.minisMcpServersPersistentDir
             .appendingPathComponent("oauth", isDirectory: true)
             .appendingPathComponent("\(server).secret")
         guard let data = try? Data(contentsOf: url),
@@ -242,10 +242,10 @@ final class MCPOAuthController: NSObject, ObservableObject {
     /// Host URL of the guest-visible token bridge for `server`
     /// (bind-mounted at /var/minis/mcp-servers/oauth/<name>.json).
     nonisolated static func bridgeFileURL(server: String) -> URL {
-        // Multi-persona isolation: the guest reads the bridge through the
-        // router from the ACTIVE persona's mcp-servers dir, so the host
-        // must write it there — the flat dir is invisible to the guest.
-        PersonaStore.mcpServersDir(for: PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId))
+        // MCP servers are GLOBAL: the guest reads the bridge through the
+        // router from the flat global mcp-servers dir, so the host must
+        // write it there.
+        AIChatViewModel.minisMcpServersPersistentDir
             .appendingPathComponent("oauth", isDirectory: true)
             .appendingPathComponent("\(server).json")
     }

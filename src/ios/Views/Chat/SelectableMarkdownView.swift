@@ -9114,16 +9114,17 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
         imgLogger.info("[MinisImage][Resolve] no active session — skipping session lookup")
     }
 
-    // Persona namespaces (not session-scoped). Memory has NO flat-root
-    // fallback: the flat memory/ files are the default persona's legacy
-    // data, and falling back to them would leak them into every other
-    // persona's rendered images — the same rule as resolveMinisURL.
-    // Skills keeps its flat dir as a read-only baseline after the
-    // persona dir, matching resolveMinisURL.
+    // Persona namespaces (memory/shared, not session-scoped) plus the
+    // global skills dir. Memory has NO flat-root fallback: the flat
+    // memory/ files are the default persona's legacy data, and falling
+    // back to them would leak them into every other persona's rendered
+    // images — the same rule as resolveMinisURL. Skills is GLOBAL:
+    // skills/default/ first, then its flat dir as a read-only baseline,
+    // matching resolveMinisURL.
     let personaId = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
     if host == "skills" {
         for subPath in subPaths {
-            for base in [PersonaStore.skillsDir(for: personaId), AIChatViewModel.minisSkillsPersistentDir] {
+            for base in [PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId), AIChatViewModel.minisSkillsPersistentDir] {
                 let candidate = base.appendingPathComponent(subPath)
                 imgLogger.info("[MinisImage][Resolve] checking skills path=\(candidate.path)")
                 if fm.fileExists(atPath: candidate.path) {

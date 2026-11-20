@@ -244,15 +244,16 @@ func resolveMinisFileURL(url: URL) -> URL? {
         }
     }
 
-    // Fallback: persona namespaces. Memory has NO flat-root fallback —
-    // the flat memory/ files are the default persona's legacy data, and
-    // falling back to them would leak them into every other persona's
-    // rendered media. Skills keeps its flat baseline after the persona
-    // dir; shared keeps its flat live area after the persona namespace.
+    // Fallback: persona namespaces (memory/shared) plus the global
+    // skills dir. Memory has NO flat-root fallback — the flat memory/
+    // files are the default persona's legacy data, and falling back to
+    // them would leak them into every other persona's rendered media.
+    // Skills is GLOBAL: skills/default/ first, then its flat baseline;
+    // shared keeps its flat live area after the persona namespace.
     // Mirrors resolveMinisURL's isolation rule.
     let personaId = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
     let personaDirs: [(subdir: String, url: URL)] = [
-        ("skills", PersonaStore.skillsDir(for: personaId)),
+        ("skills", PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId)),
         ("memory", PersonaStore.memoryDir(for: personaId)),
         ("shared", PersonaStore.sharedDir(for: personaId)),
     ]

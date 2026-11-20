@@ -681,10 +681,13 @@ extension AIChatViewModel {
         let minisDataDir = dataPath.appendingPathComponent("var/minis")
         try? fm.createDirectory(at: minisDataDir, withIntermediateDirectories: true)
 
-        // Multi-persona isolation: the memory/skills/shared/mcp-servers
-        // symlinks point at THIS session's persona dirs, not the flat
-        // legacy roots — memory/personas/<pid>/, skills/<pid>/,
-        // shared/<pid>/ (the persona namespace), mcp-servers/<pid>/.
+        // Multi-persona isolation: the memory/shared symlinks point at
+        // THIS session's persona dirs, not the flat legacy roots —
+        // memory/personas/<pid>/, shared/<pid>/ (the persona namespace).
+        // Skills and mcp-servers are GLOBAL (user decision 2026-11-20):
+        // skills points at skills/default/ (the dir SkillStore loads
+        // from) and mcp-servers at the flat root (where the single global
+        // servers.json lives), the same dirs the router serves.
         // (The shell's runtime view is the MinisFsRouter, not these
         // symlinks; these only feed the file browser — but the browser
         // must show the same persona the router serves.) The flat
@@ -697,9 +700,9 @@ extension AIChatViewModel {
             (Self.minisWorkspacePersistentDir(for: sid), Self.minisWorkspaceLinuxDir),
             (Self.minisBrowserPersistentDir(for: sid), Self.minisBrowserLinuxDir),
             (PersonaStore.memoryDir(for: pid), Self.minisMemoryLinuxDir),
-            (PersonaStore.skillsDir(for: pid), Self.minisSkillsLinuxDir),
+            (PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId), Self.minisSkillsLinuxDir),
             (PersonaStore.sharedDir(for: pid), Self.minisSharedLinuxDir),
-            (PersonaStore.mcpServersDir(for: pid), Self.minisMcpServersLinuxDir),
+            (Self.minisMcpServersPersistentDir, Self.minisMcpServersLinuxDir),
         ]
 
         for (persistDir, linuxDir) in mappings {

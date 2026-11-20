@@ -467,7 +467,7 @@ final class FileMentionIndex: ObservableObject {
             ),
             ScanRoot(
                 scope: .skills,
-                hostURL: PersonaStore.skillsDir(for: pid),
+                hostURL: PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId),
                 linuxPrefix: AIChatViewModel.minisSkillsLinuxDir,
                 mountName: nil
             ),

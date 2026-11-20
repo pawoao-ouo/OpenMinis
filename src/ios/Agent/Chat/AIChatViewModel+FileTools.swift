@@ -75,19 +75,20 @@ extension AIChatViewModel {
         // gets a valid destination for a not-yet-created file.
         // [T-fix-double-encoding]
         //
-        // Per-persona base first; skills/shared/mcp-servers also check the
-        // live shared baselines. Memory does NOT fall back to the flat
-        // memory/ dir — those are legacy personal files owned by the
-        // default persona, not a shared baseline. Shared's flat dir is the
-        // LIVE read/write runtime area (events.jsonl, together/,
-        // heartbeat) — second after the persona namespace, never locked
-        // (crosscheck-verdict §5).
+        // Per-persona base first for memory/shared; skills and
+        // mcp-servers are GLOBAL (user decision 2026-11-20) and resolve
+        // to the single global dirs, with the live baselines after them.
+        // Memory does NOT fall back to the flat memory/ dir — those are
+        // legacy personal files owned by the default persona, not a shared
+        // baseline. Shared's flat dir is the LIVE read/write runtime area
+        // (events.jsonl, together/, heartbeat) — second after the persona
+        // namespace, never locked (crosscheck-verdict §5).
         let bases: [URL]
         switch host {
         case "memory": bases = [PersonaStore.memoryDir(for: personaId)]
-        case "skills": bases = [PersonaStore.skillsDir(for: personaId), Self.minisSkillsPersistentDir]
+        case "skills": bases = [PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId), Self.minisSkillsPersistentDir]
         case "shared": bases = [PersonaStore.sharedDir(for: personaId), Self.minisSharedPersistentDir]
-        case "mcp-servers": bases = [PersonaStore.mcpServersDir(for: personaId), Self.minisMcpServersPersistentDir]
+        case "mcp-servers": bases = [Self.minisMcpServersPersistentDir]
         default:
             guard let sid = sessionId else { return nil }
             bases = [PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)]

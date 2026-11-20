@@ -337,17 +337,19 @@ extension AIChatViewModel {
             }
         }
 
-        // Per-persona directories, then the shared baselines.
-        // Memory has NO flat fallback: the flat memory/ files are legacy
-        // personal data (owned by the default persona since the migration
-        // copied them to memory/personas/default/), not a shared baseline
-        // — falling back to them would leak the default persona's memory
-        // into every new persona. Skills keeps its flat dir as a read-only
-        // baseline (shared skills, by design). Shared keeps its flat dir
-        // as the LIVE read/write runtime area (events.jsonl, together/,
+        // Per-persona directories (memory/shared), then the shared
+        // baselines. Skills is GLOBAL — skills/default/ is the dir
+        // SkillStore loads from. Memory has NO flat fallback: the flat
+        // memory/ files are legacy personal data (owned by the default
+        // persona since the migration copied them to
+        // memory/personas/default/), not a shared baseline — falling back
+        // to them would leak the default persona's memory into every new
+        // persona. Skills keeps its flat dir as a read-only baseline
+        // (shared skills, by design). Shared keeps its flat dir as the
+        // LIVE read/write runtime area (events.jsonl, together/,
         // heartbeat) — second after the persona namespace, never locked.
         let personaDirs: [(String, URL)] = [
-            ("skills", PersonaStore.skillsDir(for: personaId)),
+            ("skills", PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId)),
             ("memory", PersonaStore.memoryDir(for: personaId)),
             ("shared", PersonaStore.sharedDir(for: personaId)),
         ]

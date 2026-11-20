@@ -132,8 +132,12 @@ enum PersonaStore {
             .appendingPathComponent("\(fmt.string(from: date)).md")
     }
 
-    /// Per-persona skills root: <skills>/<personaId>/
-    /// The flat skills/ dir stays as a read-only global baseline.
+    /// Skills root: <skills>/<personaId>/. Skills are GLOBAL, shared by
+    /// all personas (user decision 2026-11-20) — every caller passes
+    /// defaultPersonaId, so the single live home is skills/default/.
+    /// The flat skills/ dir stays as a read-only baseline of bundled
+    /// skills. The 1b migration copied pre-existing user skills into
+    /// skills/default/.
     static func skillsDir(for personaId: String) -> URL {
         AIChatViewModel.minisSkillsPersistentDir
             .appendingPathComponent(personaId, isDirectory: true)
@@ -176,17 +180,6 @@ enum PersonaStore {
         // A first component that is a known persona id is a namespace;
         // anything else (together/, state/, a file) is shared runtime area.
         return knownPersonaIds().contains(first)
-    }
-
-    /// Per-persona MCP config root: <MinisConfig>/mcp-servers/<personaId>/
-    /// The flat mcp-servers/servers.json stays as a read-only global baseline.
-    static func mcpServersDir(for personaId: String) -> URL {
-        AIChatViewModel.minisMcpServersPersistentDir
-            .appendingPathComponent(personaId, isDirectory: true)
-    }
-
-    static func mcpServersFileURL(for personaId: String) -> URL {
-        mcpServersDir(for: personaId).appendingPathComponent("servers.json")
     }
 
     /// Per-session bucket root: <minis>/<personaId>/<sessionId>/
