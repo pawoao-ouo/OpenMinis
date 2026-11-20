@@ -722,6 +722,48 @@ struct ToolLiveSheet: View {
         }
     }
 
+    /// Resolve a file_read/file_write block's Linux path to a host file URL
+    /// without following the data/var/minis/ symlinks — same hole class as
+    /// R1 (native-text resolver) and F4 (autoplay resolver). Those symlinks
+    /// point at the last-mounted session's persona dir, so the old
+    /// `dataPath + path` read could show another persona's file when
+    /// rendering a non-active session's transcript.
+    ///
+    /// Base table mirrors resolveMinisURL for this sheet's own session
+    /// (from the chatSessionId environment): memory has NO flat fallback,
+    /// shared tries the persona namespace then the flat live area, skills
+    /// is global, other hosts are session-scoped. Only an existing
+    /// candidate is returned. Returns nil when the path cannot be resolved
+    /// persona-correctly (no session, non-absolute path, ".." traversal,
+    /// or no existing candidate) — callers fall back to block.content.
+    private func personaSafeFileURL(for linuxPath: String) -> URL? {
+        guard let sid = sessionId,
+              linuxPath.hasPrefix("/"),
+              !linuxPath.contains("..") else { return nil }
+        let fm = FileManager.default
+        if linuxPath.hasPrefix("/var/minis/") {
+            let rest = String(linuxPath.dropFirst("/var/minis/".count))
+            guard let slashIdx = rest.firstIndex(of: "/") else { return nil }
+            let host = String(rest[rest.startIndex..<slashIdx])
+            let subPath = String(rest[rest.index(after: slashIdx)...])
+            guard !subPath.isEmpty else { return nil }
+            let personaId = PersonaStore.personaId(forSessionId: sid)
+            let bases: [URL]
+            switch host {
+            case "memory": bases = [PersonaStore.memoryDir(for: personaId)]
+            case "skills": bases = [PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId), AIChatViewModel.minisSkillsPersistentDir]
+            case "shared": bases = [PersonaStore.sharedDir(for: personaId), AIChatViewModel.minisSharedPersistentDir]
+            case "mcp-servers": bases = [AIChatViewModel.minisMcpServersPersistentDir]
+            default: bases = [PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)]
+            }
+            return bases.map { $0.appendingPathComponent(subPath) }
+                .first(where: { fm.fileExists(atPath: $0.path) })
+        }
+        // Outside /var/minis/ (e.g. /tmp): no persona symlink is involved;
+        // keep the old guest-rootfs mapping, with the ".." guard above.
+        return RootfsManager.shared.dataPath.appendingPathComponent(String(linuxPath.dropFirst()))
+    }
+
     // MARK: - Live content area
 
     @ViewBuilder
@@ -762,10 +804,17 @@ struct ToolLiveSheet: View {
             case .fileEditTool:
                 fileDiffContent()
             case .fileWriteTool(let path), .fileReadTool(let path):
-                // Try reading actual file content from disk
-                let hostURL = RootfsManager.shared.dataPath.appendingPathComponent(String(path.dropFirst()))
-                let diskContent = (try? String(contentsOf: hostURL, encoding: .utf8)) ?? ""
-                if !diskContent.isEmpty {
+                // Try reading actual file content from disk — resolved
+                // persona-correctly for this sheet's own session (see
+                // personaSafeFileURL). The old dataPath + path read
+                // followed the data/var/minis/ symlinks, which point at
+                // the last-mounted session's persona dir, so rendering a
+                // non-active session's transcript could show another
+                // persona's file — same hole class as R1/F4. Nil here
+                // falls back to the tool-result text.
+                if let hostURL = personaSafeFileURL(for: path),
+                   let diskContent = try? String(contentsOf: hostURL, encoding: .utf8),
+                   !diskContent.isEmpty {
                     fileEditorContent(diskContent, toolResult: block.content)
                 } else {
                     fileEditorContent(block.content)
