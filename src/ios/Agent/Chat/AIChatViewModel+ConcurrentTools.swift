@@ -636,18 +636,22 @@ extension AIChatViewModel {
             // Unknown persona fails closed: no memory paths at all.
             let ownPersonaId = sessionPersonaId
             let memoryVisible: (String) -> Bool = { path in
+                // Snapshot keys are enumerated from disk (already
+                // canonical), but standardize anyway so a `..`-formed
+                // path is judged on its landing, not its first segment.
+                let std = (path as NSString).standardizingPath
                 // ［persona］F1: the registry mirror is never reported —
                 // a personas.json change (e.g. after editing a persona in
                 // Settings) would otherwise be handed to the model as a
                 // minis-clone://personas/personas.json link to the full
                 // registry. The global regex-rules mirror is safe to
                 // report (no credentials).
-                if path == "/var/minis/personas/personas.json" { return false }
-                guard path.hasPrefix("/var/minis/memory/") || path == "/var/minis/memory" else { return true }
+                if std == "/var/minis/personas/personas.json" { return false }
+                guard std.hasPrefix("/var/minis/memory/") || std == "/var/minis/memory" else { return true }
                 guard let own = ownPersonaId else { return false }
                 let marker = "/var/minis/memory/personas/"
-                guard path.hasPrefix(marker) else { return false }
-                let pid = String(path.dropFirst(marker.count).prefix(while: { $0 != "/" }))
+                guard std.hasPrefix(marker) else { return false }
+                let pid = String(std.dropFirst(marker.count).prefix(while: { $0 != "/" }))
                 return pid == own || pid == PersonaStore.userProfilePersonaID
             }
             let newOrModified = await batchFileClaims.claim(
