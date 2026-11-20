@@ -300,6 +300,22 @@ enum ScheduledJobRunner {
                                     preview: AppLocalized("没跑成：目标会话已经被删除了。"))
                 return nil
             }
+            // [persona] F3: the target was checked at create/update, but a
+            // job can predate the check or its session can have changed
+            // hands — re-check at fire time and refuse rather than deliver
+            // the prompt into another persona's conversation.
+            guard let targetPid = await ChatStore.shared.personaId(for: sid) else {
+                logger.warning("[Sched] fire \(job.id.prefix(8)): follow-up session \(sid.prefix(8)) has no readable persona — abort")
+                registry.recordFire(job.id, sessionId: nil, ok: false,
+                                    preview: AppLocalized("没跑成：目标会话的人设查不到，什么都没做。"))
+                return nil
+            }
+            guard targetPid == jobPersonaId else {
+                logger.warning("[Sched] fire \(job.id.prefix(8)): follow-up session \(sid.prefix(8)) belongs to persona \"\(targetPid)\", job runs as \"\(jobPersonaId)\" — abort")
+                registry.recordFire(job.id, sessionId: nil, ok: false,
+                                    preview: AppLocalized("没跑成：这个任务属于另一个人设的会话，不能往里发。"))
+                return nil
+            }
             let (vm, fresh) = ViewModelCache.shared.getOrCreate(for: sid)
             if fresh || vm.messages.isEmpty { await vm.loadSession() }
             applyThinkingLevel(job, sessionId: sid, entry: vm.resolveCurrentEntry())
@@ -334,6 +350,21 @@ enum ScheduledJobRunner {
             return sid
 
         case .rerun(let sid, let messageId):
+            // [persona] F3: same fire-time check as .followUp — a rerun
+            // replays a message inside the named session, so it must belong
+            // to the job's persona.
+            guard let targetPid = await ChatStore.shared.personaId(for: sid) else {
+                logger.warning("[Sched] fire \(job.id.prefix(8)): rerun session \(sid.prefix(8)) has no readable persona — abort")
+                registry.recordFire(job.id, sessionId: nil, ok: false,
+                                    preview: AppLocalized("没跑成：目标会话的人设查不到，什么都没做。"))
+                return nil
+            }
+            guard targetPid == jobPersonaId else {
+                logger.warning("[Sched] fire \(job.id.prefix(8)): rerun session \(sid.prefix(8)) belongs to persona \"\(targetPid)\", job runs as \"\(jobPersonaId)\" — abort")
+                registry.recordFire(job.id, sessionId: nil, ok: false,
+                                    preview: AppLocalized("没跑成：这个任务属于另一个人设的会话，不能往里发。"))
+                return nil
+            }
             // The sessions bridge blocks its caller with a semaphore and
             // hops to the main actor inside — never call it from here directly.
             let ok: Bool = await Task.detached {

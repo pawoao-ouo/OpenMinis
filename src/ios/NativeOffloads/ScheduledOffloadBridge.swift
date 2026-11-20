@@ -59,23 +59,6 @@ private let logger = AppLogger(category: "ScheduledOffload")
         return await ChatStore.shared.personaId(for: sid)
     }
 
-    /// The persona a new job is stamped with: the creator session first,
-    /// then the target session; "default" only when the command ran with no
-    /// session context at all (a `--target new` from outside any chat).
-    @MainActor
-    private static func jobPersonaId(creatorSessionId: String?, target: AgentJobTarget) async -> String {
-        var sid = creatorSessionId
-        if sid == nil {
-            switch target {
-            case .followUp(let s), .rerun(let s, _): sid = s
-            case .childOfCurrent(let p, _): sid = p
-            case .new: break
-            }
-        }
-        if let sid, let resolved = await ChatStore.shared.personaId(for: sid) { return resolved }
-        return PersonaStore.defaultPersonaID
-    }
-
     /// nil = allowed (the job belongs to the caller, or the caller has no
     /// session context — the management view). Otherwise an explicit
     /// cross-persona error, never a silent no-op or a filtered-out row.
@@ -86,6 +69,51 @@ private let logger = AppLogger(category: "ScheduledOffload")
         guard owner != caller else { return nil }
         return ["ok": false, "error": "cross_persona",
                 "message": "task \(job.id.prefix(8)) belongs to persona \"\(owner)\"; it cannot be changed from persona \"\(caller)\". Use the task list in the app to manage another persona's tasks."] as NSDictionary
+    }
+
+    /// [persona] F3: outcome of checking a job's target session against the
+    /// caller. `allowed` carries the resolved personas (nil when there was
+    /// no session context / no target session) so the caller can stamp the
+    /// job from them without re-resolving.
+    private enum TargetPersonaCheck {
+        case allowed(callerPersonaId: String?, targetPersonaId: String?)
+        case refused(NSDictionary)
+    }
+
+    /// [persona] F3: a job's target session must belong to the caller's
+    /// persona. No caller session context (management view) → no check.
+    /// Either lookup failing (session row gone / DB error) → refuse: a
+    /// missing persona is never read as "another persona is fine". The
+    /// caller is resolved FIRST so a `.new` target cannot be stamped
+    /// "default" on a lookup failure either.
+    @MainActor
+    private static func checkTargetPersona(target: AgentJobTarget, callerSessionId: String?) async -> TargetPersonaCheck {
+        var callerPid: String? = nil
+        if let callerSid = callerSessionId {
+            guard let resolved = await ChatStore.shared.personaId(for: callerSid) else {
+                return .refused(["ok": false, "error": "persona_lookup_failed",
+                                 "message": "the calling session has no readable persona; nothing was changed."] as NSDictionary)
+            }
+            callerPid = resolved
+        }
+        let targetSid: String? = {
+            switch target {
+            case .new: return nil
+            case .followUp(let sid): return sid
+            case .rerun(let sid, _): return sid
+            case .childOfCurrent(let parent, _): return parent
+            }
+        }()
+        guard let targetSid else { return .allowed(callerPersonaId: callerPid, targetPersonaId: nil) }
+        guard let targetPid = await ChatStore.shared.personaId(for: targetSid) else {
+            return .refused(["ok": false, "error": "persona_lookup_failed",
+                             "message": "target session \(targetSid.prefix(8)) has no readable persona (it may have been deleted); nothing was changed."] as NSDictionary)
+        }
+        if let callerPid, targetPid != callerPid {
+            return .refused(["ok": false, "error": "cross_persona",
+                             "message": "target session \(targetSid.prefix(8)) belongs to persona \"\(targetPid)\"; it cannot be targeted from persona \"\(callerPid)\". Use the task list in the app to manage another persona's tasks."] as NSDictionary)
+        }
+        return .allowed(callerPersonaId: callerPid, targetPersonaId: targetPid)
     }
 
     // MARK: - create
@@ -283,9 +311,16 @@ private let logger = AppLogger(category: "ScheduledOffload")
                                      deliverySentence: String) -> NSDictionary {
         onMain {
             let registry = AgentJobRegistry.shared
-            // [persona] F3: stamp the owner at creation — the job fires and
-            // lists as this persona from now on, whatever is current later.
-            let personaId = await Self.jobPersonaId(creatorSessionId: creatorSessionId, target: target)
+            // [persona] F3: target-session check + fail-closed stamping — the
+            // job fires and lists as this persona from now on, whatever is
+            // current later. Caller first, then target; "default" only when
+            // the command ran with no session context at all.
+            let personaId: String
+            switch await Self.checkTargetPersona(target: target, callerSessionId: creatorSessionId) {
+            case .refused(let err): return err
+            case .allowed(let callerPid, let targetPid):
+                personaId = callerPid ?? targetPid ?? PersonaStore.defaultPersonaID
+            }
             let job = registry.register(title: label ?? String(prompt.prefix(40)), label: label,
                                         origin: .cli, trigger: trigger, target: target, prompt: prompt,
                                         personaId: personaId)
@@ -617,6 +652,16 @@ private let logger = AppLogger(category: "ScheduledOffload")
                     return error("--thinking must be one of: off, low, medium, high, xhigh")
                 }
                 thinking = parsed
+            }
+
+            // [persona] F3: a retarget must not move the fire into another
+            // persona's session — the stamp stays, so the fire-time check
+            // would refuse it forever; refuse here instead, while the caller
+            // can still fix the command.
+            if let newTarget {
+                if case .refused(let err) = await Self.checkTargetPersona(target: newTarget, callerSessionId: callerSid) {
+                    return err
+                }
             }
 
             let newLabel = str("label")
