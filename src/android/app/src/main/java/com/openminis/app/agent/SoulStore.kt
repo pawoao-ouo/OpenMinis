@@ -1,6 +1,7 @@
 package com.openminis.app.agent
 
 import android.content.Context
+import com.openminis.app.data.PersonaStore
 import com.openminis.app.logging.AppLogger
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -213,8 +214,14 @@ object SoulStore {
     private const val FILE_NAME = "SOUL.md"
     private const val MEMORY_SUBDIR = "minis-global/memory"
 
-    fun fileLocation(context: Context): File =
-        File(File(context.filesDir, MEMORY_SUBDIR), FILE_NAME)
+    /**
+     * SOUL.md for a persona: `minis-global/memory/personas/<id>/SOUL.md`.
+     * The no-arg callers (Settings soul editor, minis-config) use the
+     * DEFAULT persona — the migrated home of the old flat SOUL.md.
+     * Chat passes its session's persona explicitly.
+     */
+    fun fileLocation(context: Context, personaId: String = PersonaStore.DEFAULT_PERSONA_ID): File =
+        PersonaStore.soulFile(context.filesDir, personaId)
 
     // -- Body length rules (language-aware) ----------------------------
     //
@@ -333,10 +340,19 @@ lang: "auto"
     /**
      * Create SOUL.md with [DEFAULT_CONTENT] iff it does not exist yet.
      * Safe to call on every launch — never overwrites existing user edits.
+     *
+     * Multi-persona isolation: do NOT seed while a flat SOUL.md still
+     * exists at the legacy root — the one-time migration copies it to
+     * personas/default/ (target-missing guard), and a seed landing
+     * first would make the migration skip the user's real SOUL.
      */
-    fun ensureExists(context: Context) {
-        val file = fileLocation(context)
+    fun ensureExists(context: Context, personaId: String = PersonaStore.DEFAULT_PERSONA_ID) {
+        val file = fileLocation(context, personaId)
         if (file.exists()) return
+        if (personaId == PersonaStore.DEFAULT_PERSONA_ID) {
+            val legacyFlat = File(File(context.filesDir, MEMORY_SUBDIR), FILE_NAME)
+            if (legacyFlat.exists()) return
+        }
         try {
             file.parentFile?.mkdirs()
             file.writeText(DEFAULT_CONTENT)
@@ -351,8 +367,8 @@ lang: "auto"
      * missing or unreadable; an empty body parses to default-meta with
      * empty body and callers may treat that as "fall back to default".
      */
-    fun load(context: Context): SoulFile? {
-        val file = fileLocation(context)
+    fun load(context: Context, personaId: String = PersonaStore.DEFAULT_PERSONA_ID): SoulFile? {
+        val file = fileLocation(context, personaId)
         if (!file.exists()) return null
         return try {
             SoulMDParser.parse(file.readText())
@@ -363,8 +379,8 @@ lang: "auto"
     }
 
     /** Atomic write through a `.tmp` sibling, then rename. */
-    fun save(context: Context, file: SoulFile) {
-        val target = fileLocation(context)
+    fun save(context: Context, file: SoulFile, personaId: String = PersonaStore.DEFAULT_PERSONA_ID) {
+        val target = fileLocation(context, personaId)
         target.parentFile?.mkdirs()
         val text = SoulMDParser.serialize(file)
         val tmp = File(target.parentFile, "${target.name}.tmp")
@@ -393,8 +409,8 @@ lang: "auto"
      * (after [ensureExists]) and any time the file is rewritten outside
      * of [save] (currently only the Settings UI uses save()).
      */
-    fun refreshCache(context: Context) {
-        val parsed = load(context)
+    fun refreshCache(context: Context, personaId: String = PersonaStore.DEFAULT_PERSONA_ID) {
+        val parsed = load(context, personaId)
         _cachedMetadata.value = parsed?.metadata ?: SoulMetadata.DEFAULT
     }
 }
@@ -478,8 +494,8 @@ object SystemPromptBuilder {
      * sentence alone is the safe fallback when SOUL.md is missing or
      * empty, matching pre-SOUL behavior.
      */
-    fun identitySection(context: Context): String {
-        val file = SoulStore.load(context)
+    fun identitySection(context: Context, personaId: String = PersonaStore.DEFAULT_PERSONA_ID): String {
+        val file = SoulStore.load(context, personaId)
         val name = (file?.metadata?.name ?: SoulMetadata.DEFAULT.name)
             .trim()
             .ifEmpty { "Minis" }
