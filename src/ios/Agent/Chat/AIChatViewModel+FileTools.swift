@@ -64,8 +64,9 @@ extension AIChatViewModel {
     }
 
     /// Resolve a minis:// URL string to a host filesystem URL.
-    /// Global dirs (memory/skills/shared) live in the App Group container;
-    /// session dirs live under minisPersistentBase/<sessionId>/<host>/.
+    /// Per-persona dirs (memory/skills/shared/mcp-servers) live under the
+    /// session's persona; session dirs live under
+    /// minisPersistentBase/<personaId>/<sessionId>/<host>/.
     private func resolveMinisURL(_ urlString: String) -> URL? {
         guard let url = URL(string: urlString), url.scheme == "minis",
               let host = url.host else { return nil }
@@ -73,22 +74,32 @@ extension AIChatViewModel {
         // otherwise return the first (single-decoded) so the write path still
         // gets a valid destination for a not-yet-created file.
         // [T-fix-double-encoding]
-        let base: URL
+        //
+        // Per-persona base first; skills/shared/mcp-servers also check the
+        // read-only global baseline. Memory does NOT fall back to the flat
+        // memory/ dir — those are legacy personal files owned by the
+        // default persona, not a shared baseline.
+        let bases: [URL]
         switch host {
-        case "memory": base = Self.minisMemoryPersistentDir
-        case "skills": base = Self.minisSkillsPersistentDir
-        case "shared": base = Self.minisSharedPersistentDir
-        case "mcp-servers": base = Self.minisMcpServersPersistentDir
+        case "memory": bases = [PersonaStore.memoryDir(for: personaId)]
+        case "skills": bases = [PersonaStore.skillsDir(for: personaId), Self.minisSkillsPersistentDir]
+        case "shared": bases = [PersonaStore.sharedDir(for: personaId), Self.minisSharedPersistentDir]
+        case "mcp-servers": bases = [PersonaStore.mcpServersDir(for: personaId), Self.minisMcpServersPersistentDir]
         default:
             guard let sid = sessionId else { return nil }
-            base = Self.minisPersistentBase
-                .appendingPathComponent(sid, isDirectory: true)
-                .appendingPathComponent(host, isDirectory: true)
+            bases = [PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)]
         }
         let subPaths = MinisURLPathDecoding.subPathCandidates(for: url)
-        let candidates = subPaths.map { base.appendingPathComponent($0) }
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
-            ?? candidates.first
+        let fm = FileManager.default
+        for base in bases {
+            let candidates = subPaths.map { base.appendingPathComponent($0) }
+            if let hit = candidates.first(where: { fm.fileExists(atPath: $0.path) }) { return hit }
+        }
+        // No existing file anywhere: return the first persona candidate so
+        // a write path still gets a valid destination for a not-yet-created
+        // file. Writes therefore always land in the persona dir, never in
+        // the read-only baseline.
+        return subPaths.map { bases[0].appendingPathComponent($0) }.first
     }
 
     /// Convert a Linux path under /var/minis/ to a minis:// URL, or nil if not under /var/minis/.
