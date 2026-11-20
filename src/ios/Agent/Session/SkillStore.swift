@@ -75,12 +75,47 @@ final class SkillStore: ObservableObject {
     private let fm = FileManager.default
     private var db: OpaquePointer?
 
+    /// Persona the in-memory `skills` list was loaded for. Prompt
+    /// assembly (skillPromptFragment) and reload() go through
+    /// ensureLoaded, so switching to a session of another persona reloads
+    /// the list instead of serving the previous persona's skills.
+    private var loadedPersonaId: String?
+
+    /// Per-persona skills root: <skills>/<personaId>/. The flat skills/
+    /// dir is the read-only baseline for bundled skills only — user skills
+    /// live in their persona dir and are never visible to other personas.
+    private func skillsDir(for personaId: String) -> URL {
+        PersonaStore.skillsDir(for: personaId)
+    }
+
+    /// Active session's persona dir (cache; "default" when no session is
+    /// active, e.g. at launch — pre-existing sessions are default-persona).
     private var skillsDir: URL {
-        AIChatViewModel.minisSkillsPersistentDir
+        skillsDir(for: PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId))
+    }
+
+    /// Reload the list when the requested persona differs from the loaded
+    /// one. No-op when it already matches.
+    private func ensureLoaded(for personaId: String) {
+        guard loadedPersonaId != personaId else { return }
+        loadSkills()
     }
 
     func skillDirectoryURL(for skillId: String) -> URL {
         return skillsDir.appendingPathComponent(skillId)
+    }
+
+    /// On-disk dir for a loaded skill: the persona dir, or the flat
+    /// baseline for bundled skills (app-provided, shared by all personas)
+    /// when the persona dir has no SKILL.md for it.
+    private func dirForSkill(_ skill: Skill) -> URL {
+        let personaDir = skillsDir(for: loadedPersonaId ?? PersonaStore.defaultPersonaId)
+            .appendingPathComponent(skill.id)
+        if skill.importSource == .bundled,
+           !fm.fileExists(atPath: personaDir.appendingPathComponent("SKILL.md").path) {
+            return AIChatViewModel.minisSkillsPersistentDir.appendingPathComponent(skill.id)
+        }
+        return personaDir
     }
 
     private var dbPath: String {
@@ -386,7 +421,10 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
             // Upgrade if the bundled version is newer
             guard existing.version < Self.skillCreatorVersion else { return }
         }
-        _ = try? importSkill(content: Self.skillCreatorContent, source: .bundled)
+        // Bundled skills are app-provided and shared by all personas, so
+        // they install into the flat baseline dir — never a persona dir.
+        _ = try? importSkill(content: Self.skillCreatorContent, source: .bundled,
+                             destDir: AIChatViewModel.minisSkillsPersistentDir)
     }
 
     // MARK: - One-time Migration: re-sync skills with bundled files
@@ -401,7 +439,7 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
 
         var count = 0
         for skill in skills {
-            let skillDir = skillsDir.appendingPathComponent(skill.id)
+            let skillDir = dirForSkill(skill)
             let bundledFiles = collectRelativePaths(in: skillDir)  // excludes SKILL.md
             if !bundledFiles.isEmpty {
                 AppLogger(category: "SkillSync").info("[MIGRATE] '\(skill.name)' has \(bundledFiles.count) bundled files — marking dirty for re-sync")
@@ -552,7 +590,7 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     // MARK: - Import
 
     @discardableResult
-    func importSkill(content: String, source: SkillImportSource = .file) throws -> Skill {
+    func importSkill(content: String, source: SkillImportSource = .file, destDir: URL? = nil) throws -> Skill {
         var parsed = Self.parse(skillMD: content)
 
         // Fallback: use source path as name when frontmatter has no name
@@ -580,8 +618,10 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
             body: parsed.body
         )
 
-        // Write SKILL.md to disk only if content changed
-        let skillDir = skillsDir.appendingPathComponent(id)
+        // Write SKILL.md to disk only if content changed. destDir is the
+        // flat baseline for bundled installs; user imports default to the
+        // active persona's dir.
+        let skillDir = (destDir ?? skillsDir).appendingPathComponent(id)
         try fm.createDirectory(at: skillDir, withIntermediateDirectories: true)
         let skillFile = skillDir.appendingPathComponent("SKILL.md")
         let existingContent = try? String(contentsOf: skillFile, encoding: .utf8)
@@ -650,11 +690,15 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
         // If a local skill exists with the same slugified name but a different ID,
         // remove the old one to prevent duplicates.
         let slugId = Self.slugify(parsed.name)
+        // Skill sync records are global singletons (like SoulV2): inbound
+        // synced skills belong to the DEFAULT persona, never whichever
+        // persona happens to be active when the record arrives.
+        let syncSkillsDir = skillsDir(for: PersonaStore.defaultPersonaId)
         if slugId != skillId, let oldIdx = skills.firstIndex(where: { $0.id == slugId }) {
             let oldId = skills[oldIdx].id
             skills.remove(at: oldIdx)
             dbDeleteSkill(id: oldId)
-            let oldDir = skillsDir.appendingPathComponent(oldId)
+            let oldDir = syncSkillsDir.appendingPathComponent(oldId)
             try? fm.removeItem(at: oldDir)
             let oldRootfs = rootfsSkillsDir.appendingPathComponent(oldId)
             try? fm.removeItem(at: oldRootfs)
@@ -675,8 +719,8 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
             body: parsed.body
         )
 
-        // Write SKILL.md to disk
-        let skillDir = skillsDir.appendingPathComponent(skillId)
+        // Write SKILL.md to disk — default persona dir (see above).
+        let skillDir = syncSkillsDir.appendingPathComponent(skillId)
         try? fm.createDirectory(at: skillDir, withIntermediateDirectories: true)
         let skillFile = skillDir.appendingPathComponent("SKILL.md")
         try? content.write(to: skillFile, atomically: true, encoding: .utf8)
@@ -1255,6 +1299,9 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     /// 2. Recently modified/created skills within last 7 days (up to 10)
     /// 3. Frequently used skills by normalized use count (fill remaining slots)
     func skillPromptFragment(for sessionId: String) -> String? {
+        // The store loads once; a session of another persona must see its
+        // own skills, not the previous persona's list.
+        ensureLoaded(for: PersonaStore.personaId(forSessionId: sessionId))
         let logger = AppLogger(category: "SkillDisclosure")
         let enabled = skills.filter { isEnabledForSession($0.id, sessionId: sessionId) }
         guard !enabled.isEmpty else { return nil }
@@ -1469,6 +1516,11 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
 
     private func loadSkills() {
         skills.removeAll()
+        // The persona this load is for (active session's, "default" at
+        // launch). Recorded so ensureLoaded can tell when a session
+        // switch needs a reload.
+        let personaId = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
+        loadedPersonaId = personaId
 
         // 1. Load skills already registered in the DB
         var knownIds = Set<String>()
@@ -1487,11 +1539,20 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
                 let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 7))
                 let useCount = sqlite3_column_double(stmt, 8)
 
-                let skillFile = skillsDir.appendingPathComponent(id).appendingPathComponent("SKILL.md")
+                // Resolve SKILL.md from the persona dir first. Bundled
+                // skills (.bundled) fall back to the flat baseline dir —
+                // they are app-provided and shared by all personas. User
+                // skills never fall back: a file missing from this
+                // persona's dir simply isn't this persona's skill.
+                let personaSkillFile = skillsDir(for: personaId).appendingPathComponent(id).appendingPathComponent("SKILL.md")
+                let baselineSkillFile = AIChatViewModel.minisSkillsPersistentDir.appendingPathComponent(id).appendingPathComponent("SKILL.md")
+                let isBundled = SkillImportSource.fromDB(importSourceStr) == .bundled
+                let content = (try? String(contentsOf: personaSkillFile, encoding: .utf8))
+                    ?? (isBundled ? try? String(contentsOf: baselineSkillFile, encoding: .utf8) : nil)
                 var resolvedName = name
                 var resolvedDesc = description
                 let body: String
-                if let content = try? String(contentsOf: skillFile, encoding: .utf8) {
+                if let content {
                     let parsed = Self.parse(skillMD: content)
                     body = parsed.body
                     // Re-resolve name/description from disk when DB has stale values
@@ -1539,8 +1600,14 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
                         let parsed = Self.parse(skillMD: rootfsContent)
                         body = parsed.body
                     } else {
-                        // Skill files deleted from both locations — remove from DB
-                        dbDeleteSkill(id: id)
+                        // Skill files deleted from every location. Only the
+                        // DEFAULT persona may delete the shared DB row: for
+                        // any other persona the file is merely not theirs,
+                        // and deleting the row would destroy the owning
+                        // persona's skill.
+                        if personaId == PersonaStore.defaultPersonaId {
+                            dbDeleteSkill(id: id)
+                        }
                         continue
                     }
                 }
@@ -2199,7 +2266,8 @@ extension SkillStore {
             let bundledFiles = entries.filter { !$0.isDirectory && $0.name != "SKILL.md" && !$0.name.hasPrefix(".") }
             syncLogger.info("[IMPORT] '\(skillId)' unpacking ZIP: \(zipData.count) bytes, \(entries.count) entries total, \(bundledFiles.count) bundled files to extract")
 
-            let skillDir = skillsDir.appendingPathComponent(skillId)
+            // Same default-persona scope as importSkillFromSync above.
+            let skillDir = skillsDir(for: PersonaStore.defaultPersonaId).appendingPathComponent(skillId)
             let rootfsDir = rootfsSkillsDir.appendingPathComponent(skillId)
 
             // ZIP-as-truth pruning: every bundled file that exists locally
