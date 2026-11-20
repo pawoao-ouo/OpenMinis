@@ -216,7 +216,7 @@ let minisDocumentExtensions: Set<String> = [
 ]
 
 /// Resolve a minis:// URL to a host filesystem URL.
-/// Maps directly to persistent storage: Library/MinisChat/minis/<sessionId>/<subdir>/<path>
+/// Maps directly to persistent storage: Library/MinisChat/minis/<personaId>/<sessionId>/<subdir>/<path>
 /// No dependency on iSH boot or bind mounts.
 func resolveMinisFileURL(url: URL) -> URL? {
     guard let host = url.host else {
@@ -229,12 +229,13 @@ func resolveMinisFileURL(url: URL) -> URL? {
 
     let fm = FileManager.default
 
-    // Primary: resolve via active session → persistent directory
+    // Primary: resolve via active session → persistent directory.
+    // Session dirs are nested under their persona:
+    // <minis>/<personaId>/<sid>/<host>/.
     if let sid = AIChatViewModel.activeSessionId {
+        let personaId = PersonaStore.personaId(forSessionId: sid)
         for subPath in subPaths {
-            let persistURL = AIChatViewModel.minisPersistentBase
-                .appendingPathComponent(sid, isDirectory: true)
-                .appendingPathComponent(host, isDirectory: true)
+            let persistURL = PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)
                 .appendingPathComponent(subPath)
             let exists = fm.fileExists(atPath: persistURL.path)
             let fileSize: Int64 = exists ? ((try? fm.attributesOfItem(atPath: persistURL.path)[.size] as? Int64) ?? -1) : 0
@@ -243,17 +244,27 @@ func resolveMinisFileURL(url: URL) -> URL? {
         }
     }
 
-    // Fallback: global directories (skills, memory) are not per-session
-    let globalDirs: [(subdir: String, url: URL)] = [
+    // Fallback: persona namespaces. Memory has NO flat-root fallback —
+    // the flat memory/ files are the default persona's legacy data, and
+    // falling back to them would leak them into every other persona's
+    // rendered media. Skills keeps its flat baseline after the persona
+    // dir; shared keeps its flat live area after the persona namespace.
+    // Mirrors resolveMinisURL's isolation rule.
+    let personaId = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
+    let personaDirs: [(subdir: String, url: URL)] = [
+        ("skills", PersonaStore.skillsDir(for: personaId)),
+        ("memory", PersonaStore.memoryDir(for: personaId)),
+        ("shared", PersonaStore.sharedDir(for: personaId)),
+    ]
+    let baselineDirs: [(subdir: String, url: URL)] = [
         ("skills", AIChatViewModel.minisSkillsPersistentDir),
-        ("memory", AIChatViewModel.minisMemoryPersistentDir),
         ("shared", AIChatViewModel.minisSharedPersistentDir),
     ]
-    for (subdir, globalDir) in globalDirs where host == subdir {
+    for (subdir, dir) in personaDirs + baselineDirs where host == subdir {
         for subPath in subPaths {
-            let candidate = globalDir.appendingPathComponent(subPath)
+            let candidate = dir.appendingPathComponent(subPath)
             if fm.fileExists(atPath: candidate.path) {
-                minisLogger.info("[MinisImage][Resolve] \(url.absoluteString) → global \(subdir) → \(candidate.path)")
+                minisLogger.info("[MinisImage][Resolve] \(url.absoluteString) → \(subdir) → \(candidate.path)")
                 return candidate
             }
         }
