@@ -569,12 +569,14 @@ private let logger = AppLogger(category: "ConfigOffload")
                     // ［persona］Scope the calling persona to this synchronous
                     // snapshot read so a persona-scoped field in a
                     // collection reads the caller's copy, not the global
-                    // current persona's.
+                    // current persona's. defer (not an explicit clear
+                    // after the read) so a throw from fields(for:) still
+                    // clears it on unwind.
                     ConfigRegistry.callingSessionPersonaId = callingPersonaId
+                    defer { ConfigRegistry.callingSessionPersonaId = nil }
                     let snapshot = collection.fields(for: childId).reduce(into: [String: ConfigValue]()) { acc, f in
                         if let v = try? f.read() { acc[f.path] = v }
                     }
-                    ConfigRegistry.callingSessionPersonaId = nil
                     let snapshotJSON = ConfigValue.object(snapshot).jsonString()
                     resolved.append(.collectionRemove(collection: collection, childId: childId, snapshotJSON: snapshotJSON))
                     resolvedItems.append(PendingConfigChangeItem(
@@ -669,15 +671,19 @@ private let logger = AppLogger(category: "ConfigOffload")
             // Read current value first — needed for both audit's old
             // value and to compute the post-append array.
             // ［persona］Scope the calling persona to this synchronous
-            // read (no await between set and clear).
-            ConfigRegistry.callingSessionPersonaId = callingPersonaId
+            // read ONLY. A bare defer here would be wrong: this is the
+            // loop body, so it would clear at iteration end — after
+            // validation and the write setup. The do-block's defer clears
+            // the moment the read finishes (or throws), before anything
+            // else in the iteration runs.
             let oldValue: ConfigValue
             do {
+                ConfigRegistry.callingSessionPersonaId = callingPersonaId
+                defer { ConfigRegistry.callingSessionPersonaId = nil }
                 oldValue = try field.read()
             } catch {
                 oldValue = .null
             }
-            ConfigRegistry.callingSessionPersonaId = nil
 
             // `var` (not `let`): [T-soul-icon-config-images] rewrites this in
             // place when an image source resolves to a data URI.
