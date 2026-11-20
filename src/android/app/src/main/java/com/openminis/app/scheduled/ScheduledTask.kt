@@ -113,10 +113,12 @@ data class ScheduledTask(
      * task runs under. A task fires under its stored personaId — never
      * derived back from the session it lands in. The manager stamps it
      * on create (the target session's persona for APPEND_TO/RERUN, the
-     * creator session's persona — or "legacy" when there is none — for
+     * creator session's persona — or "default" when there is none — for
      * NEW_SESSION). Null = pre-isolation task: the store migration
-     * backfills it from targetMode.sessionIdOrNull, or "legacy" when
-     * there is no target session.
+     * backfills it from targetMode.sessionIdOrNull, or "default" when
+     * there is no target session. "default" owns the migrated shared
+     * history, so an unattributed task fires with real SOUL/memory
+     * instead of an empty dir.
      */
     val personaId: String? = null,
     val modelId: String? = null,             // null → use app default (or fall back from modelBinding's resolved entry)

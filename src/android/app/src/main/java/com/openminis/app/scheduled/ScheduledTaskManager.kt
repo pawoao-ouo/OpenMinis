@@ -45,7 +45,10 @@ class ScheduledTaskManager(private val context: Context) {
      */
     fun get(taskId: String, personaId: String): ScheduledTask? {
         val task = store.get(taskId) ?: return null
-        if ((task.personaId ?: PersonaStore.LEGACY_PERSONA_ID) != personaId) {
+        // Null personaId = pre-isolation row (only possible while the
+        // store migration is deferred): it belongs to the default persona,
+        // the owner of the migrated shared history.
+        if ((task.personaId ?: PersonaStore.DEFAULT_PERSONA_ID) != personaId) {
             throw IllegalStateException(
                 "task $taskId belongs to another persona",
             )
@@ -55,16 +58,17 @@ class ScheduledTaskManager(private val context: Context) {
 
     /**
      * Stamp the persona a task runs under when it has none: the target
-     * session's persona for APPEND_TO/RERUN, "legacy" for NEW_SESSION
-     * (no creator session in scope at the global editor — the task
-     * runs under legacy memory, never under another persona).
+     * session's persona for APPEND_TO/RERUN, "default" for NEW_SESSION
+     * (no creator session in scope at the global editor — the task runs
+     * under the default persona's migrated memory, never under an empty
+     * dir and never under another persona).
      */
     private fun stampPersona(task: ScheduledTask): ScheduledTask {
         if (task.personaId != null) return task
         val targetSessionId = task.targetMode.sessionIdOrNull
         val personaId = targetSessionId
             ?.let { PersonaStore.personaIdForSession(context, it) }
-            ?: PersonaStore.LEGACY_PERSONA_ID
+            ?: PersonaStore.DEFAULT_PERSONA_ID
         return task.copy(personaId = personaId)
     }
 

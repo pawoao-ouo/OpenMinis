@@ -55,11 +55,6 @@ object PersonaStore {
      *  persona. Must be excluded whenever personas are enumerated. */
     const val USER_PROFILE_PERSONA_ID = "me"
 
-    /** Persona id for scheduled tasks that cannot be attributed to any
-     *  session (a NEW_SESSION task with no target session). Runs under
-     *  the legacy/default memory, never under another persona. */
-    const val LEGACY_PERSONA_ID = "legacy"
-
     const val MEMORY_ROOT_SUBDIR = "minis-global/memory"
     const val PERSONAS_SUBDIR = "personas"
 

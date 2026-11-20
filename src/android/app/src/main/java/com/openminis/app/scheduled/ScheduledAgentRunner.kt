@@ -276,7 +276,7 @@ object ScheduledAgentRunner {
                 com.openminis.app.data.PersonaStore.recordSessionPersona(
                     app,
                     session.id,
-                    task.personaId ?: com.openminis.app.data.PersonaStore.LEGACY_PERSONA_ID,
+                    task.personaId ?: com.openminis.app.data.PersonaStore.DEFAULT_PERSONA_ID,
                 )
                 app.chatRepository.dao.updateSource(session.id, "scheduled")
 

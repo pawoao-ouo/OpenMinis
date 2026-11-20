@@ -30,9 +30,10 @@ class ScheduledTaskStore(private val context: Context) {
 
     /** Tasks that run under [personaId]. Pre-migration rows (null
      *  personaId, only possible while the migration is deferred) read
-     *  as the legacy persona. */
+     *  as the default persona — the owner of the migrated shared
+     *  history — never as an empty persona. */
     fun allForPersona(personaId: String): List<ScheduledTask> =
-        all().filter { (it.personaId ?: PersonaStore.LEGACY_PERSONA_ID) == personaId }
+        all().filter { (it.personaId ?: PersonaStore.DEFAULT_PERSONA_ID) == personaId }
 
     fun get(taskId: String): ScheduledTask? = all().firstOrNull { it.id == taskId }
 
@@ -40,7 +41,7 @@ class ScheduledTaskStore(private val context: Context) {
      *  the caller (manager) turns the null into a cross-persona error
      *  instead of silently returning a task from another persona. */
     fun getForPersona(taskId: String, personaId: String): ScheduledTask? =
-        get(taskId)?.takeIf { (it.personaId ?: PersonaStore.LEGACY_PERSONA_ID) == personaId }
+        get(taskId)?.takeIf { (it.personaId ?: PersonaStore.DEFAULT_PERSONA_ID) == personaId }
 
     private fun loadRaw(): List<ScheduledTask> {
         val raw = prefs.getString(KEY_TASKS, null) ?: return emptyList()
@@ -103,7 +104,8 @@ class ScheduledTaskStore(private val context: Context) {
      * the target session — `targetMode.sessionIdOrNull`, resolved through
      * PersonaStore.personaIdForSession (legacy session → "default", new
      * session → itself). A NEW_SESSION task has no target session, so it
-     * goes to the legacy persona.
+     * goes to the default persona — the owner of the migrated shared
+     * history — and fires with real SOUL/memory instead of an empty dir.
      *
      * DEFERRED until the PersonaStore migration is done: backfilling
      * before that would resolve a legacy session id to itself (a new,
@@ -124,7 +126,7 @@ class ScheduledTaskStore(private val context: Context) {
                 val targetSessionId = task.targetMode.sessionIdOrNull
                 val personaId = targetSessionId
                     ?.let { PersonaStore.personaIdForSession(context, it) }
-                    ?: PersonaStore.LEGACY_PERSONA_ID
+                    ?: PersonaStore.DEFAULT_PERSONA_ID
                 task.copy(personaId = personaId)
             }
         }
