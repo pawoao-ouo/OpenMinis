@@ -17,19 +17,27 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     /// refuse first when this is false — see the guards in init, item(for:),
     /// fetchContents, createItem, modifyItem, deleteItem, and the
     /// enumerator's listItemsThrowing.
+    /// NOTE: the App Group check is inlined here (not SharedContainerStore)
+    /// because this file compiles into the MinisFileProvider target, which
+    /// does not include SharedContainerStore.swift (CI 44687605903).
     static var isMountAvailable: Bool {
-        SharedContainerStore.isAppGroupAvailable
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.com.openminis.clone"
+        ) != nil
     }
 
     /// Root directory for all FileProvider-visible files in the App Group container.
-    /// Single source of truth is SharedContainerStore.containerURL — do NOT
-    /// re-implement the fallback here. NOTE: this still resolves to the
-    /// per-process fallback dir when the App Group is unavailable; it must
-    /// never be dereferenced in that case (every entry point gates on
-    /// isMountAvailable first).
+    /// NOTE: the container resolution is inlined here for the same reason as
+    /// isMountAvailable — do NOT reference SharedContainerStore from this
+    /// file. It must never be dereferenced when the App Group is unavailable
+    /// (every entry point gates on isMountAvailable first).
     static var providerRoot: URL {
-        let url = SharedContainerStore.containerURL
-            .appendingPathComponent("MinisFileProvider", isDirectory: true)
+        let fm = FileManager.default
+        let container = fm.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.com.openminis.clone"
+        ) ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("OpenMinisClone", isDirectory: true)
+        let url = container.appendingPathComponent("MinisFileProvider", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

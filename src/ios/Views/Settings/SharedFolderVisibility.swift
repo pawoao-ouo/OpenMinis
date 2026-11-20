@@ -23,15 +23,16 @@ enum SharedFolderVisibility {
     /// Must match FileProviderExtension.topLevelSubdirs.
     static let allFolderNames: [String] = ["shared", "skills", "memory"]
 
+    private static let appGroupID = "group.com.openminis.clone"
     private static let userDefaultsKeyPrefix = "fileProviderVisible."
 
     private static var store: UserDefaults {
-        // [Batch 26] Route through SharedContainerStore so the fallback
-        // decision (and its loud log) lives in one place. NOTE: this still
-        // falls back to .standard when the App Group is unavailable — the
-        // real guard is the UI + provider gating on isAppGroupAvailable,
-        // which refuse to pretend the toggles work in that case.
-        SharedContainerStore.sharedDefaults ?? .standard
+        // Prefer the App Group suite so the FileProvider extension sees the
+        // same values; fall back to standard if unavailable.
+        // NOTE (Batch 26): do NOT route this through SharedContainerStore —
+        // this file is also compiled into the MinisFileProvider target,
+        // which does not include SharedContainerStore.swift (CI 44687605903).
+        UserDefaults(suiteName: appGroupID) ?? .standard
     }
 
     /// Whether the given folder name (e.g. "shared") is currently visible in Files.
