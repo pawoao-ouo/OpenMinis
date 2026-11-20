@@ -35,7 +35,7 @@ struct SessionMemoryView: View {
                         ForEach(toolMemories) { item in
                             NavigationLink {
                                 if item.isWrite {
-                                    MemoryWriteDetailView(item: item)
+                                    MemoryWriteDetailView(item: item, personaId: vm.personaId)
                                 } else {
                                     MemoryGetDetailView(item: item)
                                 }
@@ -343,6 +343,10 @@ private struct MemoryContentView: View {
 
 private struct MemoryWriteDetailView: View {
     let item: SessionMemoryView.ToolMemoryItem
+    /// The persona whose daily log this view edits/revokes. Passed in by
+    /// SessionMemoryView (which owns the vm); this struct has no vm of its
+    /// own, so it must not read `vm.personaId` (that broke the CI build).
+    let personaId: String
     @Environment(\.dismiss) private var dismiss
     @State private var isEditing = false
     @State private var editedContent: String = ""
@@ -452,7 +456,7 @@ private struct MemoryWriteDetailView: View {
         let fm = FileManager.default
         // Multi-persona isolation: edit THIS session's persona log, not the
         // flat legacy root (the default persona's pre-migration originals).
-        let memDir = PersonaStore.memoryDir(for: vm.personaId)
+        let memDir = PersonaStore.memoryDir(for: personaId)
         let dateFmt = DateFormatter()
         dateFmt.dateFormat = "yyyy-MM-dd"
         let candidates = [
@@ -506,7 +510,7 @@ private struct MemoryWriteDetailView: View {
         guard let written = item.writtenContent else {
             return AppLocalized("No written content to revoke.")
         }
-        return MemoryWriteRevoker.revoke(writtenContent: written, personaId: vm.personaId)
+        return MemoryWriteRevoker.revoke(writtenContent: written, personaId: personaId)
     }
 }
 
