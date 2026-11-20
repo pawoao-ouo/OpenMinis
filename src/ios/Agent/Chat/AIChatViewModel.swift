@@ -1826,7 +1826,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // Personality section from SOUL.md's body. The original wording
         // is preserved inside SystemPromptBuilder.identityTemplate so we
         // don't regress model behavior that depended on it.
-        SystemPromptBuilder.identitySection()
+        SystemPromptBuilder.identitySection(personaId: personaId)
             + "You should proactively use shell commands to accomplish the user's tasks — installing packages (apk add), "
             + "writing and running scripts, managing files, networking, and any other operations a Linux terminal can perform.\n\n"
             + "Available tools:\n"
@@ -2019,6 +2019,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     var sessionId: String? {
         didSet { browserTabPool.sessionId = sessionId }
     }
+
+    /// Persona this session belongs to (sessions.persona_id). Resolved at
+    /// load/create time from ChatStore and cached here and in
+    /// PersonaStore's sync cache, so prompt assembly and static resolvers
+    /// never need an actor hop. "default" until the session loads — which
+    /// is also the correct value for every pre-existing session.
+    var personaId: String = PersonaStore.defaultPersonaId
 
     /// The draft ID assigned by the parent view (e.g. "__new__<UUID>").
     /// Included in `.sessionDidCreate` notification so the parent can correlate.
@@ -4815,10 +4822,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // global default.
         AppLogger(category: "MemDiag").info("[MemDiag] inject-decision sid=\(self.sessionId?.prefix(8) ?? "nil") vm.memoryEnabled=\(self.memoryEnabled)")
         if memoryEnabled {
-            if let memoryFragment = Self.loadGlobalMemoryFragment() {
+            if let memoryFragment = Self.loadGlobalMemoryFragment(personaId: personaId) {
                 userSystemPrompt += "\n\n" + memoryFragment
             }
-            if let dailyFragment = Self.loadRecentDailyMemoryFragment() {
+            if let dailyFragment = Self.loadRecentDailyMemoryFragment(personaId: personaId) {
                 userSystemPrompt += "\n\n" + dailyFragment
             }
         }
@@ -5284,10 +5291,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 // new provider must respect the per-session memoryEnabled
                 // toggle the same way the initial system prompt did.
                 if memoryEnabled {
-                    if let memoryFragment = Self.loadGlobalMemoryFragment() {
+                    if let memoryFragment = Self.loadGlobalMemoryFragment(personaId: personaId) {
                         userSystemPrompt += "\n\n" + memoryFragment
                     }
-                    if let dailyFragment = Self.loadRecentDailyMemoryFragment() {
+                    if let dailyFragment = Self.loadRecentDailyMemoryFragment(personaId: personaId) {
                         userSystemPrompt += "\n\n" + dailyFragment
                     }
                 }
