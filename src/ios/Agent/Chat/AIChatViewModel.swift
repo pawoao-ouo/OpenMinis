@@ -3312,14 +3312,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // drained. Now there is no suspension point between the drain and
             // the flag clear (main-actor isolated), and the refresh below runs
             // after the flag is clear — a brand-new send can start during it,
-            // so the writes are guarded: skip them if the session changed
-            // across the await, and never regress lastKnownDbSortOrder.
+            // so the writes are guarded by a pre-await snapshot: skip all
+            // three if the session changed or lastKnownDbSortOrder moved
+            // across the await (a concurrent send advanced it).
             if let sid = self.sessionId {
+                let preAwaitSortOrder = self.lastKnownDbSortOrder
                 let dbMessages = await ChatStore.shared.loadMessages(sessionId: sid)
-                guard self.sessionId == sid else { return }
-                if let lastSort = dbMessages.last?.sortOrder {
-                    self.lastKnownDbSortOrder = max(self.lastKnownDbSortOrder, lastSort)
-                }
+                guard self.sessionId == sid, self.lastKnownDbSortOrder == preAwaitSortOrder else { return }
+                self.lastKnownDbSortOrder = dbMessages.last?.sortOrder ?? self.lastKnownDbSortOrder
                 self.lastKnownDbCount = dbMessages.count
                 // T-baseline-hash-drift: also refresh lastKnownDbOrderHash —
                 // otherwise reloadMessagesFromDB's hasReorderedMessages check
