@@ -108,9 +108,13 @@ struct MemoryManagementView: View {
         }
     }
 
+    // Multi-persona isolation: this Settings screen has no session, so it
+    // edits the DEFAULT persona's memory (memory/personas/default/) — the
+    // migrated home of the old flat GLOBAL.md and daily logs. Per-persona
+    // memory is edited from the session's own memory sheet instead.
     private func loadFiles() {
         let fm = FileManager.default
-        let memDir = AIChatViewModel.minisMemoryPersistentDir
+        let memDir = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
         try? fm.createDirectory(at: memDir, withIntermediateDirectories: true)
 
         // GLOBAL.md always first
@@ -144,7 +148,7 @@ struct MemoryManagementView: View {
 
     private func deleteFiles(at offsets: IndexSet) {
         let fm = FileManager.default
-        let memDir = AIChatViewModel.minisMemoryPersistentDir
+        let memDir = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
         for idx in offsets {
             let file = memoryFiles[idx]
             if file.isGlobal { continue }
@@ -202,7 +206,7 @@ private struct MemoryFileEditView: View {
     @State private var suppressNextChange = false
 
     private var fileURL: URL {
-        AIChatViewModel.minisMemoryPersistentDir.appendingPathComponent(fileName)
+        PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId).appendingPathComponent(fileName)
     }
 
     var body: some View {
@@ -289,7 +293,7 @@ private struct MemoryFileEditView: View {
 
     private func save() {
         let fm = FileManager.default
-        try? fm.createDirectory(at: AIChatViewModel.minisMemoryPersistentDir, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId), withIntermediateDirectories: true)
         do {
             try content.data(using: .utf8)?.write(to: fileURL)
             hasChanges = false
