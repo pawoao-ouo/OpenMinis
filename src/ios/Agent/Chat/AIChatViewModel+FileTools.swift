@@ -124,7 +124,12 @@ extension AIChatViewModel {
     /// Falls back to resolveHostPath for non-/var/minis/ paths (e.g. /tmp, /root).
     func resolvePathForDirectRead(_ linuxPath: String) async -> URL? {
         if linuxPath.hasPrefix("/var/minis/") || linuxPath == "/var/minis" {
-            if let resolved = await ISHExecutionCoordinator.shared.hostURL(for: linuxPath) {
+            // Multi-persona isolation: pass this session's id. hostURL falls
+            // back to mountedSessionId when sessionId is nil, and that is set
+            // by whichever session ran a shell command last — without this,
+            // persona B reading /var/minis/memory/GLOBAL.md after persona A
+            // ran a shell command resolves to A's files.
+            if let resolved = await ISHExecutionCoordinator.shared.hostURL(for: linuxPath, sessionId: self.sessionId) {
                 let exists = FileManager.default.fileExists(atPath: resolved.path)
                 logger.notice("📂[RESOLVE] \(linuxPath) → \(resolved.path) exists=\(exists) sid=\(self.sessionId ?? "nil")")
                 if exists { return resolved }
@@ -453,7 +458,9 @@ extension AIChatViewModel {
         // into iSH and visible in iOS Files).
         let hostURL: URL?
         if path.hasPrefix("/var/minis/mounts/") {
-            let mountURL = await ISHExecutionCoordinator.shared.hostURL(for: path)
+            // Same trap as resolvePathForDirectRead above: pass this
+            // session's id instead of relying on mountedSessionId.
+            let mountURL = await ISHExecutionCoordinator.shared.hostURL(for: path, sessionId: self.sessionId)
             #if DEBUG
             print("[FileWrite] hostURL(for:\(path)) → \(mountURL?.path ?? "<nil>")")
             #endif
