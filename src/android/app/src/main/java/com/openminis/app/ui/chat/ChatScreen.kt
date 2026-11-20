@@ -532,6 +532,36 @@ fun ChatScreen(
     onModelGroupsClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    // Round-2 new problem 6 / item 8 partial: the one-time persona
+    // migration assigns legacy sessions to their persona. Deriving the
+    // session memory repo (below) before migration completes resolves a
+    // legacy session to its own id — an empty persona dir — and the
+    // remember never recomputes it, so the chat would run the whole
+    // session on empty memory. Gate composition on the migration: the
+    // repo and the ViewModel are created only after it completes.
+    // Recomputing the repo alone would not be enough — the ViewModel
+    // freezes its MemoryRepository at creation.
+    // Caveat: this waits for the job to complete, not for success. If
+    // migration failed (flag still clear, retry next launch) the screen
+    // proceeds with a possibly-wrong repo rather than spinning forever.
+    var migrationDone by remember {
+        mutableStateOf(
+            com.openminis.app.data.PersonaStore.isMigrationDone(context.applicationContext)
+        )
+    }
+    if (!migrationDone) {
+        LaunchedEffect(Unit) {
+            com.openminis.app.data.PersonaStore.awaitMigration()
+            migrationDone = true
+        }
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator()
+        }
+        return
+    }
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     // Multi-persona isolation: derive the memory repo for THIS session's
