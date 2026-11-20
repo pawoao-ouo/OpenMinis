@@ -2552,6 +2552,11 @@ actor ChatStore {
         // [T-ios-listsessions-cache] Invalidate here (the low-level row delete)
         // so ALL callers are covered — deleteSession AND deleteSessionLocalOnly.
         invalidateSessionListCache()
+        // Item 4 (small-issues fix): capture the deleted session's persona
+        // BEFORE its row is gone — the delete-time shared-namespace cleanup
+        // below needs it, and getPersonaId falls back to "default" once the
+        // row no longer exists.
+        let deletedPersonaId = storedPersonaId(sessionId: id)
         deleteMessages(sessionId: id)
         deleteCompactMarkers(sessionId: id)
         deleteSessionMedia(id)
@@ -2563,6 +2568,26 @@ actor ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
+        // Item 4 (small-issues fix): remove the deleted persona's
+        // shared/<pid>/ namespace dir when no remaining session carries
+        // that persona. New shared-file writes land in the persona
+        // namespace by default, so once the last session of a persona is
+        // gone its namespace dir is unreachable — and the @-mention prune
+        // hides only KNOWN ids, so on the next launch the orphaned files
+        // would leak into another persona's @-menu. Fork/duplicate
+        // sessions inherit the source persona, so the remaining-session
+        // check keeps a shared persona alive while any session uses it.
+        // Memory is NEVER touched here: memory/personas/<pid>/ (SOUL,
+        // logs, GLOBAL.md) is never deleted by code. "me" is the user
+        // profile, never a session persona — never removed.
+        if let pid = deletedPersonaId, pid != PersonaStore.userProfilePersonaId, !pid.isEmpty,
+           !anyLiveSessionHasPersonaId(pid) {
+            let dir = PersonaStore.sharedDir(for: pid)
+            if FileManager.default.fileExists(atPath: dir.path) {
+                try? FileManager.default.removeItem(at: dir)
+                logger.info("[PersonaIsolation] removed orphaned shared namespace for deleted persona \(pid.prefix(8))")
+            }
+        }
         // Clean up per-session etag cache
         if #available(iOS 17.0, *) {
             Task { @MainActor in CloudSyncEngine.shared.removeSessionCache(id) }
@@ -3449,6 +3474,45 @@ actor ChatStore {
         }
         sqlite3_finalize(stmt)
         return personaId ?? "default"
+    }
+
+    /// Raw persona_id column value for a session. Returns "default" when
+    /// the row exists but persona_id is NULL (getPersonaId's convention
+    /// for pre-column rows), and nil when the row doesn't exist or the
+    /// column doesn't exist (very old DB) — so delete-time cleanup can
+    /// tell "no such session" apart from a real default session and
+    /// never acts on a session that was never there.
+    private func storedPersonaId(sessionId: String) -> String? {
+        let sql = "SELECT persona_id FROM sessions WHERE id = ?"
+        var stmt: OpaquePointer?
+        var personaId: String?
+        var rowFound = false
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                rowFound = true
+                personaId = sqlite3_column_text(stmt, 0).map { String(cString: $0) }
+            }
+        }
+        sqlite3_finalize(stmt)
+        guard rowFound else { return nil }
+        return personaId ?? "default"
+    }
+
+    /// True when any remaining session row carries this persona id. A
+    /// NULL persona_id counts as "default" (getPersonaId's own
+    /// convention for pre-column rows), so deleting the last
+    /// explicit-default session never removes shared/default/ while a
+    /// NULL-persona sibling still exists. On a prepare failure returns
+    /// true (fail closed — never delete the namespace on doubt).
+    private func anyLiveSessionHasPersonaId(_ personaId: String) -> Bool {
+        let sql = "SELECT 1 FROM sessions WHERE persona_id = ? OR (persona_id IS NULL AND ? = 'default') LIMIT 1"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return true }
+        sqlite3_bind_text(stmt, 1, (personaId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 2, (personaId as NSString).utf8String, -1, nil)
+        return sqlite3_step(stmt) == SQLITE_ROW
     }
 
     /// Move a session to another persona. Used by fork/duplicate, which
