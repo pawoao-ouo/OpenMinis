@@ -643,6 +643,10 @@ actor ChatStore {
         // BOTH places). Existing rows backfill to 'default' via the SQL
         // DEFAULT, so they keep reading the migrated legacy data.
         addColumnIfMissing(table: "sessions", column: "persona_id", definition: "TEXT NOT NULL DEFAULT 'default'")
+        // Remote sessions need the persona too, so a fork of a remote
+        // session can inherit it. Same wipe-trap rule: in both DDL and
+        // the idempotent migration.
+        addColumnIfMissing(table: "remote_sessions", column: "persona_id", definition: "TEXT NOT NULL DEFAULT 'default'")
         // Folder pinning (mirrors sessions.pinned_at). Also present in the
         // CREATE TABLE DDL above — per the add-column wipe trap, a new column
         // must exist in BOTH the initial DDL and the idempotent migration.
@@ -878,6 +882,7 @@ actor ChatStore {
                 created_at  REAL NOT NULL,
                 updated_at  REAL NOT NULL,
                 model_binding TEXT,
+                persona_id  TEXT NOT NULL DEFAULT 'default',
                 PRIMARY KEY (id, device_id)
             )
         """)
@@ -6158,6 +6163,21 @@ extension ChatStore {
             sqlite3_bind_double(stmt, 7, session.updatedAt.timeIntervalSince1970)
             sqlite3_step(stmt)
         }
+        // REPLACE resets persona_id to its 'default' default, so a real
+        // persona needs a second write — and only a real one: an old-build
+        // record carrying "default" must not clobber the stored persona
+        // (same tolerance as the mergeRemoteSession CASE guard).
+        if session.personaId != "default" {
+            let pSql = "UPDATE remote_sessions SET persona_id = ? WHERE id = ? AND device_id = ?"
+            var pStmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, pSql, -1, &pStmt, nil) == SQLITE_OK {
+                sqlite3_bind_text(pStmt, 1, (session.personaId as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(pStmt, 2, (session.id as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(pStmt, 3, (deviceId as NSString).utf8String, -1, nil)
+                sqlite3_step(pStmt)
+            }
+            sqlite3_finalize(pStmt)
+        }
         sqlite3_finalize(stmt)
     }
 
@@ -6705,7 +6725,7 @@ extension ChatStore {
     func listRemoteSessions(deviceId: String) -> [ChatSession] {
         iCloudLogger.info("[iCloud] listRemoteSessions: querying deviceId=\(deviceId)")
         let sql = """
-            SELECT id, title, category, model_id, created_at, updated_at
+            SELECT id, title, category, model_id, created_at, updated_at, persona_id
             FROM remote_sessions WHERE device_id = ? ORDER BY updated_at DESC
         """
         var stmt: OpaquePointer?
@@ -6719,7 +6739,8 @@ extension ChatStore {
                     category: sqlite3_column_text(stmt, 2).map { String(cString: $0) },
                     modelId: String(cString: sqlite3_column_text(stmt, 3)),
                     createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4)),
-                    updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
+                    updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5)),
+                    personaId: sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? "default"
                 ))
             }
         }
