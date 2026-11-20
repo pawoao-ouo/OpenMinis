@@ -145,8 +145,13 @@ actor SessionFileChangeTracker {
                     totalDelete += 1
                     continue
                 }
-                let hostURL = minisBaseURL
-                    .appendingPathComponent(sid, isDirectory: true)
+                // Session dirs are nested under their persona:
+                // <minis>/<personaId>/<sid>/<rel>. The old flat
+                // <minis>/<sid>/<rel> no longer exists, so the mtime
+                // lookup below would miss every file and the filter
+                // would drain all changes unfiltered.
+                let hostURL = PersonaStore.sessionDir(
+                    for: sid, personaId: PersonaStore.personaId(forSessionId: sid))
                     .appendingPathComponent(rel)
                 let attrs = try? FileManager.default.attributesOfItem(atPath: hostURL.path)
                 guard let mtime = attrs?[.modificationDate] as? Date else {
