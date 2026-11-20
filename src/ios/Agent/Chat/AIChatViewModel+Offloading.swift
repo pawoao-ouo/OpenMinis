@@ -605,9 +605,11 @@ extension AIChatViewModel {
     }
 
     /// Remove persistent minis data for a given session.
+    /// Session dirs are nested under their persona: <minis>/<pid>/<sid>/.
     private func cleanupMinis(for sid: String) {
         let fm = FileManager.default
-        let persistDir = Self.minisPersistentBase.appendingPathComponent(sid, isDirectory: true)
+        let persistDir = PersonaStore.sessionDir(
+            for: sid, personaId: PersonaStore.personaId(forSessionId: sid))
         try? fm.removeItem(at: persistDir)
     }
 
