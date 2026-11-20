@@ -103,6 +103,87 @@ extension AIChatViewModel {
         return "minis-clone://\(namespace)/\(encoded)"
     }
 
+    /// [persona] F1: canonical containment for /var/minis/memory.
+    ///
+    /// The file-tool write guard is pure string matching on the raw path,
+    /// so a `..` that walks out of the own dir (`personas/<own>/../../
+    /// personas/<other>/...`) or a symlink inside the own dir pointing at
+    /// another persona's dir sails straight through it (verified in round 1).
+    /// This is the check that cannot be fooled: resolve BOTH the target and
+    /// the allowed roots through the filesystem (symlinks + `..`) and
+    /// compare the canonical paths, same construction as
+    /// `SoulStore.containingAllowedRoot`. Only the session's own persona dir
+    /// and the user profile (`personas/me/`, B28 R15) are inside.
+    /// Unknown persona (nil) fails closed — nothing under /var/minis/memory
+    /// is reachable. Non-memory paths are not affected (callers check the
+    /// prefix before calling this).
+    private func memoryHostURLAllowed(_ hostURL: URL) -> Bool {
+        guard let pid = sessionPersonaId else { return false }
+        let roots = [
+            PersonaStore.memoryDir(for: pid),
+            PersonaStore.memoryDir(for: PersonaStore.userProfilePersonaID),
+        ]
+        let resolved = hostURL.standardizedFileURL.resolvingSymlinksInPath().path
+        for root in roots {
+            let base = root.standardizedFileURL.resolvingSymlinksInPath().path
+            if resolved == base || resolved.hasPrefix(base + "/") { return true }
+        }
+        return false
+    }
+
+    /// [persona] F1: lexical refusal for direct /var/minis/memory tool
+    /// access (file_read / file_write / file_edit). Returns an explicit
+    /// refusal message, or nil when the path is allowed or is not a memory
+    /// path. The requested path is standardized lexically first, so a `..`
+    /// is judged on where it lands, not on the first segment. Symlink
+    /// escapes are NOT visible lexically — those are caught by the canonical
+    /// check in `resolvePathForDirectRead`, which turns them into an
+    /// "Invalid path" instead of an explicit message.
+    func memoryPathRefusal(for rawPath: String) -> String? {
+        let linux: String
+        if rawPath.hasPrefix("/var/minis/memory/") || rawPath == "/var/minis/memory" {
+            linux = rawPath
+        } else if rawPath.hasPrefix("minis-clone://memory/") {
+            linux = "/var/minis/memory/" + rawPath.dropFirst("minis-clone://memory/".count)
+        } else if rawPath == "minis-clone://memory" {
+            linux = "/var/minis/memory"
+        } else {
+            return nil
+        }
+        let std = (linux as NSString).standardizingPath
+        let marker = "/var/minis/memory/personas/"
+        guard std.hasPrefix(marker) else {
+            return "Error: refusing to access \(rawPath): only this session's own persona memory (and the user profile) can be read or written here."
+        }
+        let pid = String(std.dropFirst(marker.count).prefix(while: { $0 != "/" }))
+        guard !pid.isEmpty else {
+            return "Error: refusing to access \(rawPath): only this session's own persona memory (and the user profile) can be read or written here."
+        }
+        guard let current = sessionPersonaId else {
+            return "Error: cannot determine this session's persona (persona lookup failed) — refusing to access \(rawPath)."
+        }
+        if pid != current, pid != PersonaStore.userProfilePersonaID {
+            return "Error: refusing to access another persona's memory (persona=\(pid), current=\(current))."
+        }
+        return nil
+    }
+
+    /// Apply the F1 canonical memory check to a resolved host URL: memory
+    /// paths outside the session's own persona dir (or the user profile)
+    /// resolve to nil, whatever branch produced them. Non-memory paths pass
+    /// through untouched.
+    private func memoryChecked(_ url: URL?, for linuxPath: String) -> URL? {
+        guard let url else { return nil }
+        guard linuxPath == "/var/minis/memory" || linuxPath.hasPrefix("/var/minis/memory/") else {
+            return url
+        }
+        guard memoryHostURLAllowed(url) else {
+            logger.warning("[persona] F1: refused memory access outside own persona dir: \(linuxPath) → \(url.path)")
+            return nil
+        }
+        return url
+    }
+
     /// Resolve a Linux path for direct file reads (read_image, file_read, file_write).
     /// For /var/minis/ paths, queries ISHExecutionCoordinator's active bind mount table
     /// to get the actual host URL, avoiding races when mounts switch between concurrent sessions.
@@ -112,7 +193,7 @@ extension AIChatViewModel {
             if let resolved = await ISHExecutionCoordinator.shared.hostURL(for: linuxPath) {
                 let exists = FileManager.default.fileExists(atPath: resolved.path)
                 logger.notice("📂[RESOLVE] \(linuxPath) → \(resolved.path) exists=\(exists) sid=\(self.sessionId ?? "nil")")
-                if exists { return resolved }
+                if exists { return memoryChecked(resolved, for: linuxPath) }
                 // Mount table returned a stale path — fall through to session/rootfs fallbacks
                 logger.notice("📂[RESOLVE] stale mount entry, trying fallbacks…")
             }
@@ -121,13 +202,13 @@ extension AIChatViewModel {
                let resolved = resolveMinisURL(minisURL) {
                 let exists = FileManager.default.fileExists(atPath: resolved.path)
                 logger.notice("📂[RESOLVE-sessionFallback] \(linuxPath) → \(resolved.path) exists=\(exists) sid=\(self.sessionId ?? "nil")")
-                return resolved
+                return memoryChecked(resolved, for: linuxPath)
             }
         }
         let fallback = resolveHostPath(linuxPath)
         let exists = fallback.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
         logger.notice("📂[RESOLVE-hostPath] \(linuxPath) → hostPath=\(fallback?.path ?? "nil") exists=\(exists)")
-        return fallback
+        return memoryChecked(fallback, for: linuxPath)
     }
 
     /// Resolve a minis-clone:// URL or /var/minis/ Linux path for direct reads.
@@ -234,6 +315,14 @@ extension AIChatViewModel {
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let path = dict["path"] as? String else {
             return FileToolResult(output: "Error: Missing required 'path' parameter", success: false)
+        }
+
+        // ［persona］F1: refuse another persona's memory (or an unresolvable
+        // session persona) with an explicit message, before resolving.
+        // Symlink escapes are caught by the canonical check inside
+        // resolvePathForDirectRead instead.
+        if let refusal = memoryPathRefusal(for: path) {
+            return FileToolResult(output: refusal, success: false)
         }
 
         guard let hostURL = await resolvePathForDirectRead(path) else {
@@ -395,6 +484,10 @@ extension AIChatViewModel {
     /// agents and scheduled jobs — so the tool layer enforces what the mount
     /// cannot: no writes while memory is off, and no writes into another
     /// persona's directory. Returns a refusal message, or nil when fine.
+    /// [persona] F1: this guard is lexical, so a `..` or a symlink can still
+    /// slip past it — the canonical check in `resolvePathForDirectRead`
+    /// (and the fs translate hook for shell access) is the backstop that
+    /// closes those escapes.
     func memoryWriteGuard(for rawPath: String) -> String? {
         let norm: String
         if rawPath.hasPrefix("/var/minis/memory/") || rawPath == "/var/minis/memory" {
@@ -467,6 +560,14 @@ extension AIChatViewModel {
 
         // [batch5 / W2B-02] Guard memory writes before any resolution work.
         if let refusal = memoryWriteGuard(for: path) {
+            return FileToolResult(output: refusal, success: false)
+        }
+
+        // ［persona］F1: same lexical refusal as file_read — the write guard
+        // above allows root-level memory paths (no personas/ marker); this
+        // refuses those too, and judges `..` on where it lands. Symlink
+        // escapes are caught by the canonical check in resolvePathForDirectRead.
+        if let refusal = memoryPathRefusal(for: path) {
             return FileToolResult(output: refusal, success: false)
         }
 
@@ -588,6 +689,14 @@ extension AIChatViewModel {
 
         // [batch5 / W2B-02] Guard memory edits before any resolution work.
         if let refusal = memoryWriteGuard(for: path) {
+            return FileToolResult(output: refusal, success: false)
+        }
+
+        // ［persona］F1: lexical refusal (see executeFileWrite) — root-level
+        // memory paths and `..` forms are refused here with an explicit
+        // message; symlink escapes are caught by the canonical check in
+        // resolvePathForDirectRead.
+        if let refusal = memoryPathRefusal(for: path) {
             return FileToolResult(output: refusal, success: false)
         }
 
