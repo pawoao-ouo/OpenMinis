@@ -22,9 +22,15 @@ final class SessionForkManager {
             return nil
         }
 
-        // Create new local session
+        // Create new local session. A fork inherits the source session's
+        // persona (same persona, new conversation thread) — it is NOT a
+        // fresh self-persona. (remoteSession.personaId reads "default"
+        // until remote_sessions stores it; the setPersonaId call is
+        // correct either way.)
         let forkTitle = (remoteSession.title ?? "Untitled") + " (Fork)"
-        let newSession = await store.createSession(modelId: remoteSession.modelId, title: forkTitle)
+        var newSession = await store.createSession(modelId: remoteSession.modelId, title: forkTitle)
+        await store.setPersonaId(sessionId: newSession.id, personaId: remoteSession.personaId)
+        newSession.personaId = remoteSession.personaId
 
         // Update category if present
         if let category = remoteSession.category {
@@ -65,7 +71,11 @@ final class SessionForkManager {
         }
 
         let dupTitle = (session.title ?? "Untitled") + " (Copy)"
-        let newSession = await store.createSession(modelId: session.modelId, title: dupTitle)
+        // A duplicate inherits the source session's persona — same persona,
+        // new conversation thread — not a fresh self-persona.
+        var newSession = await store.createSession(modelId: session.modelId, title: dupTitle)
+        await store.setPersonaId(sessionId: newSession.id, personaId: session.personaId)
+        newSession.personaId = session.personaId
 
         if let category = session.category {
             await store.updateSessionTitle(newSession.id, title: dupTitle, category: category)
@@ -180,7 +190,11 @@ final class SessionForkManager {
         let content = skill.body.isEmpty ? "---\nname: \(skill.name)\ndescription: \(skill.description)\nversion: \(skill.version)\n---\n" : skill.body
 
         do {
-            try SkillStore.shared.importSkill(content: content, source: .file)
+            // The copy UI is global Settings with no session context, and
+            // remote skills are device-level singletons — they land in the
+            // DEFAULT persona's library, not the active session's.
+            try SkillStore.shared.importSkill(content: content, source: .file,
+                                              destDir: PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId))
             logger.info("[Fork] Copied remote skill: \(skill.name)")
             return true
         } catch {
@@ -199,7 +213,10 @@ final class SessionForkManager {
             return false
         }
 
-        let memoryDir = AIChatViewModel.minisMemoryPersistentDir
+        // Remote memories are the other device's default-persona logs, and
+        // the copy UI has no session context — they land in the DEFAULT
+        // persona's memory dir, never the flat legacy dir.
+        let memoryDir = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
         try? FileManager.default.createDirectory(at: memoryDir, withIntermediateDirectories: true)
 
         let destURL = memoryDir.appendingPathComponent(memory.fileName)
