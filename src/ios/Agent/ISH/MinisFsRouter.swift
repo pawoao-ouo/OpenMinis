@@ -72,11 +72,15 @@ final class MinisFsRouter: @unchecked Sendable {
     /// by all personas (no persona component in the host path).
     /// Skills route to skills/default/ — the 1b migration copy of user
     /// skills and the dir SkillStore loads from; a shell-created skill
-    /// written anywhere else would never load. MCP servers route to the
-    /// flat <mcp-servers>/ root, where the single global servers.json
-    /// lives (the same file MCPStore reads/writes). Shared routes to the
-    /// flat shared/ root (item 12) — the live runtime area — so the guest
-    /// sees the same events.jsonl / together/ / heartbeat the host does.
+    /// written anywhere else would never load. Bundled skills are the
+    /// exception (round-2 new problem 5): they live only in the flat
+    /// baseline, so hostPath routes a bundled id there (see
+    /// bundledSkillHostPath, mirroring SkillStore.dirForSkill). MCP
+    /// servers route to the flat <mcp-servers>/ root, where the single
+    /// global servers.json lives (the same file MCPStore reads/writes).
+    /// Shared routes to the flat shared/ root (item 12) — the live
+    /// runtime area — so the guest sees the same events.jsonl /
+    /// together/ / heartbeat the host does.
     private let globalBuckets: [(linuxPrefix: String, hostDir: URL)] = [
         (AIChatViewModel.minisSkillsLinuxDir,     PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId)),
         (AIChatViewModel.minisMcpServersLinuxDir, AIChatViewModel.minisMcpServersPersistentDir),
@@ -156,7 +160,9 @@ final class MinisFsRouter: @unchecked Sendable {
     // MARK: - Translation
 
     /// The hook itself. Called on iSH worker threads, on the fakefs hot path.
-    /// MUST stay non-blocking — only a hash lookup + a few string ops.
+    /// MUST stay non-blocking — only a hash lookup + a few string ops, plus
+    /// the bounded skills-bucket stat() calls in bundledSkillHostPath
+    /// (two stats max, only for /var/minis/skills paths).
     private func translate(guestPath: String, fsContext: UInt64) -> String? {
         guard fsContext != 0, let sid = sid(for: fsContext) else { return nil }
         // Use the persona captured at context-issue time, not a fresh cache
@@ -210,10 +216,46 @@ final class MinisFsRouter: @unchecked Sendable {
         // writes to the same dir the app-side stores load from.
         for bucket in globalBuckets {
             if let hit = matchBucket(guestPath, prefix: bucket.linuxPrefix) {
+                // Round-2 new problem 5: a bundled skill's files live
+                // only in the flat baseline, so a guest path for a
+                // bundled id must route there, not to skills/default/
+                // (where it 404s). Mirrors SkillStore.dirForSkill.
+                if bucket.linuxPrefix == AIChatViewModel.minisSkillsLinuxDir,
+                   let bundledPath = bundledSkillHostPath(forTail: hit) {
+                    return bundledPath
+                }
                 return bucket.hostDir.path + hit
             }
         }
         return nil
+    }
+
+    /// True when <id> is a bundled skill: its SKILL.md lives in the flat
+    /// baseline and there is none in skills/default/. Mirrors
+    /// SkillStore.dirForSkill exactly, so the router and the app-side
+    /// resolver agree on where a skill lives. Two stat() calls max, used
+    /// only for /var/minis/skills paths — never on the per-session /
+    /// per-persona hot path.
+    private func isBundledSkillId(_ id: String) -> Bool {
+        let fm = FileManager.default
+        let userSkillFile = PersonaStore.skillsDir(for: PersonaStore.defaultPersonaId)
+            .appendingPathComponent(id).appendingPathComponent("SKILL.md")
+        if fm.fileExists(atPath: userSkillFile.path) { return false }
+        let baselineSkillFile = AIChatViewModel.minisSkillsPersistentDir
+            .appendingPathComponent(id).appendingPathComponent("SKILL.md")
+        return fm.fileExists(atPath: baselineSkillFile.path)
+    }
+
+    /// Host path for a /var/minis/skills/<id>/... tail when <id> is a
+    /// bundled skill (see isBundledSkillId). Returns nil for user skills
+    /// (route to skills/default/), for the bare bucket root, and when
+    /// the id is unknown in both places — a brand-new skill being
+    /// created routes to skills/default/, where SkillStore loads it from.
+    private func bundledSkillHostPath(forTail hit: String) -> String? {
+        let parts = hit.split(separator: "/", omittingEmptySubsequences: true)
+        guard let id = parts.first.map(String.init), !id.isEmpty else { return nil }
+        guard isBundledSkillId(id) else { return nil }
+        return AIChatViewModel.minisSkillsPersistentDir.path + hit
     }
 
     /// Prefix match for one bucket: returns the tail (including the leading
@@ -271,9 +313,11 @@ final class MinisFsRouter: @unchecked Sendable {
 
     /// Reverse for the global buckets: a host path under a global bucket
     /// dir maps back to /var/minis/<bucket>/<tail>, with no persona
-    /// component. Skills only reverse under skills/default/ (the global
-    /// home); bundled skills under the flat skills/ root are not routed
-    /// forward, so they do not reverse either. MCP servers reverse from
+    /// component. Skills reverse under skills/default/ (the global home)
+    /// and under the flat skills/ root for bundled ids (round-2 new
+    /// problem 5 — the forward direction routes those to the baseline,
+    /// so the reverse must agree, or readdir/getpath would hand the
+    /// guest a path that resolves elsewhere). MCP servers reverse from
     /// the flat root, including legacy <pid>/servers.json paths, which
     /// forward to the same flat location.
     private func reverseGlobalBucket(hostPath: String) -> String? {
@@ -287,7 +331,23 @@ final class MinisFsRouter: @unchecked Sendable {
             let tail = stripped.dropFirst(basePath.count)
             return bucket.linuxPrefix + tail
         }
-        return nil
+        // Bundled skills under the flat skills/ root: reverse only when
+        // the id is bundled by the same test the forward direction uses.
+        // The flat root also holds pre-migration user-skill originals,
+        // which must NOT reverse here — their guest path resolves to the
+        // skills/default/ copy, and reversing them would hand back a
+        // path that points at the copy, not the original.
+        let flatSkills = AIChatViewModel.minisSkillsPersistentDir.path
+        var stripped = hostPath
+        if hostPath.hasPrefix("/private/var/") && flatSkills.hasPrefix("/var/") {
+            stripped = String(hostPath.dropFirst("/private".count))
+        }
+        guard stripped.hasPrefix(flatSkills + "/") else { return nil }
+        let tail = String(stripped.dropFirst(flatSkills.count))  // "/<id>/..."
+        let parts = tail.split(separator: "/", omittingEmptySubsequences: true)
+        guard let id = parts.first.map(String.init), !id.isEmpty else { return nil }
+        guard isBundledSkillId(id) else { return nil }
+        return AIChatViewModel.minisSkillsLinuxDir + tail
     }
 
     private func reversePersonaBucket(hostPath: String) -> String? {
