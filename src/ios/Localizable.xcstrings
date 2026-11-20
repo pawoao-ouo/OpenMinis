@@ -89933,6 +89933,28 @@
         }
       }
     },
+    "Shared folders can't sync with the Files app in this build (App Group permission missing).": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared folders can't sync with the Files app in this build (App Group permission missing)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个包没有共享文件夹的权限，文件里的文件夹不会同步。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個包沒有共享資料夾的權限，檔案裡的資料夾不會同步。"
+          }
+        }
+      }
+    },
     "Shared folders": {
       "localizations": {
         "de": {

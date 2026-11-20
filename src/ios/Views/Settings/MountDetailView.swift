@@ -148,6 +148,14 @@ struct MountDetailView: View {
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
             }
+            // [Batch 26] Without the App Group this toggle cannot reach the
+            // FileProvider extension — disable it and say why.
+            .disabled(!SharedContainerStore.isAppGroupAvailable)
+            if !SharedContainerStore.isAppGroupAvailable {
+                Text(AppLocalized("Shared folders can't sync with the Files app in this build (App Group permission missing)."))
+                    .font(.system(size: fontSettings.scaledApp(12)))
+                    .foregroundStyle(MinisTheme.secondaryText)
+            }
             if context.isReadOnlyFromFiles {
                 Text("Read-only from the Files app. The app itself can always read and write.")
                     .font(.system(size: fontSettings.scaledApp(12)))

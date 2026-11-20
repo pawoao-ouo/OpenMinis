@@ -28,6 +28,23 @@ struct SharedFoldersSettingsView: View {
                 }
             }
 
+            // [Batch 26] Without the App Group the visibility toggles
+            // cannot reach the FileProvider extension — say so instead of
+            // letting the user flip a switch that does nothing.
+            if !SharedContainerStore.isAppGroupAvailable {
+                Section {
+                    Label {
+                        Text(AppLocalized("Shared folders can't sync with the Files app in this build (App Group permission missing)."))
+                            .font(.system(size: fontSettings.scaledApp(12)))
+                            .foregroundStyle(MinisTheme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(MinisTheme.warning)
+                    }
+                }
+            }
+
             Section(AppLocalized("Folders")) {
                 ForEach(model.entries) { entry in
                     NavigationLink {
