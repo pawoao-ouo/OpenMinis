@@ -1944,4 +1944,7 @@
     <!-- [T-android-compact-progress] Live status while a compaction runs. -->
     <string name="compact_progress">Compacting… %1$d s elapsed</string>
     <string name="compact_progress_split">Compacting… %1$d s · summarizing in segments (%2$d/%3$d)</string>
+    <!-- Item 6: shown when the one-time persona migration finishes failed. -->
+    <string name="migration_failed_message">Couldn't prepare this chat's data. Your messages are safe — try again.</string>
+    <string name="migration_failed_retry">Try again</string>
 </resources>

@@ -541,18 +541,51 @@ fun ChatScreen(
     // repo and the ViewModel are created only after it completes.
     // Recomputing the repo alone would not be enough — the ViewModel
     // freezes its MemoryRepository at creation.
-    // Caveat: this waits for the job to complete, not for success. If
-    // migration failed (flag still clear, retry next launch) the screen
-    // proceeds with a possibly-wrong repo rather than spinning forever.
+    // Item 6 (small-issues fix): the old gate waited for the job to
+    // complete, not for success — a failed migration (flag still clear)
+    // proceeded with a possibly-wrong repo rather than spinning forever.
+    // Now a finished-but-failed migration shows an error with a retry
+    // instead of building the session repo; each retry re-runs the
+    // migration once, so it still never spins forever.
     var migrationDone by remember {
         mutableStateOf(
             com.openminis.app.data.PersonaStore.isMigrationDone(context.applicationContext)
         )
     }
+    var migrationFailed by remember { mutableStateOf(false) }
+    var migrationRetryCount by remember { mutableStateOf(0) }
     if (!migrationDone) {
-        LaunchedEffect(Unit) {
+        LaunchedEffect(migrationRetryCount) {
+            com.openminis.app.data.PersonaStore.startMigration(
+                context.applicationContext, chatRepository
+            )
             com.openminis.app.data.PersonaStore.awaitMigration()
-            migrationDone = true
+            if (com.openminis.app.data.PersonaStore.isMigrationDone(context.applicationContext)) {
+                migrationDone = true
+            } else {
+                migrationFailed = true
+            }
+        }
+        if (migrationFailed) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.padding(24.dp),
+                ) {
+                    Text(stringResource(R.string.migration_failed_message))
+                    androidx.compose.material3.Button(onClick = {
+                        migrationFailed = false
+                        migrationRetryCount++
+                    }) {
+                        Text(stringResource(R.string.migration_failed_retry))
+                    }
+                }
+            }
+            return
         }
         Box(
             modifier = Modifier.fillMaxSize(),
