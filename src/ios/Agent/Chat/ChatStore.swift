@@ -2579,8 +2579,13 @@ actor ChatStore {
         // check keeps a shared persona alive while any session uses it.
         // Memory is NEVER touched here: memory/personas/<pid>/ (SOUL,
         // logs, GLOBAL.md) is never deleted by code. "me" is the user
-        // profile, never a session persona — never removed.
-        if let pid = deletedPersonaId, pid != PersonaStore.userProfilePersonaId, !pid.isEmpty,
+        // profile, never a session persona — never removed. "default" is
+        // never removed either: it is the fallback persona for no-session
+        // paths and Settings, and the launch sweep never removes it —
+        // keeping it here matches the sweep, and a stale shared/default/
+        // dir is harmless because "default" is always a known id, so the
+        // @-mention prune keeps hiding it.
+        if let pid = deletedPersonaId, pid != PersonaStore.userProfilePersonaId, pid != PersonaStore.defaultPersonaId, !pid.isEmpty,
            !anyLiveSessionHasPersonaId(pid) {
             let dir = PersonaStore.sharedDir(for: pid)
             if FileManager.default.fileExists(atPath: dir.path) {
