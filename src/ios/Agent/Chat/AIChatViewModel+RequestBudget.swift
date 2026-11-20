@@ -90,10 +90,11 @@ extension AIChatViewModel {
         // we're keying a cache by content, not signing anything).
         let digest = Insecure.SHA1.hash(data: data)
         let sha = digest.map { String(format: "%02x", $0) }.joined()
-        let attachmentsRoot = minisPersistentBase
-            .appendingPathComponent(sessionId, isDirectory: true)
-            .appendingPathComponent("attachments", isDirectory: true)
-            .appendingPathComponent("spillover", isDirectory: true)
+        let attachmentsRoot = PersonaStore.sessionHostDir(
+            for: sessionId,
+            personaId: PersonaStore.personaId(forSessionId: sessionId),
+            host: "attachments"
+        ).appendingPathComponent("spillover", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: attachmentsRoot, withIntermediateDirectories: true)
         } catch {
