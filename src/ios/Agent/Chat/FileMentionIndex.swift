@@ -516,7 +516,18 @@ final class FileMentionIndex: ObservableObject {
             // is already covered by its own root above (with the pid in
             // the prefix), and other personas' files must never appear
             // in this session's @-menu.
-            pruneFirstLevelDir: PersonaStore.isPersonaNamespaceComponent
+            // Item 5 (small-issues fix): prune only KNOWN persona ids —
+            // on-disk persona dirs + the session cache + default/me.
+            // The old predicate (isPersonaNamespaceComponent) matched
+            // ANY UUID-shaped name, so a user folder that merely looks
+            // like a UUID vanished from the menu (files intact, just
+            // unlisted). The set is computed once here and captured by
+            // the predicate, not re-read per dir.
+            pruneFirstLevelDir: {
+                var known = PersonaStore.knownPersonaIds()
+                known.insert(PersonaStore.userProfilePersonaId)
+                return { name in known.contains(name) }
+            }()
         ))
         return roots
     }
