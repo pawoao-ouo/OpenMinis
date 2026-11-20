@@ -1574,6 +1574,13 @@ class ChatViewModel(
                 com.openminis.app.sandbox.PRootKernel
                     .mountEntriesForIndex(context.applicationContext)
             },
+            // Multi-persona isolation: @-mentions scan only this
+            // session's persona memory dir.
+            personaIdProvider = { sid ->
+                com.openminis.app.data.PersonaStore.personaIdForSession(
+                    context.applicationContext, sid,
+                )
+            },
         )
     }
 
@@ -3969,6 +3976,13 @@ class ChatViewModel(
             val tHangDiagStart = System.currentTimeMillis()
             println("[T-HANG-DIAG] loadSession ENTER session=$sessionId isDraft=$isDraft")
             com.openminis.app.diagnostics.PerfLongCtx.step(sessionId, "loadSession.enter", "isDraft=$isDraft")
+            // Multi-persona isolation: wait for the one-time legacy
+            // migration before any prompt is built against memory paths —
+            // a session loading in the same millisecond as app launch
+            // must not read pre-migration locations. No-op after the
+            // first run (or when the migration was never started, e.g.
+            // in tests without MinisApp).
+            com.openminis.app.data.PersonaStore.awaitMigration()
             try {
             val config = providerRepository.config.value
             _availableGroups.value = config.modelGroups
@@ -10077,7 +10091,14 @@ class ChatViewModel(
         // has no personality body, identitySection() returns the identity
         // sentence with its original single trailing space — the full
         // assembled prompt then matches the pre-SOUL prompt byte-for-byte.
-        val identitySection = com.openminis.app.agent.SystemPromptBuilder.identitySection(context)
+        val identitySection = com.openminis.app.agent.SystemPromptBuilder.identitySection(
+            context,
+            // Multi-persona isolation: the identity comes from THIS
+            // session's persona SOUL (memory/personas/<id>/SOUL.md), not
+            // the default persona's. A new session is its own persona;
+            // pre-migration sessions resolve to "default".
+            com.openminis.app.data.PersonaStore.personaIdForSession(context, sessionId),
+        )
         // [T-memory-toggle-gates-injection-and-tools-android] Mirror the iOS
         // gate: when memory is disabled for this session, replace the
         // "memory_write / memory_get" tool bullets and the "Memory system:"
