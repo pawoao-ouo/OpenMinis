@@ -22,6 +22,9 @@ struct SyncedSession: Syncable {
     var modelBinding: String?
     var pinnedAt: Date?
     var folderId: String?
+    /// Persona this session belongs to. Optional so an old-build peer's
+    /// record (no field) decodes as nil → "default" on the receiving side.
+    var personaId: String?
 
     static let syncMetadata: SyncTypeMetadata<SyncedSession> = {
         typealias F = FieldDescriptor<SyncedSession>
@@ -43,6 +46,9 @@ struct SyncedSession: Syncable {
                 // bump): old devices ignore the unknown CKRecord field on read
                 // and omit it on write, both of which decode as nil here.
                 F.optionalString("folderId", \SyncedSession.folderId),
+                // Same pattern for personaId: the wire only carries real
+                // personas — from() below sends nil for "default".
+                F.optionalString("personaId", \SyncedSession.personaId),
             ],
             conflictPolicy: .lastWriteWinsByField(\SyncedSession.updatedAt),
             version: 1
@@ -60,7 +66,9 @@ struct SyncedSession: Syncable {
             memoryEnabled: memoryEnabled ? 1 : 0,
             modelBinding: modelBinding,
             pinnedAt: s.pinnedAt,
-            folderId: s.folderId
+            folderId: s.folderId,
+            // "default" is the absence of a persona, not a persona to sync.
+            personaId: s.personaId == PersonaStore.defaultPersonaId ? nil : s.personaId
         )
     }
 }
