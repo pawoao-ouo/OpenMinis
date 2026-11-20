@@ -105,18 +105,39 @@ private let logger = AppLogger(category: "ConfigOffload")
 
     /// ［persona］Resolve the persona of the session that invoked this
     /// minis-config call, for soul.* targeting. `explicitSessionId` is
-    /// honored only from trusted non-shell entry points (Debug RPC, an
-    /// audit revert's recorded session): the CLI's --session flag is
-    /// deliberately NOT a redirect — it only labels the audit row (same
-    /// rule as session.* fields: an agent in chat A must not mutate
-    /// chat B by typing --session B). For CLI calls pass nil here and
-    /// the caller is the session whose shell runs the command
-    /// (mountedSessionIdSnapshot, sampled at bridge entry). Returns nil
-    /// when no calling session can be determined; soul.* must then
-    /// refuse, never fall back to the global current persona.
+    /// honored only from trusted non-shell entry points (Debug RPC): the
+    /// CLI's --session flag is deliberately NOT a redirect — it only
+    /// labels the audit row (same rule as session.* fields: an agent in
+    /// chat A must not mutate chat B by typing --session B).
+    ///
+    /// Caller resolution, in order (first hit wins):
+    ///   1. The explicit session (trusted non-shell callers only).
+    ///   2. `invokingFsContext` — the fs_context of the shell that ran
+    ///      the CLI, captured from the calling thread at bridge entry
+    ///      (MinisFsRouter.callingFsContext, recorded by the
+    ///      path-translate hook). This is the per-command context: the
+    ///      token is stamped on the task group at fork time by the host
+    ///      and the agent inside the guest cannot forge it, and it
+    ///      cannot be flipped by another session's shell starting a
+    ///      command mid-flight — the F6-a race in the old snapshot.
+    ///   3. `mountedSessionIdSnapshot` — the legacy fallback, kept only
+    ///      so a call where no per-command context was captured (hook
+    ///      never ran on this thread) degrades to today's behavior
+    ///      instead of breaking soul.* outright. It is still racy by
+    ///      construction; it must never outrank (2).
+    ///
+    /// `invokingFsContext` MUST be captured on the calling (guest)
+    /// thread, before any Task.detached hop to @MainActor — the
+    /// thread-local record belongs to that thread. Callers pass 0 when
+    /// they have no guest thread (Debug RPC, in-app UI).
+    ///
+    /// Returns nil when no calling session can be determined; soul.*
+    /// must then refuse, never fall back to the global current persona.
     @MainActor
-    private static func callingPersonaId(explicitSessionId: String?) async -> String? {
+    private static func callingPersonaId(explicitSessionId: String?,
+                                         invokingFsContext: UInt64 = 0) async -> String? {
         let sid = (explicitSessionId?.isEmpty == false ? explicitSessionId : nil)
+            ?? MinisFsRouter.shared.sid(for: invokingFsContext)
             ?? ISHExecutionCoordinator.mountedSessionIdSnapshot
         guard let sid, !sid.isEmpty else { return nil }
         // ChatStore is an actor — the await hops off MainActor and back;
@@ -165,13 +186,17 @@ private let logger = AppLogger(category: "ConfigOffload")
 
     /// Same read, with an explicit calling session (Debug RPC only).
     /// The CLI never passes one: its caller is the session whose shell
-    /// runs the command, resolved from the mount snapshot inside.
+    /// runs the command, resolved from that shell's fs_context inside.
     @objc public static func readField(path: String,
                                        filter: String?,
                                        page: Int,
                                        pageSize: Int,
                                        sessionId: String?) -> NSDictionary {
-        let base = Self.readFieldRaw(path: path, sessionId: sessionId)
+        // ［persona］Capture the invoking shell's fs_context NOW, on the
+        // calling (guest) thread — readFieldRaw hops to @MainActor, and
+        // the thread-local record belongs to this thread.
+        let invokingCtx = MinisFsRouter.callingFsContext()
+        let base = Self.readFieldRaw(path: path, sessionId: sessionId, invokingFsContext: invokingCtx)
         guard (base["ok"] as? Bool) == true else { return base }
 
         // Apply filter (if any) — matches the prior --filter behavior.
@@ -302,14 +327,16 @@ private let logger = AppLogger(category: "ConfigOffload")
     /// share the same semaphore-blocking + permission + access-check
     /// path without duplication.
     @MainActor
-    private static func readFieldSync(path: String, sessionId: String? = nil) async -> NSDictionary {
+    private static func readFieldSync(path: String, sessionId: String? = nil, invokingFsContext: UInt64 = 0) async -> NSDictionary {
         // ［persona］Resolve the calling persona once, up front (the await
         // runs BEFORE the ambient is set), then scope it to the
         // synchronous read below — no await inside that window, so nothing
         // can interleave and overwrite it. soul.* readers resolve through
         // it; nil means soul.* refuses instead of reading the global
-        // current persona's SOUL.md.
-        ConfigRegistry.callingSessionPersonaId = await callingPersonaId(explicitSessionId: sessionId)
+        // current persona's SOUL.md. invokingFsContext was captured on the
+        // calling thread by the entry point (it cannot be re-read here:
+        // this runs on @MainActor, a different thread).
+        ConfigRegistry.callingSessionPersonaId = await callingPersonaId(explicitSessionId: sessionId, invokingFsContext: invokingFsContext)
         defer { ConfigRegistry.callingSessionPersonaId = nil }
         ConfigRegistry.shared.registerBuiltinsIfNeeded()
         guard MinisConfigPermissionStore.shared.enabled else {
@@ -349,11 +376,11 @@ private let logger = AppLogger(category: "ConfigOffload")
         }
     }
 
-    private static func readFieldRaw(path: String, sessionId: String? = nil) -> NSDictionary {
+    private static func readFieldRaw(path: String, sessionId: String? = nil, invokingFsContext: UInt64 = 0) -> NSDictionary {
         let sem = DispatchSemaphore(value: 0)
         var result: NSDictionary = [:]
         Task.detached { @MainActor in
-            result = await Self.readFieldSync(path: path, sessionId: sessionId)
+            result = await Self.readFieldSync(path: path, sessionId: sessionId, invokingFsContext: invokingFsContext)
             sem.signal()
         }
         if sem.wait(timeout: .now() + 5) == .timedOut {
@@ -378,6 +405,11 @@ private let logger = AppLogger(category: "ConfigOffload")
                                          caption: String?,
                                          actorRaw: String,
                                          sessionId: String?) -> NSDictionary {
+        // ［persona］Capture the invoking shell's fs_context NOW, on the
+        // calling (guest) thread — the detached task below runs on
+        // @MainActor, a different thread, and the thread-local record
+        // belongs to this thread.
+        let invokingCtx = MinisFsRouter.callingFsContext()
         let sem = DispatchSemaphore(value: 0)
         var result: NSDictionary = [:]
         Task.detached { @MainActor in
@@ -388,13 +420,14 @@ private let logger = AppLogger(category: "ConfigOffload")
                 return
             }
             // ［persona］CLI calls target the session whose shell runs
-            // the command (mount snapshot). The --session argv is NOT a
-            // redirect — it only labels the audit row.
+            // the command (that shell's fs_context, falling back to the
+            // mount snapshot). The --session argv is NOT a redirect —
+            // it only labels the audit row.
             result = await Self.performWriteBatch(items: items,
                                                   caption: caption,
                                                   actorRaw: actorRaw,
                                                   sessionId: sessionId,
-                                                  callingPersonaId: await Self.callingPersonaId(explicitSessionId: nil))
+                                                  callingPersonaId: await Self.callingPersonaId(explicitSessionId: nil, invokingFsContext: invokingCtx))
             sem.signal()
         }
         if sem.wait(timeout: .now() + 5) == .timedOut {
@@ -420,6 +453,11 @@ private let logger = AppLogger(category: "ConfigOffload")
                                                  actorRaw: String,
                                                  sessionId: String?,
                                                  skipConfirmation: Bool) -> NSDictionary {
+        // ［persona］Same capture as writeFields: the invoking shell's
+        // fs_context, read on this (calling) thread before the detached
+        // hop. Debug RPC threads have no guest fs_context (0), so they
+        // resolve from the explicit sessionId instead.
+        let invokingCtx = MinisFsRouter.callingFsContext()
         let sem = DispatchSemaphore(value: 0)
         var result: NSDictionary = [:]
         Task.detached { @MainActor in
@@ -436,7 +474,7 @@ private let logger = AppLogger(category: "ConfigOffload")
                                                   caption: caption,
                                                   actorRaw: actorRaw,
                                                   sessionId: sessionId,
-                                                  callingPersonaId: await Self.callingPersonaId(explicitSessionId: sessionId),
+                                                  callingPersonaId: await Self.callingPersonaId(explicitSessionId: sessionId, invokingFsContext: invokingCtx),
                                                   skipConfirmation: skipConfirmation)
             sem.signal()
         }

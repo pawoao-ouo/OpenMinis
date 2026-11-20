@@ -61,6 +61,43 @@ final class MinisFsRouter: @unchecked Sendable {
         return contextToSid[context]
     }
 
+    // MARK: - Calling-task fs_context (thread-local)
+
+    /// ThreadDictionary key for the fs_context most recently seen on this
+    /// thread. See noteCallingFsContext.
+    private static let callingFsContextKey = "com.openminis.callingFsContext"
+
+    /// ［persona］Record the fs_context of the task whose path translation
+    /// just ran on this thread. The fakefs path-translate hook is invoked
+    /// with `current->group->fs_context` for EVERY guest path translation
+    /// (fakefs `bind_mount_translate_path_ex`, called with the calling
+    /// task's token before the static bind-mount table), on the calling
+    /// iSH worker thread — and a native offload handler runs synchronously
+    /// on that same guest thread (`native_offload.c` `exec_handler`:
+    /// argv paths are translated, then the handler is called, then
+    /// `do_exit()`). So when a guest shell execs `minis-config`, the
+    /// argv[0] translation records that shell's own token on this thread
+    /// immediately before the handler reads it — no global snapshot, no
+    /// race with other sessions' shells. A thread runs one task at a time,
+    /// and every translation refreshes the record, so a reused thread
+    /// cannot serve a stale token: the exec's own argv translation
+    /// overwrites it first.
+    ///
+    /// Only non-zero tokens are recorded (0 = "no override", the global
+    /// view). Hot path: one dictionary write per translation.
+    static func noteCallingFsContext(_ context: UInt64) {
+        guard context != 0 else { return }
+        Thread.current.threadDictionary[callingFsContextKey] = NSNumber(value: context)
+    }
+
+    /// The fs_context recorded for the current thread by
+    /// noteCallingFsContext, or 0 when this thread has never translated a
+    /// path (e.g. a Debug RPC thread, or an in-app UI thread). Callers
+    /// must treat 0 as "no per-command context" and fall back.
+    static func callingFsContext() -> UInt64 {
+        (Thread.current.threadDictionary[callingFsContextKey] as? NSNumber)?.uint64Value ?? 0
+    }
+
     /// Install the path-translate hook on ISHKernel. Idempotent; call once
     /// at boot before any session task is spawned. Installs both the
     /// forward hook (guest→host) and the reverse hook (host→guest) — the
@@ -69,6 +106,11 @@ final class MinisFsRouter: @unchecked Sendable {
     /// meta.db inode lookup works.
     func installHook() {
         ISHKernel.shared.installPathTranslateHandler { [weak self] guestPath, fsContext in
+            // ［persona］Record the calling task's token on this thread
+            // BEFORE translating: an offload handler invoked from this
+            // task reads it back to identify its caller (F6-a). See
+            // noteCallingFsContext.
+            MinisFsRouter.noteCallingFsContext(fsContext)
             return self?.translate(guestPath: guestPath, fsContext: fsContext)
         }
         ISHKernel.shared.installPathReverseHandler { [weak self] hostPath in
