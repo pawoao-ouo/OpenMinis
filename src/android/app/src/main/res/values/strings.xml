@@ -38,7 +38,13 @@
     <string name="memory_revoke_result_io_error">Error writing file: %1$s</string>
     <string name="memory_save_toast">Saved</string>
     <string name="memory_save_error">Save failed: %1$s</string>
-    <string name="memory_global_footer">Persistent instructions and preferences visible to the Agent in every session. The Agent cannot modify this file.</string>
+    <!-- Item 15: this screen edits the DEFAULT persona's GLOBAL.md, not
+         every session's. Newer chats are their own persona with their own
+         (empty) memory, so "visible to the Agent in every session" was a
+         dead promise. The per-session entry already exists - the memory
+         sheet inside each chat - so the copy points there instead of
+         building a second one. -->
+    <string name="memory_global_footer">Persistent instructions and preferences for the default persona, visible to the Agent in older sessions. Newer chats each have their own memory — edit it from that chat’s memory sheet. The Agent cannot modify this file.</string>
 
     <!-- Check Update -->
     <string name="check_update_section_header">App Update</string>

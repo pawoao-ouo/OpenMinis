@@ -212,7 +212,14 @@ private struct MemoryFileEditView: View {
     var body: some View {
         VStack(spacing: 0) {
             if isGlobal {
-                Text("Persistent instructions and preferences visible to the agent in every session. You can edit it here, or just ask the agent to help organize and update this memory.")
+                // Item 15: this screen edits the DEFAULT persona's
+                // GLOBAL.md, not every session's. Newer chats are their
+                // own persona with their own (empty) memory, so the old
+                // "visible to the agent in every session" copy was a dead
+                // promise. The per-session entry already exists — the
+                // memory sheet inside each chat — so the copy points there
+                // instead of building a second one.
+                Text("Persistent instructions and preferences for the default persona — the agent sees these in older sessions. Newer chats each have their own memory; edit it from that chat's memory sheet, or ask that chat's agent to update it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
