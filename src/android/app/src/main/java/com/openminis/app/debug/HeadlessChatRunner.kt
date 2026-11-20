@@ -71,6 +71,13 @@ internal object HeadlessChatRunner {
         // freezes that repo at creation — the debug run would read and
         // write the wrong persona's memory for its whole lifetime.
         com.openminis.app.data.PersonaStore.awaitMigration()
+        // Item 6 (small-issues fix): a finished-but-failed migration
+        // must not build the session repo — same gate as ChatScreen
+        // (55335a1). Error out instead of proceeding with a
+        // possibly-wrong repo.
+        if (!com.openminis.app.data.PersonaStore.isMigrationDone(context.applicationContext)) {
+            throw RPCException(-32000, "Persona migration failed — cannot build the session memory repo")
+        }
         return providersMutex.withLock {
             providers[sessionId]
                 ?: buildProvider(context, sessionId, personaId).also { providers[sessionId] = it }

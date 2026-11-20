@@ -49,6 +49,13 @@ internal object ChatMutationMethods {
         // session to its own (empty) persona dir, and the VM freezes
         // that repo at creation.
         com.openminis.app.data.PersonaStore.awaitMigration()
+        // Item 6 (small-issues fix): a finished-but-failed migration
+        // must not build the session repo — same gate as ChatScreen
+        // (55335a1). Error out instead of proceeding with a
+        // possibly-wrong repo.
+        if (!com.openminis.app.data.PersonaStore.isMigrationDone(context.applicationContext)) {
+            throw RPCException(-32000, "Persona migration failed — cannot build the session memory repo")
+        }
         val vm = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
             androidx.lifecycle.ViewModelProvider(
                 store.ownerFor(sessionId),
