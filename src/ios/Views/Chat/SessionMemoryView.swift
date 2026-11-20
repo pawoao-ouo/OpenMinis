@@ -447,7 +447,9 @@ private struct MemoryWriteDetailView: View {
     /// Returns the filename on success, nil on failure.
     private func replaceEntryInLog(oldContent: String, newContent: String) -> String? {
         let fm = FileManager.default
-        let memDir = AIChatViewModel.minisMemoryPersistentDir
+        // Multi-persona isolation: edit THIS session's persona log, not the
+        // flat legacy root (the default persona's pre-migration originals).
+        let memDir = PersonaStore.memoryDir(for: vm.personaId)
         let dateFmt = DateFormatter()
         dateFmt.dateFormat = "yyyy-MM-dd"
         let candidates = [
@@ -501,7 +503,7 @@ private struct MemoryWriteDetailView: View {
         guard let written = item.writtenContent else {
             return AppLocalized("No written content to revoke.")
         }
-        return MemoryWriteRevoker.revoke(writtenContent: written)
+        return MemoryWriteRevoker.revoke(writtenContent: written, personaId: vm.personaId)
     }
 }
 
