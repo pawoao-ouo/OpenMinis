@@ -53,14 +53,30 @@ enum ForceSyncHelper {
     @discardableResult
     static func markMemoryDirty() async -> Int {
         let fm = FileManager.default
-        // Sync is default-persona only — same as the dirty scanner.
-        let memDir = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
+        // Item 17: sync covers EVERY persona, not just the default.
+        // The default persona keeps the historic bare record ids; a
+        // non-default persona's GLOBAL.md / daily logs get
+        // persona-qualified ids (see PersonaStore). knownPersonaIds
+        // includes the default plus every persona with a memory dir (or
+        // a cached session mapping); a persona with no dir simply has
+        // no files to mark.
+        var count = 0
+        for personaId in PersonaStore.knownPersonaIds() {
+            count += await markMemoryDirty(for: personaId)
+        }
+        return count
+    }
+
+    /// Mark one persona's GLOBAL.md + recent daily logs dirty.
+    private static func markMemoryDirty(for personaId: String) async -> Int {
+        let fm = FileManager.default
+        let memDir = PersonaStore.memoryDir(for: personaId)
         var count = 0
         // GLOBAL.md
         let globalURL = memDir.appendingPathComponent("GLOBAL.md")
         if fm.fileExists(atPath: globalURL.path) {
             await ChatStore.shared.markDirty(recordType: "MemoryGlobalV2",
-                                             recordId: "memory-global")
+                                             recordId: PersonaStore.memoryGlobalRecordId(for: personaId))
             count += 1
         }
         // Daily logs within the 30-day window (same rule as
@@ -75,7 +91,7 @@ enum ForceSyncHelper {
                 let stem = (url.lastPathComponent as NSString).deletingPathExtension
                 if let fileDate = fmt.date(from: stem), fileDate >= cutoff {
                     await ChatStore.shared.markDirty(recordType: "MemoryDailyV2",
-                                                     recordId: stem)
+                                                     recordId: PersonaStore.memoryDailyRecordId(dateKey: stem, for: personaId))
                     count += 1
                 }
             }
@@ -132,16 +148,21 @@ enum ForceSyncHelper {
         return count
     }
 
-    /// Mark SOUL.md dirty for push. Returns 1 when the file exists on
-    /// disk (otherwise 0 — there's nothing to push and a dirty row
-    /// would just cycle through buildSoul returning nil).
+    /// Mark SOUL.md dirty for push. Returns the number of personas
+    /// whose file exists on disk (otherwise 0 — there's nothing to push
+    /// and a dirty row would just cycle through buildSoul returning
+    /// nil). Item 17: every persona's soul is marked, each under its
+    /// own record id (the default keeps the historic "soul").
     @MainActor
     @discardableResult
     static func markSoulDirty() async -> Int {
-        // Default persona only — the active session's soul is not syncable.
-        let url = SoulStore.fileURL(for: PersonaStore.defaultPersonaId)
-        guard FileManager.default.fileExists(atPath: url.path) else { return 0 }
-        await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul")
-        return 1
+        var count = 0
+        for personaId in PersonaStore.knownPersonaIds() {
+            let url = SoulStore.fileURL(for: personaId)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: PersonaStore.soulRecordId(for: personaId))
+            count += 1
+        }
+        return count
     }
 }

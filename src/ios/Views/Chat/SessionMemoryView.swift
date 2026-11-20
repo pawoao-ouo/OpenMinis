@@ -317,13 +317,16 @@ private struct MemoryContentView: View {
             // dirty for iCloud sync. Without these, edits in this sheet
             // would land on disk but the running app + peer devices
             // would keep using the stale identity until next launch.
-            // Sync is default-persona only: a non-default persona's soul
-            // must never ride the global SoulV2 singleton.
+            // Item 17: the sheet edits one session's persona SOUL (the
+            // file lives under memory/personas/<pid>/), so the dirty row
+            // uses that persona's record id — not just the default's.
+            // The old code only marked dirty when the file WAS the
+            // default persona's SOUL, so a non-default persona's edit
+            // never synced.
             if url.lastPathComponent == "SOUL.md" {
                 SoulStore.refreshCache()
-                if url.standardizedFileURL == PersonaStore.soulFileURL(for: PersonaStore.defaultPersonaId).standardizedFileURL {
-                    Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
-                }
+                let editedPersonaId = url.deletingLastPathComponent().lastPathComponent
+                Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: PersonaStore.soulRecordId(for: editedPersonaId)) }
             }
             isEditing = false
             withAnimation { saved = true }

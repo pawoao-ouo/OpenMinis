@@ -795,14 +795,22 @@ final class CloudSyncEngine: ObservableObject {
             logger.warning("[CloudSync] markAllLocalContentDirty: 0 skills on device — no Skill records will be uploaded")
         }
 
-        // SOUL.md is a per-account singleton — only enqueue when the
-        // file actually exists, otherwise the dirty row would just
-        // keep cycling through buildSoul returning nil. The DEFAULT
-        // persona's file: the active session's soul is not syncable.
-        let soulURL = await MainActor.run { SoulStore.fileURL(for: PersonaStore.defaultPersonaId) }
-        if FileManager.default.fileExists(atPath: soulURL.path) {
-            await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul")
-            logger.info("[CloudSync] markAllLocalContentDirty Soul marked dirty (file present)")
+        // SOUL.md is a per-persona file — only enqueue when the file
+        // actually exists, otherwise the dirty row would just keep
+        // cycling through buildSoul returning nil. Item 17: every
+        // persona's soul is marked, each under its own record id (the
+        // default keeps the historic "soul"). The old code marked only
+        // the default persona's file.
+        var soulMarked = 0
+        for personaId in PersonaStore.knownPersonaIds() {
+            let soulURL = await MainActor.run { SoulStore.fileURL(for: personaId) }
+            if FileManager.default.fileExists(atPath: soulURL.path) {
+                await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: PersonaStore.soulRecordId(for: personaId))
+                soulMarked += 1
+            }
+        }
+        if soulMarked > 0 {
+            logger.info("[CloudSync] markAllLocalContentDirty Soul marked dirty (\(soulMarked) persona(s))")
         } else {
             logger.info("[CloudSync] markAllLocalContentDirty: SOUL.md missing on disk — skipping SoulV2 enqueue")
         }

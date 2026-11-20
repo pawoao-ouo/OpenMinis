@@ -247,10 +247,21 @@ final class SyncDirtyScanner {
     // MARK: - Memory Files
 
     private func scanMemoryFiles() async {
-        // Sync is default-persona only: the flat dir is frozen legacy
-        // data whose mtimes never change after migration, so scanning it
-        // would go silent while the hydrator reads memory/personas/default/.
-        let memDir = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
+        // Item 17: scan EVERY persona's memory dir, not just the
+        // default's. The flat dir is frozen legacy data whose mtimes
+        // never change after migration, so scanning it would go silent
+        // while the hydrator reads memory/personas/<pid>/. The mtime
+        // cache key is namespaced per persona ("memory:<pid>:<name>") —
+        // the same daily filename exists in every persona, and a shared
+        // key would make one persona's edit look like another's (or
+        // swallow it).
+        for personaId in PersonaStore.knownPersonaIds() {
+            await scanMemoryFiles(for: personaId)
+        }
+    }
+
+    private func scanMemoryFiles(for personaId: String) async {
+        let memDir = PersonaStore.memoryDir(for: personaId)
         guard fm.fileExists(atPath: memDir.path),
               let files = try? fm.contentsOfDirectory(at: memDir,
                                                        includingPropertiesForKeys: [.contentModificationDateKey],
@@ -266,7 +277,7 @@ final class SyncDirtyScanner {
 
             let modDate = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey])
                                 .contentModificationDate) ?? Date.distantPast
-            let cacheKey = "memory:\(name)"
+            let cacheKey = "memory:\(personaId):\(name)"
 
             // [T-icloud-local-edit-clobber] Mirror the skills/config scans:
             // first scan records a baseline WITHOUT marking dirty (in-app
@@ -280,7 +291,7 @@ final class SyncDirtyScanner {
                     if modDate > known {
                         knownModDates[cacheKey] = modDate
                         await ChatStore.shared.markDirty(recordType: "MemoryGlobalV2",
-                                                         recordId: "memory-global")
+                                                         recordId: PersonaStore.memoryGlobalRecordId(for: personaId))
                         logger.info("[SyncDirtyScanner] GLOBAL.md changed, marked dirty")
                     } else if modDate != known {
                         // Backdated by an inbound apply — track, don't push.
@@ -297,7 +308,7 @@ final class SyncDirtyScanner {
                         if modDate > known {
                             knownModDates[cacheKey] = modDate
                             await ChatStore.shared.markDirty(recordType: "MemoryDailyV2",
-                                                             recordId: stem)
+                                                             recordId: PersonaStore.memoryDailyRecordId(dateKey: stem, for: personaId))
                             logger.info("[SyncDirtyScanner] \(name) changed, marked dirty")
                         } else if modDate != known {
                             knownModDates[cacheKey] = modDate

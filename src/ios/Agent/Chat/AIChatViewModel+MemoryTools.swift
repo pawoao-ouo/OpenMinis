@@ -146,13 +146,14 @@ extension AIChatViewModel {
 
         // Enqueue for iCloud v2 sync. Reuse fileName's stem (no second
         // Date() call) so the dateKey matches what was actually written
-        // even across a midnight boundary. MemoryDailyV2 is the DEFAULT
-        // persona's singleton — a non-default persona's write never rides it.
+        // even across a midnight boundary. Item 17: every persona's daily
+        // log syncs under its own record id — the default persona keeps
+        // the historic bare dateKey, a non-default persona gets
+        // "<dateKey>:<pid>". The old guard (default only) left every
+        // other persona's memory with no backup via sync.
         let dateStrForSync = (fileName as NSString).deletingPathExtension
-        if personaId == PersonaStore.defaultPersonaId {
-            Task { @MainActor in
-                await ChatStore.shared.markDirty(recordType: "MemoryDailyV2", recordId: dateStrForSync)
-            }
+        Task { @MainActor in
+            await ChatStore.shared.markDirty(recordType: "MemoryDailyV2", recordId: PersonaStore.memoryDailyRecordId(dateKey: dateStrForSync, for: personaId))
         }
         NotificationCenter.default.post(name: .memoryFilesDidChange, object: nil)
 

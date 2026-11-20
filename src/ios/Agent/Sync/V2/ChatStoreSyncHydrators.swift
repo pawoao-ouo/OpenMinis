@@ -142,17 +142,17 @@ enum ChatStoreSyncHydrators {
         // symptom because the schema was never auto-created.)
         h.register(
             recordType: "SoulV2",
-            builder: { _ in await buildSoul() },
+            builder: { id in await buildSoul(recordId: id) },
             merger: { record in await mergeSoul(record: record) }
         )
         h.register(
             recordType: "MemoryGlobalV2",
-            builder: { _ in await buildMemoryGlobal() },
+            builder: { id in await buildMemoryGlobal(recordId: id) },
             merger: { record in await mergeMemoryGlobal(record: record) }
         )
         h.register(
             recordType: "MemoryDailyV2",
-            builder: { id in await buildMemoryDaily(dateKey: id) },
+            builder: { id in await buildMemoryDaily(recordId: id) },
             merger: { record in await mergeMemoryDaily(record: record) }
         )
 
@@ -942,12 +942,14 @@ enum ChatStoreSyncHydrators {
     /// Build the outbound SoulV2 record from the on-disk SOUL.md file.
     /// Returns nil when the file is missing (e.g. first launch before
     /// ensureExists has run) so we don't push an empty record and clobber
-    /// peer copies.
-    private static func buildSoul() async -> PortableRecord? {
-        // Sync singletons are default-persona only: the no-arg fileURL
-        // follows the ACTIVE session, so a push from a non-default
-        // session would upload that persona's soul as the account's.
-        let url = await MainActor.run { SoulStore.fileURL(for: PersonaStore.defaultPersonaId) }
+    /// peer copies. Item 17: the record id carries the persona
+    /// ("soul" for the default, "soul:<pid>" otherwise) — the builder
+    /// reads THAT persona's file and the pushed record's id is the full
+    /// record id, so a non-default soul never overwrites the account
+    /// singleton.
+    private static func buildSoul(recordId: String) async -> PortableRecord? {
+        let (_, personaId) = PersonaStore.splitSyncRecordId(recordId)
+        let url = await MainActor.run { SoulStore.fileURL(for: personaId) }
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path),
               let data = try? Data(contentsOf: url),
@@ -962,31 +964,36 @@ enum ChatStoreSyncHydrators {
                let d = attrs[.modificationDate] as? Date { return d }
             return Date()
         }()
-        let synced = SyncedSoul(contentMarkdown: text, updatedAt: mtime)
+        let synced = SyncedSoul(id: recordId, contentMarkdown: text, updatedAt: mtime)
         return SyncableTypeRegistry.shared.metadata(for: "SoulV2")?.buildPortable(synced)
     }
 
     /// Apply an inbound SoulV2 record. LWW-by-updatedAt against the local
     /// file mtime is implemented inside SoulStore.applyRemoteContent.
+    /// Item 17: the record id carries the persona — the inbound soul
+    /// applies to that persona's file, not the default's.
     private static func mergeSoul(record: PortableRecord) async {
         guard let text = stringField(record, "contentMarkdown") else {
             logger.warning("[SyncCore] mergeSoul: missing contentMarkdown field")
             return
         }
         let updatedAt = dateField(record, "updatedAt") ?? record.updatedAt
+        let (_, personaId) = PersonaStore.splitSyncRecordId(record.id.id)
         await MainActor.run {
-            SoulStore.applyRemoteContent(text, remoteUpdatedAt: updatedAt)
+            SoulStore.applyRemoteContent(text, remoteUpdatedAt: updatedAt, personaId: personaId)
         }
         logger.info("[SyncCore] applied SoulV2 (\(text.count) chars, updatedAt=\(updatedAt))")
     }
 
     // MARK: - Memory Global (GLOBAL.md singleton)
 
-    private static func buildMemoryGlobal() async -> PortableRecord? {
-        // Sync singletons are scoped to the default persona: per-persona
-        // memory does not sync (no per-persona sync yet — remaining work).
-        // The default persona's GLOBAL.md lives at memory/personas/default/.
-        let url = PersonaStore.globalMemoryFileURL(for: PersonaStore.defaultPersonaId)
+    private static func buildMemoryGlobal(recordId: String) async -> PortableRecord? {
+        // Item 17: the record id carries the persona ("memory-global"
+        // for the default, "memory-global:<pid>" otherwise) — the
+        // builder reads THAT persona's GLOBAL.md and the pushed
+        // record's id is the full record id.
+        let (_, personaId) = PersonaStore.splitSyncRecordId(recordId)
+        let url = PersonaStore.globalMemoryFileURL(for: personaId)
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path),
               let text = try? String(contentsOf: url, encoding: .utf8),
@@ -1000,7 +1007,7 @@ enum ChatStoreSyncHydrators {
                let d = attrs[.modificationDate] as? Date { return d }
             return Date()
         }()
-        let synced = SyncedMemoryGlobal(contentMarkdown: text, updatedAt: mtime)
+        let synced = SyncedMemoryGlobal(id: recordId, contentMarkdown: text, updatedAt: mtime)
         return SyncableTypeRegistry.shared.metadata(for: "MemoryGlobalV2")?.buildPortable(synced)
     }
 
@@ -1011,8 +1018,10 @@ enum ChatStoreSyncHydrators {
         }
         let remoteUpdatedAt = dateField(record, "updatedAt") ?? record.updatedAt
 
-        // Default persona only — see buildMemoryGlobal.
-        let url = PersonaStore.globalMemoryFileURL(for: PersonaStore.defaultPersonaId)
+        // Item 17: the record id carries the persona — the inbound
+        // GLOBAL.md applies to that persona's file.
+        let (_, personaId) = PersonaStore.splitSyncRecordId(record.id.id)
+        let url = PersonaStore.globalMemoryFileURL(for: personaId)
         let fm = FileManager.default
 
         // [T-icloud-local-edit-clobber] Content-equality short circuit. An
@@ -1103,7 +1112,13 @@ enum ChatStoreSyncHydrators {
                      .joined(separator: "\n")
     }
 
-    private static func buildMemoryDaily(dateKey: String) async -> PortableRecord? {
+    private static func buildMemoryDaily(recordId: String) async -> PortableRecord? {
+        // Item 17: the record id carries the persona ("<dateKey>" for
+        // the default, "<dateKey>:<pid>" otherwise). The builder reads
+        // THAT persona's daily file and the pushed record's id is the
+        // full record id (which also becomes the "dateKey" field — the
+        // merger parses the persona back out of it).
+        let (dateKey, personaId) = PersonaStore.splitSyncRecordId(recordId)
         // Only sync last 30 days
         let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
@@ -1111,8 +1126,7 @@ enum ChatStoreSyncHydrators {
             return nil  // Too old — skip
         }
 
-        // Default persona only — see buildMemoryGlobal.
-        let url = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
+        let url = PersonaStore.memoryDir(for: personaId)
                     .appendingPathComponent("\(dateKey).md")
         guard let text = try? String(contentsOf: url, encoding: .utf8),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1130,12 +1144,12 @@ enum ChatStoreSyncHydrators {
             return Date()
         }()
 
-        let synced = SyncedMemoryDaily(id: dateKey, entriesJson: jsonStr, updatedAt: mtime)
+        let synced = SyncedMemoryDaily(id: recordId, entriesJson: jsonStr, updatedAt: mtime)
         return SyncableTypeRegistry.shared.metadata(for: "MemoryDailyV2")?.buildPortable(synced)
     }
 
     private static func mergeMemoryDaily(record: PortableRecord) async {
-        guard let dateKey = stringField(record, "dateKey"),
+        guard let dateKeyField = stringField(record, "dateKey"),
               let entriesJson = stringField(record, "entriesJson"),
               let remoteEntries = try? JSONDecoder().decode(
                   [MemoryEntry].self, from: Data(entriesJson.utf8))
@@ -1144,8 +1158,11 @@ enum ChatStoreSyncHydrators {
             return
         }
 
-        // Default persona only — see buildMemoryGlobal.
-        let url = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
+        // Item 17: the dateKey field carries the persona
+        // ("<dateKey>" for the default, "<dateKey>:<pid>" otherwise) —
+        // the inbound entries merge into THAT persona's daily file.
+        let (dateKey, personaId) = PersonaStore.splitSyncRecordId(dateKeyField)
+        let url = PersonaStore.memoryDir(for: personaId)
                     .appendingPathComponent("\(dateKey).md")
         let fm = FileManager.default
 

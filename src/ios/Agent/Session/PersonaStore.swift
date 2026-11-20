@@ -210,6 +210,41 @@ enum PersonaStore {
             .appendingPathComponent("\(fmt.string(from: date)).md")
     }
 
+    // MARK: - Sync record ids (item 17)
+
+    /// Record id for a persona's SOUL.md sync record. The default
+    /// persona keeps the historic bare id ("soul") so the cloud record
+    /// it already has keeps syncing with old builds; a non-default
+    /// persona gets "soul:<pid>" — a separate record, never the
+    /// account singleton.
+    static func soulRecordId(for personaId: String) -> String {
+        personaId == defaultPersonaId ? "soul" : "soul:\(personaId)"
+    }
+
+    /// Record id for a persona's GLOBAL.md sync record.
+    static func memoryGlobalRecordId(for personaId: String) -> String {
+        personaId == defaultPersonaId ? "memory-global" : "memory-global:\(personaId)"
+    }
+
+    /// Record id for a persona's daily-log sync record.
+    static func memoryDailyRecordId(dateKey: String, for personaId: String) -> String {
+        personaId == defaultPersonaId ? dateKey : "\(dateKey):\(personaId)"
+    }
+
+    /// Split a persona-qualified sync record id into (base, personaId).
+    /// The base never contains ":" (date keys are YYYY-MM-DD; "soul"
+    /// and "memory-global" are fixed strings) and persona ids never
+    /// contain ":" (UUIDs, "default", "me"), so the first ":" is the
+    /// separator. A bare id (no ":") is the default persona's historic
+    /// record.
+    static func splitSyncRecordId(_ recordId: String) -> (base: String, personaId: String) {
+        guard let colon = recordId.firstIndex(of: ":") else {
+            return (recordId, defaultPersonaId)
+        }
+        return (String(recordId[..<colon]),
+                String(recordId[recordId.index(after: colon)...]))
+    }
+
     /// Skills root: <skills>/<personaId>/. Skills are GLOBAL, shared by
     /// all personas (user decision 2026-11-20) — every caller passes
     /// defaultPersonaId, so the single live home is skills/default/.

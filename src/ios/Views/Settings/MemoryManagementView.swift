@@ -311,16 +311,19 @@ private struct MemoryFileEditView: View {
             MinisToast.show(AppLocalized("Saved"))
             // Enqueue for iCloud v2 sync. GLOBAL.md uses its own singleton
             // record; per-day logs use the dateKey from the filename.
+            // Item 17: this screen edits the DEFAULT persona's memory
+            // only, so the record ids are the default's (the helpers
+            // return the historic bare ids for it).
             if isGlobal {
                 Task {
                     await ChatStore.shared.markDirty(recordType: "MemoryGlobalV2",
-                                                     recordId: "memory-global")
+                                                     recordId: PersonaStore.memoryGlobalRecordId(for: PersonaStore.defaultPersonaId))
                 }
             } else {
                 let stem = (fileName as NSString).deletingPathExtension
                 Task {
                     await ChatStore.shared.markDirty(recordType: "MemoryDailyV2",
-                                                     recordId: stem)
+                                                     recordId: PersonaStore.memoryDailyRecordId(dateKey: stem, for: PersonaStore.defaultPersonaId))
                 }
             }
             NotificationCenter.default.post(name: .memoryFilesDidChange, object: nil)

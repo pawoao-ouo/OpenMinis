@@ -903,21 +903,23 @@ enum SoulStore {
         cachedMetadataByPersona[resolvedPersonaIdForCache] = file.metadata
         NotificationCenter.default.post(name: .soulMdChanged, object: nil)
         // Notify the V2 sync layer so SOUL.md changes propagate to the
-        // user's other devices. SoulV2 is the DEFAULT persona's singleton
-        // record (recordId "soul"); a non-default persona's soul never
-        // rides it — per-persona soul sync does not exist yet.
+        // user's other devices. Item 17: every persona's soul syncs
+        // under its own record id — the default persona keeps the
+        // historic "soul" singleton, a non-default persona gets
+        // "soul:<pid>". The old guard (default only) left every other
+        // persona's soul with no backup via sync.
         let resolvedPersonaId = personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId
-        if resolvedPersonaId == PersonaStore.defaultPersonaId {
-            Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
-        }
+        Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: PersonaStore.soulRecordId(for: resolvedPersonaId)) }
     }
 
     /// Apply an inbound SOUL.md from iCloud without re-marking it dirty.
     /// Used by the V2 sync hydrator's merger path. LWW-by-mtime is
     /// applied here so a stale remote write doesn't clobber a newer
     /// local file (the cloud record's updatedAt is the authority, not
-    /// our local file mtime). SoulV2 is the default persona's record,
-    /// so this always targets the default persona.
+    /// our local file mtime). Item 17: the merger passes the persona
+    /// from the record id, so a non-default persona's soul applies to
+    /// that persona's file (the default persona keeps the historic
+    /// "soul" record).
     @MainActor
     static func applyRemoteContent(_ markdown: String, remoteUpdatedAt: Date, personaId: String = PersonaStore.defaultPersonaId) {
         let url = fileURL(for: personaId)
