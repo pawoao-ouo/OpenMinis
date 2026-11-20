@@ -93,7 +93,12 @@ struct SessionMemoryView: View {
     private var autoInjected: [AutoItem] {
         var items: [AutoItem] = []
         let fm = FileManager.default
-        // ［persona］按本会话人设读记忆目录。
+        // ［persona］人设未知且不是草稿（fail closed）：loadSession 查不到
+        // 人设时绝不回落到当前人设的目录——那会把另一个人设的 SOUL/GLOBAL
+        // 摆出来让人改（MemoryContentView 是可编辑的）。草稿（sessionId
+        // == nil）按 S26 跟随当前人设，下面的回落只对草稿生效。
+        guard vm.sessionPersonaId != nil || vm.sessionId == nil else { return [] }
+        // ［persona］按本会话人设读记忆目录（草稿回落到当前人设）。
         let memDir = PersonaStore.memoryDir(for: vm.sessionPersonaId ?? PersonaStore.currentID())
 
         // SOUL.md — listed first because it's the identity/personality
