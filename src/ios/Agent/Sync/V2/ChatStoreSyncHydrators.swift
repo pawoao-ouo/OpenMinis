@@ -944,7 +944,10 @@ enum ChatStoreSyncHydrators {
     /// ensureExists has run) so we don't push an empty record and clobber
     /// peer copies.
     private static func buildSoul() async -> PortableRecord? {
-        let url = await MainActor.run { SoulStore.fileURL }
+        // Sync singletons are default-persona only: the no-arg fileURL
+        // follows the ACTIVE session, so a push from a non-default
+        // session would upload that persona's soul as the account's.
+        let url = await MainActor.run { SoulStore.fileURL(for: PersonaStore.defaultPersonaId) }
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path),
               let data = try? Data(contentsOf: url),
