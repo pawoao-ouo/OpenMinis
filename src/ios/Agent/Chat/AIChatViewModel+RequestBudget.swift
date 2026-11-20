@@ -277,9 +277,10 @@ extension AIChatViewModel {
         return url
     }
 
-    /// Legacy memory root. Per-persona dirs live under it
-    /// (PersonaStore.memoryDir); the flat files here are the pre-migration
-    /// shared data, kept read-only — new code must not write here.
+    /// Memory root. Per-persona dirs live under it in the personas/
+    /// container (PersonaStore.memoryDir → memory/personas/<id>/); the
+    /// flat files here are the pre-migration shared data, copied once
+    /// into memory/personas/default/ and never written again.
     /// Stored in the App Group container so the FileProvider extension can access it.
     nonisolated static var minisMemoryPersistentDir: URL {
         minisAppGroupRoot.appendingPathComponent("memory", isDirectory: true)
@@ -293,8 +294,14 @@ extension AIChatViewModel {
         minisAppGroupRoot.appendingPathComponent("skills", isDirectory: true)
     }
 
-    /// Legacy shared root and read-only mount. Per-persona write dirs live
-    /// under it (PersonaStore.sharedDir); the flat dir is only read.
+    /// Shared root. Per-persona namespace dirs live under it
+    /// (PersonaStore.sharedDir → shared/<personaId>/), where a persona's
+    /// new shared data lands. The flat dir itself is a LIVE read/write
+    /// runtime area (events.jsonl, together/, heartbeat state) — it is
+    /// NOT a read-only mount and must never be locked (crosscheck-verdict
+    /// §5: locking it stops together-listening, the event stream and the
+    /// heartbeat). Isolation for shared lives in resolution: persona
+    /// namespace first, flat area second.
     /// Stored in the App Group container so the FileProvider extension can access it.
     nonisolated static var minisSharedPersistentDir: URL {
         minisAppGroupRoot.appendingPathComponent("shared", isDirectory: true)
@@ -329,13 +336,15 @@ extension AIChatViewModel {
             }
         }
 
-        // Per-persona directories, then the read-only global baseline.
+        // Per-persona directories, then the shared baselines.
         // Memory has NO flat fallback: the flat memory/ files are legacy
         // personal data (owned by the default persona since the migration
-        // copied them to memory/default/), not a shared baseline — falling
-        // back to them would leak the default persona's memory into every
-        // new persona. Skills and shared DO keep their flat dirs as a
-        // read-only baseline (shared skills / shared files, by design).
+        // copied them to memory/personas/default/), not a shared baseline
+        // — falling back to them would leak the default persona's memory
+        // into every new persona. Skills keeps its flat dir as a read-only
+        // baseline (shared skills, by design). Shared keeps its flat dir
+        // as the LIVE read/write runtime area (events.jsonl, together/,
+        // heartbeat) — second after the persona namespace, never locked.
         let personaDirs: [(String, URL)] = [
             ("skills", PersonaStore.skillsDir(for: personaId)),
             ("memory", PersonaStore.memoryDir(for: personaId)),
