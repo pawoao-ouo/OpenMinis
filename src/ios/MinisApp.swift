@@ -166,6 +166,17 @@ struct MinisApp: App {
         // .onAppear refresh) locks the sidebar title to the default even when the
         // user set a custom name. refreshCache() only reads the tiny SOUL.md file.
         SoulStore.refreshCache()
+        // Multi-persona isolation: start the one-time legacy migration
+        // (flat memory/SOUL/skills → memory/default/, flat session dirs →
+        // <personaId>/<sessionId>/). Session loading awaits the same task,
+        // so no prompt is built against pre-migration paths. The soul
+        // cache above may have read the pre-migration stub — re-refresh
+        // once the migration lands so the sidebar shows the real name.
+        _ = PersonaStore.migrationTask
+        Task {
+            await PersonaStore.migrationTask.value
+            await MainActor.run { SoulStore.refreshCache() }
+        }
         // Pre-warm KaTeX WKWebView as fallback for formulas SwiftMath can't render
         KaTeXRenderer.shared.warmUp()
         // Pre-warm the biometric capability probe off the main thread. The
