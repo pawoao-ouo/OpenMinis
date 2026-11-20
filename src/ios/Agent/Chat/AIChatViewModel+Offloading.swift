@@ -681,9 +681,13 @@ extension AIChatViewModel {
 
         // Multi-persona isolation: the memory/skills/shared/mcp-servers
         // symlinks point at THIS session's persona dirs, not the flat
-        // legacy roots. (The shell's runtime view is the MinisFsRouter,
-        // not these symlinks; these only feed the file browser — but the
-        // browser must show the same persona the router serves.)
+        // legacy roots — memory/personas/<pid>/, skills/<pid>/,
+        // shared/<pid>/ (the persona namespace), mcp-servers/<pid>/.
+        // (The shell's runtime view is the MinisFsRouter, not these
+        // symlinks; these only feed the file browser — but the browser
+        // must show the same persona the router serves.) The flat
+        // shared/ dir keeps its own live read/write life for host-side
+        // runtime services; the symlink shows the persona namespace.
         let pid = PersonaStore.personaId(forSessionId: sid)
         let mappings: [(persistDir: URL, linuxDir: String)] = [
             (Self.minisOffloadsPersistentDir(for: sid), Self.minisOffloadsLinuxDir),
