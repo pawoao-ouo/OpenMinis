@@ -129,31 +129,60 @@ class FileMentionIndex(
             layerEntries(
                 sessionId = sessionId,
                 layers = listOf(
-                    File(filesDir, "workspace/$sessionId") to Scope.WORKSPACE,
-                    File(filesDir, "attachments/$sessionId") to Scope.ATTACHMENTS,
+                    Triple(File(filesDir, "workspace/$sessionId"), Scope.WORKSPACE, "/var/minis/workspace/$sessionId"),
+                    Triple(File(filesDir, "attachments/$sessionId"), Scope.ATTACHMENTS, "/var/minis/attachments/$sessionId"),
                 ),
-                linuxRootFor = { scope -> "/var/minis/${scope.displayLabel}/$sessionId" },
             ).let { newBatch ->
                 collected += newBatch
                 publish(token, collected)
             }
 
-            // Layer 2: shared roots. MEMORY is scoped to THIS session's
-            // persona dir (memory/personas/<id>/) — scanning the whole
-            // memory/ tree would surface other personas' GLOBAL.md and
-            // daily logs in @-mentions. Skills keeps its flat dir as the
-            // shared baseline; shared keeps its flat live area.
+            // Layer 2: shared roots (item 11). Persona-first, flat
+            // live area after — mirroring the iOS fix:
+            //   1. this session's persona shared namespace
+            //      (shared/<pid>/) — previously never scanned, so a
+            //      persona's own shared files were invisible in
+            //      @-mentions;
+            //   2. the flat shared live area (events.jsonl, together/,
+            //      heartbeat, user subdirs) — but NOT other personas'
+            //      namespaces: the old code scanned flat shared/
+            //      recursively, which surfaced every other persona's
+            //      shared/<other>/ files in this persona's composer.
+            //      The prune below drops a first-level subdir of flat
+            //      shared when its name is a persona namespace (UUID
+            //      shaped, "default", "me") and it is not this session's
+            //      persona;
+            //   3. the global skills dir (skills are global by her
+            //      decision, not per-persona);
+            //   4. MEMORY scoped to THIS session's persona dir
+            //      (memory/personas/<id>/) — scanning the whole memory/
+            //      tree would surface other personas' GLOBAL.md and
+            //      daily logs in @-mentions.
+            val personaId = personaIdProvider(sessionId)
+            val flatSharedRoot = File(filesDir, "shared")
             layerEntries(
                 sessionId = sessionId,
                 layers = listOf(
-                    File(filesDir, "shared") to Scope.SHARED,
-                    File(filesDir, "skills") to Scope.SKILLS,
-                    File(
-                        filesDir,
-                        "memory/personas/${personaIdProvider(sessionId)}",
-                    ) to Scope.MEMORY,
+                    Triple(File(filesDir, "shared/$personaId"), Scope.SHARED, "/var/minis/shared/$personaId"),
+                    Triple(flatSharedRoot, Scope.SHARED, "/var/minis/shared"),
+                    Triple(File(filesDir, "skills"), Scope.SKILLS, "/var/minis/skills"),
+                    Triple(
+                        File(filesDir, "memory/personas/$personaId"),
+                        Scope.MEMORY,
+                        "/var/minis/memory",
+                    ),
                 ),
-                linuxRootFor = { scope -> "/var/minis/${scope.displayLabel}" },
+                // Prune other personas' namespaces from the flat shared
+                // scan only: `parent == flatSharedRoot` is true only for
+                // the root's direct children, so nested dirs are never
+                // pruned. The caller's own namespace is kept (its
+                // linuxPath is identical to the dedicated root above, and
+                // publish() dedupes by linuxPath).
+                prune = { parent, child ->
+                    parent == flatSharedRoot && child.isDirectory &&
+                        child.name != personaId &&
+                        com.openminis.app.data.PersonaStore.isPersonaNamespaceComponent(child.name)
+                },
             ).let { newBatch ->
                 collected += newBatch
                 publish(token, collected)
@@ -196,15 +225,23 @@ class FileMentionIndex(
         }
     }
 
+    /**
+     * Scans one layer of roots. Each root carries its own linux root
+     * (what the agent sees) — the persona shared namespace maps to
+     * /var/minis/shared/<pid>, the flat shared live area to
+     * /var/minis/shared — so a file is never referenced under the wrong
+     * path. [prune], when given, drops a directory (and its whole
+     * subtree) before its entry is added; it receives (parent, child)
+     * and is checked for every directory child.
+     */
     private fun layerEntries(
         sessionId: String,
-        layers: List<Pair<File, Scope>>,
-        linuxRootFor: (Scope) -> String,
+        layers: List<Triple<File, Scope, String>>,
+        prune: ((File, File) -> Boolean)? = null,
     ): List<Entry> {
         val out = mutableListOf<Entry>()
-        for ((dir, scope) in layers) {
+        for ((dir, scope, linuxRoot) in layers) {
             if (!dir.isDirectory) continue
-            val linuxRoot = linuxRootFor(scope)
             // Always include the root itself so `@workspace` / `@shared` can be referenced.
             out += Entry(
                 linuxPath = linuxRoot,
@@ -220,6 +257,7 @@ class FileMentionIndex(
                 mountName = null,
                 maxDepth = Int.MAX_VALUE,
                 budget = GLOBAL_SCAN_BUDGET,
+                prune = prune,
             )
         }
         return out
@@ -232,6 +270,7 @@ class FileMentionIndex(
         mountName: String?,
         maxDepth: Int,
         budget: Int,
+        prune: ((File, File) -> Boolean)? = null,
     ): List<Entry> {
         val out = ArrayList<Entry>()
         val rootPath = root.absolutePath
@@ -245,6 +284,9 @@ class FileMentionIndex(
                 if (out.size >= budget) break
                 if (child.name.startsWith(".")) continue
                 if (child.isDirectory && child.name in SKIP_DIR_NAMES) continue
+                // Prune before the entry is added, so a pruned directory
+                // is neither listed nor descended into.
+                if (child.isDirectory && prune?.invoke(dir, child) == true) continue
                 val relative = child.absolutePath.removePrefix(rootPath).removePrefix("/")
                 if (relative.isEmpty()) continue
                 val linuxPath = "$linuxRoot/$relative"

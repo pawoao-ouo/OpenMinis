@@ -93,6 +93,29 @@ object PersonaStore {
             .sorted()
     }
 
+    /**
+     * True when [component] looks like a persona namespace: "default",
+     * "me", or a UUID-shaped session id (personas ARE sessions — a new
+     * session's persona id IS its session id). Mirrors iOS
+     * PersonaStore.isPersonaNamespaceComponent. This is a SHAPE test,
+     * not a lookup in [allPersonaIds]: a never-opened persona has no
+     * memory dir yet, so a known-set test would miss it. Used by guards
+     * (and the @-mention index) so an unknown persona's namespace is
+     * treated as private even when this process has never seen it.
+     */
+    fun isPersonaNamespaceComponent(component: String): Boolean {
+        if (component == DEFAULT_PERSONA_ID || component == USER_PROFILE_PERSONA_ID) return true
+        // UUID: 8-4-4-4-12 hex, case-insensitive.
+        if (component.length != 36) return false
+        val parts = component.split('-')
+        if (parts.size != 5) return false
+        if (parts[0].length != 8 || parts[1].length != 4 || parts[2].length != 4 ||
+            parts[3].length != 4 || parts[4].length != 12) return false
+        return parts.all { part ->
+            part.isNotEmpty() && part.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+        }
+    }
+
     // MARK: - Identity
 
     private fun prefs(context: Context) =
