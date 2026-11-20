@@ -3222,10 +3222,20 @@ extension CollectionViewMessageListV3 {
             }()
             var previousShownMessage: ChatMessage?
             for message in messages {
+                // [batch28] While the header owns the typing state and this
+                // row is still an empty placeholder, skip the whole row in
+                // the snapshot — the header carries the state instead. The
+                // model object is untouched; the items reappear when the
+                // first block lands (snapshot rebuild). The time divider is
+                // skipped with it so no lone divider sits at the list end.
+                let headerOwnsPlaceholder = message.role == .assistant
+                    && vm.isProcessing && message.blocks.isEmpty
+                    && message.id == messages.last(where: { !$0.isQABubble })?.id
                 // [10-20 醒醒] 时间胶囊：跟微信一样，跟上一段隔久了就插一条。
                 // 隔 5 分钟以上才插，12 小时内说「几分钟前 / 几小时前」，
                 // 超过就换成日期 + 时刻。
-                if CollectionViewMessageListV3.shouldShowTimeDivider(previous: previousShownMessage, current: message) {
+                if !headerOwnsPlaceholder,
+                   CollectionViewMessageListV3.shouldShowTimeDivider(previous: previousShownMessage, current: message) {
                     newItems.append(.timeDivider(message.id))
                 }
                 switch message.role {
@@ -3235,6 +3245,7 @@ extension CollectionViewMessageListV3 {
                         newItems.append(.assistantFooter(message.id))
                     }
                 case .assistant:
+                    if headerOwnsPlaceholder { break }
                     newItems.append(.assistantHeader(message.id))
                     // Turn summary rows: every maximal run of consecutive
                     // thinking/tool blocks becomes exactly one
