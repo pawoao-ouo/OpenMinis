@@ -432,7 +432,9 @@ class MinisApp : Application(), ImageLoaderFactory {
         // breaks the Application and produces the GH#147 crash loop.
         skillRepository = SkillRepository(this)
         mcpRepository = MCPRepository(this)
-        memoryRepository = MemoryRepository(java.io.File(filesDir, "minis-global/memory"))
+        memoryRepository = MemoryRepository(
+            com.openminis.app.data.PersonaStore.memoryDir(
+                filesDir, com.openminis.app.data.PersonaStore.DEFAULT_PERSONA_ID))
         webAppShortcutRepository = WebAppShortcutRepository(database.webAppShortcutDao())
 
         // T-android-safemode-lateinit-crash: every repository the UI layer
@@ -458,6 +460,18 @@ class MinisApp : Application(), ImageLoaderFactory {
         // file to read. Safe no-op on subsequent launches — never
         // overwrites existing user edits. Cache refresh primes the
         // synchronous metadata read-path (chat header / system prompt).
+        //
+        // Multi-persona isolation: start the one-time legacy migration
+        // (flat memory/*.md → memory/personas/default/, pre-existing
+        // sessions recorded as default-persona) BEFORE seeding, and
+        // SoulStore.ensureExists() itself refuses to seed while a flat
+        // SOUL.md still awaits migration — otherwise the seed could land
+        // at personas/default/SOUL.md first and the migration's
+        // target-missing guard would skip copying the user's real SOUL.
+        // Session loading awaits the migration (PersonaStore.awaitMigration
+        // in ChatViewModel.loadSession) so no prompt is built against
+        // pre-migration paths.
+        com.openminis.app.data.PersonaStore.startMigration(this, chatRepository)
         com.openminis.app.agent.SoulStore.ensureExists(this)
         com.openminis.app.agent.SoulStore.refreshCache(this)
 
