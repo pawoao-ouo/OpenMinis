@@ -54,12 +54,12 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
         }
         return try {
             when (val sub = args.positional.firstOrNull() ?: "list") {
-                "list" -> handleList()
-                "create", "add" -> handleCreate(args)
-                "delete", "remove", "rm" -> handleDelete(args)
-                "enable" -> handleSetEnabled(args, true)
-                "disable" -> handleSetEnabled(args, false)
-                "run" -> handleRun(args)
+                "list" -> handleList(request)
+                "create", "add" -> handleCreate(request, args)
+                "delete", "remove", "rm" -> handleDelete(request, args)
+                "enable" -> handleSetEnabled(request, args, true)
+                "disable" -> handleSetEnabled(request, args, false)
+                "run" -> handleRun(request, args)
                 else -> NativeOffloadResult(2, "minis-scheduled: unknown subcommand '$sub'\n$HELP")
             }
         } catch (e: IllegalArgumentException) {
@@ -70,14 +70,39 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
         }
     }
 
-    private fun handleList(): NativeOffloadResult {
+    /**
+     * [persona] F3 — BLOCKED ON F4: the persona of the session whose shell
+     * invoked this call. The request carries the caller session id
+     * (`MINIS_CHAT_SESSION_ID`), but Android has no session→persona source
+     * to resolve it against (no persona_id on ChatSessionEntity, no
+     * PersonaStore), so this returns null — the management view — until F4
+     * lands a `personaIdForSession(sessionId)` resolver. Do NOT guess: a
+     * wrong guess would scope tasks to the wrong persona. The wiring below
+     * is in place; F4 only needs this function to return a real persona.
+     */
+    private fun callerPersonaId(request: NativeOffloadRequest): String? = null
+
+    /** Explicit cross-persona error for a mutation, or null when allowed. */
+    private fun crossPersonaResult(task: ScheduledTask, request: NativeOffloadRequest): NativeOffloadResult? {
+        val callerPid = callerPersonaId(request) ?: return null
+        return try {
+            manager.requirePersona(task, callerPid)
+            null
+        } catch (e: IllegalStateException) {
+            NativeOffloadResult(1, "minis-scheduled: ${e.message}")
+        }
+    }
+
+    private fun handleList(request: NativeOffloadRequest): NativeOffloadResult {
+        // [persona] F3: scoped list — callerPersonaId() is null until F4,
+        // so this is the management view for now (see callerPersonaId).
         val arr = JSONArray()
-        for (t in manager.list()) arr.put(taskJson(t))
+        for (t in manager.list(callerPersonaId(request))) arr.put(taskJson(t))
         val out = JSONObject().put("tasks", arr).put("count", arr.length())
         return NativeOffloadResult(0, out.toString(2))
     }
 
-    private fun handleCreate(args: OffloadArgs): NativeOffloadResult {
+    private fun handleCreate(request: NativeOffloadRequest, args: OffloadArgs): NativeOffloadResult {
         val label = args.get("label", "l") ?: ""
         val (hour, minute) = parseTime(args.get("time", "t")
             ?: throw IllegalArgumentException("--time HH:MM required"))
@@ -102,31 +127,42 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
             enabled = !args.hasFlag("disabled"),
             startDateMs = args.get("start")?.let { parseDate(it) },
             endDateMs = args.get("end")?.let { parseDate(it) },
+            // [persona] F3: the session this task was created from, so F4's
+            // backfill can resolve it to a persona once Android has a
+            // session→persona map. personaId itself is stamped by
+            // manager.create ("default" until F4).
+            creatorSessionId = request.sessionId,
         )
         manager.create(task)
         val out = JSONObject().put("created", taskJson(task))
         return NativeOffloadResult(0, out.toString(2))
     }
 
-    private fun handleDelete(args: OffloadArgs): NativeOffloadResult {
+    private fun handleDelete(request: NativeOffloadRequest, args: OffloadArgs): NativeOffloadResult {
         val id = args.get("id") ?: throw IllegalArgumentException("--id required")
-        if (manager.get(id) == null) return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
+        val task = manager.get(id) ?: return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
+        crossPersonaResult(task, request)?.let { return it }
         manager.delete(id)
         return NativeOffloadResult(0, JSONObject().put("deleted", id).toString())
     }
 
-    private fun handleSetEnabled(args: OffloadArgs, enabled: Boolean): NativeOffloadResult {
+    private fun handleSetEnabled(request: NativeOffloadRequest, args: OffloadArgs, enabled: Boolean): NativeOffloadResult {
         val id = args.get("id") ?: throw IllegalArgumentException("--id required")
-        if (manager.get(id) == null) return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
+        val task = manager.get(id) ?: return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
+        crossPersonaResult(task, request)?.let { return it }
         manager.setEnabled(id, enabled)
         return NativeOffloadResult(0, JSONObject().put("id", id).put("enabled", enabled).toString())
     }
 
-    private fun handleRun(args: OffloadArgs): NativeOffloadResult {
+    private fun handleRun(request: NativeOffloadRequest, args: OffloadArgs): NativeOffloadResult {
         val id = args.get("id") ?: throw IllegalArgumentException("--id required")
         val task = manager.get(id) ?: return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
+        crossPersonaResult(task, request)?.let { return it }
         // Fire immediately, off-schedule. Blocks until the agent loop finishes
         // (ScheduledAgentRunner waits internally). Mirrors the editor "Run now".
+        // [persona] F3: the runner cannot fire under the task's persona yet
+        // (BLOCKED ON F4: createSession has no persona parameter on Android),
+        // so a manual run from another persona's shell is gated here instead.
         val sessionId = runBlocking {
             com.openminis.app.scheduled.ScheduledAgentRunner.run(context, task)
         }
@@ -205,6 +241,8 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
         put("target", t.targetMode.encode())
         if (t.modelId != null) put("model", t.modelId)
         put("enabled", t.enabled)
+        if (t.personaId != null) put("personaId", t.personaId)
+        if (t.creatorSessionId != null) put("creatorSessionId", t.creatorSessionId)
         t.nextTriggerMs()?.let { put("nextTriggerMs", it) }
         if (t.startDateMs != null) put("startDateMs", t.startDateMs)
         if (t.endDateMs != null) put("endDateMs", t.endDateMs)

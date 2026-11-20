@@ -116,6 +116,18 @@ data class ScheduledTask(
     // chat picks up the same group/entry the user chose for the task.
     val modelBinding: String? = null,
     val enabled: Boolean = true,
+    // [persona] F3: the persona this task runs as, stamped at creation from
+    // the creator session (or the target session when there is no creator).
+    // Nil only for tasks written before this field existed — the manager
+    // backfills those to "default" on first use. Enforcement of list/run/
+    // delete/enable against this field is BLOCKED ON F4: Android has no
+    // session→persona source yet (no persona_id on sessions, no PersonaStore),
+    // so no caller persona can be resolved to compare against.
+    val personaId: String? = null,
+    // [persona] F3: the session this task was created from. Recorded so the
+    // F4 backfill can resolve creatorSessionId → persona once Android has a
+    // session→persona map; until then it is attribution metadata only.
+    val creatorSessionId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     // [T-android-scheduled-tasks-full] Optional active window. The task only
     // fires on/after startDateMs and on/before endDateMs (both = start-of-day
@@ -215,6 +227,8 @@ data class ScheduledTask(
         if (modelId != null) put("modelId", modelId)
         if (modelBinding != null) put("modelBinding", modelBinding)
         put("enabled", enabled)
+        if (personaId != null) put("personaId", personaId)
+        if (creatorSessionId != null) put("creatorSessionId", creatorSessionId)
         put("createdAt", createdAt)
         if (startDateMs != null) put("startDateMs", startDateMs)
         if (endDateMs != null) put("endDateMs", endDateMs)
@@ -245,6 +259,8 @@ data class ScheduledTask(
             modelId = if (o.has("modelId")) o.optString("modelId", null) else null,
             modelBinding = if (o.has("modelBinding")) o.optString("modelBinding", null) else null,
             enabled = o.optBoolean("enabled", true),
+            personaId = if (o.has("personaId")) o.optString("personaId", null) else null,
+            creatorSessionId = if (o.has("creatorSessionId")) o.optString("creatorSessionId", null) else null,
             createdAt = o.optLong("createdAt", System.currentTimeMillis()),
             startDateMs = if (o.has("startDateMs")) o.optLong("startDateMs") else null,
             endDateMs = if (o.has("endDateMs")) o.optLong("endDateMs") else null,

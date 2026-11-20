@@ -30,24 +30,95 @@ class ScheduledTaskManager(private val context: Context) {
     /** Read-only access to persistence for callers that only need data. */
     fun store(): ScheduledTaskStore = store
 
-    fun list(): List<ScheduledTask> = store.all()
+    // [persona] F3: the persona this task runs as. Stored value wins;
+    // otherwise derive from the creator session, then the target session.
+    // Android has no session→persona source yet (F4: no persona_id on
+    // sessions, no PersonaStore), so the derivation chain ends at "default"
+    // today — the creator/target session ids are still recorded on the task
+    // so F4's backfill can resolve them to a real persona later. The
+    // resolved value is stored back, so later reads see the same owner.
+    fun ensurePersonaId(task: ScheduledTask): ScheduledTask {
+        if (task.personaId != null) return task
+        val stamped = task.copy(personaId = DEFAULT_PERSONA_ID)
+        store.upsert(stamped)
+        return stamped
+    }
+
+    /** Stamp every task that still has no persona. Called before a filtered
+     * list is built and on boot, so no task is silently omitted from every
+     * persona's list. */
+    fun backfillMissingPersonaIds() {
+        for (t in store.all()) {
+            if (t.personaId == null) ensurePersonaId(t)
+        }
+    }
+
+    /**
+     * [persona] F3: throw when [task] belongs to a different persona than
+     * the caller. A null caller persona means "no session context" — the
+     * management view, same as the in-app task list — and enforcement is
+     * skipped only then. Callers surface the exception as an explicit
+     * cross-persona error, never a silent no-op.
+     */
+    fun requirePersona(task: ScheduledTask, callerPersonaId: String?) {
+        if (callerPersonaId == null) return
+        val owner = ensurePersonaId(task).personaId
+        if (owner != callerPersonaId) {
+            throw IllegalStateException(
+                "task ${task.id} belongs to persona \"$owner\"; it cannot be changed from persona \"$callerPersonaId\"."
+            )
+        }
+    }
+
+    /**
+     * [persona] F3: null [personaId] = the management view (in-app task
+     * list, boot re-registration) — every task. A non-null personaId lists
+     * only that persona's tasks; backfill runs first so a task with no
+     * persona yet is owned before filtering, never silently omitted.
+     */
+    fun list(personaId: String? = null): List<ScheduledTask> {
+        if (personaId == null) return store.all()
+        backfillMissingPersonaIds()
+        return store.all().filter { it.personaId == personaId }
+    }
+
     fun get(taskId: String): ScheduledTask? = store.get(taskId)
 
+    /** Persona-scoped lookup: null when missing OR owned by another persona. */
+    fun get(taskId: String, personaId: String): ScheduledTask? {
+        val t = store.get(taskId) ?: return null
+        if (ensurePersonaId(t).personaId != personaId) return null
+        return t
+    }
+
     fun create(task: ScheduledTask): ScheduledTask {
-        store.upsert(task)
-        if (task.enabled) registerAlarm(task)
-        return task
+        val stamped = ensurePersonaId(task)
+        store.upsert(stamped)
+        if (stamped.enabled) registerAlarm(stamped)
+        return stamped
     }
 
     fun update(task: ScheduledTask): ScheduledTask {
         cancelAlarm(task.id)
-        store.upsert(task)
-        if (task.enabled) registerAlarm(task)
-        return task
+        // [persona] F3: ownership survives an edit — changing a task's
+        // timing or target does not move it to another persona.
+        val stamped = ensurePersonaId(task)
+        store.upsert(stamped)
+        if (stamped.enabled) registerAlarm(stamped)
+        return stamped
     }
 
     fun setEnabled(taskId: String, enabled: Boolean) {
         val t = store.get(taskId) ?: return
+        val updated = t.copy(enabled = enabled)
+        store.upsert(updated)
+        if (enabled) registerAlarm(updated) else cancelAlarm(taskId)
+    }
+
+    /** Persona-scoped enable/disable: throws on a cross-persona task. */
+    fun setEnabled(taskId: String, enabled: Boolean, personaId: String) {
+        val t = store.get(taskId) ?: return
+        requirePersona(t, personaId)
         val updated = t.copy(enabled = enabled)
         store.upsert(updated)
         if (enabled) registerAlarm(updated) else cancelAlarm(taskId)
@@ -58,12 +129,24 @@ class ScheduledTaskManager(private val context: Context) {
         store.delete(taskId)
     }
 
+    /** Persona-scoped delete: throws on a cross-persona task. */
+    fun delete(taskId: String, personaId: String) {
+        val t = store.get(taskId) ?: return
+        requirePersona(t, personaId)
+        cancelAlarm(taskId)
+        store.delete(taskId)
+    }
+
     /**
      * Re-register every enabled task with AlarmManager. Called from
      * [com.openminis.app.offload.AlarmReceiver]'s BOOT_COMPLETED branch
      * so persisted tasks survive a device reboot.
      */
     fun rescheduleAll() {
+        // [persona] F3: own every task before re-registering, so the
+        // persisted rows carry their owner from the first boot after this
+        // change.
+        backfillMissingPersonaIds()
         val tasks = store.all()
         if (tasks.isEmpty()) {
             AppLogger.info(TAG, "rescheduleAll: no tasks")
@@ -172,5 +255,9 @@ class ScheduledTaskManager(private val context: Context) {
         const val EXTRA_TASK_ID = "task_id"
         const val CHANNEL_ID = "minis_scheduled_tasks"
         private const val CHANNEL_NAME = "Scheduled Tasks"
+        /** [persona] F3: fallback owner when no session can be resolved to a
+         * persona (no session context, or the session row is gone). Matches
+         * iOS `PersonaStore.defaultPersonaID`. */
+        const val DEFAULT_PERSONA_ID = "default"
     }
 }
