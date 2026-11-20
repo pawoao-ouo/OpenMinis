@@ -164,8 +164,15 @@ extension AIChatViewModel {
             return
         }
 
-        // ［persona］落定本会话归属人设（NULL 老数据 → 默认人设）。
+        // ［persona］落定本会话归属人设。personaId(for:) 只在 DB 错误或行缺失
+        // 时返回 nil（fail closed）；NULL 老数据按已定设计归默认人设。
+        // nil 在此只意味着“查不到”——行刚验证存在，所以基本是 DB 出错；
+        // sessionPersonaId 保持 nil，后续会话路径一律按未知人设 fail closed，
+        // 绝不静默用全局当前人设顶替。
         sessionPersonaId = await ChatStore.shared.personaId(for: sessionId)
+        if sessionPersonaId == nil {
+            logger.error("[persona] loadSession: persona lookup failed id=\(sessionId.prefix(8)) — session persona unknown, session paths will fail closed")
+        }
 
         // [S19] Restore any unsent composer text saved for this session
         // (per-keystroke UserDefaults write). Runs here — before the

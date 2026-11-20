@@ -2560,17 +2560,22 @@ actor ChatStore {
         sqlite3_finalize(stmt)
     }
 
-    /// ［persona］查会话归属的人设。NULL/缺失 → 默认人设。
-    func personaId(for sessionId: String) -> String {
+    /// ［persona］查会话归属的人设。Fail closed：prepare 失败或行缺失返回 nil，
+    /// 绝不默认回退——调用方必须显式处理未知人设。
+    /// 唯一例外：行存在但 persona_id 为 NULL（人设功能之前建的老会话），按
+    /// 已定设计归默认人设（listSessions 的 NULL→default 规则同款）。NULL
+    /// 列不是“查不到”，而是“老数据”；把它也返回 nil 会让全部老会话丢掉
+    /// 记忆读写与身份注入，所以这里显式保留映射，不算 fail-open。
+    func personaId(for sessionId: String) -> String? {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         let sql = "SELECT persona_id FROM sessions WHERE id = ? LIMIT 1"
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            return PersonaStore.defaultPersonaID
+            return nil
         }
         sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
         guard sqlite3_step(stmt) == SQLITE_ROW else {
-            return PersonaStore.defaultPersonaID
+            return nil
         }
         return Self.colTextOpt(stmt, 0) ?? PersonaStore.defaultPersonaID
     }

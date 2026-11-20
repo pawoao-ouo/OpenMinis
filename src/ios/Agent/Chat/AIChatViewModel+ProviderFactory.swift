@@ -23,8 +23,9 @@ extension AIChatViewModel {
             logger.error("No ProviderInstance found for entry \(entry.id)")
             return AnthropicAgentProvider(provider: AnthropicProvider(apiKey: "", model: entry.model))
         }
-        let pid = personaId ?? PersonaStore.currentID()
-        let persona = PersonaStore.shared.personas.first(where: { $0.id == pid })
+        // ［persona］人设未知时不带任何人设的自定义请求头/请求体/采样：
+        // 自定义头可能含密钥，绝不能拿全局当前人设的顶替。
+        let persona = personaId.flatMap { pid in PersonaStore.shared.personas.first(where: { $0.id == pid }) }
         let personaHeaders = persona?.customHeadersDict
         let personaBody = persona?.customBodyDict
 

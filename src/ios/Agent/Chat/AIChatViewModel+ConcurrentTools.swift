@@ -168,8 +168,8 @@ extension AIChatViewModel {
         // [persona-whitelist] Enforce the persona tool whitelist at dispatch time.
         // The schema filter above keeps the model from SEEING a whitelisted-out
         // tool; this keeps a stale or manual call from RUNNING it.
-        let whitelistPersonaId = sessionPersonaId ?? PersonaStore.currentID()
-        let whitelistPersona = PersonaStore.shared.personas.first(where: { $0.id == whitelistPersonaId })
+        // ［persona］人设未知时不套任何白名单，绝不拿全局当前人设的名单顶替。
+        let whitelistPersona = sessionPersonaId.flatMap { pid in PersonaStore.shared.personas.first(where: { $0.id == pid }) }
         if let whitelistPersona = whitelistPersona,
            let toolWhitelist = whitelistPersona.localToolIds {
             let whitelistId: String?

@@ -55,11 +55,16 @@ enum MemoryWriteRevoker {
     /// WRITING session's persona, not whatever persona happens to be globally
     /// current right now (they differ whenever the user switches persona after
     /// the write, and the entry then lives in a dir this lookup never visited).
-    /// nil falls back to the current persona for legacy callers.
+    /// nil = unknown persona: REFUSE (fail closed). Falling back to the
+    /// current persona would delete an entry from the wrong persona's log —
+    /// a cross-persona destructive write.
     static func revoke(writtenContent: String, personaID: String? = nil) -> String {
         let written = writtenContent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !written.isEmpty else {
             return AppLocalized("No written content to revoke.")
+        }
+        guard let personaID else {
+            return AppLocalized("Couldn't determine this session's persona — the memory entry was NOT removed.")
         }
 
         let fm = FileManager.default
@@ -67,8 +72,8 @@ enum MemoryWriteRevoker {
         // the legacy root path made revoke fail for every non-default persona
         // (and silently no-op for the default one).
         // [audit-E6] …and it is the SESSION's persona (passed by the caller),
-        // not the globally-current one.
-        let memDir = PersonaStore.memoryDir(for: personaID ?? PersonaStore.currentID())
+        // not the globally-current one. personaID is non-nil here (guarded above).
+        let memDir = PersonaStore.memoryDir(for: personaID)
 
         // [audit-E7] Calendar days (shared with injection and UI), not -86400s.
         let candidates = MemoryLogDates.recentDays(count: 2)

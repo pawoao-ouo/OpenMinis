@@ -35,7 +35,7 @@ struct SessionMemoryView: View {
                         ForEach(toolMemories) { item in
                             NavigationLink {
                                 if item.isWrite {
-                                    MemoryWriteDetailView(item: item, personaID: vm.sessionPersonaId ?? PersonaStore.currentID())
+                                    MemoryWriteDetailView(item: item, personaID: vm.sessionPersonaId)
                                 } else {
                                     MemoryGetDetailView(item: item)
                                 }
@@ -361,7 +361,8 @@ private struct MemoryContentView: View {
 private struct MemoryWriteDetailView: View {
     let item: SessionMemoryView.ToolMemoryItem
     /// ［persona］本会话人设 id，编辑回写定位该人设的记忆目录。
-    let personaID: String
+    /// nil = 人设未知：编辑/撤销一律拒绝（fail closed），绝不回退全局当前人设。
+    let personaID: String?
     @Environment(\.dismiss) private var dismiss
     /// Live copy of the entry's written content. `item` is a snapshot
     /// taken when the list was built; saveEdit replaces the log body by
@@ -386,7 +387,7 @@ private struct MemoryWriteDetailView: View {
             : AnyShapeStyle(CSSThemeVariables.surface())
     }
 
-    init(item: SessionMemoryView.ToolMemoryItem, personaID: String) {
+    init(item: SessionMemoryView.ToolMemoryItem, personaID: String?) {
         self.item = item
         self.personaID = personaID
         _currentWrittenContent = State(initialValue: item.writtenContent)
@@ -499,6 +500,9 @@ private struct MemoryWriteDetailView: View {
     /// Find entry matching `oldContent` in daily logs and replace its body with `newContent`.
     /// Returns the filename on success, nil on failure.
     private func replaceEntryInLog(oldContent: String, newContent: String) -> String? {
+        // ［persona］人设未知（fail closed）：不知道条目属于谁就不改，
+        // 绝不回退全局当前人设的目录——那会改掉另一个人设的日报。
+        guard let personaID else { return nil }
         let fm = FileManager.default
         // ［persona］按本会话人设回写记忆目录。
         let memDir = PersonaStore.memoryDir(for: personaID)

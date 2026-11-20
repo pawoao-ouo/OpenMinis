@@ -580,8 +580,10 @@ extension AIChatViewModel {
         ))
 
         // [Kelivo Alignment & BUG-01 / BUG-03] 人设本地工具白名单真实门控
-        let pid = sessionPersonaId ?? PersonaStore.currentID()
-        if let p = PersonaStore.shared.personas.first(where: { $0.id == pid }),
+        // ［persona］人设未知时不套任何白名单：不知道是谁就等于没名单，
+        // 绝不拿全局当前人设的名单顶替（那会错关/错放工具）。
+        if let pid = sessionPersonaId,
+           let p = PersonaStore.shared.personas.first(where: { $0.id == pid }),
            let toolWhitelist = p.localToolIds {
             if !toolWhitelist.contains("timeInfo") {
                 tools.removeAll { $0.name == "timeInfo" || $0.name == "get_time_info" }

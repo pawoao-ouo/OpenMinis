@@ -1856,7 +1856,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // identity: its first layer is the delegation preamble instead.
         (isSubAgentChild
             ? subAgentIdentitySection
-            : SystemPromptBuilder.identitySection(for: sessionPersonaId ?? PersonaStore.currentID())
+            // ［persona］人设未知时不注入任何身份段（fail closed），绝不回退
+            // 全局当前人设的 SOUL——那会让模型顶着另一个人设的身份说话。
+            // 用户档案段（personas/me）与人设无关，照常注入。
+            : (sessionPersonaId.map { SystemPromptBuilder.identitySection(for: $0) } ?? "")
                 + userProfilePromptSection)
             // [T-routing-table] 路由表放常驻层最前面：模型每轮先看到"这件事用哪个工具"，
             // 而不是从工具目录里自己猜。这是审计 P0-2 的病根——工具全给了、分工一字没写。
@@ -1905,8 +1908,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "  /var/minis/browser/     — Browser screenshots and extracts\n"
             + "  /var/minis/shared/      — Cross-session shared storage (artifacts, projects)\n"
             + "  /var/minis/shared/user-manual.md — This app's own user manual (full text; the index is below)\n"
-            + "  /var/minis/memory/personas/\(sessionPersonaId ?? PersonaStore.currentID())/GLOBAL.md — Per-persona persistent memory (read with file_read; edit with file_edit when the user asks)\n"
-            + "  /var/minis/memory/personas/\(sessionPersonaId ?? PersonaStore.currentID())/YYYY-MM-DD.md — Daily memory log\n\n"
+            // ［persona］人设未知时不写记忆路径（fail closed），绝不写全局
+            // 当前人设的路径——那会把模型引向另一个人设的记忆文件。
+            + (sessionPersonaId.map { pid in
+                "  /var/minis/memory/personas/\(pid)/GLOBAL.md — Per-persona persistent memory (read with file_read; edit with file_edit when the user asks)\n"
+                + "  /var/minis/memory/personas/\(pid)/YYYY-MM-DD.md — Daily memory log\n\n"
+            } ?? "")
             + "URL scheme: minis-clone:// (internal app resource and action deep links; percent-encode non-ASCII characters; render as Markdown links [name](minis-clone://...)).\n\n"
             + "File creation guidelines: Use file_write to CREATE new files, file_edit to MODIFY existing files (exact string match). "
             + "Avoid shell heredocs for large files; split content into chunks with append: true. "
@@ -6158,8 +6165,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
 
         // [Kelivo Alignment] 注入人设级别的采样与推理参数覆盖 (Temperature & Top P)
-        let activePersonaId = self.sessionPersonaId ?? PersonaStore.currentID()
-        if let activePersona = PersonaStore.shared.personas.first(where: { $0.id == activePersonaId }) {
+        // ［persona］人设未知时不套任何人设的采样覆盖，绝不拿全局当前人设的顶替。
+        if let activePersonaId = self.sessionPersonaId,
+           let activePersona = PersonaStore.shared.personas.first(where: { $0.id == activePersonaId }) {
             var smp = provider.sampling ?? SamplingConfig()
             if let t = activePersona.temperature { smp.temperature = t }
             if let tp = activePersona.topP { smp.topP = tp }
@@ -8152,7 +8160,10 @@ extension AIChatViewModel {
     /// group fallback。原来只包了主路径，重试和回退送的是未裁剪的完整历史
     /// ——用户以为限制生效了，实际换个模型重试就绕过去了。
     func applyPersonaContextLimit(_ history: [AgentMessage]) -> [AgentMessage] {
-        guard let activeP = PersonaStore.shared.personas.first(where: { $0.id == (sessionPersonaId ?? PersonaStore.currentID()) }),
+        // ［persona］人设未知时不限流（直接返回完整历史），绝不拿全局当前
+        // 人设的条数限制顶替。
+        guard let pid = sessionPersonaId,
+              let activeP = PersonaStore.shared.personas.first(where: { $0.id == pid }),
               activeP.limitContextMessages, activeP.contextMessageSize > 0,
               history.count > activeP.contextMessageSize else { return history }
         return Self.safeContextSuffix(history, maxCount: activeP.contextMessageSize)

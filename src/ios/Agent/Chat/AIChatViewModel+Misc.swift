@@ -337,8 +337,9 @@ extension AIChatViewModel {
         //
         // Then clamp by the global ceiling so a model claiming 200K output never
         // actually causes us to request 200K.
-        let pid = sessionPersonaId ?? PersonaStore.currentID()
-        let personaMaxTokens = PersonaStore.shared.personas.first(where: { $0.id == pid })?.maxTokens
+        // ［persona］人设未知时不取任何人设的 token 上限（回退模型/服务商
+        // 默认），绝不拿全局当前人设的上限顶替。
+        let personaMaxTokens = sessionPersonaId.flatMap { pid in PersonaStore.shared.personas.first(where: { $0.id == pid })?.maxTokens }
         let modelOrProvider = personaMaxTokens ?? model.maxOutputTokens ?? provider.defaultMaxTokens
         let upperBound = min(Self.globalMaxTokensCeiling, modelOrProvider)
 

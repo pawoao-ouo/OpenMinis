@@ -8,8 +8,11 @@ extension AIChatViewModel {
 
     /// Load full global memory content for system prompt injection.
     /// ［persona］按人设隔离：读该人设记忆目录的 GLOBAL.md。
+    /// personaID 为 nil = 人设未知（fail closed）：不注入任何记忆，绝不
+    /// 回退全局当前人设的 GLOBAL.md——那会把另一个人设的记忆塞进提示词。
     nonisolated static func loadGlobalMemoryFragment(personaID: String? = nil) -> String? {
-        let dir = PersonaStore.memoryDir(for: personaID ?? PersonaStore.currentID())
+        guard let personaID else { return nil }
+        let dir = PersonaStore.memoryDir(for: personaID)
         let globalFile = dir.appendingPathComponent("GLOBAL.md")
         guard FileManager.default.fileExists(atPath: globalFile.path),
               let content = try? String(contentsOf: globalFile, encoding: .utf8),
@@ -39,8 +42,10 @@ extension AIChatViewModel {
 
     /// Load the 3 most recent daily memory logs that have content, for system prompt injection (first 200 lines each).
     /// ［persona］按人设隔离：读该人设记忆目录的日报。SOUL.md 是人设文件，不当记忆搜。
+    /// personaID 为 nil = 人设未知（fail closed）：不注入，绝不回退当前人设。
     nonisolated static func loadRecentDailyMemoryFragment(personaID: String? = nil) -> String? {
-        let dir = PersonaStore.memoryDir(for: personaID ?? PersonaStore.currentID())
+        guard let personaID else { return nil }
+        let dir = PersonaStore.memoryDir(for: personaID)
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
         let fm = FileManager.default
@@ -112,8 +117,11 @@ extension AIChatViewModel {
         }
 
         let fm = FileManager.default
-        // ［persona］写进本会话人设的记忆目录。
-        let pid = sessionPersonaId ?? PersonaStore.currentID()
+        // ［persona］写进本会话人设的记忆目录。人设未知（fail closed）：
+        // 拒绝写入，绝不回退全局当前人设——那会把记忆写进另一个人设的日报。
+        guard let pid = sessionPersonaId else {
+            return FileToolResult(output: "Error: cannot determine this session's persona (persona lookup failed) — refusing to write memory.", success: false)
+        }
         let persistDir = PersonaStore.memoryDir(for: pid)
         try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
 
@@ -197,7 +205,10 @@ extension AIChatViewModel {
         var filesToSearch: [(label: String, url: URL)] = []
         let fm = FileManager.default
         // ［persona］只搜本会话人设的记忆目录；SOUL.md 是人设文件，不当记忆搜。
-        let pid = sessionPersonaId ?? PersonaStore.currentID()
+        // 人设未知（fail closed）：拒绝读取，绝不回退当前人设的目录。
+        guard let pid = sessionPersonaId else {
+            return FileToolResult(output: "Error: cannot determine this session's persona (persona lookup failed) — refusing to read memory.", success: false)
+        }
         let memDir = PersonaStore.memoryDir(for: pid)
 
         var globalEmpty = false

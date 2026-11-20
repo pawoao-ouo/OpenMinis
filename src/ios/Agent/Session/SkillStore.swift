@@ -1399,7 +1399,8 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
         let logger = AppLogger(category: "SkillDisclosure")
         var enabled = skills.filter { isEnabledForSession($0.id, sessionId: sessionId) }
         // ［persona］人设 skill 白名单：nil = 全可用；非 nil = 只留名单里的。
-        let wl = PersonaStore.whitelist(for: personaID ?? PersonaStore.currentID())
+        // 会话人设未知时不过滤（nil 白名单），绝不拿全局当前人设的名单顶替。
+        let wl = personaID.map { PersonaStore.whitelist(for: $0) } ?? (nil, nil)
         if let allowed = wl.skillIds {
             let set = Set(allowed)
             enabled = enabled.filter { set.contains($0.id) }

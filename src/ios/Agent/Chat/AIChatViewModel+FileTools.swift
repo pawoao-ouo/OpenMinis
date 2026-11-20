@@ -410,7 +410,11 @@ extension AIChatViewModel {
         let marker = "/var/minis/memory/personas/"
         if let r = norm.range(of: marker) {
             let pid = String(norm[r.upperBound...].prefix(while: { $0 != "/" }))
-            let current = sessionPersonaId ?? PersonaStore.currentID()
+            // ［persona］人设未知（fail closed）：无法验证归属就拒绝写进
+            // 任何人设目录，绝不回退全局当前人设——那会放行对另一个人设的写。
+            guard let current = sessionPersonaId else {
+                return "Error: cannot determine this session's persona (persona lookup failed) — refusing to write under /var/minis/memory/personas/."
+            }
             // [B28 R15] 「我自己」是她的档案，不是"别人的人设"。AI 改它跟改自己的
             // SOUL 是同一件事——放行，否则它会以为自己被系统拦住了。
             if !pid.isEmpty, pid != current, pid != PersonaStore.userProfilePersonaID {
@@ -428,7 +432,9 @@ extension AIChatViewModel {
         guard command.contains("/var/minis/memory") else { return nil }
         let writeMarkers = [">", "tee", "cp ", "mv ", "rm ", "sed -i", "truncate", "chmod", "dd "]
         let hasWrite = writeMarkers.contains { command.contains($0) }
-        let current = sessionPersonaId ?? PersonaStore.currentID()
+        // ［persona］人设未知时 current 为 nil：下面循环里写进任何人设目录
+        // 都拒绝（fail closed），绝不回退全局当前人设。
+        let current = sessionPersonaId
         if !memoryEnabled, hasWrite {
             return "Error: memory is disabled for this session — shell writes under /var/minis/memory are blocked."
         }
@@ -438,9 +444,13 @@ extension AIChatViewModel {
         var searchStart = command.startIndex
         while let r = command.range(of: marker, range: searchStart..<command.endIndex) {
             let pid = String(command[r.upperBound...].prefix(while: { $0 != "/" && $0 != " " && $0 != "\n" && $0 != "'" && $0 != "\"" }))
-            if !pid.isEmpty, !pid.hasPrefix("$"), !pid.hasPrefix("\\("),
-               pid != current, pid != PersonaStore.userProfilePersonaID, hasWrite {
-                return "Error: refusing to write another persona's memory via shell (persona=\(pid), current=\(current))."
+            if !pid.isEmpty, !pid.hasPrefix("$"), !pid.hasPrefix("\\("), hasWrite {
+                guard let current else {
+                    return "Error: cannot determine this session's persona (persona lookup failed) — refusing shell write under /var/minis/memory/personas/."
+                }
+                if pid != current, pid != PersonaStore.userProfilePersonaID {
+                    return "Error: refusing to write another persona's memory via shell (persona=\(pid), current=\(current))."
+                }
             }
             searchStart = r.upperBound
         }
