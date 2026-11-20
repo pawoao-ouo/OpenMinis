@@ -13,7 +13,16 @@
 //  hook looks up the token here and rewrites to
 //  ~/Library/.../minis/<personaId>/<sid>/<bucket>/...
 //  Per-persona buckets rewrite to <app-group>/<bucket>/<personaId>/...
-//  (mcp-servers lives under MinisConfig instead of the app group).
+//  except memory, which rewrites to <app-group>/memory/personas/<personaId>/
+//  (the runtime layout, crosscheck-verdict §4). mcp-servers lives under
+//  MinisConfig instead of the app group.
+//
+//  Shared routes to the persona namespace (shared/<personaId>/): new shared
+//  data written by a persona is namespaced there. The flat shared/ dir is
+//  NOT routed here and NOT locked — it is the live read/write runtime
+//  area (events.jsonl, together/, heartbeat) for host-side services, and
+//  isolation for shared lives in resolution, not in a filesystem lock
+//  (see PersonaStore.isCrossPersonaSharedPath).
 //
 
 import Foundation
@@ -31,15 +40,18 @@ final class MinisFsRouter: @unchecked Sendable {
     ]
 
     /// Guest path prefixes that route per-persona (not per-session).
-    /// Anything under one of these becomes <hostRoot>/<personaId>/<tail>.
-    /// These used to fall through to the legacy g_bind_mounts[] table, where
-    /// the first session to mount won and every persona saw the same global
-    /// files — that is the leak this isolation work closes.
-    private let perPersonaBuckets: [(linuxPrefix: String, hostRoot: URL)] = [
-        (AIChatViewModel.minisMemoryLinuxDir,     AIChatViewModel.minisMemoryPersistentDir),
-        (AIChatViewModel.minisSkillsLinuxDir,     AIChatViewModel.minisSkillsPersistentDir),
-        (AIChatViewModel.minisSharedLinuxDir,     AIChatViewModel.minisSharedPersistentDir),
-        (AIChatViewModel.minisMcpServersLinuxDir, AIChatViewModel.minisMcpServersPersistentDir),
+    /// Anything under one of these becomes <hostRoot>/[<personaPrefix>/]<personaId>/<tail>.
+    /// Memory carries the "personas" prefix (memory/personas/<id>/ — the
+    /// runtime layout); skills/shared/mcp-servers keep the direct
+    /// <bucket>/<id>/ layout. These used to fall through to the legacy
+    /// g_bind_mounts[] table, where the first session to mount won and
+    /// every persona saw the same global files — that is the leak this
+    /// isolation work closes.
+    private let perPersonaBuckets: [(linuxPrefix: String, hostRoot: URL, personaPrefix: String)] = [
+        (AIChatViewModel.minisMemoryLinuxDir,     AIChatViewModel.minisMemoryPersistentDir, "personas"),
+        (AIChatViewModel.minisSkillsLinuxDir,     AIChatViewModel.minisSkillsPersistentDir, ""),
+        (AIChatViewModel.minisSharedLinuxDir,     AIChatViewModel.minisSharedPersistentDir, ""),
+        (AIChatViewModel.minisMcpServersLinuxDir, AIChatViewModel.minisMcpServersPersistentDir, ""),
     ]
 
     private let lock = NSLock()
@@ -140,7 +152,11 @@ final class MinisFsRouter: @unchecked Sendable {
         }
         for bucket in perPersonaBuckets {
             if let hit = matchBucket(guestPath, prefix: bucket.linuxPrefix) {
-                return bucket.hostRoot
+                var url = bucket.hostRoot
+                if !bucket.personaPrefix.isEmpty {
+                    url = url.appendingPathComponent(bucket.personaPrefix, isDirectory: true)
+                }
+                return url
                     .appendingPathComponent(personaId, isDirectory: true)
                     .path + hit
             }
@@ -161,7 +177,7 @@ final class MinisFsRouter: @unchecked Sendable {
     }
 
     /// Reverse hook: given a host APFS path under <minisBaseURL>/<personaId>/<sid>/<bucket>
-    /// or under a per-persona bucket root (<app-group>/<bucket>/<personaId>),
+    /// or under a per-persona bucket root (<app-group>/<bucket>/[<personaPrefix>/]<personaId>),
     /// return the canonical guest path /var/minis/<bucket>/<tail>.
     /// Returns nil if the path doesn't live under any routed bucket
     /// (caller falls back to the static bind_mount_resolve table).
@@ -201,9 +217,10 @@ final class MinisFsRouter: @unchecked Sendable {
 
     private func reversePersonaBucket(hostPath: String) -> String? {
         // Host paths under a per-persona bucket root, e.g.
-        // <app-group>/memory/<pid>/GLOBAL.md → /var/minis/memory/GLOBAL.md.
-        // The first component after the root is the persona id: "default"
-        // or a session id we issued a context for.
+        // <app-group>/memory/personas/<pid>/GLOBAL.md → /var/minis/memory/GLOBAL.md.
+        // The first component after the root (and after the bucket's
+        // persona prefix, if any) is the persona id: "default" or a
+        // session id we issued a context for.
         for bucket in perPersonaBuckets {
             let basePath = bucket.hostRoot.path
             var stripped = hostPath
@@ -211,7 +228,11 @@ final class MinisFsRouter: @unchecked Sendable {
                 stripped = String(hostPath.dropFirst("/private".count))
             }
             guard stripped.hasPrefix(basePath + "/") else { continue }
-            let rest = stripped.dropFirst(basePath.count + 1)  // "<pid>[/tail]"
+            var rest = stripped.dropFirst(basePath.count + 1)  // "[<prefix>/]<pid>[/tail]"
+            if !bucket.personaPrefix.isEmpty {
+                guard rest.hasPrefix(bucket.personaPrefix + "/") else { continue }
+                rest = rest.dropFirst(bucket.personaPrefix.count + 1)
+            }
             let parts = rest.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
             guard let pidPart = parts.first else { continue }
             let pid = String(pidPart)
