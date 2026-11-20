@@ -2495,7 +2495,7 @@ struct AIChatView: View {
             // text. HeaderTypingDots observes the last real message, so it
             // shows exactly while the header owns the state.
             if let lastReal = vm.messages.last(where: { !$0.isQABubble }) {
-                HeaderTypingDots(message: lastReal, isProcessing: vm.isProcessing)
+                HeaderTypingDots(message: lastReal, isProcessing: vm.isProcessing, soulName: soulName)
             }
         }
         .padding(.horizontal, 8)
@@ -2575,11 +2575,18 @@ struct AIChatView: View {
     private struct HeaderTypingDots: View {
         @ObservedObject var message: ChatMessage
         var isProcessing: Bool
+        var soulName: String
 
         var body: some View {
             if message.role == .assistant, message.shouldShowTypingIndicator, isProcessing {
                 TypingDots()
                     .fixedSize()
+                    // [batch28 R1 P2-1] The dots carry the typing state with
+                    // no text, and the footer text is suppressed for this
+                    // row — so label them for VoiceOver with the same words
+                    // the footer used to show.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(soulName) is thinking")
             }
         }
     }

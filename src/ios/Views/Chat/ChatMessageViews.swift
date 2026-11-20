@@ -332,8 +332,10 @@ struct ChatMessageRow: View {
     /// Only the actively streaming message needs vm access (for typing indicator & stop button).
     let isActiveMessage: Bool
     /// [batch28] Suppress the footer typing indicator for the row the header
-    /// owns (the header shows the dots instead). Wired by the V3 cell; false
-    /// everywhere else.
+    /// owns (the header shows the dots instead). No live caller passes true
+    /// today — the live suppression is BridgedAssistantFooterV3; kept so the
+    /// non-V3 row path can suppress the same way if it ever renders the
+    /// active assistant row.
     var suppressTypingIndicator: Bool = false
     var commandStartTime: Date?
     var onStop: (() -> Void)?
