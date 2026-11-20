@@ -1749,22 +1749,35 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         let subPaths = MinisURLPathDecoding.subPathCandidates(for: url)
         let fm = FileManager.default
 
-        // Global directories resolve without session ID
+        // Global directories resolve without session ID — through the
+        // active session's persona namespaces, matching resolveMinisURL.
+        // Memory has NO flat-root fallback (the flat files are the default
+        // persona's legacy data); skills keeps its flat baseline, shared
+        // keeps its flat live area, both after the persona dir.
         let globalDirs = ["memory", "skills", "shared"]
         if globalDirs.contains(host) {
-            let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!
-            for subPath in subPaths {
-                let globalURL = library.appendingPathComponent("MinisChat/\(host)", isDirectory: true)
-                    .appendingPathComponent(subPath)
-                if fm.fileExists(atPath: globalURL.path) { return globalURL }
+            let personaId = PersonaStore.personaId(forSessionId: activeSessionId)
+            let personaDirs: [(String, URL)] = [
+                ("memory", PersonaStore.memoryDir(for: personaId)),
+                ("skills", PersonaStore.skillsDir(for: personaId)),
+                ("shared", PersonaStore.sharedDir(for: personaId)),
+            ]
+            let baselineDirs: [(String, URL)] = [
+                ("skills", minisSkillsPersistentDir),
+                ("shared", minisSharedPersistentDir),
+            ]
+            for (subdir, dir) in personaDirs + baselineDirs where host == subdir {
+                for subPath in subPaths {
+                    let candidate = dir.appendingPathComponent(subPath)
+                    if fm.fileExists(atPath: candidate.path) { return candidate }
+                }
             }
         }
 
         if let sid = activeSessionId {
+            let personaId = PersonaStore.personaId(forSessionId: sid)
             for subPath in subPaths {
-                let persistURL = minisPersistentBase
-                    .appendingPathComponent(sid, isDirectory: true)
-                    .appendingPathComponent(host, isDirectory: true)
+                let persistURL = PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)
                     .appendingPathComponent(subPath)
                 if fm.fileExists(atPath: persistURL.path) { return persistURL }
             }
