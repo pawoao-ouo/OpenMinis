@@ -485,6 +485,27 @@ actor ISHExecutionCoordinator {
         // via mountExternalFoldersLocked().
         let subdirs: [(persistDir: URL, linuxDir: String)] = []
 
+        // [F4] Upgrade cleanup: pre-isolation builds bind-mounted the four
+        // global dirs here, leaving symlinks at
+        // data/var/minis/{memory,skills,shared,mcp-servers} pointing at the
+        // flat legacy persist dirs. The static table is now empty, so the
+        // only stale-symlink unlink (inside the loop below) never runs —
+        // and any direct dataPath reader would follow the stale link into
+        // flat legacy files. No current code creates symlinks here, so any
+        // symlink at these four paths is stale by definition. Unlink
+        // symlinks only (never a real dir — that would destroy data).
+        // Idempotent: runs on every mount until nothing is left.
+        for legacyDir in ["memory", "skills", "shared", "mcp-servers"] {
+            let linuxDir = "/var/minis/\(legacyDir)"
+            guard let hostDir = resolveHostPath(linuxDir) else { continue }
+            var lstatBuf = stat()
+            guard lstat(hostDir.path, &lstatBuf) == 0,
+                  (lstatBuf.st_mode & S_IFMT) == S_IFLNK else { continue }
+            let target = (try? fm.destinationOfSymbolicLink(atPath: hostDir.path)) ?? "<unreadable>"
+            logger.info("MOUNT removing stale pre-update symlink \(hostDir.path) -> \(target)")
+            unlink(hostDir.path)
+        }
+
         for (idx, (persistDir, linuxDir)) in subdirs.enumerated() {
             logger.info("MOUNT [\(idx)] === Mounting subdir ===")
             logger.info("MOUNT [\(idx)] linuxDir        = \"\(linuxDir)\"")

@@ -1783,23 +1783,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
         }
 
-        // [T-ios-minisurl-cross-session-isolation] Fallback to the iSH-visible
-        // /var/minis data dir ONLY for the global, non-session-scoped
-        // namespaces (memory/skills/shared). For a session-scoped host like
-        // `attachments`, /var/minis/<host> binds to whichever session is
-        // currently MOUNTED — which may not be the session whose message is
-        // being rendered — so reaching it here would be a cross-session leak.
-        // Session-scoped resolution already happened above against
-        // activeSessionId; not-found is correct beyond that.
-        if globalDirs.contains(host) {
-            let dataPath = RootfsManager.shared.dataPath
-            for subPath in subPaths {
-                let linuxPath = "/var/minis/\(host)/\(subPath)"
-                let hostPath = dataPath.appendingPathComponent(linuxPath.hasPrefix("/") ? String(linuxPath.dropFirst()) : linuxPath)
-                if fm.fileExists(atPath: hostPath.path) { return hostPath }
-            }
-        }
-
+        // [F4] No dataPath fallback here on purpose. The persona dirs +
+        // flat baselines above already cover skills/shared; memory has NO
+        // flat fallback by design (the flat files are the default
+        // persona's legacy data). The old fallback resolved
+        // data/var/minis/<host>/<subPath>, which on a pre-update install
+        // is a stale symlink into the flat legacy dirs — serving another
+        // persona's files to this chat. The stale symlinks are also
+        // unlinked at mount time (ISHExecutionCoordinator.performMount),
+        // but this resolver must never depend on that.
         return nil
     }
 
