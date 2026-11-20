@@ -153,6 +153,14 @@ final class VoiceOutputPlayer: NSObject, ObservableObject {
     var nowPlayingHasLivePlayer: Bool { player != nil }
     var nowPlayingUnitText: String? { playingUnit?.text }
 
+    /// [persona] F7: the session that owns the unit currently being heard
+    /// (or first queued), so Now Playing can credit that session's persona.
+    /// Manual read-aloud sources enqueue under `manualOwnerId` — not a real
+    /// session, so callers treat an unresolvable id as "no session".
+    var nowPlayingOwnerSessionId: String? {
+        playingSessionId ?? playingUnit?.ownerSessionId ?? queue.first?.ownerSessionId
+    }
+
     /// Owner id used by non-session read-aloud entry points (long-press menu,
     /// markdown preview) — never collides with a real session id.
     static let manualOwnerId = "__manual__"

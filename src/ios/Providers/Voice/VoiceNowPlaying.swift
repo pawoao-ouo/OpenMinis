@@ -45,6 +45,8 @@ final class VoiceNowPlaying {
             // rate) during a pause. Only a live, unpaused reader counts.
             let rate: Float = (reader.isPlaying && !reader.isPaused) ? VoiceOutputPreferences.speedMultiplier : 0
             publish(title: reader.nowPlayingTitle,
+                    // [persona] F7: credit the session whose reply is being read.
+                    artist: Self.artistCredit(for: reader.nowPlayingOwnerSessionId),
                     duration: reader.playbackDuration,
                     position: reader.playbackPosition,
                     rate: rate)
@@ -70,7 +72,15 @@ final class VoiceNowPlaying {
     /// [AUD-16] What the lock screen / Control Center credits as the artist:
     /// the persona's own name from SOUL, read at publish time so a rename
     /// shows up on the next voice message without a relaunch.
-    private static var artistCredit: String {
+    /// [persona] F7: when the playing audio belongs to a session, credit
+    /// that session's persona (resolved via the sync session→persona
+    /// cache). A session never opened in this process, or audio with no
+    /// session at all (voice bubbles — GlobalAudioPlayer carries no
+    /// session), falls back to the old global name.
+    private static func artistCredit(for sessionId: String? = nil) -> String {
+        if let sessionId, let pid = PersonaStore.personaId(forSessionId: sessionId) {
+            return SoulStore.displayName(for: pid)
+        }
         let name = SoulStore.cachedMetadata.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? "Minis" : name
     }
@@ -80,7 +90,7 @@ final class VoiceNowPlaying {
         registerCommandsIfNeeded()
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: title,
-            MPMediaItemPropertyArtist: artist ?? Self.artistCredit,
+            MPMediaItemPropertyArtist: artist ?? Self.artistCredit(),
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
             MPNowPlayingInfoPropertyPlaybackRate: rate,
