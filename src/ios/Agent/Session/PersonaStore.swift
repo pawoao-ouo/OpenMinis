@@ -975,12 +975,17 @@ final class PersonaStore: ObservableObject {
             try? FileManager.default.removeItem(at: bgURL)
             SoulIconImage.invalidateCache(for: "avatars/\(bgName).png")
         }
-        try? FileManager.default.removeItem(at: Self.memoryDir(for: removed.id))
         if currentPersonaID == id {
             currentPersonaID = Self.defaultPersonaID
         }
+        // ［persona］记忆目录必须在级联删会话之后再删（不能先删）：先删目录、
+        // 后删会话的窗口里，该人设的 agent 回路或用户点开它的会话写一条
+        // 记忆，就会把目录重建出来——会话行随后被删，目录成了没注册表、
+        // 没会话的孤儿，删掉的数据还留在磁盘上。先撕掉运行时、删掉会话
+        // 行（deleteSessions 内含 teardown），再删目录，窗口就没了。
         Task.detached {
             await ChatStore.shared.deleteSessions(forPersonaId: id)
+            try? FileManager.default.removeItem(at: Self.memoryDir(for: removed.id))
         }
         broadcastPersonaChange()
         return persisted
