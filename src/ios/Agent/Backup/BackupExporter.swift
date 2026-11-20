@@ -686,23 +686,45 @@ actor BackupExporter {
     /// path: that one drops anything older than 30 days, which is correct for
     /// sync traffic and wrong for a full backup.
     private func exportMemory(dataDir: URL) throws -> BackupManifest.CategoryStat {
+        // Multi-persona isolation: the backup mirrors the on-disk layout,
+        // data/memory/<personaId>/*.md — one persona's memory never lands
+        // in another's restore. Flat legacy files (pre-migration originals)
+        // belong to the default persona and are exported under default/
+        // only when the migrated copy does not already have that file.
         let src = AIChatViewModel.minisMemoryPersistentDir
         let dst = dataDir.appendingPathComponent("memory", isDirectory: true)
         try fm.createDirectory(at: dst, withIntermediateDirectories: true)
 
         var count = 0
         var bytes: Int64 = 0
-        let names = (try? fm.contentsOfDirectory(atPath: src.path)) ?? []
-        for name in names where name.hasSuffix(".md") {
-            let from = src.appendingPathComponent(name)
-            guard (try? from.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
-            else { continue }
-            let to = dst.appendingPathComponent(name)
-            try? fm.removeItem(at: to)
-            try fm.copyItem(at: from, to: to)
-            count += 1
-            bytes += (try? fm.attributesOfItem(atPath: from.path)[.size] as? Int64) ?? 0
+        func exportFiles(from: URL, to: URL) {
+            let names = (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
+            for name in names where name.hasSuffix(".md") {
+                let f = from.appendingPathComponent(name)
+                guard (try? f.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+                else { continue }
+                let t = to.appendingPathComponent(name)
+                // Do not overwrite: the migrated per-persona copy is newer
+                // than the flat legacy original.
+                guard !fm.fileExists(atPath: t.path) else { continue }
+                try? fm.createDirectory(at: to, withIntermediateDirectories: true)
+                try? fm.removeItem(at: t)
+                do {
+                    try fm.copyItem(at: f, to: t)
+                    count += 1
+                    bytes += (try? fm.attributesOfItem(atPath: f.path)[.size] as? Int64) ?? 0
+                } catch { /* unreadable file: skip, do not fail the backup */ }
+            }
         }
+        // Per-persona dirs first (they win over the flat legacy files).
+        for entry in (try? fm.contentsOfDirectory(atPath: src.path)) ?? [] {
+            let dir = src.appendingPathComponent(entry)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            exportFiles(from: dir, to: dst.appendingPathComponent(entry))
+        }
+        // Flat legacy files → default persona.
+        exportFiles(from: src, to: dst.appendingPathComponent(PersonaStore.defaultPersonaId))
         return BackupManifest.CategoryStat(entries: count, bytes: bytes, encrypted: false)
     }
 
