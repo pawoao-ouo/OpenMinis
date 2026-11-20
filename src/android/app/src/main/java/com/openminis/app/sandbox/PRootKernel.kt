@@ -678,6 +678,21 @@ object PRootKernel {
         val rest = linuxPath.removePrefix("/var/minis/")
         val slash = rest.indexOf('/')
         val subdir = if (slash < 0) rest else rest.substring(0, slash)
+        // Multi-persona isolation: /var/minis/memory resolves to THIS
+        // session's persona dir (minis-global/memory/personas/<id>/),
+        // never the flat memory root — the app-side equivalent of iOS
+        // MinisFsRouter. A new session is its own persona; pre-migration
+        // sessions resolve to "default" via the legacy set. Session-less
+        // callers (UI/debug reads without a session) still fall through
+        // to the global bind mount below.
+        if (subdir == "memory") {
+            val personaDir = com.openminis.app.data.PersonaStore.memoryDir(
+                context.filesDir,
+                com.openminis.app.data.PersonaStore.personaIdForSession(context, sessionId),
+            )
+            val tail = if (slash < 0) "" else rest.substring(slash + 1)
+            return if (tail.isEmpty()) personaDir else File(personaDir, tail)
+        }
         if (subdir !in perSessionSubdirs) return resolveHostPath(linuxPath)
         val sessionBase = File(context.filesDir, "minis-sessions/$sessionId/$subdir")
         val tail = if (slash < 0) "" else rest.substring(slash + 1)
