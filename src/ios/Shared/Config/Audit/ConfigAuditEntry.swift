@@ -41,6 +41,14 @@ struct ConfigAuditEntry: Identifiable, Codable, Hashable {
     /// Active session id at the time of the agent call. Nil for user-
     /// initiated UI changes.
     let sessionId: String?
+    /// ［persona］The persona this change was actually applied to —
+    /// the resolved calling persona at write time, NOT the audit label
+    /// in `sessionId` (the --session argv can lie, and the mount
+    /// snapshot it was resolved from can race). A revert targets this
+    /// persona. Nil for rows written before this column existed, and
+    /// for changes that resolved no calling persona (non-soul fields,
+    /// where the persona is irrelevant). Older rows decode as nil.
+    let personaId: String?
     /// Top-level scope, e.g. `appearance`, `models`, `groups`. Drives
     /// filtering in the audit list UI.
     let scope: String

@@ -55,7 +55,8 @@ final class ConfigAuditLog: ObservableObject {
                 confirmed_at  REAL,
                 status        TEXT NOT NULL,
                 revert_of     TEXT,
-                caption       TEXT
+                caption       TEXT,
+                persona_id    TEXT
             )
         """)
         // Idempotent migration for databases created before `caption`
@@ -63,6 +64,9 @@ final class ConfigAuditLog: ObservableObject {
         // run errors with "duplicate column name", which `exec` swallows
         // by logging — that's the desired no-op.
         exec("ALTER TABLE config_audit ADD COLUMN caption TEXT")
+        // Same pattern for `persona_id` (F6-b): rows written before it
+        // existed read back as NULL.
+        exec("ALTER TABLE config_audit ADD COLUMN persona_id TEXT")
         exec("CREATE INDEX IF NOT EXISTS idx_audit_at ON config_audit(at DESC)")
         exec("CREATE INDEX IF NOT EXISTS idx_audit_scope ON config_audit(scope, at DESC)")
         exec("CREATE INDEX IF NOT EXISTS idx_audit_revert_of ON config_audit(revert_of)")
@@ -88,8 +92,8 @@ final class ConfigAuditLog: ObservableObject {
         let sql = """
             INSERT OR REPLACE INTO config_audit
               (id, at, actor, session_id, scope, key, old_value, new_value,
-               confirmed_at, status, revert_of, caption)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               confirmed_at, status, revert_of, caption, persona_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         var stmt: OpaquePointer?
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
@@ -120,6 +124,11 @@ final class ConfigAuditLog: ObservableObject {
                 sqlite3_bind_text(stmt, 12, (cap as NSString).utf8String, -1, nil)
             } else {
                 sqlite3_bind_null(stmt, 12)
+            }
+            if let pid = entry.personaId, !pid.isEmpty {
+                sqlite3_bind_text(stmt, 13, (pid as NSString).utf8String, -1, nil)
+            } else {
+                sqlite3_bind_null(stmt, 13)
             }
             sqlite3_step(stmt)
         }
@@ -206,7 +215,7 @@ final class ConfigAuditLog: ObservableObject {
     func recent(limit: Int = 200, scope: String? = nil) -> [ConfigAuditEntry] {
         guard db != nil else { return [] }
         let cap = max(1, min(limit, Self.maxRows))
-        var sql = "SELECT id, at, actor, session_id, scope, key, old_value, new_value, confirmed_at, status, revert_of, caption FROM config_audit"
+        var sql = "SELECT id, at, actor, session_id, scope, key, old_value, new_value, confirmed_at, status, revert_of, caption, persona_id FROM config_audit"
         if scope != nil { sql += " WHERE scope = ?" }
         sql += " ORDER BY at DESC LIMIT ?"
         var stmt: OpaquePointer?
@@ -228,7 +237,7 @@ final class ConfigAuditLog: ObservableObject {
 
     func get(id: String) -> ConfigAuditEntry? {
         guard db != nil else { return nil }
-        let sql = "SELECT id, at, actor, session_id, scope, key, old_value, new_value, confirmed_at, status, revert_of, caption FROM config_audit WHERE id = ?"
+        let sql = "SELECT id, at, actor, session_id, scope, key, old_value, new_value, confirmed_at, status, revert_of, caption, persona_id FROM config_audit WHERE id = ?"
         var stmt: OpaquePointer?
         var entry: ConfigAuditEntry?
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
@@ -270,13 +279,15 @@ final class ConfigAuditLog: ObservableObject {
         guard let status = ConfigAuditStatus(rawValue: statusRaw) else { return nil }
         let revertOf = sqlite3_column_text(stmt, 10).map { String(cString: $0) }
         let caption = sqlite3_column_text(stmt, 11).map { String(cString: $0) }
+        let personaId = sqlite3_column_text(stmt, 12).map { String(cString: $0) }
         return ConfigAuditEntry(
             id: id, at: at, actor: actor, sessionId: sessionId,
             scope: scope, key: key,
             oldValueJSON: oldVal, newValueJSON: newVal,
             confirmedAt: confirmedAt, status: status,
             revertOf: revertOf,
-            caption: caption
+            caption: caption,
+            personaId: personaId
         )
     }
 }

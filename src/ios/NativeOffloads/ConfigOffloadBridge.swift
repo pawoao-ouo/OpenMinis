@@ -868,7 +868,8 @@ private let logger = AppLogger(category: "ConfigOffload")
                     sessionId: sessionId, scope: a.scope, key: a.key,
                     oldValueJSON: a.oldJSON, newValueJSON: a.newJSON,
                     confirmedAt: nil, status: .timeout, revertOf: nil,
-                    caption: caption
+                    caption: caption,
+                    personaId: callingPersonaId
                 ))
             }
             return [
@@ -894,7 +895,8 @@ private let logger = AppLogger(category: "ConfigOffload")
                     sessionId: sessionId, scope: a.scope, key: a.key,
                     oldValueJSON: a.oldJSON, newValueJSON: a.newJSON,
                     confirmedAt: now, status: .rejected, revertOf: nil,
-                    caption: caption
+                    caption: caption,
+                    personaId: callingPersonaId
                 ))
             }
             return [
@@ -925,7 +927,8 @@ private let logger = AppLogger(category: "ConfigOffload")
                         sessionId: sessionId, scope: a.scope, key: a.key,
                         oldValueJSON: a.oldJSON, newValueJSON: a.newJSON,
                         confirmedAt: now, status: .rejected, revertOf: nil,
-                        caption: caption
+                        caption: caption,
+                        personaId: callingPersonaId
                     ))
                     continue
                 }
@@ -975,7 +978,8 @@ private let logger = AppLogger(category: "ConfigOffload")
                         sessionId: sessionId, scope: a.scope, key: finalKey,
                         oldValueJSON: a.oldJSON, newValueJSON: a.newJSON,
                         confirmedAt: now, status: .applied, revertOf: nil,
-                        caption: caption
+                        caption: caption,
+                        personaId: callingPersonaId
                     ))
                     auditIds.append(auditId)
                     applied.append(appliedRow)
@@ -1213,6 +1217,7 @@ private let logger = AppLogger(category: "ConfigOffload")
             "status": e.status.rawValue,
         ]
         if let s = e.sessionId { d["session_id"] = s }
+        if let p = e.personaId { d["persona_id"] = p }
         if let c = e.confirmedAt { d["confirmed_at"] = iso.string(from: c) }
         if let r = e.revertOf { d["revert_of"] = r }
         return d as NSDictionary
@@ -1269,17 +1274,22 @@ private let logger = AppLogger(category: "ConfigOffload")
                 "value_json": entry.oldValueJSON,
             ]
             // ［persona］A revert restores the persona the change belonged
-            // to, so it targets the audit entry's recorded session. The
-            // caller's sessionId stays an audit label only (CLI --session
-            // never redirects). Falls back to the calling shell's session;
-            // with neither, soul.* refuses instead of reverting the wrong
-            // persona's SOUL.
+            // to, so it targets the persona recorded on the audit entry
+            // at write time (entry.personaId) — never the entry's
+            // sessionId label (the --session argv can lie) and never the
+            // calling shell's session (which may be a different chat by
+            // now). The caller's sessionId stays an audit label only
+            // (CLI --session never redirects). For rows written before
+            // personaId existed, entry.personaId is nil: soul.* reverts
+            // then fail closed in performWriteBatch (no_calling_session)
+            // instead of reverting the wrong persona's SOUL; non-soul
+            // fields revert normally, their persona is irrelevant.
             let res = await Self.performWriteBatch(
                 items: [revertItem],
                 caption: "minis-config audit revert \(entry.id.prefix(8))",
                 actorRaw: actorRaw,
                 sessionId: sessionId,
-                callingPersonaId: await Self.callingPersonaId(explicitSessionId: entry.sessionId),
+                callingPersonaId: entry.personaId,
                 skipConfirmation: skipConfirmation
             )
             // Mark original entry as reverted on success.
