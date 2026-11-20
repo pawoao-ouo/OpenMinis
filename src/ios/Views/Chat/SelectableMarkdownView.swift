@@ -9093,12 +9093,14 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
     imgLogger.info("[MinisImage][Resolve] BEGIN url=\(url.absoluteString) host=\(host) subPaths=\(subPaths) activeSession=\(AIChatViewModel.activeSessionId ?? "nil")")
     let fm = FileManager.default
 
-    // Primary: active session persistent storage
+    // Primary: active session persistent storage. Session dirs are nested
+    // under their persona: <minis>/<personaId>/<sid>/<host>/ — the old
+    // flat <minis>/<sid>/ path was moved by the isolation work and no
+    // longer exists, so resolving it here would miss every session file.
     if let sid = AIChatViewModel.activeSessionId {
+        let personaId = PersonaStore.personaId(forSessionId: sid)
         for subPath in subPaths {
-            let persistURL = AIChatViewModel.minisPersistentBase
-                .appendingPathComponent(sid, isDirectory: true)
-                .appendingPathComponent(host, isDirectory: true)
+            let persistURL = PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)
                 .appendingPathComponent(subPath)
             imgLogger.info("[MinisImage][Resolve] checking session path=\(persistURL.path)")
             if fm.fileExists(atPath: persistURL.path) {
@@ -9112,24 +9114,32 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
         imgLogger.info("[MinisImage][Resolve] no active session — skipping session lookup")
     }
 
-    // Global namespaces (not session-scoped)
+    // Persona namespaces (not session-scoped). Memory has NO flat-root
+    // fallback: the flat memory/ files are the default persona's legacy
+    // data, and falling back to them would leak them into every other
+    // persona's rendered images — the same rule as resolveMinisURL.
+    // Skills keeps its flat dir as a read-only baseline after the
+    // persona dir, matching resolveMinisURL.
+    let personaId = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
     if host == "skills" {
         for subPath in subPaths {
-            let candidate = AIChatViewModel.minisSkillsPersistentDir.appendingPathComponent(subPath)
-            imgLogger.info("[MinisImage][Resolve] checking global skills path=\(candidate.path)")
-            if fm.fileExists(atPath: candidate.path) {
-                let size = (try? fm.attributesOfItem(atPath: candidate.path)[.size] as? Int64) ?? -1
-                imgLogger.info("[MinisImage][Resolve] FOUND global skills path=\(candidate.path) size=\(size)")
-                return candidate
+            for base in [PersonaStore.skillsDir(for: personaId), AIChatViewModel.minisSkillsPersistentDir] {
+                let candidate = base.appendingPathComponent(subPath)
+                imgLogger.info("[MinisImage][Resolve] checking skills path=\(candidate.path)")
+                if fm.fileExists(atPath: candidate.path) {
+                    let size = (try? fm.attributesOfItem(atPath: candidate.path)[.size] as? Int64) ?? -1
+                    imgLogger.info("[MinisImage][Resolve] FOUND skills path=\(candidate.path) size=\(size)")
+                    return candidate
+                }
             }
         }
     } else if host == "memory" {
         for subPath in subPaths {
-            let candidate = AIChatViewModel.minisMemoryPersistentDir.appendingPathComponent(subPath)
-            imgLogger.info("[MinisImage][Resolve] checking global memory path=\(candidate.path)")
+            let candidate = PersonaStore.memoryDir(for: personaId).appendingPathComponent(subPath)
+            imgLogger.info("[MinisImage][Resolve] checking persona memory path=\(candidate.path)")
             if fm.fileExists(atPath: candidate.path) {
                 let size = (try? fm.attributesOfItem(atPath: candidate.path)[.size] as? Int64) ?? -1
-                imgLogger.info("[MinisImage][Resolve] FOUND global memory path=\(candidate.path) size=\(size)")
+                imgLogger.info("[MinisImage][Resolve] FOUND persona memory path=\(candidate.path) size=\(size)")
                 return candidate
             }
         }
