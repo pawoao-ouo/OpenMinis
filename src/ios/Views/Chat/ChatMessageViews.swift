@@ -331,6 +331,10 @@ struct ChatMessageRow: View {
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     /// Only the actively streaming message needs vm access (for typing indicator & stop button).
     let isActiveMessage: Bool
+    /// [batch28] Suppress the footer typing indicator for the row the header
+    /// owns (the header shows the dots instead). Wired by the V3 cell; false
+    /// everywhere else.
+    var suppressTypingIndicator: Bool = false
     var commandStartTime: Date?
     var onStop: (() -> Void)?
     var onRetry: (() -> Void)?
@@ -860,7 +864,9 @@ struct ChatMessageRow: View {
 
             // Typing indicator — "request out, nothing back yet", evaluated per
             // ROUND. See `ChatMessage.shouldShowTypingIndicator`.
-            if isActiveMessage && message.shouldShowTypingIndicator {
+            // [batch28] Suppressed for the row the header owns — the header
+            // shows the dots instead, so the indicator never shows twice.
+            if isActiveMessage && message.shouldShowTypingIndicator && !suppressTypingIndicator {
                 TypingIndicator(personaId: sessionPersonaId)
             }
 

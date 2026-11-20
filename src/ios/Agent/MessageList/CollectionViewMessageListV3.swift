@@ -522,13 +522,18 @@ private struct BridgedAssistantFooterV3: View {
     @ObservedObject var bridge: CellStateBridgeV2
     @ObservedObject private var fontSettings = FontSettings.shared
     var maxWidth: CGFloat
+    /// [batch28] True when the header owns the typing state for this row
+    /// (it shows the dots instead). Set by configureCell from the same
+    /// predicate the header uses, so the indicator never shows twice.
+    var suppressTypingIndicator: Bool = false
 
     // showUsage and usageContentVisible are on bridge, toggled by double-tap on block cells.
 
     /// [T-ios-typing-indicator-scope] Single source of truth on `ChatMessage`
     /// — see `shouldShowTypingIndicator` for the per-round semantics.
+    /// [batch28] Suppressed when the header owns the state for this row.
     private var showsTypingIndicator: Bool {
-        bridge.isActiveMessage && message.shouldShowTypingIndicator
+        bridge.isActiveMessage && message.shouldShowTypingIndicator && !suppressTypingIndicator
     }
 
     /// True when any of the footer's conditional sections will actually
@@ -1548,7 +1553,8 @@ extension CollectionViewMessageListV3 {
                     BridgedAssistantFooterV3(
                         message: message,
                         bridge: bridge,
-                        maxWidth: width
+                        maxWidth: width,
+                        suppressTypingIndicator: Self.headerOwnsTypingState(for: message, in: messages, isProcessing: vm.isProcessing)
                     )
                     .transaction { $0.disablesAnimations = true }
                     .environmentObject(vm)
@@ -1746,6 +1752,20 @@ extension CollectionViewMessageListV3 {
         }
 
         // MARK: - Bridge Updates
+
+        /// [batch28] The header owns the typing state for this message exactly
+        /// when it is the last real (non-Q&A) message, an assistant row whose
+        /// `shouldShowTypingIndicator` is true, and the agent loop is running.
+        /// Mirrors `HeaderTypingDots` in AIChatView — same predicate, so the
+        /// header dots and the footer indicator never show for the same row.
+        private static func headerOwnsTypingState(for message: ChatMessage, in messages: [ChatMessage], isProcessing: Bool) -> Bool {
+            guard isProcessing,
+                  message.role == .assistant,
+                  message.shouldShowTypingIndicator,
+                  message.id == messages.last(where: { !$0.isQABubble })?.id
+            else { return false }
+            return true
+        }
 
         private func updateBridge(_ bridge: CellStateBridgeV2, message: ChatMessage, in messages: [ChatMessage],
                                   isInitialBridgeSetup: Bool = false) {
