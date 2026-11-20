@@ -67,6 +67,7 @@ object PersonaStore {
     private const val PREFS_NAME = "minis_persona"
     private const val KEY_MIGRATION_DONE = "migration_completed_v1"
     private const val KEY_LEGACY_DEFAULT_SESSIONS = "legacy_default_sessions"
+    private const val KEY_SESSION_PERSONA_MAP = "session_persona_overrides"
 
     // MARK: - Paths
 
@@ -106,16 +107,54 @@ object PersonaStore {
         prefs(context).getBoolean(KEY_MIGRATION_DONE, false)
 
     /**
-     * Persona id for a session: "default" when the session existed
-     * before the one-time migration (recorded in the legacy set), the
-     * session id itself otherwise. A cache miss on the legacy set (no
-     * migration has ever run) resolves to the session id — a fresh
-     * install has no legacy data to preserve.
+     * Persona id for a session, in resolution order:
+     *   1. an explicit per-session override (recorded when a scheduled
+     *      task creates a session — the new session inherits the
+     *      task creator's persona instead of becoming a new persona);
+     *   2. "default" when the session existed before the one-time
+     *      migration (recorded in the legacy set);
+     *   3. the session id itself — a new session is its own persona.
+     * A cache miss on both sets (no migration has ever run) resolves to
+     * the session id — a fresh install has no legacy data to preserve.
      */
     fun personaIdForSession(context: Context, sessionId: String): String {
-        val legacy = prefs(context)
-            .getStringSet(KEY_LEGACY_DEFAULT_SESSIONS, null)?.toSet() ?: emptySet()
+        val prefs = prefs(context)
+        sessionPersonaOverrides(prefs)?.get(sessionId)?.let { return it }
+        val legacy = prefs.getStringSet(KEY_LEGACY_DEFAULT_SESSIONS, null)?.toSet() ?: emptySet()
         return if (sessionId in legacy) DEFAULT_PERSONA_ID else sessionId
+    }
+
+    /**
+     * Record that a session belongs to a persona other than itself.
+     * Only used by the scheduled-task runner: a NEW_SESSION task creates
+     * a session that must run under the task creator's persona
+     * (crosscheck-verdict §3: "a task fires under its stored personaId,
+     * not derived back from the session"). Session ids and persona ids
+     * never contain '=' or a newline, so the "sid=pid" line encoding is
+     * unambiguous.
+     */
+    fun recordSessionPersona(context: Context, sessionId: String, personaId: String) {
+        val prefs = prefs(context)
+        val map = (sessionPersonaOverrides(prefs) ?: emptyMap()).toMutableMap()
+        map[sessionId] = personaId
+        prefs.edit()
+            .putString(
+                KEY_SESSION_PERSONA_MAP,
+                map.entries.joinToString("\n") { "${it.key}=${it.value}" },
+            )
+            .apply()
+    }
+
+    private fun sessionPersonaOverrides(
+        prefs: android.content.SharedPreferences,
+    ): Map<String, String>? {
+        val raw = prefs.getString(KEY_SESSION_PERSONA_MAP, null) ?: return null
+        return raw.lines()
+            .filter { it.contains("=") }
+            .associate { line ->
+                val idx = line.indexOf('=')
+                line.substring(0, idx) to line.substring(idx + 1)
+            }
     }
 
     /** MemoryRepository scoped to a session's persona dir. */
