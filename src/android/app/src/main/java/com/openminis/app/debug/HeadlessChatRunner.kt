@@ -10,6 +10,8 @@ import com.openminis.app.ui.chat.InputAttachment
 import com.openminis.app.ui.chat.addAttachment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -33,12 +35,18 @@ internal object HeadlessChatRunner {
     /** sessionId → ViewModelProvider that owns its single ChatViewModel. */
     private val providers = mutableMapOf<String, ViewModelProvider>()
 
+    /**
+     * Guards [providers]. Replaces the old @Synchronized: a suspend fun
+     * cannot hold a monitor across the migration await below, so the map
+     * is guarded by a Mutex instead.
+     */
+    private val providersMutex = Mutex()
+
     private fun app(context: Context): MinisApp =
         context.applicationContext as? MinisApp
             ?: throw RPCException(-32000, "MinisApp not initialized")
 
-    @Synchronized
-    private fun providerFor(
+    private suspend fun providerFor(
         context: Context,
         sessionId: String,
         /**
@@ -54,8 +62,26 @@ internal object HeadlessChatRunner {
          */
         personaId: String? = null,
     ): ViewModelProvider {
-        val cached = providers[sessionId]
-        if (cached != null) return cached
+        // Fast path: a cached provider keeps the repo it was built with.
+        providersMutex.withLock { providers[sessionId] }?.let { return it }
+        // Item 8 (small-issues fix): gate on the one-time persona
+        // migration before deriving the repo on a cache miss. In the
+        // launch window an ungated memoryRepositoryForSession resolves a
+        // legacy session to its own (empty) persona dir, and the VM
+        // freezes that repo at creation — the debug run would read and
+        // write the wrong persona's memory for its whole lifetime.
+        com.openminis.app.data.PersonaStore.awaitMigration()
+        return providersMutex.withLock {
+            providers[sessionId]
+                ?: buildProvider(context, sessionId, personaId).also { providers[sessionId] = it }
+        }
+    }
+
+    private fun buildProvider(
+        context: Context,
+        sessionId: String,
+        personaId: String? = null,
+    ): ViewModelProvider {
         val app = app(context)
         // Share the process-wide ChatViewModelStore so the in-flight VM (with
         // its live streamJob + _isStreaming) is the same instance the UI's
@@ -84,11 +110,10 @@ internal object HeadlessChatRunner {
                 mcpRepository = app.mcpRepository,
             ),
         )
-        providers[sessionId] = provider
         return provider
     }
 
-    private fun viewModel(
+    private suspend fun viewModel(
         context: Context,
         sessionId: String,
         personaId: String? = null,
@@ -535,7 +560,7 @@ internal object HeadlessChatRunner {
     }
 
     suspend fun cancel(context: Context, sessionId: String): Boolean = withContext(Dispatchers.Main) {
-        val cached = providers[sessionId] ?: return@withContext false
+        val cached = providersMutex.withLock { providers[sessionId] } ?: return@withContext false
         val vm = cached[ChatViewModel::class.java]
         val wasRunning = vm.isStreaming.value
         if (wasRunning) vm.cancelStream()
@@ -562,9 +587,8 @@ internal object HeadlessChatRunner {
     }
 
     /** Drop the cached ViewModel for [sessionId] (used after delete). */
-    @Synchronized
-    fun forget(sessionId: String) {
-        providers.remove(sessionId)
+    suspend fun forget(sessionId: String) {
+        providersMutex.withLock { providers.remove(sessionId) }
     }
 
     private fun extractText(partsJson: String): String? {

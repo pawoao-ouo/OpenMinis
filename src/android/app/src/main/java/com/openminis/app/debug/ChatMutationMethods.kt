@@ -43,6 +43,12 @@ internal object ChatMutationMethods {
         val sessionId = params.optString("sessionId", "").ifEmpty { null }
             ?: store.activeSessionId
             ?: throw RPCException(-32000, "No chat is on screen (activeSessionId is null) and no sessionId was given")
+        // Item 8 (small-issues fix): gate on the one-time persona
+        // migration before deriving the per-session repo — in the launch
+        // window an ungated memoryRepositoryForSession resolves a legacy
+        // session to its own (empty) persona dir, and the VM freezes
+        // that repo at creation.
+        com.openminis.app.data.PersonaStore.awaitMigration()
         val vm = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
             androidx.lifecycle.ViewModelProvider(
                 store.ownerFor(sessionId),
