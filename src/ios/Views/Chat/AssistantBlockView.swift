@@ -429,6 +429,8 @@ struct AssistantBlockView: View {
             cachedAttributedString: markdown == block.content ? block.cachedAttributedString : nil,
             messageId: message.id,
             blockId: block.id,
+            // [persona] F7: 语音卡片标题跟会话人设走。
+            personaId: sessionPersonaId,
             onTapBlank: onTapBlank,
             onCopyScreenshot: onCopyScreenshot,
             onReadAloud: onReadAloud,

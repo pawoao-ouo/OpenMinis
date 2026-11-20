@@ -403,8 +403,9 @@ struct SelectableMarkdownTheme {
 /// Renders markdown blocks into an NSAttributedString using a fresh MarkdownNSRenderer.
 /// Intended for one-shot rendering of completed messages (e.g. caching in AIChatViewModel).
 @MainActor
-func renderMarkdownBlocks(_ blocks: [BlockNode]) -> NSAttributedString {
+func renderMarkdownBlocks(_ blocks: [BlockNode], personaId: String? = nil) -> NSAttributedString {
     let renderer = MarkdownNSRenderer(baseFontSize: FontSettings.shared.scaledMessage(16.5))
+    renderer.personaId = personaId
     return renderer.render(blocks: blocks)
 }
 
@@ -460,6 +461,11 @@ fileprivate final class MarkdownNSRenderer {
     /// call; when non-nil the slot key is simply messageId:blockId — immune
     /// to content collisions between tables with identical rows.
     var blockId: UUID?
+    /// [persona] F7: 正在渲染的消息所属会话的人设。Set per render() call
+    /// (like messageId/blockId); voice-card titles read the name from it.
+    /// nil for contexts that don't provide one (standalone previews) —
+    /// those fall back to the old global name.
+    var personaId: String?
 
     init(baseFontSize: CGFloat? = nil) {
         self.theme = SelectableMarkdownTheme(baseFontSize: baseFontSize)
@@ -1192,7 +1198,7 @@ fileprivate final class MarkdownNSRenderer {
         if let cached = audioAttachmentCache[source] {
             attachment = cached
         } else {
-            attachment = AudioAttachment(source: source, theme: theme)
+            attachment = AudioAttachment(source: source, theme: theme, personaId: personaId)
             audioAttachmentCache[source] = attachment
         }
         let result = NSMutableAttributedString(attachment: attachment)
@@ -5232,13 +5238,18 @@ final class AudioAttachment: NSTextAttachment {
     /// Seconds shown next to the speaker (from the `dur=` query, best-effort).
     private(set) var voiceDuration: Double = 0
 
+    /// [persona] F7: 这条音频所属会话的人设（渲染器每轮 render 前设置）。
+    /// 语音卡片标题「XX 给你留了言」用它，不用全局缓存。
+    private let personaId: String?
+
     static let attachmentHeight: CGFloat = 70
     /// [T-voice-cat-card 10-16 醒醒] 语音卡片标准高度：占满列宽的 VoiceCatBubbleCardView。
     static let voiceBubbleHeight: CGFloat = VoiceCatBubbleCardView.cardHeight
 
-    init(source: String, theme: SelectableMarkdownTheme) {
+    init(source: String, theme: SelectableMarkdownTheme, personaId: String? = nil) {
         self.source = source
         self.theme = theme
+        self.personaId = personaId
         super.init(data: nil, ofType: nil)
         self.image = Self.transparentImage
         // Parse query params BEFORE resolveURL — the bubble shape depends on them.
@@ -5396,7 +5407,7 @@ final class AudioAttachment: NSTextAttachment {
             frame: CGRect(x: 0, y: 0, width: width, height: h),
             fileURL: resolvedURL,
             duration: voiceDuration,
-            soulName: Self.currentSoulDisplayName(),
+            soulName: Self.soulDisplayName(personaId: personaId),
             voiceText: transcript,
             missingAudioText: resolvedURL == nil ? Self.audioGoneText : nil)
         container.addSubview(card)
@@ -5418,8 +5429,15 @@ final class AudioAttachment: NSTextAttachment {
     }
 
     /// [T-voice-cat-card] 当前人设名（卡片标题「XX 给你留了言」）。
-    private static func currentSoulDisplayName() -> String {
+    /// [persona] F7: 有 personaId 就读那个人设的 SOUL（跟头像/名字同一路）；
+    /// 没传（独立预览等）回落到原来的全局缓存名。
+    private static func soulDisplayName(personaId: String?) -> String {
         guard Thread.isMainThread else { return "嘟嘟" }
+        if let personaId {
+            return MainActor.assumeIsolated {
+                SoulStore.displayName(for: SoulStore.displayPersonaId(personaId))
+            }
+        }
         let raw = MainActor.assumeIsolated { SoulStore.cachedMetadata.name }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "嘟嘟" : trimmed
@@ -8437,6 +8455,9 @@ struct SelectableMarkdownView: UIViewRepresentable {
     /// the slot key guarantees uniqueness even when two tables in the same
     /// message have identical content.
     var blockId: UUID?
+    /// [persona] F7: 正在渲染的消息所属会话的人设。聊天里由调用方传
+    /// sessionPersonaId；nil 时语音卡片等回落到原来的全局名。
+    var personaId: String?
     /// Called when the user taps a blank (non-link, non-code) area of the text view.
     /// The CGPoint is the tap location in **window coordinates**.
     var onTapBlank: ((CGPoint) -> Void)?
@@ -9426,6 +9447,7 @@ struct SelectableMarkdownView: UIViewRepresentable {
                 let blocks = MarkdownContent(preparedPrefix).blocks
                 coord.renderer.messageId = messageId
                 coord.renderer.blockId = blockId
+                coord.renderer.personaId = personaId
                 let rendered = autoreleasepool { coord.renderer.render(blocks: blocks) }
                 if split.plainSuffix.isEmpty {
                     pending = rendered

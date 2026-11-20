@@ -7787,7 +7787,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         let content = block.cachedMarkdown ?? MarkdownContent(prepareMarkdownForRender(block.content))
         block.cachedMarkdown = content
         block.cachedAttributedString = autoreleasepool {
-            renderMarkdownBlocks(content.blocks)
+            renderMarkdownBlocks(content.blocks, personaId: sessionPersonaId)
         }
     }
 
