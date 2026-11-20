@@ -394,6 +394,22 @@ private let logger = AppLogger(category: "ConfigOffload")
 
     // MARK: - Write (single or batch)
 
+    /// [timeout-false-failure] How long writeFields / writeFieldsForDebug
+    /// wait for the detached MainActor task. Must cover the confirmation
+    /// gate's worst case plus apply+audit time. The old 5s wait expired
+    /// while the gate was still waiting on the user, so the CLI reported
+    /// timeout even though the write later landed — and a blind retry
+    /// then wrote + audited twice.
+    ///
+    /// Deliberately a literal: read from nonisolated bridge methods, so
+    /// it cannot touch the main-actor gate's constant (same pattern as
+    /// ThemeWriteConfirmation.waitWindow). 300s is
+    /// ConfigConfirmationGate.largePayloadTimeoutSeconds (the gate's worst
+    /// case); 30s is the slack for apply+audit. Still bounded — never
+    /// hangs forever. (Reads keep their own 5s wait; they complete fast
+    /// and never touch the gate.)
+    private static let writeBridgeTimeout: TimeInterval = 330
+
     /// Write one or more fields. Each item dict:
     ///   { "path": "appearance.theme", "value_json": "\"dark\"" }
     /// Returns the standard envelope including `applied[]`,
@@ -430,11 +446,19 @@ private let logger = AppLogger(category: "ConfigOffload")
                                                   callingPersonaId: await Self.callingPersonaId(explicitSessionId: nil, invokingFsContext: invokingCtx))
             sem.signal()
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
+        if sem.wait(timeout: .now() + Self.writeBridgeTimeout) == .timedOut {
             // [batch7 / W3C-01] Never hang the caller forever.
+            // [timeout-false-failure] The outcome here is UNKNOWN, not
+            // "not written": the detached task may still apply the write
+            // after this return. Say so outright and tell the caller to
+            // read the value back (minis-config get) instead of retrying
+            // blindly — a blind retry of an already-applied write is what
+            // minted the duplicate audit rows.
             NSLog("[CLIBridge] semaphore wait timed out")
             return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
+                    "message": "The app did not answer within the timeout. The outcome is unknown — the write may still land. Do not retry the write blindly; read the value back first (minis-config get).",
+                    "written": "unknown",
+                    "user_message": "I couldn't confirm whether the change went through — the app took too long to answer. The change may still have applied, so don't just retry it; check the current value first, and only set it again if it didn't change."] as NSDictionary
         }
         return result
     }
@@ -478,11 +502,16 @@ private let logger = AppLogger(category: "ConfigOffload")
                                                   skipConfirmation: skipConfirmation)
             sem.signal()
         }
-        if sem.wait(timeout: .now() + 5) == .timedOut {
+        if sem.wait(timeout: .now() + Self.writeBridgeTimeout) == .timedOut {
             // [batch7 / W3C-01] Never hang the caller forever.
+            // [timeout-false-failure] Same unknown-outcome rule as
+            // writeFields: the detached task may still apply the write
+            // after this return. Do not retry blindly; read back first.
             NSLog("[CLIBridge] semaphore wait timed out")
             return ["ok": false, "error": "timeout",
-                    "message": "The app did not answer within the timeout."] as NSDictionary
+                    "message": "The app did not answer within the timeout. The outcome is unknown — the write may still land. Do not retry the write blindly; read the value back first (minis-config get).",
+                    "written": "unknown",
+                    "user_message": "I couldn't confirm whether the change went through — the app took too long to answer. The change may still have applied, so don't just retry it; check the current value first, and only set it again if it didn't change."] as NSDictionary
         }
         return result
     }
@@ -917,6 +946,11 @@ private let logger = AppLogger(category: "ConfigOffload")
             var applied: [[String: String]] = []
             var auditIds: [String] = []
             var writeErrors: [[String: String]] = []
+            // [timeout-false-failure] Rows skipped as no-change (below):
+            // written by nobody, audited by nobody, reported back so a
+            // retry of an already-applied write reads as "already set"
+            // instead of minting a duplicate audit row.
+            var unchanged: [[String: String]] = []
             if approvedRows.count != resolved.count {
                 logger.error("confirmation row count mismatch resolved=\(resolved.count) approvedRows=\(approvedRows.count) caption=\(caption ?? "")")
             }
@@ -943,6 +977,27 @@ private let logger = AppLogger(category: "ConfigOffload")
                         // Apply the REAL newValue; echo the masked auditNewValue
                         // back so a credential write never surfaces the secret in
                         // the response. [T-minis-config-provider-add]
+                        // [timeout-false-failure] Idempotent retry: if the
+                        // value already equals what this write would set
+                        // (e.g. a retry after the first attempt applied but
+                        // its receipt timed out), skip the write AND the
+                        // audit row. Checked after approval, right before
+                        // field.write, against the already-resolved old
+                        // value (freshly read for this attempt, so a retry
+                        // sees the first attempt's write). .append/.remove
+                        // always differ from oldValue by construction, so
+                        // this only ever fires for plain .set no-ops.
+                        // Collection add/remove are NOT skipped (a retry
+                        // there must not silently drop the op).
+                        if newValue == oldValue {
+                            unchanged.append([
+                                "path": field.path,
+                                "display_name": field.displayName,
+                                "old": oldValue.displayString,
+                                "new": auditNewValue.displayString,
+                            ])
+                            continue
+                        }
                         // ［persona］Scope the calling persona to this
                         // synchronous write; defer clears it even when the
                         // write throws. No await runs inside the case block.
@@ -1021,6 +1076,7 @@ private let logger = AppLogger(category: "ConfigOffload")
                         "error": "write_failed",
                         "reason": writeErrors.map { "\($0["path"] ?? "?"): \($0["reason"] ?? "unknown error")" }.joined(separator: "; "),
                         "write_errors": writeErrors,
+                        "unchanged": unchanged,
                         "user_message": "I confirmed the change, but applying it failed. No settings were updated.",
                     ]
                 }
@@ -1030,6 +1086,19 @@ private let logger = AppLogger(category: "ConfigOffload")
                         "error": "internal_error",
                         "reason": "Confirmation row count mismatch: expected \(resolved.count), got \(approvedRows.count).",
                         "user_message": "I couldn't verify the confirmation result. No changes were applied. Please try again.",
+                    ]
+                }
+                if !unchanged.isEmpty {
+                    // Every approved row was already at the requested
+                    // value (e.g. a retry of an already-applied write):
+                    // ok, nothing written, nothing audited.
+                    return [
+                        "ok": true,
+                        "applied": [],
+                        "unchanged": unchanged,
+                        "audit_ids": [],
+                        "audit_url": "minis-clone://settings/logs?tab=config-audit",
+                        "user_message": "Already set to the requested value — no change was needed, so nothing was written.",
                     ]
                 }
                 logger.warning("all_rejected resolved=\(resolved.count) approvedRows=\(approvedRows.count) approvedRowsOn=\(approvedRows.filter { $0.isApproved }.count) caption=\(caption ?? "")")
@@ -1044,6 +1113,7 @@ private let logger = AppLogger(category: "ConfigOffload")
                     "ok": false,
                     "error": "partial_write_failed",
                     "applied": applied,
+                    "unchanged": unchanged,
                     "audit_ids": auditIds,
                     "write_errors": writeErrors,
                     "reason": writeErrors.map { "\($0["path"] ?? "?"): \($0["reason"] ?? "unknown error")" }.joined(separator: "; "),
@@ -1053,6 +1123,7 @@ private let logger = AppLogger(category: "ConfigOffload")
             return [
                 "ok": true,
                 "applied": applied,
+                "unchanged": unchanged,
                 "audit_ids": auditIds,
                 "audit_url": "minis-clone://settings/logs?tab=config-audit",
                 "user_message": "Settings updated. Review or revert at [Logs → Config Changes](minis-clone://settings/logs?tab=config-audit).",
