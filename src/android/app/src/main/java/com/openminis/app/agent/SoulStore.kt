@@ -399,8 +399,13 @@ lang: "auto"
         // — the header/sidebar would otherwise show that other persona's
         // name in the current chat. When the saved persona's session is
         // opened later, ChatViewModel.loadSession refreshes the flow.
-        if (personaId == cachedPersonaId) {
-            _cachedMetadata.value = file.metadata
+        // Item B: the guard check and the metadata write below are one
+        // atomic pair update under cacheLock (see the lock's comment) —
+        // never check the id outside the lock and write inside it.
+        synchronized(cacheLock) {
+            if (personaId == cachedPersonaId) {
+                _cachedMetadata.value = file.metadata
+            }
         }
     }
 
@@ -423,10 +428,24 @@ lang: "auto"
     val cachedMetadata: StateFlow<SoulMetadata> = _cachedMetadata.asStateFlow()
 
     /** Which persona [cachedMetadata] currently holds. Written by
-     *  [refreshCache]; read by [save]. Volatile because refresh/save run
-     *  on different threads (main / IO). */
-    @Volatile
+     *  [refreshCache]; read by [save]. Every read and write of this
+     *  field happens under [cacheLock], together with the matching
+     *  [_cachedMetadata] write — the lock, not volatility, is what
+     *  keeps the (personaId, metadata) pair atomic (item B). */
     private var cachedPersonaId: String = PersonaStore.DEFAULT_PERSONA_ID
+
+    /**
+     * Guards the (cachedPersonaId, _cachedMetadata) pair (item B,
+     * round 3). The two fields are written from different threads
+     * (minis-config save on an RPC thread, loadSession refreshCache
+     * in a coroutine): without the lock, the writes could interleave
+     * and leave one persona's id with the other's metadata, so the
+     * header would show the wrong persona's name. Both writers take
+     * this lock for the whole pair update; a reader therefore only
+     * ever sees a consistent pair. Disk reads/writes stay outside
+     * the lock — only the two in-memory assignments are inside it.
+     */
+    private val cacheLock = Any()
 
     /**
      * Re-read SOUL.md into [cachedMetadata]. Call once at app launch
@@ -440,8 +459,12 @@ lang: "auto"
      */
     fun refreshCache(context: Context, personaId: String = PersonaStore.DEFAULT_PERSONA_ID) {
         val parsed = load(context, personaId)
-        cachedPersonaId = personaId
-        _cachedMetadata.value = parsed?.metadata ?: SoulMetadata.DEFAULT
+        // Item B: both fields are written together under cacheLock so
+        // the pair can never be observed torn — see the lock's comment.
+        synchronized(cacheLock) {
+            cachedPersonaId = personaId
+            _cachedMetadata.value = parsed?.metadata ?: SoulMetadata.DEFAULT
+        }
     }
 }
 
