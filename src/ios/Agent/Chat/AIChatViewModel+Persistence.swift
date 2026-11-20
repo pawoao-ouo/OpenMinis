@@ -137,6 +137,13 @@ extension AIChatViewModel {
     func loadSession() async {
         guard let sessionId else { return }
 
+        // Multi-persona isolation: wait for the one-time legacy migration
+        // (started at launch) before resolving the persona or reading any
+        // memory/soul/skill path — otherwise the first prompt build after
+        // the update could read pre-migration locations. No-op on later
+        // launches (the flag short-circuit).
+        await PersonaStore.migrationTask.value
+
         let sinceAppear = (CFAbsoluteTimeGetCurrent() - Self.onAppearTimestamp) * 1000
         logger.info("[SessionLoad] loadSession START T+\(String(format: "%.0f", sinceAppear))ms session=\(sessionId) msgs=\(self.messages.count)")
 
