@@ -51,7 +51,12 @@ internal object ChatMutationMethods {
                     chatRepository = app.chatRepository,
                     providerRepository = app.providerRepository,
                     appContext = app.applicationContext,
-                    memoryRepository = app.memoryRepository,
+                    // Multi-persona isolation: the debug RPC's UI prompt
+                    // binds the same per-session persona repo the chat
+                    // screen would — never the app-level default repo.
+                    memoryRepository = com.openminis.app.data.PersonaStore.memoryRepositoryForSession(
+                        app.applicationContext, sessionId,
+                    ),
                     skillRepository = app.skillRepository,
                     mcpRepository = app.mcpRepository,
                 ),
