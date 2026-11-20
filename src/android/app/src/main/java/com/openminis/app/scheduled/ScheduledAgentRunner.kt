@@ -165,6 +165,10 @@ object ScheduledAgentRunner {
                 messageId = mode.messageId,
                 wait = wait,
                 timeoutMs = RUN_TIMEOUT_MS,
+                // Multi-persona isolation: the task fires under its stored
+                // personaId, never derived back from the session it lands
+                // in (crosscheck-verdict §3).
+                personaId = task.personaId,
             )
         } else {
             HeadlessChatRunner.prompt(
@@ -175,6 +179,7 @@ object ScheduledAgentRunner {
                 thinkingLevel = null,
                 wait = wait,
                 timeoutMs = RUN_TIMEOUT_MS,
+                personaId = task.personaId,
             )
         }
     }.getOrElse { t ->
@@ -258,6 +263,20 @@ object ScheduledAgentRunner {
                     modelId = seedModelId,
                     title = title,
                     memoryEnabled = memoryOn,
+                )
+                // Multi-persona isolation: a session created by a scheduled
+                // task inherits the task creator's persona instead of
+                // becoming a brand-new persona — otherwise the run would
+                // land in an empty memory dir with the creator's SOUL
+                // nowhere in sight. The override makes
+                // personaIdForSession(session.id) return the stored
+                // personaId everywhere (VM identity, memory repo, mention
+                // index), so the dispatch override above and the session's
+                // own derivation agree.
+                com.openminis.app.data.PersonaStore.recordSessionPersona(
+                    app,
+                    session.id,
+                    task.personaId ?: com.openminis.app.data.PersonaStore.LEGACY_PERSONA_ID,
                 )
                 app.chatRepository.dao.updateSource(session.id, "scheduled")
 
