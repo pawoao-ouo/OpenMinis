@@ -5789,7 +5789,8 @@ extension ChatStore {
             guard overwrite || incoming > local else { return .skippedLocalNewer }
             let sql = """
                 UPDATE sessions SET title = ?, category = ?, model_id = ?, updated_at = ?,
-                                    memory_enabled = ?, model_binding = ?, pinned_at = ?, folder_id = ?
+                                    memory_enabled = ?, model_binding = ?, pinned_at = ?, folder_id = ?,
+                                    persona_id = COALESCE(?, persona_id)
                 WHERE id = ?
                 """
             var up: OpaquePointer?
@@ -5804,7 +5805,12 @@ extension ChatStore {
                 if let p = session.pinnedAt { sqlite3_bind_double(up, 7, p.timeIntervalSince1970) }
                 else { sqlite3_bind_null(up, 7) }
                 bindText(up, 8, session.folderId)
-                sqlite3_bind_text(up, 9, (session.id as NSString).utf8String, -1, nil)
+                // ［persona］The package's persona stands (it is newer, or
+                // overwrite mode). COALESCE keeps the local value when the
+                // package carries none (old package): nil means "unknown",
+                // never clobber a known local attribution with it.
+                bindText(up, 9, session.personaId)
+                sqlite3_bind_text(up, 10, (session.id as NSString).utf8String, -1, nil)
                 // [S2] The step result is the outcome: a failed UPDATE must
                 // not report `.updated` (contrast `restoreMessage`, which
                 // already checks).
@@ -5822,12 +5828,15 @@ extension ChatStore {
 
         // NOTE: remote_origin_device_id is intentionally omitted from the column
         // list so it defaults to NULL — see the type doc above.
-        // ［persona］云端拉取的会话没有人设概念，persona_id 故意不写（NULL），
-        // 本地按默认人设归属（见 listSessions 的 NULL→default 规则）。
+        // ［persona］persona_id IS written from the package's ChatSession:
+        // dropping it made every restored session a default-persona session,
+        // so its later memory_write calls landed in personas/default/.
+        // NULL only when the package carries none (old package); listSessions
+        // treats NULL as the default persona (see the NULL→default rule).
         let sql = """
             INSERT INTO sessions (id, title, category, model_id, created_at, updated_at,
-                                  memory_enabled, model_binding, pinned_at, folder_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  memory_enabled, model_binding, pinned_at, folder_id, persona_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
         var ins: OpaquePointer?
         var inserted = false
@@ -5843,6 +5852,7 @@ extension ChatStore {
             if let p = session.pinnedAt { sqlite3_bind_double(ins, 9, p.timeIntervalSince1970) }
             else { sqlite3_bind_null(ins, 9) }
             bindText(ins, 10, session.folderId)
+            bindText(ins, 11, session.personaId)
             // [S2] Same rule as the UPDATE path: a failed INSERT must not
             // report `.inserted`.
             let rc = sqlite3_step(ins)
