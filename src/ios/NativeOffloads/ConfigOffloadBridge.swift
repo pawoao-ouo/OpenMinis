@@ -871,11 +871,10 @@ private let logger = AppLogger(category: "ConfigOffload")
                 let a = auditFields(for: r)
                 audit.append(ConfigAuditEntry(
                     id: UUID().uuidString, at: now, actor: actor,
-                    sessionId: sessionId, scope: a.scope, key: a.key,
+                    sessionId: sessionId, personaId: callingPersonaId, scope: a.scope, key: a.key,
                     oldValueJSON: a.oldJSON, newValueJSON: a.newJSON,
                     confirmedAt: nil, status: .timeout, revertOf: nil,
                     caption: caption,
-                    personaId: callingPersonaId
                 ))
             }
             return [
@@ -898,11 +897,10 @@ private let logger = AppLogger(category: "ConfigOffload")
                 let a = auditFields(for: r)
                 audit.append(ConfigAuditEntry(
                     id: UUID().uuidString, at: now, actor: actor,
-                    sessionId: sessionId, scope: a.scope, key: a.key,
+                    sessionId: sessionId, personaId: callingPersonaId, scope: a.scope, key: a.key,
                     oldValueJSON: a.oldJSON, newValueJSON: a.newJSON,
                     confirmedAt: now, status: .rejected, revertOf: nil,
                     caption: caption,
-                    personaId: callingPersonaId
                 ))
             }
             return [
@@ -930,11 +928,10 @@ private let logger = AppLogger(category: "ConfigOffload")
                     let auditId = UUID().uuidString
                     audit.append(ConfigAuditEntry(
                         id: auditId, at: now, actor: actor,
-                        sessionId: sessionId, scope: a.scope, key: a.key,
+                        sessionId: sessionId, personaId: callingPersonaId, scope: a.scope, key: a.key,
                         oldValueJSON: a.oldJSON, newValueJSON: a.newJSON,
                         confirmedAt: now, status: .rejected, revertOf: nil,
                         caption: caption,
-                        personaId: callingPersonaId
                     ))
                     continue
                 }
@@ -981,11 +978,10 @@ private let logger = AppLogger(category: "ConfigOffload")
                     let auditId = UUID().uuidString
                     audit.append(ConfigAuditEntry(
                         id: auditId, at: now, actor: actor,
-                        sessionId: sessionId, scope: a.scope, key: finalKey,
+                        sessionId: sessionId, personaId: callingPersonaId, scope: a.scope, key: finalKey,
                         oldValueJSON: a.oldJSON, newValueJSON: a.newJSON,
                         confirmedAt: now, status: .applied, revertOf: nil,
                         caption: caption,
-                        personaId: callingPersonaId
                     ))
                     auditIds.append(auditId)
                     applied.append(appliedRow)

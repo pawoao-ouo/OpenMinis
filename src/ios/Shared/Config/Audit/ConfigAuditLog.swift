@@ -281,13 +281,12 @@ final class ConfigAuditLog: ObservableObject {
         let caption = sqlite3_column_text(stmt, 11).map { String(cString: $0) }
         let personaId = sqlite3_column_text(stmt, 12).map { String(cString: $0) }
         return ConfigAuditEntry(
-            id: id, at: at, actor: actor, sessionId: sessionId,
+            id: id, at: at, actor: actor, sessionId: sessionId, personaId: personaId,
             scope: scope, key: key,
             oldValueJSON: oldVal, newValueJSON: newVal,
             confirmedAt: confirmedAt, status: status,
             revertOf: revertOf,
             caption: caption,
-            personaId: personaId
         )
     }
 }
