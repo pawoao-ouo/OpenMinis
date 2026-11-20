@@ -32,6 +32,37 @@ final class MinisFsRouter: @unchecked Sendable {
     private var contextToSid: [UInt64: String] = [:]
     private var sidToContext: [String: UInt64] = [:]
 
+    /// ［persona］F1: session → persona, for the memory rules in `translate`.
+    /// Lock-protected because the path-translate hook runs on iSH worker
+    /// threads, unlike `PersonaStore.sessionPersonaCache` which is
+    /// @MainActor-confined. Populated at loadSession (next to
+    /// `PersonaStore.notePersonaId`) and, as a backstop, in
+    /// `ISHExecutionCoordinator.execute()` before the first command of a
+    /// session runs. Session ids are UUIDs, never reused, so entries are
+    /// dropped only on `sessionDidTerminate`. A session with no entry here
+    /// has an unknown persona — the hook fails closed for its memory paths.
+    private let personaLock = NSLock()
+    private var sidToPersona: [String: String] = [:]
+
+    /// ［persona］F1: remember which persona a session belongs to (see above).
+    func notePersona(sessionId: String, personaId: String) {
+        personaLock.lock(); defer { personaLock.unlock() }
+        sidToPersona[sessionId] = personaId
+    }
+
+    /// ［persona］F1: the persona noted for a session, or nil when unknown.
+    /// Thread-safe; safe to call from the translate hook.
+    func persona(forSession sid: String) -> String? {
+        personaLock.lock(); defer { personaLock.unlock() }
+        return sidToPersona[sid]
+    }
+
+    /// ［persona］F1: forget a terminated session's persona mapping.
+    func dropSession(_ sid: String) {
+        personaLock.lock(); defer { personaLock.unlock() }
+        sidToPersona[sid] = nil
+    }
+
     /// Host base URL (~/Library/MinisChat/minis). Captured once at install time.
     private let minisBaseURL: URL
 
@@ -124,7 +155,89 @@ final class MinisFsRouter: @unchecked Sendable {
     /// MUST stay non-blocking — only a hash lookup + a few string ops.
     private func translate(guestPath: String, fsContext: UInt64) -> String? {
         guard fsContext != 0, let sid = sid(for: fsContext) else { return nil }
+        // ［persona］F1: memory is allowlisted per session (own persona dir
+        // + the user profile) BEFORE the bucket check. A refused path gets a
+        // host path that cannot exist, so the guest operation fails with
+        // ENOENT instead of falling through to the flat static mount.
+        if let refused = translateMemory(guestPath: guestPath, sid: sid) {
+            return refused
+        }
         return hostPath(forGuest: guestPath, sid: sid)
+    }
+
+    /// ［persona］F1: per-session memory rules for the translate hook.
+    ///
+    /// The guest mount for `/var/minis/memory` is the flat root, so without
+    /// this the shell of ANY persona can `cat` another persona's SOUL.md /
+    /// GLOBAL.md / daily logs, `rg` the whole tree, or `ls` the registry.
+    /// This is the mount layer the write guard's comment points at as the
+    /// full enforcement ("the mount layer keeps full enforcement as a
+    /// follow-up").
+    ///
+    /// Allowlist — everything else under `/var/minis/memory` is refused:
+    /// - `/var/minis/memory/personas/<own>/...` (the session's own memory;
+    ///   these are exactly the paths the system prompt teaches the model)
+    /// - `/var/minis/memory/personas/me/...` (the user profile — the model
+    ///   is told to write confirmed new facts there, same allowance as the
+    ///   file-tool write guard's B28 R15)
+    ///
+    /// Refused, by design: the bare memory root and `personas/` listings
+    /// (they enumerate persona ids), `personas.json` (the registry),
+    /// legacy root files, and every other persona's directory.
+    ///
+    /// Returns nil when the path is allowed (fall through to the static
+    /// mount table, as today) or is not a memory path at all; otherwise
+    /// returns a host path that cannot exist, so the guest operation fails.
+    /// The guest path is standardized lexically first, so a `..` that walks
+    /// out of the own dir (`personas/<own>/../../personas/<other>/...`) is
+    /// judged on where it actually lands, not on the first segment. A
+    /// symlink inside the own dir pointing out is NOT caught here (the hook
+    /// sees the lexical path) — that escape is caught host-side by the
+    /// canonical check in `resolvePathForDirectRead`, and a guest-created
+    /// symlink to a guest absolute path is re-translated on follow, so it
+    /// lands back here.
+    ///
+    /// fs_context 0 (no session token — e.g. the user's own terminal, which
+    /// spawns its shell outside `execute()`) never reaches this code:
+    /// `translate` returns nil before it, so the terminal keeps its full
+    /// view. Only session-stamped shells are scoped.
+    private func translateMemory(guestPath: String, sid: String) -> String? {
+        let prefix = AIChatViewModel.minisMemoryLinuxDir
+        guard guestPath == prefix || guestPath.hasPrefix(prefix + "/") else { return nil }
+        // Unknown persona fails closed: an unnoted session sees no memory.
+        guard let persona = persona(forSession: sid) else {
+            return blockedPath(forSession: sid)
+        }
+        let std = (guestPath as NSString).standardizingPath
+        guard std.hasPrefix(prefix + "/") else {
+            // The bare root (or a trailing-slash form of it) — a listing
+            // would enumerate the tree; refuse.
+            return blockedPath(forSession: sid)
+        }
+        let tail = String(std.dropFirst(prefix.count + 1))  // after "/var/minis/memory/"
+        guard tail.hasPrefix("personas/") else {
+            // personas.json, legacy root files — not addressable per-persona.
+            return blockedPath(forSession: sid)
+        }
+        let afterPersonas = String(tail.dropFirst("personas/".count))
+        let seg = afterPersonas.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? ""
+        if seg == persona || seg == PersonaStore.userProfilePersonaID {
+            return nil  // own dir (or the user profile) — fall through to the mount.
+        }
+        return blockedPath(forSession: sid)
+    }
+
+    /// ［persona］F1: the host path a refused memory translation resolves
+    /// to. It is deliberately a path that does not exist: reads fail with
+    /// ENOENT, writes fail because the parent is missing. Per-session, so
+    /// one session's refused writes can never become another session's
+    /// readable file, and unreachable from every allowed translation — no
+    /// bucket, mount, or host-side resolver maps into it.
+    private func blockedPath(forSession sid: String) -> String {
+        minisBaseURL
+            .appendingPathComponent(sid, isDirectory: true)
+            .appendingPathComponent("__persona_blocked__", isDirectory: true)
+            .path
     }
 
     /// Resolve a guest path under one of the per-session buckets to its host

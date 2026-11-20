@@ -177,6 +177,10 @@ extension AIChatViewModel {
         // 只能同步读的展示面按会话查人设。nil 不记（未知人设不进表）。
         if let pid = sessionPersonaId {
             PersonaStore.notePersonaId(sessionId: sessionId, personaId: pid)
+            // ［persona］F1: 同一份归属也记进 MinisFsRouter（线程安全版），
+            // 供路径翻译钩子按会话限流 /var/minis/memory。nil 不记——
+            // 未知人设的会话在钩子那里看不到任何记忆（fail closed）。
+            MinisFsRouter.shared.notePersona(sessionId: sessionId, personaId: pid)
         }
 
         // [S19] Restore any unsent composer text saved for this session

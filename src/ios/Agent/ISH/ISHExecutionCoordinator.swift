@@ -199,6 +199,18 @@ actor ISHExecutionCoordinator {
         mountedSessionId = sessionId
         ensureStaticMountsInitialized(for: sessionId)
 
+        // ［persona］F1: make sure the fs router knows this session's
+        // persona before any guest path translation runs for this command.
+        // loadSession normally notes it already; this is the backstop for
+        // sessions that run a command without a load (scheduled .new
+        // sessions, sub-agent children, retries). A lookup failure leaves
+        // the router unnoted, and the hook then fails closed for that
+        // session's memory paths — never the global current persona.
+        if MinisFsRouter.shared.persona(forSession: sessionId) == nil,
+           let pid = await ChatStore.shared.personaId(for: sessionId) {
+            MinisFsRouter.shared.notePersona(sessionId: sessionId, personaId: pid)
+        }
+
         let fsContext = MinisFsRouter.shared.context(for: sessionId)
 
         // [T-bridge-kill] 取消即真停：等命令的任务被取消时，杀掉本命令的
@@ -316,6 +328,9 @@ actor ISHExecutionCoordinator {
         perSessionInflight[sessionId] = nil
         syncInflightPidSnapshot()
         staticMountsInitialized.remove(sessionId)
+        // ［persona］F1: forget the terminated session's persona mapping
+        // (its fs_context token stays valid — session ids are never reused).
+        MinisFsRouter.shared.dropSession(sessionId)
         if mountedSessionId == sessionId { mountedSessionId = nil }
     }
 
