@@ -304,9 +304,11 @@ enum SoulIconSource {
     /// The directories a config-driven read may touch. Session-scoped dirs use
     /// the ACTIVE session only, matching `resolveMinisURL`'s isolation rule.
     /// Multi-persona isolation: the ACTIVE persona's dirs, plus the
-    /// read-only skills/shared baselines. The flat memory root is NOT
-    /// allowed — it holds the default persona's pre-migration data, and
-    /// memory has no baseline fallback by design.
+    /// read-only skills baseline and the flat shared area. The flat shared
+    /// dir is live read/write runtime state (events.jsonl, together/,
+    /// heartbeat) — readable here, never locked. The flat memory root is
+    /// NOT allowed — it holds the default persona's pre-migration data,
+    /// and memory has no baseline fallback by design.
     private static func allowedRoots() -> [URL] {
         let pid = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
         var roots: [URL] = [
@@ -667,7 +669,7 @@ enum SoulBodyLimitCheck: Equatable {
 }
 
 /// Filesystem helpers for SOUL.md. Each persona has its own SOUL.md at
-/// memory/<personaId>/SOUL.md (see PersonaStore). The no-arg APIs below
+/// memory/personas/<personaId>/SOUL.md (see PersonaStore). The no-arg APIs below
 /// resolve to the ACTIVE session's persona, so the Settings UI and the
 /// minis-config tool edit the soul of the persona the user is talking to;
 /// sync singletons pass the default persona explicitly instead.
