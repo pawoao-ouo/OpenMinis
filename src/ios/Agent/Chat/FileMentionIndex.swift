@@ -220,7 +220,7 @@ final class FileMentionIndex: ObservableObject {
 
         // Build scan plan on main actor (needs MountedFoldersManager).
         let sessionRoots = Self.sessionRoots(sessionId: sessionId)
-        let sharedRoots = Self.sharedRoots()
+        let sharedRoots = Self.sharedRoots(sessionId: sessionId)
         let mountRoots = Self.mountRoots()
         #if DEBUG
         print("[MentionScan] scan start token=\(token.uuidString.prefix(8)) sid=\(sessionId ?? "nil") sessionRoots=\(sessionRoots.count) sharedRoots=\(sharedRoots.count) mountRoots=\(mountRoots.count) budget=\(globalScanBudget)")
@@ -429,9 +429,11 @@ final class FileMentionIndex: ObservableObject {
 
     // MARK: - Root discovery (main actor)
 
-    /// Session-scoped roots. Browser/offloads/memory/skills intentionally excluded
-    /// from session scope since browser snapshots aren't user-authored files and
-    /// offloads/memory/skills are handled via their global roots.
+    /// Session-scoped roots. Browser/offloads intentionally excluded from
+    /// session scope since browser snapshots aren't user-authored files.
+    /// Memory/skills/shared are NOT global anymore: they are scanned from
+    /// the session's persona dirs (see sharedRoots below), so one persona
+    /// never sees another's files in @-mentions.
     private static func sessionRoots(sessionId: String?) -> [ScanRoot] {
         guard let sid = sessionId, !sid.isEmpty else { return [] }
         return [
@@ -450,23 +452,28 @@ final class FileMentionIndex: ObservableObject {
         ]
     }
 
-    private static func sharedRoots() -> [ScanRoot] {
-        [
+    /// Persona-scoped roots for @-mentions. Resolves the session's persona
+    /// (cache lookup; "default" when unknown) and scans that persona's
+    /// shared/skills/memory dirs only — the flat legacy roots are never
+    /// scanned, so one persona's files can't leak into another's menu.
+    private static func sharedRoots(sessionId: String?) -> [ScanRoot] {
+        let pid = PersonaStore.personaId(forSessionId: sessionId)
+        return [
             ScanRoot(
                 scope: .shared,
-                hostURL: AIChatViewModel.minisSharedPersistentDir,
+                hostURL: PersonaStore.sharedDir(for: pid),
                 linuxPrefix: AIChatViewModel.minisSharedLinuxDir,
                 mountName: nil
             ),
             ScanRoot(
                 scope: .skills,
-                hostURL: AIChatViewModel.minisSkillsPersistentDir,
+                hostURL: PersonaStore.skillsDir(for: pid),
                 linuxPrefix: AIChatViewModel.minisSkillsLinuxDir,
                 mountName: nil
             ),
             ScanRoot(
                 scope: .memory,
-                hostURL: AIChatViewModel.minisMemoryPersistentDir,
+                hostURL: PersonaStore.memoryDir(for: pid),
                 linuxPrefix: AIChatViewModel.minisMemoryLinuxDir,
                 mountName: nil
             ),
