@@ -165,9 +165,27 @@ object ExecutionCoordinator {
     /**
      * Build bind mounts for a session:
      * - Session-level: workspace, attachments, offloads, browser → per-session dirs
-     * - Global: memory, skills, shared → shared dirs across all sessions
+     * - Memory → THIS session's persona dir (minis-global/memory/personas/<id>/),
+     *   so the shell sees only its own persona's memory — the shell-side
+     *   equivalent of iOS MinisFsRouter. A new session is its own persona;
+     *   pre-migration sessions resolve to "default".
+     * - Global: skills, shared, mcp-servers → shared dirs across all sessions.
+     *   (shared stays the live read/write area; isolation there is at the
+     *   injection layer, not a filesystem lock — crosscheck-verdict §5.)
+     *
+     * The one-time persona migration is awaited first: a shell created in
+     * the first milliseconds after launch must not mount an empty
+     * personas/<sessionId>/ for a legacy session whose persona is
+     * "default". The mount is per-shell (this map feeds PRoot's `-b`
+     * argv); the memory entry is deliberately NOT written into
+     * PRootKernel's global bindMounts — that map is process-wide, and a
+     * per-persona value there would poison every other session's
+     * resolveHostPath (the same last-writer-wins trap the attachments
+     * diagnostic above documents). Session-less reads keep the flat
+     * global mount from registerGlobalBindMounts.
      */
-    private fun buildSessionBindMounts(sessionId: String): Map<String, String> {
+    private suspend fun buildSessionBindMounts(sessionId: String): Map<String, String> {
+        com.openminis.app.data.PersonaStore.awaitMigration()
         val filesDir = appContext.filesDir
         val mounts = linkedMapOf<String, String>()
 
@@ -199,12 +217,24 @@ object ExecutionCoordinator {
         // which is why they disagreed). Same trap as the external-mounts note
         // below.
         val globalBase = File(filesDir, "minis-global")
-        listOf("memory", "skills", "shared", "mcp-servers").forEach { subdir ->
+        // "memory" is NOT in this list anymore: it is per-persona, bound
+        // below to this session's persona dir.
+        listOf("skills", "shared", "mcp-servers").forEach { subdir ->
             val hostDir = File(globalBase, subdir).also { it.mkdirs() }
             val linuxPath = "/var/minis/$subdir"
             mounts[linuxPath] = hostDir.absolutePath
             PRootKernel.addBindMount(linuxPath, hostDir.absolutePath)
         }
+
+        // Memory is per-persona, not global: the shell's /var/minis/memory
+        // is this session's persona dir. See the function doc — the global
+        // bindMounts map is NOT updated here (process-wide map, last
+        // writer would win for every other session).
+        val personaMemoryDir = com.openminis.app.data.PersonaStore.memoryDir(
+            filesDir,
+            com.openminis.app.data.PersonaStore.personaIdForSession(appContext, sessionId),
+        ).also { it.mkdirs() }
+        mounts["/var/minis/memory"] = personaMemoryDir.absolutePath
 
         // T277: user-mounted external folders (SAF-picked trees). PersistentShell
         // uses this map verbatim as PRoot's `-b` argv, so any mount missing here
