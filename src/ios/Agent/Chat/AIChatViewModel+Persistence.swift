@@ -201,6 +201,12 @@ extension AIChatViewModel {
         let resolvedPersonaId = await ChatStore.shared.getPersonaId(sessionId: sessionId)
         personaId = resolvedPersonaId
         PersonaStore.notePersonaId(resolvedPersonaId, forSessionId: sessionId)
+        // Keep the singleton stores on the same persona: their in-memory
+        // lists (skills, MCP servers) back the Settings UI as well as
+        // prompt assembly, and a session switch must not serve the old
+        // persona's list. (Prompt assembly also re-checks via ensureLoaded.)
+        SkillStore.shared.reload()
+        MCPStore.shared.load()
 
         // Clear stale compact/pending state from previous lifecycle
         skipCompactCheck = false
@@ -1032,6 +1038,10 @@ extension AIChatViewModel {
         // persona_id = session id); it starts with empty memory/SOUL dirs.
         personaId = session.personaId
         PersonaStore.notePersonaId(session.personaId, forSessionId: session.id)
+        // Fresh persona: the stores load its (empty) lists, not the
+        // previous session's.
+        SkillStore.shared.reload()
+        MCPStore.shared.load()
         // [T-memory-enabled-new-session-bug] Sync the @Published memoryEnabled
         // to the value createSession just persisted from the global default.
         // A draft VM initializes memoryEnabled = true and never runs
