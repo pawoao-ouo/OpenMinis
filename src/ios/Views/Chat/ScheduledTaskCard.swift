@@ -304,6 +304,8 @@ struct ScheduledPulseCardView: View {
     var fireIndex: Int?
     var remaining: Int?
 
+    private var job: AgentJob? { registry.job(id: jobId) }
+
     /// [audit-C2] Fixed geometry so the message list can precompute this row's
     /// height exactly — the estimator cannot measure a SwiftUI card, and a
     /// mismatch is the "wrong offset near the card" scroll correction. The
