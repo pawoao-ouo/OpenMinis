@@ -331,8 +331,21 @@ private struct MemoryContentView: View {
                 // showing the stale name until reload. The edited persona
                 // is the SOUL file's parent dir (memory/personas/<pid>/).
                 let editedPersonaId = url.deletingLastPathComponent().lastPathComponent
-                SoulStore.refreshCache(personaId: editedPersonaId)
-                Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: PersonaStore.soulRecordId(for: editedPersonaId)) }
+                if PersonaStore.knownPersonaIds().contains(editedPersonaId) {
+                    SoulStore.refreshCache(personaId: editedPersonaId)
+                    Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: PersonaStore.soulRecordId(for: editedPersonaId)) }
+                } else {
+                    // Item 3 (small-issues fix, follow-up): the parent
+                    // dir is not a known persona (e.g. a legacy flat
+                    // memory/SOUL.md, whose parent is "memory") — so
+                    // refreshing that name would create a bogus cache key
+                    // and a bogus "soul:<name>" sync record. Fall back to
+                    // the no-arg refresh (marker-or-default) and the
+                    // default record id: a legacy flat SOUL.md IS the
+                    // default persona's SOUL.
+                    SoulStore.refreshCache()
+                    Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: PersonaStore.soulRecordId(for: PersonaStore.defaultPersonaId)) }
+                }
             }
             isEditing = false
             withAnimation { saved = true }
