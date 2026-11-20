@@ -5,12 +5,14 @@
 //  Manages MCP (Model Context Protocol) server configurations: CRUD, JSON
 //  import, per-session overrides, and Top-20 system-prompt injection.
 //
-//  The server list lives per-persona at
-//  MinisConfig/mcp-servers/<personaId>/servers.json (mcpServers object form,
+//  The server list lives in the single flat global file
+//  <mcp-servers>/servers.json (mcpServers object form,
 //  Claude-Desktop compatible), routed into the guest at /var/minis/mcp-servers
 //  — the SAME file the in-guest `minis-mcp-cli` reads/writes, so the two
-//  co-read/write it. The flat mcp-servers/servers.json is the read-only
-//  global baseline. Sync records are default-persona singletons.
+//  co-read/write it. MCP servers are GLOBAL, shared by all personas
+//  (user decision 2026-11-20: splitting them would make the model
+//  download duplicates). There is no per-persona servers file and no
+//  per-persona load. Sync records are global singletons.
 //  Session-override metadata reuses the skills.db SQLite file via an
 //  `mcp_session_overrides` table (mirrors SkillStore's session_skill_overrides).
 //
@@ -108,31 +110,20 @@ final class MCPStore: ObservableObject {
 
     // MARK: - Paths
 
-    /// Persona the in-memory `servers` list was loaded for. load() reloads
-    /// when the active persona changes, so a session switch to another
-    /// persona never serves the previous persona's servers.
-    private var loadedPersonaId: String?
-
-    /// Host path of one persona's servers.json. Lives in the MinisConfig
-    /// persistent dir (same mechanism as skills/shared/memory: the guest
-    /// path is routed per-persona by MinisFsRouter). NOT minisAppGroupRoot:
-    /// servers.json carries credentials and must never surface in iOS Files.
-    private func serversFileURL(for personaId: String) -> URL {
-        PersonaStore.mcpServersFileURL(for: personaId)
-    }
-
-    /// Active session's persona file. The flat mcp-servers/servers.json is
-    /// the read-only global baseline (pre-migration config) — load() falls
-    /// back to it, save() never writes there.
+    /// The single global servers.json. MCP servers are global, shared by
+    /// all personas — there is no per-persona file. Lives in the
+    /// MinisConfig persistent dir (same mechanism as skills/shared/memory).
+    /// NOT minisAppGroupRoot: servers.json carries credentials and must
+    /// never surface in iOS Files.
     private var serversFileURL: URL {
-        serversFileURL(for: PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId))
+        AIChatViewModel.minisMcpServersPersistentDir.appendingPathComponent("servers.json")
     }
 
-    /// Host path of the DEFAULT persona's servers.json, as a static for the
-    /// sync layer (P4) which runs off the MainActor. MCP sync records are
-    /// global singletons scoped to the default persona.
+    /// Host path of the global servers.json, as a static for the sync
+    /// layer (P4) which runs off the MainActor. MCP sync records are
+    /// global singletons.
     nonisolated static var syncFileURL: URL {
-        PersonaStore.mcpServersFileURL(for: PersonaStore.defaultPersonaId)
+        AIChatViewModel.minisMcpServersPersistentDir.appendingPathComponent("servers.json")
     }
 
     /// Pre-mount-mechanism location: a real file inside the rootfs data tree
@@ -280,45 +271,23 @@ final class MCPStore: ObservableObject {
         var startupTimeoutSeconds: Int?   // Minis STDIO startup timeout; round-tripped verbatim
     }
 
-    /// Reload servers for the active persona. No-op when already loaded
-    /// for this persona, unless `force` is set (external edit by
-    /// minis-mcp-cli). Called from init and from session load.
+    /// Reload the global servers list. No-op when already loaded, unless
+    /// `force` is set (external edit by minis-mcp-cli). Called from init
+    /// and from session load. There is no per-persona reload — the list
+    /// is the same for every persona.
+    private var loaded = false
+
     func load(force: Bool = false) {
-        loadPersona(PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId), force: force)
+        guard force || !loaded else { return }
+        loaded = true
+        servers = readServersFromDisk()
     }
 
-    private func loadPersona(_ personaId: String, force: Bool = false) {
-        guard force || loadedPersonaId != personaId else { return }
-        loadedPersonaId = personaId
-        servers = readServersFromDisk(personaId: personaId)
-    }
-
-    /// Run `body` with the DEFAULT persona's servers loaded, then restore
-    /// the previously loaded persona's list. Sync records are
-    /// default-persona singletons: a sync event arriving while a
-    /// non-default session is active must never read or write that
-    /// persona's servers, and must not leave the default list in memory
-    /// for the next prompt build.
-    private func withDefaultPersona(_ body: () -> Void) {
-        let activeId = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
-        let needsRestore = loadedPersonaId != PersonaStore.defaultPersonaId
-        if needsRestore { loadPersona(PersonaStore.defaultPersonaId) }
-        body()
-        if needsRestore { loadPersona(activeId) }
-    }
-
-    private func readServersFromDisk(personaId: String) -> [MCPServerConfig] {
-        // Persona file first, then the read-only global baseline (the
-        // pre-migration config). A save() always writes the persona file,
-        // so a persona that customizes its servers stops seeing the
-        // baseline from then on.
-        let personaURL = serversFileURL(for: personaId)
-        let url: URL
-        if FileManager.default.fileExists(atPath: personaURL.path) {
-            url = personaURL
-        } else {
-            url = AIChatViewModel.minisMcpServersPersistentDir.appendingPathComponent("servers.json")
-        }
+    private func readServersFromDisk() -> [MCPServerConfig] {
+        // Single global file — no per-persona file, no baseline fallback.
+        // A save() always writes this file, so the list the app shows is
+        // the list the CLI sees.
+        let url = serversFileURL
         guard let data = try? Data(contentsOf: url) else {
             AppLogger(category: "MCPStore").info("[Load] no servers.json at \(url.path)")
             return []
@@ -408,10 +377,9 @@ final class MCPStore: ObservableObject {
             AppLogger(category: "MCPStore").error("Failed to encode servers.json")
             return
         }
-        // Write to the LOADED persona's file, not the active session's:
-        // inside withDefaultPersona (sync apply/scan) the loaded persona is
-        // default while the active session may be another persona.
-        let targetURL = serversFileURL(for: loadedPersonaId ?? PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId))
+        // Write to the single global file. There is only one list, so
+        // there is no loaded-vs-active persona to choose between.
+        let targetURL = serversFileURL
         do {
             try fm.createDirectory(at: targetURL.deletingLastPathComponent(),
                                    withIntermediateDirectories: true)
@@ -865,54 +833,50 @@ final class MCPStore: ObservableObject {
             AppLogger(category: "MCPStore").error("[Sync] applyRemoteServerItem '\(name)': unparseable entryJson")
             return
         }
-        // Sync records are default-persona singletons — apply against the
-        // default file, then restore the active persona's list.
-        withDefaultPersona {
-            var incoming = serverConfig(name: name, from: obj)
-            incoming.createdAt = (obj["createdAt"] as? Double) ?? remoteCreatedAt.timeIntervalSince1970
-            incoming.updatedAt = remoteUpdatedAt.timeIntervalSince1970
+        // Sync records are global singletons — apply against the
+        // global file.
+        var incoming = serverConfig(name: name, from: obj)
+        incoming.createdAt = (obj["createdAt"] as? Double) ?? remoteCreatedAt.timeIntervalSince1970
+        incoming.updatedAt = remoteUpdatedAt.timeIntervalSince1970
 
-            if let idx = servers.firstIndex(where: { $0.id == name }) {
-                let local = servers[idx]
-                // Content-equality short circuit — echo of our own push.
-                if Self.semanticFingerprint(local) == Self.semanticFingerprint(incoming) {
-                    var fp = Self.loadFingerprints()
-                    fp[name] = Self.semanticFingerprint(local)
-                    Self.saveFingerprints(fp)
-                    return
-                }
-                let localClock = local.updatedAt ?? local.createdAt ?? 0
-                if localClock - remoteUpdatedAt.timeIntervalSince1970 > 2 {
-                    AppLogger(category: "MCPStore").info("[Sync] applyRemoteServerItem SKIP (local newer) '\(name)'")
-                    return
-                }
-                // Keep the earliest createdAt ever seen for stable Top-20 order.
-                if let lc = local.createdAt, lc < (incoming.createdAt ?? lc) { incoming.createdAt = lc }
-                servers[idx] = incoming
-            } else {
-                servers.append(incoming)
-                servers.sort { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+        if let idx = servers.firstIndex(where: { $0.id == name }) {
+            let local = servers[idx]
+            // Content-equality short circuit — echo of our own push.
+            if Self.semanticFingerprint(local) == Self.semanticFingerprint(incoming) {
+                var fp = Self.loadFingerprints()
+                fp[name] = Self.semanticFingerprint(local)
+                Self.saveFingerprints(fp)
+                return
             }
-            save()
-            var fp = Self.loadFingerprints()
-            fp[name] = Self.semanticFingerprint(incoming)
-            Self.saveFingerprints(fp)
-            AppLogger(category: "MCPStore").info("[Sync] applied MCPServerItem '\(name)' remoteUpdatedAt=\(remoteUpdatedAt)")
+            let localClock = local.updatedAt ?? local.createdAt ?? 0
+            if localClock - remoteUpdatedAt.timeIntervalSince1970 > 2 {
+                AppLogger(category: "MCPStore").info("[Sync] applyRemoteServerItem SKIP (local newer) '\(name)'")
+                return
+            }
+            // Keep the earliest createdAt ever seen for stable Top-20 order.
+            if let lc = local.createdAt, lc < (incoming.createdAt ?? lc) { incoming.createdAt = lc }
+            servers[idx] = incoming
+        } else {
+            servers.append(incoming)
+            servers.sort { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
         }
+        save()
+        var fp = Self.loadFingerprints()
+        fp[name] = Self.semanticFingerprint(incoming)
+        Self.saveFingerprints(fp)
+        AppLogger(category: "MCPStore").info("[Sync] applied MCPServerItem '\(name)' remoteUpdatedAt=\(remoteUpdatedAt)")
     }
 
     /// Hard-delete a server locally from an inbound op=delete tombstone,
     /// without re-queueing the delete back into the sync layer.
     func applyRemoteServerDeletion(name: String) {
-        withDefaultPersona {
-            guard servers.contains(where: { $0.id == name }) else { return }
-            servers.removeAll { $0.id == name }
-            save()
-            var fp = Self.loadFingerprints()
-            fp.removeValue(forKey: name)
-            Self.saveFingerprints(fp)
-            AppLogger(category: "MCPStore").info("[Sync] applied MCPServerItem deletion '\(name)'")
-        }
+        guard servers.contains(where: { $0.id == name }) else { return }
+        servers.removeAll { $0.id == name }
+        save()
+        var fp = Self.loadFingerprints()
+        fp.removeValue(forKey: name)
+        Self.saveFingerprints(fp)
+        AppLogger(category: "MCPStore").info("[Sync] applied MCPServerItem deletion '\(name)'")
     }
 
     /// Detect edits that bypassed the CRUD paths (in-guest minis-mcp-cli
@@ -925,13 +889,10 @@ final class MCPStore: ObservableObject {
     /// Fingerprints persist across launches, so CLI edits made while the app
     /// was closed are caught by the first scan after launch.
     func scanExternalChanges() {
-        // Sync-scoped: only the DEFAULT persona's servers ever sync, so
-        // only its file is scanned for CLI writes. A non-default persona's
-        // servers must never be pushed as global sync records.
-        withDefaultPersona {
-            loadPersona(PersonaStore.defaultPersonaId, force: true)   // pick up CLI writes
-            scanExternalChangesLoaded()
-        }
+        // Sync-scoped: the global servers file is the only file scanned
+        // for CLI writes.
+        load(force: true)   // pick up CLI writes
+        scanExternalChangesLoaded()
     }
 
     private func scanExternalChangesLoaded() {
