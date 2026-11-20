@@ -1591,7 +1591,20 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
                         // Skill files deleted from every location. The
                         // load is global, so a missing SKILL.md means the
                         // skill is gone for everyone — drop the DB row.
-                        dbDeleteSkill(id: id)
+                        // BUT never drop rows before the one-time persona
+                        // migration has run (round-2 new problem 4): user
+                        // skills still live only in the flat skills/ dir
+                        // until step 1b copies them into skills/default/,
+                        // and loadSkills runs during init — including when
+                        // the migration itself reads SkillStore.shared to
+                        // compute the bundled set. Deleting the row now
+                        // would lose the skill's DB state (enabled, use
+                        // count) even though its files are about to be
+                        // copied. Keep the row; the next reload after
+                        // migration re-resolves it from skills/default/.
+                        if PersonaStore.isMigrationComplete {
+                            dbDeleteSkill(id: id)
+                        }
                         continue
                     }
                 }

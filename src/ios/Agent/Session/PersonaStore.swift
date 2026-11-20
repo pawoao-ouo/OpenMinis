@@ -50,6 +50,16 @@ enum PersonaStore {
     /// Steps are idempotent (target-missing guards), so a re-run is safe.
     static let migrationFlagKey = "personaIsolation.migrationCompleted.v3"
 
+    /// True once the one-time persona migration has completed
+    /// successfully. The flag is set only when every migration step
+    /// succeeded (item 7), so false means "not run yet, or failed and
+    /// will retry next launch". SkillStore uses this to defer orphan
+    /// DB-row deletion until the flat user skills have been copied into
+    /// skills/default/ (round-2 new problem 4).
+    static var isMigrationComplete: Bool {
+        UserDefaults.standard.bool(forKey: migrationFlagKey)
+    }
+
     // MARK: - Identity
 
     /// In-memory persona cache, keyed by session id. Populated whenever a
