@@ -11,14 +11,25 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
     private static let log = OSLog(subsystem: "com.openminis.clone.FileProvider", category: "Extension")
 
+    /// Whether the mount can work in this process: the App Group container
+    /// must exist. Without it, every process falls back to its own sandbox
+    /// and the mount silently splits (Batch 26, P2-44). All entry points
+    /// refuse first when this is false — see the guards in init, item(for:),
+    /// fetchContents, createItem, modifyItem, deleteItem, and the
+    /// enumerator's listItemsThrowing.
+    static var isMountAvailable: Bool {
+        SharedContainerStore.isAppGroupAvailable
+    }
+
     /// Root directory for all FileProvider-visible files in the App Group container.
+    /// Single source of truth is SharedContainerStore.containerURL — do NOT
+    /// re-implement the fallback here. NOTE: this still resolves to the
+    /// per-process fallback dir when the App Group is unavailable; it must
+    /// never be dereferenced in that case (every entry point gates on
+    /// isMountAvailable first).
     static var providerRoot: URL {
-        let fm = FileManager.default
-        let container = fm.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.com.openminis.clone"
-        ) ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("OpenMinisClone", isDirectory: true)
-        let url = container.appendingPathComponent("MinisFileProvider", isDirectory: true)
+        let url = SharedContainerStore.containerURL
+            .appendingPathComponent("MinisFileProvider", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -29,6 +40,14 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     required init(domain: NSFileProviderDomain) {
         self.domain = domain
         super.init()
+        // [Batch 26] Without the App Group, creating dirs here would plant
+        // split state in this process's own sandbox. Log loudly and serve
+        // nothing instead.
+        guard Self.isMountAvailable else {
+            os_log("FileProviderExtension init — App Group unavailable, mount disabled",
+                   log: Self.log, type: .fault)
+            return
+        }
         let fm = FileManager.default
         let root = Self.providerRoot
         for sub in Self.topLevelSubdirs {
@@ -195,6 +214,12 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     func item(for identifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest,
               completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void) -> Progress {
         os_log("item(for: %{public}@)", log: Self.log, type: .debug, identifier.rawValue)
+        // [Batch 26] No App Group, no mount — refuse rather than resolve
+        // a path inside this process's own sandbox.
+        if !Self.isMountAvailable {
+            completionHandler(nil, NSFileProviderError(.noSuchItem))
+            return Progress()
+        }
         if identifier == .rootContainer {
             completionHandler(FileProviderItem(url: Self.providerRoot, parentIdentifier: .rootContainer, isRoot: true), nil)
             return Progress()
@@ -246,6 +271,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                        version requestedVersion: NSFileProviderItemVersion?,
                        request: NSFileProviderRequest,
                        completionHandler: @escaping (URL?, NSFileProviderItem?, Error?) -> Void) -> Progress {
+        // [Batch 26] No App Group, no mount.
+        guard Self.isMountAvailable else {
+            completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
+            return Progress()
+        }
         let url = Self.providerRoot.appendingPathComponent(itemIdentifier.rawValue)
         guard FileManager.default.fileExists(atPath: url.path) else {
             completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
@@ -331,6 +361,13 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                     options: NSFileProviderCreateItemOptions = [],
                     request: NSFileProviderRequest,
                     completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        // [Batch 26] No App Group, no mount.
+        guard Self.isMountAvailable else {
+            completionHandler(nil, [], false,
+                              NSError(domain: NSCocoaErrorDomain,
+                                      code: NSFileWriteNoPermissionError))
+            return Progress()
+        }
         // Block creation directly under root — only the fixed subdirs live there.
         // Block creation under memory/ or skills/ (read-only trees).
         // Block creation under trashContainer — we do not support a trash and
@@ -387,6 +424,13 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                     options: NSFileProviderModifyItemOptions = [],
                     request: NSFileProviderRequest,
                     completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        // [Batch 26] No App Group, no mount.
+        guard Self.isMountAvailable else {
+            completionHandler(nil, [], false,
+                              NSError(domain: NSCocoaErrorDomain,
+                                      code: NSFileWriteNoPermissionError))
+            return Progress()
+        }
         let idRaw = item.itemIdentifier.rawValue
 
         // Block rename/move of the three fixed top-level subdirectories.
@@ -459,6 +503,13 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                     request: NSFileProviderRequest,
                     completionHandler: @escaping (Error?) -> Void) -> Progress {
         os_log("deleteItem id=%{public}@", log: Self.log, type: .info, identifier.rawValue)
+
+        // [Batch 26] No App Group, no mount.
+        guard Self.isMountAvailable else {
+            completionHandler(NSError(domain: NSCocoaErrorDomain,
+                                      code: NSFileWriteNoPermissionError))
+            return Progress()
+        }
 
         let idRaw = identifier.rawValue
         if Self.topLevelSubdirs.contains(idRaw)

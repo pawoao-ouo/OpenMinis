@@ -5,6 +5,17 @@ import Foundation
 enum SharedContainerStore {
     static let appGroupID = "group.com.openminis.clone"
 
+    /// True when the App Group container is actually available to this
+    /// process. The mount feature (FileProvider + visibility toggles) MUST
+    /// gate on this: the fallbacks below resolve per-process, so a build
+    /// signed without the App Group capability would otherwise silently
+    /// split state across sandboxes (Batch 26, P2-44).
+    static var isAppGroupAvailable: Bool {
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupID
+        ) != nil
+    }
+
     /// A sideloaded clone may be signed without the App Group capability.
     /// Fall back to this app's own Application Support directory instead of crashing.
     static var containerURL: URL {

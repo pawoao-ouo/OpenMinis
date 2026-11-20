@@ -173,6 +173,10 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     /// [audit-E5] Throwing counterpart: preserves the underlying FileManager
     /// error so `enumerateItems` can fail honestly via `finishEnumeratingWithError`.
     private func listItemsThrowing() throws -> [FileProviderItem] {
+        // [Batch 26] No App Group, no mount — expose nothing rather than a
+        // per-process fallback tree.
+        guard FileProviderExtension.isMountAvailable else { return [] }
+
         // Trash is not supported — always return empty.
         if containerItemIdentifier == .trashContainer {
             return []
