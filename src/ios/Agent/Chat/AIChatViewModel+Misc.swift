@@ -127,21 +127,28 @@ extension AIChatViewModel {
         return lib.appendingPathComponent("MinisChat/minis", isDirectory: true)
     }
 
-    /// Persistent storage directory for a specific session's offloads.
-    nonisolated static func minisOffloadsPersistentDir(for sid: String) -> URL {
-        minisPersistentBase.appendingPathComponent(sid, isDirectory: true)
+    /// Persistent storage directory for a specific session's offloads:
+    /// <minis>/<personaId>/<sessionId>/offloads. The personaId defaults
+    /// to the PersonaStore cache (populated at session load/create); pass
+    /// it explicitly from call sites that already know it. A cache miss
+    /// resolves to "default", which is correct for every pre-existing
+    /// session and never another persona's dir.
+    nonisolated static func minisOffloadsPersistentDir(for sid: String, personaId: String? = nil) -> URL {
+        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaId(forSessionId: sid))
             .appendingPathComponent("offloads", isDirectory: true)
     }
 
-    /// Persistent storage directory for a specific session's attachments.
-    nonisolated static func minisAttachmentsPersistentDir(for sid: String) -> URL {
-        minisPersistentBase.appendingPathComponent(sid, isDirectory: true)
+    /// Persistent storage directory for a specific session's attachments:
+    /// <minis>/<personaId>/<sessionId>/attachments. Same persona rule as
+    /// minisOffloadsPersistentDir above.
+    nonisolated static func minisAttachmentsPersistentDir(for sid: String, personaId: String? = nil) -> URL {
+        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaId(forSessionId: sid))
             .appendingPathComponent("attachments", isDirectory: true)
     }
 
     /// Persistent storage directory for a specific session's uploaded attachments.
-    static func minisUploadsDir(for sid: String) -> URL {
-        minisAttachmentsPersistentDir(for: sid)
+    static func minisUploadsDir(for sid: String, personaId: String? = nil) -> URL {
+        minisAttachmentsPersistentDir(for: sid, personaId: personaId)
             .appendingPathComponent("uploads", isDirectory: true)
     }
 
