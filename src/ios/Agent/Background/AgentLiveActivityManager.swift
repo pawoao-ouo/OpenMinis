@@ -301,6 +301,24 @@ final class AgentLiveActivityManager {
         return name.isEmpty ? "嘟嘟" : name
     }
 
+    /// [persona] F7: the name on the Live Activity follows the session
+    /// currently on the carousel — not the globally current persona. The
+    /// persona comes from the sync session→persona cache (noted at
+    /// loadSession); a session never opened in this process falls back to
+    /// the old global name, no worse than before.
+    static func currentSoulName(for sessions: [LiveSessionSnapshot], carouselIndex: Int = 0) -> String {
+        let sessionId: String?
+        if sessions.indices.contains(carouselIndex) {
+            sessionId = sessions[carouselIndex].sessionId
+        } else {
+            sessionId = sessions.first?.sessionId
+        }
+        if let sessionId, let pid = PersonaStore.personaId(forSessionId: sessionId) {
+            return SoulStore.displayName(for: pid)
+        }
+        return currentSoulName()
+    }
+
     /// SF Symbol for the most-recently-invoked tool across all active sessions,
     /// for the Dynamic Island minimal icon's "latest tool" frame. Empty when no
     /// active session has a tool yet.
@@ -409,7 +427,7 @@ final class AgentLiveActivityManager {
                     activeSessionCount: liveCount,
                     sessions: filteredSessions,
                     carouselIndex: carouselIndex < filteredSessions.count ? carouselIndex : 0,
-                    soulName: Self.currentSoulName(),
+                    soulName: Self.currentSoulName(for: filteredSessions, carouselIndex: carouselIndex),
                     latestToolIcon: prev.latestToolIcon,
                     minimalShowsTool: prev.minimalShowsTool
                 )
@@ -515,7 +533,7 @@ final class AgentLiveActivityManager {
             activeSessionCount: liveCount,
             sessions: merged,
             carouselIndex: 0,
-            soulName: Self.currentSoulName(),
+            soulName: Self.currentSoulName(for: merged, carouselIndex: 0),
             latestToolIcon: Self.latestToolIcon(),
             minimalShowsTool: minimalShowsTool
         ))
@@ -700,7 +718,7 @@ final class AgentLiveActivityManager {
             activeSessionCount: liveCount,
             sessions: mergedSessions,
             carouselIndex: carouselIndex,
-            soulName: Self.currentSoulName(),
+            soulName: Self.currentSoulName(for: mergedSessions, carouselIndex: carouselIndex),
             latestToolIcon: toolIcon,
             minimalShowsTool: minimalShowsTool
         ))
@@ -1006,7 +1024,7 @@ final class AgentLiveActivityManager {
         awaitingDismissal = true
         activityGeneration += 1
 
-        let soul = Self.currentSoulName()
+        let soul = Self.currentSoulName(for: runningSessions)
         var resolvedMessages: [String: String] = [:]
         for s in runningSessions {
             let raw: String
