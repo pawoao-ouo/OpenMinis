@@ -181,8 +181,9 @@ object ExecutionCoordinator {
      * PRootKernel's global bindMounts — that map is process-wide, and a
      * per-persona value there would poison every other session's
      * resolveHostPath (the same last-writer-wins trap the attachments
-     * diagnostic above documents). Session-less reads keep the flat
-     * global mount from registerGlobalBindMounts.
+     * diagnostic above documents). Session-less memory reads have NO
+     * mount at all (item 4): resolveHostPath returns null for
+     * /var/minis/memory, an explicit error, never the flat memory root.
      */
     private suspend fun buildSessionBindMounts(sessionId: String): Map<String, String> {
         com.openminis.app.data.PersonaStore.awaitMigration()

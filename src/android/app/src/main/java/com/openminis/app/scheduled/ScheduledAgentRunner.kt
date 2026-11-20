@@ -97,6 +97,14 @@ object ScheduledAgentRunner {
             return null
         }
 
+        // Item 8: the one-time persona migration writes the legacy set
+        // the task's stored personaId was stamped against. Awaiting it
+        // here keeps a task that fires in the first milliseconds after
+        // launch from recording a wrong session→persona override
+        // (resolveSessionId below) for a legacy session that had not yet
+        // been classified as "default". No-op after the first run.
+        com.openminis.app.data.PersonaStore.awaitMigration()
+
         // Kick the FGS so the agent loop survives Doze / screen-off. The
         // existing service is idempotent and reused by chat UI; we pass a
         // generic status string so it shows up in the ongoing notification.

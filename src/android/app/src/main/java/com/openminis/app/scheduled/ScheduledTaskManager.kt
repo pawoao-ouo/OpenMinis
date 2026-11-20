@@ -31,8 +31,15 @@ class ScheduledTaskManager(private val context: Context) {
     /** Read-only access to persistence for callers that only need data. */
     fun store(): ScheduledTaskStore = store
 
-    fun list(personaId: String? = null): List<ScheduledTask> =
-        if (personaId == null) store.all() else store.allForPersona(personaId)
+    /**
+     * Tasks that run under [personaId]. The persona is REQUIRED (item 10):
+     * a null-persona list used to return every persona's tasks
+     * (store.all()), so an agent-facing list could see another persona's
+     * work. The global list screen (management surface, no current
+     * persona) reads [store] / [ScheduledTaskStore.all] directly and is
+     * the only unscoped read path.
+     */
+    fun list(personaId: String): List<ScheduledTask> = store.allForPersona(personaId)
 
     fun get(taskId: String): ScheduledTask? = store.get(taskId)
 
@@ -57,29 +64,38 @@ class ScheduledTaskManager(private val context: Context) {
     }
 
     /**
-     * Stamp the persona a task runs under when it has none: the target
-     * session's persona for APPEND_TO/RERUN, "default" for NEW_SESSION
-     * (no creator session in scope at the global editor — the task runs
-     * under the default persona's migrated memory, never under an empty
-     * dir and never under another persona).
+     * Stamp the persona a task runs under when it has none: the creator
+     * session's persona first (recorded by the CLI for tasks created from
+     * a chat), then the target session's persona for APPEND_TO/RERUN,
+     * "default" for NEW_SESSION with no creator session in scope (the
+     * global editor — the task runs under the default persona's migrated
+     * memory, never under an empty dir and never under another persona).
+     *
+     * Item 8: suspends until the one-time persona migration has finished.
+     * Stamping before the legacy set is written resolves a legacy session
+     * to itself (a new, empty persona) instead of "default", and that
+     * wrong value would be stored permanently — the backfill only heals
+     * nulls. Callers: the ViewModel (already a coroutine) and the CLI
+     * (runBlocking, like its run path).
      */
-    private fun stampPersona(task: ScheduledTask): ScheduledTask {
+    private suspend fun stampPersona(task: ScheduledTask): ScheduledTask {
         if (task.personaId != null) return task
-        val targetSessionId = task.targetMode.sessionIdOrNull
-        val personaId = targetSessionId
+        PersonaStore.awaitMigration()
+        val sourceSessionId = task.creatorSessionId ?: task.targetMode.sessionIdOrNull
+        val personaId = sourceSessionId
             ?.let { PersonaStore.personaIdForSession(context, it) }
             ?: PersonaStore.DEFAULT_PERSONA_ID
         return task.copy(personaId = personaId)
     }
 
-    fun create(task: ScheduledTask): ScheduledTask {
+    suspend fun create(task: ScheduledTask): ScheduledTask {
         val stamped = stampPersona(task)
         store.upsert(stamped)
         if (stamped.enabled) registerAlarm(stamped)
         return stamped
     }
 
-    fun update(task: ScheduledTask): ScheduledTask {
+    suspend fun update(task: ScheduledTask): ScheduledTask {
         // Preserve the stored personaId when the incoming task carries
         // none (the editor round-trips field-by-field and never sends
         // personaId): re-stamping from the target session would silently
@@ -103,7 +119,14 @@ class ScheduledTaskManager(private val context: Context) {
     }
 
     fun setEnabled(taskId: String, enabled: Boolean, personaId: String?) {
-        val t = if (personaId == null) store.get(taskId) else get(taskId, personaId)
+        // Item 16: parenthesized so the Elvis applies to the WHOLE
+        // if-expression (both branches return ScheduledTask?), not just
+        // the else branch. (Kotlin's grammar already parses it that way
+        // — Elvis has the lowest precedence and an if-expression is a
+        // primary — but the unparenthesized form reads as if `t` could
+        // still be null on the first branch, and a reader or a stricter
+        // compiler must not have to re-derive it.)
+        val t = (if (personaId == null) store.get(taskId) else get(taskId, personaId))
             ?: return
         val updated = t.copy(enabled = enabled)
         store.upsert(updated)

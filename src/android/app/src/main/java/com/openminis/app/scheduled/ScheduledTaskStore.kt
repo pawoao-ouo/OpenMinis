@@ -98,14 +98,26 @@ class ScheduledTaskStore(private val context: Context) {
 
     /**
      * One-time backfill of personaId for pre-isolation tasks. Flag-gated
-     * and idempotent (re-running rewrites only rows still missing it).
+     * and idempotent (re-running rewrites only rows whose stored value
+     * differs from the derived one).
      *
-     * Attribution uses the only signal the Android store ever recorded:
-     * the target session — `targetMode.sessionIdOrNull`, resolved through
-     * PersonaStore.personaIdForSession (legacy session → "default", new
-     * session → itself). A NEW_SESSION task has no target session, so it
-     * goes to the default persona — the owner of the migrated shared
-     * history — and fires with real SOUL/memory instead of an empty dir.
+     * Attribution uses, in order (item 10): the creator session
+     * (creatorSessionId, recorded by the CLI for tasks created from a
+     * chat — so a NEW_SESSION task fires under its creator's persona,
+     * not default), then the target session
+     * (targetMode.sessionIdOrNull), then "default" when there is no
+     * session at all (global editor, no creator in scope). "default"
+     * owns the migrated shared history, so an unattributed task fires
+     * with real SOUL/memory instead of an empty dir.
+     *
+     * Healing (item 8): a row whose stored personaId differs from the
+     * derived one is overwritten. The only way they can differ is a
+     * launch-window stamp (a legacy session resolved to itself before
+     * the legacy set was written) — sessions never change persona, and
+     * the legacy set is append-only, so the derived value is
+     * authoritative. The old code only healed nulls and set the flag
+     * without healing when no nulls remained, leaving wrong values
+     * stored permanently.
      *
      * DEFERRED until the PersonaStore migration is done: backfilling
      * before that would resolve a legacy session id to itself (a new,
@@ -116,23 +128,27 @@ class ScheduledTaskStore(private val context: Context) {
         if (prefs.getBoolean(KEY_PERSONA_MIGRATION_DONE, false)) return
         if (!PersonaStore.isMigrationDone(context)) return
         val tasks = loadRaw()
-        if (tasks.none { it.personaId == null }) {
-            prefs.edit().putBoolean(KEY_PERSONA_MIGRATION_DONE, true).apply()
-            return
-        }
+        var healed = 0
         val migrated = tasks.map { task ->
-            if (task.personaId != null) task
-            else {
-                val targetSessionId = task.targetMode.sessionIdOrNull
-                val personaId = targetSessionId
-                    ?.let { PersonaStore.personaIdForSession(context, it) }
-                    ?: PersonaStore.DEFAULT_PERSONA_ID
-                task.copy(personaId = personaId)
-            }
+            val derived = derivePersona(task)
+            if (task.personaId != derived) {
+                healed++
+                task.copy(personaId = derived)
+            } else task
         }
-        write(migrated)
+        if (healed > 0) write(migrated)
         prefs.edit().putBoolean(KEY_PERSONA_MIGRATION_DONE, true).apply()
-        AppLogger.info(TAG, "scheduled-task persona migration done: ${migrated.size} task(s)")
+        AppLogger.info(TAG, "scheduled-task persona migration done: ${migrated.size} task(s)" +
+            if (healed > 0) " ($healed healed)" else "")
+    }
+
+    /** The persona a task should run under: creator session first, then
+     *  target session, then "default". See [migratePersonasIfNeeded]. */
+    private fun derivePersona(task: ScheduledTask): String {
+        val sourceSessionId = task.creatorSessionId ?: task.targetMode.sessionIdOrNull
+        return sourceSessionId
+            ?.let { PersonaStore.personaIdForSession(context, it) }
+            ?: PersonaStore.DEFAULT_PERSONA_ID
     }
 
     companion object {

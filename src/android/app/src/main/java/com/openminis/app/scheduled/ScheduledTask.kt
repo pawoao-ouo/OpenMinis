@@ -121,6 +121,16 @@ data class ScheduledTask(
      * instead of an empty dir.
      */
     val personaId: String? = null,
+    /**
+     * Multi-persona isolation (item 10): the session the task was
+     * created from (the creator's chat). Recorded by the CLI at create
+     * time; null for tasks created in the global editor (no creator
+     * session in scope) and for all pre-isolation rows. The store
+     * backfill attributes old tasks from this first, then the target
+     * session, then "default" — so a NEW_SESSION task created from a
+     * non-default persona's chat fires under that persona, not default.
+     */
+    val creatorSessionId: String? = null,
     val modelId: String? = null,             // null → use app default (or fall back from modelBinding's resolved entry)
     // [T-android-scheduled-task-model-binding] Mirrors ChatSessionEntity.modelBinding.
     // JSON: `{"type":"group","groupId":"..."}` or `{"type":"entry","entryId":"..."}`
@@ -226,6 +236,7 @@ data class ScheduledTask(
         put("prompt", prompt)
         put("targetMode", targetMode.encode())
         if (personaId != null) put("personaId", personaId)
+        if (creatorSessionId != null) put("creatorSessionId", creatorSessionId)
         if (modelId != null) put("modelId", modelId)
         if (modelBinding != null) put("modelBinding", modelBinding)
         put("enabled", enabled)
@@ -257,6 +268,7 @@ data class ScheduledTask(
             prompt = o.optString("prompt", ""),
             targetMode = ScheduledTargetMode.decode(o.optString("targetMode", null)),
             personaId = if (o.has("personaId")) o.optString("personaId", null) else null,
+            creatorSessionId = if (o.has("creatorSessionId")) o.optString("creatorSessionId", null) else null,
             modelId = if (o.has("modelId")) o.optString("modelId", null) else null,
             modelBinding = if (o.has("modelBinding")) o.optString("modelBinding", null) else null,
             enabled = o.optBoolean("enabled", true),

@@ -54,6 +54,13 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
             return NativeOffloadResult(0, HELP)
         }
         return try {
+            // Item 8: the caller persona resolves from the legacy set,
+            // which the one-time migration writes at launch. Awaiting it
+            // here (a no-op join after the first run) keeps every
+            // subcommand — list, create, run — from acting as the wrong
+            // persona in the launch window. runBlocking is safe on the
+            // offload thread (handleRun already blocks here).
+            runBlocking { PersonaStore.awaitMigration() }
             // Multi-persona isolation: the CLI runs inside the calling
             // chat's shell, so every subcommand is scoped to the caller
             // persona (resolved from request.sessionId). A task from one
@@ -146,8 +153,14 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
             // explicit personaId) — never "legacy": a task with no
             // persona would fire with no SOUL and empty memory.
             personaId = personaId,
+            // Item 10: record the creator's session so the store backfill
+            // (and any later healing) attributes this task to the creator's
+            // persona even for NEW_SESSION targets. Null outside a chat.
+            creatorSessionId = request.sessionId,
         )
-        manager.create(task)
+        // manager.create is suspend (it awaits the persona migration
+        // before stamping); the CLI thread blocks here like handleRun.
+        runBlocking { manager.create(task) }
         val out = JSONObject().put("created", taskJson(task))
         return NativeOffloadResult(0, out.toString(2))
     }

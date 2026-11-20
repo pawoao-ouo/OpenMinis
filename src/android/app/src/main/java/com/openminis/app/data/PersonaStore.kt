@@ -203,9 +203,19 @@ object PersonaStore {
      *     In particular personas/default/ history logs stay the default
      *     persona, and personas/me/ (user profile) is never touched.
      *
-     * The flag is set ONLY after the session list was read successfully:
-     * if the database cannot be read, the migration returns without
-     * setting the flag and retries on the next launch — otherwise old
+     * The flag is set ONLY after every copy step succeeded. A failed
+     * copy leaves the flag clear so the next launch retries it instead
+     * of permanently abandoning the data (item 7). The legacy set is
+     * written as soon as the session list reads successfully, so persona
+     * resolution is correct even while a copy retry is pending.
+     *
+     * The legacy set is snapshotted ONCE (item 8): on a re-run the
+     * already-written set is reused, never re-queried. Re-querying would
+     * sweep sessions created after the first snapshot into "default"
+     * permanently — a new session is its own persona, not a legacy one.
+     * The session-list read (which can fail) is therefore only needed
+     * when no set exists yet; if it fails, the migration returns without
+     * touching anything and retries on the next launch — otherwise old
      * sessions would silently resolve to their own (empty) persona dir
      * and lose their memory.
      */
@@ -213,20 +223,28 @@ object PersonaStore {
         val prefs = prefs(context)
         if (prefs.getBoolean(KEY_MIGRATION_DONE, false)) return
 
-        // 1. Read the pre-existing session ids FIRST: if this fails we
-        // return without touching anything, so the next launch retries.
-        val legacyIds = runCatching {
-            chatRepository.querySessionsMeta(
-                sessionIds = null, keywords = null, limit = Int.MAX_VALUE,
-                startMs = null, endMs = null,
-            ).map { it.id }
-        }.getOrElse {
-            AppLogger.warning(TAG, "persona migration: cannot list sessions (${it.message}) — will retry next launch")
-            return
-        }
+        // 1. The legacy set: reuse the snapshot from a previous (failed)
+        // attempt when one exists; otherwise read the pre-existing
+        // session ids. A failed read returns without touching anything,
+        // so the next launch retries.
+        val legacyIds: List<String> = prefs.getStringSet(KEY_LEGACY_DEFAULT_SESSIONS, null)?.toList()
+            ?: runCatching {
+                chatRepository.querySessionsMeta(
+                    sessionIds = null, keywords = null, limit = Int.MAX_VALUE,
+                    startMs = null, endMs = null,
+                ).map { it.id }
+            }.getOrElse {
+                AppLogger.warning(TAG, "persona migration: cannot list sessions (${it.message}) — will retry next launch")
+                return
+            }
+
+        // Write the set now (idempotent): persona resolution is correct
+        // from here on, even if a copy step below fails and retries.
+        prefs.edit().putStringSet(KEY_LEGACY_DEFAULT_SESSIONS, legacyIds.toSet()).apply()
 
         val filesDir = context.filesDir
         val root = File(filesDir, MEMORY_ROOT_SUBDIR)
+        var allStepsOK = true
 
         // 2. Memory + SOUL: copy flat files into memory/personas/default/.
         //    SOUL.md at the root is copied only when personas/default/
@@ -235,7 +253,12 @@ object PersonaStore {
         root.listFiles()?.forEach { src ->
             if (src.isFile && src.extension == "md") {
                 val dst = File(defaultDir, src.name)
-                if (!dst.exists()) runCatching { src.copyTo(dst) }
+                if (!dst.exists()) {
+                    runCatching { src.copyTo(dst) }.onFailure {
+                        allStepsOK = false
+                        AppLogger.warning(TAG, "persona migration: copy ${src.name} failed (${it.message}) — will retry next launch")
+                    }
+                }
             }
         }
 
@@ -246,16 +269,21 @@ object PersonaStore {
                 dir.listFiles()?.forEach { src ->
                     if (src.isFile && src.extension == "md") {
                         val dst = File(dstDir, src.name)
-                        if (!dst.exists()) runCatching { src.copyTo(dst) }
+                        if (!dst.exists()) {
+                            runCatching { src.copyTo(dst) }.onFailure {
+                                allStepsOK = false
+                                AppLogger.warning(TAG, "persona migration: copy ${src.name} failed (${it.message}) — will retry next launch")
+                            }
+                        }
                     }
                 }
             }
         }
 
-        prefs.edit()
-            .putStringSet(KEY_LEGACY_DEFAULT_SESSIONS, legacyIds.toSet())
-            .putBoolean(KEY_MIGRATION_DONE, true)
-            .apply()
-        AppLogger.info(TAG, "persona migration done: ${legacyIds.size} legacy session(s) → default persona")
+        // Item 7: the flag is set ONLY when every copy succeeded.
+        if (allStepsOK) {
+            prefs.edit().putBoolean(KEY_MIGRATION_DONE, true).apply()
+            AppLogger.info(TAG, "persona migration done: ${legacyIds.size} legacy session(s) → default persona")
+        }
     }
 }

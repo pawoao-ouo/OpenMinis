@@ -148,7 +148,9 @@ object PRootKernel {
         customEnvironment.putAll(systemProxyEnv(context))
 
         // Register global bind mounts so direct file I/O tools (file_read, file_edit)
-        // can resolve /var/minis/{memory,skills,shared}/... (idempotent).
+        // can resolve /var/minis/{skills,shared,mcp-servers}/... (idempotent).
+        // Memory is deliberately NOT here (item 4): it is per-persona, bound
+        // per-shell by ExecutionCoordinator.buildSessionBindMounts.
         registerGlobalBindMounts(context)
 
         // Start the native_offload server so the proot extension can reach it
@@ -185,18 +187,32 @@ object PRootKernel {
     /**
      * Register the global (session-independent) Minis bind mounts so direct
      * file I/O tools (file_read, file_edit) can resolve
-     * `/var/minis/{memory,skills,shared}/...` without needing PRoot to be
-     * booted or any shell to have started. Safe to call repeatedly.
+     * `/var/minis/{skills,shared,mcp-servers}/...` without needing PRoot
+     * to be booted or any shell to have started. Safe to call repeatedly.
+     *
+     * Item 4: "memory" is NOT a global mount anymore. Memory is
+     * per-persona and has exactly one source — the per-shell bind mount
+     * built by ExecutionCoordinator.buildSessionBindMounts (this session's
+     * persona dir). A global memory mount made session-less reads silently
+     * resolve to the flat memory root (the default persona's pre-migration
+     * data). Session-less memory reads now return null from
+     * resolveHostPath (explicit error); callers that know the session must
+     * use resolveSessionHostPath.
      */
     fun registerGlobalBindMounts(context: Context) {
         val globalBase = File(context.filesDir, "minis-global")
-        // [T-mcp-integration-android] mcp-servers is global (like memory/skills):
+        // [T-mcp-integration-android] mcp-servers is global (like skills):
         // binding it here makes the in-PRoot minis-mcp-cli read/write the SAME
         // servers.json the Android Settings UI does (host: minis-global/mcp-servers).
-        listOf("memory", "skills", "shared", "mcp-servers").forEach { subdir ->
+        listOf("skills", "shared", "mcp-servers").forEach { subdir ->
             val hostDir = File(globalBase, subdir).also { it.mkdirs() }
             bindMounts["/var/minis/$subdir"] = hostDir.absolutePath
         }
+        // Drop a stale global memory mount left by an older boot (item 4):
+        // registerGlobalBindMounts is idempotent and re-run at boot, so a
+        // pre-update entry would otherwise survive and keep serving the
+        // flat memory root to session-less reads.
+        bindMounts.remove("/var/minis/memory")
     }
 
     fun removeBindMount(linuxPath: String) {
@@ -671,7 +687,10 @@ object PRootKernel {
      * so its answer is last-writer-wins rather than "this session's view".
      *
      * Falls back to [resolveHostPath] for paths outside `/var/minis/` or for the
-     * shared subdirs (memory/skills/shared) which don't depend on sessionId.
+     * shared subdirs (skills/shared) which don't depend on sessionId. Memory
+     * never falls back: it resolves here to the session's persona dir, and a
+     * session-less caller gets null from resolveHostPath (item 4 — explicit
+     * error, never the flat memory root).
      */
     fun resolveSessionHostPath(sessionId: String, linuxPath: String, context: Context): File? {
         if (!linuxPath.startsWith("/var/minis/")) return resolveHostPath(linuxPath)
@@ -682,9 +701,7 @@ object PRootKernel {
         // session's persona dir (minis-global/memory/personas/<id>/),
         // never the flat memory root — the app-side equivalent of iOS
         // MinisFsRouter. A new session is its own persona; pre-migration
-        // sessions resolve to "default" via the legacy set. Session-less
-        // callers (UI/debug reads without a session) still fall through
-        // to the global bind mount below.
+        // sessions resolve to "default" via the legacy set.
         if (subdir == "memory") {
             val personaDir = com.openminis.app.data.PersonaStore.memoryDir(
                 context.filesDir,
@@ -701,9 +718,16 @@ object PRootKernel {
 
     /**
      * Resolve a Linux path to a host filesystem File by checking bind mounts.
-     * Returns null if no matching mount is found.
+     * Returns null if no matching mount is found — including for
+     * `/var/minis/memory/...` (item 4): memory is per-persona and has no
+     * global mount, so a session-less read is an explicit error (null),
+     * never a silent read of the flat memory root. Callers that know the
+     * session must use [resolveSessionHostPath].
      */
     fun resolveHostPath(linuxPath: String): File? {
+        if (linuxPath == "/var/minis/memory" || linuxPath.startsWith("/var/minis/memory/")) {
+            return null
+        }
         // Check bind mounts (longest prefix match)
         val sorted = bindMounts.keys.sortedByDescending { it.length }
         for (mountPoint in sorted) {
