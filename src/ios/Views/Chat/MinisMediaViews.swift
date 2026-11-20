@@ -237,10 +237,22 @@ func resolveMinisFileURL(url: URL) -> URL? {
         }
     }
 
-    // Fallback: global directories (skills, memory) are not per-session
+    // Fallback: global directories (skills, shared) are not per-session.
+    // ［persona］F1: memory is NOT in this list anymore — see the note on
+    // the static resolver: a minis-clone://memory/... link resolves only
+    // inside the ACTIVE session's own persona dir (or the user profile).
+    // Unknown persona fails closed.
+    if host == "memory" {
+        let pid = AIChatViewModel.activeSessionId.flatMap { MinisFsRouter.shared.persona(forSession: $0) }
+        for subPath in subPaths {
+            if let found = PersonaStore.memoryLinkURL(subPath: subPath, personaId: pid) {
+                minisLogger.info("[MinisImage][Resolve] \(url.absoluteString) → memory (persona-scoped) → \(found.path)")
+                return found
+            }
+        }
+    }
     let globalDirs: [(subdir: String, url: URL)] = [
         ("skills", AIChatViewModel.minisSkillsPersistentDir),
-        ("memory", AIChatViewModel.minisMemoryPersistentDir),
         ("shared", AIChatViewModel.minisSharedPersistentDir),
     ]
     for (subdir, globalDir) in globalDirs where host == subdir {
@@ -256,7 +268,7 @@ func resolveMinisFileURL(url: URL) -> URL? {
     // [T-ios-minisurl-cross-session-isolation] DO NOT scan other sessions.
     // minis-clone://attachments/<file> is session-scoped: it must only resolve
     // inside the ACTIVE session's directory (handled above), plus the genuinely
-    // global dirs (skills/memory/shared). The old
+    // global dirs (skills/shared) and the persona-scoped memory branch above. The old
     // "scan all session directories and return the first same-named file"
     // fallback was a P0 isolation leak — minis-model-use emits fixed names like
     // model-use-zimage-0.jpg, so session B referencing that path would silently

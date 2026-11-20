@@ -550,6 +550,45 @@ final class PersonaStore: ObservableObject {
             .appendingPathComponent("personas/\(personaID)", isDirectory: true)
     }
 
+    /// [persona] F1: resolve a memory subpath (relative to the flat memory
+    /// root, e.g. `personas/<pid>/GLOBAL.md`, as it arrives in a
+    /// `minis-clone://memory/...` link) to a host URL, scoped to ONE
+    /// persona. Only `personas/<personaId>/...` and `personas/me/...` (the
+    /// user profile, B28 R15) resolve; any other persona's files,
+    /// `personas.json`, and legacy root files return nil (fail closed).
+    /// The subpath is standardized lexically first, so a `..` is judged on
+    /// where it lands, and the candidate is checked against the canonical
+    /// persona dir, so a symlink inside the own dir pointing out cannot
+    /// launder another persona's file in. `personaId` nil (unknown persona)
+    /// resolves nothing. Nonisolated so the minis-clone:// resolvers — which
+    /// run on background threads too — can call it; it only touches
+    /// FileManager and the persona dirs.
+    nonisolated static func memoryLinkURL(subPath: String, personaId: String?) -> URL? {
+        guard let pid = personaId, !pid.isEmpty else { return nil }
+        let std = (subPath as NSString).standardizingPath
+        guard std.hasPrefix("personas/") else { return nil }
+        let afterPersonas = String(std.dropFirst("personas/".count))
+        let seg = afterPersonas.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? ""
+        let base: URL
+        if seg == pid {
+            base = memoryDir(for: pid)
+        } else if seg == userProfilePersonaID {
+            base = memoryDir(for: userProfilePersonaID)
+        } else {
+            return nil
+        }
+        let remainder = afterPersonas.dropFirst(seg.count).drop(while: { $0 == "/" })
+        let candidate = remainder.isEmpty ? base : base.appendingPathComponent(String(remainder))
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: candidate.path) else { return nil }
+        // Canonical containment: a symlink inside the own dir pointing at
+        // another persona's dir must not resolve through.
+        let resolved = candidate.standardizedFileURL.resolvingSymlinksInPath().path
+        let allowedBase = base.standardizedFileURL.resolvingSymlinksInPath().path
+        guard resolved == allowedBase || resolved.hasPrefix(allowedBase + "/") else { return nil }
+        return candidate
+    }
+
     /// [audit-E1] Memory dirs that actually exist on disk (default first,
     /// then stable order). Used by the OFF-main sync sweepers (dirty scanner,
     /// force-sync) that cannot read the @MainActor `personas` list.

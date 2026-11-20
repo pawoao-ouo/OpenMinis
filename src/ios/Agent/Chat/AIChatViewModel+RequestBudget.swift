@@ -409,10 +409,24 @@ extension AIChatViewModel {
             }
         }
 
-        // Global directories (skills, memory, shared, stickers, personas)
+        // Global directories (skills, shared, stickers, personas).
+        // ［persona］F1: memory is NOT in this list anymore. A
+        // minis-clone://memory/... link used to resolve against the flat
+        // memory root, so any message could render another persona's image
+        // or file. It now resolves only inside the ACTIVE session's own
+        // persona dir (or the user profile) via PersonaStore.memoryLinkURL;
+        // any other persona's path, personas.json, and legacy root files
+        // resolve to nothing. Unknown persona fails closed.
+        if host == "memory" {
+            let pid = activeSessionId.flatMap { MinisFsRouter.shared.persona(forSession: $0) }
+            for subPath in subPaths {
+                if let found = PersonaStore.memoryLinkURL(subPath: subPath, personaId: pid) {
+                    return found
+                }
+            }
+        }
         let globalDirs: [(String, URL)] = [
             ("skills", minisSkillsPersistentDir),
-            ("memory", minisMemoryPersistentDir),
             ("shared", minisSharedPersistentDir),
             ("stickers", minisStickersPersistentDir),
             ("personas", minisPersonasPersistentDir),

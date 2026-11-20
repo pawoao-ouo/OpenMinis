@@ -494,12 +494,21 @@ enum SoulIconSource {
 
     /// The directories a config-driven read may touch. Session-scoped dirs use
     /// the ACTIVE session only, matching `resolveMinisURL`'s isolation rule.
+    /// [persona] F1: memory is scoped the same way — the flat memory root
+    /// used to be an allowed root, so a config-driven read could pull any
+    /// persona's file. Only the active session's own persona dir and the
+    /// user profile are in. Unknown persona (no active session, or lookup
+    /// failed) leaves memory out entirely (fail closed).
     private static func allowedRoots() -> [URL] {
         var roots: [URL] = [
             AIChatViewModel.minisSkillsPersistentDir,
-            AIChatViewModel.minisMemoryPersistentDir,
             AIChatViewModel.minisSharedPersistentDir,
         ]
+        if let sid = AIChatViewModel.activeSessionId,
+           let pid = MinisFsRouter.shared.persona(forSession: sid) {
+            roots.append(PersonaStore.memoryDir(for: pid))
+            roots.append(PersonaStore.memoryDir(for: PersonaStore.userProfilePersonaID))
+        }
         if let sid = AIChatViewModel.activeSessionId {
             roots.append(AIChatViewModel.minisPersistentBase
                 .appendingPathComponent(sid, isDirectory: true))

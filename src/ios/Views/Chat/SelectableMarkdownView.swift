@@ -10312,13 +10312,17 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
             }
         }
     } else if host == "memory" {
+        // ［persona］F1: memory is persona-scoped, not global. A
+        // minis-clone://memory/... link resolves only inside the ACTIVE
+        // session's own persona dir (or the user profile); any other
+        // persona's path, personas.json, and legacy root files resolve to
+        // nothing. Unknown persona fails closed.
+        let pid = AIChatViewModel.activeSessionId.flatMap { MinisFsRouter.shared.persona(forSession: $0) }
         for subPath in subPaths {
-            let candidate = AIChatViewModel.minisMemoryPersistentDir.appendingPathComponent(subPath)
-            imgLogger.info("[MinisImage][Resolve] checking global memory path=\(candidate.path)")
-            if fm.fileExists(atPath: candidate.path) {
-                let size = (try? fm.attributesOfItem(atPath: candidate.path)[.size] as? Int64) ?? -1
-                imgLogger.info("[MinisImage][Resolve] FOUND global memory path=\(candidate.path) size=\(size)")
-                return candidate
+            if let found = PersonaStore.memoryLinkURL(subPath: subPath, personaId: pid) {
+                let size = (try? fm.attributesOfItem(atPath: found.path)[.size] as? Int64) ?? -1
+                imgLogger.info("[MinisImage][Resolve] FOUND memory (persona-scoped) path=\(found.path) size=\(size)")
+                return found
             }
         }
     }
@@ -10331,11 +10335,17 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
     // session-scoped; not-found is the correct result for a cross-session ref.
     //
     // The rootfs `/var/minis/<host>` fallback is kept ONLY for the global,
-    // non-session-scoped namespaces (skills/memory/shared) — for those it just
+    // non-session-scoped namespaces (skills/shared) — for those it just
     // points at the same global dir the iSH mount binds to. We explicitly
     // restrict it to those hosts so it can never reach another session's
     // attachments via whichever session happens to be mounted.
-    let globalHosts: Set<String> = ["skills", "memory", "shared"]
+    //
+    // ［persona］F1: "memory" is deliberately NOT in this set anymore. The
+    // rootfs path data/var/minis/memory/ is a symlink to the FLAT memory
+    // root, so this fallback would re-open every persona's files that the
+    // persona-scoped branch above just refused. Memory files are resolved
+    // only through that branch.
+    let globalHosts: Set<String> = ["skills", "shared"]
     if globalHosts.contains(host) {
         for subPath in subPaths {
             let rootfsURL = RootfsManager.shared.dataPath
