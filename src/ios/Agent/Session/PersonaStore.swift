@@ -515,6 +515,24 @@ final class PersonaStore: ObservableObject {
 
     // MARK: - nonisolated 静态助手（prompt 组装 / 工具过滤用）
 
+    /// [persona] F7: 会话→人设的同步查找表，供只能同步读的展示面用
+    /// （Live Activity、Now Playing 锁屏艺人栏）。ChatStore 是 actor，
+    /// 会话归属只能 await 查，同步展示路径等不起——所以 loadSession 落定
+    /// 人设后在这里记一笔。查不到返回 nil，调用方回落到原来的全局名
+    /// （不比以前差）。会话 id 是 UUID，永不复用，不用逐出。
+    /// 只在 @MainActor 读写（所有读写方都在主 actor 上）。
+    static var sessionPersonaCache: [String: String] = [:]
+
+    /// [persona] F7: 记下某会话归属的人设（loadSession 落定后调）。
+    static func notePersonaId(sessionId: String, personaId: String) {
+        sessionPersonaCache[sessionId] = personaId
+    }
+
+    /// [persona] F7: 同步查某会话的人设，未记过返回 nil。
+    static func personaId(forSessionId sessionId: String) -> String? {
+        sessionPersonaCache[sessionId]
+    }
+
     /// 当前人设 id。读 UserDefaults，不碰 @MainActor 状态。
     nonisolated static func currentID() -> String {
         readCurrentID()

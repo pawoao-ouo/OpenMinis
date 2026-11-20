@@ -173,6 +173,11 @@ extension AIChatViewModel {
         if sessionPersonaId == nil {
             logger.error("[persona] loadSession: persona lookup failed id=\(sessionId.prefix(8)) — session persona unknown, session paths will fail closed")
         }
+        // [persona] F7: 记进同步查找表，供 Live Activity / Now Playing 这类
+        // 只能同步读的展示面按会话查人设。nil 不记（未知人设不进表）。
+        if let pid = sessionPersonaId {
+            PersonaStore.notePersonaId(sessionId: sessionId, personaId: pid)
+        }
 
         // [S19] Restore any unsent composer text saved for this session
         // (per-keystroke UserDefaults write). Runs here — before the
