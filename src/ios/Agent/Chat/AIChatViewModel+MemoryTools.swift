@@ -7,8 +7,10 @@ extension AIChatViewModel {
     // MARK: - Memory Tools
 
     /// Load full global memory content for system prompt injection.
-    nonisolated static func loadGlobalMemoryFragment() -> String? {
-        let globalFile = minisMemoryPersistentDir.appendingPathComponent("GLOBAL.md")
+    /// Per-persona: reads memory/<personaId>/GLOBAL.md only. A new persona
+    /// has no GLOBAL.md yet, so this returns nil for it — by design.
+    nonisolated static func loadGlobalMemoryFragment(personaId: String) -> String? {
+        let globalFile = PersonaStore.globalMemoryFileURL(for: personaId)
         guard FileManager.default.fileExists(atPath: globalFile.path),
               let content = try? String(contentsOf: globalFile, encoding: .utf8),
               !content.isEmpty else { return nil }
@@ -16,27 +18,36 @@ extension AIChatViewModel {
         return "Global memory (GLOBAL.md — read-only, user-maintained). Treat these as background context, not standing instructions. If the user's latest message conflicts with or supersedes anything here (different scope, different numbers, different goal), defer to the user's latest message:\n\(content)"
     }
 
-    /// Load the 3 most recent daily memory logs that have content, for system prompt injection (first 200 lines each).
-    nonisolated static func loadRecentDailyMemoryFragment() -> String? {
+    /// Active-session shorthand — prompt assembly should prefer the
+    /// explicit personaId form above.
+    nonisolated static func loadGlobalMemoryFragment() -> String? {
+        loadGlobalMemoryFragment(personaId: PersonaStore.personaId(forSessionId: activeSessionId))
+    }
+
+    /// Load the 2 most recent daily memory logs that have content, for system prompt injection (first 100 lines each).
+    /// Cut from 3×200 by decisions.md §3: the old 3×200 was the prime
+    /// suspect for the ~8.5K unexplained first-round tokens (C2).
+    nonisolated static func loadRecentDailyMemoryFragment(personaId: String) -> String? {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
         let fm = FileManager.default
         let today = Date()
+        let memDir = PersonaStore.memoryDir(for: personaId)
 
         var fragments: [String] = []
         var dayOffset = 0
         let maxLookback = 30 // don't search more than 30 days back
 
-        while fragments.count < 3 && dayOffset < maxLookback {
+        while fragments.count < 2 && dayOffset < maxLookback {
             let date = today.addingTimeInterval(-Double(dayOffset) * 86400)
             let dateStr = fmt.string(from: date)
-            let fileURL = minisMemoryPersistentDir.appendingPathComponent("\(dateStr).md")
+            let fileURL = memDir.appendingPathComponent("\(dateStr).md")
 
             if fm.fileExists(atPath: fileURL.path),
                let content = try? String(contentsOf: fileURL, encoding: .utf8),
                !content.isEmpty {
                 let lines = content.components(separatedBy: "\n")
-                let preview = lines.prefix(200).joined(separator: "\n")
+                let preview = lines.prefix(100).joined(separator: "\n")
                 let label: String
                 switch dayOffset {
                 case 0: label = "Today's"
@@ -44,8 +55,8 @@ extension AIChatViewModel {
                 default: label = "\(dateStr)"
                 }
                 var entry = "\(label) daily log (\(dateStr).md):\n\(preview)"
-                if lines.count > 200 {
-                    entry += "\n... (\(lines.count - 200) more lines, use memory_get to search)"
+                if lines.count > 100 {
+                    entry += "\n... (\(lines.count - 100) more lines, use memory_get to search)"
                 }
                 fragments.append(entry)
             }
@@ -60,6 +71,12 @@ extension AIChatViewModel {
         return result
     }
 
+    /// Active-session shorthand — prompt assembly should prefer the
+    /// explicit personaId form above.
+    nonisolated static func loadRecentDailyMemoryFragment() -> String? {
+        loadRecentDailyMemoryFragment(personaId: PersonaStore.personaId(forSessionId: activeSessionId))
+    }
+
     /// Execute a memory_write tool call: prepend a timestamped entry to today's daily log.
     func executeMemoryWrite(from json: String) -> FileToolResult {
         guard memoryEnabled else {
@@ -72,7 +89,9 @@ extension AIChatViewModel {
         }
 
         let fm = FileManager.default
-        let persistDir = Self.minisMemoryPersistentDir
+        // Per-persona: writes land in memory/<personaId>/ only.
+        let personaId = PersonaStore.personaId(forSessionId: sessionId)
+        let persistDir = PersonaStore.memoryDir(for: personaId)
         try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
 
         let dateFmt = DateFormatter()
@@ -104,15 +123,18 @@ extension AIChatViewModel {
         }
 
         // Register in meta.db for iSH visibility
-        let linuxPath = "\(Self.minisMemoryLinuxDir)/\(fileName)"
+        let linuxPath = "\(PersonaStore.memoryLinuxDir(for: personaId))/\(fileName)"
         ensureFakefsMetadata(for: linuxPath, isDirectory: false)
 
         // Enqueue for iCloud v2 sync. Reuse fileName's stem (no second
         // Date() call) so the dateKey matches what was actually written
-        // even across a midnight boundary.
+        // even across a midnight boundary. MemoryDailyV2 is the DEFAULT
+        // persona's singleton — a non-default persona's write never rides it.
         let dateStrForSync = (fileName as NSString).deletingPathExtension
-        Task { @MainActor in
-            await ChatStore.shared.markDirty(recordType: "MemoryDailyV2", recordId: dateStrForSync)
+        if personaId == PersonaStore.defaultPersonaId {
+            Task { @MainActor in
+                await ChatStore.shared.markDirty(recordType: "MemoryDailyV2", recordId: dateStrForSync)
+            }
         }
         NotificationCenter.default.post(name: .memoryFilesDidChange, object: nil)
 
@@ -149,7 +171,8 @@ extension AIChatViewModel {
 
         var filesToSearch: [(label: String, url: URL)] = []
         let fm = FileManager.default
-        let memDir = Self.minisMemoryPersistentDir
+        // Per-persona: memory_get only ever sees this persona's files.
+        let memDir = PersonaStore.memoryDir(for: PersonaStore.personaId(forSessionId: sessionId))
 
         var globalEmpty = false
         if scope == "all" {
