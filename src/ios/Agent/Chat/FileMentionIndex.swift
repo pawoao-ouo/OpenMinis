@@ -194,7 +194,12 @@ final class FileMentionIndex: ObservableObject {
 
         // Build scan plan on main actor.
         let sessionRoots = Self.sessionRoots(sessionId: sessionId)
-        let sharedRoots = Self.sharedRoots()
+        // ［persona］F1: the memory root is scoped to this session's persona
+        // (sync cache, noted at loadSession). A cache miss means the persona
+        // is unknown — the memory root is omitted, not widened to the flat
+        // root. See sharedRoots.
+        let memoryPersonaId = sessionId.flatMap { PersonaStore.personaId(forSessionId: $0) }
+        let sharedRoots = Self.sharedRoots(memoryPersonaId: memoryPersonaId)
         #if DEBUG
         print("[MentionScan] scan start token=\(token.uuidString.prefix(8)) sid=\(sessionId ?? "nil") sessionRoots=\(sessionRoots.count) sharedRoots=\(sharedRoots.count) budget=\(globalScanBudget)")
         for r in sessionRoots {
@@ -361,9 +366,10 @@ final class FileMentionIndex: ObservableObject {
 
     // MARK: - Root discovery (main actor)
 
-    /// Session-scoped roots. Browser/offloads/memory/skills intentionally excluded
+    /// Session-scoped roots. Browser/offloads/skills intentionally excluded
     /// from session scope since browser snapshots aren't user-authored files and
-    /// offloads/memory/skills are handled via their global roots.
+    /// offloads/skills are handled via their global roots. Memory is NOT
+    /// here either — it is persona-scoped, see sharedRoots(memoryPersonaId:).
     private static func sessionRoots(sessionId: String?) -> [ScanRoot] {
         guard let sid = sessionId, !sid.isEmpty else { return [] }
         return [
@@ -380,8 +386,8 @@ final class FileMentionIndex: ObservableObject {
         ]
     }
 
-    private static func sharedRoots() -> [ScanRoot] {
-        [
+    private static func sharedRoots(memoryPersonaId: String?) -> [ScanRoot] {
+        var roots = [
             ScanRoot(
                 scope: .shared,
                 hostURL: AIChatViewModel.minisSharedPersistentDir,
@@ -392,12 +398,22 @@ final class FileMentionIndex: ObservableObject {
                 hostURL: AIChatViewModel.minisSkillsPersistentDir,
                 linuxPrefix: AIChatViewModel.minisSkillsLinuxDir,
             ),
-            ScanRoot(
-                scope: .memory,
-                hostURL: AIChatViewModel.minisMemoryPersistentDir,
-                linuxPrefix: AIChatViewModel.minisMemoryLinuxDir,
-            ),
         ]
+        // ［persona］F1: memory is NOT a shared root. The flat memory root
+        // used to be scanned recursively here, so @-mention listed every
+        // persona's SOUL.md / GLOBAL.md / daily logs (and the user profile
+        // under personas/me/). Only the calling session's own persona dir
+        // is indexed, under its taught guest path; the user profile is
+        // never enumerated. Unknown persona (nil) fails closed: no memory
+        // root at all, so the menu simply shows no memory files.
+        if let pid = memoryPersonaId {
+            roots.append(ScanRoot(
+                scope: .memory,
+                hostURL: PersonaStore.memoryDir(for: pid),
+                linuxPrefix: "\(AIChatViewModel.minisMemoryLinuxDir)/personas/\(pid)",
+            ))
+        }
+        return roots
     }
 
     // MARK: - Background scanning
