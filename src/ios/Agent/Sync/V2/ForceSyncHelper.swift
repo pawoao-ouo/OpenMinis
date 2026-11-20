@@ -137,7 +137,8 @@ enum ForceSyncHelper {
     @MainActor
     @discardableResult
     static func markSoulDirty() async -> Int {
-        let url = SoulStore.fileURL
+        // Default persona only — the active session's soul is not syncable.
+        let url = SoulStore.fileURL(for: PersonaStore.defaultPersonaId)
         guard FileManager.default.fileExists(atPath: url.path) else { return 0 }
         await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul")
         return 1
