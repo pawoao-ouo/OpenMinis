@@ -702,7 +702,7 @@ final class MCPStore: ObservableObject {
         var enabled = servers.filter { isEnabledForSession($0.id, sessionId: sessionId) }
         // ［persona］人设 MCP 白名单：nil = 全可用；非 nil = 只留名单里的。
         // 会话人设未知时不过滤（nil 白名单），绝不拿全局当前人设的名单顶替。
-        let wl = personaID.map { PersonaStore.whitelist(for: $0) } ?? (nil, nil)
+        let wl = personaID.map { PersonaStore.whitelist(for: $0) } ?? (skillIds: nil, mcpServerIds: nil)
         if let allowed = wl.mcpServerIds {
             let set = Set(allowed)
             enabled = enabled.filter { set.contains($0.id) }
