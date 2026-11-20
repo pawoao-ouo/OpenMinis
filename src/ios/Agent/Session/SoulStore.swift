@@ -819,9 +819,24 @@ enum SoulStore {
     /// Safe to call on every launch — never overwrites existing content.
     /// Defaults to the active session's persona.
     static func ensureExists(personaId: String? = nil) {
-        let url = fileURL(for: personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId)
+        let pid = personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId
+        let url = fileURL(for: pid)
         let fm = FileManager.default
         guard !fm.fileExists(atPath: url.path) else { return }
+        // Round-2 new problem 3: do NOT seed the default persona's
+        // SOUL.md while a flat legacy SOUL.md exists. The one-time
+        // migration copies the flat file into personas/default/ with a
+        // target-missing guard, and MinisApp's .onAppear calls this
+        // before the async migration task finishes — a seed written
+        // first would make migration skip the user's real SOUL forever.
+        // (Mirrors Android SoulStore.ensureExists, which returns when
+        // the flat file exists.) After migration the copy is in place
+        // so this early-returns above; on a fresh install there is no
+        // flat file so seeding proceeds.
+        if pid == PersonaStore.defaultPersonaId {
+            let legacyFlat = AIChatViewModel.minisMemoryPersistentDir.appendingPathComponent("SOUL.md")
+            if fm.fileExists(atPath: legacyFlat.path) { return }
+        }
         // Parent dir is created earlier by registerFileProviderDomain;
         // defensive createDirectory here in case ensureExists is invoked
         // from a code path that runs before that.
