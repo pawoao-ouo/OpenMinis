@@ -324,8 +324,14 @@ private struct MemoryContentView: View {
             // default persona's SOUL, so a non-default persona's edit
             // never synced.
             if url.lastPathComponent == "SOUL.md" {
-                SoulStore.refreshCache()
+                // Item 3 (small-issues fix): refresh THIS persona's cache
+                // entry, not the marker-or-default one — the no-arg form
+                // refreshed whatever the foreground marker points at, so
+                // editing a non-foreground persona's SOUL left the header
+                // showing the stale name until reload. The edited persona
+                // is the SOUL file's parent dir (memory/personas/<pid>/).
                 let editedPersonaId = url.deletingLastPathComponent().lastPathComponent
+                SoulStore.refreshCache(personaId: editedPersonaId)
                 Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: PersonaStore.soulRecordId(for: editedPersonaId)) }
             }
             isEditing = false
