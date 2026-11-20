@@ -151,11 +151,20 @@ enum PersonaStore {
         cacheWarm = true
     }
 
-    /// Active session's persona: the stored value set at load/create,
-    /// else the cache lookup for the active session id. Nil when unknown.
+    /// Active session's persona: ONLY the foreground marker set at
+    /// load/create of a foreground session (re-asserted on chat appear,
+    /// cleared on disappear). It deliberately does NOT fall back to
+    /// the cache lookup for AIChatViewModel.activeSessionId: that id
+    /// is set unconditionally by every loadSession — including
+    /// background loads (App Intents, Debug RPC, offload bridge) —
+    /// and is never cleared on disappear, so the fallback let the
+    /// no-arg SoulStore paths keep resolving to the previous chat's
+    /// persona after it closed (item A, round 3). Nil when no
+    /// foreground session — callers fall back to the default persona
+    /// or to nil, as their comments say. Do NOT re-add the fallback:
+    /// activeSessionId is an agent-loop gate with its own semantics.
     static func personaIdForActiveSession() -> String? {
-        if let pid = activePersonaId { return pid }
-        return cachedPersonaId(forSessionId: AIChatViewModel.activeSessionId)
+        activePersonaId
     }
 
     static func forgetSession(_ sid: String) {
