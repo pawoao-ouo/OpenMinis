@@ -2336,15 +2336,6 @@ struct AIChatView: View {
     }
 
     private var titleView: some View {
-        let display = SessionModelDisplay(store: configStore, draftGroupId: vm.initialGroupId)
-        let modelName = display.displayName(for: vm.sessionId)
-        let isGroupBound = display.isGroupBound(for: vm.sessionId)
-        let resolved = display.resolvedDetail(for: vm.sessionId)
-        let hasBinding = vm.sessionId != nil && configStore.binding(for: vm.sessionId!) != nil
-        let hasProviders = !configStore.instances.isEmpty
-
-        let isAuthed = hasBinding || hasProviders
-
         let legacyLayout = !ProcessInfo.processInfo.isiOSAppOnMac && {
             if #available(iOS 26, *) { return false }
             return true
@@ -2360,6 +2351,10 @@ struct AIChatView: View {
             .flatMap { $0.isEmpty ? nil : $0 }
         let canEditTitle = titlePillSession != nil
 
+        // [batch28] The header is now a single row (title + thinking badge
+        // + typing dots); the two model-name rows are gone. The 3-row clip
+        // tuning notes below are retired history — the 46pt frame is
+        // unchanged and still centers the row.
         // [NavTitleClip 2026-05-16] On iOS 26 the principal toolbar
         // container clipped the top of the title and the bottom of the
         // resolved-detail subtitle when a 3-line stack was used. Adding
@@ -2397,7 +2392,7 @@ struct AIChatView: View {
         // 4 → 1 and group vertical padding 3 → 2 on legacy), so the stack's
         // total height — the thing the May-18/19/20 clip saga fought — is
         // unchanged and the top-clip fix does not regress.
-        return VStack(spacing: legacyLayout ? -3 : -2) {
+        return HStack(spacing: 6) {
             Button {
                 if let s = titlePillSession { titlePillEditSession = s }
             } label: {
@@ -2473,166 +2468,52 @@ struct AIChatView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canEditTitle)
+            .layoutPriority(-1)
 
-            // [T-navbar-group-provider-gap 2026-07-25] Legacy row gap 1 → -1:
-            // on iOS 16-18 the provider·model line (row 2) sat flush against
-            // the navbar band's bottom edge (field screenshot: group name and
-            // row 2 had a visibly larger gap than row 2 had bottom clearance).
-            // Tightening ONLY the group↔provider gap moves row 2 up inside
-            // the band, giving the last line breathing room from the bottom.
-            // -1 still leaves ~2pt visual space (caption2's descender zone +
-            // the 9pt row's cap headroom); the calibrated title↔group overlap
-            // (outer -3) and the group pill's vertical padding are untouched.
-            // iOS 26 keeps spacing 1 — the liquid-glass band has no crowding.
-            VStack(spacing: legacyLayout ? -1 : 1) {
-                HStack(spacing: 4) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(isAuthed ? ChatColors.success : ChatColors.warning)
-                            .frame(width: 6, height: 6)
-                        if isGroupBound {
-                            Image(systemName: "square.stack.3d.up")
-                                .font(.system(size: 8))
-                                .foregroundStyle(ChatColors.tertiaryText)
-                        }
-                        Text(modelName)
-                            .font(.caption2)
-                            .foregroundStyle(ChatColors.secondaryText)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .layoutPriority(-1)
-                    // [T-ios-voiceover-labels] This label is assembled from a
-                    // status dot, an optional group glyph, the model name and a
-                    // chevron. Left alone VoiceOver reads those as disconnected
-                    // fragments ("square stack 3d up", "chevron down"), so
-                    // combine the row into one element and state what it is.
-                    // The connection state and group binding are carried as the
-                    // VALUE rather than folded into the label, so VoiceOver
-                    // keeps them distinguishable from the control's name.
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text("Model", comment: "VoiceOver label for the model picker button"))
-                    .accessibilityValue(Text(
-                        isGroupBound
-                            ? (isAuthed
-                                ? AppLocalized("\(modelName), group, signed in", comment: "VoiceOver value: model picker, group-bound, authenticated")
-                                : AppLocalized("\(modelName), group, not signed in", comment: "VoiceOver value: model picker, group-bound, not authenticated"))
-                            : (isAuthed
-                                ? AppLocalized("\(modelName), signed in", comment: "VoiceOver value: model picker, authenticated")
-                                : AppLocalized("\(modelName), not signed in", comment: "VoiceOver value: model picker, not authenticated"))
-                    ))
-                    .accessibilityHint(Text("Opens the model picker", comment: "VoiceOver hint for the model picker button"))
-                    .accessibilityAddTraits(.isButton)
-                }
-
-                if let detail = resolved {
-                    // Row 2: "provider · model" + the thinking-level badge as a
-                    // SEPARATE tappable sibling (not nested in the model-picker
-                    // Button) so the badge opens ThinkingLevelSheetView while the
-                    // text still opens the model picker — mirroring how row 1's
-                    // model-name Button and badge were laid out. The model name
-                    // truncates first (layoutPriority(-1) + lineLimit(1)); the
-                    // badge keeps its intrinsic size and always shows in full.
-                    HStack(spacing: 4) {
-                        // [T-codex-fast-mode] Circular-background ⚡ badge in
-                        // front of the resolved model line (row 3) while Fast
-                        // Mode is active (Codex OAuth only). User-requested
-                        // placement: this row names the actual model; row 2
-                        // may show a group name instead.
-                        if codexFastModeEnabled && activeModelSupportsFastMode {
-                            // Sized to the row's 9pt text cap height so the
-                            // badge reads as an inline glyph, not a button.
-                            Image(systemName: "bolt.fill")
-                                .font(.system(size: 5, weight: .bold))
-                                .foregroundStyle(ChatColors.primaryText)
-                                .frame(width: 9, height: 9)
-                                .background(Circle().fill(ChatColors.warning))
-                                // Match the row text's descender clearance so
-                                // the badge centers on the same visual band.
-                                .padding(.bottom, legacyLayout ? 1 : 4)
-                        }
-                        Button {
-                            showModelPicker = true
-                        } label: {
-                            Text("\(detail.providerLabel) · \(detail.modelName)")
-                                .font(ChatFont.font(9))
-                                .foregroundStyle(ChatColors.secondaryText)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                // [NavTitleClip 2026-05-16] Reserve clearance
-                                // under the resolved-detail line so the final
-                                // glyph descenders ("g","p","y") don't touch
-                                // the navbar's bottom safe-area cutoff on
-                                // iOS 26. 2 → 4pt: 2 wasn't enough when text
-                                // included descenders ("Fake Hang 1" clipped
-                                // the lowered "1" stroke).
-                                // [T-navbar-title-model-gap] Legacy needs only
-                                // 1pt — the 4pt clearance is an iOS 26
-                                // liquid-glass-band requirement; on 16-18 it
-                                // was pure height waste, now traded into the
-                                // title→model gap (see the outer VStack).
-                                .padding(.bottom, legacyLayout ? 1 : 4)
-                                // Force vertical sizing to fit the full
-                                // glyph including descender so the line's
-                                // own frame doesn't crop before the navbar
-                                // gets a chance to lay it out.
-                                .fixedSize(horizontal: false, vertical: true)
-                                .layoutPriority(-1)
-                        }
-                        .buttonStyle(.plain)
-                        // Show the badge whenever thinking is enabled, and ALSO
-                        // when it's Off but the active model supports deep
-                        // thinking — the icon + "Off" pill is then a discoverable
-                        // entry point for turning it on (tap opens the level
-                        // sheet). The Off pill is gated on
-                        // `currentModelSupportsReasoning` so non-reasoning models
-                        // don't grow a dead toggle; an enabled level still shows
-                        // unconditionally (user may have opted in on an
-                        // unknown-capability model).
-                        if !vm.availableThinkingLevels.isEmpty,
-                           vm.currentThinkingLevel.isEnabled || vm.currentModelSupportsReasoning {
-                            thinkingLevelBadge
-                                .fixedSize()
-                                // Match the model-name line's descender
-                                // clearance so the badge sits on the same
-                                // baseline band and isn't clipped at the
-                                // navbar's bottom cutoff.
-                                // [T-navbar-title-model-gap] Match the
-                                // provider text's legacy clearance.
-                                .padding(.bottom, legacyLayout ? 1 : 4)
-                        }
-                    }
-                }
+            // [batch28] Thinking level stays: same gate, same badge, still
+            // opens ThinkingLevelSheetView. The two model-name rows are gone
+            // (row 1's status-dot/modelName row and row 2's provider·model
+            // button); the model picker still opens from the "+" panel's
+            // sparkles item (performPlusPanelAction, case .sparkles).
+            if !vm.availableThinkingLevels.isEmpty,
+               vm.currentThinkingLevel.isEnabled || vm.currentModelSupportsReasoning {
+                thinkingLevelBadge
+                    .fixedSize()
             }
-            .padding(.horizontal, 8)
-            // [T-navbar-title-model-gap] 3 → 2 on legacy: part of the
-            // height-neutral trade that funds the wider title→model gap.
-            .padding(.vertical, legacyLayout ? 2 : 3)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(ChatColors.destructive.opacity(0.35 * fallbackPulseOpacity))
-            )
-            .onChange(of: vm.fallbackTrigger) { _ in
-                // 3× pulse: fade in then out, repeated 3 times
-                fallbackPulseOpacity = 0
-                withAnimation(.easeInOut(duration: 0.35)) {
-                    fallbackPulseOpacity = 1
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                    withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
-                    withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-                    withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.75) {
-                    withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
-                }
+            // [batch28] Typing state, moved to the header: three dots, no
+            // text. HeaderTypingDots observes the last real message, so it
+            // shows exactly while the header owns the state.
+            if let lastReal = vm.messages.last(where: { !$0.isQABubble }) {
+                HeaderTypingDots(message: lastReal, isProcessing: vm.isProcessing)
+            }
+        }
+        .padding(.horizontal, 8)
+        // [T-navbar-title-model-gap] Vertical padding 2 on legacy (was 3).
+        .padding(.vertical, legacyLayout ? 2 : 3)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(ChatColors.destructive.opacity(0.35 * fallbackPulseOpacity))
+        )
+        .onChange(of: vm.fallbackTrigger) { _ in
+            // 3× pulse: fade in then out, repeated 3 times
+            fallbackPulseOpacity = 0
+            withAnimation(.easeInOut(duration: 0.35)) {
+                fallbackPulseOpacity = 1
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
+                withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.75) {
+                withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
             }
         }
         // [T-navbar-title-clip 2026-05-21] Nudge the whole legacy title
@@ -2669,6 +2550,27 @@ struct AIChatView: View {
         .blur(radius: titleIsVisuallyLocked ? 8 : 0)
         .allowsHitTesting(!titleIsVisuallyLocked)
         .animation(.easeInOut(duration: 0.15), value: titleIsVisuallyLocked)
+    }
+
+    /// [batch28] The header's typing state: three dots, no text. Takes the
+    /// last real message as an observed object so per-message flips (first
+    /// block lands, `isAwaitingModelResponse` toggles between rounds)
+    /// re-render just the dots — the header itself only re-renders when
+    /// `vm.messages` or `vm.isProcessing` changes. Visible exactly when the
+    /// header owns the state: the last real (non-Q&A) message is an
+    /// assistant row whose `shouldShowTypingIndicator` is true and the agent
+    /// loop is running. The footer suppresses its own indicator for this
+    /// same row, so the dots never show twice.
+    private struct HeaderTypingDots: View {
+        @ObservedObject var message: ChatMessage
+        var isProcessing: Bool
+
+        var body: some View {
+            if message.role == .assistant, message.shouldShowTypingIndicator, isProcessing {
+                TypingDots()
+                    .fixedSize()
+            }
+        }
     }
 
     @ViewBuilder
@@ -5527,9 +5429,9 @@ struct NavTitleFrameModifier: ViewModifier {
             // frames along the 46pt box far more aggressively than the steady
             // state (users saw the title sliced to half a line during the
             // animation). The 46pt frame only *sizes* the item for band
-            // alignment — the 3-row stack's natural height already fits within
-            // it at steady state (spacing -2, ~44pt), so there is nothing to clip
-            // away, and letting transition frames render uncropped restores the
+            // alignment — the single-row stack's natural height fits within
+            // it at steady state, so there is nothing to clip away, and letting
+            // transition frames render uncropped restores the
             // standard system title transition.
             content
                 .frame(height: 46, alignment: .center)
