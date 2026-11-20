@@ -241,15 +241,18 @@ extension AIChatViewModel {
         return raw
     }
 
-    /// Persistent storage directory for a specific session's workspace.
-    nonisolated static func minisWorkspacePersistentDir(for sid: String) -> URL {
-        minisPersistentBase.appendingPathComponent(sid, isDirectory: true)
+    /// Persistent storage directory for a specific session's workspace:
+    /// <minis>/<personaId>/<sessionId>/workspace. Same persona rule as
+    /// minisOffloadsPersistentDir (cache default "default").
+    nonisolated static func minisWorkspacePersistentDir(for sid: String, personaId: String? = nil) -> URL {
+        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaId(forSessionId: sid))
             .appendingPathComponent("workspace", isDirectory: true)
     }
 
-    /// Persistent storage directory for a specific session's browser snapshots.
-    nonisolated static func minisBrowserPersistentDir(for sid: String) -> URL {
-        minisPersistentBase.appendingPathComponent(sid, isDirectory: true)
+    /// Persistent storage directory for a specific session's browser snapshots:
+    /// <minis>/<personaId>/<sessionId>/browser. Same persona rule as above.
+    nonisolated static func minisBrowserPersistentDir(for sid: String, personaId: String? = nil) -> URL {
+        PersonaStore.sessionDir(for: sid, personaId: personaId ?? PersonaStore.personaId(forSessionId: sid))
             .appendingPathComponent("browser", isDirectory: true)
     }
 
@@ -274,19 +277,24 @@ extension AIChatViewModel {
         return url
     }
 
-    /// Persistent storage directory for memory (shared across all sessions).
+    /// Legacy memory root. Per-persona dirs live under it
+    /// (PersonaStore.memoryDir); the flat files here are the pre-migration
+    /// shared data, kept read-only — new code must not write here.
     /// Stored in the App Group container so the FileProvider extension can access it.
     nonisolated static var minisMemoryPersistentDir: URL {
         minisAppGroupRoot.appendingPathComponent("memory", isDirectory: true)
     }
 
-    /// Persistent storage directory for skills (shared across all sessions).
+    /// Legacy skills root and read-only global baseline. Per-persona dirs
+    /// live under it (PersonaStore.skillsDir); new skills are written to
+    /// the persona dir, the flat dir is only read as a baseline.
     /// Stored in the App Group container so the FileProvider extension can access it.
     nonisolated static var minisSkillsPersistentDir: URL {
         minisAppGroupRoot.appendingPathComponent("skills", isDirectory: true)
     }
 
-    /// Persistent storage directory for shared files (shared across all sessions).
+    /// Legacy shared root and read-only mount. Per-persona write dirs live
+    /// under it (PersonaStore.sharedDir); the flat dir is only read.
     /// Stored in the App Group container so the FileProvider extension can access it.
     nonisolated static var minisSharedPersistentDir: URL {
         minisAppGroupRoot.appendingPathComponent("shared", isDirectory: true)
@@ -309,42 +317,52 @@ extension AIChatViewModel {
         let subPaths = MinisURLPathDecoding.subPathCandidates(for: url)
         let fm = FileManager.default
 
-        // Primary: resolve via active session
+        // Primary: resolve via active session, nested under its persona.
+        // The persona comes from the PersonaStore cache (populated at
+        // session load/create); a cache miss resolves to "default".
+        let personaId = PersonaStore.personaId(forSessionId: activeSessionId)
         if let sid = activeSessionId {
             for subPath in subPaths {
-                let candidate = minisPersistentBase
-                    .appendingPathComponent(sid, isDirectory: true)
-                    .appendingPathComponent(host, isDirectory: true)
+                let candidate = PersonaStore.sessionHostDir(for: sid, personaId: personaId, host: host)
                     .appendingPathComponent(subPath)
                 if fm.fileExists(atPath: candidate.path) { return candidate }
             }
         }
 
-        // Global directories (skills, memory, shared)
-        let globalDirs: [(String, URL)] = [
+        // Per-persona directories, then the read-only global baseline.
+        // Memory has NO flat fallback: the flat memory/ files are legacy
+        // personal data (owned by the default persona since the migration
+        // copied them to memory/default/), not a shared baseline — falling
+        // back to them would leak the default persona's memory into every
+        // new persona. Skills and shared DO keep their flat dirs as a
+        // read-only baseline (shared skills / shared files, by design).
+        let personaDirs: [(String, URL)] = [
+            ("skills", PersonaStore.skillsDir(for: personaId)),
+            ("memory", PersonaStore.memoryDir(for: personaId)),
+            ("shared", PersonaStore.sharedDir(for: personaId)),
+        ]
+        let baselineDirs: [(String, URL)] = [
             ("skills", minisSkillsPersistentDir),
-            ("memory", minisMemoryPersistentDir),
             ("shared", minisSharedPersistentDir),
         ]
-        for (subdir, dir) in globalDirs where host == subdir {
+        for (subdir, dir) in personaDirs where host == subdir {
+            for subPath in subPaths {
+                let candidate = dir.appendingPathComponent(subPath)
+                if fm.fileExists(atPath: candidate.path) { return candidate }
+            }
+        }
+        for (subdir, dir) in baselineDirs where host == subdir {
             for subPath in subPaths {
                 let candidate = dir.appendingPathComponent(subPath)
                 if fm.fileExists(atPath: candidate.path) { return candidate }
             }
         }
 
-        // Scan all sessions
-        if let sessions = try? fm.contentsOfDirectory(atPath: minisPersistentBase.path) {
-            for sid in sessions {
-                for subPath in subPaths {
-                    let candidate = minisPersistentBase
-                        .appendingPathComponent(sid, isDirectory: true)
-                        .appendingPathComponent(host, isDirectory: true)
-                        .appendingPathComponent(subPath)
-                    if fm.fileExists(atPath: candidate.path) { return candidate }
-                }
-            }
-        }
+        // The old scan-all-sessions fallback is DELETED (decisions.md §3):
+        // it silently returned another session's — and therefore another
+        // persona's — file. A miss is now an explicit failure (nil), never
+        // a silent cross-persona read. Callers surface it as an error.
+        logger.warning("[resolveMinisURL] no match host=\(host) sid=\(activeSessionId?.prefix(8) ?? "nil") persona=\(personaId.prefix(8)) — cross-session fallback removed, returning nil")
         return nil
     }
 
@@ -359,7 +377,7 @@ extension AIChatViewModel {
         let sid = sessionId ?? "unknown"
 
         // Write to persistent storage (bind-mounted, so iSH sees it automatically)
-        let persistDir = Self.minisOffloadsPersistentDir(for: sid)
+        let persistDir = Self.minisOffloadsPersistentDir(for: sid, personaId: personaId)
         try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
 
         let timestamp = Int(Date().timeIntervalSince1970)
