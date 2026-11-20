@@ -186,10 +186,12 @@ actor ISHExecutionCoordinator {
     #endif
 
     /// Resolve a Linux path under /var/minis/ to its current host URL.
-    /// Tries the static bind-mount table first (memory/skills/shared +
-    /// external folders), then falls back to MinisFsRouter for the per-
-    /// session buckets. Per-session lookups need a sessionId because the
-    /// router routes by fs_context; pass it via `sessionId` for those paths.
+    /// Tries the static bind-mount table first (external folders only —
+    /// the minis dirs are no longer static-mounted), then MinisFsRouter,
+    /// which routes both the per-session buckets and the per-persona dirs
+    /// by the session's fs_context. Per-session lookups need a sessionId
+    /// because the router routes by fs_context; pass it via `sessionId`
+    /// for those paths.
     func hostURL(for linuxPath: String, sessionId: String? = nil) -> URL? {
         for (prefix, hostBase) in mountedPaths {
             if linuxPath == prefix {
@@ -465,17 +467,23 @@ actor ISHExecutionCoordinator {
         ensureParentDirsInMetaDB(for: "\(AIChatViewModel.minisLinuxBaseDir)/placeholder")
         ensureFakefsMetadata(for: AIChatViewModel.minisLinuxBaseDir, isDirectory: true)
 
-        // Only the global (cross-session) directories are bind-mounted here.
-        // The per-session buckets (offloads/attachments/workspace/browser) are
+        // NOTHING is bind-mounted here anymore for the minis dirs. The
+        // per-session buckets (offloads/attachments/workspace/browser) AND
+        // the per-persona dirs (memory/skills/shared/mcp-servers) are all
         // routed dynamically by MinisFsRouter's path-translate hook based on
-        // the calling task's fs_context, so they don't need a static mount and
-        // don't need to be swapped on session change.
-        let subdirs: [(persistDir: URL, linuxDir: String)] = [
-            (AIChatViewModel.minisMemoryPersistentDir, AIChatViewModel.minisMemoryLinuxDir),
-            (AIChatViewModel.minisSkillsPersistentDir, AIChatViewModel.minisSkillsLinuxDir),
-            (AIChatViewModel.minisSharedPersistentDir, AIChatViewModel.minisSharedLinuxDir),
-            (AIChatViewModel.minisMcpServersPersistentDir, AIChatViewModel.minisMcpServersLinuxDir),
-        ]
+        // the calling task's fs_context, so they don't need a static mount
+        // and don't need to be swapped on session change.
+        //
+        // The four global dirs used to be static-mounted here, which meant
+        // the FIRST session to mount won and every persona saw the same
+        // global files — the leak multi-persona isolation closes. Removing
+        // them from the static table makes the router the single resolver
+        // for /var/minis/* (hostURL below falls through to it). The flat
+        // host dirs still exist on disk as the read-only legacy baseline;
+        // nothing bind-mounts them into iSH anymore.
+        // External folders (MountedFoldersManager) are still mounted below
+        // via mountExternalFoldersLocked().
+        let subdirs: [(persistDir: URL, linuxDir: String)] = []
 
         for (idx, (persistDir, linuxDir)) in subdirs.enumerated() {
             logger.info("MOUNT [\(idx)] === Mounting subdir ===")
