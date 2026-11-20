@@ -63,7 +63,8 @@ final class AppGroupChangeWatcher {
 
     private init() {}
 
-    /// Start watching the three exposed roots. Idempotent — calling twice is a no-op.
+    /// Start watching the three exposed roots, plus Backups/ when it exists.
+    /// Idempotent — calling twice is a no-op.
     func start() {
         guard !started else { return }
         started = true
@@ -84,6 +85,11 @@ final class AppGroupChangeWatcher {
             let topChildren = (try? fm.contentsOfDirectory(atPath: rootURL.path).count) ?? -1
             logger.info("[FPSyncTrace] root=\(rootKey) path=\(rootURL.path) watchesAttached=\(attached) topLevelChildren=\(topChildren)")
         }
+
+        // Backups/ is attached separately (see ensureBackupsWatch): it must
+        // NOT be created here — an empty folder would appear in Files before
+        // the first package is ever delivered.
+        ensureBackupsWatch()
 
         logCoverageSummary(context: "started")
 
@@ -106,18 +112,40 @@ final class AppGroupChangeWatcher {
         }
     }
 
+    /// Attach a watch for Backups/ if the directory exists now and is not
+    /// already watched. Backups/ appears only when the first package is
+    /// delivered, so start() cannot attach it blindly and foreground is the
+    /// moment a delivery made while suspended is picked up (Batch 26, P2-45).
+    private func ensureBackupsWatch() {
+        let url = AIChatViewModel.minisAppGroupRoot
+            .appendingPathComponent("Backups", isDirectory: true)
+        guard watches[url] == nil else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let beforeCount = watches.count
+        attachRecursive(at: url, rootKey: "Backups", relativePath: "")
+        logger.info("[FPSyncTrace] root=Backups path=\(url.path) watchesAttached=\(watches.count - beforeCount)")
+    }
+
     @objc private func handleForeground() {
         queue.async { [weak self] in
             guard let self else { return }
+            // A delivery may have created Backups/ while suspended.
+            self.ensureBackupsWatch()
             // Walk the trees and add watches for any subdirs that appeared while
             // suspended. Drop watches whose target vanished.
             for (_, watch) in self.watches {
                 self.reconcileChildren(watch: watch)
             }
-            // Signal all three roots + the working set to nudge Files app
+            // Signal all watched roots + the working set to nudge Files app
             // to re-enumerate after we missed events while suspended.
+            // Backups/ is signalled only when it is actually watched (i.e.
+            // the directory exists) — signalling a nonexistent root would
+            // make Files enumerate a missing folder.
             for rootKey in ["shared", "skills", "memory"] {
                 self.scheduleSignal(itemID: NSFileProviderItemIdentifier(rootKey))
+            }
+            if self.watches.values.contains(where: { $0.rootKey == "Backups" }) {
+                self.scheduleSignal(itemID: NSFileProviderItemIdentifier("Backups"))
             }
             self.scheduleSignal(itemID: .workingSet)
             // Coverage can change while suspended (new dirs appeared past the

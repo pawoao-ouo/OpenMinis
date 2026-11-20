@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import FileProvider
 
 private let logger = AppLogger(category: "Backup")
 
@@ -86,7 +87,25 @@ enum BackupDelivery {
         try? FileManager.default.removeItem(at: dest)
         try FileManager.default.moveItem(at: packageURL, to: dest)
         logger.info("[Backup] package delivered to \(backupsDirectoryName)/\(dest.lastPathComponent)")
+        // [Batch 26] Tell Files the new package is there right away: the
+        // watcher only watches Backups/ once it exists, and a first delivery
+        // creates it, so without this signal the package would not appear
+        // until the next cold start.
+        signalBackupsEnumerator()
         return dest
+    }
+
+    /// Nudge the Files app to re-enumerate Backups/ after a delivery.
+    /// Same domain identifier as MountDetailView.signalFileProviderRoot().
+    private static func signalBackupsEnumerator() {
+        let domainIdentifier = NSFileProviderDomainIdentifier("com.openminis.clone.files")
+        NSFileProviderManager.getDomainsWithCompletionHandler { domains, _ in
+            guard let domain = domains.first(where: { $0.identifier == domainIdentifier }) else {
+                return
+            }
+            NSFileProviderManager(for: domain)?.signalEnumerator(
+                for: NSFileProviderItemIdentifier(backupsDirectoryName)) { _ in }
+        }
     }
 
     /// Remove any packages left under the OLD `shared/Backups/` location.
