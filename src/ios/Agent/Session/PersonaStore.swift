@@ -15,7 +15,10 @@ import Foundation
 /// runtime already stores personas this way, so the app adopts the
 /// existing layout instead of inventing a second one):
 ///   memory/personas/<personaId>/GLOBAL.md, .../YYYY-MM-DD.md, .../SOUL.md
-///   skills/<personaId>/, mcp-servers/<personaId>/ (global baseline read-only)
+///   skills/ and mcp-servers/ are GLOBAL, not per-persona (user decision
+///   2026-11-20: splitting them would make the model download duplicates;
+///   a tool that exists can just be used): skills load once from
+///   skills/default/, MCP from the single flat mcp-servers/servers.json.
 ///   shared/<personaId>/ — persona namespace for new shared data.
 ///     The flat shared/ dir itself is a LIVE read/write runtime area
 ///     (events.jsonl, together/, heartbeat state, user scripts — see
