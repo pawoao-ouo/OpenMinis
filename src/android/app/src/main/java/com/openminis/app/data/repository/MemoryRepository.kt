@@ -19,6 +19,11 @@ import java.util.Locale
  */
 class MemoryRepository(private val memoryDir: File) {
 
+    /** The persona this repository manages. All construction paths
+     *  pass a `memoryDir(filesDir, personaId)` (PersonaStore), so the
+     *  directory's own name IS the persona id. */
+    val personaId: String get() = memoryDir.name
+
     companion object {
         private const val TAG = "MemoryRepository"
         private const val GLOBAL_FILE = "GLOBAL.md"

@@ -212,6 +212,12 @@ extension AIChatViewModel {
         // SOUL (items 13/14) — keep the store's active-persona marker in
         // step with the VM.
         PersonaStore.activePersonaId = resolvedPersonaId
+        // Item 14: refresh the cached SOUL metadata for THIS persona so
+        // the chat header/sidebar show this persona's name, not the
+        // default's (or the previous session's). Without this, the
+        // per-persona cache has no entry for a freshly opened persona
+        // and the header falls back to "Minis".
+        SoulStore.refreshCache(personaId: resolvedPersonaId)
         // Keep the singleton stores on the same persona: their in-memory
         // lists (skills, MCP servers) back the Settings UI as well as
         // prompt assembly, and a session switch must not serve the old
@@ -1050,6 +1056,10 @@ extension AIChatViewModel {
         personaId = session.personaId
         PersonaStore.notePersonaId(session.personaId, forSessionId: session.id)
         PersonaStore.activePersonaId = session.personaId
+        // Item 14: a fresh persona has no SOUL.md yet, so the cache entry
+        // is the default metadata — refresh it explicitly so the header
+        // does not show a stale name from the previous session.
+        SoulStore.refreshCache(personaId: session.personaId)
         // Fresh persona: the stores load its (empty) lists, not the
         // previous session's.
         SkillStore.shared.reload()

@@ -951,14 +951,32 @@ internal object ConfigBuiltins {
         // UI don't race with minis-config writes. Parse falls back to
         // the canonical default content if the file was somehow deleted
         // between launches — same behavior as the Settings page.
+        //
+        // Item 13: minis-config edits the CURRENT session's persona
+        // SOUL, not the default persona's. The registry is a global
+        // singleton (registered once at launch, no session in scope), so
+        // the persona is resolved at CALL time from the active session —
+        // the same pattern registerSession uses
+        // (ChatViewModelStore.activeSessionId). With no active session
+        // (Settings UI, background) it falls back to "default", matching
+        // the iOS no-arg behavior. Before this, `minis-config set
+        // soul.name` in a chat wrote personas/default/SOUL.md while the
+        // prompt was built from the session's own persona SOUL — the edit
+        // had no effect on the current chat.
+        fun currentPersonaId(): String {
+            val sid = ChatViewModelStore.activeSessionId
+                ?: return com.openminis.app.data.PersonaStore.DEFAULT_PERSONA_ID
+            return com.openminis.app.data.PersonaStore.personaIdForSession(context, sid)
+        }
+
         fun loadCurrent(): com.openminis.app.agent.SoulFile =
-            com.openminis.app.agent.SoulStore.load(context)
+            com.openminis.app.agent.SoulStore.load(context, currentPersonaId())
                 ?: com.openminis.app.agent.SoulMDParser.parse(
                     com.openminis.app.agent.SoulStore.DEFAULT_CONTENT
                 )
 
         fun saveCurrent(file: com.openminis.app.agent.SoulFile) {
-            com.openminis.app.agent.SoulStore.save(context, file)
+            com.openminis.app.agent.SoulStore.save(context, file, currentPersonaId())
         }
 
         r.register(

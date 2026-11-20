@@ -3983,6 +3983,18 @@ class ChatViewModel(
             // first run (or when the migration was never started, e.g.
             // in tests without MinisApp).
             com.openminis.app.data.PersonaStore.awaitMigration()
+            // Item 14: refresh the cached SOUL metadata for THIS session's
+            // persona so the chat header / typing indicator show this
+            // persona's name, not the default's (or the previous
+            // session's). The single cachedMetadata flow holds the active
+            // persona's metadata; without this it keeps whatever the last
+            // session (or the launch-time default refresh) left in it.
+            com.openminis.app.agent.SoulStore.refreshCache(
+                context.applicationContext,
+                com.openminis.app.data.PersonaStore.personaIdForSession(
+                    context.applicationContext, sessionId,
+                ),
+            )
             try {
             val config = providerRepository.config.value
             _availableGroups.value = config.modelGroups

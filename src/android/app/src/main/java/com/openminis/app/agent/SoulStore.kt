@@ -392,7 +392,16 @@ lang: "auto"
             target.writeText(text)
             tmp.delete()
         }
-        _cachedMetadata.value = file.metadata
+        // Item 14: the single cachedMetadata flow holds the ACTIVE
+        // session persona's metadata (see below). A save for a different
+        // persona (minis-config in a background chat, the Settings editor
+        // while another persona's chat is open) must NOT flush the flow
+        // — the header/sidebar would otherwise show that other persona's
+        // name in the current chat. When the saved persona's session is
+        // opened later, ChatViewModel.loadSession refreshes the flow.
+        if (personaId == cachedPersonaId) {
+            _cachedMetadata.value = file.metadata
+        }
     }
 
     /**
@@ -400,17 +409,38 @@ lang: "auto"
      * file every recomposition (chat bubble header in particular). Updated
      * by [refreshCache] and [save]. Default value is the same fallback
      * the Settings UI shows when the file is missing.
+     *
+     * Item 14: this flow holds ONE persona's metadata — the ACTIVE
+     * session's persona (tracked by [cachedPersonaId]), not a global
+     * "the SOUL". The old single global cache showed the default
+     * persona's name in every chat (loadSession never refreshed it) and
+     * saving any persona's SOUL flushed it for all chats. The flow is
+     * refreshed to the session's persona by ChatViewModel.loadSession
+     * when a chat opens, and [save] only writes into it when the saved
+     * persona is the one being displayed.
      */
     private val _cachedMetadata = MutableStateFlow(SoulMetadata.DEFAULT)
     val cachedMetadata: StateFlow<SoulMetadata> = _cachedMetadata.asStateFlow()
+
+    /** Which persona [cachedMetadata] currently holds. Written by
+     *  [refreshCache]; read by [save]. Volatile because refresh/save run
+     *  on different threads (main / IO). */
+    @Volatile
+    private var cachedPersonaId: String = PersonaStore.DEFAULT_PERSONA_ID
 
     /**
      * Re-read SOUL.md into [cachedMetadata]. Call once at app launch
      * (after [ensureExists]) and any time the file is rewritten outside
      * of [save] (currently only the Settings UI uses save()).
+     *
+     * The [personaId] argument is the persona whose metadata the flow
+     * will hold afterwards — pass the session's persona when a chat
+     * opens (ChatViewModel.loadSession), so the header shows that
+     * persona's name.
      */
     fun refreshCache(context: Context, personaId: String = PersonaStore.DEFAULT_PERSONA_ID) {
         val parsed = load(context, personaId)
+        cachedPersonaId = personaId
         _cachedMetadata.value = parsed?.metadata ?: SoulMetadata.DEFAULT
     }
 }

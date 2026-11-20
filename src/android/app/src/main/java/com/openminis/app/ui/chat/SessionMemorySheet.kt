@@ -161,9 +161,14 @@ fun SessionMemorySheet(
                             // backs the chat-bubble header name. The raw
                             // saveFile() path here bypasses SoulStore.save(),
                             // so refresh the cache manually to keep readers
-                            // in sync after an in-sheet edit.
+                            // in sync after an in-sheet edit. Item 14: pass
+                            // THIS repository's persona — the no-arg refresh
+                            // reads the default persona's SOUL and would put
+                            // the default name in a non-default chat's header.
                             if (m.name == "SOUL.md") {
-                                com.openminis.app.agent.SoulStore.refreshCache(context)
+                                com.openminis.app.agent.SoulStore.refreshCache(
+                                    context, memoryRepository.personaId,
+                                )
                             }
                             mode = MemorySheetMode.AutoFile(m.name, editedContent, m.editable)
                             isEditing = false

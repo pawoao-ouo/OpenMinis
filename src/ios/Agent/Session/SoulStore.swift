@@ -845,18 +845,43 @@ enum SoulStore {
     /// Best-effort cached metadata for synchronous call sites that cannot
     /// re-read the file (e.g. cell builders running off the main thread).
     /// Refreshed after every Settings save via `notifyChanged()`.
+    ///
+    /// Item 14: the cache is PER PERSONA, keyed by persona id. A single
+    /// global cache showed the wrong name whenever the active persona was
+    /// not the default: saving a non-default SOUL flushed the default's
+    /// entry, and opening another persona's chat never refreshed it
+    /// (loadSession did not call refreshCache). `cachedMetadata` below
+    /// returns the ACTIVE session persona's entry so existing readers
+    /// (chat header, sidebar, live activity) keep working and now see
+    /// the right name; readers that know their persona use
+    /// `cachedMetadata(for:)`. `loadSession`/`ensureSession` refresh the
+    /// entry for the session being opened.
     @MainActor
-    static var cachedMetadata: SoulMetadata = .default
+    private static var cachedMetadataByPersona: [String: SoulMetadata] = [:]
 
-    /// Re-read SOUL.md into `cachedMetadata` and post a notification so
-    /// observers (chat bubble header, prompt builder, etc.) can refresh.
-    /// Defaults to the active session's persona.
+    /// The ACTIVE session persona's cached metadata (`.default` when no
+    /// session is active and nothing was ever cached for it).
+    @MainActor
+    static var cachedMetadata: SoulMetadata {
+        cachedMetadata(for: activePersonaId ?? PersonaStore.defaultPersonaId)
+    }
+
+    /// One persona's cached metadata (`.default` when never cached).
+    @MainActor
+    static func cachedMetadata(for personaId: String) -> SoulMetadata {
+        cachedMetadataByPersona[personaId] ?? .default
+    }
+
+    /// Re-read SOUL.md into the cache for that persona and post a
+    /// notification so observers (chat bubble header, prompt builder,
+    /// etc.) can refresh. Defaults to the active session's persona.
     @MainActor
     static func refreshCache(personaId: String? = nil) {
-        if let file = load(personaId: personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId) {
-            cachedMetadata = file.metadata
+        let pid = personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId
+        if let file = load(personaId: pid) {
+            cachedMetadataByPersona[pid] = file.metadata
         } else {
-            cachedMetadata = .default
+            cachedMetadataByPersona[pid] = .default
         }
         NotificationCenter.default.post(name: .soulMdChanged, object: nil)
     }
@@ -870,7 +895,12 @@ enum SoulStore {
                                                  withIntermediateDirectories: true)
         let text = SoulMDParser.serialize(file)
         try text.data(using: .utf8)?.write(to: url, options: .atomic)
-        cachedMetadata = file.metadata
+        // Item 14: only this persona's cache entry changes — saving a
+        // non-default SOUL must not flush the default persona's entry
+        // (or any other persona's) that the header/sidebar may be
+        // showing.
+        let resolvedPersonaIdForCache = personaId ?? activePersonaId ?? PersonaStore.defaultPersonaId
+        cachedMetadataByPersona[resolvedPersonaIdForCache] = file.metadata
         NotificationCenter.default.post(name: .soulMdChanged, object: nil)
         // Notify the V2 sync layer so SOUL.md changes propagate to the
         // user's other devices. SoulV2 is the DEFAULT persona's singleton
@@ -928,7 +958,8 @@ enum SoulStore {
         try? fm.setAttributes([.modificationDate: remoteUpdatedAt],
                               ofItemAtPath: url.path)
         if let parsed = SoulMDParser.parse(markdown).metadata as SoulMetadata? {
-            cachedMetadata = parsed
+            // Item 14: only this persona's cache entry changes.
+            cachedMetadataByPersona[personaId] = parsed
         }
         NotificationCenter.default.post(name: .soulMdChanged, object: nil)
     }
