@@ -9144,6 +9144,18 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
                 return candidate
             }
         }
+    } else if host == "shared" {
+        for subPath in subPaths {
+            for base in [PersonaStore.sharedDir(for: personaId), AIChatViewModel.minisSharedPersistentDir] {
+                let candidate = base.appendingPathComponent(subPath)
+                imgLogger.info("[MinisImage][Resolve] checking shared path=\(candidate.path)")
+                if fm.fileExists(atPath: candidate.path) {
+                    let size = (try? fm.attributesOfItem(atPath: candidate.path)[.size] as? Int64) ?? -1
+                    imgLogger.info("[MinisImage][Resolve] FOUND shared path=\(candidate.path) size=\(size)")
+                    return candidate
+                }
+            }
+        }
     }
 
     // [T-ios-minisurl-cross-session-isolation] DO NOT scan all session dirs.
@@ -9153,25 +9165,15 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
     // model-use-zimage-0.jpg would resolve to session A's image. minis:// is
     // session-scoped; not-found is the correct result for a cross-session ref.
     //
-    // The rootfs `/var/minis/<host>` fallback is kept ONLY for the global,
-    // non-session-scoped namespaces (skills/memory/shared) — for those it just
-    // points at the same global dir the iSH mount binds to. We explicitly
-    // restrict it to those hosts so it can never reach another session's
-    // attachments via whichever session happens to be mounted.
-    let globalHosts: Set<String> = ["skills", "memory", "shared"]
-    if globalHosts.contains(host) {
-        for subPath in subPaths {
-            let rootfsURL = RootfsManager.shared.dataPath
-                .appendingPathComponent("var/minis", isDirectory: true)
-                .appendingPathComponent(host, isDirectory: true)
-                .appendingPathComponent(subPath)
-            if fm.fileExists(atPath: rootfsURL.path) {
-                let size = (try? fm.attributesOfItem(atPath: rootfsURL.path)[.size] as? Int64) ?? -1
-                imgLogger.info("[MinisImage][Resolve] FOUND in global rootfs path=\(rootfsURL.path) size=\(size)")
-                return rootfsURL
-            }
-        }
-    }
+    // [R1] No dataPath fallback here on purpose, same as the autoplay
+    // resolver (F4). The persona dirs + flat baselines above already cover
+    // skills/shared, and memory has NO flat fallback by design. The old
+    // fallback resolved data/var/minis/<host>/<subPath>, where the
+    // memory/shared symlinks point at the LAST-MOUNTED session's persona
+    // dir — rendering a non-active session's transcript could serve that
+    // persona's file. (The skills symlink points at the global
+    // skills/default/ dir, already checked above, so dropping the
+    // fallback loses nothing there either.)
 
     imgLogger.warning("[MinisImage][Resolve] NOT FOUND in active session / global dirs url=\(url.absoluteString) host=\(host) subPaths=\(subPaths) (cross-session scan disabled for isolation)")
     return nil
