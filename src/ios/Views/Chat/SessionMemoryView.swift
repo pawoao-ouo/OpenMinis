@@ -93,7 +93,10 @@ struct SessionMemoryView: View {
     private var autoInjected: [AutoItem] {
         var items: [AutoItem] = []
         let fm = FileManager.default
-        let memDir = AIChatViewModel.minisMemoryPersistentDir
+        // Multi-persona isolation: show THIS session's persona memory,
+        // not the flat legacy dir (which is the default persona's
+        // pre-migration originals).
+        let memDir = PersonaStore.memoryDir(for: vm.personaId)
 
         // SOUL.md — listed first because it's the identity/personality
         // layer that SystemPromptBuilder.identitySection() injects at
@@ -314,9 +317,13 @@ private struct MemoryContentView: View {
             // dirty for iCloud sync. Without these, edits in this sheet
             // would land on disk but the running app + peer devices
             // would keep using the stale identity until next launch.
+            // Sync is default-persona only: a non-default persona's soul
+            // must never ride the global SoulV2 singleton.
             if url.lastPathComponent == "SOUL.md" {
                 SoulStore.refreshCache()
-                Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
+                if url.standardizedFileURL == PersonaStore.soulFileURL(for: PersonaStore.defaultPersonaId).standardizedFileURL {
+                    Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
+                }
             }
             isEditing = false
             withAnimation { saved = true }
