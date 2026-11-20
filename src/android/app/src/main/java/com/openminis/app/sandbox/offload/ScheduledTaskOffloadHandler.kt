@@ -1,6 +1,7 @@
 package com.openminis.app.sandbox.offload
 
 import android.content.Context
+import com.openminis.app.data.PersonaStore
 import com.openminis.app.logging.AppLogger
 import com.openminis.app.sandbox.NativeOffloadHandler
 import com.openminis.app.sandbox.NativeOffloadRequest
@@ -53,15 +54,26 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
             return NativeOffloadResult(0, HELP)
         }
         return try {
+            // Multi-persona isolation: the CLI runs inside the calling
+            // chat's shell, so every subcommand is scoped to the caller
+            // persona (resolved from request.sessionId). A task from one
+            // persona can never list, run, delete, or toggle a task that
+            // belongs to another persona — cross-persona access is an
+            // explicit error, never a silent empty result.
+            val personaId = callerPersonaId(request)
             when (val sub = args.positional.firstOrNull() ?: "list") {
-                "list" -> handleList()
-                "create", "add" -> handleCreate(args)
-                "delete", "remove", "rm" -> handleDelete(args)
-                "enable" -> handleSetEnabled(args, true)
-                "disable" -> handleSetEnabled(args, false)
-                "run" -> handleRun(args)
+                "list" -> handleList(personaId)
+                "create", "add" -> handleCreate(args, personaId)
+                "delete", "remove", "rm" -> handleDelete(args, personaId)
+                "enable" -> handleSetEnabled(args, true, personaId)
+                "disable" -> handleSetEnabled(args, false, personaId)
+                "run" -> handleRun(args, personaId)
                 else -> NativeOffloadResult(2, "minis-scheduled: unknown subcommand '$sub'\n$HELP")
             }
+        } catch (e: IllegalStateException) {
+            // Cross-persona access (manager.get scoped) — explicit denial,
+            // exit 1 like any other failed operation.
+            NativeOffloadResult(1, "minis-scheduled: cross-persona denied: ${e.message}")
         } catch (e: IllegalArgumentException) {
             NativeOffloadResult(2, "minis-scheduled: ${e.message}")
         } catch (e: Throwable) {
@@ -70,14 +82,31 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
         }
     }
 
-    private fun handleList(): NativeOffloadResult {
+    /**
+     * Persona the CLI acts as. The agent shell forwards
+     * MINIS_CHAT_SESSION_ID as request.sessionId; the session resolves
+     * to its persona (legacy session → "default", new session → itself,
+     * task-created session → the creator's persona). Outside a chat
+     * (interactive terminal, sessionId null) there is no creator
+     * session, so the caller acts as the default persona — the persona
+     * that owns the pre-migration shared history. Never "legacy" (an
+     * empty dir with no SOUL) and never the offload-global permission
+     * bucket id (OFFLOAD_GLOBAL_SESSION_ID is not a persona).
+     */
+    private fun callerPersonaId(request: NativeOffloadRequest): String {
+        val sid = request.sessionId
+        return if (sid != null) PersonaStore.personaIdForSession(context, sid)
+        else PersonaStore.DEFAULT_PERSONA_ID
+    }
+
+    private fun handleList(personaId: String): NativeOffloadResult {
         val arr = JSONArray()
-        for (t in manager.list()) arr.put(taskJson(t))
+        for (t in manager.list(personaId)) arr.put(taskJson(t))
         val out = JSONObject().put("tasks", arr).put("count", arr.length())
         return NativeOffloadResult(0, out.toString(2))
     }
 
-    private fun handleCreate(args: OffloadArgs): NativeOffloadResult {
+    private fun handleCreate(args: OffloadArgs, personaId: String): NativeOffloadResult {
         val label = args.get("label", "l") ?: ""
         val (hour, minute) = parseTime(args.get("time", "t")
             ?: throw IllegalArgumentException("--time HH:MM required"))
@@ -86,6 +115,17 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
             parseDays(args.get("days") ?: throw IllegalArgumentException("--days required for custom repeat"))
         } else emptySet()
         val target = parseTarget(args)
+        // A follow-up/rerun target names a session: it must belong to
+        // the caller's persona, otherwise persona B could schedule work
+        // into persona A's chat. "new" has no session to check.
+        target.sessionIdOrNull?.let { targetSid ->
+            val targetPersona = PersonaStore.personaIdForSession(context, targetSid)
+            if (targetPersona != personaId) {
+                throw IllegalArgumentException(
+                    "target session $targetSid belongs to another persona",
+                )
+            }
+        }
         val prompt = args.get("prompt", "p") ?: ""
         if (target !is ScheduledTargetMode.RerunMessage && prompt.isBlank()) {
             throw IllegalArgumentException("--prompt required (except for rerun target)")
@@ -102,31 +142,39 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
             enabled = !args.hasFlag("disabled"),
             startDateMs = args.get("start")?.let { parseDate(it) },
             endDateMs = args.get("end")?.let { parseDate(it) },
+            // Stamp the creator's persona (manager.create keeps an
+            // explicit personaId) — never "legacy": a task with no
+            // persona would fire with no SOUL and empty memory.
+            personaId = personaId,
         )
         manager.create(task)
         val out = JSONObject().put("created", taskJson(task))
         return NativeOffloadResult(0, out.toString(2))
     }
 
-    private fun handleDelete(args: OffloadArgs): NativeOffloadResult {
+    private fun handleDelete(args: OffloadArgs, personaId: String): NativeOffloadResult {
         val id = args.get("id") ?: throw IllegalArgumentException("--id required")
-        if (manager.get(id) == null) return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
-        manager.delete(id)
+        // Scoped get: null = does not exist at all; throws
+        // IllegalStateException when it exists under another persona.
+        if (manager.get(id, personaId) == null) return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
+        manager.delete(id, personaId)
         return NativeOffloadResult(0, JSONObject().put("deleted", id).toString())
     }
 
-    private fun handleSetEnabled(args: OffloadArgs, enabled: Boolean): NativeOffloadResult {
+    private fun handleSetEnabled(args: OffloadArgs, enabled: Boolean, personaId: String): NativeOffloadResult {
         val id = args.get("id") ?: throw IllegalArgumentException("--id required")
-        if (manager.get(id) == null) return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
-        manager.setEnabled(id, enabled)
+        if (manager.get(id, personaId) == null) return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
+        manager.setEnabled(id, enabled, personaId)
         return NativeOffloadResult(0, JSONObject().put("id", id).put("enabled", enabled).toString())
     }
 
-    private fun handleRun(args: OffloadArgs): NativeOffloadResult {
+    private fun handleRun(args: OffloadArgs, personaId: String): NativeOffloadResult {
         val id = args.get("id") ?: throw IllegalArgumentException("--id required")
-        val task = manager.get(id) ?: return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
+        val task = manager.get(id, personaId) ?: return NativeOffloadResult(1, "minis-scheduled: no task with id=$id")
         // Fire immediately, off-schedule. Blocks until the agent loop finishes
         // (ScheduledAgentRunner waits internally). Mirrors the editor "Run now".
+        // The task runs under its stored personaId (runner), which the
+        // scoped get above has already proven is the caller's persona.
         val sessionId = runBlocking {
             com.openminis.app.scheduled.ScheduledAgentRunner.run(context, task)
         }
@@ -211,6 +259,7 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
         if (t.lastFiredAt != null) put("lastFiredAt", t.lastFiredAt)
         if (t.lastResultPreview != null) put("lastResultPreview", t.lastResultPreview)
         if (t.lastResultSessionId != null) put("lastResultSessionId", t.lastResultSessionId)
+        put("persona", t.personaId ?: PersonaStore.DEFAULT_PERSONA_ID)
     }
 
     companion object {
@@ -232,6 +281,13 @@ class ScheduledTaskOffloadHandler(private val context: Context) : NativeOffloadH
             Target modes: new = run prompt in a fresh chat; follow-up = append prompt
             to an existing chat (--session); rerun = re-run a chat (--session) from a
             chosen user message (--message, prompt ignored).
+
+            Persona scoping: every subcommand runs as the calling chat's
+            persona (from MINIS_CHAT_SESSION_ID; outside a chat, the
+            default persona). list shows only that persona's tasks; create
+            stamps the new task to it and rejects a --session that belongs
+            to another persona; delete/enable/disable/run on another
+            persona's task fail with an explicit cross-persona error.
         """.trimIndent()
     }
 }
