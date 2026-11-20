@@ -466,7 +466,14 @@ final class FileMentionIndex: ObservableObject {
             roots.append(ScanRoot(
                 scope: .shared,
                 hostURL: PersonaStore.sharedDir(for: pid),
-                linuxPrefix: AIChatViewModel.minisSharedLinuxDir,
+                // The persona namespace is a subdir of the flat shared
+                // area (shared/<pid>/), reachable from the guest as
+                // /var/minis/shared/<pid>/... — the linux prefix must
+                // carry the pid. Without it the scan presents
+                // shared/<pid>/x.md as /var/minis/shared/x.md, but the
+                // router maps /var/minis/shared/* to FLAT shared, so
+                // the presented path resolves to the wrong file (item 11).
+                linuxPrefix: AIChatViewModel.minisSharedLinuxDir + "/\(pid)",
                 mountName: nil
             ))
             roots.append(ScanRoot(
@@ -486,7 +493,14 @@ final class FileMentionIndex: ObservableObject {
             scope: .shared,
             hostURL: AIChatViewModel.minisSharedPersistentDir,
             linuxPrefix: AIChatViewModel.minisSharedLinuxDir,
-            mountName: nil
+            mountName: nil,
+            // Item 11: the flat shared area also holds every persona's
+            // shared/<pid>/ namespace as a first-level subdir. Prune
+            // those from the flat scan — the current persona's namespace
+            // is already covered by its own root above (with the pid in
+            // the prefix), and other personas' files must never appear
+            // in this session's @-menu.
+            pruneFirstLevelDir: PersonaStore.isPersonaNamespaceComponent
         ))
         return roots
     }
@@ -508,6 +522,19 @@ final class FileMentionIndex: ObservableObject {
         /// Linux-visible path prefix (e.g. `/var/minis/workspace`).
         let linuxPrefix: String
         let mountName: String?
+        /// Optional prune for first-level subdirectories directly under
+        /// this root: when it returns true for a dir name, the dir is
+        /// skipped entirely (its contents are never listed). Used by the
+        /// flat shared root to drop persona namespaces (item 11).
+        let pruneFirstLevelDir: ((String) -> Bool)?
+
+        init(scope: FileMentionEntry.Scope, hostURL: URL, linuxPrefix: String, mountName: String?, pruneFirstLevelDir: ((String) -> Bool)? = nil) {
+            self.scope = scope
+            self.hostURL = hostURL
+            self.linuxPrefix = linuxPrefix
+            self.mountName = mountName
+            self.pruneFirstLevelDir = pruneFirstLevelDir
+        }
     }
 
     /// Scan a list of roots, consuming from a shared `remaining` budget.
@@ -540,6 +567,15 @@ final class FileMentionIndex: ObservableObject {
                 let isDir = values?.isDirectory ?? false
                 // Skip VCS / build junk that users never @-mention.
                 if isDir, skipDirNames.contains(item.lastPathComponent) {
+                    enumerator.skipDescendants()
+                    continue
+                }
+                // Prune first-level dirs the root opts out of (item 11:
+                // other personas' shared/<pid>/ namespaces under the flat
+                // shared root). enumerator.level is 1-based for items
+                // directly under the root.
+                if isDir, enumerator.level == 1,
+                   root.pruneFirstLevelDir?(item.lastPathComponent) == true {
                     enumerator.skipDescendants()
                     continue
                 }
