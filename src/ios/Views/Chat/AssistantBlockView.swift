@@ -2024,8 +2024,38 @@ struct ThinkingBlockView: View {
 
 // MARK: - Typing Indicator
 
-struct TypingIndicator: View {
+/// [batch28] The three animated dots from `TypingIndicator`, on their own:
+/// no text. The header uses this alone while it owns the typing state
+/// ("顶上就三个小点，一个接一个轻轻亮，不写字"). Same constants as the
+/// indicator (0.4s easeInOut, 0.15s stagger, -3/1 offset, tertiaryText) —
+/// one definition, no new animation language.
+struct TypingDots: View {
     @State private var dotOffsets: [Bool] = [false, false, false]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<3, id: \.self) { i in
+                Text(".")
+                    .offset(y: dotOffsets[i] ? -3 : 1)
+            }
+        }
+        .font(ChatFont.font(15, weight: .medium))
+        .foregroundStyle(ChatColors.tertiaryText)
+        .onAppear {
+            for i in 0..<3 {
+                withAnimation(
+                    .easeInOut(duration: 0.4)
+                        .repeatForever(autoreverses: true)
+                        .delay(Double(i) * 0.15)
+                ) {
+                    dotOffsets[i] = true
+                }
+            }
+        }
+    }
+}
+
+struct TypingIndicator: View {
     /// [batch9d / W1C-08] 会话绑定人设 id（nil = 草稿态，回退全局当前人设）。
     /// 气泡名按它取——与"回答的人"一致，不再跟着全局切换漂移。
     var personaId: String? = nil
@@ -2046,10 +2076,7 @@ struct TypingIndicator: View {
         // it's still presented from the nav-bar badge.
         HStack(spacing: 0) {
             Text("\(soulName) is thinking")
-            ForEach(0..<3, id: \.self) { i in
-                Text(".")
-                    .offset(y: dotOffsets[i] ? -3 : 1)
-            }
+            TypingDots()
         }
         .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
             refreshSoulName()
@@ -2062,15 +2089,6 @@ struct TypingIndicator: View {
         .padding(.top, 0)
         .onAppear {
             refreshSoulName()
-            for i in 0..<3 {
-                withAnimation(
-                    .easeInOut(duration: 0.4)
-                        .repeatForever(autoreverses: true)
-                        .delay(Double(i) * 0.15)
-                ) {
-                    dotOffsets[i] = true
-                }
-            }
         }
     }
 }
