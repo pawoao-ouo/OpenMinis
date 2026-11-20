@@ -391,6 +391,22 @@ enum ScheduledJobRunner {
                 registry.recordFire(job.id, sessionId: nil, ok: false)
                 return nil
             }
+            // [persona] F3: same fire-time check as .followUp/.rerun — a
+            // legacy job created through the old hole (creator persona A,
+            // parent session of persona B) would otherwise spawn its helper
+            // as A and post the result back into B's conversation.
+            guard let targetPid = await ChatStore.shared.personaId(for: parentSid) else {
+                logger.warning("[Sched] fire \(job.id.prefix(8)): child-of-current parent \(parentSid.prefix(8)) has no readable persona — abort")
+                registry.recordFire(job.id, sessionId: nil, ok: false,
+                                    preview: AppLocalized("没跑成：目标会话的人设查不到，什么都没做。"))
+                return nil
+            }
+            guard targetPid == jobPersonaId else {
+                logger.warning("[Sched] fire \(job.id.prefix(8)): child-of-current parent \(parentSid.prefix(8)) belongs to persona \"\(targetPid)\", job runs as \"\(jobPersonaId)\" — abort")
+                registry.recordFire(job.id, sessionId: nil, ok: false,
+                                    preview: AppLocalized("没跑成：这个任务属于另一个人设的会话，不能往里发。"))
+                return nil
+            }
             let (parentVM, parentFresh) = ViewModelCache.shared.getOrCreate(for: parentSid)
             if parentFresh { await parentVM.loadSession() }
             // [batch7][G6] Run the scheduled child as a REAL sub agent — the
