@@ -577,9 +577,12 @@ actor BackupExporter {
             }
 
             // The session's whole on-disk tree: attachments / offloads /
-            // workspace / browser.
-            let dir = AIChatViewModel.minisPersistentBase
-                .appendingPathComponent(sid, isDirectory: true)
+            // workspace / browser. Session dirs are nested under their
+            // persona: <minis>/<personaId>/<sid>/ — the old flat
+            // <minis>/<sid>/ no longer exists, so exporting from it would
+            // silently export zero files for every session.
+            let dir = PersonaStore.sessionDir(
+                for: sid, personaId: await store.getPersonaId(sessionId: sid))
             let r = try trees.export(root: dir, logicalPrefix: "chats/\(sid)",
                                      category: .chats, sessionId: sid)
             fileCount += r.filesIncluded
