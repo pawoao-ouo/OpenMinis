@@ -188,12 +188,17 @@ enum ChatStoreSyncHydrators {
         // doesn't know the field exists — only the former may clear local.
         let folderFieldPresent = record.fields["folderId"] != nil
         let folderId = optionalStringField(record, "folderId")
+        // Persona: nil (old-build peer, no field) → "default". The CASE
+        // guard in ChatStore.mergeRemoteSession stops a "default" record
+        // from clobbering a real local persona.
+        let personaId = optionalStringField(record, "personaId")
 
         var session = ChatSession(
             id: id, title: title, category: category, modelId: modelId,
             createdAt: createdAt, updatedAt: updatedAt
         )
         session.pinnedAt = pinnedAt
+        session.personaId = personaId ?? PersonaStore.defaultPersonaId
         // v2 doesn't currently track per-device origin in PortableRecord;
         // pass an empty string as a sentinel ("unknown remote device").
         await ChatStore.shared.mergeRemoteSession(
@@ -975,8 +980,10 @@ enum ChatStoreSyncHydrators {
     // MARK: - Memory Global (GLOBAL.md singleton)
 
     private static func buildMemoryGlobal() async -> PortableRecord? {
-        let url = AIChatViewModel.minisMemoryPersistentDir
-                    .appendingPathComponent("GLOBAL.md")
+        // Sync singletons are scoped to the default persona: per-persona
+        // memory does not sync (no per-persona sync yet — remaining work).
+        // The default persona's GLOBAL.md lives at memory/default/.
+        let url = PersonaStore.globalMemoryFileURL(for: PersonaStore.defaultPersonaId)
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path),
               let text = try? String(contentsOf: url, encoding: .utf8),
@@ -1001,8 +1008,8 @@ enum ChatStoreSyncHydrators {
         }
         let remoteUpdatedAt = dateField(record, "updatedAt") ?? record.updatedAt
 
-        let url = AIChatViewModel.minisMemoryPersistentDir
-                    .appendingPathComponent("GLOBAL.md")
+        // Default persona only — see buildMemoryGlobal.
+        let url = PersonaStore.globalMemoryFileURL(for: PersonaStore.defaultPersonaId)
         let fm = FileManager.default
 
         // [T-icloud-local-edit-clobber] Content-equality short circuit. An
@@ -1101,7 +1108,8 @@ enum ChatStoreSyncHydrators {
             return nil  // Too old — skip
         }
 
-        let url = AIChatViewModel.minisMemoryPersistentDir
+        // Default persona only — see buildMemoryGlobal.
+        let url = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
                     .appendingPathComponent("\(dateKey).md")
         guard let text = try? String(contentsOf: url, encoding: .utf8),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1133,7 +1141,8 @@ enum ChatStoreSyncHydrators {
             return
         }
 
-        let url = AIChatViewModel.minisMemoryPersistentDir
+        // Default persona only — see buildMemoryGlobal.
+        let url = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
                     .appendingPathComponent("\(dateKey).md")
         let fm = FileManager.default
 
