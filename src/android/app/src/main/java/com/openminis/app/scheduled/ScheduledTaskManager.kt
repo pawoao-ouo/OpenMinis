@@ -76,7 +76,18 @@ class ScheduledTaskManager(private val context: Context) {
     }
 
     fun update(task: ScheduledTask): ScheduledTask {
-        val stamped = stampPersona(task)
+        // Preserve the stored personaId when the incoming task carries
+        // none (the editor round-trips field-by-field and never sends
+        // personaId): re-stamping from the target session would silently
+        // reassign the task if that session was deleted after creation.
+        // Only stamp fresh when there is no stored row at all.
+        val stamped = when {
+            task.personaId != null -> task
+            else -> {
+                val stored = store.get(task.id)?.personaId
+                if (stored != null) task.copy(personaId = stored) else stampPersona(task)
+            }
+        }
         cancelAlarm(stamped.id)
         store.upsert(stamped)
         if (stamped.enabled) registerAlarm(stamped)
