@@ -303,10 +303,17 @@ enum SoulIconSource {
 
     /// The directories a config-driven read may touch. Session-scoped dirs use
     /// the ACTIVE session only, matching `resolveMinisURL`'s isolation rule.
+    /// Multi-persona isolation: the ACTIVE persona's dirs, plus the
+    /// read-only skills/shared baselines. The flat memory root is NOT
+    /// allowed — it holds the default persona's pre-migration data, and
+    /// memory has no baseline fallback by design.
     private static func allowedRoots() -> [URL] {
+        let pid = PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
         var roots: [URL] = [
+            PersonaStore.memoryDir(for: pid),
+            PersonaStore.skillsDir(for: pid),
+            PersonaStore.sharedDir(for: pid),
             AIChatViewModel.minisSkillsPersistentDir,
-            AIChatViewModel.minisMemoryPersistentDir,
             AIChatViewModel.minisSharedPersistentDir,
         ]
         if let sid = AIChatViewModel.activeSessionId {
