@@ -302,13 +302,12 @@ extension BackupImporter {
         let fm = FileManager.default
         let src = root.appendingPathComponent("data/memory", isDirectory: true)
         guard fm.fileExists(atPath: src.path) else { return report }
-        let dst = AIChatViewModel.minisMemoryPersistentDir
-        try fm.createDirectory(at: dst, withIntermediateDirectories: true)
 
-        for name in (try? fm.contentsOfDirectory(atPath: src.path)) ?? [] where name.hasSuffix(".md") {
-            let from = src.appendingPathComponent(name)
-            let to = dst.appendingPathComponent(name)
-
+        // Multi-persona isolation: restore data/memory/<personaId>/*.md
+        // into memory/<personaId>/ — never into the flat root, and never
+        // into another persona. The persona segment is validated (a
+        // crafted package must not escape via ".." or "/").
+        func importFile(from: URL, to: URL) {
             // Identical content is a skip, not an import.
             //
             // mtime cannot decide this: ZIP timestamps have 2-second
@@ -322,7 +321,7 @@ extension BackupImporter {
                let pkgData = try? Data(contentsOf: from),
                localData == pkgData {
                 report.skipped += 1
-                continue
+                return
             }
             try? fm.removeItem(at: to)
             do {
@@ -330,6 +329,30 @@ extension BackupImporter {
                 report.imported += 1
             } catch {
                 report.unreadable += 1
+            }
+        }
+        func isValidPersonaId(_ s: String) -> Bool {
+            !s.isEmpty && s.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+        }
+        for entry in (try? fm.contentsOfDirectory(atPath: src.path)) ?? [] {
+            let item = src.appendingPathComponent(entry)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: item.path, isDirectory: &isDir) else { continue }
+            if isDir.boolValue {
+                // Per-persona subdir: data/memory/<personaId>/*.md.
+                guard isValidPersonaId(entry) else { report.unreadable += 1; continue }
+                let dst = PersonaStore.memoryDir(for: entry)
+                try fm.createDirectory(at: dst, withIntermediateDirectories: true)
+                for name in (try? fm.contentsOfDirectory(atPath: item.path)) ?? [] where name.hasSuffix(".md") {
+                    importFile(from: item.appendingPathComponent(name),
+                               to: dst.appendingPathComponent(name))
+                }
+            } else if entry.hasSuffix(".md") {
+                // Legacy flat format (pre-isolation backups): flat files
+                // belong to the default persona.
+                let dst = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
+                try fm.createDirectory(at: dst, withIntermediateDirectories: true)
+                importFile(from: item, to: dst.appendingPathComponent(entry))
             }
         }
 
