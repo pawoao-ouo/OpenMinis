@@ -985,7 +985,7 @@ enum ChatStoreSyncHydrators {
     private static func buildMemoryGlobal() async -> PortableRecord? {
         // Sync singletons are scoped to the default persona: per-persona
         // memory does not sync (no per-persona sync yet — remaining work).
-        // The default persona's GLOBAL.md lives at memory/default/.
+        // The default persona's GLOBAL.md lives at memory/personas/default/.
         let url = PersonaStore.globalMemoryFileURL(for: PersonaStore.defaultPersonaId)
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path),

@@ -56,7 +56,7 @@ struct ChatSession: Identifiable, Codable, Hashable {
     /// Persona this session belongs to. Multi-persona isolation: a new
     /// session is its own persona (personaId == session id); rows predating
     /// this column read back "default" and share the migrated legacy data
-    /// at memory/default/. Fork/duplicate inherit the source session's id.
+    /// at memory/personas/default/. Fork/duplicate inherit the source session's id.
     var personaId: String = "default"
 
     /// Whether this session is from a remote device (read-only).
@@ -2013,7 +2013,7 @@ actor ChatStore {
                 let folderId = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
 
                 // persona_id is NULL on pre-migration rows; "default" keeps
-                // them reading the migrated legacy data at memory/default/.
+                // them reading the migrated legacy data at memory/personas/default/.
                 let personaId = sqlite3_column_text(stmt, 9).map { String(cString: $0) } ?? "default"
                 session = ChatSession(
                     id: id, title: title, category: category, modelId: modelId,

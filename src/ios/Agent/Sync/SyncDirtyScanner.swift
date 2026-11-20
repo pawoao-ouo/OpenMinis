@@ -249,7 +249,7 @@ final class SyncDirtyScanner {
     private func scanMemoryFiles() async {
         // Sync is default-persona only: the flat dir is frozen legacy
         // data whose mtimes never change after migration, so scanning it
-        // would go silent while the hydrator reads memory/default/.
+        // would go silent while the hydrator reads memory/personas/default/.
         let memDir = PersonaStore.memoryDir(for: PersonaStore.defaultPersonaId)
         guard fm.fileExists(atPath: memDir.path),
               let files = try? fm.contentsOfDirectory(at: memDir,

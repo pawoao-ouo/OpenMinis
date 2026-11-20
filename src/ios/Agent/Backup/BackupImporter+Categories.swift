@@ -304,7 +304,7 @@ extension BackupImporter {
         guard fm.fileExists(atPath: src.path) else { return report }
 
         // Multi-persona isolation: restore data/memory/<personaId>/*.md
-        // into memory/<personaId>/ — never into the flat root, and never
+        // into memory/personas/<personaId>/ — never into the flat root, and never
         // into another persona. The persona segment is validated (a
         // crafted package must not escape via ".." or "/").
         func importFile(from: URL, to: URL) {

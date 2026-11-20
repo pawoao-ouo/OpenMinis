@@ -167,7 +167,7 @@ struct MinisApp: App {
         // user set a custom name. refreshCache() only reads the tiny SOUL.md file.
         SoulStore.refreshCache()
         // Multi-persona isolation: start the one-time legacy migration
-        // (flat memory/SOUL/skills → memory/default/, flat session dirs →
+        // (flat memory/SOUL/skills → memory/personas/default/, flat session dirs →
         // <personaId>/<sessionId>/). Session loading awaits the same task,
         // so no prompt is built against pre-migration paths. The soul
         // cache above may have read the pre-migration stub — re-refresh

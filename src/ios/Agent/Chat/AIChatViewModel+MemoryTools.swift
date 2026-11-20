@@ -7,7 +7,7 @@ extension AIChatViewModel {
     // MARK: - Memory Tools
 
     /// Load full global memory content for system prompt injection.
-    /// Per-persona: reads memory/<personaId>/GLOBAL.md only. A new persona
+    /// Per-persona: reads memory/personas/<personaId>/GLOBAL.md only. A new persona
     /// has no GLOBAL.md yet, so this returns nil for it — by design.
     nonisolated static func loadGlobalMemoryFragment(personaId: String) -> String? {
         let globalFile = PersonaStore.globalMemoryFileURL(for: personaId)
@@ -89,7 +89,7 @@ extension AIChatViewModel {
         }
 
         let fm = FileManager.default
-        // Per-persona: writes land in memory/<personaId>/ only.
+        // Per-persona: writes land in memory/personas/<personaId>/ only.
         let personaId = PersonaStore.personaId(forSessionId: sessionId)
         let persistDir = PersonaStore.memoryDir(for: personaId)
         try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
