@@ -119,13 +119,15 @@ class ScheduledTaskManager(private val context: Context) {
     }
 
     fun setEnabled(taskId: String, enabled: Boolean, personaId: String?) {
-        // Item 16: parenthesized so the Elvis applies to the WHOLE
-        // if-expression (both branches return ScheduledTask?), not just
-        // the else branch. (Kotlin's grammar already parses it that way
-        // — Elvis has the lowest precedence and an if-expression is a
-        // primary — but the unparenthesized form reads as if `t` could
-        // still be null on the first branch, and a reader or a stricter
-        // compiler must not have to re-derive it.)
+        // Item 16: the parentheses are REQUIRED for compilation, not
+        // cosmetic. In the Kotlin grammar an if-expression is a primary,
+        // but the else branch parses as a complete expression, so ?:
+        // binds INTO the else branch: `if (c) a else b ?: return`
+        // parses as `if (c) a else (b ?: return)`, making the whole
+        // if-expression nullable — and `t.copy(...)` would not compile
+        // on a nullable receiver. Parenthesizing the if-expression makes
+        // ?: apply to the whole expression, so `t` is non-null after the
+        // Elvis. Do not remove the parentheses.
         val t = (if (personaId == null) store.get(taskId) else get(taskId, personaId))
             ?: return
         val updated = t.copy(enabled = enabled)
