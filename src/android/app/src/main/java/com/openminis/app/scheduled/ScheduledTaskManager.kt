@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.openminis.app.data.PersonaStore
 import com.openminis.app.logging.AppLogger
 
 /**
@@ -30,30 +31,76 @@ class ScheduledTaskManager(private val context: Context) {
     /** Read-only access to persistence for callers that only need data. */
     fun store(): ScheduledTaskStore = store
 
-    fun list(): List<ScheduledTask> = store.all()
+    fun list(personaId: String? = null): List<ScheduledTask> =
+        if (personaId == null) store.all() else store.allForPersona(personaId)
+
     fun get(taskId: String): ScheduledTask? = store.get(taskId)
 
-    fun create(task: ScheduledTask): ScheduledTask {
-        store.upsert(task)
-        if (task.enabled) registerAlarm(task)
+    /**
+     * Persona-scoped get: returns the task only when it belongs to
+     * [personaId]. Throws [IllegalStateException] when the task exists
+     * under a DIFFERENT persona — a cross-persona read is an explicit
+     * error, never a silent empty result. Returns null only when the
+     * task does not exist at all.
+     */
+    fun get(taskId: String, personaId: String): ScheduledTask? {
+        val task = store.get(taskId) ?: return null
+        if ((task.personaId ?: PersonaStore.LEGACY_PERSONA_ID) != personaId) {
+            throw IllegalStateException(
+                "task $taskId belongs to another persona",
+            )
+        }
         return task
+    }
+
+    /**
+     * Stamp the persona a task runs under when it has none: the target
+     * session's persona for APPEND_TO/RERUN, "legacy" for NEW_SESSION
+     * (no creator session in scope at the global editor — the task
+     * runs under legacy memory, never under another persona).
+     */
+    private fun stampPersona(task: ScheduledTask): ScheduledTask {
+        if (task.personaId != null) return task
+        val targetSessionId = task.targetMode.sessionIdOrNull
+        val personaId = targetSessionId
+            ?.let { PersonaStore.personaIdForSession(context, it) }
+            ?: PersonaStore.LEGACY_PERSONA_ID
+        return task.copy(personaId = personaId)
+    }
+
+    fun create(task: ScheduledTask): ScheduledTask {
+        val stamped = stampPersona(task)
+        store.upsert(stamped)
+        if (stamped.enabled) registerAlarm(stamped)
+        return stamped
     }
 
     fun update(task: ScheduledTask): ScheduledTask {
-        cancelAlarm(task.id)
-        store.upsert(task)
-        if (task.enabled) registerAlarm(task)
-        return task
+        val stamped = stampPersona(task)
+        cancelAlarm(stamped.id)
+        store.upsert(stamped)
+        if (stamped.enabled) registerAlarm(stamped)
+        return stamped
     }
 
     fun setEnabled(taskId: String, enabled: Boolean) {
-        val t = store.get(taskId) ?: return
+        setEnabled(taskId, enabled, personaId = null)
+    }
+
+    fun setEnabled(taskId: String, enabled: Boolean, personaId: String?) {
+        val t = if (personaId == null) store.get(taskId) else get(taskId, personaId)
+            ?: return
         val updated = t.copy(enabled = enabled)
         store.upsert(updated)
         if (enabled) registerAlarm(updated) else cancelAlarm(taskId)
     }
 
     fun delete(taskId: String) {
+        delete(taskId, personaId = null)
+    }
+
+    fun delete(taskId: String, personaId: String?) {
+        if (personaId != null) get(taskId, personaId) // throws on cross-persona
         cancelAlarm(taskId)
         store.delete(taskId)
     }
