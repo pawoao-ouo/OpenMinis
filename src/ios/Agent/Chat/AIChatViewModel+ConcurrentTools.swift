@@ -432,10 +432,11 @@ extension AIChatViewModel {
                 break
             }
 
-            // [batch5 / W2B-02] Memory write guard: memory-off sessions (and
-            // cross-persona targets) can't write /var/minis/memory via shell.
-            if let memoryRefusal = memoryShellWriteGuard(command) {
-                ctLogger.warning("[MemoryGuard] BLOCKED shell memory write")
+            // [batch5 / W2B-02] Memory guard: memory-off sessions (and
+            // cross-persona targets) can't write /var/minis/memory via shell,
+            // and no session can read another persona's memory via shell.
+            if let memoryRefusal = memoryShellGuard(command) {
+                ctLogger.warning("[MemoryGuard] BLOCKED shell memory access")
                 toolOutput = memoryRefusal
                 toolSuccess = false
                 if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
@@ -622,9 +623,29 @@ extension AIChatViewModel {
             // the changed paths against the per-batch registry first:
             // each path is reported — and registered in the fakefs
             // metadata — by exactly one task in the batch.
+            //
+            // ［persona］F1: the snapshot enumerates the whole flat memory
+            // root, so a concurrent session of ANOTHER persona writing at
+            // the same moment would land in this session's window — and
+            // the changed paths are appended to this tool's output, i.e.
+            // shown to this session's model. Filter the claim to this
+            // session's own persona dir (and the user profile); anything
+            // else under /var/minis/memory — another persona's files,
+            // personas.json, legacy root files — is neither reported nor
+            // registered by this session (its own session will claim it).
+            // Unknown persona fails closed: no memory paths at all.
+            let ownPersonaId = sessionPersonaId
+            let memoryVisible: (String) -> Bool = { path in
+                guard path.hasPrefix("/var/minis/memory/") || path == "/var/minis/memory" else { return true }
+                guard let own = ownPersonaId else { return false }
+                let marker = "/var/minis/memory/personas/"
+                guard path.hasPrefix(marker) else { return false }
+                let pid = String(path.dropFirst(marker.count).prefix(while: { $0 != "/" }))
+                return pid == own || pid == PersonaStore.userProfilePersonaID
+            }
             let newOrModified = await batchFileClaims.claim(
                 postSnapshot.filter { key, date in
-                    preSnapshot[key] == nil || preSnapshot[key]! < date
+                    (preSnapshot[key] == nil || preSnapshot[key]! < date) && memoryVisible(key)
                 }.map { $0.key }
             )
             if !newOrModified.isEmpty {

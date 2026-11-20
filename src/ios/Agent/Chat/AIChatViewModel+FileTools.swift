@@ -519,11 +519,21 @@ extension AIChatViewModel {
 
     /// [batch5 / W2B-02] Shell-side memory guard: catches the direct write
     /// forms the file-tool guard can't see (redirection, tee, cp/mv/rm, sed -i).
-    /// Text-level, so a cleverly embedded write can slip through — accepted;
-    /// the mount layer keeps full enforcement as a follow-up.
-    func memoryShellWriteGuard(_ command: String) -> String? {
+    /// [persona] F1: also refuses READS of another persona's memory — the
+    /// old version only checked with a write marker, so `cat` of the archive
+    /// stayed allowed by design. The fs translate hook is the real
+    /// enforcement for shell access (it refuses the path at the mount), but
+    /// this gives the model an explicit refusal up front instead of a bare
+    /// "No such file". Text-level, so a cleverly embedded access can still
+    /// slip through (variable indirection, `cd` + relative paths) — accepted,
+    /// same limitation class as the write guard; the hook and the canonical
+    /// host-side check are the backstops.
+    func memoryShellGuard(_ command: String) -> String? {
         guard command.contains("/var/minis/memory") else { return nil }
-        let writeMarkers = [">", "tee", "cp ", "mv ", "rm ", "sed -i", "truncate", "chmod", "dd "]
+        // "ln " is a write: a hard link from another persona's file into the
+        // own dir would let the own dir's (allowed) lexical path read the
+        // other persona's content past the hook.
+        let writeMarkers = [">", "tee", "cp ", "mv ", "rm ", "sed -i", "truncate", "chmod", "dd ", "ln "]
         let hasWrite = writeMarkers.contains { command.contains($0) }
         // ［persona］人设未知时 current 为 nil：下面循环里写进任何人设目录
         // 都拒绝（fail closed），绝不回退全局当前人设。
@@ -531,18 +541,32 @@ extension AIChatViewModel {
         if !memoryEnabled, hasWrite {
             return "Error: memory is disabled for this session — shell writes under /var/minis/memory are blocked."
         }
-        // Explicit other-persona targets, any session (only with a write marker,
-        // so plain reads of the archive stay allowed).
+        // Explicit other-persona targets, any session. Reads are refused
+        // here too (no write marker needed): only the own persona dir and
+        // the user profile are readable from this shell.
         let marker = "/var/minis/memory/personas/"
         var searchStart = command.startIndex
         while let r = command.range(of: marker, range: searchStart..<command.endIndex) {
-            let pid = String(command[r.upperBound...].prefix(while: { $0 != "/" && $0 != " " && $0 != "\n" && $0 != "'" && $0 != "\"" }))
-            if !pid.isEmpty, !pid.hasPrefix("$"), !pid.hasPrefix("\\("), hasWrite {
+            // Take the path token from the marker to its end, standardize
+            // it lexically, and judge the pid on where it lands — a `..`
+            // after the own segment must not launder another persona in.
+            let tokenEnd = command[r.lowerBound...].firstIndex(where: { $0 == " " || $0 == "\n" || $0 == "'" || $0 == "\"" || $0 == ";" || $0 == "|" || $0 == "&" || $0 == "<" || $0 == ">" || $0 == "(" || $0 == ")" }) ?? command.endIndex
+            let token = String(command[r.lowerBound..<tokenEnd])
+            let stdToken = (token as NSString).standardizingPath
+            guard let segRange = stdToken.range(of: marker) else {
+                searchStart = r.upperBound
+                continue
+            }
+            let pid = String(stdToken[segRange.upperBound...].prefix(while: { $0 != "/" }))
+            if !pid.isEmpty, !pid.hasPrefix("$"), !pid.hasPrefix("\\(") {
                 guard let current else {
-                    return "Error: cannot determine this session's persona (persona lookup failed) — refusing shell write under /var/minis/memory/personas/."
+                    return "Error: cannot determine this session's persona (persona lookup failed) — refusing shell access under /var/minis/memory/personas/."
                 }
                 if pid != current, pid != PersonaStore.userProfilePersonaID {
-                    return "Error: refusing to write another persona's memory via shell (persona=\(pid), current=\(current))."
+                    if hasWrite {
+                        return "Error: refusing to write another persona's memory via shell (persona=\(pid), current=\(current))."
+                    }
+                    return "Error: refusing to read another persona's memory via shell (persona=\(pid), current=\(current))."
                 }
             }
             searchStart = r.upperBound
