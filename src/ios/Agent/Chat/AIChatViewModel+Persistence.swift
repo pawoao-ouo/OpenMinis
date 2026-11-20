@@ -195,6 +195,13 @@ extension AIChatViewModel {
         // vm.memoryEnabled from the DB/global default, and which session.
         AppLogger(category: "MemDiag").info("[MemDiag] loadSession sid=\(sessionId.prefix(8)) → vm.memoryEnabled=\(self.memoryEnabled)")
 
+        // Multi-persona isolation: resolve this session's persona once,
+        // here, and cache it for prompt assembly + static resolvers.
+        // Pre-existing sessions resolve to "default" (migrated legacy data).
+        let resolvedPersonaId = await ChatStore.shared.getPersonaId(sessionId: sessionId)
+        personaId = resolvedPersonaId
+        PersonaStore.notePersonaId(resolvedPersonaId, forSessionId: sessionId)
+
         // Clear stale compact/pending state from previous lifecycle
         skipCompactCheck = false
         if isCompacting {
@@ -1021,6 +1028,10 @@ extension AIChatViewModel {
         let session = await ChatStore.shared.createSession(modelId: model.id, source: sessionSource)
         sessionId = session.id
         Self.activeSessionId = session.id
+        // A new session is its own persona (createSession set
+        // persona_id = session id); it starts with empty memory/SOUL dirs.
+        personaId = session.personaId
+        PersonaStore.notePersonaId(session.personaId, forSessionId: session.id)
         // [T-memory-enabled-new-session-bug] Sync the @Published memoryEnabled
         // to the value createSession just persisted from the global default.
         // A draft VM initializes memoryEnabled = true and never runs
