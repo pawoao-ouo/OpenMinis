@@ -68,21 +68,38 @@ extension ConfigRegistry {
 
     @MainActor
     private static func registerSoul(into r: ConfigRegistry) {
-        // Helper: load current SOUL.md or synthesize a default-meta +
-        // empty-body file so writes against a missing/blank file still
-        // work (we'll create the file on first save).
-        @MainActor func currentFile() -> SoulFile {
-            SoulStore.load() ?? SoulFile(metadata: .default, body: "")
+        // ［persona］The persona these fields target is the CALLING
+        // SESSION's persona (the one prompt injection uses), resolved
+        // from ConfigRegistry.callingSessionPersonaId, which the bridge
+        // sets around each field read/write. It is NEVER the global
+        // current persona: editing the wrong persona's SOUL.md from
+        // another chat was the F6 hole. When no calling session could
+        // be determined, refuse — do not silently edit whoever happens
+        // to be current.
+        @MainActor func soulPersonaId() throws -> String {
+            guard let pid = ConfigRegistry.callingSessionPersonaId, !pid.isEmpty else {
+                throw ConfigError.permissionDenied(reason: "soul.* needs a calling session — run minis-config from inside the chat whose persona you mean to change")
+            }
+            return pid
+        }
+
+        // Helper: load the CALLING session's persona SOUL.md or
+        // synthesize a default-meta + empty-body file so writes against
+        // a missing/blank file still work (we'll create the file on
+        // first save).
+        @MainActor func currentFile() throws -> SoulFile {
+            SoulStore.load(for: try soulPersonaId()) ?? SoulFile(metadata: .default, body: "")
         }
 
         // Helper: rewrite SOUL.md with one of the metadata fields replaced.
         // Re-reads on every write so two consecutive set calls compose
         // (e.g. set name then style without losing the prior write).
         @MainActor func updateMetadata(_ mutate: (inout SoulMetadata) -> Void) throws {
-            var file = currentFile()
+            let pid = try soulPersonaId()
+            var file = try currentFile()
             mutate(&file.metadata)
             do {
-                try SoulStore.save(file)
+                try SoulStore.save(file, for: pid)
             } catch {
                 throw ConfigError.io("SOUL.md write failed: \(error.localizedDescription)")
             }
@@ -94,7 +111,7 @@ extension ConfigRegistry {
             description: "Assistant display name (applies to the CURRENT persona only — switching persona switches the name). Shown in the sidebar title, chat bubble header, and substituted into the identity line of the system prompt (`You are <name>, a capable AI assistant ...`).",
             valueSchema: .string(maxLength: 64),
             risk: .normal, revertable: true,
-            reader: { .string(currentFile().metadata.name) },
+            reader: { .string(try currentFile().metadata.name) },
             writer: { v in
                 guard case .string(let s) = v else { throw ConfigError.typeMismatch(expected: "string") }
                 let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -111,7 +128,7 @@ extension ConfigRegistry {
             description: "Short voice / style tag (e.g. \"Warm, direct, opinionated\"). Stored in the SOUL.md frontmatter and injected into the system prompt as a HARD response-style constraint on every reply.",
             valueSchema: .string(maxLength: 200),
             risk: .normal, revertable: true,
-            reader: { .string(currentFile().metadata.style) },
+            reader: { .string(try currentFile().metadata.style) },
             writer: { v in
                 guard case .string(let s) = v else { throw ConfigError.typeMismatch(expected: "string") }
                 try updateMetadata { $0.style = s }
@@ -208,7 +225,7 @@ extension ConfigRegistry {
             // a button that silently does the wrong thing.
             revertable: false,
             reader: {
-                let raw = currentFile().metadata.icon
+                let raw = try currentFile().metadata.icon
                 // Never surface the image payload — a path or a legacy
                 // inline value both report as <image>.
                 return .string(SoulIconImage.isImageReference(raw) ? "<image>" : raw)
@@ -228,7 +245,7 @@ extension ConfigRegistry {
                     let stored: String
                     if SoulIconImage.isDataURI(trimmed) {
                         let name = SoulIconImage.storedName(prefix: "soul",
-                                                           id: PersonaStore.currentID())
+                                                           id: try soulPersonaId())
                         guard let migrated = SoulIconImage.migrateDataURIToFile(trimmed, named: name) else {
                             throw ConfigError.invalidValue(
                                 "that image couldn't be read — try a different source.")
@@ -269,7 +286,7 @@ extension ConfigRegistry {
                 // "auto" rather than whatever happens to be in the
                 // SoulMetadata.default fallback so the contract matches
                 // the enum.
-                let raw = currentFile().metadata.lang
+                let raw = try currentFile().metadata.lang
                 let normalized = ["auto", "zh", "en"].contains(raw) ? raw : "auto"
                 return .string(normalized)
             },
@@ -292,13 +309,13 @@ extension ConfigRegistry {
             description: "Markdown body of SOUL.md — your character and voice. NOT the place for the \"You are X\" identity line (the app owns that template); write only personality / stance / tone guidance. No length cap.",
             valueSchema: .string(maxLength: nil),
             risk: .normal, revertable: true,
-            reader: { .string(currentFile().body) },
+            reader: { .string(try currentFile().body) },
             writer: { v in
                 guard case .string(let s) = v else { throw ConfigError.typeMismatch(expected: "string") }
-                var file = currentFile()
+                var file = try currentFile()
                 file.body = s
                 do {
-                    try SoulStore.save(file)
+                    try SoulStore.save(file, for: try soulPersonaId())
                 } catch {
                     throw ConfigError.io("SOUL.md write failed: \(error.localizedDescription)")
                 }

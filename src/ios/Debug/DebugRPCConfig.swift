@@ -32,12 +32,17 @@ enum DebugRPCConfig {
         let filter = params["filter"] as? String
         let page = params["page"] as? Int ?? 0
         let pageSize = params["pageSize"] as? Int ?? 0
+        // ［persona］A debug caller may name its session explicitly; the
+        // bridge falls back to the calling shell's session. Without
+        // either, soul.* reads refuse rather than reading the global
+        // current persona's SOUL.md.
+        let sessionId = params["sessionId"] as? String
         // readField hops to @MainActor internally and blocks on a semaphore, so it must
         // not be called from the main thread — that would deadlock.
         return await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
                 let raw = ConfigOffloadBridge.readField(
-                    path: path, filter: filter, page: page, pageSize: pageSize)
+                    path: path, filter: filter, page: page, pageSize: pageSize, sessionId: sessionId)
                 cont.resume(returning: (raw as? [String: Any]) ?? ["ok": false, "error": "bridge_returned_non_dictionary"])
             }
         }

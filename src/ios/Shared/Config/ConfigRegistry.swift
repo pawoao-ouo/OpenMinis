@@ -22,6 +22,16 @@ final class ConfigRegistry {
     private var collections: [String: ConfigCollection] = [:]
     private var didRegisterBuiltins = false
 
+    /// ［persona］Persona of the session that invoked the current
+    /// minis-config call. Set by ConfigOffloadBridge around each
+    /// synchronous field read/write and cleared immediately after —
+    /// never held across an await (the confirmation-sheet await would
+    /// let another session's call overwrite it). soul.* fields resolve
+    /// through it; nil means no calling session could be determined,
+    /// and soul.* must then refuse instead of falling back to the
+    /// global current persona.
+    @MainActor static var callingSessionPersonaId: String?
+
     /// Idempotent. Called from `MinisApp.onAppear`. Splitting initial
     /// load from the singleton init avoids touching managers (whose
     /// own init may have side effects) before the app is ready.

@@ -103,6 +103,28 @@ private let logger = AppLogger(category: "ConfigOffload")
         return out
     }
 
+    /// ［persona］Resolve the persona of the session that invoked this
+    /// minis-config call, for soul.* targeting. `explicitSessionId` is
+    /// honored only from trusted non-shell entry points (Debug RPC, an
+    /// audit revert's recorded session): the CLI's --session flag is
+    /// deliberately NOT a redirect — it only labels the audit row (same
+    /// rule as session.* fields: an agent in chat A must not mutate
+    /// chat B by typing --session B). For CLI calls pass nil here and
+    /// the caller is the session whose shell runs the command
+    /// (mountedSessionIdSnapshot, sampled at bridge entry). Returns nil
+    /// when no calling session can be determined; soul.* must then
+    /// refuse, never fall back to the global current persona.
+    @MainActor
+    private static func callingPersonaId(explicitSessionId: String?) async -> String? {
+        let sid = (explicitSessionId?.isEmpty == false ? explicitSessionId : nil)
+            ?? ISHExecutionCoordinator.mountedSessionIdSnapshot
+        guard let sid, !sid.isEmpty else { return nil }
+        // ChatStore is an actor — the await hops off MainActor and back;
+        // callers resolve this BEFORE setting the ambient, never while
+        // it is set.
+        return await ChatStore.shared.personaId(for: sid)
+    }
+
     // MARK: - Read
 
     /// Read a single field's current value. Returns
@@ -138,7 +160,18 @@ private let logger = AppLogger(category: "ConfigOffload")
                                        filter: String?,
                                        page: Int,
                                        pageSize: Int) -> NSDictionary {
-        let base = Self.readFieldRaw(path: path)
+        return readField(path: path, filter: filter, page: page, pageSize: pageSize, sessionId: nil)
+    }
+
+    /// Same read, with an explicit calling session (Debug RPC only).
+    /// The CLI never passes one: its caller is the session whose shell
+    /// runs the command, resolved from the mount snapshot inside.
+    @objc public static func readField(path: String,
+                                       filter: String?,
+                                       page: Int,
+                                       pageSize: Int,
+                                       sessionId: String?) -> NSDictionary {
+        let base = Self.readFieldRaw(path: path, sessionId: sessionId)
         guard (base["ok"] as? Bool) == true else { return base }
 
         // Apply filter (if any) — matches the prior --filter behavior.
@@ -269,7 +302,15 @@ private let logger = AppLogger(category: "ConfigOffload")
     /// share the same semaphore-blocking + permission + access-check
     /// path without duplication.
     @MainActor
-    private static func readFieldSync(path: String) -> NSDictionary {
+    private static func readFieldSync(path: String, sessionId: String? = nil) async -> NSDictionary {
+        // ［persona］Resolve the calling persona once, up front (the await
+        // runs BEFORE the ambient is set), then scope it to the
+        // synchronous read below — no await inside that window, so nothing
+        // can interleave and overwrite it. soul.* readers resolve through
+        // it; nil means soul.* refuses instead of reading the global
+        // current persona's SOUL.md.
+        ConfigRegistry.callingSessionPersonaId = await callingPersonaId(explicitSessionId: sessionId)
+        defer { ConfigRegistry.callingSessionPersonaId = nil }
         ConfigRegistry.shared.registerBuiltinsIfNeeded()
         guard MinisConfigPermissionStore.shared.enabled else {
             return Self.disabledErrorEnvelope()
@@ -308,11 +349,11 @@ private let logger = AppLogger(category: "ConfigOffload")
         }
     }
 
-    private static func readFieldRaw(path: String) -> NSDictionary {
+    private static func readFieldRaw(path: String, sessionId: String? = nil) -> NSDictionary {
         let sem = DispatchSemaphore(value: 0)
         var result: NSDictionary = [:]
         Task.detached { @MainActor in
-            result = Self.readFieldSync(path: path)
+            result = await Self.readFieldSync(path: path, sessionId: sessionId)
             sem.signal()
         }
         if sem.wait(timeout: .now() + 5) == .timedOut {
@@ -346,10 +387,14 @@ private let logger = AppLogger(category: "ConfigOffload")
                 sem.signal()
                 return
             }
+            // ［persona］CLI calls target the session whose shell runs
+            // the command (mount snapshot). The --session argv is NOT a
+            // redirect — it only labels the audit row.
             result = await Self.performWriteBatch(items: items,
                                                   caption: caption,
                                                   actorRaw: actorRaw,
-                                                  sessionId: sessionId)
+                                                  sessionId: sessionId,
+                                                  callingPersonaId: await Self.callingPersonaId(explicitSessionId: nil))
             sem.signal()
         }
         if sem.wait(timeout: .now() + 5) == .timedOut {
@@ -384,10 +429,14 @@ private let logger = AppLogger(category: "ConfigOffload")
                 sem.signal()
                 return
             }
+            // ［persona］Debug RPC is a trusted operator interface, so an
+            // explicit sessionId names the target; otherwise the calling
+            // shell's session, as for CLI calls.
             result = await Self.performWriteBatch(items: items,
                                                   caption: caption,
                                                   actorRaw: actorRaw,
                                                   sessionId: sessionId,
+                                                  callingPersonaId: await Self.callingPersonaId(explicitSessionId: sessionId),
                                                   skipConfirmation: skipConfirmation)
             sem.signal()
         }
@@ -406,6 +455,7 @@ private let logger = AppLogger(category: "ConfigOffload")
                                           caption: String?,
                                           actorRaw: String,
                                           sessionId: String?,
+                                          callingPersonaId: String?,
                                           skipConfirmation: Bool = false) async -> NSDictionary {
         // 1. Resolve every path; reject the entire batch on any unknown
         //    or hidden path (fail fast before bothering the user).
@@ -478,9 +528,15 @@ private let logger = AppLogger(category: "ConfigOffload")
                     }
                     // Snapshot of the entry for audit (best-effort —
                     // a JSON map of all its fields' current values).
+                    // ［persona］Scope the calling persona to this synchronous
+                    // snapshot read so a persona-scoped field in a
+                    // collection reads the caller's copy, not the global
+                    // current persona's.
+                    ConfigRegistry.callingSessionPersonaId = callingPersonaId
                     let snapshot = collection.fields(for: childId).reduce(into: [String: ConfigValue]()) { acc, f in
                         if let v = try? f.read() { acc[f.path] = v }
                     }
+                    ConfigRegistry.callingSessionPersonaId = nil
                     let snapshotJSON = ConfigValue.object(snapshot).jsonString()
                     resolved.append(.collectionRemove(collection: collection, childId: childId, snapshotJSON: snapshotJSON))
                     resolvedItems.append(PendingConfigChangeItem(
@@ -553,6 +609,18 @@ private let logger = AppLogger(category: "ConfigOffload")
                     "ok": false, "error": "permission_denied", "reason": reason,
                 ]
             }
+            // ［persona］soul.* writes need a resolved calling persona.
+            // Fail the whole batch here — before the confirmation sheet —
+            // instead of showing a sheet whose old value came from the
+            // wrong persona (or .null) and failing only at apply time.
+            if field.path.hasPrefix("soul."), callingPersonaId == nil {
+                return [
+                    "ok": false, "error": "no_calling_session",
+                    "reason": "soul.* needs a calling session — run minis-config from inside the chat whose persona you mean to change.",
+                    "user_message": "I couldn't tell which persona's SOUL to change. Run this from inside the chat whose persona you mean.",
+                ]
+            }
+
             guard let parsedValue = ConfigValue.decode(json: valueJSON) else {
                 return [
                     "ok": false, "error": "invalid_value",
@@ -562,12 +630,16 @@ private let logger = AppLogger(category: "ConfigOffload")
 
             // Read current value first — needed for both audit's old
             // value and to compute the post-append array.
+            // ［persona］Scope the calling persona to this synchronous
+            // read (no await between set and clear).
+            ConfigRegistry.callingSessionPersonaId = callingPersonaId
             let oldValue: ConfigValue
             do {
                 oldValue = try field.read()
             } catch {
                 oldValue = .null
             }
+            ConfigRegistry.callingSessionPersonaId = nil
 
             // `var` (not `let`): [T-soul-icon-config-images] rewrites this in
             // place when an image source resolves to a data URI.
@@ -652,9 +724,19 @@ private let logger = AppLogger(category: "ConfigOffload")
             // log is the literal "<image>", so neither ever carries base64.
             if field.path == "soul.icon", case .string(let rawIcon) = newValue,
                SoulIconSource.looksLikeImageSource(rawIcon) {
+                // ［persona］The fail-fast above guarantees a calling
+                // persona for any soul.* write; guard anyway so a future
+                // reorder can never silently store the icon under the
+                // global current persona's id.
+                guard let pid = callingPersonaId else {
+                    return [
+                        "ok": false, "error": "no_calling_session",
+                        "reason": "soul.* needs a calling session — run minis-config from inside the chat whose persona you mean to change.",
+                    ]
+                }
                 do {
                     let name = SoulIconImage.storedName(prefix: "soul",
-                                                       id: PersonaStore.currentID())
+                                                       id: pid)
                     let storedPath = try await SoulIconSource.resolveToStoredPath(rawIcon, named: name)
                     newValue = .string(storedPath)
                     displayNew = "<image>"
@@ -817,6 +899,11 @@ private let logger = AppLogger(category: "ConfigOffload")
                         // Apply the REAL newValue; echo the masked auditNewValue
                         // back so a credential write never surfaces the secret in
                         // the response. [T-minis-config-provider-add]
+                        // ［persona］Scope the calling persona to this
+                        // synchronous write; defer clears it even when the
+                        // write throws. No await runs inside the case block.
+                        ConfigRegistry.callingSessionPersonaId = callingPersonaId
+                        defer { ConfigRegistry.callingSessionPersonaId = nil }
                         try field.write(newValue)
                         finalKey = field.path
                         appliedRow = [
@@ -1143,11 +1230,18 @@ private let logger = AppLogger(category: "ConfigOffload")
                 "path": entry.key,
                 "value_json": entry.oldValueJSON,
             ]
+            // ［persona］A revert restores the persona the change belonged
+            // to, so it targets the audit entry's recorded session. The
+            // caller's sessionId stays an audit label only (CLI --session
+            // never redirects). Falls back to the calling shell's session;
+            // with neither, soul.* refuses instead of reverting the wrong
+            // persona's SOUL.
             let res = await Self.performWriteBatch(
                 items: [revertItem],
                 caption: "minis-config audit revert \(entry.id.prefix(8))",
                 actorRaw: actorRaw,
                 sessionId: sessionId,
+                callingPersonaId: await Self.callingPersonaId(explicitSessionId: entry.sessionId),
                 skipConfirmation: skipConfirmation
             )
             // Mark original entry as reverted on success.
