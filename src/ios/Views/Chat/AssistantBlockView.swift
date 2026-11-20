@@ -2032,6 +2032,10 @@ struct ThinkingBlockView: View {
 /// indicator (0.4s easeInOut, 0.15s stagger, -3/1 offset, tertiaryText) —
 /// one definition, no new animation language.
 struct TypingDots: View {
+    /// Dot font size. Default 15 keeps the footer indicator unchanged;
+    /// the header passes 17 so its dots read slightly bigger on their
+    /// own line below the name. Animation constants are untouched.
+    var fontSize: CGFloat = 15
     @State private var dotOffsets: [Bool] = [false, false, false]
 
     var body: some View {
@@ -2041,7 +2045,7 @@ struct TypingDots: View {
                     .offset(y: dotOffsets[i] ? -3 : 1)
             }
         }
-        .font(ChatFont.font(15, weight: .medium))
+        .font(ChatFont.font(fontSize, weight: .medium))
         .foregroundStyle(ChatColors.tertiaryText)
         .onAppear {
             for i in 0..<3 {

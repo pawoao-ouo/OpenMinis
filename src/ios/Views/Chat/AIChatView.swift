@@ -2351,10 +2351,11 @@ struct AIChatView: View {
             .flatMap { $0.isEmpty ? nil : $0 }
         let canEditTitle = titlePillSession != nil
 
-        // [batch28] The header is now a single row (title + thinking badge
-        // + typing dots); the two model-name rows are gone. The 3-row clip
+        // [batch28] The header is two rows: row 1 is the title (+ bolt +
+        // thinking badge), row 2 is the typing dots on their own line
+        // below the name. The two model-name rows are gone. The 3-row clip
         // tuning notes below are retired history — the 46pt frame is
-        // unchanged and still centers the row.
+        // unchanged and still centers the stack.
         // [NavTitleClip 2026-05-16] On iOS 26 the principal toolbar
         // container clipped the top of the title and the bottom of the
         // resolved-detail subtitle when a 3-line stack was used. Adding
@@ -2392,115 +2393,124 @@ struct AIChatView: View {
         // 4 → 1 and group vertical padding 3 → 2 on legacy), so the stack's
         // total height — the thing the May-18/19/20 clip saga fought — is
         // unchanged and the top-clip fix does not regress.
-        return HStack(spacing: 6) {
-            Button {
-                if let s = titlePillSession { titlePillEditSession = s }
-            } label: {
-                // [T-navbar-title-size 2026-05-18] iOS 18 and below render
-                // the principal toolbar in a tighter band than iOS 26's
-                // liquid-glass navbar — long CJK titles (e.g. a
-                // "Download and merge Twitter video" style CJK string)
-                // overflowed at 16pt on iPhone Mini/SE and
-                // wrapped under the trailing "…" button. Drop one point
-                // on legacy iOS so they fit cleanly; keep the iOS 26
-                // size unchanged.
-                Text(sessionTitle ?? soulName)
-                    // [T-navbar-title-size 2026-05-18 / -19 / -20] iOS 16-18
-                    // principal toolbar is a fixed ~44pt band sitting just
-                    // below the status bar with very little reserved padding.
-                    // A 3-line title stack at 16pt/.caption2/9pt overflowed
-                    // the band's top against the status-bar / Dynamic Island
-                    // cutoff (a tall CJK glyph clipped its top, then "?"
-                    // appeared because the glyph rect was outside the navbar
-                    // viewport). Iterative tightening:
-                    //   2026-05-18: 16 → 15pt + `padding(.top, 2)`
-                    //   2026-05-19: 15 → 13.5pt + `minimumScaleFactor(0.85)`
-                    //                 + `fixedSize(...)` + `padding(.top, 3)`
-                    //   2026-05-20: 13.5 → 13pt + drop padding(.top) to 0 +
-                    //                 outer VStack spacing -6 → -8. Earlier
-                    //                 attempts to push the stack DOWN with
-                    //                 more padding.top failed because SwiftUI
-                    //                 vertically CENTERS the .principal item
-                    //                 in the navbar — extra height clips
-                    //                 BOTH top and bottom equally, not just
-                    //                 the bottom. Net result: shrink the
-                    //                 total stack height instead, so it
-                    //                 naturally has breathing room above
-                    //                 and below.
-                    // iOS 26 path unchanged (16pt works inside liquid-glass).
-                    .font(ChatFont.font(legacyLayout ? 13 : 16, weight: .semibold))
-                    // [T-18] Fixed navbar: the title cannot grow its layout, so
-                    // it shrinks — but never under the readable floor (the box
-                    // also follows the dial now, capped at .xxLarge, T-16).
-                    .minimumScaleFactor(FontSettings.shrinkFloor(legacyLayout ? 13 : 16, wanted: legacyLayout ? 0.85 : 1.0))
-                    .foregroundStyle(ChatColors.primaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
-                    // [NavTitleTopClip 2026-07-23] Was 4pt on iOS 26 to shove
-                    // the title into the visible band, but combined with the
-                    // now-centered 46pt frame it pushed the title's top past
-                    // the clip line again. 4 → 2: the centered frame already
-                    // positions the stack correctly, and 2pt keeps a little
-                    // breathing room above the semibold cap height without
-                    // re-introducing the top crop.
-                    .padding(.top, legacyLayout ? 0 : 2)
-                    .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-                        refreshSoulName()
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: .personaDidChange)) { _ in
-                        // [S26] A draft has no persisted session yet, so it
-                        // follows the current persona until first send — the
-                        // persona that answers is the one the UI shows.
-                        // A persisted session keeps its own locked persona
-                        // (loadSession re-reads it from SQLite), and a draft
-                        // mid-generation keeps the persona that started the
-                        // turn. Everything persona-bound (system prompt,
-                        // memory, skills, tool whitelist) is derived live
-                        // from sessionPersonaId at send time, so re-pointing
-                        // it is the whole fix — no other draft state is
-                        // snapshotted at creation.
-                        if vm.sessionId == nil, !vm.isProcessing {
-                            vm.sessionPersonaId = PersonaStore.currentID()
+        // [typing-dots-below-name] Two rows: row 1 is the name (+ bolt +
+        // thinking badge), row 2 is the typing dots on their own line,
+        // centered below the name. VStack spacing 0 so the dots row costs
+        // no height when HeaderTypingDots renders EmptyView (hidden).
+        return VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Button {
+                    if let s = titlePillSession { titlePillEditSession = s }
+                } label: {
+                    // [T-navbar-title-size 2026-05-18] iOS 18 and below render
+                    // the principal toolbar in a tighter band than iOS 26's
+                    // liquid-glass navbar — long CJK titles (e.g. a
+                    // "Download and merge Twitter video" style CJK string)
+                    // overflowed at 16pt on iPhone Mini/SE and
+                    // wrapped under the trailing "…" button. Drop one point
+                    // on legacy iOS so they fit cleanly; keep the iOS 26
+                    // size unchanged.
+                    Text(sessionTitle ?? soulName)
+                        // [T-navbar-title-size 2026-05-18 / -19 / -20] iOS 16-18
+                        // principal toolbar is a fixed ~44pt band sitting just
+                        // below the status bar with very little reserved padding.
+                        // A 3-line title stack at 16pt/.caption2/9pt overflowed
+                        // the band's top against the status-bar / Dynamic Island
+                        // cutoff (a tall CJK glyph clipped its top, then "?"
+                        // appeared because the glyph rect was outside the navbar
+                        // viewport). Iterative tightening:
+                        //   2026-05-18: 16 → 15pt + `padding(.top, 2)`
+                        //   2026-05-19: 15 → 13.5pt + `minimumScaleFactor(0.85)`
+                        //                 + `fixedSize(...)` + `padding(.top, 3)`
+                        //   2026-05-20: 13.5 → 13pt + drop padding(.top) to 0 +
+                        //                 outer VStack spacing -6 → -8. Earlier
+                        //                 attempts to push the stack DOWN with
+                        //                 more padding.top failed because SwiftUI
+                        //                 vertically CENTERS the .principal item
+                        //                 in the navbar — extra height clips
+                        //                 BOTH top and bottom equally, not just
+                        //                 the bottom. Net result: shrink the
+                        //                 total stack height instead, so it
+                        //                 naturally has breathing room above
+                        //                 and below.
+                        // iOS 26 path unchanged (16pt works inside liquid-glass).
+                        .font(ChatFont.font(legacyLayout ? 13 : 16, weight: .semibold))
+                        // [T-18] Fixed navbar: the title cannot grow its layout, so
+                        // it shrinks — but never under the readable floor (the box
+                        // also follows the dial now, capped at .xxLarge, T-16).
+                        .minimumScaleFactor(FontSettings.shrinkFloor(legacyLayout ? 13 : 16, wanted: legacyLayout ? 0.85 : 1.0))
+                        .foregroundStyle(ChatColors.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                        // [NavTitleTopClip 2026-07-23] Was 4pt on iOS 26 to shove
+                        // the title into the visible band, but combined with the
+                        // now-centered 46pt frame it pushed the title's top past
+                        // the clip line again. 4 → 2: the centered frame already
+                        // positions the stack correctly, and 2pt keeps a little
+                        // breathing room above the semibold cap height without
+                        // re-introducing the top crop.
+                        .padding(.top, legacyLayout ? 0 : 2)
+                        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
+                            refreshSoulName()
                         }
-                        refreshSoulName()
-                    }
-            }
-            .buttonStyle(.plain)
-            .disabled(!canEditTitle)
-            .layoutPriority(-1)
+                        .onReceive(NotificationCenter.default.publisher(for: .personaDidChange)) { _ in
+                            // [S26] A draft has no persisted session yet, so it
+                            // follows the current persona until first send — the
+                            // persona that answers is the one the UI shows.
+                            // A persisted session keeps its own locked persona
+                            // (loadSession re-reads it from SQLite), and a draft
+                            // mid-generation keeps the persona that started the
+                            // turn. Everything persona-bound (system prompt,
+                            // memory, skills, tool whitelist) is derived live
+                            // from sessionPersonaId at send time, so re-pointing
+                            // it is the whole fix — no other draft state is
+                            // snapshotted at creation.
+                            if vm.sessionId == nil, !vm.isProcessing {
+                                vm.sessionPersonaId = PersonaStore.currentID()
+                            }
+                            refreshSoulName()
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(!canEditTitle)
+                .layoutPriority(-1)
 
-            // [batch28] Codex Fast Mode bolt, re-homed from the deleted
-            // model row: same 9pt circular-background glyph, same gate
-            // (user-requested). It is a mode indicator, not a model name,
-            // so it stays next to the thinking badge.
-            if codexFastModeEnabled && activeModelSupportsFastMode {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 5, weight: .bold))
-                    .foregroundStyle(ChatColors.primaryText)
-                    .frame(width: 9, height: 9)
-                    .background(Circle().fill(ChatColors.warning))
+                // [batch28] Codex Fast Mode bolt, re-homed from the deleted
+                // model row: same 9pt circular-background glyph, same gate
+                // (user-requested). It is a mode indicator, not a model name,
+                // so it stays next to the thinking badge.
+                if codexFastModeEnabled && activeModelSupportsFastMode {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 5, weight: .bold))
+                        .foregroundStyle(ChatColors.primaryText)
+                        .frame(width: 9, height: 9)
+                        .background(Circle().fill(ChatColors.warning))
+                }
+                // [batch28] Thinking level stays: same gate, same badge, still
+                // opens ThinkingLevelSheetView. The two model-name rows are gone
+                // (row 1's status-dot/modelName row and row 2's provider·model
+                // button); the model picker still opens from the "+" panel's
+                // sparkles item (performPlusPanelAction, case .sparkles).
+                if !vm.availableThinkingLevels.isEmpty,
+                   vm.currentThinkingLevel.isEnabled || vm.currentModelSupportsReasoning {
+                    thinkingLevelBadge
+                        .fixedSize()
+                }
             }
-            // [batch28] Thinking level stays: same gate, same badge, still
-            // opens ThinkingLevelSheetView. The two model-name rows are gone
-            // (row 1's status-dot/modelName row and row 2's provider·model
-            // button); the model picker still opens from the "+" panel's
-            // sparkles item (performPlusPanelAction, case .sparkles).
-            if !vm.availableThinkingLevels.isEmpty,
-               vm.currentThinkingLevel.isEnabled || vm.currentModelSupportsReasoning {
-                thinkingLevelBadge
-                    .fixedSize()
-            }
-            // [batch28] Typing state, moved to the header: three dots, no
-            // text. HeaderTypingDots observes the last real message, so it
-            // shows exactly while the header owns the state.
+            // [typing-dots-below-name] Typing state on its own line below
+            // the name, centered: three dots, no text. HeaderTypingDots
+            // observes the last real message, so it shows exactly while
+            // the header owns the state. Visibility condition unchanged.
             if let lastReal = vm.messages.last(where: { !$0.isQABubble }) {
                 HeaderTypingDots(message: lastReal, isProcessing: vm.isProcessing, soulName: soulName)
             }
         }
         .padding(.horizontal, 8)
-        // [T-navbar-title-model-gap] Vertical padding 2 on legacy (was 3).
-        .padding(.vertical, legacyLayout ? 2 : 3)
+        // [T-navbar-title-model-gap] Vertical padding 0/1 (was 2/3): the 4pt
+        // reclaimed pays for the dots row so the two-row stack still fits
+        // the 46pt iOS 26 frame / ~44pt legacy band.
+        .padding(.vertical, legacyLayout ? 0 : 1)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(ChatColors.destructive.opacity(0.35 * fallbackPulseOpacity))
@@ -2572,6 +2582,8 @@ struct AIChatView: View {
     /// assistant row whose `shouldShowTypingIndicator` is true and the agent
     /// loop is running. The footer suppresses its own indicator for this
     /// same row, so the dots never show twice.
+    /// Dots are 17pt here (slightly bigger than the footer's 15pt) now
+    /// that they sit on their own line below the name.
     private struct HeaderTypingDots: View {
         @ObservedObject var message: ChatMessage
         var isProcessing: Bool
@@ -2579,7 +2591,7 @@ struct AIChatView: View {
 
         var body: some View {
             if message.role == .assistant, message.shouldShowTypingIndicator, isProcessing {
-                TypingDots()
+                TypingDots(fontSize: 17)
                     .fixedSize()
                     // [batch28 R1 P2-1] The dots carry the typing state with
                     // no text, and the footer text is suppressed for this
