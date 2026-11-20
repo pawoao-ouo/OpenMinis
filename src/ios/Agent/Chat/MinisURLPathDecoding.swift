@@ -33,4 +33,25 @@ enum MinisURLPathDecoding {
         }
         return candidates
     }
+
+    /// Join `subPath` under `base` and return the candidate only if it
+    /// stays inside `base` — after lexical standardization AND symlink
+    /// resolution. A `..` that walks out of the dir (e.g.
+    /// `minis-clone://memory/../../memory/personas/<other>/GLOBAL.md`
+    /// against `<base>/<sid>/memory/`) or a symlink planted inside the
+    /// dir pointing out is refused (nil), never returned. Callers still
+    /// check `fileExists` on the returned URL. The returned URL is the
+    /// caller's own construction; only the containment check uses the
+    /// resolved path, so ordinary relative links keep exactly the path
+    /// they had. [persona] F1: every minis-clone:// resolver must join
+    /// through this — a raw `appendingPathComponent(subPath)` + `fileExists`
+    /// lets a `..` escape the session/host dir before any persona-scoped
+    /// branch runs.
+    static func containedCandidate(base: URL, subPath: String) -> URL? {
+        let resolvedBase = base.standardizedFileURL.resolvingSymlinksInPath().path
+        let candidate = base.appendingPathComponent(subPath)
+        let resolved = candidate.standardizedFileURL.resolvingSymlinksInPath().path
+        guard resolved == resolvedBase || resolved.hasPrefix(resolvedBase + "/") else { return nil }
+        return candidate
+    }
 }

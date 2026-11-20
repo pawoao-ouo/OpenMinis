@@ -223,25 +223,12 @@ func resolveMinisFileURL(url: URL) -> URL? {
 
     let fm = FileManager.default
 
-    // Primary: resolve via active session → persistent directory
-    if let sid = AIChatViewModel.activeSessionId {
-        for subPath in subPaths {
-            let persistURL = AIChatViewModel.minisPersistentBase
-                .appendingPathComponent(sid, isDirectory: true)
-                .appendingPathComponent(host, isDirectory: true)
-                .appendingPathComponent(subPath)
-            let exists = fm.fileExists(atPath: persistURL.path)
-            let fileSize: Int64 = exists ? ((try? fm.attributesOfItem(atPath: persistURL.path)[.size] as? Int64) ?? -1) : 0
-            minisLogger.info("[MinisImage][Resolve] \(url.absoluteString) → session=\(sid) → \(persistURL.path) exists=\(exists) size=\(fileSize)")
-            if exists { return persistURL }
-        }
-    }
-
-    // Fallback: global directories (skills, shared) are not per-session.
-    // ［persona］F1: memory is NOT in this list anymore — see the note on
-    // the static resolver: a minis-clone://memory/... link resolves only
-    // inside the ACTIVE session's own persona dir (or the user profile).
-    // Unknown persona fails closed.
+    // ［persona］F1: memory is persona-scoped — resolve it FIRST, before
+    // the session primary branch (a `..` in the link used to walk out of
+    // <sid>/memory/ into the flat memory root and return another
+    // persona's file before this branch ran). A minis-clone://memory/...
+    // link resolves only inside the ACTIVE session's own persona dir (or
+    // the user profile). Unknown persona fails closed.
     if host == "memory" {
         let pid = AIChatViewModel.activeSessionId.flatMap { MinisFsRouter.shared.persona(forSession: $0) }
         for subPath in subPaths {
@@ -251,13 +238,32 @@ func resolveMinisFileURL(url: URL) -> URL? {
             }
         }
     }
+
+    // Primary: resolve via active session → persistent directory.
+    // Contained: a `..` stays inside <sid>/<host>/ (same fix for
+    // `attachments`, where a `..` used to escape into another session's
+    // attachments).
+    if let sid = AIChatViewModel.activeSessionId {
+        let sessionHostDir = AIChatViewModel.minisPersistentBase
+            .appendingPathComponent(sid, isDirectory: true)
+            .appendingPathComponent(host, isDirectory: true)
+        for subPath in subPaths {
+            guard let persistURL = MinisURLPathDecoding.containedCandidate(base: sessionHostDir, subPath: subPath) else { continue }
+            let exists = fm.fileExists(atPath: persistURL.path)
+            let fileSize: Int64 = exists ? ((try? fm.attributesOfItem(atPath: persistURL.path)[.size] as? Int64) ?? -1) : 0
+            minisLogger.info("[MinisImage][Resolve] \(url.absoluteString) → session=\(sid) → \(persistURL.path) exists=\(exists) size=\(fileSize)")
+            if exists { return persistURL }
+        }
+    }
+
+    // Fallback: global directories (skills, shared) are not per-session.
     let globalDirs: [(subdir: String, url: URL)] = [
         ("skills", AIChatViewModel.minisSkillsPersistentDir),
         ("shared", AIChatViewModel.minisSharedPersistentDir),
     ]
     for (subdir, globalDir) in globalDirs where host == subdir {
         for subPath in subPaths {
-            let candidate = globalDir.appendingPathComponent(subPath)
+            guard let candidate = MinisURLPathDecoding.containedCandidate(base: globalDir, subPath: subPath) else { continue }
             if fm.fileExists(atPath: candidate.path) {
                 minisLogger.info("[MinisImage][Resolve] \(url.absoluteString) → global \(subdir) → \(candidate.path)")
                 return candidate

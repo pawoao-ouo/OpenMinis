@@ -1760,40 +1760,63 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         let subPaths = MinisURLPathDecoding.subPathCandidates(for: url)
         let fm = FileManager.default
 
-        // Global directories resolve without session ID
-        let globalDirs = ["memory", "skills", "shared"]
+        // ［persona］F1: memory is persona-scoped — resolve it FIRST.
+        // This branch used to resolve `memory` against the FLAT
+        // `Library/MinisChat/memory/` root with no persona check at all,
+        // so a `minis-clone://memory/personas/<other>/...` autoplay link
+        // played another persona's files straight into the session.
+        // It now resolves only inside the ACTIVE session's own persona
+        // dir (or the user profile). Unknown persona fails closed.
+        if host == "memory" {
+            let pid = activeSessionId.flatMap { MinisFsRouter.shared.persona(forSession: $0) }
+            for subPath in subPaths {
+                if let found = PersonaStore.memoryLinkURL(subPath: subPath, personaId: pid) {
+                    return found
+                }
+            }
+            // Not inside the own persona dir (or the user profile): the
+            // session branch below can only serve <sid>/memory/, which no
+            // code creates, so this falls through to nil.
+        }
+
+        // Global directories resolve without session ID (skills/shared only;
+        // memory is handled above). Contained: a `..` stays inside the dir.
+        let globalDirs = ["skills", "shared"]
         if globalDirs.contains(host) {
             let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!
+            let globalBase = library.appendingPathComponent("MinisChat/\(host)", isDirectory: true)
             for subPath in subPaths {
-                let globalURL = library.appendingPathComponent("MinisChat/\(host)", isDirectory: true)
-                    .appendingPathComponent(subPath)
+                guard let globalURL = MinisURLPathDecoding.containedCandidate(base: globalBase, subPath: subPath) else { continue }
                 if fm.fileExists(atPath: globalURL.path) { return globalURL }
             }
         }
 
         if let sid = activeSessionId {
+            let sessionHostDir = minisPersistentBase
+                .appendingPathComponent(sid, isDirectory: true)
+                .appendingPathComponent(host, isDirectory: true)
             for subPath in subPaths {
-                let persistURL = minisPersistentBase
-                    .appendingPathComponent(sid, isDirectory: true)
-                    .appendingPathComponent(host, isDirectory: true)
-                    .appendingPathComponent(subPath)
+                guard let persistURL = MinisURLPathDecoding.containedCandidate(base: sessionHostDir, subPath: subPath) else { continue }
                 if fm.fileExists(atPath: persistURL.path) { return persistURL }
             }
         }
 
         // [T-ios-minisurl-cross-session-isolation] Fallback to the iSH-visible
         // /var/minis data dir ONLY for the global, non-session-scoped
-        // namespaces (memory/skills/shared). For a session-scoped host like
-        // `attachments`, /var/minis/<host> binds to whichever session is
-        // currently MOUNTED — which may not be the session whose message is
-        // being rendered — so reaching it here would be a cross-session leak.
-        // Session-scoped resolution already happened above against
-        // activeSessionId; not-found is correct beyond that.
+        // namespaces (skills/shared — NOT memory: the rootfs
+        // data/var/minis/memory/ path is a symlink to the FLAT memory root,
+        // so serving it here would re-open every persona's files the
+        // persona-scoped branch above just refused). For a session-scoped
+        // host like `attachments`, /var/minis/<host> binds to whichever
+        // session is currently MOUNTED — which may not be the session whose
+        // message is being rendered — so reaching it here would be a
+        // cross-session leak. Session-scoped resolution already happened
+        // above against activeSessionId; not-found is correct beyond that.
         if globalDirs.contains(host) {
             let dataPath = RootfsManager.shared.dataPath
+            let rootfsHostDir = dataPath.appendingPathComponent("var/minis/\(host)", isDirectory: true)
             for subPath in subPaths {
-                let linuxPath = "/var/minis/\(host)/\(subPath)"
-                let hostPath = dataPath.appendingPathComponent(linuxPath.hasPrefix("/") ? String(linuxPath.dropFirst()) : linuxPath)
+                guard let hostPath = MinisURLPathDecoding.containedCandidate(base: rootfsHostDir, subPath: subPath) else { continue }
                 if fm.fileExists(atPath: hostPath.path) { return hostPath }
             }
         }

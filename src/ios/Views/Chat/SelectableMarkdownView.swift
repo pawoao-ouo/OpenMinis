@@ -10281,13 +10281,33 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
     imgLogger.info("[MinisImage][Resolve] BEGIN url=\(url.absoluteString) host=\(host) subPaths=\(subPaths) activeSession=\(AIChatViewModel.activeSessionId ?? "nil")")
     let fm = FileManager.default
 
-    // Primary: active session persistent storage
-    if let sid = AIChatViewModel.activeSessionId {
+    // ［persona］F1: memory is persona-scoped — resolve it FIRST, before
+    // the session primary branch (a `..` in the link used to walk out of
+    // <sid>/memory/ into the flat memory root and return another
+    // persona's file before this branch ran). A minis-clone://memory/...
+    // link resolves only inside the ACTIVE session's own persona dir (or
+    // the user profile); any other persona's path, personas.json, and
+    // legacy root files resolve to nothing. Unknown persona fails closed.
+    if host == "memory" {
+        let pid = AIChatViewModel.activeSessionId.flatMap { MinisFsRouter.shared.persona(forSession: $0) }
         for subPath in subPaths {
-            let persistURL = AIChatViewModel.minisPersistentBase
-                .appendingPathComponent(sid, isDirectory: true)
-                .appendingPathComponent(host, isDirectory: true)
-                .appendingPathComponent(subPath)
+            if let found = PersonaStore.memoryLinkURL(subPath: subPath, personaId: pid) {
+                let size = (try? fm.attributesOfItem(atPath: found.path)[.size] as? Int64) ?? -1
+                imgLogger.info("[MinisImage][Resolve] FOUND memory (persona-scoped) path=\(found.path) size=\(size)")
+                return found
+            }
+        }
+    }
+
+    // Primary: active session persistent storage. Contained: a `..` stays
+    // inside <sid>/<host>/ (same fix for `attachments`, where a `..` used
+    // to escape into another session's attachments).
+    if let sid = AIChatViewModel.activeSessionId {
+        let sessionHostDir = AIChatViewModel.minisPersistentBase
+            .appendingPathComponent(sid, isDirectory: true)
+            .appendingPathComponent(host, isDirectory: true)
+        for subPath in subPaths {
+            guard let persistURL = MinisURLPathDecoding.containedCandidate(base: sessionHostDir, subPath: subPath) else { continue }
             imgLogger.info("[MinisImage][Resolve] checking session path=\(persistURL.path)")
             if fm.fileExists(atPath: persistURL.path) {
                 let size = (try? fm.attributesOfItem(atPath: persistURL.path)[.size] as? Int64) ?? -1
@@ -10303,26 +10323,12 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
     // Global namespaces (not session-scoped)
     if host == "skills" {
         for subPath in subPaths {
-            let candidate = AIChatViewModel.minisSkillsPersistentDir.appendingPathComponent(subPath)
+            guard let candidate = MinisURLPathDecoding.containedCandidate(base: AIChatViewModel.minisSkillsPersistentDir, subPath: subPath) else { continue }
             imgLogger.info("[MinisImage][Resolve] checking global skills path=\(candidate.path)")
             if fm.fileExists(atPath: candidate.path) {
                 let size = (try? fm.attributesOfItem(atPath: candidate.path)[.size] as? Int64) ?? -1
                 imgLogger.info("[MinisImage][Resolve] FOUND global skills path=\(candidate.path) size=\(size)")
                 return candidate
-            }
-        }
-    } else if host == "memory" {
-        // ［persona］F1: memory is persona-scoped, not global. A
-        // minis-clone://memory/... link resolves only inside the ACTIVE
-        // session's own persona dir (or the user profile); any other
-        // persona's path, personas.json, and legacy root files resolve to
-        // nothing. Unknown persona fails closed.
-        let pid = AIChatViewModel.activeSessionId.flatMap { MinisFsRouter.shared.persona(forSession: $0) }
-        for subPath in subPaths {
-            if let found = PersonaStore.memoryLinkURL(subPath: subPath, personaId: pid) {
-                let size = (try? fm.attributesOfItem(atPath: found.path)[.size] as? Int64) ?? -1
-                imgLogger.info("[MinisImage][Resolve] FOUND memory (persona-scoped) path=\(found.path) size=\(size)")
-                return found
             }
         }
     }
@@ -10347,11 +10353,11 @@ private func resolveMinisFileURLForNativeText(url: URL) -> URL? {
     // only through that branch.
     let globalHosts: Set<String> = ["skills", "shared"]
     if globalHosts.contains(host) {
+        let rootfsHostDir = RootfsManager.shared.dataPath
+            .appendingPathComponent("var/minis", isDirectory: true)
+            .appendingPathComponent(host, isDirectory: true)
         for subPath in subPaths {
-            let rootfsURL = RootfsManager.shared.dataPath
-                .appendingPathComponent("var/minis", isDirectory: true)
-                .appendingPathComponent(host, isDirectory: true)
-                .appendingPathComponent(subPath)
+            guard let rootfsURL = MinisURLPathDecoding.containedCandidate(base: rootfsHostDir, subPath: subPath) else { continue }
             if fm.fileExists(atPath: rootfsURL.path) {
                 let size = (try? fm.attributesOfItem(atPath: rootfsURL.path)[.size] as? Int64) ?? -1
                 imgLogger.info("[MinisImage][Resolve] FOUND in global rootfs path=\(rootfsURL.path) size=\(size)")

@@ -398,25 +398,16 @@ extension AIChatViewModel {
         let subPaths = MinisURLPathDecoding.subPathCandidates(for: url)
         let fm = FileManager.default
 
-        // Primary: resolve via active session
-        if let sid = activeSessionId {
-            for subPath in subPaths {
-                let candidate = minisPersistentBase
-                    .appendingPathComponent(sid, isDirectory: true)
-                    .appendingPathComponent(host, isDirectory: true)
-                    .appendingPathComponent(subPath)
-                if fm.fileExists(atPath: candidate.path) { return candidate }
-            }
-        }
-
-        // Global directories (skills, shared, stickers, personas).
-        // ［persona］F1: memory is NOT in this list anymore. A
-        // minis-clone://memory/... link used to resolve against the flat
-        // memory root, so any message could render another persona's image
-        // or file. It now resolves only inside the ACTIVE session's own
-        // persona dir (or the user profile) via PersonaStore.memoryLinkURL;
-        // any other persona's path, personas.json, and legacy root files
-        // resolve to nothing. Unknown persona fails closed.
+        // ［persona］F1: memory is persona-scoped — resolve it FIRST,
+        // before the session primary branch. The primary branch used to
+        // run first and join the raw subpath under <base>/<sid>/memory/,
+        // so a `..` in the link walked out into the flat memory root and
+        // returned another persona's file before this branch ever ran.
+        // A minis-clone://memory/... link resolves only inside the ACTIVE
+        // session's own persona dir (or the user profile) via
+        // PersonaStore.memoryLinkURL; any other persona's path,
+        // personas.json, and legacy root files resolve to nothing.
+        // Unknown persona fails closed.
         if host == "memory" {
             let pid = activeSessionId.flatMap { MinisFsRouter.shared.persona(forSession: $0) }
             for subPath in subPaths {
@@ -425,6 +416,22 @@ extension AIChatViewModel {
                 }
             }
         }
+
+        // Primary: resolve via active session. Contained: a `..` in the
+        // subpath stays inside <base>/<sid>/<host>/ (same fix for
+        // `attachments`, where a `..` used to escape into another
+        // session's attachments).
+        if let sid = activeSessionId {
+            let sessionHostDir = minisPersistentBase
+                .appendingPathComponent(sid, isDirectory: true)
+                .appendingPathComponent(host, isDirectory: true)
+            for subPath in subPaths {
+                guard let candidate = MinisURLPathDecoding.containedCandidate(base: sessionHostDir, subPath: subPath) else { continue }
+                if fm.fileExists(atPath: candidate.path) { return candidate }
+            }
+        }
+
+        // Global directories (skills, shared, stickers, personas).
         let globalDirs: [(String, URL)] = [
             ("skills", minisSkillsPersistentDir),
             ("shared", minisSharedPersistentDir),
@@ -433,7 +440,7 @@ extension AIChatViewModel {
         ]
         for (subdir, dir) in globalDirs where host == subdir {
             for subPath in subPaths {
-                let candidate = dir.appendingPathComponent(subPath)
+                guard let candidate = MinisURLPathDecoding.containedCandidate(base: dir, subPath: subPath) else { continue }
                 if fm.fileExists(atPath: candidate.path) { return candidate }
             }
         }
@@ -441,11 +448,11 @@ extension AIChatViewModel {
         // Scan all sessions
         if let sessions = try? fm.contentsOfDirectory(atPath: minisPersistentBase.path) {
             for sid in sessions {
+                let sessionHostDir = minisPersistentBase
+                    .appendingPathComponent(sid, isDirectory: true)
+                    .appendingPathComponent(host, isDirectory: true)
                 for subPath in subPaths {
-                    let candidate = minisPersistentBase
-                        .appendingPathComponent(sid, isDirectory: true)
-                        .appendingPathComponent(host, isDirectory: true)
-                        .appendingPathComponent(subPath)
+                    guard let candidate = MinisURLPathDecoding.containedCandidate(base: sessionHostDir, subPath: subPath) else { continue }
                     if fm.fileExists(atPath: candidate.path) { return candidate }
                 }
             }
