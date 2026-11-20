@@ -316,11 +316,14 @@ struct ScheduledPulseCardView: View {
 
     @ObservedObject private var fontSettings = FontSettings.shared
 
-    /// [AUD-16] Whose pulse this is — the persona's own name from SOUL,
-    /// not a literal. Falls back to the plain noun when nothing is set.
+    /// [AUD-16] Whose pulse this is — the persona's own name from SOUL.
+    /// [persona] F7: the job's own persona (stamped at creation), never the
+    /// global slot — a task owned by persona B must not wear persona A's
+    /// name. displayName always resolves (empty name → "嘟嘟", same as the
+    /// chat header), so there is no empty-name branch.
     private var pulseHeadline: String {
-        let name = SoulStore.cachedMetadata.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? AppLocalized("自主脉搏") : "\(name) · " + AppLocalized("自主脉搏")
+        let name = SoulStore.displayName(for: SoulStore.displayPersonaId(job?.personaId))
+        return "\(name) · " + AppLocalized("自主脉搏")
     }
 
     var body: some View {
