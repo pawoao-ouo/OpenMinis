@@ -86,9 +86,34 @@ extension AIChatViewModel {
                 .appendingPathComponent(host, isDirectory: true)
         }
         let subPaths = MinisURLPathDecoding.subPathCandidates(for: url)
-        let candidates = subPaths.map { base.appendingPathComponent($0) }
+        // ［persona］F1: join through containedCandidate — a raw
+        // `appendingPathComponent(subPath)` + `fileExists` lets a `..`
+        // escape the base dir (e.g. minis-clone://shared/../memory/...
+        // lands in the sibling memory root) before any persona check
+        // runs. Containment still returns a nonexistent destination
+        // inside the base, so the write path keeps its "first candidate"
+        // fallback for not-yet-created files.
+        let candidates = subPaths.compactMap { MinisURLPathDecoding.containedCandidate(base: base, subPath: $0) }
         return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
             ?? candidates.first
+    }
+
+    /// Normalize a file-tool path argument (either `/var/minis/...` or
+    /// `minis-clone://...` form, any namespace) to a standardized Linux
+    /// path, judging `..` on where it lands. A cross-namespace `..`
+    /// (`/var/minis/shared/../memory/...`) lands under memory, not
+    /// shared — matching the raw prefix first would let it fall through
+    /// every guard. Percent-encoded `..` (%2E%2E) is NOT visible here;
+    /// those are caught by the canonical check in
+    /// `resolvePathForDirectRead`, which judges the resolved file.
+    private static func standardizedLinuxPath(_ rawPath: String) -> String {
+        let linux: String
+        if rawPath.hasPrefix("minis-clone://") {
+            linux = "/var/minis/" + rawPath.dropFirst("minis-clone://".count)
+        } else {
+            linux = rawPath
+        }
+        return (linux as NSString).standardizingPath
     }
 
     /// Convert a Linux path under /var/minis/ to a minis-clone:// URL, or nil if not under /var/minis/.
@@ -140,25 +165,28 @@ extension AIChatViewModel {
     /// check in `resolvePathForDirectRead`, which turns them into an
     /// "Invalid path" instead of an explicit message.
     func memoryPathRefusal(for rawPath: String) -> String? {
-        // Normalize to a Linux path first, THEN judge where it lands: a
-        // `..` is judged on its landing, not on its first segment, so
-        // `/var/minis/personas/../memory/personas/<own>/x` is a memory
-        // path (allowed), not a personas path.
-        let linux: String
-        if rawPath.hasPrefix("/var/minis/personas/") || rawPath == "/var/minis/personas" {
-            linux = rawPath
-        } else if rawPath.hasPrefix("minis-clone://personas/") || rawPath == "minis-clone://personas" {
-            linux = "/var/minis/personas" + rawPath.dropFirst("minis-clone://personas".count)
-        } else if rawPath.hasPrefix("/var/minis/memory/") || rawPath == "/var/minis/memory" {
-            linux = rawPath
-        } else if rawPath.hasPrefix("minis-clone://memory/") {
-            linux = "/var/minis/memory/" + rawPath.dropFirst("minis-clone://memory/".count)
-        } else if rawPath == "minis-clone://memory" {
-            linux = "/var/minis/memory"
-        } else {
-            return nil
+        // Normalize to a Linux path for ANY namespace first, THEN
+        // standardize and judge where it lands: a cross-namespace `..`
+        // (`/var/minis/shared/../memory/...`) is a memory path, not a
+        // shared path. The old version matched the raw prefixes first,
+        // so such a path fell through every branch below.
+        var std = Self.standardizedLinuxPath(rawPath)
+        // A `..` that walks out of /var/minis entirely lands on
+        // /var/MinisConfig/ (the container root) — judge it by the guest
+        // path it corresponds to. Only when the request actually
+        // traversed: a literal nested MinisConfig/ dir under shared is a
+        // user file, not the container root, and must not be re-judged.
+        if rawPath.contains("/.."), let range = std.range(of: "/MinisConfig/") {
+            std = "/var/minis/" + std[range.upperBound...]
         }
-        let std = (linux as NSString).standardizingPath
+        // ［persona］F1: MCP server configs carry credentials
+        // (Authorization headers, API keys) and are never readable or
+        // writable through a file tool, whatever namespace the request
+        // used. The in-guest minis-mcp-cli reads them via the shell
+        // mount, which this check does not touch.
+        if std == "/var/minis/mcp-servers" || std.hasPrefix("/var/minis/mcp-servers/") {
+            return "Error: refusing to access \(rawPath): MCP server configs can carry credentials and are not readable through file tools."
+        }
         // ［persona］F1: the personas registry mirror is never readable
         // through a file tool. It holds every persona's settings,
         // including custom headers that can carry credentials; the only
@@ -168,6 +196,9 @@ extension AIChatViewModel {
             guard std == "/var/minis/personas/regex-rules.json" else {
                 return "Error: refusing to access \(rawPath): the personas registry (personas.json) holds every persona's settings and is not readable from a session."
             }
+            return nil
+        }
+        guard std == "/var/minis/memory" || std.hasPrefix("/var/minis/memory/") else {
             return nil
         }
         let marker = "/var/minis/memory/personas/"
@@ -189,11 +220,17 @@ extension AIChatViewModel {
 
     /// Apply the F1 canonical memory check to a resolved host URL: memory
     /// paths outside the session's own persona dir (or the user profile)
-    /// resolve to nil, whatever branch produced them. Non-memory paths pass
-    /// through untouched.
+    /// resolve to nil, whatever branch produced them. The check judges
+    /// the RESOLVED file, not the request path — a `..` launched from
+    /// another namespace (e.g. /var/minis/shared/../memory/...) lands
+    /// under the flat memory root while the request path never mentions
+    /// memory, so gating on the request prefix (the old version) passed
+    /// it through untouched. Non-memory paths pass through untouched.
     private func memoryChecked(_ url: URL?, for linuxPath: String) -> URL? {
         guard let url else { return nil }
-        guard linuxPath == "/var/minis/memory" || linuxPath.hasPrefix("/var/minis/memory/") else {
+        let memoryRoot = Self.minisMemoryPersistentDir.standardizedFileURL.resolvingSymlinksInPath().path
+        let resolved = url.standardizedFileURL.resolvingSymlinksInPath().path
+        guard resolved == memoryRoot || resolved.hasPrefix(memoryRoot + "/") else {
             return url
         }
         guard memoryHostURLAllowed(url) else {
@@ -203,29 +240,37 @@ extension AIChatViewModel {
         return url
     }
 
-    /// [persona] F1: canonical personas-registry check for a resolved host
-    /// URL. The `personas.json` mirror under /var/minis/personas/ holds
-    /// every persona's settings (including custom headers that can carry
-    /// credentials) and resolves to nil, whatever branch produced the URL.
-    /// Only the global regex-rules mirror is readable from a session —
-    /// and only when the resolved file really is that file: a symlink
-    /// alias inside the dir pointing at personas.json is refused too.
-    /// Non-personas paths pass through untouched.
+    /// [persona] F1: canonical check for a resolved host URL against the
+    /// MinisConfig secrets: the personas registry and the MCP server
+    /// configs. The `personas.json` mirror under MinisConfig/personas/
+    /// holds every persona's settings (including custom headers that can
+    /// carry credentials) and resolves to nil, whatever branch produced
+    /// the URL. Only the global regex-rules mirror is readable from a
+    /// session — and only when the resolved file really is that file: a
+    /// symlink alias inside the dir pointing at personas.json is refused
+    /// too. `mcp-servers/servers.json` carries credentials (Authorization
+    /// headers, API keys) and is never readable through a file tool — the
+    /// in-guest minis-mcp-cli reads it via the shell mount, which this
+    /// check does not touch. The check judges the RESOLVED file, not the
+    /// request path, so a `..` launched from another namespace cannot
+    /// launder a config file past it. Anything outside MinisConfig
+    /// passes through untouched.
     private func personasChecked(_ url: URL?, for linuxPath: String) -> URL? {
         guard let url else { return nil }
-        guard linuxPath == "/var/minis/personas" || linuxPath.hasPrefix("/var/minis/personas/") else {
+        let resolved = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let personasRoot = Self.minisPersonasPersistentDir.standardizedFileURL.resolvingSymlinksInPath().path
+        if resolved == personasRoot || resolved.hasPrefix(personasRoot + "/") {
+            let regexRules = Self.minisPersonasPersistentDir.appendingPathComponent("regex-rules.json").standardizedFileURL.resolvingSymlinksInPath().path
+            let registry = Self.minisPersonasPersistentDir.appendingPathComponent("personas.json").standardizedFileURL.resolvingSymlinksInPath().path
+            guard resolved == regexRules, resolved != registry else {
+                logger.warning("[persona] F1: refused personas registry access: \(linuxPath) → \(url.path)")
+                return nil
+            }
             return url
         }
-        let std = (linuxPath as NSString).standardizingPath
-        guard std == "/var/minis/personas/regex-rules.json" else {
-            logger.warning("[persona] F1: refused personas registry access: \(linuxPath) → \(url.path)")
-            return nil
-        }
-        let registry = Self.minisPersonasPersistentDir.appendingPathComponent("personas.json")
-        let resolvedRegistry = registry.standardizedFileURL.resolvingSymlinksInPath().path
-        let resolvedURL = url.standardizedFileURL.resolvingSymlinksInPath().path
-        guard resolvedURL != resolvedRegistry else {
-            logger.warning("[persona] F1: refused personas registry access via symlink alias: \(linuxPath) → \(url.path)")
+        let mcpRoot = Self.minisMcpServersPersistentDir.standardizedFileURL.resolvingSymlinksInPath().path
+        if resolved == mcpRoot || resolved.hasPrefix(mcpRoot + "/") {
+            logger.warning("[persona] F1: refused MCP server config access: \(linuxPath) → \(url.path)")
             return nil
         }
         return url
@@ -536,12 +581,16 @@ extension AIChatViewModel {
     /// (and the fs translate hook for shell access) is the backstop that
     /// closes those escapes.
     func memoryWriteGuard(for rawPath: String) -> String? {
-        let norm: String
-        if rawPath.hasPrefix("/var/minis/memory/") || rawPath == "/var/minis/memory" {
-            norm = rawPath
-        } else if rawPath.hasPrefix("minis-clone://memory/") {
-            norm = "/var/minis/memory/" + rawPath.dropFirst("minis-clone://memory/".count)
-        } else {
+        // Judge where the path LANDS, not its first segment: a
+        // cross-namespace `..` (`/var/minis/shared/../memory/...`) is a
+        // memory write even though the raw path never mentions memory —
+        // the old prefix match let it sail past the memory-off check
+        // (and the own-dir check below) entirely. memoryPathRefusal and
+        // the canonical check in resolvePathForDirectRead are the
+        // backstops for cross-persona writes; this closes the same
+        // escape for the memory-off rule.
+        let norm = Self.standardizedLinuxPath(rawPath)
+        guard norm == "/var/minis/memory" || norm.hasPrefix("/var/minis/memory/") else {
             return nil
         }
         if !memoryEnabled {
