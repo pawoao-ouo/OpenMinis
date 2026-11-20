@@ -169,6 +169,30 @@ enum PersonaStore {
             }
         }
 
+        // 1b. Skills: copy flat user skill dirs into skills/default/ so
+        // the default persona keeps them. (loadSkills only falls back to
+        // the flat baseline for BUNDLED skills; user skills must live in
+        // the persona dir to load.) Bundled skills stay in the baseline.
+        // MCP needs no copy: MCPStore falls back to the flat baseline.
+        // Shared needs no copy: flat shared/ IS the read-only baseline.
+        let legacySkills = AIChatViewModel.minisSkillsPersistentDir
+        let defaultSkills = skillsDir(for: defaultPersonaId)
+        do {
+            try fm.createDirectory(at: defaultSkills, withIntermediateDirectories: true)
+            if let entries = try? fm.contentsOfDirectory(
+                at: legacySkills, includingPropertiesForKeys: [.isDirectoryKey]
+            ) {
+                for src in entries {
+                    var isDir: ObjCBool = false
+                    guard fm.fileExists(atPath: src.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                    let dst = defaultSkills.appendingPathComponent(src.lastPathComponent)
+                    if !fm.fileExists(atPath: dst.path) {
+                        try? fm.copyItem(at: src, to: dst)
+                    }
+                }
+            }
+        }
+
         // 2. Flat per-session dirs: <minis>/<sid>/ → <minis>/<pid>/<sid>/.
         //    A dir is treated as a flat session dir when ChatStore knows the
         //    session id; persona dirs themselves are session ids too, so the
