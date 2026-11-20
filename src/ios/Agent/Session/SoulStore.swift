@@ -310,8 +310,9 @@ enum SoulIconSource {
             AIChatViewModel.minisSharedPersistentDir,
         ]
         if let sid = AIChatViewModel.activeSessionId {
-            roots.append(AIChatViewModel.minisPersistentBase
-                .appendingPathComponent(sid, isDirectory: true))
+            roots.append(PersonaStore.sessionDir(
+                for: sid, personaId: PersonaStore.personaId(forSessionId: sid)
+            ))
         }
         return roots
     }
@@ -658,12 +659,25 @@ enum SoulBodyLimitCheck: Equatable {
     }
 }
 
-/// Filesystem helpers for SOUL.md. The file lives in the same memory
-/// directory as GLOBAL.md and daily logs.
+/// Filesystem helpers for SOUL.md. Each persona has its own SOUL.md at
+/// memory/<personaId>/SOUL.md (see PersonaStore). The no-arg APIs below
+/// resolve to the ACTIVE session's persona, so the Settings UI and the
+/// minis-config tool edit the soul of the persona the user is talking to;
+/// sync singletons pass the default persona explicitly instead.
 enum SoulStore {
 
-    static var fileURL: URL {
-        AIChatViewModel.minisMemoryPersistentDir.appendingPathComponent("SOUL.md")
+    /// Persona of the active session ("default" when no session is active,
+    /// e.g. at launch — pre-existing sessions are all default-persona).
+    static var activePersonaId: String {
+        PersonaStore.personaId(forSessionId: AIChatViewModel.activeSessionId)
+    }
+
+    /// SOUL.md of the active session's persona.
+    static var fileURL: URL { fileURL(for: activePersonaId) }
+
+    /// SOUL.md of one persona.
+    static func fileURL(for personaId: String) -> URL {
+        PersonaStore.soulFileURL(for: personaId)
     }
 
     // MARK: - Body length rules (unified token count)
@@ -779,8 +793,9 @@ enum SoulStore {
 
     /// Create SOUL.md with default content if it does not already exist.
     /// Safe to call on every launch — never overwrites existing content.
-    static func ensureExists() {
-        let url = fileURL
+    /// Defaults to the active session's persona.
+    static func ensureExists(personaId: String? = nil) {
+        let url = fileURL(for: personaId ?? activePersonaId)
         let fm = FileManager.default
         guard !fm.fileExists(atPath: url.path) else { return }
         // Parent dir is created earlier by registerFileProviderDomain;
@@ -794,8 +809,9 @@ enum SoulStore {
     /// Read + parse the current SOUL.md. Returns nil when the file does
     /// not exist or is unreadable. An empty file parses to default-meta +
     /// empty body, which callers may want to treat as missing.
-    static func load() -> SoulFile? {
-        let url = fileURL
+    /// Defaults to the active session's persona.
+    static func load(personaId: String? = nil) -> SoulFile? {
+        let url = fileURL(for: personaId ?? activePersonaId)
         guard FileManager.default.fileExists(atPath: url.path),
               let data = try? Data(contentsOf: url),
               let str = String(data: data, encoding: .utf8) else { return nil }
@@ -810,9 +826,10 @@ enum SoulStore {
 
     /// Re-read SOUL.md into `cachedMetadata` and post a notification so
     /// observers (chat bubble header, prompt builder, etc.) can refresh.
+    /// Defaults to the active session's persona.
     @MainActor
-    static func refreshCache() {
-        if let file = load() {
+    static func refreshCache(personaId: String? = nil) {
+        if let file = load(personaId: personaId ?? activePersonaId) {
             cachedMetadata = file.metadata
         } else {
             cachedMetadata = .default
@@ -821,9 +838,10 @@ enum SoulStore {
     }
 
     /// Persist a SoulFile back to disk and refresh the cache.
+    /// Defaults to the active session's persona.
     @MainActor
-    static func save(_ file: SoulFile) throws {
-        let url = fileURL
+    static func save(_ file: SoulFile, personaId: String? = nil) throws {
+        let url = fileURL(for: personaId ?? activePersonaId)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         let text = SoulMDParser.serialize(file)
@@ -831,21 +849,24 @@ enum SoulStore {
         cachedMetadata = file.metadata
         NotificationCenter.default.post(name: .soulMdChanged, object: nil)
         // Notify the V2 sync layer so SOUL.md changes propagate to the
-        // user's other devices. SoulStore is a singleton record on
-        // iCloud (recordId "soul"); the hydrator reads SOUL.md from
-        // disk when building the outbound portable, so the only thing
-        // we need to do here is enqueue it as dirty.
-        Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
+        // user's other devices. SoulV2 is the DEFAULT persona's singleton
+        // record (recordId "soul"); a non-default persona's soul never
+        // rides it — per-persona soul sync does not exist yet.
+        let resolvedPersonaId = personaId ?? activePersonaId
+        if resolvedPersonaId == PersonaStore.defaultPersonaId {
+            Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
+        }
     }
 
     /// Apply an inbound SOUL.md from iCloud without re-marking it dirty.
     /// Used by the V2 sync hydrator's merger path. LWW-by-mtime is
     /// applied here so a stale remote write doesn't clobber a newer
     /// local file (the cloud record's updatedAt is the authority, not
-    /// our local file mtime).
+    /// our local file mtime). SoulV2 is the default persona's record,
+    /// so this always targets the default persona.
     @MainActor
-    static func applyRemoteContent(_ markdown: String, remoteUpdatedAt: Date) {
-        let url = fileURL
+    static func applyRemoteContent(_ markdown: String, remoteUpdatedAt: Date, personaId: String = PersonaStore.defaultPersonaId) {
+        let url = fileURL(for: personaId)
         let fm = FileManager.default
         // Compare local file mtime against the remote updatedAt; skip
         // the write if local is strictly newer (peer's record reflects
@@ -935,8 +956,12 @@ enum SystemPromptBuilder {
     /// We never substitute a default body into the prompt — the identity
     /// sentence alone is the safe fallback when SOUL.md is missing or
     /// empty, matching pre-SOUL behavior.
-    static func identitySection() -> String {
-        let file = SoulStore.load()
+    /// Identity + personality block for one persona's SOUL.md. Prompt
+    /// assembly passes the session's personaId; there is no global soul
+    /// anymore — a new persona starts with an empty SOUL.md (identity-only
+    /// output) until the user writes one for it.
+    static func identitySection(personaId: String) -> String {
+        let file = SoulStore.load(personaId: personaId)
         let name: String = {
             let n = (file?.metadata.name ?? SoulMetadata.default.name)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1010,6 +1035,12 @@ enum SystemPromptBuilder {
             + "\n\n"
             + soulEditHint
             + "\n\n"
+    }
+
+    /// Back-compat shorthand: the active session's persona. Prompt
+    /// assembly should prefer the explicit form above.
+    static func identitySection() -> String {
+        identitySection(personaId: activePersonaId)
     }
 
     /// Drop lines that look like an attempt to subvert the system prompt.
