@@ -988,8 +988,7 @@ struct ContentView: View {
     @State private var sessionsByIdCache: [String: ChatSession] = [:]
     /// Soul name shown as the sidebar title. Sourced from SOUL.md, falls
     /// back to "Minis". Refreshed whenever SoulStore posts .soulMdChanged.
-    @State private var soulName: String = SoulStore.cachedMetadata.name.isEmpty
-        ? "嘟嘟" : SoulStore.cachedMetadata.name
+    @State private var soulName: String = SoulStore.displayName(for: PersonaStore.currentID())
     /// [batch9b] 顶部标题点开的「一击切换」浮层（PersonaQuickSwitcher）。
     @State private var showPersonaQuickSwitch = false
     /// [B2 · 10-15] 完整人设管理页（新建/编辑/删除/复制）——改由浮层底部
@@ -2993,8 +2992,11 @@ struct ContentView: View {
         // across the sidebar's life, so the sink is never torn down mid-transaction
         // and can't drop a .soulMdChanged notification arriving during reconstruction.
         .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            let n = SoulStore.cachedMetadata.name
-            soulName = n.isEmpty ? "嘟嘟" : n
+            // [persona] F7: the sidebar switcher title shows the CURRENT
+            // persona's name, read from that persona's own SOUL file — not
+            // the global slot, which can still hold the previous persona
+            // after a switch.
+            soulName = SoulStore.displayName(for: PersonaStore.currentID())
         }
     }
 
