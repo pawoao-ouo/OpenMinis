@@ -458,8 +458,12 @@ struct AIChatView: View {
     @State private var titlePillEditSession: ChatSession?
     /// Default chat title for sessions without a generated title. Sourced
     /// from SOUL.md (`name`), falls back to "Minis". Refreshed on .soulMdChanged.
-    @State private var soulName: String = SoulStore.cachedMetadata.name.isEmpty
-        ? "Minis" : SoulStore.cachedMetadata.name
+    /// Starts at the neutral "Minis": the @State initializer cannot reference
+    /// vm, and reading the global cachedMetadata here would flash the
+    /// previously-open persona's name for one frame. The .soulMdChanged
+    /// handler below corrects this to THIS chat's persona once loadSession
+    /// refreshes the cache (refreshCache posts the notification).
+    @State private var soulName: String = "Minis"
 
     /// True when any sheet or fullScreenCover is presented (suppress auto-focus to avoid keyboard bugs).
     private var hasOverlayPresented: Bool {
@@ -1244,6 +1248,15 @@ struct AIChatView: View {
             // away). Guarded on non-empty: a fresh draft has no persona
             // yet; loadSession/ensureSession set the marker once one exists.
             if !vm.personaId.isEmpty { PersonaStore.activePersonaId = vm.personaId }
+            // Item 1 (small-issues fix): correct the header name here too,
+            // not only in the .soulMdChanged handler. The reuse branch below
+            // does not run loadSession, so a recreated view would otherwise
+            // keep the neutral "Minis" from the @State initializer forever
+            // (the notification already fired before this instance existed).
+            if !vm.personaId.isEmpty {
+                let meta = SoulStore.cachedMetadata(for: vm.personaId)
+                soulName = meta.name.isEmpty ? "Minis" : meta.name
+            }
             vm.ensureKernelBooted()
             if let sessionId {
                 if cached.isNew || (vm.messages.isEmpty && !vm.isLoadingSession) {
