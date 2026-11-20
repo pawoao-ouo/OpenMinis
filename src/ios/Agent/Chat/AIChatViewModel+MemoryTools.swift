@@ -122,8 +122,12 @@ extension AIChatViewModel {
             return FileToolResult(output: "Error writing memory: \(error.localizedDescription)", success: false)
         }
 
-        // Register in meta.db for iSH visibility
-        let linuxPath = "\(PersonaStore.memoryLinuxDir(for: personaId))/\(fileName)"
+        // Register in meta.db for iSH visibility. The guest-visible path
+        // has NO persona segment — /var/minis/memory/<file> — because the
+        // router resolves the persona from the task's fs_context, not the
+        // path. (Registering the pid-prefixed host path would create a
+        // meta entry no shell lookup ever hits.)
+        let linuxPath = "\(Self.minisMemoryLinuxDir)/\(fileName)"
         ensureFakefsMetadata(for: linuxPath, isDirectory: false)
 
         // Enqueue for iCloud v2 sync. Reuse fileName's stem (no second
