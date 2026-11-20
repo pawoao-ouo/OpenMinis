@@ -181,16 +181,24 @@ class SessionForkManager(
 
     /**
      * Persist a memory note (plain Markdown / text) under
-     * `<filesDir>/minis-global/memory/<fileName>`. Mirrors iOS
-     * `SessionForkManager.copyRemoteMemory` which writes under
+     * `<filesDir>/minis-global/memory/personas/<personaId>/<fileName>`.
+     * Mirrors iOS `SessionForkManager.copyRemoteMemory` which writes under
      * `minisMemoryPersistentDir`. Overwrites if the file already exists.
+     * Defaults to the default persona; a fork passes its target
+     * session's persona so the copy lands in the right persona dir.
+     * (Dead code — no callers at time of writing — but the flat path
+     * was a stale leak waiting for the first caller.)
      */
-    fun copyMemory(fileName: String, content: String): Boolean {
+    fun copyMemory(
+        fileName: String,
+        content: String,
+        personaId: String = PersonaStore.DEFAULT_PERSONA_ID,
+    ): Boolean {
         if (fileName.contains("/") || fileName.contains("..")) {
             AppLogger.warning(TAG, "copyMemory: rejecting unsafe fileName '$fileName'")
             return false
         }
-        val dir = File(filesDir, "minis-global/memory").apply { mkdirs() }
+        val dir = PersonaStore.memoryDir(filesDir, personaId).apply { mkdirs() }
         return try {
             File(dir, fileName).writeText(content)
             true
