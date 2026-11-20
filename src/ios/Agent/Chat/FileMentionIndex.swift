@@ -489,6 +489,22 @@ final class FileMentionIndex: ObservableObject {
             linuxPrefix: AIChatViewModel.minisSkillsLinuxDir,
             mountName: nil
         ))
+        // Item 2 (small-issues fix): bundled skills live ONLY in the flat
+        // skills/ baseline (item 9 decided never to copy them into
+        // skills/default/), so the root above never sees them and bundled
+        // skill files vanished from the @-menu. Scan the flat baseline too.
+        // Bundled skills are GLOBAL, not persona data, so no leakage.
+        // Prune the `default` subdir: user skills already come from the
+        // root above, and listing them again under
+        // /var/minis/skills/default/... would be a dead path (the router
+        // maps /var/minis/skills/<id>/... to skills/default/<id>/...).
+        roots.append(ScanRoot(
+            scope: .skills,
+            hostURL: AIChatViewModel.minisSkillsPersistentDir,
+            linuxPrefix: AIChatViewModel.minisSkillsLinuxDir,
+            mountName: nil,
+            pruneFirstLevelDir: { $0 == PersonaStore.defaultPersonaId }
+        ))
         roots.append(ScanRoot(
             scope: .shared,
             hostURL: AIChatViewModel.minisSharedPersistentDir,
