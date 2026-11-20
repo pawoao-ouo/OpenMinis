@@ -205,6 +205,11 @@ enum ScheduledJobRunner {
     @discardableResult
     private static func fire(_ job: AgentJob, upstreamJobId: String? = nil, keepInsurance: Bool = false) async -> String? {
         let registry = AgentJobRegistry.shared
+        // [persona] F3: the job runs as its stored persona — resolved once
+        // here, from the creator/target session and stored back when it was
+        // missing — never whoever happens to be globally current when the
+        // timer fires.
+        let jobPersonaId = await registry.ensurePersonaId(job)
         var prompt = job.prompt ?? ""
         if let up = upstreamJobId, let upstream = registry.job(id: up) {
             prompt = prompt.replacingOccurrences(of: "{{result}}", with: upstream.resultText ?? "")
@@ -232,9 +237,12 @@ enum ScheduledJobRunner {
             // the user.
             job.modelIdentity = Self.scheduledIdentity(for: choice)
             job.modelOrigin = choice.origin?.rawValue
+            // [persona] F3: the new session belongs to the job's persona,
+            // not to whoever is current at fire time.
             let session = await ChatStore.shared.createSession(modelId: entry.model.id,
                                                                title: job.label.map { "Scheduled · \($0)" },
-                                                               source: sourceTag)
+                                                               source: sourceTag,
+                                                               personaId: jobPersonaId)
             if let override = job.modelEntryId, ProviderConfigStore.shared.entry(for: override) != nil {
                 ProviderConfigStore.shared.setBinding(
                     SessionModelBinding(sessionId: session.id, primarySource: .directEntry(modelEntryId: override)),
@@ -367,11 +375,15 @@ enum ScheduledJobRunner {
                 return nil
             }
             let title = job.label ?? job.title
+            // [persona] F3: the helper child runs as the job's persona — the
+            // parent session's persona, stamped at creation — not whoever is
+            // current at fire time.
             let session = await ChatStore.shared.createSession(modelId: resolution.entry.model.id,
                                                                title: AgentJobRegistry.childSessionTitle(title),
                                                                source: sourceTag,
                                                                parentSessionId: parentSid,
-                                                               parentToolUseId: nil)
+                                                               parentToolUseId: nil,
+                                                               personaId: jobPersonaId)
             ProviderConfigStore.shared.setBinding(
                 SessionModelBinding(sessionId: session.id, primarySource: resolution.source), for: session.id)
             // [batch7][AUD-B7-0] `applySubAgentThinkingLevel` is an instance

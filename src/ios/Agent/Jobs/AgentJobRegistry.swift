@@ -261,6 +261,14 @@ final class AgentJob: Identifiable {
     /// keeps whatever its group default gives it. Only an explicit flag
     /// overrides, so every existing job behaves exactly as before.
     var thinkingLevel: ThinkingLevel?
+    /// [persona] F3: the persona this job runs as, stamped at creation from
+    /// the creator session (or the target session when there is no creator).
+    /// `.new` fires create their session under this persona instead of
+    /// whoever is globally current when the timer happens to fire, and
+    /// list/run/delete/enable compare against it. Nil only for jobs created
+    /// before this field existed — `ensurePersonaId` backfills those on
+    /// first use, so a nil here never means "any persona".
+    var personaId: String?
     // [T-scheduled-prefill-and-pulse]
     var prefilledTool: PrefilledToolCall?
     var isPulse: Bool = false
@@ -526,12 +534,14 @@ final class AgentJobRegistry: ObservableObject {
                   trigger: AgentJobTrigger,
                   target: AgentJobTarget,
                   prompt: String?,
-                  then: AgentJobThen? = nil) -> AgentJob {
+                  then: AgentJobThen? = nil,
+                  personaId: String? = nil) -> AgentJob {
         // childOfCurrent defaults to reporting back to the parent — a hidden
         // child whose result goes nowhere has no entry point (design §8.1).
         let resolvedThen: AgentJobThen = then ?? (target.isChildOfCurrent ? .followUpParent(template: nil) : .none)
         let job = AgentJob(id: UUID().uuidString, label: label, title: title, origin: origin,
                            trigger: trigger, target: target, prompt: prompt, then: resolvedThen)
+        job.personaId = personaId
         jobs[job.id] = job
         logger.info("[Jobs] REGISTER \(job.logLabel) then=\(String(describing: resolvedThen))")
         return job
@@ -577,6 +587,9 @@ final class AgentJobRegistry: ObservableObject {
         job.isPulse = old.isPulse
         job.deliverySentence = old.deliverySentence
         job.creatorSessionId = old.creatorSessionId
+        // [persona] F3: ownership survives a redefine — changing a task's
+        // timing or target does not move it to another persona.
+        job.personaId = old.personaId
         job.restoreHistory(firedCount: old.firedCount, runs: old.runs, lastFireOk: old.lastFireOk)
         old.task?.cancel()
         old.task = nil
@@ -699,6 +712,11 @@ final class AgentJobRegistry: ObservableObject {
         // [T-scheduled-session-ownership] So `list` shows which conversation
         // owns a timer, and the model can tell its own from another chat's.
         if let c = job.creatorSessionId { d["creatorSessionId"] = c }
+        // [persona] F3: which persona this job runs as. Nil only for a job
+        // that has never been through ensurePersonaId (helper jobs, or a
+        // restore that has not backfilled yet) — the CLI resolves it before
+        // acting, so a listed nil is a transient, never a wildcard.
+        if let p = job.personaId { d["personaId"] = p }
         if let id = job.modelIdentity { d["modelIdentity"] = id.payload() }
         if let ok = job.lastFireOk { d["lastFireOk"] = ok }
         if let p = job.prompt { d["prompt"] = String(p.prefix(200)) }
@@ -710,8 +728,58 @@ final class AgentJobRegistry: ObservableObject {
     }
 
     /// Every job, newest first.
+    ///
+    /// This is the MANAGEMENT view — the in-app task list and the internal
+    /// helper lookups (by runSessionId) use it, and it is deliberately
+    /// unfiltered: the user manages all of her personas' tasks from one
+    /// screen. Agent-facing surfaces (the `minis-scheduled` CLI) go through
+    /// `list(forPersona:)` instead.
     func list() -> [AgentJob] {
         jobs.values.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// [persona] F3: every job owned by `personaId`, newest first. The CLI
+    /// bridge lists through here so one persona's agent never sees another
+    /// persona's tasks. Callers must backfill first
+    /// (`backfillMissingPersonaIds`) — a job with a nil personaId is owned
+    /// by nobody yet and would otherwise be silently omitted from EVERY
+    /// persona's list.
+    func list(forPersona personaId: String) -> [AgentJob] {
+        jobs.values.filter { $0.personaId == personaId }.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// [persona] F3: the persona this job runs as. Stored value wins;
+    /// otherwise derive from the creator session, then the parent/target
+    /// session; "default" only when nothing resolves (a job created with no
+    /// session context at all). The resolved value is stored back on the job
+    /// and persisted, so later fires and list/run/delete checks see the same
+    /// owner. `personaId(for:)` already maps a legacy NULL column to
+    /// default, so a nil here means the session row itself is gone.
+    func ensurePersonaId(_ job: AgentJob) async -> String {
+        if let p = job.personaId { return p }
+        var sid: String?
+        if let c = job.creatorSessionId { sid = c }
+        else if let p = job.target.parentSessionId { sid = p }
+        else if case .followUp(let s) = job.target { sid = s }
+        else if case .rerun(let s, _) = job.target { sid = s }
+        if let sid, let resolved = await ChatStore.shared.personaId(for: sid) {
+            job.personaId = resolved
+            persistScheduledJobs()
+            return resolved
+        }
+        job.personaId = PersonaStore.defaultPersonaID
+        persistScheduledJobs()
+        return PersonaStore.defaultPersonaID
+    }
+
+    /// [persona] F3: stamp every job that still has no persona (created
+    /// before the field existed, or a helper job whose parent session was
+    /// the only source). Called before a persona-filtered list is built so
+    /// no job is silently omitted from every persona's list.
+    func backfillMissingPersonaIds() async {
+        for job in jobs.values where job.personaId == nil {
+            _ = await ensurePersonaId(job)
+        }
     }
 
     /// Running/pending child-session jobs of `parent` — the capsule's data.
@@ -1469,6 +1537,9 @@ struct PersistedJob: Codable {
     var isPulse: Bool
     var deliverySentence: String?
     var creatorSessionId: String?
+    /// [persona] F3: the persona this job runs as. Nil in snapshots written
+    /// before the field existed — restore backfills those.
+    var personaId: String?
 
     @MainActor
     init(job: AgentJob) {
@@ -1497,6 +1568,7 @@ struct PersistedJob: Codable {
         isPulse = job.isPulse
         deliverySentence = job.deliverySentence
         creatorSessionId = job.creatorSessionId
+        personaId = job.personaId
     }
 }
 
@@ -1691,8 +1763,17 @@ extension AgentJobRegistry {
             job.isPulse = p.isPulse
             job.deliverySentence = p.deliverySentence
             job.creatorSessionId = p.creatorSessionId
+            job.personaId = p.personaId
             job.restoreHistory(firedCount: p.firedCount, runs: p.runs, lastFireOk: p.lastFireOk)
             jobs[job.id] = job
+            // [persona] F3: a snapshot written before personaId existed
+            // restores with nil — backfill from the creator/target session
+            // (else "default") so the job is owned before it can fire or
+            // be listed. The fire path re-resolves anyway; this is the
+            // eager pass so a filtered list never omits it.
+            if p.personaId == nil {
+                Task { @MainActor in _ = await self.ensurePersonaId(job) }
+            }
 
             // [S3] A restored child-of-current task fires into its parent
             // conversation, which may have been deleted while the app was

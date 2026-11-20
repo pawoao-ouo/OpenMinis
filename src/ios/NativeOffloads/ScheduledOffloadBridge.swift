@@ -34,6 +34,60 @@ private let logger = AppLogger(category: "ScheduledOffload")
         return out
     }
 
+    // MARK: - [persona] F3: caller identification and enforcement
+
+    /// The session whose shell invoked this CLI call, resolved from the
+    /// invoking shell's own fs_context (same mechanism as F6-a), falling back
+    /// to the mounted-session snapshot when no per-command context was
+    /// captured. Captured at the @objc entry point, on the guest thread,
+    /// before the hop to @MainActor — the thread-local record belongs to
+    /// that thread. Using the same session for target resolution and persona
+    /// stamping keeps the two from disagreeing under a mount race.
+    private static func callerSessionId() -> String? {
+        MinisFsRouter.shared.sid(for: MinisFsRouter.callingFsContext())
+            ?? ISHExecutionCoordinator.mountedSessionIdSnapshot
+    }
+
+    /// The persona of the session whose shell invoked this call. nil = no
+    /// session context (the command ran outside any chat) — the management
+    /// view, same as the in-app task list; enforcement is skipped only then.
+    @MainActor
+    private static func callerPersonaId(invokingFsContext: UInt64) async -> String? {
+        let sid = MinisFsRouter.shared.sid(for: invokingFsContext)
+            ?? ISHExecutionCoordinator.mountedSessionIdSnapshot
+        guard let sid, !sid.isEmpty else { return nil }
+        return await ChatStore.shared.personaId(for: sid)
+    }
+
+    /// The persona a new job is stamped with: the creator session first,
+    /// then the target session; "default" only when the command ran with no
+    /// session context at all (a `--target new` from outside any chat).
+    @MainActor
+    private static func jobPersonaId(creatorSessionId: String?, target: AgentJobTarget) async -> String {
+        var sid = creatorSessionId
+        if sid == nil {
+            switch target {
+            case .followUp(let s), .rerun(let s, _): sid = s
+            case .childOfCurrent(let p, _): sid = p
+            case .new: break
+            }
+        }
+        if let sid, let resolved = await ChatStore.shared.personaId(for: sid) { return resolved }
+        return PersonaStore.defaultPersonaID
+    }
+
+    /// nil = allowed (the job belongs to the caller, or the caller has no
+    /// session context — the management view). Otherwise an explicit
+    /// cross-persona error, never a silent no-op or a filtered-out row.
+    @MainActor
+    private static func crossPersonaError(job: AgentJob, callerPersonaId: String?) async -> NSDictionary? {
+        guard let caller = callerPersonaId else { return nil }
+        let owner = await AgentJobRegistry.shared.ensurePersonaId(job)
+        guard owner != caller else { return nil }
+        return ["ok": false, "error": "cross_persona",
+                "message": "task \(job.id.prefix(8)) belongs to persona \"\(owner)\"; it cannot be changed from persona \"\(caller)\". Use the task list in the app to manage another persona's tasks."] as NSDictionary
+    }
+
     // MARK: - create
 
     /// `args` carries the raw CLI strings (nil when absent). Returns either
@@ -87,7 +141,11 @@ private let logger = AppLogger(category: "ScheduledOffload")
         }
 
         // ── Target ───────────────────────────────────────────────────────
-        let callerSid = ISHExecutionCoordinator.mountedSessionIdSnapshot
+        // [persona] F3: the caller session comes from the invoking shell's
+        // own fs_context (see callerSessionId), not the snapshot alone —
+        // the persona stamp below must come from the same session the
+        // target resolves from, or the two can disagree under a mount race.
+        let callerSid = Self.callerSessionId()
         let explicitTarget = str("target")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let targetRaw: String
         let isTargetDefaulted: Bool
@@ -225,8 +283,12 @@ private let logger = AppLogger(category: "ScheduledOffload")
                                      deliverySentence: String) -> NSDictionary {
         onMain {
             let registry = AgentJobRegistry.shared
+            // [persona] F3: stamp the owner at creation — the job fires and
+            // lists as this persona from now on, whatever is current later.
+            let personaId = await Self.jobPersonaId(creatorSessionId: creatorSessionId, target: target)
             let job = registry.register(title: label ?? String(prompt.prefix(40)), label: label,
-                                        origin: .cli, trigger: trigger, target: target, prompt: prompt)
+                                        origin: .cli, trigger: trigger, target: target, prompt: prompt,
+                                        personaId: personaId)
             job.modelEntryId = modelEntryId
             job.thinkingLevel = thinkingLevel
             job.creatorSessionId = creatorSessionId
@@ -255,20 +317,41 @@ private let logger = AppLogger(category: "ScheduledOffload")
     // MARK: - list / delete / enable / run
 
     @objc public static func list() -> NSDictionary {
+        // [persona] F3: capture the invoking shell's context on the guest
+        // thread, before the hop to @MainActor.
+        let invokingCtx = MinisFsRouter.callingFsContext()
         onMain {
             let registry = AgentJobRegistry.shared
-            let jobs = registry.list().map { registry.jobDict($0) }
-            return ["tasks": jobs, "count": jobs.count] as NSDictionary
+            let callerPid = await Self.callerPersonaId(invokingFsContext: invokingCtx)
+            let jobs: [AgentJob]
+            if let callerPid {
+                // Backfill first so a job with no persona yet is owned
+                // before filtering — otherwise it is silently omitted from
+                // EVERY persona's list.
+                await registry.backfillMissingPersonaIds()
+                jobs = registry.list(forPersona: callerPid)
+            } else {
+                // No session context: the management view, same as the
+                // in-app task list.
+                jobs = registry.list()
+            }
+            let dicts = jobs.map { registry.jobDict($0) }
+            return ["tasks": dicts, "count": dicts.count] as NSDictionary
         } ?? ["ok": false, "error": "timeout",
               "message": "The app did not answer within 5s; nothing was changed."] as NSDictionary
     }
 
     @objc public static func delete(id: String) -> NSDictionary {
+        let invokingCtx = MinisFsRouter.callingFsContext()
         onMain {
             let registry = AgentJobRegistry.shared
             let (resolved, labelNote) = Self.resolveJob(registry, id)
             guard let job = resolved else {
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(id)"] as NSDictionary
+            }
+            if let err = await Self.crossPersonaError(job: job,
+                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                return err
             }
             registry.cancel(jobId: job.id, reason: "cli delete")
             registry.remove(jobId: job.id)
@@ -278,11 +361,16 @@ private let logger = AppLogger(category: "ScheduledOffload")
     }
 
     @objc public static func setEnabled(id: String, enabled: Bool) -> NSDictionary {
+        let invokingCtx = MinisFsRouter.callingFsContext()
         onMain {
             let registry = AgentJobRegistry.shared
             let (resolved, labelNote) = Self.resolveJob(registry, id)
             guard let job = resolved else {
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(id)"] as NSDictionary
+            }
+            if let err = await Self.crossPersonaError(job: job,
+                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                return err
             }
             registry.setEnabled(jobId: job.id, enabled: enabled)
             return ["id": job.id, "enabled": enabled].merging(labelNote) { _, new in new } as NSDictionary
@@ -291,11 +379,16 @@ private let logger = AppLogger(category: "ScheduledOffload")
     }
 
     @objc public static func run(id: String) -> NSDictionary {
+        let invokingCtx = MinisFsRouter.callingFsContext()
         onMain {
             let registry = AgentJobRegistry.shared
             let (resolved, labelNote) = Self.resolveJob(registry, id)
             guard let job = resolved else {
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(id)"] as NSDictionary
+            }
+            if let err = await Self.crossPersonaError(job: job,
+                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                return err
             }
             let outcome = await ScheduledJobRunner.fireNow(job)
             var out: [String: Any] = ["id": job.id, "ran": outcome["fired"] ?? false]
@@ -308,11 +401,16 @@ private let logger = AppLogger(category: "ScheduledOffload")
     }
 
     @objc public static func runsWithId(_ id: String) -> NSDictionary {
+        let invokingCtx = MinisFsRouter.callingFsContext()
         onMain {
             let registry = AgentJobRegistry.shared
             let (resolved, labelNote) = Self.resolveJob(registry, id)
             guard let job = resolved else {
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(id)"] as NSDictionary
+            }
+            if let err = await Self.crossPersonaError(job: job,
+                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                return err
             }
             let list = registry.runs(jobId: job.id).map { $0.toDict() }
             return ["id": job.id, "runs": list, "count": list.count].merging(labelNote) { _, new in new } as NSDictionary
@@ -388,6 +486,10 @@ private let logger = AppLogger(category: "ScheduledOffload")
     /// — not worth the risk. The flags and the inference rules are deliberately
     /// kept in step with it.
     @objc public static func update(args: NSDictionary) -> NSDictionary {
+        // [persona] F3: capture the invoking shell's context on the guest
+        // thread, before the hop to @MainActor.
+        let invokingCtx = MinisFsRouter.callingFsContext()
+        let callerSid = Self.callerSessionId()
         onMain {
             func str(_ k: String) -> String? {
                 guard let v = args[k] as? String, !v.isEmpty else { return nil }
@@ -400,6 +502,10 @@ private let logger = AppLogger(category: "ScheduledOffload")
             let (resolved, labelNote) = Self.resolveJob(registry, jobRef)
             guard let job = resolved else {
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(jobRef)"] as NSDictionary
+            }
+            if let err = await Self.crossPersonaError(job: job,
+                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                return err
             }
 
             // ── Trigger, only when a timing flag is actually given ─────────
@@ -475,7 +581,6 @@ private let logger = AppLogger(category: "ScheduledOffload")
             // ── Target, only when named ───────────────────────────────────
             var newTarget: AgentJobTarget? = nil
             if let t = str("target")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-                let callerSid = ISHExecutionCoordinator.mountedSessionIdSnapshot
                 switch t {
                 case "new":
                     newTarget = .new
@@ -542,11 +647,16 @@ private let logger = AppLogger(category: "ScheduledOffload")
     /// takeable anywhere else. The path is the caller's, so it can land in the
     /// shared workspace where both the app and the sandbox can read it.
     @objc public static func exportRuns(id: String, path: String) -> NSDictionary {
+        let invokingCtx = MinisFsRouter.callingFsContext()
         onMain {
             let registry = AgentJobRegistry.shared
             let (resolved, labelNote) = Self.resolveJob(registry, id)
             guard let job = resolved else {
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(id)"] as NSDictionary
+            }
+            if let err = await Self.crossPersonaError(job: job,
+                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                return err
             }
             guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return ["ok": false, "error": "path_required", "message": "--export <path> required"] as NSDictionary
