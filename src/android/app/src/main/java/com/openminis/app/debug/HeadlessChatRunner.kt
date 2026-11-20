@@ -38,7 +38,22 @@ internal object HeadlessChatRunner {
             ?: throw RPCException(-32000, "MinisApp not initialized")
 
     @Synchronized
-    private fun providerFor(context: Context, sessionId: String): ViewModelProvider {
+    private fun providerFor(
+        context: Context,
+        sessionId: String,
+        /**
+         * Persona the new provider's memory repo resolves under. Only
+         * used on a cache miss: a cached provider keeps the repo it was
+         * built with. For APPEND_TO / RERUN the stored personaId ==
+         * the target session's persona by construction (the task was
+         * created in that session), so the override is a no-op there;
+         * for NEW_SESSION the session is fresh, so the override is
+         * what makes the run land in the creator's persona memory.
+         * Null falls back to the per-session repo
+         * (PersonaStore.memoryRepositoryForSession).
+         */
+        personaId: String? = null,
+    ): ViewModelProvider {
         val cached = providers[sessionId]
         if (cached != null) return cached
         val app = app(context)
@@ -56,7 +71,15 @@ internal object HeadlessChatRunner {
                 chatRepository = app.chatRepository,
                 providerRepository = app.providerRepository,
                 appContext = app.applicationContext,
-                memoryRepository = app.memoryRepository,
+                memoryRepository = if (personaId != null) {
+                    com.openminis.app.data.PersonaStore.memoryRepositoryForPersona(
+                        app.applicationContext, personaId,
+                    )
+                } else {
+                    com.openminis.app.data.PersonaStore.memoryRepositoryForSession(
+                        app.applicationContext, sessionId,
+                    )
+                },
                 skillRepository = app.skillRepository,
                 mcpRepository = app.mcpRepository,
             ),
@@ -65,8 +88,12 @@ internal object HeadlessChatRunner {
         return provider
     }
 
-    private fun viewModel(context: Context, sessionId: String): ChatViewModel =
-        providerFor(context, sessionId)[ChatViewModel::class.java]
+    private fun viewModel(
+        context: Context,
+        sessionId: String,
+        personaId: String? = null,
+    ): ChatViewModel =
+        providerFor(context, sessionId, personaId)[ChatViewModel::class.java]
 
     /**
      * Ensure a session exists in the DB before binding a ViewModel. Mirrors
@@ -158,8 +185,9 @@ internal object HeadlessChatRunner {
         thinkingLevel: ThinkingLevel? = null,
         wait: Boolean,
         timeoutMs: Long,
+        personaId: String? = null,
     ): PromptResult = withContext(Dispatchers.Main) {
-        val vm = viewModel(context, sessionId)
+        val vm = viewModel(context, sessionId, personaId)
         // Apply per-call thinking override BEFORE sendMessage so streamMessage
         // picks up the new level. Caller passes null to keep the VM's existing
         // setting (default OFF for a fresh VM, last user-set value otherwise).
@@ -252,9 +280,10 @@ internal object HeadlessChatRunner {
         messageId: String?,
         wait: Boolean,
         timeoutMs: Long,
+        personaId: String? = null,
     ): PromptResult = withContext(Dispatchers.Main) {
         val app = app(context)
-        val vm = viewModel(context, sessionId)
+        val vm = viewModel(context, sessionId, personaId)
         val targetMsgId = messageId ?: run {
             val msgs = app.chatRepository.dao.loadMessages(sessionId)
             msgs.lastOrNull { it.role == "user" }?.id
