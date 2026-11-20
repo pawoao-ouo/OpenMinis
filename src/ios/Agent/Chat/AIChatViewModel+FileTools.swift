@@ -76,9 +76,12 @@ extension AIChatViewModel {
         // [T-fix-double-encoding]
         //
         // Per-persona base first; skills/shared/mcp-servers also check the
-        // read-only global baseline. Memory does NOT fall back to the flat
+        // live shared baselines. Memory does NOT fall back to the flat
         // memory/ dir — those are legacy personal files owned by the
-        // default persona, not a shared baseline.
+        // default persona, not a shared baseline. Shared's flat dir is the
+        // LIVE read/write runtime area (events.jsonl, together/,
+        // heartbeat) — second after the persona namespace, never locked
+        // (crosscheck-verdict §5).
         let bases: [URL]
         switch host {
         case "memory": bases = [PersonaStore.memoryDir(for: personaId)]
@@ -97,8 +100,9 @@ extension AIChatViewModel {
         }
         // No existing file anywhere: return the first persona candidate so
         // a write path still gets a valid destination for a not-yet-created
-        // file. Writes therefore always land in the persona dir, never in
-        // the read-only baseline.
+        // file. Writes therefore land in the persona namespace by default.
+        // The flat shared area stays writable for host-side runtime
+        // services; a persona never writes there through this path.
         return subPaths.map { bases[0].appendingPathComponent($0) }.first
     }
 
@@ -492,6 +496,18 @@ extension AIChatViewModel {
             )
         }
 
+        // Cross-persona isolation (crosscheck-verdict §5): a write that
+        // resolved into ANOTHER persona's shared namespace is rejected.
+        // Resolution already appends the caller's persona, so this only
+        // fires on a resolution bug or a symlink escape — deny by
+        // default, never a silent cross-persona write.
+        if PersonaStore.isCrossPersonaSharedPath(hostURL, for: personaId) {
+            return FileToolResult(
+                output: "Error: \(path) resolves into another persona's shared namespace and cannot be modified. Shared writes stay inside your own persona's namespace or the flat shared area.",
+                success: false
+            )
+        }
+
         let appendMode = (dict["append"] as? Bool) ?? false
         let createDirs = (dict["create_dirs"] as? Bool) ?? false
 
@@ -607,6 +623,16 @@ extension AIChatViewModel {
         if MountedFolderCoordinator.isUnderReadOnlyMount(hostURL) {
             return FileToolResult(
                 output: "Error: \(path) is inside a read-only mounted folder and cannot be modified. Toggle writability in Settings → Mount External Folders if this is a mistake.",
+                success: false
+            )
+        }
+
+        // Cross-persona isolation (crosscheck-verdict §5): an edit that
+        // resolved into ANOTHER persona's shared namespace is rejected.
+        // Same deny-by-default rule as executeFileWrite.
+        if PersonaStore.isCrossPersonaSharedPath(hostURL, for: personaId) {
+            return FileToolResult(
+                output: "Error: \(path) resolves into another persona's shared namespace and cannot be modified. Shared writes stay inside your own persona's namespace or the flat shared area.",
                 success: false
             )
         }
