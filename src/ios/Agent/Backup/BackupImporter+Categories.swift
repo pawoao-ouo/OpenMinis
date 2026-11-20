@@ -153,6 +153,10 @@ extension BackupImporter {
 
         // Sessions before messages — restoreMessage requires the parent row.
         var restoredSessionIds: [String] = []
+        // Persona per restored session, from the package's own persona_id.
+        // The file-tree restore below is a sync closure, so it reads this
+        // map instead of awaiting ChatStore per session.
+        var restoredPersonas: [String: String] = [:]
         struct SessionRecord: Codable {
             let session: ChatSession
             let memoryEnabled: Bool
@@ -170,6 +174,7 @@ extension BackupImporter {
             let outcome = await store.restoreSession(rec.session,
                                                      memoryEnabled: rec.memoryEnabled,
                                                      modelBinding: rec.modelBinding)
+            restoredPersonas[sid] = rec.session.personaId
             switch outcome {
             case .inserted: report.imported += 1; restoredSessionIds.append(sid)
             case .updated: report.updated += 1; restoredSessionIds.append(sid)
@@ -210,15 +215,22 @@ extension BackupImporter {
             }
         }
 
-        // Session file trees: rebuild <sid>/ wholesale (§8.3).
+        // Session file trees: rebuild <pid>/<sid>/ wholesale (§8.3).
+        // The persona comes from the session rows restored above (the
+        // package's own persona_id); a tree for a session not in the
+        // package falls back to the PersonaStore cache, then "default".
+        // Restoring to the old flat <sid>/ would strand the files where
+        // no resolver looks anymore.
         let files = try restoreFileTree(
             root: root, fileIndex: fileIndex, category: .chats,
             destinationFor: { path in
-                // "chats/<sid>/<rel…>" → Library/MinisChat/minis/<sid>/<rel…>
+                // "chats/<sid>/<rel…>" → Library/MinisChat/minis/<pid>/<sid>/<rel…>
                 let parts = path.split(separator: "/", maxSplits: 2).map(String.init)
                 guard parts.count >= 3, parts[0] == "chats" else { return nil }
-                return AIChatViewModel.minisPersistentBase
-                    .appendingPathComponent(parts[1], isDirectory: true)
+                let sid = parts[1]
+                let personaId = restoredPersonas[sid]
+                    ?? PersonaStore.personaId(forSessionId: sid)
+                return PersonaStore.sessionDir(for: sid, personaId: personaId)
                     .appendingPathComponent(parts[2])
             })
         report.filesWritten = files.written
