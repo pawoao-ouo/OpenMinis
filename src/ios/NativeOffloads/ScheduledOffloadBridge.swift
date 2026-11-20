@@ -377,7 +377,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
         // [persona] F3: capture the invoking shell's context on the guest
         // thread, before the hop to @MainActor.
         let invokingCtx = MinisFsRouter.callingFsContext()
-        onMain {
+        return onMain {
             let registry = AgentJobRegistry.shared
             let caller = await Self.callerPersona(invokingFsContext: invokingCtx)
             let jobs: [AgentJob]
@@ -406,7 +406,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
 
     @objc public static func delete(id: String) -> NSDictionary {
         let invokingCtx = MinisFsRouter.callingFsContext()
-        onMain {
+        return onMain {
             let registry = AgentJobRegistry.shared
             let (resolved, labelNote) = Self.resolveJob(registry, id)
             guard let job = resolved else {
@@ -425,7 +425,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
 
     @objc public static func setEnabled(id: String, enabled: Bool) -> NSDictionary {
         let invokingCtx = MinisFsRouter.callingFsContext()
-        onMain {
+        return onMain {
             let registry = AgentJobRegistry.shared
             let (resolved, labelNote) = Self.resolveJob(registry, id)
             guard let job = resolved else {
@@ -443,7 +443,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
 
     @objc public static func run(id: String) -> NSDictionary {
         let invokingCtx = MinisFsRouter.callingFsContext()
-        onMain {
+        return onMain {
             let registry = AgentJobRegistry.shared
             let (resolved, labelNote) = Self.resolveJob(registry, id)
             guard let job = resolved else {
@@ -465,7 +465,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
 
     @objc public static func runsWithId(_ id: String) -> NSDictionary {
         let invokingCtx = MinisFsRouter.callingFsContext()
-        onMain {
+        return onMain {
             let registry = AgentJobRegistry.shared
             let (resolved, labelNote) = Self.resolveJob(registry, id)
             guard let job = resolved else {
@@ -553,7 +553,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
         // thread, before the hop to @MainActor.
         let invokingCtx = MinisFsRouter.callingFsContext()
         let callerSid = Self.callerSessionId()
-        onMain {
+        return onMain {
             func str(_ k: String) -> String? {
                 guard let v = args[k] as? String, !v.isEmpty else { return nil }
                 return v
@@ -721,7 +721,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
     /// shared workspace where both the app and the sandbox can read it.
     @objc public static func exportRuns(id: String, path: String) -> NSDictionary {
         let invokingCtx = MinisFsRouter.callingFsContext()
-        onMain {
+        return onMain {
             let registry = AgentJobRegistry.shared
             let (resolved, labelNote) = Self.resolveJob(registry, id)
             guard let job = resolved else {
