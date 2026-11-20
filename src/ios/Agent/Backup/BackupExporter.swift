@@ -686,11 +686,15 @@ actor BackupExporter {
     /// path: that one drops anything older than 30 days, which is correct for
     /// sync traffic and wrong for a full backup.
     private func exportMemory(dataDir: URL) throws -> BackupManifest.CategoryStat {
-        // Multi-persona isolation: the backup mirrors the on-disk layout,
+        // Multi-persona isolation: the backup mirrors the persona layout,
         // data/memory/<personaId>/*.md — one persona's memory never lands
-        // in another's restore. Flat legacy files (pre-migration originals)
-        // belong to the default persona and are exported under default/
-        // only when the migrated copy does not already have that file.
+        // in another's restore. On disk the personas live in
+        // memory/personas/<id>/ (crosscheck-verdict §4); the user profile
+        // personas/me/ is exported under its own "me" entry — it is user
+        // data, and the importer restores it to personas/me/. Flat legacy
+        // files (pre-migration originals) belong to the default persona
+        // and are exported under default/ only when the migrated copy
+        // does not already have that file.
         let src = AIChatViewModel.minisMemoryPersistentDir
         let dst = dataDir.appendingPathComponent("memory", isDirectory: true)
         try fm.createDirectory(at: dst, withIntermediateDirectories: true)
@@ -717,7 +721,16 @@ actor BackupExporter {
             }
         }
         // Per-persona dirs first (they win over the flat legacy files).
-        for entry in (try? fm.contentsOfDirectory(atPath: src.path)) ?? [] {
+        // Layout is memory/personas/<id>/; a v1-layout dir directly under
+        // memory/ (memory/<id>/) is exported the same way as a fallback.
+        let personasRoot = src.appendingPathComponent("personas", isDirectory: true)
+        for entry in (try? fm.contentsOfDirectory(atPath: personasRoot.path)) ?? [] {
+            let dir = personasRoot.appendingPathComponent(entry)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            exportFiles(from: dir, to: dst.appendingPathComponent(entry))
+        }
+        for entry in (try? fm.contentsOfDirectory(atPath: src.path)) ?? [] where entry != "personas" {
             let dir = src.appendingPathComponent(entry)
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
