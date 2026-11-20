@@ -140,8 +140,16 @@ extension AIChatViewModel {
     /// check in `resolvePathForDirectRead`, which turns them into an
     /// "Invalid path" instead of an explicit message.
     func memoryPathRefusal(for rawPath: String) -> String? {
+        // Normalize to a Linux path first, THEN judge where it lands: a
+        // `..` is judged on its landing, not on its first segment, so
+        // `/var/minis/personas/../memory/personas/<own>/x` is a memory
+        // path (allowed), not a personas path.
         let linux: String
-        if rawPath.hasPrefix("/var/minis/memory/") || rawPath == "/var/minis/memory" {
+        if rawPath.hasPrefix("/var/minis/personas/") || rawPath == "/var/minis/personas" {
+            linux = rawPath
+        } else if rawPath.hasPrefix("minis-clone://personas/") || rawPath == "minis-clone://personas" {
+            linux = "/var/minis/personas" + rawPath.dropFirst("minis-clone://personas".count)
+        } else if rawPath.hasPrefix("/var/minis/memory/") || rawPath == "/var/minis/memory" {
             linux = rawPath
         } else if rawPath.hasPrefix("minis-clone://memory/") {
             linux = "/var/minis/memory/" + rawPath.dropFirst("minis-clone://memory/".count)
@@ -151,6 +159,17 @@ extension AIChatViewModel {
             return nil
         }
         let std = (linux as NSString).standardizingPath
+        // ［persona］F1: the personas registry mirror is never readable
+        // through a file tool. It holds every persona's settings,
+        // including custom headers that can carry credentials; the only
+        // other file in that dir is the global regex-rules mirror, which
+        // is credential-free by design (see GlobalRegexStore.save).
+        if std == "/var/minis/personas" || std.hasPrefix("/var/minis/personas/") {
+            guard std == "/var/minis/personas/regex-rules.json" else {
+                return "Error: refusing to access \(rawPath): the personas registry (personas.json) holds every persona's settings and is not readable from a session."
+            }
+            return nil
+        }
         let marker = "/var/minis/memory/personas/"
         guard std.hasPrefix(marker) else {
             return "Error: refusing to access \(rawPath): only this session's own persona memory (and the user profile) can be read or written here."
@@ -184,6 +203,34 @@ extension AIChatViewModel {
         return url
     }
 
+    /// [persona] F1: canonical personas-registry check for a resolved host
+    /// URL. The `personas.json` mirror under /var/minis/personas/ holds
+    /// every persona's settings (including custom headers that can carry
+    /// credentials) and resolves to nil, whatever branch produced the URL.
+    /// Only the global regex-rules mirror is readable from a session —
+    /// and only when the resolved file really is that file: a symlink
+    /// alias inside the dir pointing at personas.json is refused too.
+    /// Non-personas paths pass through untouched.
+    private func personasChecked(_ url: URL?, for linuxPath: String) -> URL? {
+        guard let url else { return nil }
+        guard linuxPath == "/var/minis/personas" || linuxPath.hasPrefix("/var/minis/personas/") else {
+            return url
+        }
+        let std = (linuxPath as NSString).standardizingPath
+        guard std == "/var/minis/personas/regex-rules.json" else {
+            logger.warning("[persona] F1: refused personas registry access: \(linuxPath) → \(url.path)")
+            return nil
+        }
+        let registry = Self.minisPersonasPersistentDir.appendingPathComponent("personas.json")
+        let resolvedRegistry = registry.standardizedFileURL.resolvingSymlinksInPath().path
+        let resolvedURL = url.standardizedFileURL.resolvingSymlinksInPath().path
+        guard resolvedURL != resolvedRegistry else {
+            logger.warning("[persona] F1: refused personas registry access via symlink alias: \(linuxPath) → \(url.path)")
+            return nil
+        }
+        return url
+    }
+
     /// Resolve a Linux path for direct file reads (read_image, file_read, file_write).
     /// For /var/minis/ paths, queries ISHExecutionCoordinator's active bind mount table
     /// to get the actual host URL, avoiding races when mounts switch between concurrent sessions.
@@ -193,7 +240,7 @@ extension AIChatViewModel {
             if let resolved = await ISHExecutionCoordinator.shared.hostURL(for: linuxPath) {
                 let exists = FileManager.default.fileExists(atPath: resolved.path)
                 logger.notice("📂[RESOLVE] \(linuxPath) → \(resolved.path) exists=\(exists) sid=\(self.sessionId ?? "nil")")
-                if exists { return memoryChecked(resolved, for: linuxPath) }
+                if exists { return personasChecked(memoryChecked(resolved, for: linuxPath), for: linuxPath) }
                 // Mount table returned a stale path — fall through to session/rootfs fallbacks
                 logger.notice("📂[RESOLVE] stale mount entry, trying fallbacks…")
             }
@@ -202,13 +249,13 @@ extension AIChatViewModel {
                let resolved = resolveMinisURL(minisURL) {
                 let exists = FileManager.default.fileExists(atPath: resolved.path)
                 logger.notice("📂[RESOLVE-sessionFallback] \(linuxPath) → \(resolved.path) exists=\(exists) sid=\(self.sessionId ?? "nil")")
-                return memoryChecked(resolved, for: linuxPath)
+                return personasChecked(memoryChecked(resolved, for: linuxPath), for: linuxPath)
             }
         }
         let fallback = resolveHostPath(linuxPath)
         let exists = fallback.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
         logger.notice("📂[RESOLVE-hostPath] \(linuxPath) → hostPath=\(fallback?.path ?? "nil") exists=\(exists)")
-        return memoryChecked(fallback, for: linuxPath)
+        return personasChecked(memoryChecked(fallback, for: linuxPath), for: linuxPath)
     }
 
     /// Resolve a minis-clone:// URL or /var/minis/ Linux path for direct reads.

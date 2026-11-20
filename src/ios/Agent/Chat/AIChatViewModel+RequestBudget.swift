@@ -431,12 +431,26 @@ extension AIChatViewModel {
             }
         }
 
-        // Global directories (skills, shared, stickers, personas).
+        // Global directories (skills, shared, stickers).
+        // ［persona］F1: "personas" is NOT in this list anymore. The
+        // personas dir holds the whole-registry mirror (personas.json:
+        // every persona's settings, including custom headers that can
+        // carry credentials) — it never resolves through a minis-clone://
+        // link. The only other file there is the global regex-rules
+        // mirror, which is credential-free by design; it resolves through
+        // the explicit branch below and nowhere else.
+        if host == "personas" {
+            for subPath in subPaths {
+                let std = (subPath as NSString).standardizingPath
+                guard std == "regex-rules.json" else { continue }
+                guard let candidate = MinisURLPathDecoding.containedCandidate(base: minisPersonasPersistentDir, subPath: std) else { continue }
+                if fm.fileExists(atPath: candidate.path) { return candidate }
+            }
+        }
         let globalDirs: [(String, URL)] = [
             ("skills", minisSkillsPersistentDir),
             ("shared", minisSharedPersistentDir),
             ("stickers", minisStickersPersistentDir),
-            ("personas", minisPersonasPersistentDir),
         ]
         for (subdir, dir) in globalDirs where host == subdir {
             for subPath in subPaths {

@@ -636,6 +636,13 @@ extension AIChatViewModel {
             // Unknown persona fails closed: no memory paths at all.
             let ownPersonaId = sessionPersonaId
             let memoryVisible: (String) -> Bool = { path in
+                // ［persona］F1: the registry mirror is never reported —
+                // a personas.json change (e.g. after editing a persona in
+                // Settings) would otherwise be handed to the model as a
+                // minis-clone://personas/personas.json link to the full
+                // registry. The global regex-rules mirror is safe to
+                // report (no credentials).
+                if path == "/var/minis/personas/personas.json" { return false }
                 guard path.hasPrefix("/var/minis/memory/") || path == "/var/minis/memory" else { return true }
                 guard let own = ownPersonaId else { return false }
                 let marker = "/var/minis/memory/personas/"

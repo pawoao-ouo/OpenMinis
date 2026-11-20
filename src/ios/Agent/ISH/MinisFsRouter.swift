@@ -162,6 +162,11 @@ final class MinisFsRouter: @unchecked Sendable {
         if let refused = translateMemory(guestPath: guestPath, sid: sid) {
             return refused
         }
+        // ［persona］F1: the personas registry mirror is refused for every
+        // session (see translatePersonas) BEFORE the static mount table.
+        if let refused = translatePersonas(guestPath: guestPath, sid: sid) {
+            return refused
+        }
         return hostPath(forGuest: guestPath, sid: sid)
     }
 
@@ -227,16 +232,50 @@ final class MinisFsRouter: @unchecked Sendable {
         return blockedPath(forSession: sid)
     }
 
+    /// ［persona］F1: the personas registry mirror is not readable from a
+    /// session shell. `/var/minis/personas/personas.json` is a
+    /// whole-registry mirror (PersonaStore.save): every persona's id,
+    /// name, model binding, skill/MCP/tool allowlists, preset messages,
+    /// regex rules, custom headers/body and message template — custom
+    /// headers can carry credentials. The only other file in that dir is
+    /// the global regex-rules mirror, which is credential-free by design
+    /// (see GlobalRegexStore.save) and stays readable. The guest path is
+    /// standardized lexically first, so a `..` that lands on the registry
+    /// is judged on where it lands, and the bare dir is refused too (a
+    /// listing would enumerate the registry's presence). Unknown files
+    /// under the dir are refused as well — fail closed; the dir holds
+    /// nothing else a session needs.
+    ///
+    /// The user's own terminal (fs_context 0) never reaches this code:
+    /// `translate` returns nil before it, so the terminal keeps its full
+    /// view. Only session-stamped shells are scoped.
+    private func translatePersonas(guestPath: String, sid: String) -> String? {
+        let prefix = AIChatViewModel.minisPersonasLinuxDir
+        guard guestPath == prefix || guestPath.hasPrefix(prefix + "/") else { return nil }
+        let std = (guestPath as NSString).standardizingPath
+        guard std == prefix + "/regex-rules.json" else {
+            return blockedPath(forSession: sid)
+        }
+        return nil
+    }
+
     /// ［persona］F1: the host path a refused memory translation resolves
     /// to. It is deliberately a path that does not exist: reads fail with
     /// ENOENT, writes fail because the parent is missing. Per-session, so
     /// one session's refused writes can never become another session's
     /// readable file, and unreachable from every allowed translation — no
     /// bucket, mount, or host-side resolver maps into it.
+    ///
+    /// The blocked path nests one level deeper than the session dir on
+    /// purpose: `<sid>/__persona_blocked__/` itself does not exist, so a
+    /// refused write cannot silently CREATE a file named
+    /// `__persona_blocked__` holding the session's own bytes (the parent
+    /// `<sid>/` exists once the session has buckets).
     private func blockedPath(forSession sid: String) -> String {
         minisBaseURL
             .appendingPathComponent(sid, isDirectory: true)
             .appendingPathComponent("__persona_blocked__", isDirectory: true)
+            .appendingPathComponent("blocked", isDirectory: false)
             .path
     }
 
