@@ -2470,6 +2470,17 @@ struct AIChatView: View {
             .disabled(!canEditTitle)
             .layoutPriority(-1)
 
+            // [batch28] Codex Fast Mode bolt, re-homed from the deleted
+            // model row: same 9pt circular-background glyph, same gate
+            // (user-requested). It is a mode indicator, not a model name,
+            // so it stays next to the thinking badge.
+            if codexFastModeEnabled && activeModelSupportsFastMode {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 5, weight: .bold))
+                    .foregroundStyle(ChatColors.primaryText)
+                    .frame(width: 9, height: 9)
+                    .background(Circle().fill(ChatColors.warning))
+            }
             // [batch28] Thinking level stays: same gate, same badge, still
             // opens ThinkingLevelSheetView. The two model-name rows are gone
             // (row 1's status-dot/modelName row and row 2's provider·model
