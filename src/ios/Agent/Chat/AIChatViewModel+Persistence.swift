@@ -134,7 +134,7 @@ extension AIChatViewModel {
 
     /// For UI, we merge consecutive assistant + tool-result turns into a single ChatMessage,
     /// matching how they appeared during the live session.
-    func loadSession() async {
+    func loadSession(foreground: Bool = false) async {
         guard let sessionId else { return }
 
         // Multi-persona isolation: wait for the one-time legacy migration
@@ -209,9 +209,18 @@ extension AIChatViewModel {
         personaId = resolvedPersonaId
         PersonaStore.notePersonaId(resolvedPersonaId, forSessionId: sessionId)
         // The Settings UI / minis-config edit this session's persona's
-        // SOUL (items 13/14) — keep the store's active-persona marker in
-        // step with the VM.
-        PersonaStore.activePersonaId = resolvedPersonaId
+        // SOUL (items 13/14) — keep the store's foreground-persona marker
+        // in step with the VM, but ONLY for a foreground load. Background
+        // loads (App Intents, Debug RPC, offload bridge) must never move
+        // the marker: it selects what the chat header and Settings show,
+        // and a background load flipping it is the item-14 header bug
+        // (round-2 new problem 2). Defaults to false (fail-closed):
+        // internal reloads (reloadMessagesFromDB, revertCompact) run on
+        // any VM and must not claim the foreground either — the persona
+        // does not change on reload, so nothing is lost by skipping.
+        if foreground {
+            PersonaStore.activePersonaId = resolvedPersonaId
+        }
         // Item 14: refresh the cached SOUL metadata for THIS persona so
         // the chat header/sidebar show this persona's name, not the
         // default's (or the previous session's). Without this, the
@@ -1035,14 +1044,16 @@ extension AIChatViewModel {
     }
 
     /// Lazily create a session on first message send (draft mode).
-    func ensureSession() async {
+    /// `foreground` follows loadSession's rule (item 14): only a
+    /// foreground creation becomes the Settings/header persona.
+    func ensureSession(foreground: Bool = false) async {
         guard sessionId == nil else { return }
-        await ensureSessionReturningId()
+        await ensureSessionReturningId(foreground: foreground)
     }
 
     /// Creates a session if needed and returns its ID.
     @discardableResult
-    func ensureSessionReturningId() async -> String {
+    func ensureSessionReturningId(foreground: Bool = false) async -> String {
         if let sid = sessionId {
             logger.info("🔑DRAFT [vm=\(self.vmInstanceId)] ensureSession already has sessionId=\(sid)")
             return sid
@@ -1055,7 +1066,12 @@ extension AIChatViewModel {
         // persona_id = session id); it starts with empty memory/SOUL dirs.
         personaId = session.personaId
         PersonaStore.notePersonaId(session.personaId, forSessionId: session.id)
-        PersonaStore.activePersonaId = session.personaId
+        // Foreground only (item 14): same rule as loadSession — a
+        // background-created session (Shortcuts, Debug RPC, CLI) must
+        // not become the Settings/header persona.
+        if foreground {
+            PersonaStore.activePersonaId = session.personaId
+        }
         // Item 14: a fresh persona has no SOUL.md yet, so the cache entry
         // is the default metadata — refresh it explicitly so the header
         // does not show a stale name from the previous session.

@@ -265,12 +265,12 @@ private let logger = AppLogger(category: "SessionsOffload")
             if let sid = sessionId, !sid.isEmpty {
                 let (cached, fresh) = ViewModelCache.shared.getOrCreate(for: sid)
                 vm = cached
-                if fresh { await vm.loadSession() }
+                if fresh { await vm.loadSession(foreground: false) }
                 isNew = false
             } else {
                 vm = ViewModelCache.shared.createDraft()
                 vm.sessionSource = source.isEmpty ? "cli" : source
-                _ = await vm.ensureSessionReturningId()
+                _ = await vm.ensureSessionReturningId(foreground: false)
                 isNew = true
             }
 
@@ -356,7 +356,7 @@ private let logger = AppLogger(category: "SessionsOffload")
 
         Task { @MainActor in
             let (vm, fresh) = ViewModelCache.shared.getOrCreate(for: sessionId)
-            if fresh { await vm.loadSession() }
+            if fresh { await vm.loadSession(foreground: false) }
 
             // If a prior run is still in flight, wait briefly (capped at 30s)
             // so retry doesn't race the active stream.

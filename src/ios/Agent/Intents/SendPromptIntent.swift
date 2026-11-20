@@ -101,7 +101,7 @@ struct SendPromptIntent: AppIntent {
         if let session = session {
             let (cached, _) = ViewModelCache.shared.getOrCreate(for: session.id)
             vm = cached
-            await vm.loadSession()
+            await vm.loadSession(foreground: false)
             isNewSession = false
         } else {
             vm = ViewModelCache.shared.createDraft()
@@ -118,7 +118,7 @@ struct SendPromptIntent: AppIntent {
         // For new sessions, create the DB record first
         if isNewSession {
             vm.sessionSource = "shortcut"
-            await vm.ensureSessionReturningId()
+            await vm.ensureSessionReturningId(foreground: false)
             // [T-shortcuts-eager-keepalive] Real id now known — re-arm with it
             // (keeps activeSessions non-empty across the swap) and drop the
             // placeholder so it doesn't linger. Re-arm is idempotent when the

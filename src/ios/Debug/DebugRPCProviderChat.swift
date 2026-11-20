@@ -898,7 +898,7 @@ enum DebugRPCChat {
         // open in the app has an empty `messages`/`agentHistory`, and the
         // delete would be a silent no-op.
         let (vm, _) = await MainActor.run { ViewModelCache.shared.getOrCreate(for: sid) }
-        await vm.loadSession()
+        await vm.loadSession(foreground: false)
         return await MainActor.run {
             let userIds = vm.messages.filter { $0.role == .user }.map(\.id)
             guard userIndex >= 0, userIndex < userIds.count else {
@@ -1103,14 +1103,14 @@ enum DebugRPCChat {
         if let sid = existingSessionId {
             let (cached, _) = ViewModelCache.shared.getOrCreate(for: sid)
             vm = cached
-            await vm.loadSession()
+            await vm.loadSession(foreground: false)
         } else {
             vm = ViewModelCache.shared.createDraft()
             vm.sessionSource = "debug"
         }
 
         if isNewSession {
-            await vm.ensureSessionReturningId()
+            await vm.ensureSessionReturningId(foreground: false)
         }
 
         // Apply model selection on the session BEFORE send().
@@ -1638,7 +1638,7 @@ enum DebugRPCChat {
         // reload so any in-session messages without sourceSortOrder get it
         // back-filled from DB before we try to map dbMsgId → ChatMessage.
         let (vm, _) = await MainActor.run { ViewModelCache.shared.getOrCreate(for: sid) }
-        await vm.loadSession()
+        await vm.loadSession(foreground: false)
 
         // Map DB message id → sourceSortOrder → ChatMessage.id (UUID).
         // compactBefore expects a UI ChatMessage id.
@@ -1956,7 +1956,7 @@ enum DebugRPCChat {
         let sid = try require(params["sessionId"] as? String, "sessionId")
 
         let (vm, _) = await MainActor.run { ViewModelCache.shared.getOrCreate(for: sid) }
-        await vm.loadSession()
+        await vm.loadSession(foreground: false)
 
         let beforeMarkers = await ChatStore.shared.compactMarkers(sessionId: sid)
         let beforeLatestId = beforeMarkers.last?.id

@@ -60,7 +60,7 @@ struct RetryRunIntent: AppIntent {
         // drives near-capacity auto-compaction.
         vm.suppressGeneralCompletionNotification = true
         if isNew {
-            await vm.loadSession()
+            await vm.loadSession(foreground: false)
         }
 
         // Wait if session is currently processing

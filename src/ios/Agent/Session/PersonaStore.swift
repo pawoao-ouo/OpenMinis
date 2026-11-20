@@ -71,10 +71,16 @@ enum PersonaStore {
     /// Set once warmCache() has noted every DB session. Until then, a
     /// cache miss means "not loaded yet", not "default".
     private static var cacheWarm = false
-    /// Persona of the session currently open in the UI, set by
-    /// loadSession/createSession alongside the VM's own personaId.
-    /// Nil when no session is active. This is the identity the
-    /// Settings UI and minis-config edit (items 13/14).
+    /// Persona of the session currently open in the FOREGROUND UI, set
+    /// ONLY by foreground loadSession/ensureSession (the `foreground:`
+    /// parameter) and cleared when the chat view disappears. Background
+    /// loadSession (App Intents, Debug RPC, offload bridge) must NEVER
+    /// set it — a background load used to flip the chat header and the
+    /// Settings/minis-config edit target to the background session's
+    /// persona (item 14 / round-2 new problem 2). Nil when no session
+    /// is open in the UI. This is the identity the Settings UI and
+    /// minis-config edit (items 13/14); with no session open they fall
+    /// back to the default persona.
     private static var _activePersonaId: String?
 
     static var activePersonaId: String? {

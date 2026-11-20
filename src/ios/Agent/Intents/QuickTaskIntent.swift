@@ -119,7 +119,7 @@ struct QuickTaskIntent: AppIntent {
         vm.sessionSource = "shortcut"
         // [T-shortcut-duplicate-completion-notification] See SendPromptIntent.
         vm.suppressGeneralCompletionNotification = true
-        await vm.ensureSessionReturningId()
+        await vm.ensureSessionReturningId(foreground: false)
         // [T-shortcuts-eager-keepalive] Real id now known — re-arm with it and
         // drop the placeholder.
         if let realSid = vm.sessionId {

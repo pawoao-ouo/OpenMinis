@@ -51,11 +51,11 @@ struct AskMinisIntent: AppIntent {
         if let session = session {
             let (cached, _) = ViewModelCache.shared.getOrCreate(for: session.id)
             vm = cached
-            await vm.loadSession()
+            await vm.loadSession(foreground: false)
         } else {
             vm = ViewModelCache.shared.createDraft()
             vm.sessionSource = "siri"
-            await vm.ensureSessionReturningId()
+            await vm.ensureSessionReturningId(foreground: false)
             if let placeholder = placeholderSid, let realSid = vm.sessionId {
                 BackgroundKeepAliveManager.shared.armEagerlyForShortcut(
                     sessionId: realSid, caller: "AskMinisIntent.swap")

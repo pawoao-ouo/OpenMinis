@@ -38,7 +38,7 @@ private final class CachedViewModel: ObservableObject {
             if !isNew, ViewModelCache.shared.consumeStaleFlag(sessionId: sessionId) {
                 minisLogger.info("🔑DRAFT CachedViewModel.init sessionId=\(sessionId) — STALE flag consumed, scheduling reload")
                 Task { @MainActor [weak vm = cached] in
-                    await vm?.loadSession()
+                    await vm?.loadSession(foreground: true)
                 }
             }
             minisLogger.info("🔑DRAFT CachedViewModel.init sessionId=\(sessionId) vm=\(cached.vmInstanceId) isNew=\(isNew)")
@@ -995,7 +995,7 @@ struct AIChatView: View {
         .sheet(isPresented: $showModelPicker) {
             NavigationStack {
                 SessionModelPicker(sessionId: vm.sessionId) {
-                    await vm.ensureSessionReturningId()
+                    await vm.ensureSessionReturningId(foreground: true)
                 }
             }
             .presentationDetents([.large])
@@ -1013,12 +1013,12 @@ struct AIChatView: View {
             // the chat will actually persist under, instead of the "" phantom
             // key (T-ios-session-skill-override-init-timing).
             SessionSkillsView(sessionId: vm.sessionId) {
-                await vm.ensureSessionReturningId()
+                await vm.ensureSessionReturningId(foreground: true)
             }
         }
         .sheet(isPresented: $showSessionMCPs) {
             SessionMCPsView(sessionId: vm.sessionId) {
-                await vm.ensureSessionReturningId()
+                await vm.ensureSessionReturningId(foreground: true)
             }
         }
         .sheet(isPresented: $showSessionMemory) {
@@ -1237,6 +1237,13 @@ struct AIChatView: View {
                 }
             }
             if let sessionId { AIChatViewModel.activeSessionId = sessionId }
+            // Item 14: re-assert the foreground-persona marker on every
+            // appearance. The reuse branch below does not run loadSession,
+            // so without this the marker stays cleared after popping back
+            // from a sub-page (onDisappear clears it when this view goes
+            // away). Guarded on non-empty: a fresh draft has no persona
+            // yet; loadSession/ensureSession set the marker once one exists.
+            if !vm.personaId.isEmpty { PersonaStore.activePersonaId = vm.personaId }
             vm.ensureKernelBooted()
             if let sessionId {
                 if cached.isNew || (vm.messages.isEmpty && !vm.isLoadingSession) {
@@ -1252,7 +1259,7 @@ struct AIChatView: View {
                         // Phase A: auto-repair any sortOrder / legacy marker anomalies
                         // before loading. Cheap no-op if the session is healthy.
                         _ = await ChatStore.shared.repairSessionIfNeeded(sessionId: sessionId)
-                        await vm.loadSession()
+                        await vm.loadSession(foreground: true)
                     }
                 } else if vm.messages.isEmpty && vm.isLoadingSession {
                     // iOS 16 edge case: a previous view instance started loadSession()
@@ -1269,7 +1276,7 @@ struct AIChatView: View {
                         // If messages are still empty after the load completed, retry
                         if vm.messages.isEmpty && !vm.isLoadingSession {
                             minisLogger.warning("🔄SESSION AIChatView.onAppear RETRY load — messages still empty after in-flight load for \(sessionId)")
-                            await vm.loadSession()
+                            await vm.loadSession(foreground: true)
                         }
                     }
                 } else {
@@ -1336,6 +1343,17 @@ struct AIChatView: View {
         }
         .onDisappear {
             isChatViewVisible = false
+            // Item 14: this chat is closing — release the foreground-
+            // persona marker so Settings/minis-config fall back to the
+            // default persona instead of editing the previous chat's
+            // SOUL (round-2 new problem 2). Only clear when the marker
+            // is ours; a background load never sets it, and another
+            // session's foreground load re-sets it on appear. Sheets
+            // (including Settings) do not trigger onDisappear, so
+            // opening Settings from this chat still edits its persona.
+            if !vm.personaId.isEmpty, PersonaStore.activePersonaId == vm.personaId {
+                PersonaStore.activePersonaId = nil
+            }
             // [T-voice-inputbar-collapse-selfheal] The health probe must not
             // outlive the view — its report would describe a composer that no
             // longer exists.
@@ -2213,7 +2231,14 @@ struct AIChatView: View {
                     // re-introducing the top crop.
                     .padding(.top, legacyLayout ? 0 : 2)
                     .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-                        let n = SoulStore.cachedMetadata.name
+                        // Item 14: read THIS chat's persona explicitly —
+                        // the global cachedMetadata follows the foreground
+                        // marker, which a background load must never move.
+                        // (The @State initializer above cannot reference
+                        // vm, so this handler is what corrects the title
+                        // after loadSession refreshes the cache.)
+                        let meta = vm.personaId.isEmpty ? SoulStore.cachedMetadata : SoulStore.cachedMetadata(for: vm.personaId)
+                        let n = meta.name
                         soulName = n.isEmpty ? "Minis" : n
                     }
             }
@@ -4589,7 +4614,9 @@ struct AIChatView: View {
         // onChange binding, so doing it before send() left send() with empty text
         // → "send() GUARD FAILED" and nothing was sent. send() consumes and clears
         // inputText itself; we re-arm voice listening only AFTER it has run.
-        vm.send()
+        // foreground: true — this is the UI send, so a draft's first send may
+        // make the new session the Settings/header persona (item 14).
+        vm.send(foreground: true)
         // [inline-voice] Stay in voice mode after sending — clear the recognized
         // text and re-arm listening for the next utterance (close with ✕).
         if voiceInputActive {

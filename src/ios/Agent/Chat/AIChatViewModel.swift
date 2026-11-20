@@ -2230,7 +2230,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
     // MARK: - Send Message
 
-    func send() {
+    /// - Parameter foreground: true when the send comes from the UI.
+    /// Only a foreground send may make a newly created session the
+    /// Settings/header persona (item 14); background senders ensure
+    /// the session first, so this is a no-op for them.
+    func send(foreground: Bool = false) {
         // Read-only mode — cannot send messages
         guard remoteDeviceId == nil else { return }
 
@@ -2455,7 +2459,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             guard let self else { return }
 
             // Lazily create session before persisting anything
-            await self.ensureSession()
+            await self.ensureSession(foreground: foreground)
 
             // Defensive: ensure tracker reflects the real session ID after draft→real migration.
             if let sid = self.sessionId, self.isProcessing {
