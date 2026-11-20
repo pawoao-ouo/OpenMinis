@@ -3298,12 +3298,28 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
             await self.drainQueuedPrompts()
 
+            logger.info("🔄SESSION [vm=\(self.vmInstanceId)] send DONE session=\(self.sessionId ?? "nil")")
+            self.finishTurn()
+            self.isProcessing = false
+            self.endBackgroundProcessing()
+
             // Refresh lastKnownDbSortOrder from the actual DB so our own
             // persisted messages aren't mistaken for externally-changed rows.
             // The in-memory += 1 tracking can drift if messages are batched or retried.
+            // [batch29] Moved after endBackgroundProcessing(): the loadMessages
+            // await used to sit between the drain and the isProcessing=false
+            // write, so a send landing in that window was enqueued and never
+            // drained. Now there is no suspension point between the drain and
+            // the flag clear (main-actor isolated), and the refresh below runs
+            // after the flag is clear — a brand-new send can start during it,
+            // so the writes are guarded: skip them if the session changed
+            // across the await, and never regress lastKnownDbSortOrder.
             if let sid = self.sessionId {
                 let dbMessages = await ChatStore.shared.loadMessages(sessionId: sid)
-                self.lastKnownDbSortOrder = dbMessages.last?.sortOrder ?? self.lastKnownDbSortOrder
+                guard self.sessionId == sid else { return }
+                if let lastSort = dbMessages.last?.sortOrder {
+                    self.lastKnownDbSortOrder = max(self.lastKnownDbSortOrder, lastSort)
+                }
                 self.lastKnownDbCount = dbMessages.count
                 // T-baseline-hash-drift: also refresh lastKnownDbOrderHash —
                 // otherwise reloadMessagesFromDB's hasReorderedMessages check
@@ -3312,11 +3328,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 // (spinner ON ~460ms) on the next iCloud fetch notification.
                 self.lastKnownDbOrderHash = Self.computeOrderHash(of: dbMessages)
             }
-
-            logger.info("🔄SESSION [vm=\(self.vmInstanceId)] send DONE session=\(self.sessionId ?? "nil")")
-            self.finishTurn()
-            self.isProcessing = false
-            self.endBackgroundProcessing()
         }
     }
 
