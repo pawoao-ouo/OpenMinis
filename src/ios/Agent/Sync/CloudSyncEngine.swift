@@ -1085,6 +1085,12 @@ final class CloudSyncEngine: ObservableObject {
                 // Send 0 sentinel to propagate "not pinned" state
                 record["pinnedAt"] = Date(timeIntervalSince1970: 0)
             }
+            // Persona: only real personas ride the wire; "default" is the
+            // absence of a persona (receivers fall back to "default", and
+            // the CASE guard in mergeRemoteSession ignores it anyway).
+            if session.personaId != PersonaStore.defaultPersonaId {
+                record["personaId"] = session.personaId
+            }
 
         case "CompactMarker":
             guard let marker = await ChatStore.shared.getCompactMarker(id: id) else { return nil }
@@ -1320,6 +1326,10 @@ final class CloudSyncEngine: ObservableObject {
                 updatedAt: record["updatedAt"] as? Date ?? Date()
             )
             session.pinnedAt = remotePinnedAt
+            // Persona: absent on old-build records → "default". The CASE
+            // guard in mergeRemoteSession stops a "default" record from
+            // clobbering a real local persona.
+            session.personaId = record["personaId"] as? String ?? PersonaStore.defaultPersonaId
             let memoryEnabled = (record["memoryEnabled"] as? Int ?? 1) == 1
             let modelBinding = record["modelBinding"] as? String
             // remotePinnedAtRaw distinguishes "old device / field absent" (nil) from "explicitly unpinned" (0)
