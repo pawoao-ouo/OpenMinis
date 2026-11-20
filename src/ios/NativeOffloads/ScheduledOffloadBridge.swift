@@ -48,27 +48,49 @@ private let logger = AppLogger(category: "ScheduledOffload")
             ?? ISHExecutionCoordinator.mountedSessionIdSnapshot
     }
 
-    /// The persona of the session whose shell invoked this call. nil = no
-    /// session context (the command ran outside any chat) — the management
-    /// view, same as the in-app task list; enforcement is skipped only then.
+    /// [persona] F3: who is calling, three states. `noSession` is the
+    /// management view (the command ran outside any chat, like the in-app
+    /// task list — unfiltered by design). `lookupFailed` means a session id
+    /// was present but its persona could not be read (prepare error / row
+    /// gone): fail closed, never the management view — a DB error must not
+    /// silently widen what the caller can see or change.
+    private enum CallerPersona {
+        case persona(String)
+        case noSession
+        case lookupFailed
+    }
+
+    /// The persona of the session whose shell invoked this call. `noSession`
+    /// = no session context (the command ran outside any chat); enforcement
+    /// is skipped only then. `lookupFailed` = a session was present but its
+    /// persona could not be read — callers must fail closed on it.
     @MainActor
-    private static func callerPersonaId(invokingFsContext: UInt64) async -> String? {
+    private static func callerPersona(invokingFsContext: UInt64) async -> CallerPersona {
         let sid = MinisFsRouter.shared.sid(for: invokingFsContext)
             ?? ISHExecutionCoordinator.mountedSessionIdSnapshot
-        guard let sid, !sid.isEmpty else { return nil }
-        return await ChatStore.shared.personaId(for: sid)
+        guard let sid, !sid.isEmpty else { return .noSession }
+        guard let pid = await ChatStore.shared.personaId(for: sid) else { return .lookupFailed }
+        return .persona(pid)
     }
 
     /// nil = allowed (the job belongs to the caller, or the caller has no
     /// session context — the management view). Otherwise an explicit
     /// cross-persona error, never a silent no-op or a filtered-out row.
+    /// A failed caller lookup is denied, not treated as "no session context".
     @MainActor
-    private static func crossPersonaError(job: AgentJob, callerPersonaId: String?) async -> NSDictionary? {
-        guard let caller = callerPersonaId else { return nil }
-        let owner = await AgentJobRegistry.shared.ensurePersonaId(job)
-        guard owner != caller else { return nil }
-        return ["ok": false, "error": "cross_persona",
-                "message": "task \(job.id.prefix(8)) belongs to persona \"\(owner)\"; it cannot be changed from persona \"\(caller)\". Use the task list in the app to manage another persona's tasks."] as NSDictionary
+    private static func crossPersonaError(job: AgentJob, caller: CallerPersona) async -> NSDictionary? {
+        switch caller {
+        case .noSession:
+            return nil
+        case .lookupFailed:
+            return ["ok": false, "error": "persona_lookup_failed",
+                    "message": "could not determine the persona of the calling session; nothing was changed."] as NSDictionary
+        case .persona(let pid):
+            let owner = await AgentJobRegistry.shared.ensurePersonaId(job)
+            guard owner != pid else { return nil }
+            return ["ok": false, "error": "cross_persona",
+                    "message": "task \(job.id.prefix(8)) belongs to persona \"\(owner)\"; it cannot be changed from persona \"\(pid)\". Use the task list in the app to manage another persona's tasks."] as NSDictionary
+        }
     }
 
     /// [persona] F3: outcome of checking a job's target session against the
@@ -357,15 +379,21 @@ private let logger = AppLogger(category: "ScheduledOffload")
         let invokingCtx = MinisFsRouter.callingFsContext()
         onMain {
             let registry = AgentJobRegistry.shared
-            let callerPid = await Self.callerPersonaId(invokingFsContext: invokingCtx)
+            let caller = await Self.callerPersona(invokingFsContext: invokingCtx)
             let jobs: [AgentJob]
-            if let callerPid {
+            switch caller {
+            case .lookupFailed:
+                // [persona] F3: a failed lookup is not the management view —
+                // an unfiltered list would show every persona's tasks.
+                return ["ok": false, "error": "persona_lookup_failed",
+                        "message": "could not determine the persona of the calling session; nothing was listed."] as NSDictionary
+            case .persona(let pid):
                 // Backfill first so a job with no persona yet is owned
                 // before filtering — otherwise it is silently omitted from
                 // EVERY persona's list.
                 await registry.backfillMissingPersonaIds()
-                jobs = registry.list(forPersona: callerPid)
-            } else {
+                jobs = registry.list(forPersona: pid)
+            case .noSession:
                 // No session context: the management view, same as the
                 // in-app task list.
                 jobs = registry.list()
@@ -385,7 +413,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(id)"] as NSDictionary
             }
             if let err = await Self.crossPersonaError(job: job,
-                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                                                     caller: await Self.callerPersona(invokingFsContext: invokingCtx)) {
                 return err
             }
             registry.cancel(jobId: job.id, reason: "cli delete")
@@ -404,7 +432,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(id)"] as NSDictionary
             }
             if let err = await Self.crossPersonaError(job: job,
-                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                                                     caller: await Self.callerPersona(invokingFsContext: invokingCtx)) {
                 return err
             }
             registry.setEnabled(jobId: job.id, enabled: enabled)
@@ -422,7 +450,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(id)"] as NSDictionary
             }
             if let err = await Self.crossPersonaError(job: job,
-                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                                                     caller: await Self.callerPersona(invokingFsContext: invokingCtx)) {
                 return err
             }
             let outcome = await ScheduledJobRunner.fireNow(job)
@@ -444,7 +472,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(id)"] as NSDictionary
             }
             if let err = await Self.crossPersonaError(job: job,
-                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                                                     caller: await Self.callerPersona(invokingFsContext: invokingCtx)) {
                 return err
             }
             let list = registry.runs(jobId: job.id).map { $0.toDict() }
@@ -539,7 +567,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(jobRef)"] as NSDictionary
             }
             if let err = await Self.crossPersonaError(job: job,
-                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                                                     caller: await Self.callerPersona(invokingFsContext: invokingCtx)) {
                 return err
             }
 
@@ -700,7 +728,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
                 return ["ok": false, "error": "not_found", "message": "no task with id=\(id)"] as NSDictionary
             }
             if let err = await Self.crossPersonaError(job: job,
-                                                     callerPersonaId: await Self.callerPersonaId(invokingFsContext: invokingCtx)) {
+                                                     caller: await Self.callerPersona(invokingFsContext: invokingCtx)) {
                 return err
             }
             guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
