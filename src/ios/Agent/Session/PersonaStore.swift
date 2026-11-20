@@ -138,6 +138,14 @@ enum PersonaStore {
 
     // MARK: - One-time legacy migration
 
+    /// Shared one-time migration task. Started at app launch (MinisApp
+    /// touches it in init); session loading awaits it so no prompt is
+    /// ever built against pre-migration paths. After the first run the
+    /// flag short-circuit makes awaiting it a no-op.
+    static let migrationTask: Task<Void, Never> = Task {
+        await migrateLegacyDataIfNeeded()
+    }
+
     /// Copies the old shared memory/SOUL files into memory/default/ and
     /// moves flat per-session dirs under their persona. Idempotent:
     /// guarded by a UserDefaults flag and by "target missing" checks, so a
