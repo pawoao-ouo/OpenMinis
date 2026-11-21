@@ -817,6 +817,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// capacity checks stop under-counting by thousands of tokens.
     /// Not @Published — read from estimation paths only.
     var lastRequestFixedTokens = 0
+    /// [Phase 0] Per-section BPE ledger of the last prompt built by
+    /// `buildTurnSystemPrompt` (base first, then turn fragments). Read by
+    /// the usage sheet's breakdown section. Plain var, not @Published:
+    /// the sheet re-renders off the VM's other published state during a turn.
+    var lastBuiltPromptSections: [PromptSectionTokens] = []
     /// [F5] Model the fixed-overhead estimate above was computed for.
     /// send() recomputes the estimate when the model changed, so a model
     /// switch between turns does not leave the capacity check judging by
@@ -2006,22 +2011,22 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// advances) routes through this builder. The result diffs empty against
     /// the first-turn prompt except the per-model capability/behavior swap.
     func buildTurnSystemPrompt(base: String, model: LLMModel) -> String {
-        var p = base
+        var sections: [PromptSection] = []
         if let capFragment = model.capabilityPromptFragment {
-            p += "\n\n" + capFragment
+            sections.append(PromptSection(kind: .system, name: "capability", separator: "\n\n", text: capFragment))
         }
         if let behaviorFragment = model.agentBehaviorPromptFragment {
-            p += "\n\n" + behaviorFragment
+            sections.append(PromptSection(kind: .system, name: "behavior", separator: "\n\n", text: behaviorFragment))
         }
         // Inject enabled skill metadata into system prompt
         if let sid = sessionId,
            let skillFragment = SkillStore.shared.skillPromptFragment(for: sid, personaID: sessionPersonaId) {
-            p += "\n\n" + skillFragment
+            sections.append(PromptSection(kind: .skills, name: "skills", separator: "\n\n", text: skillFragment))
         }
         // [T-mcp-integration-ios] Inject Top-20 enabled MCP server metadata.
         if let sid = sessionId,
            let mcpFragment = MCPStore.shared.systemPromptSnippet(for: sid, personaID: sessionPersonaId) {
-            p += "\n\n" + mcpFragment
+            sections.append(PromptSection(kind: .system, name: "mcp-servers", separator: "\n\n", text: mcpFragment))
         }
         // [batch7][G5] Sub agent roster — the same list the tool schema's
         // `agent` enumValues come from, so a name can never be advertised
@@ -2032,14 +2037,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             // [T-manual-phase2-2a] 上游原文：两条 schema 说不出来的事——
             // 结果和进度消息是系统写的、不是用户打的；子代理跑的时候
             // 用户在工具栏里能看见、也能停。
-            p += "\n\n- subagent_task: Delegate a self-contained task to a sub agent that runs its own tool loop in an isolated hidden session, and inspect or stop the ones you started. Full contract in the tool schema. Two things it does not say: the `<agent_callback>` result and progress messages are written by the system, not typed by the user; and while a sub agent runs the user sees it in the tool bar and can watch or stop it."
+            sections.append(PromptSection(kind: .system, name: "subagent", separator: "\n\n", text: "- subagent_task: Delegate a self-contained task to a sub agent that runs its own tool loop in an isolated hidden session, and inspect or stop the ones you started. Full contract in the tool schema. Two things it does not say: the `<agent_callback>` result and progress messages are written by the system, not typed by the user; and while a sub agent runs the user sees it in the tool bar and can watch or stop it."))
             let rosterFragment = Self.subAgentRosterSection()
             if !rosterFragment.isEmpty {
-                p += "\n\n" + rosterFragment
+                sections.append(PromptSection(kind: .system, name: "subagent-roster", separator: "\n\n", text: rosterFragment))
             }
             // [T-manual-phase2-2a] 上游原文：委派和调度器各管一件事，别拿
             // 调度器当委派用（那会把活塞进自己的下一轮，而不是并行跑）。
-            p += "\n\n(Do NOT run minis-scheduled to delegate work you could hand to subagent_task.)"
+            sections.append(PromptSection(kind: .system, name: "subagent-note", separator: "\n\n", text: "(Do NOT run minis-scheduled to delegate work you could hand to subagent_task.)"))
         }
         // [tts-paper 2026-10-02] TTS 能力纸条：用户这轮在聊语音/TTS 才塞进
         // prompt（见 TTSPaper.paperIfRelevant 的宽松触发判定），做展开详情。
@@ -2056,11 +2061,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         let voiceRepliesOn = sessionId.map { AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false
         let standing: String? = voiceRepliesOn ? TTSPaper.standingCapability() : nil
         if let standing {
-            p += "\n\n" + standing
+            sections.append(PromptSection(kind: .system, name: "tts-standing", separator: "\n\n", text: standing))
         }
         if let ttsPaper = TTSPaper.paperIfRelevant(userMessage: Self.lastUserText(in: agentHistory),
                                                    skipIntro: standing != nil) {
-            p += "\n\n" + ttsPaper
+            sections.append(PromptSection(kind: .system, name: "tts-paper", separator: "\n\n", text: ttsPaper))
         }
         // [T-memory-toggle-gates-injection-and-tools-ios] Memory injection
         // (GLOBAL.md + recent daily logs) is gated by the per-session
@@ -2069,16 +2074,16 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // affected by this toggle.
         if memoryEnabled {
             if let memoryFragment = Self.loadGlobalMemoryFragment(personaID: sessionPersonaId) {
-                p += "\n\n" + memoryFragment
+                sections.append(PromptSection(kind: .memory, name: "memory-global", separator: "\n\n", text: memoryFragment))
             }
             if let dailyFragment = Self.loadRecentDailyMemoryFragment(personaID: sessionPersonaId) {
-                p += "\n\n" + dailyFragment
+                sections.append(PromptSection(kind: .memory, name: "memory-daily", separator: "\n\n", text: dailyFragment))
             }
         }
         // Inject sticker catalog if configured
         let stickerFragment = StickerStore.shared.systemPromptFragment()
         if !stickerFragment.isEmpty {
-            p += "\n\n" + stickerFragment
+            sections.append(PromptSection(kind: .system, name: "stickers", separator: "\n\n", text: stickerFragment))
         }
         // [Feedback 10-12] 客户端系统运行环境指令与质量反馈规矩
         let feedbackFragment = """
@@ -2089,27 +2094,40 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         - 严禁 Emoji 表情符号：在所有回复中严禁输出任何 Emoji 表情符号（如 😊、😂、👍、❤️、✨ 等）或堆砌无意义网络颜文字，严格保持 Authentic SOUL.md 人设本色。
         - 趣味互动：若收到 `haptic_nudge`（戳一下）或 `silence_directive`（闭嘴）等即时事件，请按照真实角色人设和亲密关系做出自然生动的即时反应，坚决杜绝客服模板话。
         """
-        p += "\n\n" + feedbackFragment
+        sections.append(PromptSection(kind: .system, name: "feedback-rules", separator: "\n\n", text: feedbackFragment))
         // Authoritative memory-status footer (overrides any earlier
         // baseSystemPrompt mentions when memory is disabled).
-        p += memoryStatusFragment
+        sections.append(PromptSection(kind: .system, name: "memory-status", separator: "", text: memoryStatusFragment))
         // [T-ambient-context 11-07] 她此刻的状态（时间 / 间隔 / 在听什么 /
         // 电量 / 网络）。每轮只在**开局**算一次并缓存：fallback 重试会再走
         // 一遍 buildTurnSystemPrompt，那时模型已经开工了，重算会把「隔了
         // 多久」算成 0，同一个 turn 里 prompt 还会前后不一致。
         let ambientRevision = AmbientSignal.revision
         if let cached = cachedTimeAwarenessFragment, cachedRevision == ambientRevision {
-            p += "\n\n" + cached
+            sections.append(PromptSection(kind: .protocolEnvironment, name: "ambient", separator: "\n\n", text: cached))
         } else if let fresh = ambientContextFragment() {
             cachedTimeAwarenessFragment = fresh
             cachedRevision = ambientRevision
-            p += "\n\n" + fresh
+            sections.append(PromptSection(kind: .protocolEnvironment, name: "ambient", separator: "\n\n", text: fresh))
         }
         // [S3-2][evolution] Injector hook — off/shadow return "" (prompt stays
         // byte-identical to baseline); shadow records what WOULD be injected;
         // active appends the cached, budgeted fragment.
-        p += EvolutionInjector.shared.turnFragment(sessionId: sessionId)
-        return p
+        sections.append(PromptSection(kind: .system, name: "evolution", separator: "", text: EvolutionInjector.shared.turnFragment(sessionId: sessionId)))
+        // [Phase 0] Single assembly point: the sections join here and nowhere
+        // else, so the prompt the model sees is exactly the sections the
+        // ledger counts. Record the per-section BPE ledger for the usage
+        // sheet (separators are not counted — a "\n\n" is a single token at
+        // most and lands in the protocol remainder).
+        let prompt = PromptAssembler.assemble(base: base, sections: sections)
+        var counted: [PromptSectionTokens] = [
+            PromptSectionTokens(kind: .system, name: "base", tokens: BPETokenizer.shared.countTokens(base))
+        ]
+        counted += sections.map {
+            PromptSectionTokens(kind: $0.kind, name: $0.name, tokens: BPETokenizer.shared.countTokens($0.text))
+        }
+        lastBuiltPromptSections = counted
+        return prompt
     }
 
     /// [T-ambient-context 11-07] 「她此刻的状态」片段。

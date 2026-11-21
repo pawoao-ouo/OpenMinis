@@ -180,6 +180,7 @@
 		E52000007 /* ClaudeOAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E52000016 /* ClaudeOAuthManager.swift */; };
 		E52000009 /* AnthropicModelsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E52000018 /* AnthropicModelsAPI.swift */; };
 		E53000001 /* AIChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E53000011 /* AIChatViewModel.swift */; };
+		E5PLD0001 /* PromptLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5PLD0002 /* PromptLedger.swift */; };
 		E53000002 /* AIChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E53000012 /* AIChatView.swift */; };
 		E5999999A1 /* ComposerActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5999999B1 /* ComposerActionSheet.swift */; };
 		E53000004 /* ChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E53000014 /* ChatStore.swift */; };
@@ -953,6 +954,7 @@
 		E52000016 /* ClaudeOAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeOAuthManager.swift; sourceTree = "<group>"; };
 		E52000018 /* AnthropicModelsAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicModelsAPI.swift; sourceTree = "<group>"; };
 		E53000011 /* AIChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatViewModel.swift; sourceTree = "<group>"; };
+		E5PLD0002 /* PromptLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptLedger.swift; sourceTree = "<group>"; };
 		E53000012 /* AIChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatView.swift; sourceTree = "<group>"; };
 		E5999999B1 /* ComposerActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerActionSheet.swift; sourceTree = "<group>"; };
 		E53000014 /* ChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStore.swift; sourceTree = "<group>"; };
@@ -2392,6 +2394,7 @@
 				E5VMB0013 /* AIChatViewModel+Misc.swift */,
 				E5VMB0014 /* AIChatViewModel+RequestBudget.swift */,
 				E5VMB0015 /* ChatModels.swift */,
+				E5PLD0002 /* PromptLedger.swift */,
 				E5VMB0016 /* ChatLifecycleSupport.swift */,
 				E5STD0016 /* SessionTeardown.swift */,
 				E5VMB0017 /* ChatURLBrokerage.swift */,
@@ -3228,6 +3231,7 @@
 				E5KIMI0D1 /* KimiModelsAPI.swift in Sources */,
 				E52000009 /* AnthropicModelsAPI.swift in Sources */,
 				E53000001 /* AIChatViewModel.swift in Sources */,
+				E5PLD0001 /* PromptLedger.swift in Sources */,
 				E5VMA0001 /* AIChatViewModel+Attachments.swift in Sources */,
 				E5VMA0002 /* AIChatViewModel+SlashCommands.swift in Sources */,
 				E5VMA0003 /* AIChatViewModel+MentionMenu.swift in Sources */,
