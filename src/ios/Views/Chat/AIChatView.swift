@@ -230,6 +230,11 @@ struct AIChatView: View {
     @State private var voiceSendTapCount = 0
     @State private var stopTapCount = 0
     @State private var inputBarHeight: CGFloat = 0
+    /// [input-bar-fallback-pulse] Opacity for the fallback ring around the
+    /// input-bar capsule (animated 3× pulse on model fallback — same color,
+    /// strength and timing as the old title pulse). Rests at 0: the signal
+    /// is brief, never a permanent badge.
+    @State private var fallbackPulseOpacity: Double = 0
     /// [T-composer-single-anchor] 输入栏那一摞（浮窗键 + 一起听胶囊 + 输入栏）的实测高度。
     /// 斜杠/提及弹窗只认这一个数字，不再三段相加。
     @State private var composerStackHeight: CGFloat = 0
@@ -3369,6 +3374,19 @@ struct AIChatView: View {
         return AnyView(composerBody(field: field, topPadding: topPadding))
     }
 
+    /// [input-bar-fallback-pulse] The fallback ring traces the bar's own
+    /// capsule — same radii as GlassComposerSurface's shape (20 floating,
+    /// top-20 / bottom-0 when the sticker tray is attached).
+    private var fallbackPulseShape: AnyShape {
+        if showStickerPanel {
+            return AnyShape(UnevenRoundedRectangle(
+                topLeadingRadius: 20, bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0, topTrailingRadius: 20,
+                style: .continuous))
+        }
+        return AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
     /// [T-ipad-composer-resize] Wraps the text field with its (optional) fixed
     /// height and the iPad drag handle.
     ///
@@ -3517,6 +3535,39 @@ struct AIChatView: View {
                 // 输入条本身是一颗胖胶囊：四角全圆，左右留 8、离底留 6，
                 // 浮在消息上面。托盘出现时它还是浮着，托盘从它下面滑出来。
                 .modifier(GlassComposerSurface(attached: showStickerPanel))
+                // [input-bar-fallback-pulse] Model-fallback signal, re-homed
+                // from the deleted title (old pulse: destructive fill behind
+                // the title, 3× 0.35s). A ring around the bar's own capsule
+                // instead: a stroke can never cover the text or the typing
+                // dots, and it rests invisible at opacity 0. Same color,
+                // strength and timing as the old pulse.
+                .overlay {
+                    fallbackPulseShape
+                        .stroke(ChatColors.destructive.opacity(0.35 * fallbackPulseOpacity), lineWidth: 2)
+                        .allowsHitTesting(false)
+                }
+                .onChange(of: vm.fallbackTrigger) { _ in
+                    // 3× pulse: fade in then out, repeated 3 times
+                    fallbackPulseOpacity = 0
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        fallbackPulseOpacity = 1
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                        withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
+                        withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                        withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.75) {
+                        withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
+                    }
+                }
                 // [T-composer-upstream] 左右 12、离底 8，跟上游一致。原来左右 8
                 // 让整条栏贴到屏幕边上，键看着要「掉出去」；12 是上游定的呼吸量。
                 //
