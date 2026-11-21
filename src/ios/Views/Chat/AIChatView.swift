@@ -1507,7 +1507,9 @@ struct AIChatView: View {
                         vm.forceScrollToBottom.send()
                     }
                     let totalElapsed = (CFAbsoluteTimeGetCurrent() - reuseStart) * 1000
-                    minisLogger.info("[SessionLoad] \(sessionId) — REUSE: \(String(format: "%.1f", totalElapsed))ms [mount: \(String(format: "%.1f", mountElapsed)) | msgs: \(vm.messages.count)]")
+                    let totalElapsedText = String(format: "%.1f", totalElapsed)
+                    let mountElapsedText = String(format: "%.1f", mountElapsed)
+                    minisLogger.info("[SessionLoad] \(sessionId) — REUSE: \(totalElapsedText)ms [mount: \(mountElapsedText) | msgs: \(vm.messages.count)]")
                 }
             } else {
                 minisLogger.info("🔄SESSION AIChatView.onAppear nil sessionId — draft mode")
@@ -3387,6 +3389,33 @@ struct AIChatView: View {
         return AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
+    /// [input-bar-fallback-pulse] 3× pulse of the fallback ring around the
+    /// input-bar capsule. A separate method (not an inline .onChange
+    /// closure) so the body modifier chain stays light enough for the
+    /// type checker.
+    private func runFallbackPulse() {
+        // 3× pulse: fade in then out, repeated 3 times
+        fallbackPulseOpacity = 0
+        withAnimation(.easeInOut(duration: 0.35)) {
+            fallbackPulseOpacity = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
+            withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.75) {
+            withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
+        }
+    }
+
     /// [T-ipad-composer-resize] Wraps the text field with its (optional) fixed
     /// height and the iPad drag handle.
     ///
@@ -3547,26 +3576,7 @@ struct AIChatView: View {
                         .allowsHitTesting(false)
                 }
                 .onChange(of: vm.fallbackTrigger) { _ in
-                    // 3× pulse: fade in then out, repeated 3 times
-                    fallbackPulseOpacity = 0
-                    withAnimation(.easeInOut(duration: 0.35)) {
-                        fallbackPulseOpacity = 1
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                        withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
-                        withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-                        withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.75) {
-                        withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
-                    }
+                    runFallbackPulse()
                 }
                 // [T-composer-upstream] 左右 12、离底 8，跟上游一致。原来左右 8
                 // 让整条栏贴到屏幕边上，键看着要「掉出去」；12 是上游定的呼吸量。
