@@ -289,10 +289,22 @@ extension AIChatViewModel {
     /// isUserCap 只在用户设的上限**真的小于**模型原生窗口时为真：给 128K
     /// 模型设 200K 不是限制，是写错了，按原生窗口算。
     func resolvedContextWindow(for model: LLMModel) -> (window: Int, isUserCap: Bool) {
-        let native = model.contextWindowTokens
-        if let override = activeGroupContextLimit(), override < Int.max {
-            return (override, override < native)
-        }
+        Self.resolveWindow(native: model.contextWindowTokens, groupLimit: activeGroupContextLimit())
+    }
+
+    /// [Phase 0] Pure window resolution, extracted so it can be pinned by a
+    /// test (the instance method reads the live group limit from the store).
+    ///
+    /// A group-limit override that exceeds the model's native window is a
+    /// misconfiguration, not a bigger window — the model cannot take more
+    /// than native. Before this fix the override was returned unclamped, so
+    /// her DeepSeek entry (native 198K, group limit 200K) showed a 200K
+    /// window on the usage sheet while the model can only take 198K.
+    /// Only the above-native case changes; a real cap below native and the
+    /// no-limit case behave exactly as before.
+    static func resolveWindow(native: Int, groupLimit: Int?) -> (window: Int, isUserCap: Bool) {
+        guard let limit = groupLimit, limit < Int.max else { return (native, false) }
+        if limit < native { return (limit, true) }
         return (native, false)
     }
 
