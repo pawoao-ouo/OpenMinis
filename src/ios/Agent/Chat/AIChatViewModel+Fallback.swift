@@ -257,6 +257,22 @@ extension AIChatViewModel {
         var strippedThinkingEntries: Set<String> = []
         var lastAttemptThinkingLevel: ThinkingLevel = .off
 
+        // [Phase 0] Capture the request ledger for this stream call: the
+        // sections from the prompt the builder just built, the tool
+        // definitions, and the history as sent. The interface total and the
+        // thinking tokens attach in runAgentLoop when the usage event lands.
+        // Every agent-loop stream call funnels through here, so the last
+        // capture always pairs with the turn's usage.
+        do {
+            var ledger = RequestLedger()
+            for section in lastBuiltPromptSections {
+                ledger.sectionTokens[section.kind, default: 0] += section.tokens
+            }
+            ledger.toolsTokens = Self.toolDefinitionsTokens(tools)
+            ledger.historyTokens = Self.countHistoryTokens(messages)
+            lastRequestLedger = ledger
+        }
+
         do {
             let _aeid = activeEntryId; let _agid = activeGroupId
             logger.info("🔀ROUTE start: activeEntryId=\(_aeid ?? "nil") activeGroupId=\(_agid ?? "nil") provider=\(initialProvider.name)")

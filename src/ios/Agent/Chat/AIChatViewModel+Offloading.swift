@@ -371,6 +371,22 @@ extension AIChatViewModel {
         }
     }
 
+    /// [Phase 0] BPE tokens of history messages as sent (per-part count).
+    /// Same recipe as the loop inside estimateContextTokens (minus the fixed
+    /// overhead) — if that recipe ever changes, change this one too. Shared
+    /// by the request ledger so the estimator and the ledger never drift
+    /// apart silently.
+    static func countHistoryTokens(_ messages: [AgentMessage]) -> Int {
+        var total = 0
+        for msg in messages {
+            for part in msg.parts {
+                // [batch4 / W2C-01] Per-part BPE count (includes its image tokens).
+                total += BPETokenizer.shared.countPartTokens(part)
+            }
+        }
+        return total
+    }
+
     /// Check if context is approaching the model's window limit and offload old tool content.
     ///
     /// Uses a **subtraction method**: starts from the real `lastContextTokens` reported by the API,

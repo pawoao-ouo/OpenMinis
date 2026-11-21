@@ -822,6 +822,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// the usage sheet's breakdown section. Plain var, not @Published:
     /// the sheet re-renders off the VM's other published state during a turn.
     var lastBuiltPromptSections: [PromptSectionTokens] = []
+    /// [Phase 0] The last request's token ledger (sections + tools + history
+    /// as sent; interface total + thinking attach when the usage event
+    /// lands). Read by the usage sheet's breakdown section. nil until the
+    /// first stream call captures it.
+    var lastRequestLedger: RequestLedger? = nil
     /// [F5] Model the fixed-overhead estimate above was computed for.
     /// send() recomputes the estimate when the model changed, so a model
     /// switch between turns does not leave the capacity check judging by
@@ -833,17 +838,25 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// the send-time capacity check can compute it BEFORE the first turn,
     /// when lastRequestFixedTokens is still 0.
     private func fixedTokenOverhead(systemPrompt: String, tools: [AgentToolDefinition]) -> Int {
-        var fixed = BPETokenizer.shared.countTokens(systemPrompt)
+        BPETokenizer.shared.countTokens(systemPrompt) + Self.toolDefinitionsTokens(tools)
+    }
+
+    /// [Phase 0] BPE tokens of the tool definitions as sent (name +
+    /// description + parameter names/descriptions + 8 per tool for schema
+    /// structure). Shared by the capacity check (fixedTokenOverhead) and the
+    /// request ledger so the two never drift apart.
+    static func toolDefinitionsTokens(_ tools: [AgentToolDefinition]) -> Int {
+        var total = 0
         for tool in tools {
-            fixed += BPETokenizer.shared.countTokens(tool.name)
-            fixed += BPETokenizer.shared.countTokens(tool.description)
+            total += BPETokenizer.shared.countTokens(tool.name)
+            total += BPETokenizer.shared.countTokens(tool.description)
             for (pName, param) in tool.parameters {
-                fixed += BPETokenizer.shared.countTokens(pName)
-                fixed += BPETokenizer.shared.countTokens(param.description)
+                total += BPETokenizer.shared.countTokens(pName)
+                total += BPETokenizer.shared.countTokens(param.description)
             }
-            fixed += 8 // per-tool schema structural overhead
+            total += 8 // per-tool schema structural overhead
         }
-        return fixed
+        return total
     }
 
     /// [F5] Refresh the fixed overhead when it is stale: never computed (0)
@@ -7093,6 +7106,16 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             let toolEntries = streamResult.toolEntries
             let stopReason = streamResult.stopReason
             turnUsage = streamResult.turnUsage
+            // [Phase 0] Attach the interface's own count to the request
+            // ledger captured in streamWithGroupFallback: prompt_tokens is
+            // the single source of truth for the total; the per-section BPE
+            // counts are the breakdown. Thinking is output-side; it rides
+            // along so the sheet can show it for the same request.
+            if var ledger = lastRequestLedger {
+                ledger.interfacePromptTokens = turnUsage.latestContextTokens
+                ledger.thinkingTokens = turnUsage.thinkingTokens
+                lastRequestLedger = ledger
+            }
             logger.info("📐 Context after API: latestContextTokens=\(turnUsage.latestContextTokens) (in:\(turnUsage.inputTokens) cache_read:\(turnUsage.cacheReadTokens) cache_create:\(turnUsage.cacheCreationTokens))")
 
             // Track session-level token stats

@@ -5717,6 +5717,36 @@ private struct TokenUsageSheet: View {
                     }
                 }
 
+                // [Phase 0] Per-section breakdown of the last request. The
+                // rows are BPE counts of what was actually sent; Interface
+                // Total is the provider's own prompt_tokens for the same
+                // request. Protocol & Environment = ambient block +
+                // Unattributed, so the rows sum to the interface total.
+                // Unattributed is the gap the plan's 8.5K hunt is after:
+                // framing, role markers, tool-call wrappers, and tokenizer
+                // drift. Thinking is output-side and excluded from the
+                // input closure math.
+                if let ledger = vm.lastRequestLedger {
+                    Section("Breakdown (Last Request)") {
+                        StatRow(label: "System", value: formatted(ledger.systemTokens), icon: "text.alignleft")
+                        StatRow(label: "Tools", value: formatted(ledger.toolsTokens), icon: "wrench")
+                        StatRow(label: "Skills", value: formatted(ledger.skillsTokens), icon: "square.stack")
+                        StatRow(label: "Memory", value: formatted(ledger.memoryTokens), icon: "brain")
+                        StatRow(label: "History", value: formatted(ledger.historyTokens), icon: "clock.arrow.circlepath")
+                        StatRow(label: "Thinking (output)", value: formatted(ledger.thinkingTokens), icon: "lightbulb")
+                        StatRow(label: "Protocol & Environment", value: formatted(ledger.protocolTokens ?? ledger.ambientTokens), icon: "network")
+                        if let total = ledger.interfacePromptTokens {
+                            StatRow(label: "Interface Total", value: formatted(total), icon: "checkmark.circle")
+                            if let unattributed = ledger.unattributedTokens {
+                                let pct = total > 0 ? Double(unattributed) / Double(total) * 100 : 0
+                                StatRow(label: "Unattributed", value: "\(formatted(unattributed)) (\(String(format: "%.1f%%", pct)))", icon: "questionmark.circle")
+                            }
+                        } else {
+                            StatRow(label: "Interface Total", value: "—", icon: "checkmark.circle")
+                        }
+                    }
+                }
+
                 Section("Speed") {
                     let speed = vm.sessionOutputTokensPerSecond
                     StatRow(label: "Output Speed", value: speed > 0 ? String(format: "%.1f tok/s", speed) : "—", icon: "speedometer")
