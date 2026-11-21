@@ -396,10 +396,6 @@ struct AIChatView: View {
         nonmutating set { voiceMode.isVoiceActive = newValue }
     }
     @StateObject private var voiceVM = VoiceInputViewModel()
-    /// [T-codex-fast-mode] 快速模式。开关本体在模型选择页
-    /// （SessionModelPicker），这里只观察同一个键，用来给标题上的 ⚡ 角标
-    /// 和工具栏重绘用。
-    @AppStorage(OpenAIProvider.fastModeDefaultsKey) private var codexFastModeEnabled: Bool = false
     // Observe the in-app language so the view's body re-runs the moment
     // the user switches it. Without this, parts of the chat surface that
     // hold UIKit-bridged strings (PastableTextView placeholder, etc.)
@@ -482,20 +478,8 @@ struct AIChatView: View {
     /// LOWER bound for a drag, per the requirement that the default height is
     /// the minimum.
     static var composerDefaultHeight: CGFloat { PastableUITextView.defaultMaxHeight }
-    /// Face ID lock state — observed so the navbar title can blur in
-    /// lockstep with the chat-body SessionLockGateOverlay (both read
-    /// `lockStore.isVisuallyLocked(sid)` rather than recomputing the
-    /// 4-guard expression independently).
-    @ObservedObject private var lockStore = SessionLockStore.shared
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
-    /// Opacity for the fallback capsule highlight (animated 3× pulse on model switch).
-    @State private var fallbackPulseOpacity: Double = 0
 
-    /// Snapshot of the current session's title + category, refreshed when the
-    /// session updates (e.g. auto-generated title arrives). Nil until first load.
-    @State private var titlePillSession: ChatSession?
-    /// Session being edited via the title-pill tap. Drives the SessionEditSheet.
-    @State private var titlePillEditSession: ChatSession?
     /// Default chat title for sessions without a generated title. Sourced
     /// from SOUL.md (`name`), falls back to "Minis". Refreshed on .soulMdChanged.
     @State private var soulName: String = SoulStore.cachedMetadata.name.isEmpty
@@ -508,7 +492,7 @@ struct AIChatView: View {
             || showTokenUsage || showSessionSkills
             || showSessionMCPs || showSessionMemory || showMoveToSheet
             || showThinkingLevelSheet || showDownloadsPanel
-            || titlePillEditSession != nil || locateDownloadTarget != nil
+            || locateDownloadTarget != nil
             || screenshotPreview != nil || previewImageFile != nil
             || imageGallery != nil || previewVideoFile != nil
             || previewAudioFile != nil || previewTextFile != nil
@@ -813,42 +797,6 @@ struct AIChatView: View {
         .environment(\.chatSessionId, vm.sessionId)
         .modifier(NavBarStyleModifier(topSafeAreaInset: $topSafeAreaInset))
         .navigationBarTitleDisplayMode(.inline)
-        // [T-ios-navbar-toolbar-host] The ENTIRE toolbar now lives inside an
-        // equatable-gated host child. Root cause of the mid-streaming "..."
-        // menu refresh (4th attempt, this one from instrumentation): with
-        // .toolbar attached on this (per-token re-evaluated) chain, the
-        // ToolbarContent builder itself re-ran on EVERY streaming tick
-        // (NavbarEval toolbarPass=34/stream) and handed the bridge a brand-new
-        // ToolbarContent value each time — which it re-pushed to the
-        // UINavigationItem, refreshing the OPEN UIMenu, even while both inner
-        // Equatable gates provably held (titleEval=3, menuEval=2). Hosting the
-        // toolbar in a child whose body is gated on the displayed inputs means
-        // the builder simply never re-runs during a stream: no new
-        // ToolbarContent, nothing to re-push, and the native SwiftUI Menu
-        // (with the system's round Liquid-Glass chrome) can stay.
-        // .equatable() is MANDATORY here, not an optimization hint: device
-        // instrumentation (2026-07-17 23:53, == FALSE count 0 while
-        // hostEval == toolbarPass) proved SwiftUI does NOT consult a plain
-        // Equatable conformance for this generic closure-holding view in the
-        // .background position — the gate silently never engaged. EquatableView
-        // wrapping is the only guaranteed path to ==.
-        .background(
-            ChatToolbarHost(key: chatToolbarKey, title: {
-                chatNavPrincipalContent
-            }, trailing: {
-                EmptyView()
-            })
-            .equatable()
-        )
-        .sheet(item: $titlePillEditSession) { session in
-            SessionEditSheet(session: session) { newTitle, newCategory in
-                Task {
-                    await ChatStore.shared.updateSessionTitle(session.id, title: newTitle, category: newCategory)
-                    refreshTitlePillSession()
-                }
-                titlePillEditSession = nil
-            }
-        }
         // [T-ios-json-open-provider-import-prompt] Shared/opened Provider-export
         // JSON: let the user choose import-as-provider vs add-as-attachment.
         // Extracted into a single modifier so the body's type-check stays cheap.
@@ -1238,6 +1186,20 @@ struct AIChatView: View {
         // [T-composer-oneshot] 加号的原生小抽屉：系统 sheet + medium 档，
         // 跟 thinking 档位那张一模一样的手感（grabber、圆角、下拉关闭、压暗背景）。
         .sheet(isPresented: $showPlusSheet) { plusSheet }
+        // [input-bar-typing-dots] The thinking sheet used to hang off the
+        // nav-bar badge; the badge is gone with the header, so the sheet
+        // lives here now. Opened from the [+] menu's 思考强度 row.
+        .sheet(isPresented: $showThinkingLevelSheet) {
+            ThinkingLevelSheetView(
+                currentLevel: vm.currentThinkingLevel,
+                availableLevels: vm.availableThinkingLevels,
+                onSelect: { newLevel in
+                    vm.setThinkingLevel(newLevel)
+                    showThinkingLevelSheet = false
+                }
+            )
+            .presentationDetents([.medium])
+        }
         .sheet(isPresented: $showKernelLogs) {
             // [P-05] 内核启动失败时用户要能看到真实报错，不是只有一行红字。
             NavigationStack {
@@ -1554,7 +1516,6 @@ struct AIChatView: View {
             injectPendingShareIfNeeded()
             injectPendingTransferIfNeeded()
             isChatViewVisible = true
-            refreshTitlePillSession()
             // Notify workflow that THIS view is mounted + visible. If
             // the workflow is waiting for our session id, it will
             // transition to chatReady — our state observer below picks
@@ -1565,14 +1526,12 @@ struct AIChatView: View {
         }
         .observingQuickActions(modifier: quickActionObserver)
         .onChange(of: vm.sessionId) { _ in
-            refreshTitlePillSession()
             refreshSoulName()
         }
         .onReceive(NotificationCenter.default.publisher(for: .sessionDidUpdate)) { note in
             guard let sid = vm.sessionId,
                   let updatedId = note.object as? String,
                   updatedId == sid else { return }
-            refreshTitlePillSession()
             // R2-001: ChatStore.appendMessage posts .sessionDidUpdate. Previously only
             // the title pill refreshed, so an open transcript missed the new
             // bubble until leave/re-enter. Mirror onAppear-reuse: reload from
@@ -2179,6 +2138,9 @@ struct AIChatView: View {
             vm.voiceUsedInComposition = true
             VoiceModePreference.shared.enteredFromText = true
             withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
+        case .thinking:
+            // [input-bar-typing-dots] Same sheet the nav-bar badge used to open.
+            showThinkingLevelSheet = true
         }
     }
 
@@ -2228,441 +2190,6 @@ struct AIChatView: View {
         }
     }
 
-
-    // MARK: - Navigation Title + Model Selector
-
-    /// [T-ios-navbar-toolbar-host] Principal toolbar content, extracted from
-    /// the old inline ToolbarItem so ChatToolbarHost can render it. Layout
-    /// preserved verbatim:
-    /// [T-navbar-title-centering] iOS 18 and below let the principal toolbar
-    /// item shrink to its content width and anchor it left-of-center; iOS 19+
-    /// centers natively — wrap in an infinite-width HStack with bookend
-    /// Spacers on legacy iOS, and cap the width to (screen − ~140pt chrome)
-    /// so long titles truncate instead of pushing through the trailing menu.
-    @ViewBuilder
-    private var chatNavPrincipalContent: some View {
-        // Cap the title width to (screen − chrome) on ALL versions.
-        //
-        // [NavTitleGestureTruncation 2026-07-24] iOS 19+ previously left the
-        // titleView unconstrained, letting the system principal toolbar decide
-        // the truncation width from whatever space the left/right bar items
-        // leave. During an INTERACTIVE pop (edge-swipe), the system snapshots
-        // the nav bar and interpolates bar-item positions; at some drag/cancel
-        // frames the principal's available width widens, so lineLimit(1) stops
-        // truncating and a long title momentarily "un-truncates" to its full
-        // form — a jarring jump when the user cancels the swipe. Pinning an
-        // explicit, version-stable cap makes the truncation point identical in
-        // the steady state and every transition frame, so the title never
-        // pops to full. Does not affect normal-length titles (they're under
-        // the cap). This is a MITIGATION of the system snapshot behavior, not
-        // a fix of it: the top-crop of the snapshot itself is UIKit-level and
-        // out of SwiftUI's reach.
-        let cap = max(120, UIScreen.main.bounds.width - 140)
-        if #available(iOS 19, *) {
-            titleView
-                .frame(maxWidth: cap)
-        } else {
-            HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                titleView
-                    .frame(maxWidth: cap)
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    /// [T-ios-navbar-toolbar-host] Everything the toolbar DISPLAYS (principal
-    /// title + trailing menu), snapshotted as one Equatable key gating the
-    /// whole ToolbarContent rebuild.
-    private var chatToolbarKey: ChatToolbarKey {
-        ChatToolbarKey(
-            navTitle: navTitleKey,
-            messagesEmpty: vm.messages.isEmpty,
-            hasSession: vm.sessionId != nil,
-            memoryEnabled: vm.memoryEnabled
-            // [plus-panel-two-pages] 快速模式/增强缓存搬进模型选择页后，
-            // 工具栏不再显示它们（trailing 本来就是 EmptyView），
-            // 对应的 key 字段一起删掉了，别让不存在的 UI 拖着重绘判定。
-        )
-    }
-
-    /// [T-codex-fast-mode] True when the session's active model can use Fast
-    /// Mode. Broadened per user request from Codex-OAuth-only to: ANY
-    /// Responses-API provider + a gpt-family model. Concretely the request
-    /// must travel the Responses API path — providerType .openAIResponses
-    /// (any credential/base, e.g. sub2api relays, which pass service_tier
-    /// through), or the genuine Codex OAuth route (.openAI + OAuth + no
-    /// custom base) — and the model id must contain "gpt" (mirrors the
-    /// official fast catalog: gpt-5.6-sol/terra/luna, gpt-5.5, gpt-5.4).
-    private var activeModelSupportsFastMode: Bool {
-        let display = SessionModelDisplay(store: configStore, draftGroupId: vm.initialGroupId)
-        guard let (instance, modelId) = display.resolvedInstanceAndModel(for: vm.sessionId) else { return false }
-        guard modelId.lowercased().contains("gpt") else { return false }
-        if instance.providerType == .openAIResponses { return true }
-        return instance.providerType == .openAI
-            && instance.credentialType == .oauth
-            && (instance.customBaseURL?.isEmpty ?? true)
-    }
-
-    /// [T-ios-navbar-principal-streaming-stability] Snapshot of everything
-    /// titleView displays — must stay in lockstep with titleView's reads
-    /// (see NavTitleKey doc). Cheap to compute per body pass. The
-    /// typingDotsVisible field is part of that lockstep: it mirrors the
-    /// HeaderTypingDots visibility condition, so a turn starting or ending
-    /// pierces the gate.
-    private var navTitleKey: NavTitleKey {
-        #if DEBUG
-        NavbarEvalStats.toolbarPass += 1
-        #endif
-        let display = SessionModelDisplay(store: configStore, draftGroupId: vm.initialGroupId)
-        let resolved = display.resolvedDetail(for: vm.sessionId)
-        let sessionTitle: String? = (titlePillSession?.title?.trimmingCharacters(in: .whitespacesAndNewlines))
-            .flatMap { $0.isEmpty ? nil : $0 }
-        // [T-ios-navtitle-typing-dots-stale] Same condition HeaderTypingDots
-        // uses: the last real message is an assistant row with
-        // shouldShowTypingIndicator true, and the loop running. A Bool, so
-        // it flips only on typing-state transitions, never per token.
-        let lastReal = vm.messages.last(where: { !$0.isQABubble })
-        let typingDotsVisible = vm.isProcessing
-            && (lastReal?.role == .assistant)
-            && (lastReal?.shouldShowTypingIndicator ?? false)
-        return NavTitleKey(
-            sessionTitle: sessionTitle,
-            canEditTitle: titlePillSession != nil,
-            soulName: soulName,
-            modelName: display.displayName(for: vm.sessionId),
-            isGroupBound: display.isGroupBound(for: vm.sessionId),
-            showFastBolt: codexFastModeEnabled && activeModelSupportsFastMode,
-            resolvedText: resolved.map { "\($0.providerLabel) · \($0.modelName)" },
-            hasBinding: vm.sessionId != nil && configStore.binding(for: vm.sessionId!) != nil,
-            hasProviders: !configStore.instances.isEmpty,
-            showThinkingBadge: !vm.availableThinkingLevels.isEmpty
-                && (vm.currentThinkingLevel.isEnabled || vm.currentModelSupportsReasoning),
-            thinkingLevelName: vm.currentThinkingLevel.displayName,
-            fallbackTrigger: vm.fallbackTrigger,
-            fallbackPulse: fallbackPulseOpacity,
-            titleLocked: titleIsVisuallyLocked,
-            typingDotsVisible: typingDotsVisible
-        )
-    }
-
-    private var titleView: some View {
-        let legacyLayout = !ProcessInfo.processInfo.isiOSAppOnMac && {
-            if #available(iOS 26, *) { return false }
-            return true
-        }()
-
-        // Use the current session's title in place of the default name
-        // when one exists (auto-generated or user-renamed). Tap opens the
-        // same SessionEditSheet used from the home screen so users can
-        // rename / re-categorize without leaving the chat. Falls back to
-        // the SOUL.md `name` (or "Minis") for draft sessions or before a
-        // title has been generated.
-        let sessionTitle: String? = (titlePillSession?.title?.trimmingCharacters(in: .whitespacesAndNewlines))
-            .flatMap { $0.isEmpty ? nil : $0 }
-        let canEditTitle = titlePillSession != nil
-
-        // [batch28] The header is two rows: row 1 is the title (+ bolt +
-        // thinking badge), row 2 is the typing dots on their own line
-        // below the name. The two model-name rows are gone. The 3-row clip
-        // tuning notes below are retired history — the 46pt frame is
-        // unchanged and still centers the stack.
-        // [NavTitleClip 2026-05-16] On iOS 26 the principal toolbar
-        // container clipped the top of the title and the bottom of the
-        // resolved-detail subtitle when a 3-line stack was used. Adding
-        // a small top inset shifts the whole VStack downward into the
-        // visible band; the toolbar happily renders it without
-        // truncation. Legacy (iOS < 26) layout already used a -6 stack
-        // spacing trick and doesn't need the inset.
-        //
-        // [NavTitleDescenderClip 2026-05-18] Tighten the outer VStack
-        // from 0 to -2pt on iOS 26 so the three rows pack more closely
-        // and free up vertical room for descenders ("g", "p", "y") on
-        // the resolved-detail line (e.g. "Fake Hang 1" was clipping the
-        // final "1" / "g" baseline at the navbar bottom). -2pt is the
-        // sweet spot: overlap is invisible at 9pt body text but recovers
-        // ~2pt of descender clearance below the third row.
-        // [T-navbar-title-clip 2026-05-21] After shrinking the legacy
-        // title to 13pt the stack was tall enough to clear the top of
-        // the navbar but visually it now sat *too high* — the title
-        // row clipped at the status-bar edge while the model-name row
-        // had a tall empty gap below it before the navbar's bottom
-        // separator. Root cause: SwiftUI doesn't strictly center the
-        // `.principal` item on iOS 16-18; it baseline-aligns to the
-        // navigation bar's title text baseline. Padding the OUTER
-        // stack downward (`.padding(.top, …)` on the VStack itself)
-        // pushes the whole title region down within the band without
-        // changing its rendered height. Legacy-only — iOS 26 already
-        // sits correctly in the liquid-glass band.
-        // [T-navbar-title-model-gap 2026-07-18] Legacy spacing -8 → -3. The
-        // 2026-05-20 tightening overlapped row 2 into the title's line box by
-        // 8pt — more than the 13pt font's entire descender zone (~3.1pt), so
-        // any title containing g/p/y/z visually fused with the model pill
-        // (only descender-less titles like "Minis" hid it). -3 keeps a ~2pt
-        // visible gap for descender titles. HEIGHT-NEUTRAL: the 5pt spent
-        // here is reclaimed inside row 2 (provider-row bottom clearance
-        // 4 → 1 and group vertical padding 3 → 2 on legacy), so the stack's
-        // total height — the thing the May-18/19/20 clip saga fought — is
-        // unchanged and the top-clip fix does not regress.
-        // [typing-dots-below-name] Two rows: row 1 is the name (+ bolt +
-        // thinking badge), row 2 is the typing dots on their own line,
-        // centered below the name. VStack spacing 0 so the dots row costs
-        // no height when HeaderTypingDots renders EmptyView (hidden).
-        return VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Button {
-                    if let s = titlePillSession { titlePillEditSession = s }
-                } label: {
-                    // [T-navbar-title-size 2026-05-18] iOS 18 and below render
-                    // the principal toolbar in a tighter band than iOS 26's
-                    // liquid-glass navbar — long CJK titles (e.g. a
-                    // "Download and merge Twitter video" style CJK string)
-                    // overflowed at 16pt on iPhone Mini/SE and
-                    // wrapped under the trailing "…" button. Drop one point
-                    // on legacy iOS so they fit cleanly; keep the iOS 26
-                    // size unchanged.
-                    Text(sessionTitle ?? soulName)
-                        // [T-navbar-title-size 2026-05-18 / -19 / -20] iOS 16-18
-                        // principal toolbar is a fixed ~44pt band sitting just
-                        // below the status bar with very little reserved padding.
-                        // A 3-line title stack at 16pt/.caption2/9pt overflowed
-                        // the band's top against the status-bar / Dynamic Island
-                        // cutoff (a tall CJK glyph clipped its top, then "?"
-                        // appeared because the glyph rect was outside the navbar
-                        // viewport). Iterative tightening:
-                        //   2026-05-18: 16 → 15pt + `padding(.top, 2)`
-                        //   2026-05-19: 15 → 13.5pt + `minimumScaleFactor(0.85)`
-                        //                 + `fixedSize(...)` + `padding(.top, 3)`
-                        //   2026-05-20: 13.5 → 13pt + drop padding(.top) to 0 +
-                        //                 outer VStack spacing -6 → -8. Earlier
-                        //                 attempts to push the stack DOWN with
-                        //                 more padding.top failed because SwiftUI
-                        //                 vertically CENTERS the .principal item
-                        //                 in the navbar — extra height clips
-                        //                 BOTH top and bottom equally, not just
-                        //                 the bottom. Net result: shrink the
-                        //                 total stack height instead, so it
-                        //                 naturally has breathing room above
-                        //                 and below.
-                        // iOS 26 path unchanged (16pt works inside liquid-glass).
-                        .font(ChatFont.font(legacyLayout ? 13 : 16, weight: .semibold))
-                        // [T-18] Fixed navbar: the title cannot grow its layout, so
-                        // it shrinks — but never under the readable floor (the box
-                        // also follows the dial now, capped at .xxLarge, T-16).
-                        .minimumScaleFactor(FontSettings.shrinkFloor(legacyLayout ? 13 : 16, wanted: legacyLayout ? 0.85 : 1.0))
-                        .foregroundStyle(ChatColors.primaryText)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .fixedSize(horizontal: false, vertical: true)
-                        // [NavTitleTopClip 2026-07-23] Was 4pt on iOS 26 to shove
-                        // the title into the visible band, but combined with the
-                        // now-centered 46pt frame it pushed the title's top past
-                        // the clip line again. 4 → 2: the centered frame already
-                        // positions the stack correctly, and 2pt keeps a little
-                        // breathing room above the semibold cap height without
-                        // re-introducing the top crop.
-                        .padding(.top, legacyLayout ? 0 : 2)
-                        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-                            refreshSoulName()
-                        }
-                        .onReceive(NotificationCenter.default.publisher(for: .personaDidChange)) { _ in
-                            // [S26] A draft has no persisted session yet, so it
-                            // follows the current persona until first send — the
-                            // persona that answers is the one the UI shows.
-                            // A persisted session keeps its own locked persona
-                            // (loadSession re-reads it from SQLite), and a draft
-                            // mid-generation keeps the persona that started the
-                            // turn. Everything persona-bound (system prompt,
-                            // memory, skills, tool whitelist) is derived live
-                            // from sessionPersonaId at send time, so re-pointing
-                            // it is the whole fix — no other draft state is
-                            // snapshotted at creation.
-                            if vm.sessionId == nil, !vm.isProcessing {
-                                vm.sessionPersonaId = PersonaStore.currentID()
-                            }
-                            refreshSoulName()
-                        }
-                }
-                .buttonStyle(.plain)
-                .disabled(!canEditTitle)
-                .layoutPriority(-1)
-
-                // [batch28] Codex Fast Mode bolt, re-homed from the deleted
-                // model row: same 9pt circular-background glyph, same gate
-                // (user-requested). It is a mode indicator, not a model name,
-                // so it stays next to the thinking badge.
-                if codexFastModeEnabled && activeModelSupportsFastMode {
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 5, weight: .bold))
-                        .foregroundStyle(ChatColors.primaryText)
-                        .frame(width: 9, height: 9)
-                        .background(Circle().fill(ChatColors.warning))
-                }
-                // [batch28] Thinking level stays: same gate, same badge, still
-                // opens ThinkingLevelSheetView. The two model-name rows are gone
-                // (row 1's status-dot/modelName row and row 2's provider·model
-                // button); the model picker still opens from the "+" panel's
-                // sparkles item (performPlusPanelAction, case .sparkles).
-                if !vm.availableThinkingLevels.isEmpty,
-                   vm.currentThinkingLevel.isEnabled || vm.currentModelSupportsReasoning {
-                    thinkingLevelBadge
-                        .fixedSize()
-                }
-            }
-            // [typing-dots-below-name] Typing state on its own line below
-            // the name, centered: three dots, no text. HeaderTypingDots
-            // observes the last real message, so it shows exactly while
-            // the header owns the state. Visibility condition unchanged.
-            if let lastReal = vm.messages.last(where: { !$0.isQABubble }) {
-                HeaderTypingDots(message: lastReal, isProcessing: vm.isProcessing, soulName: soulName)
-            }
-        }
-        .padding(.horizontal, 8)
-        // [T-navbar-title-model-gap] Vertical padding 0/1 (was 2/3): the 4pt
-        // reclaimed pays for the dots row so the two-row stack still fits
-        // the 46pt iOS 26 frame / ~44pt legacy band.
-        .padding(.vertical, legacyLayout ? 0 : 1)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(ChatColors.destructive.opacity(0.35 * fallbackPulseOpacity))
-        )
-        .onChange(of: vm.fallbackTrigger) { _ in
-            // 3× pulse: fade in then out, repeated 3 times
-            fallbackPulseOpacity = 0
-            withAnimation(.easeInOut(duration: 0.35)) {
-                fallbackPulseOpacity = 1
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
-                withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-                withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 1 }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.75) {
-                withAnimation(.easeInOut(duration: 0.35)) { fallbackPulseOpacity = 0 }
-            }
-        }
-        // [T-navbar-title-clip 2026-05-21] Nudge the whole legacy title
-        // stack down so the first row clears the status-bar / Dynamic
-        // Island band. iOS 16-18 baseline-aligns the `.principal` item
-        // to the toolbar title baseline — adding top padding on the
-        // OUTER stack shifts its rendered position downward without
-        // resizing any individual row. iOS 26 leaves at 0 (liquid
-        // glass centers correctly).
-        .padding(.top, legacyLayout ? 6 : 0)
-        // iOS 26+: fix height to match liquid-glass navbar; older OS: let it size naturally
-        .modifier(NavTitleFrameModifier())
-        // [T-navbar-title-fontsize] Lock the entire principal-toolbar
-        // title stack to the standard (.large) Dynamic Type size. Users
-        // with system / app font scaling cranked up were having the
-        // model name + "provider · model" subtitle overflow the navbar
-        // band and clip. The numeric sizes used above (16/.caption2/9)
-        // still scale with Dynamic Type by default; clamping the
-        // environment here freezes them at the design baseline without
-        // having to rewrite every Text modifier individually.
-        // [T-16] This stack used to be pinned flat to `.large`, so at the 15pt
-        // dial the navigation title was visibly smaller than the text around it.
-        // It now follows the dial (and the reader's system setting) but is
-        // capped: above ~.xxLarge the name plus the provider·model line starts
-        // to crowd the bar, and the cap is where it stops fitting rather than
-        // clipping. Cap value still needs a real-device pass at dial 15 with a
-        // long model name.
-        .dynamicTypeSize(DynamicTypeSize.medium ... DynamicTypeSize.xxLarge)
-        // Blur the title (and model/provider subtitle) while the session
-        // is locked, mirroring the chat body's SessionLockGateOverlay.
-        // `SessionLockStore.isVisuallyLocked` is the single source of
-        // truth — the same helper drives the gate overlay and the chat
-        // list row, so all three sites lock and unlock in lockstep.
-        .blur(radius: titleIsVisuallyLocked ? 8 : 0)
-        .allowsHitTesting(!titleIsVisuallyLocked)
-        .animation(.easeInOut(duration: 0.15), value: titleIsVisuallyLocked)
-    }
-
-    /// [batch28] The header's typing state: three dots, no text. Takes the
-    /// last real message as an observed object so per-message flips (first
-    /// block lands, `isAwaitingModelResponse` toggles between rounds)
-    /// re-render just the dots — the header itself only re-renders when
-    /// `vm.messages` or `vm.isProcessing` changes. Visible exactly when the
-    /// header owns the state: the last real (non-Q&A) message is an
-    /// assistant row whose `shouldShowTypingIndicator` is true and the agent
-    /// loop is running. The footer suppresses its own indicator for this
-    /// same row, so the dots never show twice.
-    /// Dots are 17pt here (slightly bigger than the footer's 15pt) now
-    /// that they sit on their own line below the name.
-    private struct HeaderTypingDots: View {
-        @ObservedObject var message: ChatMessage
-        var isProcessing: Bool
-        var soulName: String
-
-        var body: some View {
-            if message.role == .assistant, message.shouldShowTypingIndicator, isProcessing {
-                TypingDots(fontSize: 17)
-                    .fixedSize()
-                    // [batch28 R1 P2-1] The dots carry the typing state with
-                    // no text, and the footer text is suppressed for this
-                    // row — so label them for VoiceOver with the same words
-                    // the footer used to show.
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(soulName) is thinking")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var thinkingLevelBadge: some View {
-        let level = vm.currentThinkingLevel
-        // Sits on nav-bar row 2 (the 9pt "provider · model" line). Kept a
-        // touch smaller than that text (8pt / 6px icon) so it stays the most
-        // compact label in the title and never larger than the "is thinking…"
-        // intensity pill in the message list.
-        //
-        // Also rendered when the level is Off (reasoning-capable model with
-        // thinking disabled): the pill then reads icon + "Off" as a tap target
-        // for enabling deep thinking. Dim the icon in that state — matches the
-        // 0.4 Off-row convention in ThinkingLevelSheetView.
-        HStack(spacing: 2) {
-            Image("ThinkingIcon")
-                .resizable()
-                .frame(width: 6, height: 6)
-                .opacity(level.isEnabled ? 1.0 : 0.4)
-            Text(LocalizedStringKey(level.displayName))
-                .font(ChatFont.font(8, weight: .medium))
-        }
-        .foregroundStyle(ChatColors.secondaryText)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 1)
-        .background(Capsule().fill(Color.secondary.opacity(0.10)))
-        .onTapGesture {
-            showThinkingLevelSheet = true
-        }
-        .sheet(isPresented: $showThinkingLevelSheet) {
-            ThinkingLevelSheetView(
-                currentLevel: level,
-                availableLevels: vm.availableThinkingLevels,
-                onSelect: { newLevel in
-                    vm.setThinkingLevel(newLevel)
-                    showThinkingLevelSheet = false
-                }
-            )
-            .presentationDetents([.medium])
-        }
-    }
-
-    /// True when the current session's navbar title must render blurred —
-    /// observed via `@ObservedObject lockStore` so toggles to the lock
-    /// state push a re-render of the toolbar synchronously with the gate.
-    private var titleIsVisuallyLocked: Bool {
-        guard let sid = vm.sessionId, !sid.isEmpty else { return false }
-        return lockStore.isVisuallyLocked(sid)
-    }
-
     // MARK: - Session Title Snapshot
 
     /// [batch9d / W1C-08] 会话显示身份：标题/占位符取"会话绑定人设"的名
@@ -2670,32 +2197,6 @@ struct AIChatView: View {
     /// SOUL 变更 / 人设切换 / 首进页面 都会刷新。
     private func refreshSoulName() {
         soulName = SoulStore.displayName(for: SoulStore.displayPersonaId(vm.sessionPersonaId))
-    }
-
-    private func refreshTitlePillSession() {
-        guard let sid = vm.sessionId else {
-            titlePillSession = nil
-            return
-        }
-        // ChatStore is an actor — must await off the main actor. Bouncing
-        // back to the main actor before mutating @State avoids the strlen /
-        // SQLite data race that crashed when called synchronously from the
-        // view body (concurrent with sync engine writes).
-        Task {
-            let next = await ChatStore.shared.getSession(sid)
-            await MainActor.run {
-                guard sid == vm.sessionId else { return }
-                if next?.id != titlePillSession?.id
-                    || next?.title != titlePillSession?.title
-                    || next?.category != titlePillSession?.category {
-                    // Direct replace — animating the toolbar title makes the
-                    // old "Minis" string slide before the real title swaps
-                    // in, which looks broken. SwiftUI's default crossfade
-                    // for non-animated text changes is what we want.
-                    titlePillSession = next
-                }
-            }
-        }
     }
 
     // MARK: - Kernel Boot Overlay
@@ -3811,6 +3312,9 @@ struct AIChatView: View {
             // key in Localizable.xcstrings, so translators get one
             // parameterized entry per locale instead of one per soul name.
             placeholder: AppLocalized("Message \(soulName) (@ to mention files)"),
+            // [input-bar-typing-dots] While the dots sit in the placeholder's
+            // slot, hide the placeholder itself so the two never overlap.
+            hidePlaceholder: showsInputBarTypingDots,
             onPasteImage: { image in vm.addImageAttachment(image) },
             onPasteFile: { url in vm.addFileAttachment(from: url) },
             onReturnKey: handleReturnKey,
@@ -3850,12 +3354,39 @@ struct AIChatView: View {
     /// exclusive: fixedSize asks the view for its intrinsic height, which is
     /// exactly what we're overriding once the user has resized. So the two
     /// modes are separate branches rather than modifiers stacked on one view.
+    /// [input-bar-typing-dots] The typing dots live in the input bar now, in
+    /// the placeholder's slot. Same predicate the header dots used (last real
+    /// message is an assistant row with shouldShowTypingIndicator, loop
+    /// running), plus: the field must be empty — user typing always wins, so
+    /// the moment she types a character the dots give way to her text.
+    /// composerBody is only reached on the plain text-field path (voice input
+    /// and recording return earlier), so no extra mode guards are needed here.
+    private var showsInputBarTypingDots: Bool {
+        guard vm.isProcessing, vm.inputText.isEmpty, vm.editingMessageIndex == nil else { return false }
+        guard let lastReal = vm.messages.last(where: { !$0.isQABubble }),
+              lastReal.role == .assistant, lastReal.shouldShowTypingIndicator else { return false }
+        return true
+    }
+
     private func composerBody(field: PastableTextView, topPadding: CGFloat) -> some View {
         Group {
             if let height = composerTextHeight {
                 field.frame(height: height)
             } else {
                 field.fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        // [input-bar-typing-dots] Three dots in the placeholder's slot while
+        // the AI types and the field is empty. An overlay, not a layout
+        // sibling: it never moves the text or the keys, and it never eats
+        // taps (allowsHitTesting false — the tap-to-focus catcher underneath
+        // keeps working). Same 17pt TypingDots the header used, flush at the
+        // field's top-leading corner — exactly where the placeholder sits
+        // (textContainerInset and lineFragmentPadding are both zero).
+        .overlay(alignment: .topLeading) {
+            if showsInputBarTypingDots {
+                TypingDots(fontSize: 17)
+                    .allowsHitTesting(false)
             }
         }
         // [T-composer-upstream 11-10] 内边距照上游:左右 16、上 topPadding、
@@ -4384,11 +3915,21 @@ struct AIChatView: View {
         )
     }
 
+    /// [input-bar-typing-dots] Current thinking-level display name for the [+]
+    /// menu's 思考强度 row. Same gate the old nav-bar badge used: hidden when
+    /// there is nothing to adjust.
+    private var thinkingLevelDisplayName: String? {
+        guard !vm.availableThinkingLevels.isEmpty,
+              vm.currentThinkingLevel.isEnabled || vm.currentModelSupportsReasoning else { return nil }
+        return vm.currentThinkingLevel.displayName
+    }
+
     private var plusSheet: some View {
 
         ComposerActionSheet(
             memoryEnabled: vm.memoryEnabled,
             sessionId: vm.sessionId,
+            thinkingLevelName: thinkingLevelDisplayName,
             onItemTap: { item in
                 showPlusSheet = false
                 // 等 sheet 收完再动作，否则同帧弹另一个 sheet 会被系统丢掉。
@@ -5488,13 +5029,14 @@ struct NavBarStyleModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
-            // iOS 26: extend content behind nav bar so liquid-glass has
-            // something to show through; the collection view's
-            // contentInsetAdjustmentBehavior = .automatic keeps messages
-            // starting below the bar.
+            // [transparent-top] No white card on top: the bar is transparent
+            // on iOS 26 too, so the wallpaper shows through and only the
+            // back button floats over it. Content still extends behind the
+            // bar; the collection view's contentInsetAdjustmentBehavior =
+            // .automatic keeps messages starting below the bar.
             content
                 .ignoresSafeArea(.container, edges: .top)
-                .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+                .toolbarBackground(.hidden, for: .navigationBar)
         } else {
             // iOS 16–18: transparent navbar so the chat wallpaper runs
             // fullscreen under the title (the old opaque band hid it).
@@ -5518,185 +5060,6 @@ struct NavBarStyleModifier: ViewModifier {
     }
 }
 
-
-// MARK: - Chat Trailing "…" Menu
-
-/// [T-ios-trailing-menu-streaming-stability] The chat page's "…" menu,
-/// extracted from AIChatView into an Equatable child so an OPEN menu stays
-/// stable during streaming. AIChatView.body re-evaluates on every streaming
-/// tick (the whole view observes the view model); with the Menu declared
-/// inline, each tick pushed rebuilt menu content into the presented UIMenu,
-/// which could reshuffle/reset it right as the user tapped — the reported
-/// mis-taps on menu items mid-stream.
-///
-/// `.equatable()` at the call site makes SwiftUI diff with `==` below, which
-/// compares ONLY the values that change what the menu displays — none of
-/// which mutate during a stream — so streaming ticks stop invalidating this
-/// subtree entirely. Action closures are recreated by every parent body pass
-/// but never change behavior, so they're deliberately excluded from `==`.
-/// [T-ios-navbar-principal-streaming-stability] Generic value-keyed equatable
-/// wrapper. SwiftUI skips re-evaluating `content` while `key` compares equal —
-/// the same guard ChatTrailingMenu gets from its custom `==`, made reusable
-/// for views (like the navbar titleView) that are too entangled with local
-/// @State/onChange plumbing to extract wholesale. The content closure is
-/// recreated every parent pass but is excluded from equality, exactly like
-/// ChatTrailingMenu's action closures. Internal @State / onReceive updates
-/// inside `content` still fire on their own — only parent-driven invalidation
-/// is gated. Anything the content READS from the parent/vm must therefore be
-/// represented in `key`, or its changes will not render.
-#if DEBUG
-/// [T-ios-navbar-principal-streaming-stability] Eval counters proving (or
-/// disproving) that the toolbar equatable gates actually hold during
-/// streaming. toolbarPass ≈ one per streaming tick (counted in navTitleKey,
-/// which the toolbar builder computes every pass); titleEval / menuEval
-/// should stay ~1 while a stream runs IF the gates work. Grep: [NavbarEval].
-enum NavbarEvalStats {
-    static var toolbarPass = 0
-    static var titleEval = 0
-    static var menuEval = 0
-    static let logger = AppLogger(category: "NavbarEval")
-}
-#endif
-
-private struct EquatableByValue<Key: Equatable, Content: View>: View, Equatable {
-    let key: Key
-    @ViewBuilder let content: () -> Content
-
-    static func == (lhs: Self, rhs: Self) -> Bool { lhs.key == rhs.key }
-
-    @ViewBuilder
-    var body: some View {
-        #if DEBUG
-        let _ = {
-            NavbarEvalStats.titleEval += 1
-            NavbarEvalStats.logger.info("[NavbarEval] titleEval=\(NavbarEvalStats.titleEval) (toolbarPass=\(NavbarEvalStats.toolbarPass))")
-        }()
-        #endif
-        content()
-    }
-}
-
-/// [T-ios-navbar-principal-streaming-stability] Every display input the navbar
-/// principal titleView renders, snapshotted as an Equatable key. While this is
-/// unchanged (the entire streaming case), SwiftUI proves the principal toolbar
-/// item unchanged and does NOT re-push the navigation bar's item set — which
-/// was what kept rebuilding the OPEN "..." UIMenu each token even after
-/// 59b31441 equatable-guarded the trailing menu itself: the guard covered the
-/// trailing subtree, but the un-guarded principal item invalidated the whole
-/// bar every tick, and UIKit refreshes the presented menu when bar items are
-/// re-set (items shifting under the user's finger → mis-taps).
-private struct NavTitleKey: Equatable {
-    let sessionTitle: String?
-    let canEditTitle: Bool
-    let soulName: String
-    let modelName: String
-    let isGroupBound: Bool
-    /// [T-codex-fast-mode] Circular ⚡ badge before the model name while
-    /// Fast Mode is enabled on a Codex OAuth model.
-    let showFastBolt: Bool
-    let resolvedText: String?
-    let hasBinding: Bool
-    let hasProviders: Bool
-    let showThinkingBadge: Bool
-    let thinkingLevelName: String
-    let fallbackTrigger: Int
-    /// The fallback-pulse @State lives on AIChatView but is RENDERED inside
-    /// the gated titleView — each discrete set (6 over ~1.75s) must pierce
-    /// the gate or the red pulse freezes at its first frame.
-    let fallbackPulse: Double
-    /// [T-ios-navtitle-blur-stuck-after-unlock] Face ID lock state — the
-    /// title's `.blur(radius: titleIsVisuallyLocked ? 8 : 0)` renders inside
-    /// the gated toolbar content, so the unlock transition must pierce the
-    /// gate too. Without this field the chat body unblurred on unlock while
-    /// the navbar title stayed frozen at blur 8 (user report 2026-07-24).
-    let titleLocked: Bool
-    /// [T-ios-navtitle-typing-dots-stale] Typing-dots visibility — the
-    /// HeaderTypingDots row renders inside the gated titleView, so its
-    /// visibility must pierce the gate too. Without this field the dots
-    /// never mounted while staying in the dialog: the key stayed equal
-    /// when a turn started, so the toolbar never rebuilt (user report
-    /// 2026-11-21 — dots only appeared after leaving and coming back).
-    /// A plain Bool: flips only on typing-state transitions, never on
-    /// streaming ticks, so the gate still holds while a stream runs.
-    let typingDotsVisible: Bool
-}
-
-/// [T-ios-navbar-toolbar-host] Combined display key for the WHOLE toolbar:
-/// the principal title's inputs plus the trailing menu's eight displayed
-/// values. While this is unchanged, ChatToolbarHost.body — and therefore the
-/// ToolbarContent builder — never re-runs.
-private struct ChatToolbarKey: Equatable {
-    let navTitle: NavTitleKey
-    let messagesEmpty: Bool
-    let hasSession: Bool
-    let memoryEnabled: Bool
-}
-
-/// [T-ios-navbar-toolbar-host] Zero-footprint host that owns the navigation
-/// toolbar. Attached via .background on the chat content, so it sits inside
-/// the NavigationStack destination (toolbar registers from any descendant),
-/// occupies no layout, and — being Equatable on the toolbar's displayed
-/// inputs — its body (the ToolbarContent builder) only re-runs when something
-/// the toolbar actually shows changes. Streaming ticks leave the key equal,
-/// the builder never re-runs, the bridge gets no new ToolbarContent to push,
-/// and the OPEN native SwiftUI Menu stays untouched. Content closures are
-/// recreated by every parent pass (excluded from ==, same pattern as
-/// EquatableByValue/ChatTrailingMenu) so a key change always renders through
-/// the freshest parent state.
-private struct ChatToolbarHost<Title: View, Trailing: View>: View, Equatable {
-    let key: ChatToolbarKey
-    @ViewBuilder let title: () -> Title
-    @ViewBuilder let trailing: () -> Trailing
-
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        let eq = lhs.key == rhs.key
-        #if DEBUG
-        if !eq {
-            // Name the exact field that broke equality so a false-negative
-            // key can be pinned from device logs.
-            var diffs: [String] = []
-            if lhs.key.navTitle != rhs.key.navTitle {
-                let l = lhs.key.navTitle, r = rhs.key.navTitle
-                if l.sessionTitle != r.sessionTitle { diffs.append("sessionTitle") }
-                if l.canEditTitle != r.canEditTitle { diffs.append("canEditTitle") }
-                if l.soulName != r.soulName { diffs.append("soulName") }
-                if l.modelName != r.modelName { diffs.append("modelName") }
-                if l.isGroupBound != r.isGroupBound { diffs.append("isGroupBound") }
-                if l.resolvedText != r.resolvedText { diffs.append("resolvedText") }
-                if l.hasBinding != r.hasBinding { diffs.append("hasBinding") }
-                if l.hasProviders != r.hasProviders { diffs.append("hasProviders") }
-                if l.showThinkingBadge != r.showThinkingBadge { diffs.append("showThinkingBadge") }
-                if l.thinkingLevelName != r.thinkingLevelName { diffs.append("thinkingLevelName") }
-                if l.fallbackTrigger != r.fallbackTrigger { diffs.append("fallbackTrigger") }
-                if l.fallbackPulse != r.fallbackPulse { diffs.append("fallbackPulse") }
-                if l.titleLocked != r.titleLocked { diffs.append("titleLocked") }
-                if l.typingDotsVisible != r.typingDotsVisible { diffs.append("typingDotsVisible") }
-            }
-            if lhs.key.messagesEmpty != rhs.key.messagesEmpty { diffs.append("messagesEmpty") }
-            if lhs.key.hasSession != rhs.key.hasSession { diffs.append("hasSession") }
-            if lhs.key.memoryEnabled != rhs.key.memoryEnabled { diffs.append("memoryEnabled") }
-            NavbarEvalStats.logger.info("[NavbarEval] host == FALSE diffs=[\(diffs.joined(separator: ","))]")
-        }
-        #endif
-        return eq
-    }
-
-    var body: some View {
-        #if DEBUG
-        let _ = {
-            NavbarEvalStats.titleEval += 1
-            NavbarEvalStats.logger.info("[NavbarEval] toolbarHostEval=\(NavbarEvalStats.titleEval) (toolbarPass=\(NavbarEvalStats.toolbarPass))")
-        }()
-        #endif
-        Color.clear
-            .frame(width: 0, height: 0)
-            .allowsHitTesting(false)
-            .toolbar {
-                ToolbarItem(placement: .principal) { title() }
-                ToolbarItem(placement: .topBarTrailing) { trailing() }
-            }
-    }
-}
 
 // MARK: - Move To Session Sheet
 
@@ -6519,6 +5882,10 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
     // [T-composer-nomic 11-10] 语音输入:从输入栏那颗话筒搬进加号抽屉。
     case voiceInput = "voiceInput"
 
+    // [input-bar-typing-dots] 思考强度:原来挂在对话框顶上的 thinking
+    // badge,顶栏拿掉之后搬进加号抽屉,同一张 ThinkingLevelSheetView。
+    case thinking = "thinking"
+
     public var id: String { rawValue }
 
     public var title: String {
@@ -6541,6 +5908,7 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
         case .compactHistory: return "压缩上下文"
         case .clearChat: return "清空当前对话"
         case .voiceInput: return "语音输入"
+        case .thinking: return "思考强度"
         }
     }
 
@@ -6565,6 +5933,7 @@ public enum PlusPanelItemType: String, CaseIterable, Identifiable {
         case .compactHistory: return "arrow.down.right.and.arrow.up.left"
         case .clearChat: return "trash"
         case .voiceInput: return "mic.fill"
+        case .thinking: return "brain"
         }
     }
 }

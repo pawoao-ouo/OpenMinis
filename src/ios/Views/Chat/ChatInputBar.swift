@@ -1349,6 +1349,10 @@ struct PastableTextView: UIViewRepresentable {
     /// happens to overflow.
     @Binding var isAtScrollBottom: Bool
     var placeholder: String
+    /// [input-bar-typing-dots] Hide the placeholder even when the field is
+    /// empty, so the typing dots can sit in the placeholder's slot without
+    /// the two overlapping. OR-ed with the existing empty-text rule.
+    var hidePlaceholder: Bool = false
     var onPasteImage: (UIImage) -> Void
     var onPasteFile: (URL) -> Void
     var onReturnKey: (() -> Void)?
@@ -1454,7 +1458,7 @@ struct PastableTextView: UIViewRepresentable {
             ),
             placeholderLabel.topAnchor.constraint(equalTo: tv.topAnchor),
         ])
-        placeholderLabel.isHidden = !text.isEmpty
+        placeholderLabel.isHidden = !text.isEmpty || hidePlaceholder
 
         return tv
     }
@@ -1614,7 +1618,7 @@ struct PastableTextView: UIViewRepresentable {
 
         // Sync placeholder
         if let label = tv.viewWithTag(999) as? UILabel {
-            label.isHidden = !text.isEmpty
+            label.isHidden = !text.isEmpty || hidePlaceholder
             if label.font != inputFont { label.font = inputFont }
             // Sync placeholder text — soulName changes (SOUL.md edit)
             // flow through as a new `placeholder` value from the parent,

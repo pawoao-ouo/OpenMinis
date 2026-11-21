@@ -522,16 +522,16 @@ private struct BridgedAssistantFooterV3: View {
     @ObservedObject var bridge: CellStateBridgeV2
     @ObservedObject private var fontSettings = FontSettings.shared
     var maxWidth: CGFloat
-    /// [batch28] True when the header owns the typing state for this row
+    /// [batch28] True when the input bar owns the typing state for this row
     /// (it shows the dots instead). Set by configureCell from the same
-    /// predicate the header uses, so the indicator never shows twice.
+    /// predicate the input bar uses, so the indicator never shows twice.
     var suppressTypingIndicator: Bool = false
 
     // showUsage and usageContentVisible are on bridge, toggled by double-tap on block cells.
 
     /// [T-ios-typing-indicator-scope] Single source of truth on `ChatMessage`
     /// — see `shouldShowTypingIndicator` for the per-round semantics.
-    /// [batch28] Suppressed when the header owns the state for this row.
+    /// [batch28] Suppressed when the input bar owns the state for this row.
     private var showsTypingIndicator: Bool {
         bridge.isActiveMessage && message.shouldShowTypingIndicator && !suppressTypingIndicator
     }
@@ -1554,7 +1554,7 @@ extension CollectionViewMessageListV3 {
                         message: message,
                         bridge: bridge,
                         maxWidth: width,
-                        suppressTypingIndicator: Self.headerOwnsTypingState(for: message, in: messages, isProcessing: vm.isProcessing)
+                        suppressTypingIndicator: Self.inputBarOwnsTypingState(for: message, in: messages, isProcessing: vm.isProcessing)
                     )
                     .transaction { $0.disablesAnimations = true }
                     .environmentObject(vm)
@@ -1753,12 +1753,12 @@ extension CollectionViewMessageListV3 {
 
         // MARK: - Bridge Updates
 
-        /// [batch28] The header owns the typing state for this message exactly
+        /// [batch28] The input bar owns the typing state for this message exactly
         /// when it is the last real (non-Q&A) message, an assistant row whose
         /// `shouldShowTypingIndicator` is true, and the agent loop is running.
-        /// Mirrors `HeaderTypingDots` in AIChatView — same predicate, so the
-        /// header dots and the footer indicator never show for the same row.
-        private static func headerOwnsTypingState(for message: ChatMessage, in messages: [ChatMessage], isProcessing: Bool) -> Bool {
+        /// Mirrors `showsInputBarTypingDots` in AIChatView — same predicate, so the
+        /// input-bar dots and the footer indicator never show for the same row.
+        private static func inputBarOwnsTypingState(for message: ChatMessage, in messages: [ChatMessage], isProcessing: Bool) -> Bool {
             guard isProcessing,
                   message.role == .assistant,
                   message.shouldShowTypingIndicator,
@@ -3222,19 +3222,19 @@ extension CollectionViewMessageListV3 {
             }()
             var previousShownMessage: ChatMessage?
             for message in messages {
-                // [batch28] While the header owns the typing state and this
+                // [batch28] While the input bar owns the typing state and this
                 // row is still an empty placeholder, skip the whole row in
-                // the snapshot — the header carries the state instead. The
+                // the snapshot — the input bar carries the state instead. The
                 // model object is untouched; the items reappear when the
                 // first block lands (snapshot rebuild). The time divider is
                 // skipped with it so no lone divider sits at the list end.
-                let headerOwnsPlaceholder = message.role == .assistant
+                let inputBarOwnsPlaceholder = message.role == .assistant
                     && vm.isProcessing && message.blocks.isEmpty
                     && message.id == messages.last(where: { !$0.isQABubble })?.id
                 // [10-20 醒醒] 时间胶囊：跟微信一样，跟上一段隔久了就插一条。
                 // 隔 5 分钟以上才插，12 小时内说「几分钟前 / 几小时前」，
                 // 超过就换成日期 + 时刻。
-                if !headerOwnsPlaceholder,
+                if !inputBarOwnsPlaceholder,
                    CollectionViewMessageListV3.shouldShowTimeDivider(previous: previousShownMessage, current: message) {
                     newItems.append(.timeDivider(message.id))
                 }
@@ -3245,7 +3245,7 @@ extension CollectionViewMessageListV3 {
                         newItems.append(.assistantFooter(message.id))
                     }
                 case .assistant:
-                    if headerOwnsPlaceholder { break }
+                    if inputBarOwnsPlaceholder { break }
                     newItems.append(.assistantHeader(message.id))
                     // Turn summary rows: every maximal run of consecutive
                     // thinking/tool blocks becomes exactly one

@@ -2033,8 +2033,8 @@ struct ThinkingBlockView: View {
 /// one definition, no new animation language.
 struct TypingDots: View {
     /// Dot font size. Default 15 keeps the footer indicator unchanged;
-    /// the header passes 17 so its dots read slightly bigger on their
-    /// own line below the name. Animation constants are untouched.
+    /// the input bar passes 17 so its dots read slightly bigger in the
+    /// placeholder's slot. Animation constants are untouched.
     var fontSize: CGFloat = 15
     @State private var dotOffsets: [Bool] = [false, false, false]
 
@@ -2076,10 +2076,10 @@ struct TypingIndicator: View {
 
     var body: some View {
         // The thinking-level badge that used to trail this indicator was
-        // removed — the nav-bar title (AIChatView.thinkingLevelBadge) is now
-        // the single place that shows and changes the thinking level, so a
-        // duplicate here was redundant. ThinkingLevelSheetView is unchanged;
-        // it's still presented from the nav-bar badge.
+        // removed — the [+] menu's 思考强度 row is now the single place that
+        // shows and changes the thinking level, so a duplicate here was
+        // redundant. ThinkingLevelSheetView is unchanged; it's still
+        // presented from AIChatView, opened from the [+] menu.
         HStack(spacing: 0) {
             Text("\(soulName) is thinking")
             TypingDots()

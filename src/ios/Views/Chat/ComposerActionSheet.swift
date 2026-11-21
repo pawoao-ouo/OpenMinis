@@ -18,6 +18,10 @@ import SwiftUI
 struct ComposerActionSheet: View {
     let memoryEnabled: Bool
     let sessionId: String?
+    /// [input-bar-typing-dots] Current thinking-level display name. Nil when
+    /// there is nothing to adjust (same gate the old nav-bar badge used) —
+    /// the 思考强度 row is hidden then.
+    let thinkingLevelName: String?
     let onItemTap: (PlusPanelItemType) -> Void
     let onSetMemory: (Bool) -> Void
     /// [T-together-capsule-only 11-10] 常驻小胶囊开关。原来挂在「一起听」面板顶栏,
@@ -124,6 +128,13 @@ struct ComposerActionSheet: View {
                           subtitle: String(format: AppLocalized("这一句起，%@会不会把这次对话记下来"), ChatAddressing.assistant()),
                           isOn: memoryEnabled) { onSetMemory($0) }
                 divider
+                // [input-bar-typing-dots] 思考强度:原来顶栏那颗 badge,顶栏
+                // 拿掉之后搬到这儿。当前档位显示在右边,点开同一张
+                // ThinkingLevelSheetView。没档位可调时整行不出现。
+                if let thinkingLevelName {
+                    navRow(AppLocalized("思考强度"), "brain", image: "ThinkingIcon", value: thinkingLevelName) { pick(.thinking) }
+                    divider
+                }
                 // [T-together-capsule-only 11-10] 一起听那套旧前端整块删了,
                 // 只剩聊天里那个小胶囊;开关原本挂面板顶栏,搬到这儿,
                 // 不然关掉之后就没地方再打开。整页在 11-11 重做完,
