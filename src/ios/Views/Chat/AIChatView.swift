@@ -3003,6 +3003,7 @@ struct AIChatView: View {
         HStack(spacing: 12) {
             plusKey
             stickerKey
+            modelPill
             Spacer(minLength: 0)
             sendPauseKey
         }
@@ -3017,13 +3018,18 @@ struct AIChatView: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(active ? ChatColors.primaryText : ChatColors.secondaryText)
+                // [input-bar-liquid-glass] Active key reads in the theme
+                // accent (HTML .cat-sticker-btn.is-active), not primary text.
+                // Only the sticker key ever passes active=true.
+                .foregroundStyle(active ? ChatColors.accent : ChatColors.secondaryText)
                 .frame(width: 34, height: 34)
                 .background(ChatColors.inputIconBg)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
         }
-        .buttonStyle(.plain)
+        // [input-bar-liquid-glass] Press scale on the round keys (HTML
+        // .tool-icon-btn:active), reusing the send key's press style.
+        .buttonStyle(MorphPressStyle())
     }
 
     /// 图片版圆键:和 composerRoundKey 同一套外壳(34pt 圆、主题底、描边),
@@ -3039,7 +3045,8 @@ struct AIChatView: View {
                 .clipShape(Circle())
                 .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
         }
-        .buttonStyle(.plain)
+        // [input-bar-liquid-glass] Same press scale as the symbol keys.
+        .buttonStyle(MorphPressStyle())
     }
 
     /// 加号:开小抽屉卡片(照片/文件/表情包/语音输入/记忆/技能/连接器…)。
@@ -3071,6 +3078,56 @@ struct AIChatView: View {
     private func toggleStickerTray() {
         if showStickerPanel { closeComposerTray(focusKeyboard: true) }
         else { openComposerTray() }
+    }
+
+    /// [input-bar-liquid-glass] 当前生效的模型名:会话绑定的入口优先,
+    /// 否则回落到已选模型。入口解析带缓存(键含配置版本号),模型一换
+    /// 缓存即失效;selectedModel 是 @Published,换模型会重绘这里。
+    private var currentModelName: String {
+        vm.resolveCurrentEntry()?.model.displayName ?? vm.selectedModel.displayName
+    }
+
+    /// [input-bar-liquid-glass] 模型胶囊:当前模型名 + 思考档位标签,
+    /// 复刻 HTML .model-pill-btn。名字点开模型选择,档位标签点开思考强度 —
+    /// 同一张表,和加号抽屉里那两项开的是同一个 sheet
+    /// (PlusPanelItemType.sparkles / .thinking)。外壳复用圆键那套
+    /// (34 高、主题底、0.5 描边);名字超长就截断,不撑宽整条栏。
+    private var modelPill: some View {
+        HStack(spacing: 6) {
+            Button {
+                showModelPicker = true
+            } label: {
+                Text(currentModelName)
+                    .font(ChatFont.font(12.5, weight: .medium))
+                    .foregroundStyle(ChatColors.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(AppLocalized("切换模型")))
+            if let level = thinkingLevelDisplayName {
+                Button {
+                    showThinkingLevelSheet = true
+                } label: {
+                    Text(level)
+                        .font(ChatFont.font(10.5, weight: .semibold))
+                        .foregroundStyle(ChatColors.secondaryText)
+                        .padding(.horizontal, 6.5)
+                        .padding(.vertical, 1.5)
+                        .background(ChatColors.inputIconBg)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(AppLocalized("思考强度")))
+            }
+        }
+        .padding(.leading, 11)
+        .padding(.trailing, 10)
+        .frame(height: 34)
+        .frame(maxWidth: 192)
+        .background(ChatColors.inputIconBg)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
     }
 
     /// 发送 / 暂停:同一颗键,按状态换字形,不占两个位置(她要的「一颗键切换」)。
@@ -3166,6 +3223,12 @@ struct AIChatView: View {
             }
             .frame(width: 34, height: 34)
             .contentShape(Circle())
+            // [input-bar-liquid-glass] Wave ⇄ send morph timing from the
+            // HTML (0.38s spring): glyphs stay mounted (see
+            // [T-key-no-detach]), only opacity crossfades — the spring makes
+            // the swap read as a morph instead of a blink. One combined key
+            // covers all four states (arrow / pause / close / idle).
+            .animation(.spring(response: 0.38, dampingFraction: 0.8), value: "\(editing)-\(generating)-\(hasText)-\(canEnqueue)")
         }
         .buttonStyle(MorphPressStyle())
         .sensoryFeedback(.impact, trigger: voiceSendTapCount)
@@ -3456,16 +3519,17 @@ struct AIChatView: View {
                 field.fixedSize(horizontal: false, vertical: true)
             }
         }
-        // [input-bar-typing-dots] Three dots in the placeholder's slot while
-        // the AI types and the field is empty. An overlay, not a layout
-        // sibling: it never moves the text or the keys, and it never eats
-        // taps (allowsHitTesting false — the tap-to-focus catcher underneath
-        // keeps working). Same 17pt TypingDots the header used, flush at the
+        // [input-bar-liquid-glass] Soft breathing particles in the
+        // placeholder's slot while the AI types and the field is empty —
+        // three gradient beads + trail (BreathBeads), replicating the HTML
+        // design. An overlay, not a layout sibling: it never moves the text
+        // or the keys, and it never eats taps (allowsHitTesting false — the
+        // tap-to-focus catcher underneath keeps working). Flush at the
         // field's top-leading corner — exactly where the placeholder sits
         // (textContainerInset and lineFragmentPadding are both zero).
         .overlay(alignment: .topLeading) {
             if showsInputBarTypingDots {
-                TypingDots(fontSize: 17)
+                BreathBeads()
                     .allowsHitTesting(false)
             }
         }
@@ -3585,6 +3649,15 @@ struct AIChatView: View {
                     fallbackPulseShape
                         .stroke(ChatColors.destructive.opacity(0.35 * fallbackPulseOpacity), lineWidth: 2)
                         .allowsHitTesting(false)
+                }
+                // [input-bar-liquid-glass] Breathing sheen + ring while the
+                // AI waits (same capsule shape as the fallback ring, so the
+                // two never fight over radii). Different layer, different
+                // color role — they can show together.
+                .overlay {
+                    if showsInputBarTypingDots {
+                        BreathingGlowOverlay(shape: fallbackPulseShape)
+                    }
                 }
                 .onChange(of: vm.fallbackTrigger) { _ in
                     runFallbackPulse()
@@ -4752,6 +4825,64 @@ private struct MorphPressStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.9 : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
+/// [input-bar-liquid-glass] Soft breathing sheen + ring for the AI-waiting
+/// state, replicating the HTML cardBreathingGlow / silkSheenSweep:
+/// a silk sheen sweeping the card (2.8s, transparent at both ends so the
+/// loop restart is invisible) + a breathing ring and soft shadow
+/// (accent 0.16→0.34, shadow 0.20→0.34, 2.8s cycle).
+///
+/// Soft and organic, not neon: low alphas, slow cycle, tint from
+/// MinisThemeShape.thinkingAccent (theme accent role), never a hardcoded
+/// rose. Mounted on the bar's own capsule (same shape as the fallback
+/// ring) so the sticker-tray seam radii are untouched.
+private struct BreathingGlowOverlay: View {
+    let shape: AnyShape
+    @State private var phase = false
+    @State private var sheenPhase: CGFloat = 0
+    @State private var appeared = false
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                // Breathing ring + soft shadow around the card edge.
+                shape
+                    .stroke(
+                        MinisThemeShape.thinkingAccent.opacity(phase ? 0.34 : 0.16),
+                        lineWidth: phase ? 1.2 : 0.6
+                    )
+                    .shadow(
+                        color: MinisThemeShape.thinkingAccent.opacity(phase ? 0.34 : 0.20),
+                        radius: phase ? 18 : 14,
+                        x: 0,
+                        y: phase ? 18 : 14
+                    )
+                // Silk sheen: a 240%-wide band sweeping left across the card.
+                LinearGradient(
+                    gradient: Gradient(stops: [
+                        .init(color: .clear, location: 0.15),
+                        .init(color: MinisThemeShape.thinkingAccent.opacity(0.08), location: 0.42),
+                        .init(color: Color.white.opacity(0.42), location: 0.5),
+                        .init(color: MinisThemeShape.thinkingAccent.opacity(0.07), location: 0.58),
+                        .init(color: .clear, location: 0.85),
+                    ]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: geo.size.width * 2.4, height: geo.size.height)
+                .offset(x: geo.size.width * (1.3 - 2.6 * sheenPhase))
+                .clipShape(shape)
+            }
+        }
+        .opacity(appeared ? 1 : 0)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.5)) { appeared = true }
+            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { phase = true }
+            withAnimation(.linear(duration: 2.8).repeatForever(autoreverses: false)) { sheenPhase = 1 }
+        }
+        .allowsHitTesting(false)
     }
 }
 
