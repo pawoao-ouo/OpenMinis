@@ -3295,6 +3295,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     // Stop-loses-content fix.
                     if let last = self.messages.last(where: { $0.role == .assistant }) {
                         last.error = displayDesc
+                        // [stuck-awaiting-flag] Same clearing the runAgentLoop tail uses.
+                        last.isAwaitingModelResponse = false
                         last.blocks.removeAll { $0.kind == .text && $0.content.isEmpty }
                         // Cancel stale tool blocks left in streaming/running state
                         for block in last.blocks {
@@ -5834,6 +5836,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             guard let candidateIdx = messages.lastIndex(where: { $0.role == .assistant }) else { return }
             let last = messages[candidateIdx]
 
+            // [stuck-awaiting-flag] The turn is over — the typing indicator must
+            // not survive on the kept candidate. Same assignment the runAgentLoop
+            // tail uses. Harmless when the candidate is removed below (Case 0 /
+            // branchC): clearing a flag on a discarded object changes nothing.
+            last.isAwaitingModelResponse = false
+
             // Case 1: Cancel during tool execution — the tool loop already committed
             // blocks and appended tool_result to agentHistory.
             let lastHistoryIsToolResult = agentHistory.last?.role == .user
@@ -6274,6 +6282,17 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // before touching `messages[msgIdx]`; if the message is gone we
         // bail out cleanly instead of crashing with Index out of range.
         var runMsgId: UUID = msgIdx < messages.count ? messages[msgIdx].id : UUID()
+        // [stuck-awaiting-flag] A throw anywhere below skips the clearing tail
+        // (messages[msgIdx].isAwaitingModelResponse = false), leaving the dead
+        // message's typing indicator on forever. Clear on every exit, using the
+        // same assignment the tail uses; msgIdx is read at exit time, so the
+        // in-loop-compact / queued-prompt retargets are honoured. Harmless on
+        // the normal path — the tail already cleared it.
+        defer {
+            if msgIdx >= 0, msgIdx < messages.count {
+                messages[msgIdx].isAwaitingModelResponse = false
+            }
+        }
         /// Track how many blocks were already committed to agentHistory
         /// so subsequent iterations only add new blocks.
         var committedBlockCount = committedBlocks ?? 0
