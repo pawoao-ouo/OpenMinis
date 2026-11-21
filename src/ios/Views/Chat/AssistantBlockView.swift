@@ -2079,6 +2079,10 @@ struct TypingDots: View {
 /// 3.8s (each repeat-forever leg lasts `duration`).
 struct BreathBeads: View {
     @State private var phase = false
+    /// Reduce Motion: no looping animation — the beads show statically at
+    /// full values (HTML: animation: none under prefers-reduced-motion).
+    /// Same @Environment key the rest of the app uses (PressableStyle).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Bead diameters from the HTML (.breath-bead): 6.5 / 7.5 / 5.5.
     private let beadSizes: [CGFloat] = [6.5, 7.5, 5.5]
 
@@ -2106,7 +2110,7 @@ struct BreathBeads: View {
                         radius: 6
                     )
                     .animation(
-                        .easeInOut(duration: 0.95)
+                        reduceMotion ? nil : .easeInOut(duration: 0.95)
                             .repeatForever(autoreverses: true)
                             .delay(Double(i) * 0.24),
                         value: phase
@@ -2128,7 +2132,7 @@ struct BreathBeads: View {
             .scaleEffect(x: phase ? 1.15 : 0.6, anchor: .leading)
             .opacity(phase ? 0.72 : 0.25)
             .animation(
-                .easeInOut(duration: 0.95).repeatForever(autoreverses: true),
+                reduceMotion ? nil : .easeInOut(duration: 0.95).repeatForever(autoreverses: true),
                 value: phase
             )
             .padding(.leading, 2)

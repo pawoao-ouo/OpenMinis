@@ -439,6 +439,12 @@ struct AIChatView: View {
     @State private var topSafeAreaInset: CGFloat = 59
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    /// [input-bar-liquid-glass] Reduce Motion: when the system setting is on,
+    /// the breathing beads/glow show statically with no looping animation
+    /// (mirrors the HTML's prefers-reduced-motion block) and no mount/unmount
+    /// transition — same @Environment key the rest of the app uses
+    /// (PressableStyle, TogetherMiniBar).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // MARK: - [T-ipad-composer-resize] Draggable composer height (iPad only)
 
@@ -3535,11 +3541,14 @@ struct AIChatView: View {
                     // (.ai-breath-visual: opacity 0.34s, transform 0.38s):
                     // without a transition the beads vanish in one frame
                     // when the predicate flips false. Scale 0.92 matches
-                    // the HTML's resting transform.
-                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    // the HTML's resting transform. Reduce Motion: no
+                    // transition at all (HTML: transition: none).
+                    .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.92)))
             }
         }
-        .animation(.easeInOut(duration: 0.34), value: showsInputBarTypingDots)
+        // Reduce Motion: no mount/unmount animation either (HTML:
+        // transition: none) — the beads appear/disappear instantly.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.34), value: showsInputBarTypingDots)
         // [T-composer-upstream 11-10] 内边距照上游:左右 16、上 topPadding、
         // 下 10。单行胶囊时代那套 4/4 是给外层 6pt 让位用的,两行骨架下
         // 那颗外层 padding 已经没了,再留 4 文字会贴着栏边。
@@ -3669,11 +3678,14 @@ struct AIChatView: View {
                             // transition the glow vanishes in one frame
                             // when the predicate flips false. (Fade-in
                             // already exists inside the overlay via
-                            // `appeared`, 0.5s.)
-                            .transition(.opacity)
+                            // `appeared`, 0.5s.) Reduce Motion: no
+                            // transition (HTML: transition: none).
+                            .transition(reduceMotion ? .identity : .opacity)
                     }
                 }
-                .animation(.easeInOut(duration: 0.5), value: showsInputBarTypingDots)
+                // Reduce Motion: no mount/unmount animation either (HTML:
+                // transition: none) — the glow appears/disappears instantly.
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: showsInputBarTypingDots)
                 .onChange(of: vm.fallbackTrigger) { _ in
                     runFallbackPulse()
                 }
@@ -4853,49 +4865,53 @@ private struct MorphPressStyle: ButtonStyle {
 /// MinisThemeShape.thinkingAccent (theme accent role), never a hardcoded
 /// rose. Mounted on the bar's own capsule (same shape as the fallback
 /// ring) so the sticker-tray seam radii are untouched.
+/// [input-bar-liquid-glass] Breathing glow while the AI waits — opacity
+/// ONLY. Mirrors the HTML's sheenBreathe (opacity 0.55→1 over 2.8s): the
+/// layer never moves and never re-blurs, so it costs one opacity property
+/// per frame instead of a shadow re-render on top of 36px glass. The ring
+/// and the sheen band are static; only the whole layer's opacity breathes.
+/// No shadow (the HTML's ::after has none), no offset sweep.
+/// Reduce Motion: no loop — the layer shows statically at full opacity.
 private struct BreathingGlowOverlay: View {
     let shape: AnyShape
-    @State private var phase = false
-    @State private var sheenPhase: CGFloat = 0
+    @State private var glowOpacity = false
     @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                // Breathing ring + soft shadow around the card edge.
-                shape
-                    .stroke(
-                        MinisThemeShape.thinkingAccent.opacity(phase ? 0.34 : 0.16),
-                        lineWidth: phase ? 1.2 : 0.6
-                    )
-                    .shadow(
-                        color: MinisThemeShape.thinkingAccent.opacity(phase ? 0.34 : 0.20),
-                        radius: phase ? 18 : 14,
-                        x: 0,
-                        y: phase ? 18 : 14
-                    )
-                // Silk sheen: a 240%-wide band sweeping left across the card.
-                LinearGradient(
-                    gradient: Gradient(stops: [
-                        .init(color: .clear, location: 0.15),
-                        .init(color: MinisThemeShape.thinkingAccent.opacity(0.08), location: 0.42),
-                        .init(color: Color.white.opacity(0.42), location: 0.5),
-                        .init(color: MinisThemeShape.thinkingAccent.opacity(0.07), location: 0.58),
-                        .init(color: .clear, location: 0.85),
-                    ]),
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(width: geo.size.width * 2.4, height: geo.size.height)
-                .offset(x: geo.size.width * (1.3 - 2.6 * sheenPhase))
-                .clipShape(shape)
-            }
+        ZStack {
+            // Static ring at rest values — no width/alpha animation.
+            shape
+                .stroke(MinisThemeShape.thinkingAccent.opacity(0.16), lineWidth: 0.6)
+            // Static sheen band: same diagonal gradient as the HTML
+            // ::after, full width, clipped to the capsule. No sweep.
+            LinearGradient(
+                gradient: Gradient(stops: [
+                    .init(color: .clear, location: 0.15),
+                    .init(color: MinisThemeShape.thinkingAccent.opacity(0.08), location: 0.42),
+                    .init(color: Color.white.opacity(0.42), location: 0.5),
+                    .init(color: MinisThemeShape.thinkingAccent.opacity(0.07), location: 0.58),
+                    .init(color: .clear, location: 0.85),
+                ]),
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .clipShape(shape)
         }
-        .opacity(appeared ? 1 : 0)
+        .opacity(appeared ? (glowOpacity ? 1.0 : 0.55) : 0)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.5)) { appeared = true }
-            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { phase = true }
-            withAnimation(.linear(duration: 2.8).repeatForever(autoreverses: false)) { sheenPhase = 1 }
+            if reduceMotion {
+                // Static at full opacity, no animation at all (HTML:
+                // animation: none + transition: none under
+                // prefers-reduced-motion).
+                appeared = true
+                glowOpacity = true
+            } else {
+                withAnimation(.easeInOut(duration: 0.5)) { appeared = true }
+                // Per leg 1.4s → full 0.55→1→0.55 cycle is 2.8s, matching
+                // the HTML's sheenBreathe.
+                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { glowOpacity = true }
+            }
         }
         .allowsHitTesting(false)
     }
