@@ -602,7 +602,8 @@ final class GeminiProvider: LLMProvider {
         let input = usage["promptTokenCount"] as? Int ?? 0
         let output = usage["candidatesTokenCount"] as? Int ?? 0
         return LLMUsage(inputTokens: input, outputTokens: output,
-                        cacheCreationInputTokens: nil, cacheReadInputTokens: nil)
+                        cacheCreationInputTokens: nil, cacheReadInputTokens: nil,
+                        reasoningTokens: usage["thoughtsTokenCount"] as? Int)
     }
 
     /// Parse a single SSE chunk from streaming response into events.

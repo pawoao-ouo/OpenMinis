@@ -310,6 +310,7 @@ extension AIChatViewModel {
         // this a reopened session would double-count on each reload.
         sessionInputTokens = 0
         sessionOutputTokens = 0
+        sessionThinkingTokens = 0
         sessionCacheReadTokens = 0
         sessionCacheWriteTokens = 0
         guard !rawMessages.isEmpty else {
@@ -864,6 +865,7 @@ extension AIChatViewModel {
             if let u = raw.tokenUsage {
                 sessionInputTokens += u.inputTokens
                 sessionOutputTokens += u.outputTokens
+                sessionThinkingTokens += u.thinkingTokens
                 sessionCacheReadTokens += u.cacheReadTokens
                 sessionCacheWriteTokens += u.cacheCreationTokens
             }
@@ -1679,7 +1681,7 @@ extension AIChatViewModel {
             StoredTokenUsage(
                 inputTokens: $0.inputTokens, outputTokens: $0.outputTokens,
                 cacheCreationTokens: $0.cacheCreationTokens, cacheReadTokens: $0.cacheReadTokens,
-                latestContextTokens: $0.latestContextTokens
+                latestContextTokens: $0.latestContextTokens, thinkingTokens: $0.thinkingTokens
             )
         }
 

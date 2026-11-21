@@ -236,6 +236,10 @@ struct TokenUsage {
     var outputTokens: Int = 0
     var cacheCreationTokens: Int = 0
     var cacheReadTokens: Int = 0
+    /// Reasoning/thinking tokens as reported by the provider (a subset of
+    /// outputTokens, not additional to it). 0 when the provider does not
+    /// report them separately.
+    var thinkingTokens: Int = 0
     /// Context size of the latest API call (input + cache_read + cache_creation).
     var latestContextTokens: Int = 0
 
@@ -249,6 +253,9 @@ struct TokenUsage {
         //   • Agent multi-turn (multiple API calls) → each call's input grows, max is correct
         inputTokens = max(inputTokens, u.inputTokens)
         outputTokens = max(outputTokens, u.outputTokens)
+        // Reasoning tokens are cumulative per chunk exactly like output, so
+        // the same max() rule applies. nil = provider does not report them.
+        if let r = u.reasoningTokens { thinkingTokens = max(thinkingTokens, r) }
         // [batch4 / W2C-02] "Non-nil only" semantics: providers may send a
         // partial trailing usage event (Anthropic's message_delta carries only
         // output_tokens). The old code wrote `?? 0` unconditionally, so that

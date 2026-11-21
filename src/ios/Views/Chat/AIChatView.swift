@@ -5688,6 +5688,12 @@ private struct TokenUsageSheet: View {
                             StatRow(label: "Level", value: thinkingInfo.level, icon: "slider.horizontal.3")
                         }
                         StatRow(label: "Supported", value: thinkingInfo.supported ? "Yes" : "No", icon: "checkmark.circle")
+                        // [Phase 0] Thinking tokens, session total — a subset
+                        // of Output (completion_tokens already includes
+                        // reasoning), shown on its own row so the invisible
+                        // spend is visible. 0 when the provider does not
+                        // report reasoning separately (Anthropic).
+                        StatRow(label: "Thinking Tokens", value: formatted(s.thinking), icon: "brain")
                     }
                 }
 

@@ -1006,9 +1006,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     var sessionInputTokens: Int = 0
     /// Cumulative output tokens across all API calls in this session.
     var sessionOutputTokens: Int = 0
+    /// Cumulative reasoning/thinking tokens across all API calls in this
+    /// session (a subset of sessionOutputTokens, shown separately).
+    var sessionThinkingTokens: Int = 0
 
     /// Session-level token totals.
-    var sessionTokenStats: (input: Int, output: Int, cacheRead: Int, cacheWrite: Int, context: Int, loopCount: Int) {
+    var sessionTokenStats: (input: Int, output: Int, cacheRead: Int, cacheWrite: Int, context: Int, loopCount: Int, thinking: Int) {
         var context = 0
         var toolCalls = 0
         for msg in messages where msg.role == .assistant {
@@ -1023,7 +1026,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             }
         }
         let assistantCount = messages.filter({ $0.role == .assistant }).count
-        return (sessionInputTokens, sessionOutputTokens, sessionCacheReadTokens, sessionCacheWriteTokens, context, max(toolCalls, assistantCount))
+        return (sessionInputTokens, sessionOutputTokens, sessionCacheReadTokens, sessionCacheWriteTokens, context, max(toolCalls, assistantCount), sessionThinkingTokens)
     }
 
     /// Context window size of the current model (from models.dev or heuristic).
@@ -7097,6 +7100,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             let iterUsage = streamResult.turnUsage
             sessionInputTokens += iterUsage.inputTokens
             sessionOutputTokens += iterUsage.outputTokens
+            sessionThinkingTokens += iterUsage.thinkingTokens
             sessionCacheReadTokens += iterUsage.cacheReadTokens
             sessionCacheWriteTokens += iterUsage.cacheCreationTokens
             if iterationStreamDuration > 0 && iterUsage.outputTokens > 0 {

@@ -348,6 +348,9 @@ struct StoredTokenUsage: Codable, Hashable {
     var cacheCreationTokens: Int
     var cacheReadTokens: Int
     var latestContextTokens: Int?
+    /// Reasoning/thinking tokens (subset of outputTokens). Default 0 so rows
+    /// written before Phase 0 decode without migration.
+    var thinkingTokens: Int = 0
 }
 
 /// A single message in the conversation (one "turn").
@@ -5566,6 +5569,7 @@ extension RawMessage {
                 outputTokens: usage.outputTokens,
                 cacheCreationTokens: usage.cacheCreationTokens,
                 cacheReadTokens: usage.cacheReadTokens,
+                thinkingTokens: usage.thinkingTokens,
                 latestContextTokens: usage.latestContextTokens ?? 0
             )
         }

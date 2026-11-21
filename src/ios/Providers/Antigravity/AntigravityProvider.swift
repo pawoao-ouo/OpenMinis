@@ -467,7 +467,8 @@ final class AntigravityProvider: LLMProvider {
         let input = usage["promptTokenCount"] as? Int ?? 0
         let output = usage["candidatesTokenCount"] as? Int ?? 0
         return LLMUsage(inputTokens: input, outputTokens: output,
-                        cacheCreationInputTokens: nil, cacheReadInputTokens: nil)
+                        cacheCreationInputTokens: nil, cacheReadInputTokens: nil,
+                        reasoningTokens: usage["thoughtsTokenCount"] as? Int)
     }
 
     private func parseStreamChunk(_ json: [String: Any]) -> [GeminiStreamEvent] {

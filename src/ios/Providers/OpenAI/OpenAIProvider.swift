@@ -1458,7 +1458,8 @@ final class OpenAIProvider: LLMProvider {
             inputTokens: freshInput,
             outputTokens: usage["completion_tokens"] as? Int ?? 0,
             cacheCreationInputTokens: nil,
-            cacheReadInputTokens: cacheRead
+            cacheReadInputTokens: cacheRead,
+            reasoningTokens: (usage["output_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int
         )
     }
 
@@ -1472,7 +1473,8 @@ final class OpenAIProvider: LLMProvider {
             inputTokens: freshInput,
             outputTokens: usage["output_tokens"] as? Int ?? 0,
             cacheCreationInputTokens: nil,
-            cacheReadInputTokens: cacheRead
+            cacheReadInputTokens: cacheRead,
+            reasoningTokens: (usage["output_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int
         )
     }
 
