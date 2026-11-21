@@ -2061,6 +2061,77 @@ struct TypingDots: View {
     }
 }
 
+/// [input-bar-liquid-glass] Soft breathing particles for the input bar's
+/// AI-waiting state, replicating the HTML design (iOS_26_Liquid_Glass):
+/// three gradient beads pulsing in sequence (stagger 0.24s/0.48s,
+/// scale 0.72→1.18, rise 1.5pt, fade 0.34→0.96; middle bead biggest at
+/// 7.5pt) + a thin gradient trail that stretches and fades
+/// (scaleX 0.6→1.15, opacity 0.25→0.72, 1.9s cycle).
+///
+/// Soft and organic, not neon: low alphas, slow 1.9s cycle, tint from
+/// MinisThemeShape.thinkingAccent (theme accent role), never a hardcoded
+/// rose. This is NOT TypingDots — the footer indicator keeps its plain
+/// text-glyph dots; the input bar shows these particles instead.
+struct BreathBeads: View {
+    @State private var phase = false
+    /// Bead diameters from the HTML (.breath-bead): 6.5 / 7.5 / 5.5.
+    private let beadSizes: [CGFloat] = [6.5, 7.5, 5.5]
+
+    var body: some View {
+        HStack(spacing: 7) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            gradient: Gradient(colors: [
+                                Color.white.opacity(0.85),
+                                MinisThemeShape.thinkingAccent,
+                            ]),
+                            center: UnitPoint(x: 0.35, y: 0.35),
+                            startRadius: 0,
+                            endRadius: beadSizes[i] / 2
+                        )
+                    )
+                    .frame(width: beadSizes[i], height: beadSizes[i])
+                    .scaleEffect(phase ? 1.18 : 0.72)
+                    .offset(y: phase ? -1.5 : 0)
+                    .opacity(phase ? 0.96 : 0.34)
+                    .shadow(
+                        color: MinisThemeShape.thinkingAccent.opacity(phase ? 0.58 : 0.18),
+                        radius: 6
+                    )
+                    .animation(
+                        .easeInOut(duration: 1.9)
+                            .repeatForever(autoreverses: true)
+                            .delay(Double(i) * 0.24),
+                        value: phase
+                    )
+            }
+            // Thin gradient trail after the beads (HTML .breath-trail:
+            // 26×2, accent 0.45 → transparent, scaleX 0.6→1.15,
+            // opacity 0.25→0.72, same 1.9s cycle, stretches from the beads).
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    MinisThemeShape.thinkingAccent.opacity(0.45),
+                    MinisThemeShape.thinkingAccent.opacity(0),
+                ]),
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: 26, height: 2)
+            .clipShape(Capsule())
+            .scaleEffect(x: phase ? 1.15 : 0.6, anchor: .leading)
+            .opacity(phase ? 0.72 : 0.25)
+            .animation(
+                .easeInOut(duration: 1.9).repeatForever(autoreverses: true),
+                value: phase
+            )
+            .padding(.leading, 2)
+        }
+        .onAppear { phase = true }
+    }
+}
+
 struct TypingIndicator: View {
     /// [batch9d / W1C-08] 会话绑定人设 id（nil = 草稿态，回退全局当前人设）。
     /// 气泡名按它取——与"回答的人"一致，不再跟着全局切换漂移。
