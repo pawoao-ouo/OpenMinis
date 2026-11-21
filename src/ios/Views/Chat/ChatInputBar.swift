@@ -1787,7 +1787,11 @@ struct PastableTextView: UIViewRepresentable {
                 if parent.isAtScrollBottom != atBottom { parent.isAtScrollBottom = atBottom }
             }
             if let label = textView.viewWithTag(999) as? UILabel {
-                label.isHidden = !textView.text.isEmpty
+                // [input-bar-typing-dots] Same rule as the updateUIView sync
+                // block: hide the placeholder while the dots own the slot,
+                // or deleting the field to empty mid-generation transiently
+                // re-shows the placeholder over the dots.
+                label.isHidden = !textView.text.isEmpty || parent.hidePlaceholder
             }
             // Publish caret position for `@`-mention detection. The selectedRange
             // here is in UTF-16 units, which matches NSString offsets used by the

@@ -480,7 +480,7 @@ struct AIChatView: View {
     static var composerDefaultHeight: CGFloat { PastableUITextView.defaultMaxHeight }
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
 
-    /// Default chat title for sessions without a generated title. Sourced
+    /// Composer placeholder name for sessions without a generated title. Sourced
     /// from SOUL.md (`name`), falls back to "Minis". Refreshed on .soulMdChanged.
     @State private var soulName: String = SoulStore.cachedMetadata.name.isEmpty
         ? "嘟嘟" : SoulStore.cachedMetadata.name
@@ -1528,6 +1528,28 @@ struct AIChatView: View {
         .onChange(of: vm.sessionId) { _ in
             refreshSoulName()
         }
+        // Re-homed from the deleted principal titleView (99a663a9): these
+        // subscriptions belong to the view lifetime, not the title.
+        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
+            refreshSoulName()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .personaDidChange)) { _ in
+            // [S26] A draft has no persisted session yet, so it
+            // follows the current persona until first send — the
+            // persona that answers is the one the UI shows.
+            // A persisted session keeps its own locked persona
+            // (loadSession re-reads it from SQLite), and a draft
+            // mid-generation keeps the persona that started the
+            // turn. Everything persona-bound (system prompt,
+            // memory, skills, tool whitelist) is derived live
+            // from sessionPersonaId at send time, so re-pointing
+            // it is the whole fix — no other draft state is
+            // snapshotted at creation.
+            if vm.sessionId == nil, !vm.isProcessing {
+                vm.sessionPersonaId = PersonaStore.currentID()
+            }
+            refreshSoulName()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .sessionDidUpdate)) { note in
             guard let sid = vm.sessionId,
                   let updatedId = note.object as? String,
@@ -2192,7 +2214,7 @@ struct AIChatView: View {
 
     // MARK: - Session Title Snapshot
 
-    /// [batch9d / W1C-08] 会话显示身份：标题/占位符取"会话绑定人设"的名
+    /// [batch9d / W1C-08] 会话显示身份：占位符取"会话绑定人设"的名
     ///（草稿态回退全局当前人设）。会话切换（vm.sessionId onChange）/
     /// SOUL 变更 / 人设切换 / 首进页面 都会刷新。
     private func refreshSoulName() {
@@ -4002,7 +4024,8 @@ struct AIChatView: View {
     /// inset (status bar + Dynamic Island, ~59pt) and skips the
     /// principal-toolbar title — so any computation off it leaves the
     /// popup overlapping the title row. 260pt covers the worst case
-    /// (iOS 18, 3-line custom titleView).
+    /// (iOS 18, transparent top with only the back button — the old
+    /// 3-line custom titleView is gone, so this is now a safe margin).
     private static let slashPickerTopReserve: CGFloat = 260
     private static let slashPickerBottomMargin: CGFloat = 16
     /// [T-slash-picker-fixed-height] Locked popup height: shows up to
