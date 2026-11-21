@@ -2307,7 +2307,10 @@ struct AIChatView: View {
 
     /// [T-ios-navbar-principal-streaming-stability] Snapshot of everything
     /// titleView displays — must stay in lockstep with titleView's reads
-    /// (see NavTitleKey doc). Cheap to compute per body pass.
+    /// (see NavTitleKey doc). Cheap to compute per body pass. The
+    /// typingDotsVisible field is part of that lockstep: it mirrors the
+    /// HeaderTypingDots visibility condition, so a turn starting or ending
+    /// pierces the gate.
     private var navTitleKey: NavTitleKey {
         #if DEBUG
         NavbarEvalStats.toolbarPass += 1
@@ -2316,6 +2319,14 @@ struct AIChatView: View {
         let resolved = display.resolvedDetail(for: vm.sessionId)
         let sessionTitle: String? = (titlePillSession?.title?.trimmingCharacters(in: .whitespacesAndNewlines))
             .flatMap { $0.isEmpty ? nil : $0 }
+        // [T-ios-navtitle-typing-dots-stale] Same condition HeaderTypingDots
+        // uses: the last real message is an assistant row with
+        // shouldShowTypingIndicator true, and the loop running. A Bool, so
+        // it flips only on typing-state transitions, never per token.
+        let lastReal = vm.messages.last(where: { !$0.isQABubble })
+        let typingDotsVisible = vm.isProcessing
+            && (lastReal?.role == .assistant)
+            && (lastReal?.shouldShowTypingIndicator ?? false)
         return NavTitleKey(
             sessionTitle: sessionTitle,
             canEditTitle: titlePillSession != nil,
@@ -2331,7 +2342,8 @@ struct AIChatView: View {
             thinkingLevelName: vm.currentThinkingLevel.displayName,
             fallbackTrigger: vm.fallbackTrigger,
             fallbackPulse: fallbackPulseOpacity,
-            titleLocked: titleIsVisuallyLocked
+            titleLocked: titleIsVisuallyLocked,
+            typingDotsVisible: typingDotsVisible
         )
     }
 
@@ -5598,6 +5610,15 @@ private struct NavTitleKey: Equatable {
     /// gate too. Without this field the chat body unblurred on unlock while
     /// the navbar title stayed frozen at blur 8 (user report 2026-07-24).
     let titleLocked: Bool
+    /// [T-ios-navtitle-typing-dots-stale] Typing-dots visibility — the
+    /// HeaderTypingDots row renders inside the gated titleView, so its
+    /// visibility must pierce the gate too. Without this field the dots
+    /// never mounted while staying in the dialog: the key stayed equal
+    /// when a turn started, so the toolbar never rebuilt (user report
+    /// 2026-11-21 — dots only appeared after leaving and coming back).
+    /// A plain Bool: flips only on typing-state transitions, never on
+    /// streaming ticks, so the gate still holds while a stream runs.
+    let typingDotsVisible: Bool
 }
 
 /// [T-ios-navbar-toolbar-host] Combined display key for the WHOLE toolbar:
@@ -5649,6 +5670,7 @@ private struct ChatToolbarHost<Title: View, Trailing: View>: View, Equatable {
                 if l.fallbackTrigger != r.fallbackTrigger { diffs.append("fallbackTrigger") }
                 if l.fallbackPulse != r.fallbackPulse { diffs.append("fallbackPulse") }
                 if l.titleLocked != r.titleLocked { diffs.append("titleLocked") }
+                if l.typingDotsVisible != r.typingDotsVisible { diffs.append("typingDotsVisible") }
             }
             if lhs.key.messagesEmpty != rhs.key.messagesEmpty { diffs.append("messagesEmpty") }
             if lhs.key.hasSession != rhs.key.hasSession { diffs.append("hasSession") }
