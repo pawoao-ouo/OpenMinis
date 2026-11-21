@@ -1065,7 +1065,12 @@ struct LLMUsage: Sendable {
     /// Gemini `usageMetadata.thoughtsTokenCount`). nil = not reported —
     /// Anthropic folds thinking into output_tokens and has no separate
     /// field. Always a subset of outputTokens, never added on top of it.
-    let reasoningTokens: Int? = nil
+    /// NOTE: this must stay `var`, not `let`. Swift's synthesized memberwise
+    /// initializer omits `let` properties that carry a default value, so a
+    /// `let` here makes `LLMUsage(..., reasoningTokens:)` an "extra argument"
+    /// at every call site (CI run 44868325776). Nothing mutates it; the value
+    /// is set once at construction, and it still defaults to nil.
+    var reasoningTokens: Int? = nil
 }
 
 // MARK: - Model ID → Display Name
