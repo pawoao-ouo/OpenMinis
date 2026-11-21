@@ -124,6 +124,11 @@ extension AIChatViewModel {
         var reasoningEcho: ReasoningEcho? = nil
         /// Accumulated thinking text for UI display.
         var thinkingText: String = ""
+        /// [Phase 0] Wall-clock time of the first text delta in this stream.
+        /// nil when the stream produced no text (tool-only turn). The speed
+        /// metric is measured from here to stream end — the request + server
+        /// thinking time before the first byte is not generation speed.
+        var firstTextDeltaAt: Date? = nil
         /// True when the stream was cut short by an error (network drop, timeout, etc.).
         /// tool_use entries collected so far may have incomplete inputs (partialJson truncated).
         var isStreamInterrupted: Bool = false
@@ -591,6 +596,11 @@ extension AIChatViewModel {
                     result.assistantText += text
 
                     let now = Date()
+                    // [Phase 0] First byte of generated text — the start of
+                    // the streaming-speed window.
+                    if result.firstTextDeltaAt == nil {
+                        result.firstTextDeltaAt = now
+                    }
                     let elapsed = now.timeIntervalSince(lastTextDeltaFlush)
                     let len = result.assistantText.count
                     let unflushed = len - lastTextDeltaFlushedLength

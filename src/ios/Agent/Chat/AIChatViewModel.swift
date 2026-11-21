@@ -1216,7 +1216,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         return (supported, enabled, level)
     }
 
-    /// Average output tokens per second across this session.
+    /// Average output tokens per second across this session, measured
+    /// streaming-only (first text delta -> stream end per iteration).
+    /// Tool-only turns contribute nothing. 0 until the first streamed text.
     var sessionOutputTokensPerSecond: Double {
         guard sessionStreamDuration > 0 else { return 0 }
         return Double(sessionStreamOutputTokens) / sessionStreamDuration
@@ -7119,16 +7121,22 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             logger.info("📐 Context after API: latestContextTokens=\(turnUsage.latestContextTokens) (in:\(turnUsage.inputTokens) cache_read:\(turnUsage.cacheReadTokens) cache_create:\(turnUsage.cacheCreationTokens))")
 
             // Track session-level token stats
-            let iterationStreamDuration = streamEnd.timeIntervalSince(iterationStreamStart)
             let iterUsage = streamResult.turnUsage
             sessionInputTokens += iterUsage.inputTokens
             sessionOutputTokens += iterUsage.outputTokens
             sessionThinkingTokens += iterUsage.thinkingTokens
             sessionCacheReadTokens += iterUsage.cacheReadTokens
             sessionCacheWriteTokens += iterUsage.cacheCreationTokens
-            if iterationStreamDuration > 0 && iterUsage.outputTokens > 0 {
-                sessionStreamDuration += iterationStreamDuration
-                sessionStreamOutputTokens += iterUsage.outputTokens
+            // [Phase 0] Speed is streaming-only: first text delta -> stream
+            // end. The request + server thinking time before the first byte
+            // is not generation speed, and a tool-only turn (no text delta)
+            // contributes nothing.
+            if let firstDelta = streamResult.firstTextDeltaAt, iterUsage.outputTokens > 0 {
+                let streamingDuration = streamEnd.timeIntervalSince(firstDelta)
+                if streamingDuration > 0 {
+                    sessionStreamDuration += streamingDuration
+                    sessionStreamOutputTokens += iterUsage.outputTokens
+                }
             }
             #if DEBUG
             iterationUsage = streamResult.iterationUsage
