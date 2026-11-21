@@ -3531,8 +3531,15 @@ struct AIChatView: View {
             if showsInputBarTypingDots {
                 BreathBeads()
                     .allowsHitTesting(false)
+                    // [input-bar-liquid-glass] Fade in/out like the HTML
+                    // (.ai-breath-visual: opacity 0.34s, transform 0.38s):
+                    // without a transition the beads vanish in one frame
+                    // when the predicate flips false. Scale 0.92 matches
+                    // the HTML's resting transform.
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
         }
+        .animation(.easeInOut(duration: 0.34), value: showsInputBarTypingDots)
         // [T-composer-upstream 11-10] 内边距照上游:左右 16、上 topPadding、
         // 下 10。单行胶囊时代那套 4/4 是给外层 6pt 让位用的,两行骨架下
         // 那颗外层 padding 已经没了,再留 4 文字会贴着栏边。
@@ -3657,8 +3664,16 @@ struct AIChatView: View {
                 .overlay {
                     if showsInputBarTypingDots {
                         BreathingGlowOverlay(shape: fallbackPulseShape)
+                            // [input-bar-liquid-glass] Fade out like the
+                            // HTML card glow (opacity 0.5s): without a
+                            // transition the glow vanishes in one frame
+                            // when the predicate flips false. (Fade-in
+                            // already exists inside the overlay via
+                            // `appeared`, 0.5s.)
+                            .transition(.opacity)
                     }
                 }
+                .animation(.easeInOut(duration: 0.5), value: showsInputBarTypingDots)
                 .onChange(of: vm.fallbackTrigger) { _ in
                     runFallbackPulse()
                 }

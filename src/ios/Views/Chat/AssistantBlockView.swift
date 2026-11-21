@@ -2072,6 +2072,11 @@ struct TypingDots: View {
 /// MinisThemeShape.thinkingAccent (theme accent role), never a hardcoded
 /// rose. This is NOT TypingDots — the footer indicator keeps its plain
 /// text-glyph dots; the input bar shows these particles instead.
+///
+/// Durations below are per leg: with autoreverses the full rest→peak→rest
+/// cycle is 2 × 0.95s = 1.9s, matching the HTML's beadBreathe/trailBreathe
+/// cycle. Do not "fix" 0.95 back to 1.9 — that would stretch the cycle to
+/// 3.8s (each repeat-forever leg lasts `duration`).
 struct BreathBeads: View {
     @State private var phase = false
     /// Bead diameters from the HTML (.breath-bead): 6.5 / 7.5 / 5.5.
@@ -2101,7 +2106,7 @@ struct BreathBeads: View {
                         radius: 6
                     )
                     .animation(
-                        .easeInOut(duration: 1.9)
+                        .easeInOut(duration: 0.95)
                             .repeatForever(autoreverses: true)
                             .delay(Double(i) * 0.24),
                         value: phase
@@ -2123,7 +2128,7 @@ struct BreathBeads: View {
             .scaleEffect(x: phase ? 1.15 : 0.6, anchor: .leading)
             .opacity(phase ? 0.72 : 0.25)
             .animation(
-                .easeInOut(duration: 1.9).repeatForever(autoreverses: true),
+                .easeInOut(duration: 0.95).repeatForever(autoreverses: true),
                 value: phase
             )
             .padding(.leading, 2)
