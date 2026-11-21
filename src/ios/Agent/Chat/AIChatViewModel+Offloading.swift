@@ -392,9 +392,10 @@ extension AIChatViewModel {
     /// Uses a **subtraction method**: starts from the real `lastContextTokens` reported by the API,
     /// and subtracts each offloaded part's token count (computed via BPETokenizer) until the
     /// context drops to the policy's offload target. This avoids unreliable full-history estimation.
-    /// Estimate total agentHistory token count using character-based heuristic.
-    /// Uses ~3.5 chars/token for mixed English/CJK/code content (conservative).
-    /// Also accounts for image data tokens (~85 tokens per 1KB of base64).
+    /// Estimate total agentHistory token count using per-part BPE
+    /// (BPETokenizer over effectiveAgentHistory, image tokens included in
+    /// the per-part count) plus the fixed per-request overhead (system
+    /// prompt + tool definitions, `lastRequestFixedTokens`).
     ///
     /// Estimates against `effectiveAgentHistory()` — the slice that actually
     /// reaches the model — not the raw `agentHistory`. After compact-v2

@@ -392,7 +392,12 @@ final class OpenAIAgentProvider: AgentProvider, ProviderStreamCancellable {
                                 outputTokens: usage["completion_tokens"] as? Int ?? 0,
                                 cacheCreationInputTokens: details?["cache_creation_input_tokens"] as? Int,
                                 cacheReadInputTokens: cacheRead,
-                                reasoningTokens: (usage["output_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int
+                                // Chat completions report reasoning under
+                                // `completion_tokens_details`; some relays answer
+                                // a chat endpoint with the Responses shape, so
+                                // fall back to `output_tokens_details`.
+                                reasoningTokens: (usage["completion_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int
+                                    ?? (usage["output_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int
                             )
                             continuation.yield(.usage(u))
                         }
@@ -852,7 +857,12 @@ final class OpenAIAgentProvider: AgentProvider, ProviderStreamCancellable {
                             let outputItems = (response?["output"] as? [[String: Any]]) ?? []
                             let reasoningItems = outputItems.filter { ($0["type"] as? String) == "reasoning" }
                             let usage = response?["usage"] as? [String: Any]
-                            let reasoningTokens = (usage?["output_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int ?? 0
+                            // Chat shape first, Responses shape as fallback
+                            // (this is a Responses event, so the fallback is
+                            // the one that normally hits — the order only
+                            // matters if a relay returns chat-shaped usage).
+                            let reasoningTokens = (usage?["completion_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int
+                                ?? (usage?["output_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int ?? 0
 
                             // [T-codex-fast-mode] Server-side receipt: the
                             // response object echoes the EFFECTIVE tier —

@@ -1459,7 +1459,11 @@ final class OpenAIProvider: LLMProvider {
             outputTokens: usage["completion_tokens"] as? Int ?? 0,
             cacheCreationInputTokens: nil,
             cacheReadInputTokens: cacheRead,
-            reasoningTokens: (usage["output_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int
+            // Chat completions report reasoning under
+            // `completion_tokens_details`; some relays answer a chat endpoint
+            // with the Responses shape, so fall back to `output_tokens_details`.
+            reasoningTokens: (usage["completion_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int
+                ?? (usage["output_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int
         )
     }
 

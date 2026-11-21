@@ -1060,7 +1060,8 @@ struct LLMUsage: Sendable {
     let cacheCreationInputTokens: Int?
     let cacheReadInputTokens: Int?
     /// Reasoning/thinking tokens, when the provider reports them separately
-    /// (OpenAI-compatible `output_tokens_details.reasoning_tokens`,
+    /// (chat completions `completion_tokens_details.reasoning_tokens`,
+    /// Responses API `output_tokens_details.reasoning_tokens`,
     /// Gemini `usageMetadata.thoughtsTokenCount`). nil = not reported —
     /// Anthropic folds thinking into output_tokens and has no separate
     /// field. Always a subset of outputTokens, never added on top of it.

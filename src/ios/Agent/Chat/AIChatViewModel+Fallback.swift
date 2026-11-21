@@ -257,22 +257,6 @@ extension AIChatViewModel {
         var strippedThinkingEntries: Set<String> = []
         var lastAttemptThinkingLevel: ThinkingLevel = .off
 
-        // [Phase 0] Capture the request ledger for this stream call: the
-        // sections from the prompt the builder just built, the tool
-        // definitions, and the history as sent. The interface total and the
-        // thinking tokens attach in runAgentLoop when the usage event lands.
-        // Every agent-loop stream call funnels through here, so the last
-        // capture always pairs with the turn's usage.
-        do {
-            var ledger = RequestLedger()
-            for section in lastBuiltPromptSections {
-                ledger.sectionTokens[section.kind, default: 0] += section.tokens
-            }
-            ledger.toolsTokens = Self.toolDefinitionsTokens(tools)
-            ledger.historyTokens = Self.countHistoryTokens(messages)
-            lastRequestLedger = ledger
-        }
-
         do {
             let _aeid = activeEntryId; let _agid = activeGroupId
             logger.info("🔀ROUTE start: activeEntryId=\(_aeid ?? "nil") activeGroupId=\(_agid ?? "nil") provider=\(initialProvider.name)")
@@ -302,6 +286,25 @@ extension AIChatViewModel {
                 // parameter; a different member keeps its own thinking.
                 if let thinkingOverride, thinkingOverrideEntryId == currentEntryId { thinkLvl = thinkingOverride }
                 lastAttemptThinkingLevel = thinkLvl
+                // [Phase 0] Capture the request ledger for THIS attempt, just
+                // before the provider call: a fallback advance rebuilds the
+                // system prompt (buildTurnSystemPrompt refreshes
+                // lastBuiltPromptSections), so a single capture at entry would
+                // leave the System section reflecting the FIRST attempt's
+                // model, not the model that answered. The interface total and
+                // the thinking tokens attach in runAgentLoop when the usage
+                // event lands; the last capture always pairs with the turn's
+                // usage. Tools/history are unchanged across attempts, so
+                // re-capturing them is a no-op.
+                do {
+                    var ledger = RequestLedger()
+                    for section in lastBuiltPromptSections {
+                        ledger.sectionTokens[section.kind, default: 0] += section.tokens
+                    }
+                    ledger.toolsTokens = Self.toolDefinitionsTokens(tools)
+                    ledger.historyTokens = Self.countHistoryTokens(messages)
+                    lastRequestLedger = ledger
+                }
                 // [S21] Stash the instance that is about to drive this
                 // attempt — after a group advance this is a fresh
                 // makeAgentProvider instance, NOT the caller's provider
