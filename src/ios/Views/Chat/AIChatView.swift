@@ -2147,6 +2147,12 @@ struct AIChatView: View {
         // composer text is restored here instead (loadSession restores
         // the live-session key). Only fills an empty composer.
         vm.restoreComposerDraft()
+        // [input-bar-liquid-glass] Mount-time: a restored (or surviving)
+        // draft must not hide under the collapsed pill — the pill shows
+        // the empty placeholder while the composer secretly holds text.
+        // Expand when the composer holds text on appear; collapse only
+        // ever comes from the chat-area tap (collapseComposerIfResting).
+        if !vm.inputText.isEmpty { expandComposer() }
         // Snapshot total session count once so the New-Chat onboarding
         // grid only appears for first-time users (no prior sessions).
         // [T-ios-session-coldload-listsessions-block] Use the bare
