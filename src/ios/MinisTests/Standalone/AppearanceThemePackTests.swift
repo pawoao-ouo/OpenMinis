@@ -68,7 +68,10 @@ check("exportThemePack", pack.contains("func exportThemePack"))
 check("studio cache", studio.contains("cachedThemePack"))
 check("user bubble uses pack", chat.contains("MinisThemeShape.userBubble"))
 check("assistant bubble uses pack", think.contains("MinisThemeShape.assistantBubble"))
-check("thinking fill uses pack", think.contains("MinisThemeShape.thinkingFill"))
+// [fix/global-colors] Thinking card fill no longer reads the pack's
+// thinkingFill — a pack rose hex would win over the global accent. It now
+// uses the global accent role at the same 0.06 opacity the pack fallback used.
+check("thinking fill uses global accent", think.contains("ChatColors.accent.opacity(0.06)"))
 check("thinking card image", think.contains("thinkingCardImage()"))
 check("bubble style enum", pack.contains("enum AppearanceBubbleStyle"))
 // [04b-2 §7] Both of these asserted a spelling the code no longer uses, so
