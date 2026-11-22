@@ -7140,7 +7140,10 @@ struct ChatVoiceSettingsSheet: View {
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 4)
-                                    .background(Color.red.opacity(0.85), in: Capsule())
+                                    // [fix/global-colors] Destructive role, not
+                                    // a hardcoded red — matches the sheet's
+                                    // "Fix it" (MinisTheme.accent) pattern.
+                                    .background(ChatColors.destructive.opacity(0.85), in: Capsule())
                             }
                             .buttonStyle(.plain)
                         }
