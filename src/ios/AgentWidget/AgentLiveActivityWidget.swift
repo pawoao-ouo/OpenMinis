@@ -48,7 +48,8 @@ struct LiveActivityPalette {
     var accent: Color { color("accent", lightFallback: .blue) }
     var primaryText: Color { color("primaryText", lightFallback: .primary) }
     var secondaryText: Color { color("secondaryText", lightFallback: .secondary) }
-    var tertiaryText: Color { color("tertiaryText", lightFallback: .tertiary) }
+    /// `Color.tertiary` 不存在（那是 ShapeStyle），用 secondary 淡一档代替。
+    var tertiaryText: Color { color("tertiaryText", lightFallback: .secondary.opacity(0.7)) }
     var success: Color { color("success", lightFallback: .green) }
     /// 胶囊底。快照里没有就退回系统自带的填充，而不是写死的白 15%。
     var chipFill: Color { color("chip", lightFallback: Color.primary.opacity(0.08)) }
