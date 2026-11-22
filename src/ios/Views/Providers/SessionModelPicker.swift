@@ -206,7 +206,7 @@ struct SessionModelPicker: View {
     @ViewBuilder
     private var thinkingSectionView: some View {
         if let current = thinkingCurrent,
-           let available = thinkingAvailable,
+           let available = thinkingAvailable?(),
            let onSet = onSetThinkingLevel,
            !available.isEmpty {
             Section {
