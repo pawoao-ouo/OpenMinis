@@ -274,12 +274,15 @@ private struct CopyableURLCapsule: View {
     var body: some View {
         Text(showCopied ? "Copied!" : url)
             .font(.system(size: fontSettings.scaledApp(12), weight: showCopied ? .semibold : .regular))
-            .foregroundStyle(showCopied ? Color.white : Color(white: 0.35))
+            // [fix/redo-593] Idle pill rides the globals (chip bg +
+            // secondary text); the Copied state (white on success) is
+            // unchanged — same contrast pattern as the action capsule.
+            .foregroundStyle(showCopied ? Color.white : ChatColors.secondaryText)
             .lineLimit(1)
             .truncationMode(.middle)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(showCopied ? ChatColors.success : Color(white: 0.85))
+            .background(showCopied ? ChatColors.success : ChatColors.chipBg)
             .clipShape(Capsule())
             .animation(.easeInOut(duration: 0.2), value: showCopied)
             .onTapGesture {
@@ -425,7 +428,8 @@ struct ToolLiveSheet: View {
             // Top nav bar
             sheetNavBar
 
-            Divider().foregroundStyle(Color(white: 0.2))
+            // [fix/redo-593] Hairline rides the sheet border role.
+            Divider().foregroundStyle(ChatColors.toolBorder)
 
             // Content area — `blockUpdateTick` dependency ensures live refresh
             let _ = blockUpdateTick
@@ -2246,7 +2250,7 @@ private struct ToolPreviewThumbnail: View {
             if !oldText.isEmpty {
                 Text(lastLines(oldText, count: 6).split(separator: "\n", omittingEmptySubsequences: false).map { "- " + $0 }.joined(separator: "\n"))
                     .font(.system(size: fontSettings.scaledMicro(4), design: .monospaced))
-                    .foregroundStyle(Color(red: 1, green: 0.4, blue: 0.4).opacity(0.85))
+                    .foregroundStyle(ChatColors.destructive.opacity(0.85))
                     .lineLimit(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 4)
@@ -2254,7 +2258,7 @@ private struct ToolPreviewThumbnail: View {
             if !newText.isEmpty {
                 Text(lastLines(newText, count: 6).split(separator: "\n", omittingEmptySubsequences: false).map { "+ " + $0 }.joined(separator: "\n"))
                     .font(.system(size: fontSettings.scaledMicro(4), design: .monospaced))
-                    .foregroundStyle(Color(red: 0.4, green: 1, blue: 0.4).opacity(0.85))
+                    .foregroundStyle(ChatColors.success.opacity(0.85))
                     .lineLimit(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 4)
