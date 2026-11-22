@@ -33,9 +33,7 @@ struct WidgetTheme: Equatable {
     private var light: [String: String] = [:]
     private var dark: [String: String] = [:]
 
-    /// 没写快照时的回落:强调色沿用老常量,其余走系统语义色。
-    static let fallbackAccent = "#D4778B"
-
+    /// 没写快照时回落到系统语义色,不硬编一个可能和主题冲突的颜色。
     static let empty = WidgetTheme()
 
     init() {}
@@ -58,8 +56,13 @@ struct WidgetTheme: Equatable {
         return value
     }
 
-    func accentHex(dark isDark: Bool) -> String {
-        hex("accent", dark: isDark) ?? Self.fallbackAccent
+    /// 快照里的强调色;没写快照就是 nil,调用方回落到系统强调色。
+    /// [fix/global-colors] The old fallback here was a hardcoded rose
+    /// ("#D4778B"). The widget target cannot reach AppearanceStudio —
+    /// the snapshot is the only theme bridge — so no snapshot means
+    /// the system accent, same as the text/background fallbacks below.
+    func accentHex(dark isDark: Bool) -> String? {
+        hex("accent", dark: isDark)
     }
 
     /// 快照里的字号档 × 设计基准。默认档是恒等。
@@ -134,9 +137,9 @@ private struct AgentProfileWidgetView: View {
 
     private var isDark: Bool { colorScheme == .dark }
 
-    /// 强调色:快照给了就用,没给就回落到老常量。文字和底色没给就用系统
+    /// 强调色:快照给了就用,没给就回落到系统强调色。文字和底色没给就用系统
     /// 语义色,自动适应明暗。
-    private var accent: Color { Color(hex: entry.theme.accentHex(dark: isDark)) }
+    private var accent: Color { entry.theme.accentHex(dark: isDark).map { Color(hex: $0) } ?? .accentColor }
     private var textPrimary: Color {
         entry.theme.hex("primaryText", dark: isDark).map { Color(hex: $0) } ?? .primary
     }
