@@ -4972,9 +4972,11 @@ private struct MorphPressStyle: ButtonStyle {
 }
 
 /// Soft and organic, not neon: low alphas, slow cycle, tint from
-/// MinisThemeShape.thinkingAccent (theme accent role), never a hardcoded
-/// rose. Mounted on the bar's own capsule (same shape as the fallback
-/// ring) so the sticker-tray seam radii are untouched.
+/// ChatColors.accent (the theme's global accent role), never a hardcoded
+/// rose — and never MinisThemeShape.thinkingAccent, whose per-pack hex
+/// stays pink no matter the global accent. Mounted on the bar's own
+/// capsule (same shape as the fallback ring) so the sticker-tray seam
+/// radii are untouched.
 /// [input-bar-liquid-glass] Breathing glow while the AI waits — opacity
 /// ONLY. Mirrors the HTML's sheenBreathe (opacity 0.55→1 over 2.8s): the
 /// layer never moves and never re-blurs, so it costs one opacity property
@@ -4992,15 +4994,15 @@ private struct BreathingGlowOverlay: View {
         ZStack {
             // Static ring at rest values — no width/alpha animation.
             shape
-                .stroke(MinisThemeShape.thinkingAccent.opacity(0.16), lineWidth: 0.6)
+                .stroke(ChatColors.accent.opacity(0.16), lineWidth: 0.6)
             // Static sheen band: same diagonal gradient as the HTML
             // ::after, full width, clipped to the capsule. No sweep.
             LinearGradient(
                 gradient: Gradient(stops: [
                     .init(color: .clear, location: 0.15),
-                    .init(color: MinisThemeShape.thinkingAccent.opacity(0.08), location: 0.42),
+                    .init(color: ChatColors.accent.opacity(0.08), location: 0.42),
                     .init(color: Color.white.opacity(0.42), location: 0.5),
-                    .init(color: MinisThemeShape.thinkingAccent.opacity(0.07), location: 0.58),
+                    .init(color: ChatColors.accent.opacity(0.07), location: 0.58),
                     .init(color: .clear, location: 0.85),
                 ]),
                 startPoint: .leading,

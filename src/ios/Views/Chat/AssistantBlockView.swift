@@ -2069,8 +2069,10 @@ struct TypingDots: View {
 /// (scaleX 0.6→1.15, opacity 0.25→0.72, 1.9s cycle).
 ///
 /// Soft and organic, not neon: low alphas, slow 1.9s cycle, tint from
-/// MinisThemeShape.thinkingAccent (theme accent role), never a hardcoded
-/// rose. This is NOT TypingDots — the footer indicator keeps its plain
+/// ChatColors.accent (the theme's global accent role), never a hardcoded
+/// rose — and never MinisThemeShape.thinkingAccent, whose per-pack hex
+/// stays pink no matter the global accent. This is NOT TypingDots — the
+/// footer indicator keeps its plain
 /// text-glyph dots; the input bar shows these particles instead.
 ///
 /// Durations below are per leg: with autoreverses the full rest→peak→rest
@@ -2094,7 +2096,7 @@ struct BreathBeads: View {
                         RadialGradient(
                             gradient: Gradient(colors: [
                                 Color.white.opacity(0.85),
-                                MinisThemeShape.thinkingAccent,
+                                ChatColors.accent,
                             ]),
                             center: UnitPoint(x: 0.35, y: 0.35),
                             startRadius: 0,
@@ -2106,7 +2108,7 @@ struct BreathBeads: View {
                     .offset(y: phase ? -1.5 : 0)
                     .opacity(phase ? 0.96 : 0.34)
                     .shadow(
-                        color: MinisThemeShape.thinkingAccent.opacity(phase ? 0.58 : 0.18),
+                        color: ChatColors.accent.opacity(phase ? 0.58 : 0.18),
                         radius: 6
                     )
                     .animation(
@@ -2121,8 +2123,8 @@ struct BreathBeads: View {
             // opacity 0.25→0.72, same 1.9s cycle, stretches from the beads).
             LinearGradient(
                 gradient: Gradient(colors: [
-                    MinisThemeShape.thinkingAccent.opacity(0.45),
-                    MinisThemeShape.thinkingAccent.opacity(0),
+                    ChatColors.accent.opacity(0.45),
+                    ChatColors.accent.opacity(0),
                 ]),
                 startPoint: .leading,
                 endPoint: .trailing
