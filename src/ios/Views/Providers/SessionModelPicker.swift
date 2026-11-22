@@ -247,7 +247,7 @@ struct SessionModelPicker: View {
             } header: {
                 Text("Thinking Intensity")
             } footer: {
-                Text("Thinking is passed to models that support it as a reasoning parameter.")
+                Text(AppLocalized("Thinking is passed to models that support it as a reasoning parameter."))
             }
         }
     }

@@ -102476,6 +102476,23 @@
         }
       }
     },
+    "Thinking is passed to models that support it as a reasoning parameter.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking is passed to models that support it as a reasoning parameter."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考强度会作为推理参数，传给支持它的模型。"
+          }
+        }
+      }
+    },
     "Thinking Process": {
       "extractionState": "manual",
       "localizations": {
