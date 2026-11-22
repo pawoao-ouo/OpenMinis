@@ -3799,6 +3799,13 @@ struct AIChatView: View {
                 .onChange(of: speechManager.state) { state in
                     if state == .recording { expandComposer() }
                 }
+                // [input-bar-liquid-glass] 草稿从非 appear 路径灌回
+                // (intent、压缩、定时提示走 loadSession → restoreComposerDraft)
+                // 时也要展开,只展开不收起;已展开时 expandComposer() 自己
+                // no-op,所以每击键多一次 guard 检查而已。
+                .onChange(of: vm.inputText) { text in
+                    if !text.isEmpty { expandComposer() }
+                }
                 // 收起/展开的高度变化跟键盘动画走,不然胶囊跳一下。
                 .animation(keyboardAnim, value: composerCollapsed)
                 // [T-composer-upstream] 左右 12、离底 8，跟上游一致。原来左右 8
