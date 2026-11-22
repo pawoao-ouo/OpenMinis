@@ -58,7 +58,7 @@ struct WidgetTheme: Equatable {
 
     /// 快照里的强调色;没写快照就是 nil,调用方回落到系统强调色。
     /// [fix/global-colors] The old fallback here was a hardcoded rose
-    /// ("#D4778B"). The widget target cannot reach AppearanceStudio —
+    /// hex. The widget target cannot reach AppearanceStudio —
     /// the snapshot is the only theme bridge — so no snapshot means
     /// the system accent, same as the text/background fallbacks below.
     func accentHex(dark isDark: Bool) -> String? {
