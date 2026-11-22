@@ -2333,43 +2333,40 @@ enum CodeSyntaxHighlighter {
         let keyword, string, comment, number, typeName, functionCall: UIColor
     }
 
-    private static func palette(dark: Bool) -> Palette {
-        if dark {
-            return Palette(
-                keyword: UIColor(red: 0xC6/255, green: 0x78/255, blue: 0xDD/255, alpha: 1),
-                string: UIColor(red: 0x98/255, green: 0xC3/255, blue: 0x79/255, alpha: 1),
-                comment: UIColor(red: 0x7F/255, green: 0x84/255, blue: 0x8E/255, alpha: 1),
-                number: UIColor(red: 0xD1/255, green: 0x9A/255, blue: 0x66/255, alpha: 1),
-                typeName: UIColor(red: 0xE5/255, green: 0xC0/255, blue: 0x7B/255, alpha: 1),
-                functionCall: UIColor(red: 0x61/255, green: 0xAF/255, blue: 0xEF/255, alpha: 1))
-        }
-        return Palette(
-            keyword: UIColor(red: 0xCF/255, green: 0x22/255, blue: 0x2E/255, alpha: 1),
-            string: UIColor(red: 0x0A/255, green: 0x30/255, blue: 0x69/255, alpha: 1),
-            comment: UIColor(red: 0x59/255, green: 0x63/255, blue: 0x6E/255, alpha: 1),
-            number: UIColor(red: 0x05/255, green: 0x50/255, blue: 0xAE/255, alpha: 1),
-            typeName: UIColor(red: 0x95/255, green: 0x38/255, blue: 0x00/255, alpha: 1),
-            functionCall: UIColor(red: 0x82/255, green: 0x50/255, blue: 0xDF/255, alpha: 1))
-    }
-
-    private static func isDarkBackground(_ bg: UIColor) -> Bool {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        guard bg.resolvedColor(with: UITraitCollection.current).getRed(&r, green: &g, blue: &b, alpha: &a) else {
-            return true // code blocks default to the dark aesthetic
-        }
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5
+    /// [code-syntax 11-22] 六个语法色从主题变量取，不再写死。
+    ///
+    /// 以前这里按代码块底色的亮暗二选一，两套值都硬编码在代码里：主题换了
+    /// 底、字不换，浅底配深红深蓝就糊成一片。现在六个色各是一个
+    /// `AppearanceColorRole`，明暗档由主题决定，页级覆盖和主题包也一起生效。
+    ///
+    /// 不再看 `background` 的亮暗：那是「代码块自己的底色深不深」的局部判断，
+    /// 而语法色现在是全局变量，明暗必须跟主题（`AppearanceMode`）一致，
+    /// 否则同一份主题在浅色代码块和深色页面里会出现两套语法色。
+    private static func palette() -> Palette {
+        Palette(
+            keyword: AppearanceStudio.uiColorSnapshot(.codeKeyword, scope: .chat),
+            string: AppearanceStudio.uiColorSnapshot(.codeString, scope: .chat),
+            comment: AppearanceStudio.uiColorSnapshot(.codeComment, scope: .chat),
+            number: AppearanceStudio.uiColorSnapshot(.codeNumber, scope: .chat),
+            typeName: AppearanceStudio.uiColorSnapshot(.codeType, scope: .chat),
+            functionCall: AppearanceStudio.uiColorSnapshot(.codeFunction, scope: .chat))
     }
 
     /// Highlight `code`; falls back to plain (font + plainColor) for unknown
     /// languages, over-long input, or regex failures. Never throws.
-    static func highlight(_ code: String, language: String?, font: UIFont, plainColor: UIColor, background: UIColor) -> NSAttributedString {
+    ///
+    /// [code-syntax 11-22] `background` 不再参与语法色选择（语法色现在是全局
+    /// 变量，明暗跟主题走）。参数留着是因为调用方本来就拿着它，且将来若要按
+    /// 底色自动反色还用它——但现在它是未使用参数，所以写成 `_ background`，
+    /// 免得编译器每次都提醒。
+    static func highlight(_ code: String, language: String?, font: UIFont, plainColor: UIColor, background _: UIColor) -> NSAttributedString {
         let result = NSMutableAttributedString(string: code, attributes: [.font: font, .foregroundColor: plainColor])
         guard code.count <= maxHighlightLength,
               let spec = spec(for: language),
               let re = masterRegex(for: spec, language: (language ?? "").lowercased()) else {
             return result
         }
-        let pal = palette(dark: isDarkBackground(background))
+        let pal = palette()
         let ns = code as NSString
         let full = NSRange(location: 0, length: ns.length)
         let commentFont: UIFont = {
@@ -8551,6 +8548,17 @@ struct SelectableMarkdownView: UIViewRepresentable {
         let currentFontSize = FontSettings.shared.scaledMessage(16.5)
         let fontChanged = context.coordinator.lastFontSize != currentFontSize
 
+        // [theme-vars 11-23] 主题也是刷新条件。
+        //
+        // 下面那个 guard 只认 markdown 和字号：在装扮中心改了颜色，这段
+        // 文字的 markdown 一个字没变，于是早退、不重渲染——代码块的语法色
+        // 和正文的取色全停在旧值，得杀掉聊天页再进才换。
+        //
+        // 用 `colorSnapshot`（加锁的纯快照，nonisolated，后台也能读）当指纹。
+        // 只取 hashValue 而不是拼 description：这段在流式输出时每帧都跑。
+        let themeStamp = AppearanceStudio.colorSnapshot.hashValue
+        let themeChanged = context.coordinator.lastThemeStamp != themeStamp
+
         // [AttachHotPath] updateUIView entry — only log when this textView has
         // image attachments in its renderer's cache (the only scenario that can
         // trigger the streaming + image re-layout problem). Skips noise from
@@ -8602,7 +8610,7 @@ struct SelectableMarkdownView: UIViewRepresentable {
         if _curW > 1 {
             context.coordinator.lastRenderedWidth = _curW
         }
-        guard markdown != context.coordinator.lastMarkdown || fontChanged else {
+        guard markdown != context.coordinator.lastMarkdown || fontChanged || themeChanged else {
             let shouldRecover = textView.window != nil
                 && textView.needsAttachmentRecovery
                 && !textView.hasScheduledRecoveryForCurrentContent
@@ -8669,6 +8677,9 @@ struct SelectableMarkdownView: UIViewRepresentable {
         }
         let oldMarkdown = context.coordinator.lastMarkdown
         context.coordinator.lastMarkdown = markdown
+        // [theme-vars 11-23] 真正走完渲染才记指纹：记早了，万一这次渲染
+        // 被 defer 掉，下次进来会以为主题没变、跳过重画。
+        context.coordinator.lastThemeStamp = themeStamp
 
         if fontChanged {
             context.coordinator.renderer.updateFontSize(currentFontSize)
@@ -8677,6 +8688,14 @@ struct SelectableMarkdownView: UIViewRepresentable {
             // Math images are rendered at a specific font size — clear stale caches.
             context.coordinator.renderer.mathAttachmentCache.removeAll()
             textView.clearAllAttachmentViews()
+        }
+
+        // [theme-vars 11-23] 配色变了：内容没变，但渲染出来的颜色全是旧的。
+        // 清掉内容哈希，否则下面按 hash 命中、直接复用旧的 attributed string。
+        // 语法高亮自己那份缓存不用清——它的键里带了主题指纹（见
+        // `HighlightedCodeView.attributed`），配色一变自然不命中。
+        if themeChanged {
+            context.coordinator.lastRenderedContentHash = nil
         }
 
         // [T-ios-reuse-cachewipe] Identity of what we are about to render.
@@ -9940,6 +9959,9 @@ struct SelectableMarkdownView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var lastMarkdown: String = ""
+        /// [theme-vars 11-23] 上一次渲染时的主题指纹。和 markdown / 字号一起
+        /// 参与刷新判定，改配色后同一段文字也要重画一次。
+        var lastThemeStamp: Int? = nil
         var lastRenderedContentHash: Int? = nil
         /// [T-ios-reuse-cachewipe] Identity of the content this coordinator's
         /// text view is currently showing — `blockId` when the caller renders

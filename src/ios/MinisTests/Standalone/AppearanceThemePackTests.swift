@@ -445,6 +445,28 @@ check("backend retains character-art API", pack.contains("func setCharacterArtIm
 check("backend retains icon setter", studio.contains("func setIcon"))
 check("backend retains icon removal", studio.contains("func removeIcon"))
 
+// [code-syntax 11-22] 代码块的六个语法色曾经写死在 SelectableMarkdownView 里，
+// 主题换底不换字。现在它们是调色盘里的角色，三处都得钉住：
+// 1) 两本色板都给每个语法色一份默认值（缺了就是运行时 808080 灰）；
+// 2) 语法色不参与主色推导，否则摇主题会把代码摇成一片单色；
+// 3) 高亮器不许再出现自己那套硬编码色板，必须走主题快照。
+let markdownView = read("src/ios/Views/Chat/SelectableMarkdownView.swift")
+let scale = read(here.appendingPathComponent("Shared/AppearanceColorScale.swift"))
+check("light book declares all six syntax colours",
+      studio.contains(".codeKeyword: \"893442\", .codeString: \"346F54\", .codeComment: \"737373\"")
+      && studio.contains(".codeNumber: \"32527B\", .codeType: \"7F502F\", .codeFunction: \"664087\""))
+check("dark book declares all six syntax colours",
+      studio.contains(".codeKeyword: \"C678DD\", .codeString: \"98C379\", .codeComment: \"7F848E\"")
+      && studio.contains(".codeNumber: \"D19A66\", .codeType: \"E5C07B\", .codeFunction: \"61AFEF\""))
+check("syntax colours stay off the accent scale",
+      scale.contains("|| self == .codeType || self == .codeFunction"))
+check("highlighter reads the theme, not a local palette",
+      !markdownView.contains("UIColor(red: 0.78, green: 0.47, blue: 0.87")
+      && markdownView.contains("studio.uiColorSnapshot(.codeKeyword")
+      && markdownView.contains("studio.uiColorSnapshot(.codeFunction"))
+check("highlighter no longer picks a palette by background darkness",
+      !markdownView.contains("palette(dark: isDarkBackground(background))"))
+
 if failures == 0 {
     print("\nALL PASS")
     exit(0)

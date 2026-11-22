@@ -795,7 +795,36 @@ final class AgentLiveActivityManager {
         s.isAudioPlaying = audio.isPlaying
         s.isAudioLoaded = audio.isLoaded
         s.audioTitle = audio.title
-        return withPrivacyRedaction(s)
+        return withThemePalette(withPrivacyRedaction(s))
+    }
+
+    /// [theme-vars 11-22] 主题色随每次推送带进活动卡。
+    ///
+    /// 活动卡扩展进程读不到主 App 的主题对象；让它自己读 App Group 会滞后
+    /// 一次刷新，而且改色时活动卡正开着就永远停在旧色上。这里在推送前把
+    /// 明暗两套快照塞进 ContentState，改完色下一次推送就换。
+    ///
+    /// 挂在 `withAudioState` 这个唯一入口上，和隐私脱敏同一个位置，
+    /// 没有哪条活的推送路径能绕过去。
+    private func withThemePalette(_ state: AgentActivityAttributes.ContentState) -> AgentActivityAttributes.ContentState {
+        var s = state
+        let studio = AppearanceStudio.shared
+
+        func palette(_ variant: AppearanceVariant) -> [String: String] {
+            // 只写活动卡真正用到的角色，不塞没人读的键。
+            let roles: [AppearanceColorRole] = [
+                .accent, .primaryText, .secondaryText, .tertiaryText,
+                .success, .chip, .canvas
+            ]
+            var out: [String: String] = [:]
+            for role in roles {
+                out[role.rawValue] = studio.hex(role, scope: .global, variant: variant)
+            }
+            return out
+        }
+        s.themeLight = palette(.light)
+        s.themeDark = palette(.dark)
+        return s
     }
 
     /// [T-ios-live-activity-privacy-mode] Data-layer redaction: strip every
@@ -866,9 +895,12 @@ final class AgentLiveActivityManager {
     @available(iOS 16.2, *)
     private func renewActivity(with state: AgentActivityAttributes.ContentState, isRetry: Bool = false) {
         guard let oldActivity = currentActivity as? Activity<AgentActivityAttributes> else { return }
+        // [theme-vars 11-22] 续命重启也是新建一个 Activity：不走这一遍，
+        // 重启后的卡片会把主题丢掉（音频字段以前就是这么丢的）。
+        let decorated = withAudioState(state)
 
         guard UIApplication.shared.applicationState == .active else {
-            pendingStartState = state
+            pendingStartState = decorated
             if !isRetry {
                 logger.info("[LiveActivity][renew] skip: app not foreground (state=\(UIApplication.shared.applicationState.rawValue)) — keeping old id=\(oldActivity.id), scheduling retry")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -902,7 +934,7 @@ final class AgentLiveActivityManager {
         pendingPushWorkItem = nil
         pendingState = nil
         currentActivity = nil
-        let finalContent = ActivityContent(state: state, staleDate: nil)
+        let finalContent = ActivityContent(state: decorated, staleDate: nil)
 
         Task {
             await oldActivity.end(finalContent, dismissalPolicy: .immediate)
@@ -925,7 +957,7 @@ final class AgentLiveActivityManager {
             }
 
             let attributes = AgentActivityAttributes(startDate: self.startTime ?? Date())
-            let content = ActivityContent(state: state, staleDate: nil)
+            let content = ActivityContent(state: decorated, staleDate: nil)
             do {
                 let newActivity = try Activity.request(
                     attributes: attributes,
@@ -935,7 +967,7 @@ final class AgentLiveActivityManager {
                 self.currentActivity = newActivity
                 self.activityGeneration += 1
                 self.lastRenewDate = Date()
-                self.lastPushedState = state
+                self.lastPushedState = decorated
                 self.lastPushDate = Date()
                 self.updateCount += 1
                 self.pendingStartState = nil
@@ -945,7 +977,7 @@ final class AgentLiveActivityManager {
                 // guard above races with the async end (the app can background in the
                 // ~27ms gap). If the restart still fails, stash the state and re-start
                 // on the next foreground return so we recover instead of going dark.
-                self.pendingStartState = state
+                self.pendingStartState = decorated
                 logger.error("[LiveActivity][renew] Failed to restart: \(error.localizedDescription) — pendingStart set for foreground recovery")
             }
         }

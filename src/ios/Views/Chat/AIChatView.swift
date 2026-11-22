@@ -147,6 +147,9 @@ enum ChatColors {
     static var toolBorder: Color { studio.color(.border, scope: ThemeColorLayer.chat).opacity(0.75) }
     static var accent: Color { studio.color(.accent, scope: ThemeColorLayer.chat) }
     static var shellText: Color { studio.color(.shellText, scope: ThemeColorLayer.chat) }
+    /// [theme-vars 11-22] 终端黑卡的底。工具窗里那块 ANSI 卡原来写死
+    /// `Color.black` / `Color(white: 0.12)`，主题换了字不换底。
+    static var shellBg: Color { studio.color(.shellBg, scope: ThemeColorLayer.chat) }
     static var success: Color { studio.color(.success, scope: ThemeColorLayer.chat) }
     static var warning: Color { studio.color(.warning, scope: ThemeColorLayer.chat) }
     static var destructive: Color { studio.color(.destructive, scope: ThemeColorLayer.chat) }
@@ -5014,7 +5017,10 @@ private struct BreathingGlowOverlay: View {
                 gradient: Gradient(stops: [
                     .init(color: .clear, location: 0.15),
                     .init(color: ChatColors.accent.opacity(0.08), location: 0.42),
-                    .init(color: Color.white.opacity(0.42), location: 0.5),
+                    // [theme-vars 11-23] 这道高光原来是写死的白 42%：
+                    // 主题换成暖色/彩色时，光带和整体不是一家。
+                    // 用 accent 提亮当高光，跟全局变量一起走。
+                    .init(color: ChatColors.accent.opacity(0.34), location: 0.5),
                     .init(color: ChatColors.accent.opacity(0.07), location: 0.58),
                     .init(color: .clear, location: 0.85),
                 ]),
@@ -7137,10 +7143,15 @@ struct ChatVoiceSettingsSheet: View {
                             } label: {
                                 Text(AppLocalized("Stop"))
                                     .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(.white)
+                                    // [theme-vars 11-22] 停止键原来写死 Color.red + .white：
+                                    // 主题里「危险」那一档换了色它不跟；而且深色档下
+                                    // accent 是白的，白字压白底会看不见。现在底色走
+                                    // 主题的 destructive，字走 canvas——跟发送键同一套
+                                    // 「深底浅字」关系，明暗两档都读得清。
+                                    .foregroundStyle(ChatColors.background)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 4)
-                                    .background(Color.red.opacity(0.85), in: Capsule())
+                                    .background(ChatColors.destructive.opacity(0.85), in: Capsule())
                             }
                             .buttonStyle(.plain)
                         }

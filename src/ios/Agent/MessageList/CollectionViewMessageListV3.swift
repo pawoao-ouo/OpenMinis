@@ -38,6 +38,12 @@ extension Notification.Name {
 /// - **O(1) message lookup**: UUID index rebuilt on each snapshot
 struct CollectionViewMessageListV3: UIViewControllerRepresentable {
     @ObservedObject var vm: AIChatViewModel
+    /// [theme-vars 11-23] 会话列表是 UIKit 桥接（cell 自己画），主题色在
+    /// 里面用了很多处。父视图 AIChatView 订阅了 studio，但 representable
+    /// 只有在 SwiftUI 重建时才会走到 `updateUIViewController`——改完色
+    /// 父视图重绘、这里跟着走一遍，UIKit cell 才有机会按新色重画。
+    /// 自己不订阅的话，靠父视图"顺带"刷新，链路一断就是旧色。
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     var inputFocused: Bool
     var onRetryMessage: ((UUID) -> Void)?
     var onRetryLast: (() -> Void)?

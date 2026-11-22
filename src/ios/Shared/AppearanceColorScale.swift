@@ -118,6 +118,16 @@ extension AppearanceColorRole {
         // 状态色不参与主色推导，它们有自己的色相（绿/黄/红）。
         case .success, .warning, .destructive:
             return .solid
+        // [code-syntax 11-22] 语法色也一样：紫/绿/灰/橙/黄/蓝是各自的
+        // 语义色相，跟着主色推会变成一片单色，代码就没法读了。它们只在
+        // 需要"落一步"时借 solid 的位置，实际取值见 roles(from:)。
+        case .codeKeyword, .codeString, .codeComment,
+             .codeNumber, .codeType, .codeFunction:
+            return .solid
+        // [theme-vars 11-22] 终端卡的底不参与推导：它必须是暗的，
+        // ANSI 16 色才认得出；明暗两档都取 1 号（最深）那一档。
+        case .shellBg:
+            return .appBackground
         }
     }
 
@@ -137,6 +147,15 @@ extension AppearanceColorRole {
     /// 状态色自己定色相，不跟主色走。
     var isStatusColor: Bool {
         self == .success || self == .warning || self == .destructive
+    }
+
+    /// [code-syntax 11-22] 语法色也是"自己定色相"那一类：摇主题、推色阶
+    /// 的时候不能被主色拖走，否则代码块整片单色。
+    var isFixedHueColor: Bool {
+        isStatusColor || self == .codeKeyword || self == .codeString
+            || self == .codeComment || self == .codeNumber
+            || self == .codeType || self == .codeFunction
+            || self == .shellBg
     }
 }
 
@@ -224,7 +243,7 @@ enum AppearanceScale {
     static func roles(from scale: [AppearanceScaleStep: String],
                       dark: Bool) -> [AppearanceColorRole: String] {
         var out: [AppearanceColorRole: String] = [:]
-        for role in AppearanceColorRole.allCases where !role.isStatusColor {
+        for role in AppearanceColorRole.allCases where !role.isFixedHueColor {
             guard let base = scale[role.scaleSlot] else { continue }
             if role.scaleOffset == 0 {
                 out[role] = base
@@ -238,6 +257,17 @@ enum AppearanceScale {
         out[.success] = dark ? "7FBF8F" : "5A8F6A"
         out[.warning] = dark ? "D9A441" : "B7791F"
         out[.destructive] = dark ? "FF453A" : "D9383A"
+        // [code-syntax 11-22] 语法色同理：摇主题时保持固定的一套，不跟着
+        // 主色变，否则代码高亮全糊成一片。浅底是压低彩度的版本，见
+        // AppearancePaletteBook 顶上的说明。
+        out[.codeKeyword] = dark ? "C678DD" : "893442"
+        out[.codeString] = dark ? "98C379" : "346F54"
+        out[.codeComment] = dark ? "7F848E" : "737373"
+        out[.codeNumber] = dark ? "D19A66" : "32527B"
+        out[.codeType] = dark ? "E5C07B" : "7F502F"
+        out[.codeFunction] = dark ? "61AFEF" : "664087"
+        // [theme-vars 11-22] 终端卡底两档都钉死黑。
+        out[.shellBg] = "000000"
         return out
     }
 }

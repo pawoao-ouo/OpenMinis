@@ -76,5 +76,17 @@ struct AgentActivityAttributes: ActivityAttributes {
         /// icon). Defaulted so ContentStates encoded before this field existed
         /// still decode.
         var privacyMode: Bool = false
+        /// [theme-vars 11-22] 主题色快照，随每次推送带过来。
+        ///
+        /// 活动卡（灵动岛 + 锁屏）跑在扩展进程里，读不到主 App 的主题对象。
+        /// 之前它整片是写死的 `.white.opacity(0.15)` / `.green` / `.blue`：
+        /// 换了主题，活动卡纹丝不动，和 App 里像两个产品。
+        ///
+        /// 走 ContentState 而不是让扩展自己读 App Group，是因为活动卡要跟着
+        /// 「此刻的主题」走：改完色推一次就换，不用等扩展自己重读磁盘。
+        /// 可选 + 有默认值，老 ContentState 解码不受影响；缺字段时视图回落
+        /// 到系统语义色，行为和以前一致。
+        var themeLight: [String: String]? = nil
+        var themeDark: [String: String]? = nil
     }
 }

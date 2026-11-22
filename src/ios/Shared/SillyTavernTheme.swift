@@ -197,6 +197,16 @@ enum SillyTavernTheme {
             .success: isDarkCanvas ? "93B09A" : "6E8F76",
             .warning: isDarkCanvas ? "CDB183" : "B8935F",
             .destructive: isDarkCanvas ? "CB9292" : "B27070",
+            // [theme-vars 11-22] 导入的包只带表面和强调色，语法色和终端卡底
+            // 没有对应字段。按画布明暗给一套（不跟随包的色相，代码高亮需要
+            // 各自语义色相才读得懂），不补就会渲染成 808080 灰。
+            .codeKeyword: isDarkCanvas ? "C678DD" : "893442",
+            .codeString: isDarkCanvas ? "98C379" : "346F54",
+            .codeComment: isDarkCanvas ? "7F848E" : "737373",
+            .codeNumber: isDarkCanvas ? "D19A66" : "32527B",
+            .codeType: isDarkCanvas ? "E5C07B" : "7F502F",
+            .codeFunction: isDarkCanvas ? "61AFEF" : "664087",
+            .shellBg: "000000",
         ]
 
         // 深色版：如果原包本身就是深色，直接用同一套；否则按反相推导。

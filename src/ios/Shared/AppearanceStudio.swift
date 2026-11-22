@@ -201,6 +201,24 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
     /// 现在它有自己的位置：默认取"次文字再淡一档"，但可以被单独调。
     case disabled
     case success, warning, destructive
+    /// [code-syntax 11-22] 代码块六个语法色。
+    ///
+    /// 以前它们写死在 `SelectableMarkdownView.palette(dark:)` 里，按底色
+    /// 亮暗二选一。主题一换，代码块的**底**跟着变了、**字**还是那套紫绿
+    /// 黄，深底配浅色语法色还好，浅底配上深红深蓝就整块读不清。她说的
+    /// 「代码块配色也要跟全局变量」就是这一处。
+    ///
+    /// 现在它们跟别的角色一样进调色盘：明暗双档、页级覆盖、主题包、
+    /// 装扮页旋钮、对比度体检全部自动带上，不用另写一套 UI。
+    case codeKeyword, codeString, codeComment, codeNumber, codeType, codeFunction
+    /// [theme-vars 11-22] 终端黑卡的底。
+    ///
+    /// 工具窗里那块「终端输出」卡一直是写死的 `Color.black` /
+    /// `Color(white: 0.12)`：主题换了它的字色跟（走 shellText），底却不跟，
+    /// 深色主题上黑卡跟页面糊成一片，浅色主题上又是一块突兀的黑砖。
+    /// 现在底也是一个角色，默认仍是黑的（ANSI 16 色要在暗底上才认得出），
+    /// 但能调。
+    case shellBg
 
     var id: String { rawValue }
     var title: String {
@@ -213,6 +231,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .secondaryText: return AppLocalized("次文字")
         case .tertiaryText: return AppLocalized("三级文字")
         case .shellText: return AppLocalized("终端黑卡里的字")
+        case .shellBg: return AppLocalized("终端黑卡底")
         case .accent: return AppLocalized("强调色")
         case .userBubble: return AppLocalized("我的气泡")
         case .assistantBubble: return AppLocalized("AI 气泡")
@@ -226,6 +245,12 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .success: return AppLocalized("成功")
         case .warning: return AppLocalized("警告")
         case .destructive: return AppLocalized("危险")
+        case .codeKeyword: return AppLocalized("代码：关键字")
+        case .codeString: return AppLocalized("代码：字符串")
+        case .codeComment: return AppLocalized("代码：注释")
+        case .codeNumber: return AppLocalized("代码：数字")
+        case .codeType: return AppLocalized("代码：类型")
+        case .codeFunction: return AppLocalized("代码：函数")
         }
     }
 
@@ -241,6 +266,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .secondaryText: return AppLocalized("次文字：说明、时间戳")
         case .tertiaryText: return AppLocalized("三级文字：占位、最淡说明，只做标签不做正文")
         case .shellText: return AppLocalized("聊天里黑卡上的终端输出文字")
+        case .shellBg: return AppLocalized("聊天里那块终端黑卡的底")
         case .accent: return AppLocalized("强调色：按钮、选中、开关")
         case .userBubble: return AppLocalized("你的聊天气泡")
         case .assistantBubble: return AppLocalized("AI 聊天气泡")
@@ -254,6 +280,9 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
         case .success: return AppLocalized("成功状态（绿）")
         case .warning: return AppLocalized("警告状态（黄）")
         case .destructive: return AppLocalized("危险操作（红）")
+        case .codeKeyword, .codeString, .codeComment,
+             .codeNumber, .codeType, .codeFunction:
+            return AppLocalized("聊天里代码块的语法高亮")
         }
     }
 }
@@ -275,7 +304,7 @@ enum AppearanceColorRole: String, CaseIterable, Identifiable {
 /// 位置，只好去蹭卡片和浅底）。现在按"你看到的东西"分六组，每组里装的是
 /// 同一种东西。
 enum AppearanceColorRoleGroup: String, CaseIterable, Identifiable {
-    case text, backgrounds, controls, accentGroup, chat, status
+    case text, backgrounds, controls, accentGroup, chat, code, status
 
     var id: String { rawValue }
 
@@ -286,6 +315,7 @@ enum AppearanceColorRoleGroup: String, CaseIterable, Identifiable {
         case .controls: return AppLocalized("控件")
         case .accentGroup: return AppLocalized("强调")
         case .chat: return AppLocalized("聊天")
+        case .code: return AppLocalized("代码块")
         case .status: return AppLocalized("Status")
         }
     }
@@ -298,6 +328,7 @@ enum AppearanceColorRoleGroup: String, CaseIterable, Identifiable {
         case .controls: return AppLocalized("图标底、胶囊底、输入框、边线——小零件")
         case .accentGroup: return AppLocalized("按钮、开关、选中态")
         case .chat: return AppLocalized("聊天气泡、工具卡")
+        case .code: return AppLocalized("代码块里那六个语法色")
         case .status: return AppLocalized("成功、警告、危险")
         }
     }
@@ -313,10 +344,12 @@ enum AppearanceColorRoleGroup: String, CaseIterable, Identifiable {
     var roles: [AppearanceColorRole] {
         switch self {
         case .text: return [.primaryText, .secondaryText, .tertiaryText, .shellText]
-        case .backgrounds: return [.canvas, .surface, .raised, .mutedSurface]
+        case .backgrounds: return [.canvas, .surface, .raised, .mutedSurface, .shellBg]
         case .controls: return [.iconTile, .chip, .field, .border, .disabled]
         case .accentGroup: return [.accent]
         case .chat: return [.userBubble, .assistantBubble, .bubbleText, .assistantBubbleText]
+        case .code: return [.codeKeyword, .codeString, .codeComment,
+                            .codeNumber, .codeType, .codeFunction]
         case .status: return [.success, .warning, .destructive]
         }
     }
@@ -889,8 +922,8 @@ final class AppearanceStudio: ObservableObject {
     /// [T-23] 每个文字角色实际坐在哪块底上，以及要求多少。
     ///
     /// 面板警告和 AI 关卡共用这一张表：两处各写一份，迟早又只查两个角色。
-    /// `shellText` 不在这里——黑卡底是写死的黑，不跟主题，也就没有"改配色
-    /// 把它改糊"这条路。
+    /// `shellText` 也查：终端黑卡的底现在是可改的角色（`shellBg`），
+    /// 不查就等于留了一个能把终端文字调糊的口子。
     static func contrastPairs(for role: AppearanceColorRole) -> [(bg: AppearanceColorRole, threshold: Double)] {
         switch role {
         case .primaryText, .secondaryText, .tertiaryText:
@@ -901,6 +934,8 @@ final class AppearanceStudio: ObservableObject {
             return [(.assistantBubble, 4.5)]
         case .accent:
             return [(.canvas, 3.0), (.surface, 3.0)]
+        case .shellText:
+            return [(.shellBg, 4.5)]
         default:
             return []
         }
@@ -2034,6 +2069,16 @@ private enum AppearancePaletteBook {
     // 卡片、浮层、输入框在白底上完全没有层次——她说的"看不出哪层是哪层"。
     // 现在按"canvas 最灰 → raised 次之 → surface 最白"排，输入框单独一档
     // 灰（iOS 的 search field 语言），四层各差一点点。
+    // [code-syntax 11-22] 六个语法色的默认值：深底沿用 One Dark（那套本来就是
+    // 为暗底调的，彩度高但压得住），浅底不用 GitHub light 的鲜艳原色，改成
+    // 同一套色相压低彩度到 36~46、明度压到 32~45 的版本——对比度 4.7~8.0，
+    // 全部过 AA，放在暖调低饱和的主题里不跳。
+    // [theme-vars 11-22] shellBg 是终端黑卡的底：默认还是黑（ANSI 16 色
+    // 要在暗底上才认得出），但现在是可调的角色，不再写死在视图里。
+    //
+    // 注意：两本书里的条目区不许夹注释。AppearancePaletteIntegrityTests
+    // 是按逗号切块再找 `.role: "hex"` 的，注释会把它后面那条并进同一块、
+    // 于是那条角色被算成"缺配"、断言直接红。要写说明写在这里。
     static let light: [AppearanceColorRole: String] = [
         .canvas: "F5F5F7", .surface: "FFFFFF", .raised: "FBFBFD",
         .mutedSurface: "F7F7F9", .primaryText: "111113", .secondaryText: "636366",
@@ -2043,7 +2088,10 @@ private enum AppearancePaletteBook {
         .field: "F4F4F7", .iconTile: "F2F2F5", .chip: "EBEBEF",
         .disabled: "B8B8BD",
         .success: "5A8F6A",
-        .warning: "B7791F", .destructive: "D9383A"
+        .warning: "B7791F", .destructive: "D9383A",
+        .codeKeyword: "893442", .codeString: "346F54", .codeComment: "737373",
+        .codeNumber: "32527B", .codeType: "7F502F", .codeFunction: "664087",
+        .shellBg: "000000"
     ]
     // [T-43] 深色档原来 raised 和 mutedSurface 都是 2C2C2E、field 和 surface
     // 都是 1C1C1E，同样是撞车。浮层保持最高一档，浅底块下移到卡片与浮层
@@ -2070,7 +2118,10 @@ private enum AppearancePaletteBook {
         .field: "262628", .iconTile: "2C2C2E", .chip: "3A3A3C",
         .disabled: "5A5A5F",
         .success: "7FBF8F",
-        .warning: "D9A441", .destructive: "FF453A"
+        .warning: "D9A441", .destructive: "FF453A",
+        .codeKeyword: "C678DD", .codeString: "98C379", .codeComment: "7F848E",
+        .codeNumber: "D19A66", .codeType: "E5C07B", .codeFunction: "61AFEF",
+        .shellBg: "000000"
     ]
 }
 
@@ -2090,12 +2141,20 @@ enum AppearancePreset: String, CaseIterable, Identifiable {
             return AppearancePalette(light: AppearancePaletteBook.light, dark: AppearancePaletteBook.dark)
         case .cleanAir:
             return AppearancePalette(
-                light: [.canvas:"F6F8FA",.surface:"FFFFFF",.raised:"FFFFFF",.mutedSurface:"EDF2F5",.primaryText:"26323A",.secondaryText:"6F7E87",.accent:"6F93A8",.userBubble:"DDEAF0",.assistantBubble:"FFFFFF",.field:"FFFFFF",.border:"DCE5E9",.iconTile:"FFFFFF",.chip:"EDF2F5",.success:"638F76",.warning:"C9A36A",.destructive:"BC6262"],
-                dark: [.canvas:"151A1D",.surface:"20272B",.raised:"273035",.mutedSurface:"2B353A",.primaryText:"EDF3F5",.secondaryText:"AAB8BE",.accent:"8CB2C5",.userBubble:"334B57",.assistantBubble:"20272B",.field:"252D31",.border:"3B484E",.iconTile:"20272B",.chip:"2B353A",.success:"82AF91",.warning:"D4B07A",.destructive:"DA8181"])
+                light: [.canvas:"F6F8FA",.surface:"FFFFFF",.raised:"FFFFFF",.mutedSurface:"EDF2F5",.primaryText:"26323A",.secondaryText:"6F7E87",.accent:"6F93A8",.userBubble:"DDEAF0",.assistantBubble:"FFFFFF",.field:"FFFFFF",.border:"DCE5E9",.iconTile:"FFFFFF",.chip:"EDF2F5",.success:"638F76",.warning:"C9A36A",.destructive:"BC6262",
+                        // [theme-vars 11-22] 预设是「整套配色」，applyPreset 会先清空
+                        // 全局覆盖再只写这里列出的角色——不补这一行，选完预设代码块
+                        // 和终端卡就变 808080 灰。
+                        .codeKeyword:"893442",.codeString:"346F54",.codeComment:"737373",.codeNumber:"32527B",.codeType:"7F502F",.codeFunction:"664087",.shellBg:"000000"],
+                dark: [.canvas:"151A1D",.surface:"20272B",.raised:"273035",.mutedSurface:"2B353A",.primaryText:"EDF3F5",.secondaryText:"AAB8BE",.accent:"8CB2C5",.userBubble:"334B57",.assistantBubble:"20272B",.field:"252D31",.border:"3B484E",.iconTile:"20272B",.chip:"2B353A",.success:"82AF91",.warning:"D4B07A",.destructive:"DA8181",
+                       .codeKeyword:"C678DD",.codeString:"98C379",.codeComment:"7F848E",.codeNumber:"D19A66",.codeType:"E5C07B",.codeFunction:"61AFEF",.shellBg:"000000"])
         case .nightCocoa:
             return AppearancePalette(
-                light: [.canvas:"FBF6EF",.surface:"FFFDF8",.raised:"FFFFFF",.mutedSurface:"F2E7DA",.primaryText:"44362E",.secondaryText:"8D7868",.accent:"A77965",.userBubble:"EAD8CE",.assistantBubble:"FFFDF8",.field:"FFFBF5",.border:"E5D7C9",.iconTile:"FFFDF8",.chip:"F2E7DA",.success:"728E70",.warning:"C9A36A",.destructive:"B86565"],
-                dark: [.canvas:"171311",.surface:"241E1A",.raised:"2E2621",.mutedSurface:"362B25",.primaryText:"F2E9E1",.secondaryText:"B9A79B",.accent:"C99B84",.userBubble:"513B31",.assistantBubble:"241E1A",.field:"2A231F",.border:"493B33",.iconTile:"241E1A",.chip:"362B25",.success:"91AE8B",.warning:"D4B07A",.destructive:"D17A7A"])
+                light: [.canvas:"FBF6EF",.surface:"FFFDF8",.raised:"FFFFFF",.mutedSurface:"F2E7DA",.primaryText:"44362E",.secondaryText:"8D7868",.accent:"A77965",.userBubble:"EAD8CE",.assistantBubble:"FFFDF8",.field:"FFFBF5",.border:"E5D7C9",.iconTile:"FFFDF8",.chip:"F2E7DA",.success:"728E70",.warning:"C9A36A",.destructive:"B86565",
+                        // [theme-vars 11-22] 同上：两套手写预设也得把新角色带齐。
+                        .codeKeyword:"893442",.codeString:"346F54",.codeComment:"737373",.codeNumber:"32527B",.codeType:"7F502F",.codeFunction:"664087",.shellBg:"000000"],
+                dark: [.canvas:"171311",.surface:"241E1A",.raised:"2E2621",.mutedSurface:"362B25",.primaryText:"F2E9E1",.secondaryText:"B9A79B",.accent:"C99B84",.userBubble:"513B31",.assistantBubble:"241E1A",.field:"2A231F",.border:"493B33",.iconTile:"241E1A",.chip:"362B25",.success:"91AE8B",.warning:"D4B07A",.destructive:"D17A7A",
+                       .codeKeyword:"C678DD",.codeString:"98C379",.codeComment:"7F848E",.codeNumber:"D19A66",.codeType:"E5C07B",.codeFunction:"61AFEF",.shellBg:"000000"])
         }
     }
 }

@@ -274,12 +274,14 @@ private struct CopyableURLCapsule: View {
     var body: some View {
         Text(showCopied ? "Copied!" : url)
             .font(.system(size: fontSettings.scaledApp(12), weight: showCopied ? .semibold : .regular))
-            .foregroundStyle(showCopied ? Color.white : Color(white: 0.35))
+            .foregroundStyle(showCopied ? ChatColors.background : ChatColors.secondaryText)
             .lineLimit(1)
             .truncationMode(.middle)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(showCopied ? ChatColors.success : Color(white: 0.85))
+            // [theme-vars 11-22] 这颗复制胶囊原来写死 0.85 的灰 + 0.35 的字，
+            // 深色主题上是一块亮灰砖。改成主题的胶囊底 + 次文字。
+            .background(showCopied ? ChatColors.success : ChatColors.chipBg)
             .clipShape(Capsule())
             .animation(.easeInOut(duration: 0.2), value: showCopied)
             .onTapGesture {
@@ -296,6 +298,10 @@ private struct CopyableURLCapsule: View {
 struct ToolLiveSheet: View {
     let toolBlocks: [AssistantBlock]
     @ObservedObject private var fontSettings = FontSettings.shared
+    /// [theme-vars 11-23] 工具窗是 sheet 弹出来的，不在 AIChatView 的重绘链
+    /// 上。里面终端卡的底、复制胶囊、分隔线全是主题色，不自己订阅 studio 的话
+    /// 改完色再打开还是旧配色。
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     @State var currentIdx: Int
     var toolSnapshots: [ToolSnapshotItem] = []
     var browserPool: BrowserTabPool?
@@ -425,7 +431,8 @@ struct ToolLiveSheet: View {
             // Top nav bar
             sheetNavBar
 
-            Divider().foregroundStyle(Color(white: 0.2))
+            // [theme-vars 11-22] 原来是写死 0.2 的黑线，深色主题上几乎看不见。
+            Divider().foregroundStyle(ChatColors.toolBorder)
 
             // Content area — `blockUpdateTick` dependency ensures live refresh
             let _ = blockUpdateTick
@@ -1075,7 +1082,8 @@ struct ToolLiveSheet: View {
                         .textSelection(.enabled)
                         .padding(.bottom, 14)
                         .frame(maxWidth: .infinity, minHeight: cardMinHeight, alignment: .topLeading)
-                        .background(Color.black)
+                        // [theme-vars 11-22] 终端黑卡的底走主题角色（默认仍是黑）。
+                        .background(ChatColors.shellBg)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(ChatColors.toolBorder, lineWidth: 0.5))
                         .padding(.horizontal, 12)
@@ -1101,7 +1109,8 @@ struct ToolLiveSheet: View {
                                 .frame(maxWidth: .infinity, minHeight: cardMinHeight, alignment: .topLeading)
                                 .textSelection(.enabled)
                                 .padding(14)
-                                .background(Color(white: 0.12))
+                                // [theme-vars 11-22] 同上：原来写死 0.12 的灰底。
+                                .background(ChatColors.shellBg)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 .padding(.horizontal, 12)
                         }
@@ -1736,7 +1745,8 @@ struct ToolLiveSheet: View {
                         .textSelection(.enabled)
                         .padding(.vertical, 14)
                         .frame(maxWidth: .infinity, minHeight: cardMinHeight, alignment: .topLeading)
-                        .background(Color(white: 0.12))
+                        // [theme-vars 11-22] 终端流式卡同走主题底。
+                        .background(ChatColors.shellBg)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .padding(.horizontal, 12)
                     }
@@ -2124,10 +2134,10 @@ private struct ToolPreviewThumbnail: View {
             if isLive && isShell {
                 Text("\(resourceMonitor.formattedCPU)  \(resourceMonitor.formattedMem(compact: true))")
                     .font(.system(size: fontSettings.scaledMicro(5), weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.8))
+                    .foregroundStyle(ChatColors.shellText.opacity(0.8))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 2)
-                    .background(Color.black.opacity(0.6))
+                    .background(ChatColors.shellBg.opacity(0.6))
                     .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 8, bottomTrailingRadius: 8))
             }
         }

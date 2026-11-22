@@ -882,8 +882,10 @@ struct ChatCodeBlockDetailView: View {
         TextEditor(text: $code)
             .font(ChatFont.font(15, weight: .regular, design: .monospaced))
             .scrollContentBackground(.hidden)
-            .background(Color(uiColor: .systemBackground))
-            .tint(.accentColor)
+            // [theme-vars 11-22] 代码块详情页的底原来走 systemBackground，
+            // 主题一换它还是系统白/系统黑，跟卡片脱节。改走主题卡片色。
+            .background(ChatColors.secondaryBg)
+            .tint(ChatColors.accent)
     }
 
     private var attributedCode: NSAttributedString {
@@ -904,7 +906,8 @@ struct ChatCodeBlockDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(16)
         }
-        .background(Color(uiColor: .systemBackground))
+        // [theme-vars 11-22] 同 editor：代码块的只读页也跟着主题卡片走。
+        .background(ChatColors.secondaryBg)
     }
 }
 
@@ -959,7 +962,27 @@ private enum ChatCodeBlockHighlighter {
     static func attributed(code: String,
                            language: String?,
                            theme: SelectableMarkdownTheme) -> NSAttributedString {
-        let key = "\(language ?? "")|\(theme.baseFontSize)|\(theme.codeBlockBackground.hashValue)|\(code.hashValue)" as NSString
+        // [code-syntax 11-22] 缓存键必须带上"当前主题色"的指纹：语法色现在
+        // 是全局变量，改色后代码块底色可能没变（还是同一档 surface），但六个
+        // 语法色全变了。键里只有底色的 hash 会命中旧条目，代码块停在旧配色上，
+        // 得杀掉 App 才刷新。
+        //
+        // 用 `colorSnapshot`（加锁的纯快照，nonisolated）而不是
+        // `AppearanceStudio.shared.n`：这个函数会被后台的测量路径调到，
+        // 碰 @MainActor 的属性会炸。
+        //
+        // 还要带上"当前解析成哪一档明暗"：快照是按明暗分开存的字典，切到深色
+        // 时字典内容不变，光看它的指纹会命中浅色那次的高亮结果。跟随系统时
+        // 这一档来自 trait，所以系统一换也换键。
+        let variant: AppearanceVariant = {
+            switch AppearanceMode.current {
+            case .light: return .light
+            case .dark: return .dark
+            case .system: return UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
+            }
+        }()
+        let themeStamp = "\(AppearanceStudio.colorSnapshot.description.hashValue)-\(variant.rawValue)"
+        let key = "\(language ?? "")|\(theme.baseFontSize)|\(theme.codeBlockBackground.hashValue)|\(themeStamp)|\(code.hashValue)" as NSString
         if let cached = cache.object(forKey: key) {
             return cached
         }
@@ -2095,7 +2118,9 @@ struct BreathBeads: View {
                     .fill(
                         RadialGradient(
                             gradient: Gradient(colors: [
-                                Color.white.opacity(0.85),
+                                // [theme-vars 11-23] 高光原来写死白色；
+                                // 用 accent 的浅化版本，跟主题一起变。
+                                ChatColors.accent.opacity(0.55),
                                 ChatColors.accent,
                             ]),
                             center: UnitPoint(x: 0.35, y: 0.35),

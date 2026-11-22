@@ -30,6 +30,11 @@ struct TurnDetailSheet: View {
     var onTakeoverDone: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    /// [theme-vars 11-23] 详情页是 sheet 弹出来的，不在 AIChatView 的重绘
+    /// 链上。它整页都是 ChatColors（卡片底、文字、thinking 色），不自己
+    /// 订阅 studio 的话，在装扮中心改完色、回到聊天再点开详情，看到的还是
+    /// 旧色。
+    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     /// Navigation stack of detail blocks; empty = top level.
     @State private var navStack: [AssistantBlock] = []
     @State private var selectedToolIndex: Int = 0

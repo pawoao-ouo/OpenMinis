@@ -1,6 +1,79 @@
 import ActivityKit
 import SwiftUI
+import UIKit
 import WidgetKit
+
+// MARK: - 活动卡配色（[theme-vars 11-22]）
+
+/// 活动卡（灵动岛 + 锁屏）的取色器。
+///
+/// 这两个界面跑在小组件扩展里，读不到主 App 的 `AppearanceStudio`。以前它们
+/// 整片写死 `.white.opacity(0.15)` / `.green` / `.blue` / `.secondary`：主题
+/// 换了一套，App 里全变了，活动卡还是老样子。
+///
+/// 现在主题色随 `ContentState` 一起推过来（见 `AgentLiveActivityManager
+/// .withThemePalette`），这个结构体只负责「按当前明暗挑一套、查不到就回落到
+/// 系统语义色」——回落保证老版本推来的 ContentState（没有这两个字段）在
+/// 升级后照常显示，不会变成一片黑。
+@available(iOSApplicationExtension 16.2, *)
+struct LiveActivityPalette {
+    private let light: [String: String]
+    private let dark: [String: String]
+
+    init(state: AgentActivityAttributes.ContentState) {
+        light = state.themeLight ?? [:]
+        dark = state.themeDark ?? [:]
+    }
+
+    /// 明暗两套都交给系统，由 `UIColor` 的动态 provider 在渲染时按当前
+    /// trait 解析。
+    ///
+    /// 为什么不在 init 里读 `UITraitCollection.current` 直接挑一套：灵动岛和
+    /// 锁屏的内容是在 ViewBuilder 闭包里拼的，那里拿不到 `@Environment`，
+    /// 而 `UITraitCollection.current` 在闭包求值时未必已经是卡片所在环境的
+    /// 外观，读出来可能是系统默认值——深色锁屏上配浅色文字。动态 provider
+    /// 由系统在真正绘制时逐次解析，不存在这个时机问题。
+    private func color(_ role: String, lightFallback: Color) -> Color {
+        let l = light[role].flatMap { $0.isEmpty ? nil : $0 }
+        let d = dark[role].flatMap { $0.isEmpty ? nil : $0 }
+        // 两套都没有（老版本推来的 ContentState）：原样用回退色，
+        // SwiftUI 的语义色自己会跟着明暗走。
+        guard l != nil || d != nil else { return lightFallback }
+        return Color(UIColor { trait in
+            let hex = trait.userInterfaceStyle == .dark ? (d ?? l) : (l ?? d)
+            return UIColor(liveHex: hex ?? "")
+        })
+    }
+
+    var accent: Color { color("accent", lightFallback: .blue) }
+    var primaryText: Color { color("primaryText", lightFallback: .primary) }
+    var secondaryText: Color { color("secondaryText", lightFallback: .secondary) }
+    var tertiaryText: Color { color("tertiaryText", lightFallback: .tertiary) }
+    var success: Color { color("success", lightFallback: .green) }
+    /// 胶囊底。快照里没有就退回系统自带的填充，而不是写死的白 15%。
+    var chipFill: Color { color("chip", lightFallback: Color.primary.opacity(0.08)) }
+    /// [theme-vars 11-23] 锁屏卡的底。回落 `.clear`：老 ContentState 没有这个
+    /// 角色时保持系统原本的材质，不糊一块黑上去。
+    var canvas: Color { color("canvas", lightFallback: .clear) }
+}
+
+@available(iOSApplicationExtension 16.2, *)
+private extension UIColor {
+    /// #RRGGBB → UIColor。
+    ///
+    /// `AgentProfileWidget.swift` 里那份 `Color(hex:)` 是 `private extension`，
+    /// 文件级可见，这个文件用不到，所以这里另写一个 `liveHex`（名字不同，
+    /// 不会撞）。解析规则跟它保持一致：去掉 `#`，扫十六进制，扫不出来就是黑。
+    convenience init(liveHex: String) {
+        let cleaned = liveHex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        var value: UInt64 = 0
+        Scanner(string: cleaned).scanHexInt64(&value)
+        self.init(red: CGFloat((value >> 16) & 0xFF) / 255.0,
+                  green: CGFloat((value >> 8) & 0xFF) / 255.0,
+                  blue: CGFloat(value & 0xFF) / 255.0,
+                  alpha: 1)
+    }
+}
 
 @available(iOSApplicationExtension 16.2, *)
 struct AgentLiveActivityWidget: Widget {
@@ -11,6 +84,9 @@ struct AgentLiveActivityWidget: Widget {
                 state: context.state
             )
         } dynamicIsland: { context in
+            // [theme-vars 11-22] 整片活动卡的取色器。以前这里的绿勾、蓝图标、
+            // 白 15% 胶囊底全是写死的，主题换了它们不动。
+            let palette = LiveActivityPalette(state: context.state)
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 3) {
@@ -21,7 +97,7 @@ struct AgentLiveActivityWidget: Widget {
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(.white.opacity(0.15), in: Capsule())
+                    .background(palette.chipFill, in: Capsule())
                     .padding(.leading, 8)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -29,13 +105,13 @@ struct AgentLiveActivityWidget: Widget {
                         HStack(spacing: 3) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(palette.success)
                             Text("\(context.state.sessions.count)")
                                 .font(.caption.bold())
                         }
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(.green.opacity(0.18), in: Capsule())
+                        .background(palette.success.opacity(0.18), in: Capsule())
                         .padding(.trailing, 8)
                     } else {
                         HStack(spacing: 3) {
@@ -47,7 +123,7 @@ struct AgentLiveActivityWidget: Widget {
                         }
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(.white.opacity(0.15), in: Capsule())
+                        .background(palette.chipFill, in: Capsule())
                         .padding(.trailing, 8)
                     }
                 }
@@ -57,7 +133,7 @@ struct AgentLiveActivityWidget: Widget {
                             HStack(spacing: 0) {
                                 Image(systemName: "bubble.left.fill")
                                     .font(.caption)
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(palette.accent)
                                     .padding(.trailing, 5)
                                 Text(session.title)
                                     .font(.callout.bold())
@@ -65,7 +141,7 @@ struct AgentLiveActivityWidget: Widget {
                                 if context.state.activeSessionCount > 1 {
                                     Text("\(context.state.carouselIndex + 1)/\(context.state.activeSessionCount)")
                                         .font(.caption.monospacedDigit())
-                                        .foregroundStyle(.tertiary)
+                                        .foregroundStyle(palette.tertiaryText)
                                         .padding(.leading, 4)
                                 }
                                 Spacer(minLength: 6)
@@ -85,30 +161,30 @@ struct AgentLiveActivityWidget: Widget {
                                             Text(context.attributes.startDate, style: .timer)
                                                 .font(.caption2.monospacedDigit())
                                                 .multilineTextAlignment(.center)
-                                                .foregroundStyle(.secondary)
+                                                .foregroundStyle(palette.secondaryText)
                                         }
-                                        .background(.white.opacity(0.12), in: Capsule())
+                                        .background(palette.chipFill, in: Capsule())
                                 } else if let finishedAt = context.state.finishedAt {
                                     // [T-ios-live-activity-privacy-duration]
                                     // Resting state: static total run time in
                                     // the slot the live timer occupied.
                                     Text(totalRunTime(from: context.attributes.startDate, to: finishedAt))
                                         .font(.caption2.monospacedDigit())
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(palette.secondaryText)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
-                                        .background(.white.opacity(0.12), in: Capsule())
+                                        .background(palette.chipFill, in: Capsule())
                                 }
                             }
                             if session.isCompleted {
                                 HStack(alignment: .top, spacing: 5) {
                                     Image(systemName: "checkmark.circle.fill")
                                         .font(.caption)
-                                        .foregroundStyle(.green)
+                                        .foregroundStyle(palette.success)
                                     if !session.lastMessage.isEmpty {
                                         Text(session.lastMessage)
                                             .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(palette.secondaryText)
                                             .lineLimit(1)
                                     }
                                     Spacer()
@@ -117,26 +193,26 @@ struct AgentLiveActivityWidget: Widget {
                                     if !context.state.privacyMode {
                                         Text("Loop \(session.loopIteration)")
                                             .font(.caption2.monospacedDigit())
-                                            .foregroundStyle(.tertiary)
+                                            .foregroundStyle(palette.tertiaryText)
                                     }
                                 }
                             } else {
                                 HStack(spacing: 5) {
                                     Image(systemName: session.toolIcon)
                                         .font(.caption)
-                                        .foregroundStyle(.blue)
+                                        .foregroundStyle(palette.accent)
                                         .id(session.toolIcon)
                                         .transition(.opacity.animation(.easeInOut(duration: 0.35)))
                                     Text(session.toolStatus)
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(palette.secondaryText)
                                         .lineLimit(1)
                                         .contentTransition(.interpolate)
                                     Spacer()
                                     if !context.state.privacyMode {
                                         Text("Loop \(session.loopIteration)")
                                             .font(.caption2.monospacedDigit())
-                                            .foregroundStyle(.tertiary)
+                                            .foregroundStyle(palette.tertiaryText)
                                     }
                                 }
                             }
@@ -172,6 +248,9 @@ struct AgentLiveActivityWidget: Widget {
 @available(iOSApplicationExtension 16.2, *)
 struct AudioTogglePill: View {
     let isPlaying: Bool
+    /// [theme-vars 11-22] 活动卡的取色器。必填：两个调用点都在活动卡里，
+    /// 留一个可选默认值只会让人以为还有第三条路。
+    let palette: LiveActivityPalette
 
     private var glyph: some View {
         // Speaker glyphs, not the generic transport play/pause pair: this control
@@ -181,14 +260,14 @@ struct AudioTogglePill: View {
         // speaking, slash = muted/paused.
         Image(systemName: isPlaying ? "speaker.wave.2.fill" : "speaker.slash.fill")
             .font(.caption2.bold())
-            .foregroundStyle(.white)
+            .foregroundStyle(palette.primaryText)
             // The two speaker glyphs have different intrinsic widths (the wave
             // variant is wider), so a fixed 16pt box would clip one of them and
             // make the capsule jump on toggle. Give it room and center.
             .frame(width: 20, height: 16)
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
-            .background(.white.opacity(0.15), in: Capsule())
+            .background(palette.chipFill, in: Capsule())
             // Swap the glyph with a fade so the icon flips smoothly when the
             // toggle intent lands. `.id` forces the transition per state.
             .id(isPlaying)
@@ -214,6 +293,9 @@ struct AgentLockScreenView: View {
     let attributes: AgentActivityAttributes
     let state: AgentActivityAttributes.ContentState
 
+    /// [theme-vars 11-22] 锁屏卡整片的取色器。
+    private var palette: LiveActivityPalette { LiveActivityPalette(state: state) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -225,11 +307,11 @@ struct AgentLockScreenView: View {
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(.white.opacity(0.15), in: Capsule())
+                .background(palette.chipFill, in: Capsule())
                 // [T-ios-live-activity-audio-toggle] Audio play/pause control on
                 // the Lock Screen too, beside the identity capsule.
                 if state.isAudioLoaded {
-                    AudioTogglePill(isPlaying: state.isAudioPlaying)
+                    AudioTogglePill(isPlaying: state.isAudioPlaying, palette: palette)
                 }
                 Spacer()
                 // [T-ios-live-activity-status-summary] Text-only progress.
@@ -249,14 +331,14 @@ struct AgentLockScreenView: View {
                         .contentTransition(.numericText())
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(.green.opacity(0.18), in: Capsule())
+                        .background(palette.success.opacity(0.18), in: Capsule())
                 } else {
                     Text(doingSummary(state.activeSessionCount))
                         .font(.caption.bold())
                         .contentTransition(.numericText())
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(.white.opacity(0.15), in: Capsule())
+                        .background(palette.chipFill, in: Capsule())
                 }
             }
 
@@ -265,14 +347,14 @@ struct AgentLockScreenView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "bubble.left.fill")
                             .font(.caption)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(palette.accent)
                         Text(session.title)
                             .font(.subheadline.bold())
                             .lineLimit(1)
                         if state.activeSessionCount > 1 {
                             Text("\(state.carouselIndex + 1)/\(state.activeSessionCount)")
                                 .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(palette.tertiaryText)
                         }
                         Spacer(minLength: 6)
                         if !session.isCompleted {
@@ -285,29 +367,29 @@ struct AgentLockScreenView: View {
                                     Text(attributes.startDate, style: .timer)
                                         .font(.caption2.monospacedDigit())
                                         .multilineTextAlignment(.center)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(palette.secondaryText)
                                 }
-                                .background(.white.opacity(0.12), in: Capsule())
+                                .background(palette.chipFill, in: Capsule())
                         } else if let finishedAt = state.finishedAt {
                             // [T-ios-live-activity-privacy-duration] Static
                             // total run time in the resting state.
                             Text(totalRunTime(from: attributes.startDate, to: finishedAt))
                                 .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(palette.secondaryText)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(.white.opacity(0.12), in: Capsule())
+                                .background(palette.chipFill, in: Capsule())
                         }
                     }
                     if session.isCompleted {
                         HStack(alignment: .top, spacing: 5) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(palette.success)
                             if !session.lastMessage.isEmpty {
                                 Text(session.lastMessage)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(palette.secondaryText)
                                     .lineLimit(1)
                             }
                         }
@@ -315,12 +397,12 @@ struct AgentLockScreenView: View {
                         HStack(spacing: 5) {
                             Image(systemName: session.toolIcon)
                                 .font(.caption)
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(palette.accent)
                                 .id(session.toolIcon)
                                 .transition(.opacity.animation(.easeInOut(duration: 0.35)))
                             Text(session.toolStatus)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(palette.secondaryText)
                                 .lineLimit(1)
                                 .contentTransition(.interpolate)
                             Spacer()
@@ -328,7 +410,7 @@ struct AgentLockScreenView: View {
                             if !state.privacyMode {
                                 Text("Loop \(session.loopIteration)")
                                     .font(.caption2.monospacedDigit())
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(palette.tertiaryText)
                             }
                         }
                     }
@@ -336,6 +418,11 @@ struct AgentLockScreenView: View {
             }
         }
         .padding()
+        // [theme-vars 11-23] 锁屏卡的底跟着主题走。只铺一层半透明的主题
+        // 画布色，让系统的玻璃材质还透得出来——整块实心会把 iOS 自己的
+        // 卡片质感盖死，锁屏上一眼就是贴上去的。
+        .background(palette.canvas.opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -350,10 +437,12 @@ struct MinimalIconView: View {
     let state: AgentActivityAttributes.ContentState
 
     var body: some View {
+        // [theme-vars 11-22] 工具图标原来写死 `.blue`。
+        let palette = LiveActivityPalette(state: state)
         if state.minimalShowsTool && !state.latestToolIcon.isEmpty {
             Image(systemName: state.latestToolIcon)
                 .font(.caption)
-                .foregroundStyle(.blue)
+                .foregroundStyle(palette.accent)
                 .id(state.latestToolIcon)
                 .transition(.opacity.animation(.easeInOut(duration: 0.35)))
         } else {
@@ -376,9 +465,11 @@ struct CompactTrailingView: View {
 
     var body: some View {
         let icon = state.currentSession?.toolIcon ?? "ellipsis.circle"
+        // [theme-vars 11-22] 同上。
+        let palette = LiveActivityPalette(state: state)
         Image(systemName: icon)
             .font(.body)
-            .foregroundStyle(.blue)
+            .foregroundStyle(palette.accent)
             .id(icon)
             .transition(.opacity.animation(.easeInOut(duration: 0.35)))
     }
