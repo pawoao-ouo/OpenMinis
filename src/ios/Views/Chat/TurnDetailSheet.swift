@@ -252,7 +252,9 @@ struct TurnDetailSheet: View {
 
     private var thinkingBackground: some View {
         ZStack {
-            MinisThemeShape.thinkingFill
+            // [fix/global-colors] Same fill as the thinking card: global
+            // accent at the thinkingFill fallback opacity, not the pack hex.
+            ChatColors.accent.opacity(0.06)
             if let image = AppearanceStudio.shared.thinkingCardImage() {
                 Image(uiImage: image)
                     .resizable()
@@ -307,11 +309,11 @@ struct TurnDetailSheet: View {
                 .resizable()
                 .renderingMode(.template)
                 .frame(width: 14, height: 14)
-                .foregroundStyle(MinisThemeShape.thinkingAccent)
+                .foregroundStyle(ChatColors.accent)
 
             Text(AppLocalized("Deep Thinking"))
                 .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(13.5), weight: .semibold))
-                .foregroundStyle(MinisThemeShape.thinkingAccent)
+                .foregroundStyle(ChatColors.accent)
 
             Spacer()
 
@@ -319,12 +321,12 @@ struct TurnDetailSheet: View {
             if count > 0 {
                 Text(count > 1000 ? "\(count / 1000)K" : "\(count)")
                     .font(ChatFont.font(11.5, weight: .medium, design: .monospaced))
-                    .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.7))
+                    .foregroundStyle(ChatColors.accent.opacity(0.7))
             }
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.5))
+                .foregroundStyle(ChatColors.accent.opacity(0.5))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -335,12 +337,12 @@ struct TurnDetailSheet: View {
         HStack(spacing: 8) {
             toolIcon(for: block.kind)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(MinisThemeShape.thinkingAccent)
+                .foregroundStyle(ChatColors.accent)
                 .frame(width: 18, alignment: .center)
 
             Text(timelineTitle(for: block))
                 .font(MinisThemeShape.fontFamily.font(size: FontSettings.shared.scaledMessage(13.5), weight: .medium))
-                .foregroundStyle(MinisThemeShape.thinkingAccent)
+                .foregroundStyle(ChatColors.accent)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -348,12 +350,12 @@ struct TurnDetailSheet: View {
             if let dur = block.toolDuration {
                 Text(MinisStepTimestampFormatter.duration(seconds: dur, stillRunning: false))
                     .font(ChatFont.font(11.5, weight: .regular, design: .monospaced))
-                    .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.7))
+                    .foregroundStyle(ChatColors.accent.opacity(0.7))
             }
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.5))
+                .foregroundStyle(ChatColors.accent.opacity(0.5))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
