@@ -1130,9 +1130,15 @@ struct AIChatView: View {
         }
         .sheet(isPresented: $showModelPicker) {
             NavigationStack {
-                SessionModelPicker(sessionId: vm.sessionId) {
-                    await vm.ensureSessionReturningId()
-                }
+                // [input-bar-liquid-glass] 思考强度走 vm 那条读写,和加号
+                // 抽屉里的思考强度 sheet 同源;不传这三个,思考分区不出现。
+                SessionModelPicker(
+                    sessionId: vm.sessionId,
+                    ensureSessionId: { await vm.ensureSessionReturningId() },
+                    thinkingCurrent: { vm.currentThinkingLevel },
+                    thinkingAvailable: { vm.availableThinkingLevels },
+                    onSetThinkingLevel: { vm.setThinkingLevel($0) }
+                )
             }
             .presentationDetents([.large])
         }
@@ -3099,28 +3105,22 @@ struct AIChatView: View {
         vm.resolveCurrentEntry()?.model.displayName ?? vm.selectedModel.displayName
     }
 
-    /// [input-bar-liquid-glass] 模型胶囊:当前模型名 + 思考档位标签,
-    /// 复刻 HTML .model-pill-btn。名字点开模型选择,档位标签点开思考强度 —
-    /// 同一张表,和加号抽屉里那两项开的是同一个 sheet
-    /// (PlusPanelItemType.sparkles / .thinking)。外壳复用圆键那套
-    /// (34 高、主题底、0.5 描边);名字超长就截断,不撑宽整条栏。
+    /// [input-bar-liquid-glass] 模型胶囊:一颗整钮,点开统一的模型选择
+    /// (渠道开关 + 模型列表 + 思考强度,同一张 sheet),照 HTML
+    /// modelSheet。名字和档位标签不再是两颗分开的钮;档位标签只在
+    /// 思考开着时出现(pillThinkingLevelDisplayName)。
+    /// 外壳复用圆键那套(34 高、主题底、0.5 描边);名字超长就截断,不撑宽整条栏。
     private var modelPill: some View {
-        HStack(spacing: 6) {
-            Button {
-                showModelPicker = true
-            } label: {
+        Button {
+            showModelPicker = true
+        } label: {
+            HStack(spacing: 6) {
                 Text(currentModelName)
                     .font(ChatFont.font(12.5, weight: .medium))
                     .foregroundStyle(ChatColors.primaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text(AppLocalized("切换模型")))
-            if let level = thinkingLevelDisplayName {
-                Button {
-                    showThinkingLevelSheet = true
-                } label: {
+                if let level = pillThinkingLevelDisplayName {
                     Text(level)
                         .font(ChatFont.font(10.5, weight: .semibold))
                         .foregroundStyle(ChatColors.secondaryText)
@@ -3129,10 +3129,10 @@ struct AIChatView: View {
                         .background(ChatColors.inputIconBg)
                         .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text(AppLocalized("思考强度")))
             }
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(AppLocalized("切换模型")))
         .padding(.leading, 11)
         .padding(.trailing, 10)
         .frame(height: 34)
@@ -4122,10 +4122,20 @@ struct AIChatView: View {
 
     /// [input-bar-typing-dots] Current thinking-level display name for the [+]
     /// menu's 思考强度 row. Same gate the old nav-bar badge used: hidden when
-    /// there is nothing to adjust.
+    /// there is nothing to adjust. The pill's effort tag uses the stricter
+    /// pillThinkingLevelDisplayName instead (hidden whenever thinking is off).
     private var thinkingLevelDisplayName: String? {
         guard !vm.availableThinkingLevels.isEmpty,
               vm.currentThinkingLevel.isEnabled || vm.currentModelSupportsReasoning else { return nil }
+        return vm.currentThinkingLevel.displayName
+    }
+
+    /// [input-bar-liquid-glass] 胶囊上档位标签的显示门:思考关了就藏,
+    /// 照 HTML(档位标签只在 thinking 开着时出现)。加号抽屉那行用的
+    /// 还是 thinkingLevelDisplayName——关了也要留着「关」那行才能点开。
+    private var pillThinkingLevelDisplayName: String? {
+        guard !vm.availableThinkingLevels.isEmpty,
+              vm.currentThinkingLevel.isEnabled else { return nil }
         return vm.currentThinkingLevel.displayName
     }
 
