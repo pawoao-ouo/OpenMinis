@@ -155,6 +155,12 @@ struct ModelPickerConfig {
     /// 这两个开关只对特定模型有效，放在这里天然贴着「当前选的是哪个模型」，
     /// 也不用在加号面板里给不支持它们的模型摆一个点了只弹提示的磁贴。
     var extraSection: (@MainActor () -> AnyView)?
+    /// [fix/redo-593] 思考强度分区(档位行 + 深度思考开关)。
+    /// 只有会话模型选择页提供;别的 picker(语音等)不挂,保持原样。
+    var thinkingSection: (@MainActor () -> AnyView)?
+    /// [fix/redo-593] 渠道开关分区(每个服务商一行开关)。
+    /// 只有会话模型选择页提供;关掉渠道会把它名下的模型从列表里藏起来。
+    var channelsSection: (@MainActor () -> AnyView)?
 
     enum Mode { case single, multi }
     enum GroupScope {
@@ -584,6 +590,16 @@ struct UnifiedModelPicker: View {
 
             if visibleGroups.isEmpty && filteredEntriesByInstance.isEmpty {
                 emptySection
+            }
+
+            // [fix/redo-593] 思考强度 + 渠道开关,照 HTML
+            // modelSheet 的顺序(模型列表 → 思考 → 渠道)排在列表后、
+            // 额外分区前;调用方自己包 Section,这里不再包。
+            if let thinkingSection = config.thinkingSection {
+                thinkingSection()
+            }
+            if let channelsSection = config.channelsSection {
+                channelsSection()
             }
 
             // [picker-extra-section] 调用方自带的分区直接插在列表底部，

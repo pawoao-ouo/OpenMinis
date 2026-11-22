@@ -1130,9 +1130,15 @@ struct AIChatView: View {
         }
         .sheet(isPresented: $showModelPicker) {
             NavigationStack {
-                SessionModelPicker(sessionId: vm.sessionId) {
-                    await vm.ensureSessionReturningId()
-                }
+                // [fix/redo-593] 思考强度走 vm 那条读写,和加号
+                // 抽屉里的思考强度 sheet 同源;不传这三个,思考分区不出现。
+                SessionModelPicker(
+                    sessionId: vm.sessionId,
+                    ensureSessionId: { await vm.ensureSessionReturningId() },
+                    thinkingCurrent: { vm.currentThinkingLevel },
+                    thinkingAvailable: { vm.availableThinkingLevels },
+                    onSetThinkingLevel: { vm.setThinkingLevel($0) }
+                )
             }
             .presentationDetents([.large])
         }

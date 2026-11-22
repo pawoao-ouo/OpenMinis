@@ -7,6 +7,12 @@ private let pickerLog = AppLogger(category: "ModelPicker")
 struct SessionModelPicker: View {
     let sessionId: String?
     var ensureSessionId: (() async -> String)?
+    /// [fix/redo-593] 思考强度走 vm 那条读写(和加号抽屉里的
+    /// 思考强度 sheet 同源):草稿态的 pending 档位、按模型夹取、
+    /// 组默认档位都在 vm 里,store 直读会丢这些。三个都传才挂思考分区。
+    let thinkingCurrent: (@MainActor () -> ThinkingLevel)?
+    let thinkingAvailable: (@MainActor () -> [ThinkingLevel])?
+    let onSetThinkingLevel: (@MainActor (ThinkingLevel) -> Void)?
     @ObservedObject private var store = ProviderConfigStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var pendingNonTextOutput: PendingSelection?
@@ -17,6 +23,9 @@ struct SessionModelPicker: View {
     @State private var showEnhancedCacheAlert = false
     /// 刚点过的那条模型。列表点完不会立刻关页，开关区要跟着手上这条走。
     @State private var tuningProbe: ModelEntry?
+    /// [fix/redo-593] 上次开着的档位:深度思考开关关掉再开时
+    /// 回到它,而不是每次都落到 Medium。
+    @State private var lastEnabledThinkingLevel: ThinkingLevel?
 
     private struct PendingSelection: Identifiable {
         let id = UUID()
@@ -26,9 +35,18 @@ struct SessionModelPicker: View {
         let isGroupBind: Bool
     }
 
-    init(sessionId: String?, ensureSessionId: (() async -> String)? = nil) {
+    init(
+        sessionId: String?,
+        ensureSessionId: (() async -> String)? = nil,
+        thinkingCurrent: (@MainActor () -> ThinkingLevel)? = nil,
+        thinkingAvailable: (@MainActor () -> [ThinkingLevel])? = nil,
+        onSetThinkingLevel: (@MainActor (ThinkingLevel) -> Void)? = nil
+    ) {
         self.sessionId = sessionId
         self.ensureSessionId = ensureSessionId
+        self.thinkingCurrent = thinkingCurrent
+        self.thinkingAvailable = thinkingAvailable
+        self.onSetThinkingLevel = onSetThinkingLevel
     }
 
     private var currentEntryId: String? {
@@ -62,7 +80,9 @@ struct SessionModelPicker: View {
             onSelect: { entry in handleEntryTap(entry) },
             onSelectGroup: { group in handleGroupTap(group) },
             onSelectInGroup: { entry, group in handleEntryTap(entry, inGroup: group) },
-            extraSection: { AnyView(modelTuningSection) }
+            extraSection: { AnyView(modelTuningSection) },
+            thinkingSection: { AnyView(thinkingSectionView) },
+            channelsSection: { AnyView(channelsSectionView) }
         ))
         .alert(
             "Enhanced Cache",
@@ -174,6 +194,125 @@ struct SessionModelPicker: View {
                 Text("Model Options")
             }
         }
+    }
+
+    // MARK: - Thinking + channels (unified sheet)
+
+    /// [fix/redo-593] 思考强度分区:深度思考开关 + 档位行,
+    /// 照 HTML modelSheet 的 effort 子页(档位行 + 深度思考链开关)。
+    /// 只在当前模型有档位可选时出现;点档位行就是开着选那个档,
+    /// 不照 HTML 那样先把档位行置灰——和加号抽屉里的思考强度 sheet
+    /// 同一个行为,点一下就能开。
+    @ViewBuilder
+    private var thinkingSectionView: some View {
+        if let current = thinkingCurrent,
+           let available = thinkingAvailable?(),
+           let onSet = onSetThinkingLevel,
+           !available.isEmpty {
+            Section {
+                Toggle(isOn: Binding(
+                    get: { current().isEnabled },
+                    set: { on in
+                        if on {
+                            let restore = lastEnabledThinkingLevel
+                                ?? (available.contains(.medium) ? .medium : available[0])
+                            lastEnabledThinkingLevel = restore
+                            onSet(restore)
+                        } else {
+                            let cur = current()
+                            if cur.isEnabled { lastEnabledThinkingLevel = cur }
+                            onSet(.off)
+                        }
+                    }
+                )) {
+                    Label(AppLocalized("Deep Thinking"), systemImage: "brain")
+                }
+                ForEach(available, id: \.self) { level in
+                    Button { onSet(level) } label: {
+                        HStack {
+                            Image("ThinkingIcon")
+                                .resizable()
+                                .frame(width: 16, height: 16)
+                            Text(level.displayName)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if current() == level {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(ChatColors.accent)
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("Thinking Intensity")
+            } footer: {
+                Text("Thinking is passed to models that support it as a reasoning parameter.")
+            }
+        }
+    }
+
+    /// 有模型的服务商,按模型列表同一个 type-major 顺序排(见
+    /// UnifiedModelPicker.entriesByInstance);没模型的实例不列,
+    /// 开关它对列表没影响。
+    private var channelInstances: [ProviderInstance] {
+        var result: [ProviderInstance] = []
+        var seen = Set<String>()
+        for type in ProviderType.allCases {
+            for instance in store.instances where instance.providerType == type {
+                guard !seen.contains(instance.id) else { continue }
+                seen.insert(instance.id)
+                guard store.modelEntries.contains(where: { $0.providerInstanceId == instance.id && !$0.isHidden }) else { continue }
+                result.append(instance)
+            }
+        }
+        return result
+    }
+
+    private var enabledChannelCount: Int {
+        channelInstances.filter { store.instance(for: $0.id)?.isEnabled == true }.count
+    }
+
+    /// [fix/redo-593] 渠道开关分区:每个服务商一行开关,
+    /// 照 HTML modelSheet 的 channels 子页。关掉的渠道名下模型立刻
+    /// 从上面的列表里藏起来,随时可重新开启。至少留一个开着——
+    /// 全关了会话就没模型可用,和 HTML 的「请至少保留一个可用渠道」一样。
+    @ViewBuilder
+    private var channelsSectionView: some View {
+        let channels = channelInstances
+        if !channels.isEmpty {
+            Section {
+                ForEach(channels) { instance in
+                    Toggle(isOn: Binding(
+                        get: { store.instance(for: instance.id)?.isEnabled ?? false },
+                        set: { on in setChannelEnabled(instance, on) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(instance.label)
+                            if let url = instance.customBaseURL, !url.isEmpty {
+                                Text(url)
+                                    .font(.caption)
+                                    .foregroundStyle(MinisTheme.secondaryText)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("Channels")
+            } footer: {
+                Text(AppLocalized("Enabled \(enabledChannelCount) of \(channels.count) channels"))
+            }
+        }
+    }
+
+    private func setChannelEnabled(_ instance: ProviderInstance, _ enabled: Bool) {
+        if !enabled && enabledChannelCount <= 1 {
+            MinisToast.show(AppLocalized("Keep at least one channel enabled"))
+            return
+        }
+        var updated = instance
+        updated.isEnabled = enabled
+        _ = store.updateInstance(updated)
     }
 
     // MARK: - Non-text output guard
