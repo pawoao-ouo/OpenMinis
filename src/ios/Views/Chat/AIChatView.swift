@@ -3003,14 +3003,16 @@ struct AIChatView: View {
         return AnyView(rows)
     }
 
-    /// 下排键。上游那排是 [+ 退出编辑 话筒 发送];我们要的是 [+ 表情 …… 发送/暂停]。
+    /// 下排键。上游那排是 [+ 退出编辑 话筒 发送];我们要的是 [+ 模型胶囊 …… 表情 发送/暂停]。
     /// 话筒、语音转文字全搬进加号抽屉([T-composer-nomic]),这是她点的名。
+    /// [input-bar-liquid-glass] 顺序照 HTML toolbar-normal:
+    /// [+][模型胶囊]—spacer—[表情][发送],间距 7 和 HTML 的 gap 一致。
     private var inputBottomRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 7) {
             plusKey
-            stickerKey
             modelPill
             Spacer(minLength: 0)
+            stickerKey
             sendPauseKey
         }
         .padding(.horizontal, 12)
@@ -3020,7 +3022,7 @@ struct AIChatView: View {
     /// 34 的圆、18 的字形——上游那颗键的尺寸,照着画。
     /// [T-composer-rebuild 11-10] 配色走主题变量(CSSThemeVariables / ChatColors),
     /// 不写死色值,换皮肤时它跟着走。
-    private func composerRoundKey(_ symbol: String, active: Bool = false, action: @escaping () -> Void) -> some View {
+    private func composerRoundKey(_ symbol: String, active: Bool = false, transparentBase: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .medium))
@@ -3029,9 +3031,12 @@ struct AIChatView: View {
                 // Only the sticker key ever passes active=true.
                 .foregroundStyle(active ? ChatColors.accent : ChatColors.secondaryText)
                 .frame(width: 34, height: 34)
-                .background(ChatColors.inputIconBg)
+                // [input-bar-liquid-glass] transparentBase: HTML
+                // .cat-sticker-btn is transparent (no fill, no border)
+                // until active — the sticker key is the only caller.
+                .background(active || !transparentBase ? ChatColors.inputIconBg : Color.clear)
                 .clipShape(Circle())
-                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
+                .overlay(Circle().stroke(active || !transparentBase ? ChatColors.inputIconBorder : Color.clear, lineWidth: 0.5))
         }
         // [input-bar-liquid-glass] Press scale on the round keys (HTML
         // .tool-icon-btn:active), reusing the send key's press style.
@@ -3041,15 +3046,16 @@ struct AIChatView: View {
     /// 图片版圆键:和 composerRoundKey 同一套外壳(34pt 圆、主题底、描边),
     /// 只是里面放一张图而不是系统符号。图是黑底不透明,盖满圆内,
     /// 所以不用再套前景色;active 态不染色,托盘开着本身就是状态。
-    private func composerRoundImage(_ name: String, action: @escaping () -> Void) -> some View {
+    /// transparentBase:同 composerRoundKey,表情键没开托盘时不画底和描边。
+    private func composerRoundImage(_ name: String, active: Bool = false, transparentBase: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(name)
                 .resizable()
                 .scaledToFill()
                 .frame(width: 34, height: 34)
-                .background(ChatColors.inputIconBg)
+                .background(active || !transparentBase ? ChatColors.inputIconBg : Color.clear)
                 .clipShape(Circle())
-                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
+                .overlay(Circle().stroke(active || !transparentBase ? ChatColors.inputIconBorder : Color.clear, lineWidth: 0.5))
         }
         // [input-bar-liquid-glass] Same press scale as the symbol keys.
         .buttonStyle(MorphPressStyle())
@@ -3072,9 +3078,9 @@ struct AIChatView: View {
     private var stickerKey: some View {
         Group {
             if let icon = appearanceStudio.currentThemePack().composerEmojiImage {
-                composerRoundImage(icon) { toggleStickerTray() }
+                composerRoundImage(icon, active: showStickerPanel, transparentBase: true) { toggleStickerTray() }
             } else {
-                composerRoundKey("face.smiling", active: showStickerPanel) { toggleStickerTray() }
+                composerRoundKey("face.smiling", active: showStickerPanel, transparentBase: true) { toggleStickerTray() }
             }
         }
         .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
@@ -3140,7 +3146,7 @@ struct AIChatView: View {
     ///   · 生成中 → 有内容排队(同回车),没内容才暂停(点下去停整队,见 AIChatViewModel.cancel()) [S23]
     ///   · 编辑中 → 有字提交 / 没字退出编辑
     ///   · 有字   → 箭头发送(排得上队就排队)
-    ///   · 空输入 → 灰箭头,看得见点不动;语音入口在加号抽屉里
+    ///   · 空输入 → 实心圆里的淡箭头,看得见点不动;语音入口在加号抽屉里
     ///
     /// [T-key-no-detach] 字形不增删视图,几个字形同时挂着只切透明度:
     /// 增删视图会让黑圆那层在键盘动画期间重新挂载,表现层停在旧坐标,
@@ -3185,11 +3191,12 @@ struct AIChatView: View {
             }
         } label: {
             ZStack {
-                // 只有发送/暂停态才有实圆底;编辑和空输入都没有。
-                // 实圆底仍挂着(不增删视图,见 [T-key-no-detach]):金色图本身
-                // 是不透明黑底圆,会把它盖住;万一资源丢了,实圆底还能兜住形状。
+                // [input-bar-liquid-glass] 实圆底一直都在:HTML 的主按钮
+                // 永远是一颗深色实心圆(空输入是波形、有字是发送),从不剩
+                // 一支光箭头飘着。实圆底仍挂着(不增删视图,见
+                // [T-key-no-detach]):金色图本身是不透明黑底圆,会把它盖
+                // 住;万一资源丢了,实圆底还能兜住形状。
                 Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
-                    .opacity(showArrow || showPause ? 1 : 0)
                 // 发送态:卡片选了就显示金箭头图,没选就显示原来的箭头符号。
                 // [T-key-no-detach] 图片支只在点卡片时才挂/摘(抽屉弹着,键盘
                 // 不在动画),打字/生成时的态切换仍只切透明度,不增删视图。
@@ -3220,11 +3227,15 @@ struct AIChatView: View {
                     .opacity(showPause && pauseIcon == nil ? 1 : 0)
                 Image(systemName: "xmark")
                     .font(ChatFont.font(15, weight: .semibold))
-                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
+                    // [input-bar-liquid-glass] 圆底一直都在,叉也要用圆上的
+                    // 浅字色,不然深叉落在深圆上看不见。
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
                     .opacity(showClose ? 1 : 0)
                 Image(systemName: "arrow.up")
                     .font(ChatFont.font(17, weight: .semibold))
-                    .foregroundStyle(ChatColors.secondaryText.opacity(0.45))
+                    // [input-bar-liquid-glass] 空输入的箭头也坐在圆上:
+                    // 浅字色压淡 0.45,还是「看得见点不动」那个意思。
+                    .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat).opacity(0.45))
                     .opacity(showIdle ? 1 : 0)
             }
             .frame(width: 34, height: 34)
