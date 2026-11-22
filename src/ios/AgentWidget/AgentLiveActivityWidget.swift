@@ -88,7 +88,7 @@ struct AgentLiveActivityWidget: Widget {
             // [theme-vars 11-22] 整片活动卡的取色器。以前这里的绿勾、蓝图标、
             // 白 15% 胶囊底全是写死的，主题换了它们不动。
             let palette = LiveActivityPalette(state: context.state)
-            DynamicIsland {
+            return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 3) {
                         Image(systemName: "sparkles")
@@ -468,7 +468,7 @@ struct CompactTrailingView: View {
         let icon = state.currentSession?.toolIcon ?? "ellipsis.circle"
         // [theme-vars 11-22] 同上。
         let palette = LiveActivityPalette(state: state)
-        Image(systemName: icon)
+        return Image(systemName: icon)
             .font(.body)
             .foregroundStyle(palette.accent)
             .id(icon)
