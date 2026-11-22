@@ -18594,6 +18594,23 @@
         }
       }
     },
+    "Channels": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Channels"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "渠道"
+          }
+        }
+      }
+    },
     "Chat": {
       "extractionState": "stale",
       "localizations": {
@@ -36581,6 +36598,23 @@
         }
       }
     },
+    "Enabled %@ of %@ channels": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled %@ of %@ channels"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已启用 %@ 个渠道，共 %@ 个"
+          }
+        }
+      }
+    },
     "Enables background audio playback for text-to-speech narration and music/audio playback while the app is in the background.": {
       "localizations": {
         "de": {
@@ -50178,6 +50212,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "任務運行時屏幕常亮"
+          }
+        }
+      }
+    },
+    "Keep at least one channel enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep at least one channel enabled"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请至少保留一个可用渠道"
           }
         }
       }
