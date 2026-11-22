@@ -2414,6 +2414,18 @@ struct AIChatView: View {
 
     private var messagesArea: some View {
         ZStack {
+            // [fix/redo-593] 聊天区空白点按:最底层,只有没打中
+            // 消息气泡的点按才落到这里(列表在上面先吃点按,时间线也在上
+            // 面)。点按永远先收键盘、关托盘;收起是派生值,输入空了就
+            // 自己收起来,这里不用设任何状态。空聊时它同时就是原来那层
+            // 点按收键盘——那层只在没消息时挂,现在不用了。
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if showStickerPanel { closeComposerTray(focusKeyboard: false) }
+                    inputFocused = false
+                }
             CollectionViewMessageListV3(
                 vm: vm,
                 inputFocused: inputFocused,
@@ -2453,17 +2465,6 @@ struct AIChatView: View {
                 inputBarHeight: inputBarHeight,
                 composerLiveHeight: composerLiveHeight
             )
-            // Empty/loading overlay for tap-to-dismiss-keyboard.
-            // Placed BEFORE the directory timeline in the ZStack so the
-            // timeline can sit on top and receive its own taps (folder-card
-            // arrow buttons). Taps that miss the timeline content fall
-            // through to this background overlay.
-            if vm.messages.isEmpty || vm.isLoadingSession {
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture { inputFocused = false }
-            }
             // Empty-chat onboarding tip: a single card explaining the
             // per-session vs cross-session /var/minis/ layout. Only shown
             // on a true draft (vm.sessionId == nil) — opening an existing
@@ -3009,7 +3010,52 @@ struct AIChatView: View {
         return AnyView(rows)
     }
 
-    /// 下排键。上游那排是 [+ 退出编辑 话筒 发送];我们要的是 [+ 表情 …… 发送/暂停]。
+    /// [fix/redo-593] 收起态是派生值,不是存的状态:空输入 + 没附件 +
+    /// 没在传附件 + 没在编辑 + 没聚焦 + 没在语音 + 托盘没开 = 收起
+    /// 一行胶囊。草稿灌回(输入框有字)自动展开;发完(输入框空了)
+    /// 自动收起——这就是 HTML 的 isCollapsed,不用 onChange 盯着同步。
+    private var composerCollapsed: Bool {
+        vm.inputText.isEmpty
+            && vm.attachments.isEmpty
+            && vm.loadingVideoCount == 0
+            && vm.editingMessageIndex == nil
+            && !inputFocused
+            && !voiceInputActive
+            && speechManager.state != .recording
+            && !showStickerPanel
+    }
+
+    /// [fix/redo-593] 收起态单行胶囊:照 HTML .collapsed-row
+    /// ([+][占位][表情][发送],999px 胶囊,7px 8px 内边距,约 50 高)。
+    /// 占位点一下展开 + 聚焦(底下那层点按聚焦的 catcher 负责);AI 等待
+    /// 时占位里照样放呼吸微粒(HTML 收起态也有 ai-breath-visual)。
+    /// 占位文案和展开态输入框同一句,不另起。
+    private var collapsedPillContent: some View {
+        HStack(spacing: 7) {
+            plusKey
+            ZStack(alignment: .leading) {
+                if showsInputBarTypingDots {
+                    BreathBeads()
+                        .allowsHitTesting(false)
+                        .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.92)))
+                } else {
+                    Text(AppLocalized("Message \(soulName) (@ to mention files)"))
+                        .font(ChatFont.font(16.5))
+                        .foregroundStyle(ChatColors.tertiaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.34), value: showsInputBarTypingDots)
+            stickerKey
+            sendPauseKey
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+    }
+
+    /// 下排键。上游那排是 [+ 退出编辑 话筒 发送];我们要的是 [+ 模型胶囊 …… 表情 发送/暂停]。
     /// 话筒、语音转文字全搬进加号抽屉([T-composer-nomic]),这是她点的名。
     /// [fix/redo-593] 顺序照 HTML toolbar-normal:
     /// [+][模型胶囊]—spacer—[表情][发送],间距 7 和 HTML 的 gap 一致。
@@ -3480,6 +3526,15 @@ struct AIChatView: View {
         return AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
+    /// [fix/redo-593] fallback 环 + 呼吸光晕共用的形状:收起态
+    /// 是 999px 胶囊,展开态跟 GlassComposerSurface 的圆角走(同上)。
+    private var composerPulseShape: AnyShape {
+        if composerCollapsed {
+            return AnyShape(Capsule())
+        }
+        return fallbackPulseShape
+    }
+
     /// [input-bar-fallback-pulse] 3× pulse of the fallback ring around the
     /// input-bar capsule. A separate method (not an inline .onChange
     /// closure) so the body modifier chain stays light enough for the
@@ -3622,31 +3677,39 @@ struct AIChatView: View {
             VStack(spacing: 0) {
                 // 输入区域 (单行紧凑微信风格)
                 VStack(spacing: 2) {
-                    // Attachment preview chips — 3 per row
-                    if !vm.attachments.isEmpty || vm.loadingVideoCount > 0 {
-                        ScrollView(.vertical, showsIndicators: true) {
-                            inputAttachmentGrid
-                                .background(GeometryReader { geo in
-                                    Color.clear.preference(key: AttachmentGridHeightKey.self, value: geo.size.height)
-                                })
+                    // [fix/redo-593] 收起态只有一行胶囊;展开态
+                    // 才是附件预览 + 编辑提示 + 两行输入条。收起时不可能
+                    // 有附件/正在编辑(收起的条件就是空输入没附件没编辑),
+                    // 分支只是把那两块藏起来,不是删掉。
+                    if composerCollapsed {
+                        collapsedPillContent
+                    } else {
+                        // Attachment preview chips — 3 per row
+                        if !vm.attachments.isEmpty || vm.loadingVideoCount > 0 {
+                            ScrollView(.vertical, showsIndicators: true) {
+                                inputAttachmentGrid
+                                    .background(GeometryReader { geo in
+                                        Color.clear.preference(key: AttachmentGridHeightKey.self, value: geo.size.height)
+                                    })
+                            }
+                            .frame(height: min(attachmentGridHeight, 160))
+                            .onPreferenceChange(AttachmentGridHeightKey.self) { attachmentGridHeight = $0 }
+                            .padding(.top, 4)
                         }
-                        .frame(height: min(attachmentGridHeight, 160))
-                        .onPreferenceChange(AttachmentGridHeightKey.self) { attachmentGridHeight = $0 }
-                        .padding(.top, 4)
+
+                        // 编辑已有消息模式提示与右上退出按钮 (不挤占单行输入条宽度)
+                        if vm.editingMessageIndex != nil {
+                            editingModeHeader
+                        }
+
+                        // [T-ios-moveto-overlaps-send] 「移动到…」不挂在输入区上。
+                        // 它原来是 overlay，打字时胶囊正好压在发送键上把发送键盖掉。
+                        // 现在入口是斜杠命令 /move（见 AIChatViewModel+SlashCommands），
+                        // 输入条上不再有任何浮层。
+
+                        // 微信式单行聊天输入条 (AnyView 类型擦除，杜绝深层泛型栈溢出)
+                        composerRows
                     }
-
-                    // 编辑已有消息模式提示与右上退出按钮 (不挤占单行输入条宽度)
-                    if vm.editingMessageIndex != nil {
-                        editingModeHeader
-                    }
-
-                    // [T-ios-moveto-overlaps-send] 「移动到…」不挂在输入区上。
-                    // 它原来是 overlay，打字时胶囊正好压在发送键上把发送键盖掉。
-                    // 现在入口是斜杠命令 /move（见 AIChatViewModel+SlashCommands），
-                    // 输入条上不再有任何浮层。
-
-                    // 微信式单行聊天输入条 (AnyView 类型擦除，杜绝深层泛型栈溢出)
-                    composerRows
                 }
                 // [T-composer-tap-to-focus] 整条都能点着聚焦。这是**底层**的
                 // 点击接收器，不是祖先手势：祖先手势会在子按钮被点时也触发，
@@ -3665,7 +3728,7 @@ struct AIChatView: View {
                 }
                 // 输入条本身是一颗胖胶囊：四角全圆，左右留 8、离底留 6，
                 // 浮在消息上面。托盘出现时它还是浮着，托盘从它下面滑出来。
-                .modifier(GlassComposerSurface(attached: showStickerPanel))
+                .modifier(GlassComposerSurface(attached: showStickerPanel, capsule: composerCollapsed))
                 // [input-bar-fallback-pulse] Model-fallback signal, re-homed
                 // from the deleted title (old pulse: destructive fill behind
                 // the title, 3× 0.35s). A ring around the bar's own capsule
@@ -3673,7 +3736,7 @@ struct AIChatView: View {
                 // dots, and it rests invisible at opacity 0. Same color,
                 // strength and timing as the old pulse.
                 .overlay {
-                    fallbackPulseShape
+                    composerPulseShape
                         .stroke(ChatColors.destructive.opacity(0.35 * fallbackPulseOpacity), lineWidth: 2)
                         .allowsHitTesting(false)
                 }
@@ -3683,7 +3746,7 @@ struct AIChatView: View {
                 // color role — they can show together.
                 .overlay {
                     if showsInputBarTypingDots {
-                        BreathingGlowOverlay(shape: fallbackPulseShape)
+                        BreathingGlowOverlay(shape: composerPulseShape)
                             // [input-bar-liquid-glass] Fade out like the
                             // HTML card glow (opacity 0.5s): without a
                             // transition the glow vanishes in one frame
@@ -3697,6 +3760,8 @@ struct AIChatView: View {
                 // Reduce Motion: no mount/unmount animation either (HTML:
                 // transition: none) — the glow appears/disappears instantly.
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: showsInputBarTypingDots)
+                // [fix/redo-593] 收起/展开的高度变化跟键盘动画走,不然胶囊跳一下。
+                .animation(keyboardAnim, value: composerCollapsed)
                 .onChange(of: vm.fallbackTrigger) { _ in
                     runFallbackPulse()
                 }
@@ -8593,6 +8658,10 @@ struct StickerEditSheet: View {
 private struct GlassComposerSurface: ViewModifier {
     var attached: Bool = false
     var topOnly: Bool = false
+    /// [fix/redo-593] 收起态:整条是 999px 胶囊,照 HTML
+    /// .composer-card.is-collapsed。托盘永远只挂在展开态上,所以
+    /// capsule 和 attached/topOnly 不会同时为真。
+    var capsule: Bool = false
 
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     @Environment(\.colorScheme) private var colorScheme
@@ -8615,6 +8684,9 @@ private struct GlassComposerSurface: ViewModifier {
                 topLeadingRadius: 20, bottomLeadingRadius: 0,
                 bottomTrailingRadius: 0, topTrailingRadius: 20,
                 style: .continuous))
+        }
+        if capsule {
+            return AnyShape(Capsule())
         }
         return AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
