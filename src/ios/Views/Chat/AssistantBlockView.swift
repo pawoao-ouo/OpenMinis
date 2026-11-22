@@ -1754,25 +1754,25 @@ struct ThinkingBlockView: View {
                 Image("ThinkingIcon")
                     .resizable()
                     .frame(width: 14, height: 14)
-                    .foregroundStyle(MinisThemeShape.thinkingAccent)
+                    .foregroundStyle(ChatColors.accent)
                 Text(AppLocalized("Deep Thinking"))
                     .font(MinisThemeShape.fontFamily.font(size: MinisThemeShape.thinkingTitleSize, weight: .semibold))
-                    .foregroundStyle(MinisThemeShape.thinkingAccent)
+                    .foregroundStyle(ChatColors.accent)
                 if isStreaming {
                     ProgressView()
                         .controlSize(.mini)
-                        .tint(MinisThemeShape.thinkingAccent)
+                        .tint(ChatColors.accent)
                 }
                 if block.content.count > 0 || block.thinkingContentBuffer.count > 0 {
                     let charCount = max(block.content.count, block.thinkingContentBuffer.count)
                     Text(charCount > 1000 ? "\(charCount / 1000)K" : "\(charCount)")
                         .font(ChatFont.font(11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.6))
+                        .foregroundStyle(ChatColors.accent.opacity(0.6))
                 }
                 Spacer()
                 Image(systemName: isExpanded.wrappedValue ? "chevron.up" : "chevron.down")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(MinisThemeShape.thinkingAccent.opacity(0.5))
+                    .foregroundStyle(ChatColors.accent.opacity(0.5))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -1946,7 +1946,9 @@ struct ThinkingBlockView: View {
         }
         .background {
             ZStack {
-                MinisThemeShape.thinkingFill
+                // [fix/global-colors] Fill rides the global accent (the
+                // thinkingFill fallback value, 0.06), not the pack rose hex.
+                ChatColors.accent.opacity(0.06)
                 if let image = appearanceStudio.thinkingCardImage() {
                     Image(uiImage: image)
                         .resizable()
@@ -1957,7 +1959,7 @@ struct ThinkingBlockView: View {
         }
         .clipShape(MinisThemeShape.thinkingCard)
         .overlay(
-            MinisThemeShape.thinkingCard.stroke(MinisThemeShape.thinkingStroke, lineWidth: 0.5)
+            MinisThemeShape.thinkingCard.stroke(ChatColors.accent.opacity(0.15), lineWidth: 0.5)
         )
         .id(appearanceStudio.themePackRevision)
         .task(id: block.id) {
