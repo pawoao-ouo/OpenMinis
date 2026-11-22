@@ -2334,22 +2334,23 @@ enum CodeSyntaxHighlighter {
     }
 
     private static func palette(dark: Bool) -> Palette {
-        if dark {
-            return Palette(
-                keyword: UIColor(red: 0xC6/255, green: 0x78/255, blue: 0xDD/255, alpha: 1),
-                string: UIColor(red: 0x98/255, green: 0xC3/255, blue: 0x79/255, alpha: 1),
-                comment: UIColor(red: 0x7F/255, green: 0x84/255, blue: 0x8E/255, alpha: 1),
-                number: UIColor(red: 0xD1/255, green: 0x9A/255, blue: 0x66/255, alpha: 1),
-                typeName: UIColor(red: 0xE5/255, green: 0xC0/255, blue: 0x7B/255, alpha: 1),
-                functionCall: UIColor(red: 0x61/255, green: 0xAF/255, blue: 0xEF/255, alpha: 1))
+        // [fix/global-colors] Token colors ride the global theme roles,
+        // resolved against the variant that matches the background this
+        // palette is drawn on (dark bg -> dark variant, light bg -> light
+        // variant). The roles follow the code-block background, not the
+        // system mode, so a dark code block in light mode still reads.
+        // No hex literals here: snapshotHex is the theme's own lookup.
+        let variant: AppearanceVariant = dark ? .dark : .light
+        func role(_ r: AppearanceColorRole) -> UIColor {
+            UIColor(hex: AppearanceStudio.snapshotHex(r, scope: .chat, variant: variant))
         }
         return Palette(
-            keyword: UIColor(red: 0xCF/255, green: 0x22/255, blue: 0x2E/255, alpha: 1),
-            string: UIColor(red: 0x0A/255, green: 0x30/255, blue: 0x69/255, alpha: 1),
-            comment: UIColor(red: 0x59/255, green: 0x63/255, blue: 0x6E/255, alpha: 1),
-            number: UIColor(red: 0x05/255, green: 0x50/255, blue: 0xAE/255, alpha: 1),
-            typeName: UIColor(red: 0x95/255, green: 0x38/255, blue: 0x00/255, alpha: 1),
-            functionCall: UIColor(red: 0x82/255, green: 0x50/255, blue: 0xDF/255, alpha: 1))
+            keyword: role(.accent),
+            string: role(.success),
+            comment: role(.tertiaryText),
+            number: role(.warning),
+            typeName: role(.primaryText),
+            functionCall: role(.accent))
     }
 
     private static func isDarkBackground(_ bg: UIColor) -> Bool {
