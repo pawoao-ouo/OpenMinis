@@ -4855,12 +4855,6 @@ private struct MorphPressStyle: ButtonStyle {
     }
 }
 
-/// [input-bar-liquid-glass] Soft breathing sheen + ring for the AI-waiting
-/// state, replicating the HTML cardBreathingGlow / silkSheenSweep:
-/// a silk sheen sweeping the card (2.8s, transparent at both ends so the
-/// loop restart is invisible) + a breathing ring and soft shadow
-/// (accent 0.16→0.34, shadow 0.20→0.34, 2.8s cycle).
-///
 /// Soft and organic, not neon: low alphas, slow cycle, tint from
 /// MinisThemeShape.thinkingAccent (theme accent role), never a hardcoded
 /// rose. Mounted on the bar's own capsule (same shape as the fallback
