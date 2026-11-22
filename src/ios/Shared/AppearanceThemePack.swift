@@ -2521,34 +2521,21 @@ enum MinisThemeShape {
         return design * (FontSettings.shared.scaledApp(anchor) / anchor)
     }
 
-    /// [B28 B-3] 三个 thinking 颜色字段原来写了不生效：`MinisThemeShape`
-    /// 直接取 `AppearanceStudio.color(.accent, scope: .chat)`，而 pack 里的
-    /// `thinkingFillHex / thinkingStrokeHex / thinkingAccentHex` 只有序列化，
-    /// 零读取。导出还把三个都硬写成 accent，AI 写这三个字段会以为生效了。
-    ///
-    /// 现在真读。空串回落到 accent —— 老 pack 里这三个字段是 accent 的副本，
-    /// 行为不变；`resetThemePack` 清掉 defaults 后 `.default` 带的是暖色值，
-    /// 也和内置配色对得上。
+    /// [fix/redo-593] Thinking 颜色只走全局 accent 角色,不读 pack 的
+    /// thinking*Hex。原因:pack 里这三个字段是用户在装扮页调出来的玫瑰
+    /// 色,读它就等于让 thinking 卡片永远粉下去,跟全局 accent 脱节。
+    /// 三个字段只留作序列化数据(导出/导入/装扮页滑杆还写它们),UI 一律
+    /// 走这里——调用方(AssistantBlockView / TurnDetailSheet / BreathBeads /
+    /// BreathingGlowOverlay)继续读 MinisThemeShape.thinking*,不用改。
+    /// `AppearanceStudio.color(.accent)` 不读 thinking*,没有循环。
     static var thinkingFill: Color {
-        let hex = pack.thinkingFillHex
-        guard !hex.isEmpty else {
-            return AppearanceStudio.shared.color(.accent, scope: .chat).opacity(0.06)
-        }
-        return Color(hex: hex).opacity(0.06)
+        return AppearanceStudio.shared.color(.accent, scope: .chat).opacity(0.06)
     }
     static var thinkingStroke: Color {
-        let hex = pack.thinkingStrokeHex
-        guard !hex.isEmpty else {
-            return AppearanceStudio.shared.color(.accent, scope: .chat).opacity(0.15)
-        }
-        return Color(hex: hex).opacity(0.15)
+        return AppearanceStudio.shared.color(.accent, scope: .chat).opacity(0.15)
     }
     static var thinkingAccent: Color {
-        let hex = pack.thinkingAccentHex
-        guard !hex.isEmpty else {
-            return AppearanceStudio.shared.color(.accent, scope: .chat)
-        }
-        return Color(hex: hex)
+        return AppearanceStudio.shared.color(.accent, scope: .chat)
     }
     static var userStyle: AppearanceBubbleStyle { pack.userStyle }
     static var assistantStyle: AppearanceBubbleStyle { pack.assistantStyle }
