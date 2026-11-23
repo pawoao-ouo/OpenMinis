@@ -298,10 +298,6 @@ private struct CopyableURLCapsule: View {
 struct ToolLiveSheet: View {
     let toolBlocks: [AssistantBlock]
     @ObservedObject private var fontSettings = FontSettings.shared
-    /// [theme-vars 11-23] 工具窗是 sheet 弹出来的，不在 AIChatView 的重绘链
-    /// 上。里面终端卡的底、复制胶囊、分隔线全是主题色，不自己订阅 studio 的话
-    /// 改完色再打开还是旧配色。
-    @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     @State var currentIdx: Int
     var toolSnapshots: [ToolSnapshotItem] = []
     var browserPool: BrowserTabPool?
