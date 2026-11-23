@@ -213,6 +213,10 @@ struct AIChatView: View {
     @ObservedObject private var fontSettings = FontSettings.shared
     @ObservedObject private var deepLink = DeepLinkCoordinator.shared
     @Environment(\.dismiss) private var dismiss
+    /// [liquid-collapsed 11-23] 收起态：没输入、没附件、没在编辑、没开语音时，
+    /// 输入栏只占一行（[+][占位][猫头][主键]），照 HTML 的 .is-collapsed。
+    /// 默认收起——HTML 首屏展开，但我们的会话页一进来就该是干净的。
+    @State private var composerCollapsed: Bool = true
     @State private var inputFocused: Bool = false
     @State private var inputHasSelection: Bool = false
     @State private var inputIsScrollable: Bool = false
@@ -935,7 +939,20 @@ struct AIChatView: View {
             }
             showMoveToSheet = true
         }
+        // [liquid-collapsed 11-23] 一有字就展开（照 HTML 的 input 事件）。
+        // 只展开不收起：删光字之后要不要收，归失焦那条路管，
+        // 不然打字时删一个字就被收回去，胶囊会跳。
+        .onChange(of: vm.inputText) { text in
+            if !text.isEmpty { expandComposer() }
+        }
         .onChange(of: inputFocused) { focused in
+            // [liquid-collapsed 11-23] 聚焦就展开；失焦后如果什么都没有，
+            // 就收回一行（照 HTML：点聊天区空白 -> isCollapsed = true）。
+            if focused {
+                expandComposer()
+            } else {
+                collapseComposerIfResting()
+            }
             if focused && showStickerPanel {
                 // [T-inputbar-stretch] Drawer down while the keyboard rises.
                 // Collapse without animation first so only the keyboard is
@@ -2040,17 +2057,45 @@ struct AIChatView: View {
             vm.clearChatConfirmRequested = true
         case .voiceInput:
             // [T-composer-nomic 11-10] 话筒搬进加号后,这里是唯一的语音入口。
-            // 和原来那颗键做的事一样:先收抽屉,再进语音面板。
-            if showStickerPanel {
-                closeComposerTray(focusKeyboard: false)
-            }
-            vm.voiceUsedInComposition = true
-            VoiceModePreference.shared.enteredFromText = true
-            withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
+            // [liquid-collapsed 11-23] 收起态那颗主键现在也要进语音，逻辑
+            // 抽成 enterVoiceMode() 给两处共用，不另写一套。
+            enterVoiceMode()
         case .thinking:
             // [input-bar-typing-dots] Same sheet the nav-bar badge used to open.
             showThinkingLevelSheet = true
         }
+    }
+
+    /// [liquid-collapsed 11-23] 进语音面板。原来写在加号抽屉的 .voiceInput
+    /// 分支里；收起态那颗主键也要做同一件事，抽出来两处共用。
+    /// 不另写一套——两处行为必须一模一样。
+    /// [liquid-collapsed 11-23] 展开成两行。聚焦、加附件、进编辑、开语音
+    /// 都该走这里（照 HTML 的 isCollapsed=false 那几处）。
+    private func expandComposer() {
+        guard composerCollapsed else { return }
+        withAnimation(keyboardAnim) { composerCollapsed = false }
+    }
+
+    /// [liquid-collapsed 11-23] 回到一行。只有「什么都没有」时才收：
+    /// 没字、没附件、没在编辑、没开语音、没在录音、托盘也关着。
+    /// 任何一条不满足就保持展开——宁可多占一行，也不能把她的字藏起来。
+    private func collapseComposerIfResting() {
+        guard !composerCollapsed else { return }
+        guard !hasComposerText else { return }
+        guard vm.attachments.isEmpty, vm.loadingVideoCount == 0 else { return }
+        guard vm.editingMessageIndex == nil else { return }
+        guard !voiceInputActive, speechManager.state != .recording else { return }
+        guard !showStickerPanel, !inputFocused else { return }
+        withAnimation(keyboardAnim) { composerCollapsed = true }
+    }
+
+    private func enterVoiceMode() {
+        if showStickerPanel {
+            closeComposerTray(focusKeyboard: false)
+        }
+        vm.voiceUsedInComposition = true
+        VoiceModePreference.shared.enteredFromText = true
+        withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
     }
 
     private func exportCurrentConversation() {
@@ -2996,11 +3041,103 @@ struct AIChatView: View {
     /// [T-composer-rebuild 11-10] 两行骨架,照上游:输入框独占上排,键在下排。
     /// 她要的「输入栏 UI 做成上游那样一模一样」——尺寸、间距、圆角全按上游抄。
     private var composerRows: AnyView {
+        // [liquid-collapsed 11-23] 收起态只占一行，照 HTML 的 .is-collapsed：
+        // 999px 胶囊、7/8 内边距、占位行固定 36 高、四颗键。
+        // 展开态还是原来的两行骨架。
+        //
+        // 分支包在 AnyView 里是必须的：composerRows 本来就是 AnyView，
+        // 这是 589 自己就在用的护栏。换成 some View 会让类型名跟着分支
+        // 一起长，2026-11-23 那次启动崩溃就是这么来的。
+        // 有附件或正在编辑时不收：那两块内容长在 composerRows 外面，
+        // 收起态只画一行的话，上面会剩一堆附件/编辑条飘着，
+        // 下面是颗单行胶囊——看着像两块东西。宁可展开。
+        if composerCollapsed,
+           vm.attachments.isEmpty, vm.loadingVideoCount == 0,
+           vm.editingMessageIndex == nil {
+            return AnyView(collapsedComposerRow)
+        }
         let rows = VStack(spacing: 5) {
             inputFieldOrWaveform
             inputBottomRow
         }
         return AnyView(rows)
+    }
+
+    /// [liquid-collapsed 11-23] 收起态那一行：`[+][占位][猫头][主键]`。
+    ///
+    /// 照 HTML 实测抄（不是估的）：
+    ///   - 卡片 999px 胶囊，内边距 7 上下 / 8 左右 → 总高约 50.7
+    ///   - 占位行固定 36pt 高
+    ///   - **没有模型胶囊**（HTML 收起态只有四颗键）
+    ///   - 主键空输入时是语音波形，点了进语音面板
+    ///
+    /// 占位文案用她的人设名，不用 HTML 那句「或长按说话」——她定的。
+    private var collapsedComposerRow: some View {
+        HStack(spacing: 7) {
+            plusKey
+            Button {
+                // 点占位区 = 展开并聚焦，跟点整条胶囊一样。
+                expandComposer()
+                inputFocused = true
+            } label: {
+                HStack {
+                    Text(collapsedPlaceholderText)
+                        .font(ChatFont.font(15))
+                        .foregroundStyle(ChatColors.tertiaryText)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .frame(height: 36)
+                .padding(.horizontal, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            stickerKey
+            collapsedPrimaryKey
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+    }
+
+    /// 收起态的占位文案。用她的人设名，跟展开态的占位保持一致。
+    private var collapsedPlaceholderText: String {
+        let name = soulName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? AppLocalized("发消息…") : AppLocalized("发消息给 \(name)…")
+    }
+
+    /// 收起态主键：空输入时是语音波形（HTML 的 .icon-wave），有字时是发送箭头。
+    /// 收起态不可能有字（有字就展开了），所以这里实际恒为波形——
+    /// 但仍按 hasText 判断，万一将来收起条件放宽也不会画错。
+    private var collapsedPrimaryKey: some View {
+        Button {
+            let hasText = !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if hasText {
+                performSend()
+            } else {
+                enterVoiceMode()
+            }
+        } label: {
+            ZStack {
+                Circle().fill(ChatColors.sendButton)
+                Image(systemName: "waveform")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(ChatColors.background)
+                    .opacity(hasComposerText ? 0 : 1)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(ChatColors.background)
+                    .opacity(hasComposerText ? 1 : 0)
+            }
+            .frame(width: 34, height: 34)
+            .contentShape(Circle())
+        }
+        .buttonStyle(MorphPressStyle())
+        .accessibilityLabel(Text(hasComposerText ? AppLocalized("发送") : AppLocalized("语音输入")))
+    }
+
+    /// 输入框里有没有非空白文字。收起/展开、主键图标都看它。
+    private var hasComposerText: Bool {
+        !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// 下排键。上游那排是 [+ 退出编辑 话筒 发送];我们要的是 [+ 表情 …… 发送/暂停]。
