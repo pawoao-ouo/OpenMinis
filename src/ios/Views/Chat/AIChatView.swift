@@ -2136,17 +2136,38 @@ struct AIChatView: View {
         vm.voiceUsedInComposition = true
         VoiceModePreference.shared.enteredFromText = true
         // [voice-tap-collapse 11-23] 进语音必须同时把输入栏展开。
-        //
-        // 语音面板 InlineVoiceInputView 长在 inputFieldOrWaveform 里，
-        // 而 composerRows 第一道判断就是收起态直接返回单行胶囊 ——
-        // 语音面板根本没机会渲染。以前只改 voiceInputActive，状态是变了，
-        // 但被收起态挡在门外，所以点语音键"没反应"、点一下输入栏才变成语音。
-        //
-        // 两件事放进同一个动画：原来 easeInOut(0.2) 和收起用的
-        // composerMorph 是两条曲线，高度和内容各动各的，看着就是两段。
+        // 原来只改 voiceInputActive，收起态把整个下排挡住了，
+        // 所以点语音键"没反应"、点一下输入栏才变成语音。
         withAnimation(Self.composerMorph) {
             composerCollapsed = false
             voiceInputActive = true
+        }
+        // [voice-inline 11-23] 收起大面板之后，进语音要真的开始录音。
+        //
+        // 以前是 InlineVoiceInputView 里那颗大麦克风按钮负责 startRecording，
+        // 现在那块面板不出场了，录音必须由这里发起，否则点了语音键
+        // 只是换了个工具栏、声波一条都不动 —— 比"没反应"更让人困惑。
+        startDictationRecording()
+    }
+
+    /// [voice-inline 11-23] 真正开始录音（权限 → 起录音）。
+    ///
+    /// 单独拎出来，因为入口有三个：收起态主键、展开态主键、加号抽屉。
+    /// 三处调用同一个函数，不会有一条路忘了请求权限。
+    private func startDictationRecording() {
+        guard speechManager.state == .idle else { return }
+        // 键盘必须先放下：语音会话和键盘抢第一响应者，争起来两边都不稳。
+        inputFocused = false
+        lastRecognizedLength = 0
+        Task { @MainActor in
+            let granted = await speechManager.requestPermissions()
+            guard granted else {
+                // 没权限就别假装在录音：退回打字态，让人知道是权限问题。
+                withAnimation(Self.composerMorph) { voiceInputActive = false }
+                return
+            }
+            guard voiceInputActive else { return }   // 期间她退出了就别起
+            try? speechManager.startRecording()
         }
     }
 
@@ -3133,7 +3154,14 @@ struct AIChatView: View {
         }
         let rows = VStack(spacing: 5) {
             inputFieldOrWaveform
-            inputBottomRow
+            // [voice-inline 11-23] 语音态整条换掉下排键行，上排不动。
+            // 两条工具栏都是 36 高，所以输入栏总高度不变 —— 这是气泡
+            // 不再被弹的关键（见 dictationToolbar 的注释）。
+            if voiceInputActive {
+                dictationToolbar
+            } else {
+                inputBottomRow
+            }
         }
         return AnyView(rows)
     }
@@ -3220,6 +3248,119 @@ struct AIChatView: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
+    }
+
+    // MARK: - [voice-inline 11-23] 内联听写条
+
+    /// 照 HTML 的 `.toolbar-dictation`：`[×][声波][■][↑]`，36 高。
+    ///
+    /// 为什么必须内联、不能留大面板：
+    ///   1. 大面板（状态行 + 72 麦克风 + 模型胶囊）约 212pt，收起态 59pt，
+    ///      差 153pt。`CollectionViewMessageListV3` 的 `baseBottomInset`
+    ///      直接吃这个高度，一变就重设 contentInset 并重新 pin 到底，
+    ///      最后一条气泡跟着上下弹 —— 她说的"被弹来弹去"。
+    ///   2. 语音态原来上下叠着**两个模型**：`InlineVoiceInputView.modelChip`
+    ///      是 ASR 模型，`inputBottomRow.modelPill` 是对话模型。
+    /// HTML 让常态和听写两条工具栏同高、整条替换，两个问题一起消失。
+    private var dictationToolbar: some View {
+        HStack(spacing: 7) {
+            composerRoundKey("xmark") {
+                VoiceLog.log("dictation cancel")
+                cancelDictation()
+            }
+            .accessibilityLabel(Text("取消听写"))
+
+            DictationWave(levels: speechManager.audioLevels)
+                .frame(maxWidth: .infinity)
+
+            composerRoundKey("stop.fill") {
+                VoiceLog.log("dictation stop → transcribe")
+                stopDictationAndTranscribe(send: false)
+            }
+            .accessibilityLabel(Text("停止并转文字"))
+
+            // [voice-inline 11-23] 听写条自己一颗发送键，不复用 sendPauseKey。
+            //
+            // sendPauseKey 的状态机很重（箭头/暂停/关闭/空闲 四态 + 生成中
+            // 入队分支 + .disabled 门），而听写条这里只有一件事：把已经说出来的
+            // 字发出去。复用会带进一堆和听写无关的分支，而且语音态下
+            // hasText 常为假 → .disabled 会把这颗键变灰点不动。
+            dictationSendKey
+        }
+        .frame(height: 36)
+    }
+
+    /// [voice-inline 11-23] 听写条的发送键：深底浅箭头，和 HTML
+    /// `.primary-action-btn.is-send` 一致。
+    ///
+    /// 不用 .disabled：空的时候也不该灰扑扑的（她要的就是"白底黑箭头"那种
+    /// 干净对比），点下去由 action 自己 guard，没内容就什么都不做。
+    private var dictationSendKey: some View {
+        Button {
+            guard !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || vm.attachments.contains(where: { $0.loadState == .ready }) else { return }
+            VoiceLog.log("dictation send")
+            stopDictationAndTranscribe(send: true)
+        } label: {
+            Image(systemName: "arrow.up")
+                .font(ChatFont.font(17, weight: .semibold))
+                .foregroundStyle(CSSThemeVariables.bg(scope: ThemeColorLayer.chat))
+                .frame(width: 35, height: 35)
+                .background(Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat)))
+        }
+        .buttonStyle(PrimaryPressStyle())
+        .accessibilityLabel(Text("转文字并发送"))
+    }
+
+    /// 取消听写：停录音、清转写、回键盘。
+    private func cancelDictation() {
+        if speechManager.state == .recording {
+            speechManager.stopRecording()
+        }
+        speechManager.recognizedText = ""
+        lastRecognizedLength = 0
+        if voiceVM.isEditingTranscript {
+            voiceVM.endEditing(resume: false)
+        }
+        voiceVM.reset(clearTranscript: true)
+        withAnimation(Self.composerMorph) { voiceInputActive = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            guard !voiceInputActive, !showStickerPanel else { return }
+            inputFocused = true
+        }
+    }
+
+    /// 停止听写，把转写落进输入框；`send` 为真时直接发。
+    ///
+    /// 和 `exitVoiceToKeyboard` 的区别：那个是"回去打字"（保留转写并聚焦），
+    /// 这个是"这句说完了"——停录音、收掉听写条、必要时直接发。
+    ///
+    /// **不要在这里再把 `recognizedText` 并进 `vm.inputText`**：
+    /// `speechManager.$recognizedText` 那条 onReceive 已经在逐字增量追加了，
+    /// 这里再并一次就是重复一整句。
+    private func stopDictationAndTranscribe(send: Bool) {
+        if speechManager.state == .recording {
+            speechManager.stopRecording()
+        }
+        if !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            vm.voiceUsedInComposition = true
+        }
+        speechManager.recognizedText = ""
+        lastRecognizedLength = 0
+        if voiceVM.isEditingTranscript {
+            voiceVM.endEditing(resume: false)
+        }
+        voiceVM.reset(clearTranscript: true)
+        withAnimation(Self.composerMorph) {
+            voiceInputActive = false
+            composerCollapsed = false
+        }
+        guard send else { return }
+        // 发送要等状态落定：voiceInputActive 刚翻转，输入框还没回来。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            guard hasDraftContent else { return }
+            if vm.isProcessing { performEnqueue() } else { performSend() }
+        }
     }
 
     /// 34 的圆、18 的字形——上游那颗键的尺寸,照着画。
@@ -3567,21 +3708,17 @@ struct AIChatView: View {
         // [T-composer-upstream 11-10] 16/11 跟上游一致:空栏时文字上方留够
         // 呼吸量,挂了附件预览时收窄到 11,不然上下两块挤成一块。
         let topPadding: CGFloat = (vm.attachments.isEmpty && vm.loadingVideoCount == 0) ? 16 : 11
-        if voiceInputActive {
-            return AnyView(
-                // [voice-correction §6] Recent conversation turns, straight from the
-                // already-loaded in-memory list (§12.1 forbids a DB query on this path),
-                // budgeted by CorrectionContextBuilder.
-                InlineVoiceInputView(
-                    viewModel: voiceVM,
-                    inputText: inputTextBinding,
-                    onPasteImage: { image in vm.addImageAttachment(image) },
-                    onPasteFile: { url in vm.addFileAttachment(from: url) },
-                    conversationContext: { voiceCorrectionContext(from: vm.messages) },
-                    onExitToKeyboard: { exitVoiceToKeyboard() }
-                )
-            )
-        }
+        // [voice-inline 11-23] 语音态**不动上排**，只把下排换成听写条。
+        //
+        // 原来语音态是整个把上排替换成 InlineVoiceInputView 那块大面板
+        // （状态行 + 72 麦克风 + 模型胶囊，约 212pt），收起态 59pt，差 153pt。
+        // `CollectionViewMessageListV3` 的 baseBottomInset 直接吃这个高度，
+        // 一变就重设 contentInset 并重新 pin 到底，最后一条气泡跟着上下弹。
+        //
+        // 现在上排还是同一个文字框（转写实时镜像进 vm.inputText，
+        // 她能看到话一个字一个字长出来），下排还是 36 高，
+        // 所以 inputBarHeight 基本不动，气泡不被弹。
+        // 两个模型叠一屏的问题也一起没了 —— InlineVoiceInputView 不再出场。
         if speechManager.state == .recording {
             // Transcript area grows with content up to a cap (~5 lines),
             // then scrolls internally. ScrollView is greedy in its scroll
@@ -3898,7 +4035,19 @@ struct AIChatView: View {
                 }
             }
             .onReceive(speechManager.$recognizedText) { text in
-                guard speechManager.state == .recording || !text.isEmpty else { return }
+                // [voice-inline 11-23] 这条是语音态唯一的转写→输入框通路。
+                //
+                // 原来有两份同时在跑：
+                //   - 这里：recognizedText 增量追加进 vm.inputText
+                //   - InlineVoiceInputView：voiceVM.transcript 全量赋给 inputText
+                // 现在 InlineVoiceInputView 不出场了，只剩这一条，不会重复。
+                //
+                // 增量追加的坑：停止录音时 recognizedText 会被清成 ""，
+                // 但 lastRecognizedLength 没跟着归零 —— 下一句开头会从
+                // 上一句的长度处开始 dropFirst，前几个字直接被吞掉。
+                // 所以这里一旦看到空串就把游标归零。
+                if text.isEmpty { lastRecognizedLength = 0; return }
+                guard speechManager.state == .recording else { return }
                 // Append only the new delta to preserve existing input text
                 let newLength = text.count
                 if newLength > lastRecognizedLength {
@@ -5086,6 +5235,59 @@ private struct VoiceWaveGlyph: Shape {
             p.addLine(to: CGPoint(x: x(cx), y: y(bottom)))
         }
         return p
+    }
+}
+
+/// [voice-inline 11-23] 听写条的实时声波，照 HTML 的 `.dictation-wave`。
+///
+/// 22 根 2.8pt 宽的竖条，间隔 4，高度 4~22，靠 recogniser 的音量驱动：
+///   - `.wave-dot` 高 4、opacity 0.38（静音时的底子）
+///   - `.wave-dot.live` 高到 10 以上时 opacity 0.96（正在响的那几根）
+///
+/// 每根条子的目标高度从 `levels` 取，取不到就平均分 —— recogniser 给的
+/// 是 40 个采样点，这里要 22 根，直接等距抽样比插值省事，视觉上也够顺。
+///
+/// 颜色走 `ChatColors.accent`（主题强调色），不是硬编码。
+private struct DictationWave: View {
+    let levels: [Float]
+
+    /// 22 根，和 HTML 一致。间距/宽度也照抄，不自己发明。
+    private let barCount = 22
+    private let barWidth: CGFloat = 2.8
+    private let barSpacing: CGFloat = 4
+    private let minHeight: CGFloat = 4
+    private let maxHeight: CGFloat = 22
+
+    /// 某一根当前该多高。
+    private func height(at index: Int) -> CGFloat {
+        guard !levels.isEmpty else { return minHeight }
+        // 等距抽样：22 根从 40 个采样里取。
+        let src = Double(index) / Double(max(barCount - 1, 1)) * Double(levels.count - 1)
+        let lo = Int(src.rounded(.down))
+        let hi = min(lo + 1, levels.count - 1)
+        let t = Float(src - Double(lo))
+        let v = levels[lo] * (1 - t) + levels[hi] * t
+        // levels 是 0…1 的归一化音量，钳一下防止越界把条子拉爆。
+        let clamped = Swift.max(0, Swift.min(1, v))
+        return minHeight + CGFloat(clamped) * (maxHeight - minHeight)
+    }
+
+    var body: some View {
+        HStack(spacing: barSpacing) {
+            ForEach(0..<barCount, id: \.self) { i in
+                let h = height(at: i)
+                Capsule()
+                    .fill(ChatColors.accent)
+                    // HTML: 高度超过 10 才算"正在响"，透明度从 0.38 跳到 0.96。
+                    .opacity(h > 10 ? 0.96 : 0.38)
+                    .frame(width: barWidth, height: h)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: maxHeight)
+        // 高度变化用线性小步，照 HTML 的 `transition: height 0.11s ease`。
+        .animation(.linear(duration: 0.11), value: levels)
+        .accessibilityHidden(true)
     }
 }
 
