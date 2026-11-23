@@ -2073,8 +2073,18 @@ struct AIChatView: View {
     /// 都该走这里（照 HTML 的 isCollapsed=false 那几处）。
     private func expandComposer() {
         guard composerCollapsed else { return }
-        withAnimation(keyboardAnim) { composerCollapsed = false }
+        withAnimation(Self.composerMorph) { composerCollapsed = false }
     }
+
+    /// [liquid-cat 11-23] 收起/展开专用曲线，对应 HTML 的
+    /// `--spring-smooth: cubic-bezier(0.22, 1, 0.36, 1)`：起步快、收尾长，
+    /// 视觉上"唰一下到位"而不是慢慢爬。
+    ///
+    /// 原来用 keyboardAnim（easeInOut 0.25）收回去拖沓，就是因为那条曲线
+    /// 前后对称、尾巴还在慢慢挪。这里换成响应 0.26 / 阻尼 0.92 的弹簧：
+    /// 过冲几乎没有（0.92 接近临界阻尼），尾巴收得干净，
+    /// 36pt 的高度差上看着是"唰"一下而不是爬过去。
+    static let composerMorph = Animation.spring(response: 0.26, dampingFraction: 0.92)
 
     /// [liquid-collapsed 11-23] 回到一行。只有「什么都没有」时才收：
     /// 没字、没附件、没在编辑、没开语音、没在录音、托盘也关着。
@@ -2086,7 +2096,7 @@ struct AIChatView: View {
         guard vm.editingMessageIndex == nil else { return }
         guard !voiceInputActive, speechManager.state != .recording else { return }
         guard !showStickerPanel, !inputFocused else { return }
-        withAnimation(keyboardAnim) { composerCollapsed = true }
+        withAnimation(Self.composerMorph) { composerCollapsed = true }
     }
 
     private func enterVoiceMode() {
@@ -3105,34 +3115,27 @@ struct AIChatView: View {
         return name.isEmpty ? AppLocalized("发消息…") : AppLocalized("发消息给 \(name)…")
     }
 
-    /// 收起态主键：空输入时是语音波形（HTML 的 .icon-wave），有字时是发送箭头。
-    /// 收起态不可能有字（有字就展开了），所以这里实际恒为波形——
-    /// 但仍按 hasText 判断，万一将来收起条件放宽也不会画错。
+    /// 收起态主键。照 HTML `#btnVoiceCollapsed`：
+    /// **只有一个作用——开实时语音**（aria-label 就叫「开启实时语音」）。
+    /// 收起态本来就不可能有字（有字就展开了），所以这里不判发送，
+    /// 免得"点语音键没反应、点输入栏反而变语音"那种错乱。
+    ///
+    /// 图标用 HTML 的五根柱子波形，不是系统的 waveform（后者形状差很多）。
+    /// 按 HTML 的 .primary-action-btn：实心圆、按下 scale(0.86)。
     private var collapsedPrimaryKey: some View {
-        Button {
-            let hasText = !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            if hasText {
-                performSend()
-            } else {
-                enterVoiceMode()
-            }
-        } label: {
+        Button(action: enterVoiceMode) {
             ZStack {
-                Circle().fill(ChatColors.sendButton)
-                Image(systemName: "waveform")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(ChatColors.background)
-                    .opacity(hasComposerText ? 0 : 1)
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(ChatColors.background)
-                    .opacity(hasComposerText ? 1 : 0)
+                Circle().fill(ChatColors.primaryText)
+                VoiceWaveGlyph()
+                    .stroke(ChatColors.background,
+                            style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+                    .frame(width: 17, height: 17)
             }
-            .frame(width: 34, height: 34)
+            .frame(width: 35, height: 35)
             .contentShape(Circle())
         }
-        .buttonStyle(MorphPressStyle())
-        .accessibilityLabel(Text(hasComposerText ? AppLocalized("发送") : AppLocalized("语音输入")))
+        .buttonStyle(PrimaryPressStyle())
+        .accessibilityLabel(Text(AppLocalized("语音输入")))
     }
 
     /// 输入框里有没有非空白文字。收起/展开、主键图标都看它。
@@ -3165,7 +3168,9 @@ struct AIChatView: View {
                 // accent (HTML .cat-sticker-btn.is-active), not primary text.
                 // Only the sticker key ever passes active=true.
                 .foregroundStyle(active ? ChatColors.accent : ChatColors.secondaryText)
-                .frame(width: 34, height: 34)
+                // [liquid-cat 11-23] 34 -> 35，照 HTML .tool-icon-btn 的
+                // width/height: 35px。四颗键（加号/猫头/主键）原来都小 1pt。
+                .frame(width: 35, height: 35)
                 .background(ChatColors.inputIconBg)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
@@ -3183,7 +3188,7 @@ struct AIChatView: View {
             Image(name)
                 .resizable()
                 .scaledToFill()
-                .frame(width: 34, height: 34)
+                .frame(width: 35, height: 35)
                 .background(ChatColors.inputIconBg)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
@@ -3211,7 +3216,17 @@ struct AIChatView: View {
             if let icon = appearanceStudio.currentThemePack().composerEmojiImage {
                 composerRoundImage(icon) { toggleStickerTray() }
             } else {
-                composerRoundKey("face.smiling", active: showStickerPanel) { toggleStickerTray() }
+                // [liquid-cat 11-23] 换成 HTML 那个猫头 SVG，不再用系统笑脸。
+                // 背景透明、不换色——HTML 的 .cat-sticker-btn 就是这样，
+                // 只有按下才缩 + 逆时针转 8°（--spring-bouncy）。
+                // 原来用 composerRoundKey(active:) 会在托盘打开时把图标染成
+                // accent，"表情键为什么会变色"那个问题就是它。
+                //
+                // 两处尺寸照 HTML：收起态 22、展开态 23。
+                // 这个 stickerKey 同时给两种态用（见 collapsedComposerRow 与
+                // inputBottomRow），用 composerCollapsed 决定用哪个号。
+                CatStickerKey(action: toggleStickerTray,
+                              glyphSize: composerCollapsed ? 22 : 23)
             }
         }
         .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
@@ -3334,7 +3349,7 @@ struct AIChatView: View {
                     Image(sendIcon)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 34, height: 34)
+                        .frame(width: 35, height: 35)
                         .clipShape(Circle())
                         .opacity(showArrow ? 1 : 0)
                 }
@@ -3347,7 +3362,7 @@ struct AIChatView: View {
                     Image(pauseIcon)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 34, height: 34)
+                        .frame(width: 35, height: 35)
                         .clipShape(Circle())
                         .opacity(showPause ? 1 : 0)
                 }
@@ -3364,7 +3379,7 @@ struct AIChatView: View {
                     .foregroundStyle(ChatColors.secondaryText.opacity(0.45))
                     .opacity(showIdle ? 1 : 0)
             }
-            .frame(width: 34, height: 34)
+            .frame(width: 35, height: 35)
             .contentShape(Circle())
             // [input-bar-liquid-glass] Wave ⇄ send morph timing from the
             // HTML (0.38s spring): glyphs stay mounted (see
@@ -3467,7 +3482,7 @@ struct AIChatView: View {
             Text(speechManager.languageLabel)
                 .font(ChatFont.font(12, weight: .semibold))
                 .foregroundStyle(ChatColors.secondaryText)
-                .frame(width: 34, height: 34)
+                .frame(width: 35, height: 35)
                 .background(ChatColors.inputIconBg)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
@@ -3603,7 +3618,7 @@ struct AIChatView: View {
                 bottomTrailingRadius: 0, topTrailingRadius: 20,
                 style: .continuous))
         }
-        return AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        return AnyShape(RoundedRectangle(cornerRadius: collapsed ? 28 : 20, style: .continuous))
     }
 
     /// [input-bar-fallback-pulse] 3× pulse of the fallback ring around the
@@ -3795,7 +3810,8 @@ struct AIChatView: View {
                     attached: showStickerPanel,
                     pulseOpacity: fallbackPulseOpacity,
                     pulseShape: fallbackPulseShape,
-                    showsBreathing: showsInputBarTypingDots
+                    showsBreathing: showsInputBarTypingDots,
+                    collapsed: composerCollapsed
                 ))
                 // 模型回落脉冲的触发器留在这里：它改的是 AIChatView 自己的
                 // fallbackPulseOpacity，搬进 ComposerChrome 只会多一层闭包。
@@ -4972,6 +4988,117 @@ private struct MorphPressStyle: ButtonStyle {
 /// 把这六十多行修饰器搬进独立类型之后，inputBar 里只剩一句
 /// `.modifier(ComposerChrome(...))`，泛型深度一刀切下来。
 /// 以后调这儿的外观，也不会再拖累 AIChatView 那一整坨。
+/// [liquid-cat 11-23] 猫头表情键。照她给的那份 SVG 一比一画：
+/// 外轮廓一条路径，两只眼睛用奇偶填充从轮廓里挖掉（SVG 里是 mask，
+/// SwiftUI 里 fill(eoFill: true) 等价——眼睛的椭圆要反向绕，这里
+/// 靠 even-odd 规则自动处理，不用管绕向）。
+///
+/// 尺寸和 HTML 的 .cat-sticker-btn 一致：按钮 35×35，图形 22×22。
+/// 背景透明——HTML 那颗键没有底也没有描边，只有按下时的缩放 + 旋转。
+/// 按下：scale(0.84) + rotate(-8°)，曲线 0.32s 回弹（--spring-bouncy）。
+/// HTML 收起态主键的那五根柱子（`M4.5 10v4M8.25 7.5v9M12 5v14M15.75 7.5v9M19.5 10v4`）。
+/// 系统 waveform 是圆润的连续曲线，跟这个"五根竖条"差得很远。
+private struct VoiceWaveGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width / 24
+        let h = rect.height / 24
+        func x(_ v: CGFloat) -> CGFloat { rect.minX + v * w }
+        func y(_ v: CGFloat) -> CGFloat { rect.minY + v * h }
+
+        var p = Path()
+        // 五根竖线，中间的从 5 到 19，两边依次收短
+        let bars: [(CGFloat, CGFloat, CGFloat)] = [
+            (4.5, 10, 14), (8.25, 7.5, 16.5), (12, 5, 19),
+            (15.75, 7.5, 16.5), (19.5, 10, 14),
+        ]
+        for (cx, top, bottom) in bars {
+            p.move(to: CGPoint(x: x(cx), y: y(top)))
+            p.addLine(to: CGPoint(x: x(cx), y: y(bottom)))
+        }
+        return p
+    }
+}
+
+/// HTML `.primary-action-btn:active { transform: scale(0.86) }`，
+/// 曲线 0.26s --spring-bouncy。
+private struct PrimaryPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.86 : 1)
+            .animation(.spring(response: 0.26, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+private struct CatStickerKey: View {
+    var action: () -> Void
+    /// HTML 两处猫头不一样大：收起态 22、展开态 23。键本身都是 35。
+    var glyphSize: CGFloat = 22
+    @State private var pressed = false
+
+    var body: some View {
+        Button(action: action) {
+            CatHeadShape()
+                .fill(ChatColors.primaryText, style: FillStyle(eoFill: true))
+                .frame(width: glyphSize, height: glyphSize)
+                .frame(width: 35, height: 35)
+                .contentShape(Circle())
+        }
+        .buttonStyle(CatPressStyle())
+        .accessibilityLabel(Text(AppLocalized("表情包")))
+    }
+}
+
+/// 猫头轮廓 + 两只眼睛（奇偶填充挖洞）。
+/// 路径数据直接抄她给的那份 SVG 的 viewBox 0 0 100 100。
+private struct CatHeadShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        // SVG 是 100×100 坐标系，这里缩放到实际 rect。
+        let w = rect.width / 100
+        let h = rect.height / 100
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * w, y: rect.minY + y * h)
+        }
+
+        var p = Path()
+        // 外轮廓（SVG 的 <path d="M20 41C17 30.5 ...">）
+        p.move(to: pt(20, 41))
+        p.addCurve(to: pt(26.2, 10.8), control1: pt(17, 30.5), control2: pt(20, 16.5))
+        p.addCurve(to: pt(34.6, 12.7), control1: pt(28.6, 8.6), control2: pt(31.8, 9.4))
+        p.addCurve(to: pt(44.5, 29.3), control1: pt(39.0, 17.9), control2: pt(42.5, 23.9))
+        p.addCurve(to: pt(55.5, 29.3), control1: pt(48.1, 28.3), control2: pt(51.9, 28.3))
+        p.addCurve(to: pt(65.4, 12.7), control1: pt(57.5, 23.9), control2: pt(61.0, 17.9))
+        p.addCurve(to: pt(73.8, 10.8), control1: pt(68.2, 9.4), control2: pt(71.4, 8.6))
+        p.addCurve(to: pt(80, 41), control1: pt(80, 16.5), control2: pt(83, 30.5))
+        p.addCurve(to: pt(84.4, 58.5), control1: pt(82.9, 46.3), control2: pt(84.4, 52.2))
+        p.addCurve(to: pt(50, 89), control1: pt(84.4, 75.5), control2: pt(69.5, 89))
+        p.addCurve(to: pt(15.6, 58.5), control1: pt(30.5, 89), control2: pt(15.6, 75.5))
+        p.addCurve(to: pt(20, 41), control1: pt(15.6, 52.2), control2: pt(17.1, 46.3))
+        p.closeSubpath()
+
+        // 左眼（椭圆 cx=37.5 cy=57 rx=3.6 ry=5.4），反向绕一圈
+        p.addEllipse(in: CGRect(x: rect.minX + (37.5 - 3.6) * w,
+                                y: rect.minY + (57 - 5.4) * h,
+                                width: 7.2 * w, height: 10.8 * h))
+        // 右眼（cx=62.5）
+        p.addEllipse(in: CGRect(x: rect.minX + (62.5 - 3.6) * w,
+                                y: rect.minY + (57 - 5.4) * h,
+                                width: 7.2 * w, height: 10.8 * h))
+        return p
+    }
+}
+
+/// 猫头键的按下反馈：缩放 0.84 + 逆时针 8°，跟 HTML 的
+/// `.cat-sticker-btn:active { transform: scale(0.84) rotate(-8deg) }` 一致。
+/// 曲线用 spring(0.32, 回弹)，对应 CSS 的 cubic-bezier(0.34,1.38,0.64,1)。
+private struct CatPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.84 : 1)
+            .rotationEffect(.degrees(configuration.isPressed ? -8 : 0))
+            .animation(.spring(response: 0.32, dampingFraction: 0.62), value: configuration.isPressed)
+    }
+}
+
 private struct ComposerChrome: ViewModifier {
     /// 表情抽屉开着时，左右和底部的内边距都收成 0。
     /// 不收的话托盘和胶囊之间会留一道台阶，看着像两块东西摞着。
@@ -4982,12 +5109,14 @@ private struct ComposerChrome: ViewModifier {
     var pulseShape: AnyShape
     /// AI 等待回复期间显示呼吸光晕。
     var showsBreathing: Bool
+    /// [liquid-cat 11-23] 收起态：圆角 28（展开态 20），照 HTML 实测。
+    var collapsed: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
-            .modifier(GlassComposerSurface(attached: attached))
+            .modifier(GlassComposerSurface(attached: attached, collapsed: collapsed))
             // 回落脉冲环：模型切换失败时闪三下。描边永远盖不住文字。
             .overlay {
                 pulseShape
@@ -5005,7 +5134,9 @@ private struct ComposerChrome: ViewModifier {
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: showsBreathing)
             .padding(.horizontal, attached ? 0 : 12)
-            .padding(.bottom, attached ? 0 : 8)
+            // [liquid-cat 11-23] 收起态底部 10、展开态 8——照 HTML 实测的
+            // padding: 12px 12px 10px（收起）vs 展开态的底 8。
+            .padding(.bottom, attached ? 0 : (collapsed ? 10 : 8))
     }
 }
 
@@ -8715,6 +8846,10 @@ struct StickerEditSheet: View {
 private struct GlassComposerSurface: ViewModifier {
     var attached: Bool = false
     var topOnly: Bool = false
+    /// [liquid-cat 11-23] 收起态圆角 28、展开态 20——照 HTML 实测：
+    /// 收起时卡片总高 59（12+35+12），圆角 28 才不显得"扁胶囊"；
+    /// 展开时高度大了，20 更贴合。HTML 用 border-radius 过渡切这两个值。
+    var collapsed: Bool = false
 
     @ObservedObject private var appearanceStudio = AppearanceStudio.shared
     @Environment(\.colorScheme) private var colorScheme
