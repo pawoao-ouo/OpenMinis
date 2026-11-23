@@ -3654,62 +3654,20 @@ struct AIChatView: View {
                 }
                 // 输入条本身是一颗胖胶囊：四角全圆，左右留 8、离底留 6，
                 // 浮在消息上面。托盘出现时它还是浮着，托盘从它下面滑出来。
-                .modifier(GlassComposerSurface(attached: showStickerPanel))
-                // [input-bar-fallback-pulse] Model-fallback signal, re-homed
-                // from the deleted title (old pulse: destructive fill behind
-                // the title, 3× 0.35s). A ring around the bar's own capsule
-                // instead: a stroke can never cover the text or the typing
-                // dots, and it rests invisible at opacity 0. Same color,
-                // strength and timing as the old pulse.
-                .overlay {
-                    fallbackPulseShape
-                        .stroke(ChatColors.destructive.opacity(0.35 * fallbackPulseOpacity), lineWidth: 2)
-                        .allowsHitTesting(false)
-                }
-                // [input-bar-liquid-glass] Breathing sheen + ring while the
-                // AI waits (same capsule shape as the fallback ring, so the
-                // two never fight over radii). Different layer, different
-                // color role — they can show together.
-                .overlay {
-                    if showsInputBarTypingDots {
-                        BreathingGlowOverlay(shape: fallbackPulseShape)
-                            // [input-bar-liquid-glass] Fade out like the
-                            // HTML card glow (opacity 0.5s): without a
-                            // transition the glow vanishes in one frame
-                            // when the predicate flips false. (Fade-in
-                            // already exists inside the overlay via
-                            // `appeared`, 0.5s.) Reduce Motion: no
-                            // transition (HTML: transition: none).
-                            .transition(reduceMotion ? .identity : .opacity)
-                    }
-                }
-                // Reduce Motion: no mount/unmount animation either (HTML:
-                // transition: none) — the glow appears/disappears instantly.
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: showsInputBarTypingDots)
+                .modifier(ComposerChrome(
+                    attached: showStickerPanel,
+                    pulseOpacity: fallbackPulseOpacity,
+                    pulseShape: fallbackPulseShape,
+                    showsBreathing: showsInputBarTypingDots
+                ))
+                // 模型回落脉冲的触发器留在这里：它改的是 AIChatView 自己的
+                // fallbackPulseOpacity，搬进 ComposerChrome 只会多一层闭包。
                 .onChange(of: vm.fallbackTrigger) { _ in
                     runFallbackPulse()
                 }
-                // [T-composer-upstream] 左右 12、离底 8，跟上游一致。原来左右 8
-                // 让整条栏贴到屏幕边上，键看着要「掉出去」；12 是上游定的呼吸量。
-                //
-                // [T-tray-seam] 托盘在下面时这 12 要收掉：托盘是满宽的，胶囊
-                // 缩进 12 就会在接缝两侧各留一道 12 的台阶——看着是「一条胶囊
-                // 摞在一块平板上」，不是一整块。收成 0 之后两块同宽同色，圆角
-                // 又都取直，才接得严。
-                .padding(.horizontal, showStickerPanel ? 0 : 12)
-                // 输入条永远浮着（离底 6）：它是胶囊，底角是圆的，贴死在托盘
-                // 上反而会跟托盘顶边打架。真正要贴底的是托盘自己。
-                // [T-tray-seam] 托盘在下面时这 6pt 必须收掉：托盘是从输入条
-                // 底下吸出来的，中间留 6pt 就把消息区那条渐变背景露出来，
-                // 看着就是「抽屉和输入条之间有一条缝」。收成 0 之后输入条的
-                // 圆角直接压在托盘的 fill 上（两边同一块 inputBg），接成一整块。
-                .padding(.bottom, showStickerPanel ? 0 : 8)
-
                 // 底部抽屉：加号清单 / 表情宫格。贴底满宽，底边一路铺到
                 // 屏幕物理底（ComposerSurface 的 .tray 只圆上两角），
                 // 所以不管开哪一个，下面都不会漏出一条壁纸。
-                // [T-composer-oneshot] 加号改走原生 sheet（见 .sheet 挂载处），
-                // 输入条下面只剩表情宫格这一块托盘。
                 if showStickerPanel {
                     bottomDrawerSection
                         .modifier(GlassComposerSurface(topOnly: true))
@@ -4866,6 +4824,54 @@ private struct MorphPressStyle: ButtonStyle {
 /// and the sheen band are static; only the whole layer's opacity breathes.
 /// No shadow (the HTML's ::after has none), no offset sweep.
 /// Reduce Motion: no loop — the layer shows statically at full opacity.
+/// [liquid-split 11-23] 输入栏的"外皮"：玻璃底、回落脉冲环、呼吸光晕、内边距。
+///
+/// 为什么单独成一个 struct：`AIChatView.inputBar` 是 computed property，
+/// 它的类型名**写在 AIChatView 的元数据里**，链子一长就整体膨胀。
+/// 2026-11-23 那次启动崩溃（EXC_BAD_ACCESS / Stack Guard，
+/// decodeMangledType 递归 77 层）就是这条链撑爆的：dSYM 里
+/// inputBar 的符号从 2156 字符涨到 2582，body 却没变。
+///
+/// 把这六十多行修饰器搬进独立类型之后，inputBar 里只剩一句
+/// `.modifier(ComposerChrome(...))`，泛型深度一刀切下来。
+/// 以后调这儿的外观，也不会再拖累 AIChatView 那一整坨。
+private struct ComposerChrome: ViewModifier {
+    /// 表情抽屉开着时，左右和底部的内边距都收成 0。
+    /// 不收的话托盘和胶囊之间会留一道台阶，看着像两块东西摞着。
+    var attached: Bool
+    /// 模型回落脉冲环的透明度。0 时整圈不可见。
+    var pulseOpacity: Double
+    /// 脉冲环和呼吸光晕共用的形状（收起态胶囊 / 展开态圆角矩形）。
+    var pulseShape: AnyShape
+    /// AI 等待回复期间显示呼吸光晕。
+    var showsBreathing: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(GlassComposerSurface(attached: attached))
+            // 回落脉冲环：模型切换失败时闪三下。描边永远盖不住文字。
+            .overlay {
+                pulseShape
+                    .stroke(ChatColors.destructive.opacity(0.35 * pulseOpacity), lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
+            // 呼吸光晕：AI 等待时贴在胶囊外缘的一层流光。
+            .overlay {
+                if showsBreathing {
+                    BreathingGlowOverlay(shape: pulseShape)
+                        // 淡出要跟 HTML 的 0.5s 一致，否则谓词一翻转
+                        // 光晕就"啪"地消失。Reduce Motion 下不做过渡。
+                        .transition(reduceMotion ? .identity : .opacity)
+                }
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: showsBreathing)
+            .padding(.horizontal, attached ? 0 : 12)
+            .padding(.bottom, attached ? 0 : 8)
+    }
+}
+
 private struct BreathingGlowOverlay: View {
     let shape: AnyShape
     @State private var glowOpacity = false
