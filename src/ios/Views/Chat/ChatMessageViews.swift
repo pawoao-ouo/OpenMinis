@@ -150,10 +150,10 @@ private struct ContextMenuPreviewSurface: ViewModifier {
 ///    removed (it pushed the brightness up and hurt); the opacity
 ///    slider still works because `ChatColors.userBubble` carries the
 ///    alpha.
-///  - **Queued** (`isQueued == true`) — deliberately NOT the solid
-///    sent fill. It keeps the dimmed 0.72 background, so "queued"
-///    still looks provisional next to the solid theme color of
-///    everything already sent.
+///  - **Queued** (`isQueued == true`) — [11-24 醒醒] 现在跟已发送的
+///    一模一样：实心底色 + 实心文字。她原话「用户气泡也不能再是虚的，
+///    而是和正常用户气泡一样的」。区别只靠右上角那颗状态点表达：
+///    灰 = 还在队列里等注入，蓝 = 正在送进上下文，点消失 = 已进上下文。
 // [B28 R5] internal（原 private）：装扮页样张复用真气泡皮肤本体 ——
 // 平铺/气泡/文稿三形态全在这里，复制=双维护=撒谎；气泡本体已无 Liquid Glass，唯一的玻璃判定只剩上面长按预览盘的开关分支。
 // MARK: - 正文视图
@@ -180,7 +180,11 @@ struct UserMessageText: View {
             //  之前还留着"自己写围栏才当代码"的口子,那条也删了。)
             Text(text)
                 .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16.5)))
-                .foregroundStyle(isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
+                // [11-24 醒醒] 底色改实了，文字颜色也得跟上。
+                // 原来排队消息的文字用 secondaryText（淡），配 0.72 的淡底；
+                // 现在底是实心主题色，文字再淡就是浅底浅字，比之前更不能看。
+                // 一律用 bubbleText，跟已发送的气泡完全一致。
+                .foregroundStyle(ChatColors.bubbleText)
                 .fixedSize(horizontal: false, vertical: true)
                 .id(appearanceStudio.themePackRevision)
         }
@@ -307,12 +311,22 @@ private struct QueuedStatusDot: ViewModifier {
     func body(content: Content) -> some View {
         content.overlay(alignment: .topTrailing) {
             if isQueued {
+                // [11-24 醒醒] 气泡底改成实心主题色之后，原来那颗
+                // secondaryText@0.55 的灰点贴在实心暖粉上看不见了。
+                // 改成：白色实心点 + 一圈淡描边，在任何一个主题色上都跳出来。
+                // 蓝（accent）仍表示"正在送进上下文"，只是换成深一档的实心。
                 Circle()
                     .fill(isDelivering
                           ? ChatColors.accent
-                          : ChatColors.secondaryText.opacity(0.55))
-                    .frame(width: 6, height: 6)
-                    .offset(x: 3, y: -3)
+                          : Color.white)
+                    .frame(width: 7, height: 7)
+                    .overlay(
+                        Circle().stroke(
+                            isDelivering ? Color.white.opacity(0.9)
+                                         : ChatColors.secondaryText.opacity(0.45),
+                            lineWidth: 1)
+                    )
+                    .offset(x: 2, y: -2)
                     .accessibilityLabel(isDelivering ? "正在送达" : "等待发送")
             }
         }
@@ -612,7 +626,7 @@ struct ChatMessageRow: View {
                                 HStack(spacing: 6) {
                                     Text(cleanUserText)
                                         .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16.5)))
-                                        .foregroundStyle(message.isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
+                                        .foregroundStyle(ChatColors.bubbleText)
                                         .padding(.horizontal, AppearanceChatDisplay.parse(
                                             AppearanceStudio.shared.currentThemePack().chatDisplay) == .bubbles
                                             ? MinisThemeShape.userPadding : 14)
@@ -631,7 +645,7 @@ struct ChatMessageRow: View {
                                 HStack(spacing: 6) {
                                     Text(cleanUserText)
                                         .font(MinisThemeShape.messageFont(size: FontSettings.shared.scaledMessage(16.5)))
-                                        .foregroundStyle(message.isQueued ? ChatColors.secondaryText : ChatColors.bubbleText)
+                                        .foregroundStyle(ChatColors.bubbleText)
                                         .padding(.horizontal, AppearanceChatDisplay.parse(
                                             AppearanceStudio.shared.currentThemePack().chatDisplay) == .bubbles
                                             ? MinisThemeShape.userPadding : 14)
