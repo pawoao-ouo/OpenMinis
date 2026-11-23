@@ -961,6 +961,15 @@ struct AIChatView: View {
                 showStickerPanel = false
             }
         }
+        // [voice-tap-collapse 11-23] 语音态一变就必须展开。
+        //
+        // 这条不是给"点语音键"用的（那条路 enterVoiceMode 里已经展开），
+        // 是给**所有别的入口**用的：跨会话重建、从加号抽屉进语音、
+        // 外部代码直接把 voiceInputActive 置 true……
+        // 只要语音态在这，输入栏就不能是单行 —— 语音面板只在两行骨架里渲染。
+        .onChange(of: voiceInputActive) { active in
+            if active { expandComposer() }
+        }
         // [T-inputbar-stretch] Drawer open/close changes the composer's own
         // height, and the debounce can commit a mid-transition sample. Re-arm
         // the seed on every toggle so the next geometry callback re-measures
@@ -2091,6 +2100,11 @@ struct AIChatView: View {
     /// 任何一条不满足就保持展开——宁可多占一行，也不能把她的字藏起来。
     private func collapseComposerIfResting() {
         guard !composerCollapsed else { return }
+        // [voice-tap-collapse 11-23] 生成中不收：收起态主键是语音键，
+        // 一收起来暂停键就没地方按了。这是第 5 个反馈的根因之一。
+        // 放在这个函数里而不是 composerRows 里 —— 这里不参与类型推导，
+        // 加条件不会让 AIChatView 的泛型类型名变长（599 闪退那条红线）。
+        guard !vm.isProcessing else { return }
         guard !hasComposerText else { return }
         guard vm.attachments.isEmpty, vm.loadingVideoCount == 0 else { return }
         guard vm.editingMessageIndex == nil else { return }
@@ -2105,7 +2119,19 @@ struct AIChatView: View {
         }
         vm.voiceUsedInComposition = true
         VoiceModePreference.shared.enteredFromText = true
-        withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = true }
+        // [voice-tap-collapse 11-23] 进语音必须同时把输入栏展开。
+        //
+        // 语音面板 InlineVoiceInputView 长在 inputFieldOrWaveform 里，
+        // 而 composerRows 第一道判断就是收起态直接返回单行胶囊 ——
+        // 语音面板根本没机会渲染。以前只改 voiceInputActive，状态是变了，
+        // 但被收起态挡在门外，所以点语音键"没反应"、点一下输入栏才变成语音。
+        //
+        // 两件事放进同一个动画：原来 easeInOut(0.2) 和收起用的
+        // composerMorph 是两条曲线，高度和内容各动各的，看着就是两段。
+        withAnimation(Self.composerMorph) {
+            composerCollapsed = false
+            voiceInputActive = true
+        }
     }
 
     private func exportCurrentConversation() {
@@ -3061,7 +3087,19 @@ struct AIChatView: View {
         // 有附件或正在编辑时不收：那两块内容长在 composerRows 外面，
         // 收起态只画一行的话，上面会剩一堆附件/编辑条飘着，
         // 下面是颗单行胶囊——看着像两块东西。宁可展开。
+        // [voice-tap-collapse 11-23] 语音态绝不收成单行。
+        //
+        // voiceInputActive 存在 VoiceModePreference 单例里，跨会话保留；
+        // 切个会话回来 AIChatView 重建、composerCollapsed 回到初值 true，
+        // 要是这里不挡住，语音面板又被藏起来 —— 症状和"点语音键没反应"
+        // 一模一样。这道门在渲染层，因为跨会话重建不走逻辑层那条路。
+        //
+        // 注意这里**不能**加 !vm.isProcessing：生成中靠下面
+        // collapseComposerIfResting 的 guard 从源头拦住，不在这里兜底。
+        // 两条路都拦会让 composerCollapsed 停在 true 而实际渲染两行，
+        // 收起态的圆角/内边距就全错位了 —— 状态和显示必须一致。
         if composerCollapsed,
+           !voiceInputActive,
            vm.attachments.isEmpty, vm.loadingVideoCount == 0,
            vm.editingMessageIndex == nil {
             return AnyView(collapsedComposerRow)
