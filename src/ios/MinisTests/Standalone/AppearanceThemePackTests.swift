@@ -462,8 +462,8 @@ check("syntax colours stay off the accent scale",
       scale.contains("|| self == .codeType || self == .codeFunction"))
 check("highlighter reads the theme, not a local palette",
       !markdownView.contains("UIColor(red: 0.78, green: 0.47, blue: 0.87")
-      && markdownView.contains("studio.uiColorSnapshot(.codeKeyword")
-      && markdownView.contains("studio.uiColorSnapshot(.codeFunction"))
+      && markdownView.contains("AppearanceStudio.uiColorSnapshot(.codeKeyword")
+      && markdownView.contains("AppearanceStudio.uiColorSnapshot(.codeFunction"))
 check("highlighter no longer picks a palette by background darkness",
       !markdownView.contains("palette(dark: isDarkBackground(background))"))
 
