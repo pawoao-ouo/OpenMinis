@@ -450,7 +450,7 @@ check("backend retains icon removal", studio.contains("func removeIcon"))
 // 1) 两本色板都给每个语法色一份默认值（缺了就是运行时 808080 灰）；
 // 2) 语法色不参与主色推导，否则摇主题会把代码摇成一片单色；
 // 3) 高亮器不许再出现自己那套硬编码色板，必须走主题快照。
-let markdownView = read("src/ios/Views/Chat/SelectableMarkdownView.swift")
+let markdownView = read(here.appendingPathComponent("Views/Chat/SelectableMarkdownView.swift"))
 let scale = read(here.appendingPathComponent("Shared/AppearanceColorScale.swift"))
 check("light book declares all six syntax colours",
       studio.contains(".codeKeyword: \"893442\", .codeString: \"346F54\", .codeComment: \"737373\"")
