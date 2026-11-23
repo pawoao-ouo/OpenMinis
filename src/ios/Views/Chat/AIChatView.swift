@@ -217,6 +217,22 @@ struct AIChatView: View {
     /// 输入栏只占一行（[+][占位][猫头][主键]），照 HTML 的 .is-collapsed。
     /// 默认收起——HTML 首屏展开，但我们的会话页一进来就该是干净的。
     @State private var composerCollapsed: Bool = true
+
+    /// [voice-tap-collapse 11-23] 「视觉上到底是不是收起态」的唯一判定。
+    ///
+    /// 为什么需要一个统一入口：收起外观（圆角 28、底部内边距 10、猫头 22）
+    /// 原来直接读 `composerCollapsed`，但渲染层要多挡一个条件
+    /// （语音态不画单行）。两处读的不是同一个东西，只要
+    /// `composerCollapsed == true` 而 `voiceInputActive == true`，
+    /// 就会「画两行、用收起态圆角」——跨会话重建时就是这样：
+    /// `composerCollapsed` 回到初值 true，而 voiceInputActive 是单例、一直是
+    /// true，onChange 因为值没变也不会触发，错位会一直停在那儿。
+    ///
+    /// 所以外观和渲染都必须读这一个，不许再直接读 composerCollapsed。
+    /// 它是 Bool，不进泛型类型名，不碰 599 那条符号长度红线。
+    private var isComposerCollapsed: Bool {
+        composerCollapsed && !voiceInputActive
+    }
     @State private var inputFocused: Bool = false
     @State private var inputHasSelection: Bool = false
     @State private var inputIsScrollable: Bool = false
@@ -961,15 +977,15 @@ struct AIChatView: View {
                 showStickerPanel = false
             }
         }
-        // [voice-tap-collapse 11-23] 语音态一变就必须展开。
-        //
-        // 这条不是给"点语音键"用的（那条路 enterVoiceMode 里已经展开），
-        // 是给**所有别的入口**用的：跨会话重建、从加号抽屉进语音、
-        // 外部代码直接把 voiceInputActive 置 true……
-        // 只要语音态在这，输入栏就不能是单行 —— 语音面板只在两行骨架里渲染。
-        .onChange(of: voiceInputActive) { active in
-            if active { expandComposer() }
-        }
+        // [voice-tap-collapse 11-23] 这里原打算加一条
+        // .onChange(of: voiceInputActive) { expandComposer() }，
+        // 后来去掉了：
+        //   1. 功能上是多余的 —— isComposerCollapsed 已经在渲染层挡住收起态，
+        //      语音态下永远画两行，不需要再动 composerCollapsed。
+        //   2. 它在 body 的修饰链上，每加一个修饰器都在加深
+        //      AIChatView.body 的类型推导路径。599 那次进程级闪退
+        //      （decodeMangledType 递归爆栈）就是这条链太深。
+        //      能省一层就省一层，状态层的门已经够了。
         // [T-inputbar-stretch] Drawer open/close changes the composer's own
         // height, and the debounce can commit a mid-transition sample. Re-arm
         // the seed on every toggle so the next geometry callback re-measures
@@ -2959,7 +2975,19 @@ struct AIChatView: View {
         if voiceVM.isEditingTranscript {
             voiceVM.endEditing(resume: false)
         }
-        withAnimation(.easeInOut(duration: 0.2)) { voiceInputActive = false }
+        // [voice-tap-collapse 11-23] 退出语音的动画跟收起共用同一条曲线，
+        // 同时把 composerCollapsed 明确置 false 钉住展开。
+        //
+        // 为什么必须置 false：isComposerCollapsed = composerCollapsed && !voiceInputActive。
+        // voiceInputActive 变 false 那一刻，若 composerCollapsed 仍是 true
+        // 就会立刻收成单行，可 0.12 秒后还要聚焦输入框、一聚焦又展开 ——
+        // 收一下再展开就是"闪一下"。
+        // 这里先钉成展开，真正的收起交给失焦后的 collapseComposerIfResting
+        // （它带全套 guard：没字、没附件、不在编辑、不在生成）。
+        withAnimation(Self.composerMorph) {
+            voiceInputActive = false
+            composerCollapsed = false
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             guard !voiceInputActive, !showStickerPanel else { return }
             inputFocused = true
@@ -3092,14 +3120,13 @@ struct AIChatView: View {
         // voiceInputActive 存在 VoiceModePreference 单例里，跨会话保留；
         // 切个会话回来 AIChatView 重建、composerCollapsed 回到初值 true，
         // 要是这里不挡住，语音面板又被藏起来 —— 症状和"点语音键没反应"
-        // 一模一样。这道门在渲染层，因为跨会话重建不走逻辑层那条路。
+        // 一模一样。判定收敛进 isComposerCollapsed，外观和渲染读同一个值。
         //
         // 注意这里**不能**加 !vm.isProcessing：生成中靠下面
         // collapseComposerIfResting 的 guard 从源头拦住，不在这里兜底。
         // 两条路都拦会让 composerCollapsed 停在 true 而实际渲染两行，
         // 收起态的圆角/内边距就全错位了 —— 状态和显示必须一致。
-        if composerCollapsed,
-           !voiceInputActive,
+        if isComposerCollapsed,
            vm.attachments.isEmpty, vm.loadingVideoCount == 0,
            vm.editingMessageIndex == nil {
             return AnyView(collapsedComposerRow)
@@ -3264,7 +3291,7 @@ struct AIChatView: View {
                 // 这个 stickerKey 同时给两种态用（见 collapsedComposerRow 与
                 // inputBottomRow），用 composerCollapsed 决定用哪个号。
                 CatStickerKey(action: toggleStickerTray,
-                              glyphSize: composerCollapsed ? 22 : 23)
+                              glyphSize: isComposerCollapsed ? 22 : 23)
             }
         }
         .accessibilityLabel(Text(showStickerPanel ? AppLocalized("收起表情") : AppLocalized("表情包")))
@@ -3658,7 +3685,9 @@ struct AIChatView: View {
         }
         // [liquid-cat 11-23] 圆角跟 GlassComposerSurface 保持一致：
         // 收起态 28、展开态 20，否则回落脉冲环会和卡片边缘对不齐。
-        return AnyShape(RoundedRectangle(cornerRadius: composerCollapsed ? 28 : 20,
+        // [voice-tap-collapse 11-23] 读 isComposerCollapsed，不读 composerCollapsed
+        // —— 语音态下画的是两行，圆角也得是展开态那个。
+        return AnyShape(RoundedRectangle(cornerRadius: isComposerCollapsed ? 28 : 20,
                                          style: .continuous))
     }
 
@@ -3852,7 +3881,7 @@ struct AIChatView: View {
                     pulseOpacity: fallbackPulseOpacity,
                     pulseShape: fallbackPulseShape,
                     showsBreathing: showsInputBarTypingDots,
-                    collapsed: composerCollapsed
+                    collapsed: isComposerCollapsed
                 ))
                 // 模型回落脉冲的触发器留在这里：它改的是 AIChatView 自己的
                 // fallbackPulseOpacity，搬进 ComposerChrome 只会多一层闭包。
