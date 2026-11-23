@@ -239,9 +239,12 @@ struct UserBubbleSurface: ViewModifier {
         if isQueued {
             // [10-20 醒醒] 排队消息不再画虚线——她要看的是「真气泡」，
             // 状态交给气泡旁边那颗小圆点（灰=待注入/蓝=送达中/消失=已进上下文）。
-            // 底色仍压到 0.72，跟已发送的实心气泡留一线可辨。
+            //
+            // [11-24 醒醒] 底色压暗 0.72 也去掉了 —— 她要的是「跟正常气泡一样」。
+            // 压暗本来是"留一线可辨"，但她说了：用户气泡不能是虚的，
+            // 要看起来就是普通气泡。可辨性交给右上角那颗点，不靠把气泡变淡。
             surfaced
-                .background(userPackBackground(dim: 0.72))
+                .background(userPackBackground())
                 .modifier(BubbleBorderChrome(shape: shape, width: MinisThemeShape.userBorderWidth))
                 .overlay(BubblePackDecorationsView(decorations: MinisThemeShape.packDecorations(user: true)))
         } else if display == .flat || display == .document {

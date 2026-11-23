@@ -452,7 +452,8 @@ struct AIChatView: View {
     @State private var screenshotPreview: ChatScreenshotPreview?
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var attachmentGridHeight: CGFloat = 0
-    @State private var transcriptHeight: CGFloat = 0
+    // [voice-inline 11-23] `transcriptHeight` 删掉了：它只喂旧的录音分支里
+    // 那个转写滚动区的高度夹取，那个分支已经下掉。
     /// Tracks how much of recognizedText has already been appended to inputText.
     @State private var lastRecognizedLength: Int = 0
     /// Intent-based auto-scroll: stays true until the user actively scrolls up
@@ -3239,11 +3240,16 @@ struct AIChatView: View {
     /// 下排键。上游那排是 [+ 退出编辑 话筒 发送];我们要的是 [+ 表情 …… 发送/暂停]。
     /// 话筒、语音转文字全搬进加号抽屉([T-composer-nomic]),这是她点的名。
     private var inputBottomRow: some View {
-        HStack(spacing: 12) {
+        // [voice-inline 11-23] 顺序照 HTML 的 .toolbar-normal 抄：
+        //   [+][模型胶囊][弹性空白][猫头][主键]
+        // 原来猫头排在加号后面，她会看到猫头"跑到另一边"——
+        // 因为它和发送键之间隔了模型胶囊和一段 Spacer。
+        // HTML 里猫头永远贴着主键，中间只隔一个 gap（7）。
+        HStack(spacing: 7) {
             plusKey
-            stickerKey
             modelPill
             Spacer(minLength: 0)
+            stickerKey
             sendPauseKey
         }
         .padding(.horizontal, 12)
@@ -3660,41 +3666,11 @@ struct AIChatView: View {
     ///    what the inline voice panel's globe menu uses. Same underlying
     ///    recognizer locales, different presentation, so the two entry points
     ///    disagreed. Both now read `VoiceLanguages.options`.
-    /// 2. It only ever appears on the legacy `speechManager` recording path,
-    ///    which normal users never reach: tapping the mic switches to the
-    ///    inline voice panel, and the panel's own globe menu is the real
-    ///    language switch. This badge covers the Shortcuts `.startVoice` path,
-    ///    which is the one place `speechManager` still starts a recording.
-    private var languageBadgeButton: some View {
-        Menu {
-            ForEach(VoiceLanguages.options) { opt in
-                Button {
-                    speechManager.setLanguage(Locale(identifier: opt.code))
-                    // The recogniser cannot be restarted while the menu is
-                    // still dismissing; wait for it to leave the screen.
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 350_000_000)
-                        speechManager.restartRecordingIfPending()
-                    }
-                } label: {
-                    if opt.code == speechManager.locale.identifier {
-                        Label(opt.label, systemImage: "checkmark")
-                    } else {
-                        Text(opt.label)
-                    }
-                }
-            }
-        } label: {
-            Text(speechManager.languageLabel)
-                .font(ChatFont.font(12, weight: .semibold))
-                .foregroundStyle(ChatColors.secondaryText)
-                .frame(width: 35, height: 35)
-                .background(ChatColors.inputIconBg)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(ChatColors.inputIconBorder, lineWidth: 0.5))
-        }
-        .accessibilityLabel(AppLocalized("识别语言"))
-    }
+    // [voice-inline 11-23] `languageBadgeButton` 删掉了。
+    // 它只挂在旧的 speechManager 录音分支里，那个分支已经整块下掉
+    // （声波统一由下排的 dictationToolbar 出，转写统一进 inputText）。
+    // 留着就是一段永远不会被调用的死代码，还带着 VoiceLanguages 的依赖。
+    // 识别语言将来要做，进设置页，不放输入栏。
 
     /// Either the multi-line text field or the audio waveform, depending on
     /// whether speech recording is active. Returning `AnyView` erases the
@@ -3719,51 +3695,14 @@ struct AIChatView: View {
         // 她能看到话一个字一个字长出来），下排还是 36 高，
         // 所以 inputBarHeight 基本不动，气泡不被弹。
         // 两个模型叠一屏的问题也一起没了 —— InlineVoiceInputView 不再出场。
-        if speechManager.state == .recording {
-            // Transcript area grows with content up to a cap (~5 lines),
-            // then scrolls internally. ScrollView is greedy in its scroll
-            // axis, so we measure the Text's intrinsic height via a
-            // GeometryReader preference and clamp the ScrollView frame to
-            // min(measured, cap).
-            let transcriptMaxHeight: CGFloat = 100
-            let waveform = VStack(spacing: 6) {
-                // [K-5] Mount the language badge here — this is the only state
-                // in which it means anything (a recording is in progress), and
-                // it is the one place the recogniser's language can matter.
-                HStack(spacing: 8) {
-                    languageBadgeButton
-                    AudioWaveformView(levels: speechManager.audioLevels)
-                        .frame(maxWidth: .infinity)
-                }
-                .padding(.horizontal, 8)
-                if !speechManager.recognizedText.isEmpty {
-                    ScrollViewReader { proxy in
-                        ScrollView(.vertical, showsIndicators: true) {
-                            Text(speechManager.recognizedText)
-                                .font(.subheadline)
-                                .foregroundStyle(ChatColors.secondaryText)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity)
-                                .background(GeometryReader { geo in
-                                    Color.clear.preference(key: TranscriptHeightKey.self, value: geo.size.height)
-                                })
-                                .id("transcriptTail")
-                        }
-                        .frame(height: min(max(transcriptHeight, 22), transcriptMaxHeight))
-                        .onPreferenceChange(TranscriptHeightKey.self) { transcriptHeight = $0 }
-                        .onReceive(speechManager.$recognizedText) { _ in
-                            withAnimation(.linear(duration: 0.1)) {
-                                proxy.scrollTo("transcriptTail", anchor: .bottom)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, topPadding)
-            .padding(.bottom, 10)
-            return AnyView(waveform)
-        }
+        //
+        // [voice-inline 11-23] 这里原来的 `if speechManager.state == .recording`
+        // 分支整块删掉了。它画的是「语言键 + 五根声波 + 转写滚动区」，
+        // 而这套东西现在已经在下排的 dictationToolbar 里（声波），
+        // 转写本身又一直镜像进 inputText、由下面这个文字框显示。
+        // 两处同时在 = 截图里那一屏两条声波。
+        //
+        // 语言切换按键也一并下线：她确认听写条只留四件，语言去设置里设。
         let field = PastableTextView(
             text: inputTextBinding,
             isFocused: $inputFocused,
@@ -5251,10 +5190,17 @@ private struct VoiceWaveGlyph: Shape {
 private struct DictationWave: View {
     let levels: [Float]
 
-    /// 22 根，和 HTML 一致。间距/宽度也照抄，不自己发明。
+    /// 22 根，和 HTML 一致。
     private let barCount = 22
-    private let barWidth: CGFloat = 2.8
-    private let barSpacing: CGFloat = 4
+    /// [voice-inline 11-23] 加粗加宽。
+    ///
+    /// 原来是 2.8 / 4（照 HTML 的 px），但 HTML 是在浏览器里按 375pt 宽算的，
+    /// 我们的听写条塞进 iPhone 后是 300+pt，声波又 `maxWidth:.infinity` 拉满，
+    /// 22 根 2.8pt 的条子撒在 300pt 里，看起来就是一串虚线点（她截图里的样子）。
+    /// 改成 3.2 / 5 并限制最大宽 168，居中——条子挤在一起才有"声波"的密度。
+    private let barWidth: CGFloat = 3.2
+    private let barSpacing: CGFloat = 5
+    private let maxTotalWidth: CGFloat = 168
     private let minHeight: CGFloat = 4
     private let maxHeight: CGFloat = 22
 
@@ -5283,8 +5229,11 @@ private struct DictationWave: View {
                     .frame(width: barWidth, height: h)
             }
         }
-        .frame(maxWidth: .infinity)
+        // 不给 maxWidth:.infinity —— 让它按内容宽度收着，再居中。
+        // 拉满会把条子撒开，就没有"一串在跳"的感觉了。
+        .frame(maxWidth: maxTotalWidth)
         .frame(height: maxHeight)
+        .frame(maxWidth: .infinity, alignment: .center)
         // 高度变化用线性小步，照 HTML 的 `transition: height 0.11s ease`。
         .animation(.linear(duration: 0.11), value: levels)
         .accessibilityHidden(true)
