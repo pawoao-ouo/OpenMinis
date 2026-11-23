@@ -3618,7 +3618,10 @@ struct AIChatView: View {
                 bottomTrailingRadius: 0, topTrailingRadius: 20,
                 style: .continuous))
         }
-        return AnyShape(RoundedRectangle(cornerRadius: collapsed ? 28 : 20, style: .continuous))
+        // [liquid-cat 11-23] 圆角跟 GlassComposerSurface 保持一致：
+        // 收起态 28、展开态 20，否则回落脉冲环会和卡片边缘对不齐。
+        return AnyShape(RoundedRectangle(cornerRadius: composerCollapsed ? 28 : 20,
+                                         style: .continuous))
     }
 
     /// [input-bar-fallback-pulse] 3× pulse of the fallback ring around the
@@ -8873,7 +8876,11 @@ private struct GlassComposerSurface: ViewModifier {
                 bottomTrailingRadius: 0, topTrailingRadius: 20,
                 style: .continuous))
         }
-        return AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        // [liquid-cat 11-23] 收起态 28、展开态 20——照 HTML 实测：
+        // 收起时卡片总高 59（12 + 35 + 12），28 的大圆角才不显得扁；
+        // 展开时高度大，20 更贴合。
+        return AnyShape(RoundedRectangle(cornerRadius: collapsed ? 28 : 20,
+                                         style: .continuous))
     }
 
     func body(content: Content) -> some View {
