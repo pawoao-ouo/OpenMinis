@@ -8,24 +8,31 @@
 ## 一、本批定位
 
 - **分支**：`rectify-prompt`
-- **完整 commit**：`3172e795961b0b7ca39d76f1131a69a693413b56` ← **以后拿这个核**
-- **代码改动 commit**：`099a1cb6b2e2b68e9336e597ee1dd831bdd52b40`（schema 分层）+ `3172e79`（参数闸门）
-  之前两笔纯文档提交：`31bb9f4`、`892962e`、`28c2a6e`
+- **代码定稿 commit**：`3172e795961b0b7ca39d76f1131a69a693413b56` ← **核代码用这个**
+- **代码改动两笔**：
+  - `099a1cb6b2e2b68e9336e597ee1dd831bdd52b40` — schema 分层
+  - `3172e795961b0b7ca39d76f1131a69a693413b56` — 参数闸门
 - **父 commit**：`c550ee7`（批 0 打底）
+- **改了两个文件**：
+  - `src/ios/Agent/Chat/AIChatViewModel+ToolDefinitions.swift` — schema 分层
+  - `src/ios/Agent/BrowserUse/BrowserUseManager.swift` — 参数闸门（`execute()` 里，属执行层）
+- **明确未动**：`BrowserActionInput.parse`、四个 provider、`BrowserAction` 枚举、`ToolPreflight`、`AIChatView.swift`
 
-> 审核方核全部代码：`git diff c550ee7 3172e79`
-> 只看 schema 改动：`git diff c550ee7 099a1cb`
-- **只改一个文件**：`src/ios/Agent/Chat/AIChatViewModel+ToolDefinitions.swift`
+> 核全部代码：`git diff c550ee7 3172e79`
+> 只看 schema 分层：`git diff 099a1cb^ 099a1cb`
+> 只看参数闸门：`git diff 099a1cb 3172e79`
+
+**本报告定稿于 `3172e79`。** 之后若有文档小改，不改这个 hash，也不值得再动分支历史。
 
 ---
 
 ## 二、三句话
 
-**做了什么**：把 `browser_use` 的工具定义从「22 个动作用法全写、25 个参数」压成「常驻 4 个动作、6 个参数，其余 18 个动作列成一行目录」。
+**做了什么**：把 `browser_use` 的工具定义从「23 个参数、22 个动作用法全写」压成「6 个参数、4 个动作常驻，其余 18 个动作列成一行目录」；同时在 `BrowserUseManager.execute()` 里加一道参数缺失闸门，拦住本批可能引入的静默失败。
 
-**没做什么**：没有删任何动作、没有删任何工具、没有改派发层、没有改 provider、没有动 `BrowserAction` 枚举（22 个 case 原样保留）。
+**没做什么**：没有删任何动作、没有删任何工具、没有动 `BrowserActionInput.parse`、没有动四个 provider、没有动 `BrowserAction` 枚举、没有动 `ToolPreflight`、没有动 `AIChatView.swift`。
 
-**现在什么状态**：代码已提交，CI 已触发，`git push` 成功。**功能未实测**——还没拿到包、没在真机上跑过 click / 翻页这类非主力动作。
+**现在什么状态**：代码定稿于 `3172e79`，已推送。CI 以 run 624 为准（本报告定稿时仍在排队）。**功能未真机实测**——还没在手机上跑过 click / 翻页这类非主力动作。
 
 ---
 
@@ -37,7 +44,8 @@
 | `streamWithAutoRetry` / `streamWithGroupFallback` | **查过无关**：走同一份 `makeAgentTools()`，不另存工具定义 |
 | `keepAliveSystemPrompt` | **查过无关**：不发工具定义 |
 | 子代理会话 | **查过无关**：子代理用同一 `makeAgentTools()`，但 `isSubAgentChild` 分支只删 ask_user 类工具（`ToolDefinitions.swift:699`），不碰 browser_use |
-| 派发层 `BrowserActionInput.parse` | **同源不改+理由**：直接读 JSON 字典全 25 个键，schema 里写不写无关。改它反而会破坏兼容 |
+| 派发层 `BrowserActionInput.parse` | **同源不改+理由**：直接读 JSON 字典全 22 个键，schema 里写不写无关。改它反而会破坏兼容 |
+| `BrowserUseManager.execute()` | **同源已改**（`3172e79`）：加参数缺失闸门，五个动作逐个检查必需参数。属执行层，不改 schema、不改 action 枚举 |
 | `BrowserAction` 枚举（22 case） | **同源不改+理由**：`action` 参数的 `enumValues` 仍喂全部 22 个，模型看到的可选值没少 |
 | OpenAI provider 传参 | **查过无关**：`parseJsonToDict(entry.json)` 原样转字典 |
 | Anthropic provider 传参 | **查过无关**：同上，`parseJsonToDict(finalJson)` |
@@ -51,7 +59,8 @@
 
 ## 四、证据表
 
-每个行号都是本批自己重新核过的（2026-11-24 21:05，在 `69f00b9` 上执行）。
+每个行号都是本批自己重新核过的（首次核于 2026-11-24 21:05，在 `099a1cb` 上；
+21:50 在 `3172e79` 上复验未漂）。
 
 | 结论 | 位置 | 怎么核的 |
 |---|---|---|
@@ -187,9 +196,11 @@ parameters: 6 个（tool_title / action / url / selector / full_page / tab_id）
 
 | 项 | 状态 |
 |---|---|
-| 括号平衡 | **已验**：`/tmp/bracecheck.py` → 结论 OK |
-| CI 编译 | **已触发，未回结果**（run 已 dispatch，HTTP 204） |
-| 符号长度（inputBar/body） | **没量**：本批没碰 `AIChatView.swift`，理论上不变，但**没实测** |
+| 括号平衡 | **已验**：`/tmp/bracecheck.py` 对两个改动文件均返回「语法括号平衡 OK」 |
+| CI 编译 | **未回结果**。624 跑 `11291df`（含 `3172e79` 全部代码 + 本报告的上一版），本报告定稿时状态为 queued |
+| 符号长度（inputBar/body） | **没量**：本批没碰 `AIChatView.swift`（`git diff c550ee7 3172e79 --name-only` 只有两个文件），理论上不变，但**没实测** |
+
+**已取消/失败的旧 run（记录在此，不当作结果）**：621/622 跑 `69f00b9`（已被 amend 出历史的旧提交）；623 跑 `099a1cb`，`updated_at` 停在 13:18:15Z 疑似僵死。
 
 ---
 
@@ -199,15 +210,18 @@ parameters: 6 个（tool_title / action / url / selector / full_page / tab_id）
 
 ### 派发层读到哪些键（完整清单）
 
-`rg -o 'dict\["[a-z_]+"\]'` 在 `Agent/BrowserUse/BrowserUseActions.swift:70-125` 范围内，得到 **22 个键全在读**：
+`rg -o 'dict\["[a-z_]+"\]'` 在 `Agent/BrowserUse/BrowserUseActions.swift:70-125` 范围内，得到 **22 个键直接从这个字典读**：
 
 ```
-action, amount, cookies, coordinate_x, coordinate_y, direction, full_page,
+action, amount, cookies, coordinate_x, coordinate_y, direction,
 fuzzy, item_selector, keywords, max_depth, reset, script, scroll_count,
 selector, tab_id, text, timeout, url, user_agent, viewport_height, viewport_width
 ```
 
-**保留的 6 个参数（tool_title / action / url / selector / full_page / tab_id），除 `tool_title` 外全部在这个清单里。** 砍掉的 16 个键派发层照样能读到——按名字传进去就生效。
+（`full_page` 不在这个清单里——它不经过 `BrowserActionInput.init` 的那批 `dict[...]` 参数，
+而是走另一条路径读入 `input.fullPage`，行为不受本批影响。）
+
+**保留的 6 个参数（tool_title / action / url / selector / full_page / tab_id），除 `tool_title` 外全部在这个清单里。** 砍掉的 17 个键派发层照样能读到——按名字传进去就生效。
 
 ### 22 个动作分支完整性
 
@@ -307,9 +321,11 @@ even though they are not in the tool schema).
 - 已查：provider 不过滤（四处 `parseJsonToDict`）
 - **没查：模型行为**——它可能看到 schema 里没有 `selector` 以外的参数，就干脆不传 `text` 了
 
-**回退方案**：若实测 `type` / `click` 这类动作失败，回退到「参数全留、只砍描述」。那样仍能省约 900 token（25 个参数说明的字符量）。
+**回退方案**：若实测 `type` / `click` 这类动作失败，回退到「参数全留、只砍描述」。那样仍能省约 900 token（23 个参数说明的字符量）。
 
-**回退命令**：`git revert 69f00b9`
+**回退命令**：整批回退 = `git revert 3172e79` 再 `git revert 099a1cb`
+（`69f00b9` 已被 amend 出历史，revert 摸空，不要用）
+只退闸门 = `git revert 3172e79`（回到只砍描述的版本）
 
 ---
 
