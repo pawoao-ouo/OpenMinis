@@ -159,6 +159,25 @@ final class ChatMessage: Identifiable, ObservableObject {
         return false
     }
 
+    /// [11-24 醒醒] 空的 assistant 行不该出现在聊天里。
+    ///
+    /// 她连发几条消息插队时，`injectQueuedPromptsAsNewTurn` 会先 append 一条
+    /// `ChatMessage(role: .assistant, content: "", blocks: [])`，占好位置等
+    /// 下一轮回复填进去（代码注释写的是 "so the next response appears below
+    /// the queued user message"）。问题是这条空壳在填进去之前就已经进了
+    /// `messages`，而 `applySnapshot` 只过滤桥接消息和系统提醒——空壳既不是
+    /// 桥接也不是提醒，于是被画成了一个**空的 AI 头像**（她截图左边那个）。
+    ///
+    /// 判定条件：没有任何 block、没有 content、也不是在等模型回复。
+    /// `isAwaitingModelResponse` 为 true 时要留着——那是"正在想"的合法状态，
+    /// 界面上有打字指示器（三个点），不能一起藏掉。
+    var isBlankAssistantPlaceholder: Bool {
+        guard role == .assistant else { return false }
+        guard !isAwaitingModelResponse else { return false }
+        guard blocks.isEmpty else { return false }
+        return content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// 系统静默提醒/指令判断：纯 `<system-reminder>` 块的消息仅供大模型作为上下文，不在 UI 聊天气泡中渲染
     /// [T-scheduled-prefill-and-pulse] 另外支持自主脉搏的 `<silent/>` 静默标记，模型主动选择不打扰时不渲染空白气泡
     /// 同时支持 `<silent>` 多种写法与首尾换行，确保隐藏判定足够牢靠

@@ -2999,7 +2999,14 @@ extension CollectionViewMessageListV3 {
             // chat bubble regardless of which path produced it — replacing the
             // former reliance on a single filter inside loadSession, which other
             // rebuild paths bypassed (the leak seen 2026-07-24).
-            let messages = rawMessages.filter { !$0.isInternalBridge && !$0.isSystemReminderOnly }
+            //
+            // [11-24 醒醒] 同一处再滤掉「空壳 assistant」：插队时先 append 一条
+            // 空的 assistant 占位，等回复填进去；填之前它就是一个空头像。
+            // 空壳和桥接不一样，它不是"内容有问题"，而是"还没有内容"——
+            // 所以在 UI 收集口统一挡掉，等它真的长出 block 自然会重新出现。
+            let messages = rawMessages.filter {
+                !$0.isInternalBridge && !$0.isSystemReminderOnly && !$0.isBlankAssistantPlaceholder
+            }
 
             // Content changed (new/removed messages) — the up-button's turn-walk
             // anchor may no longer line up, so restart it on the next tap.
