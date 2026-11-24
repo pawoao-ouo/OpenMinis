@@ -3209,27 +3209,69 @@ struct AIChatView: View {
         return name.isEmpty ? AppLocalized("发消息…") : AppLocalized("发消息给 \(name)…")
     }
 
-    /// 收起态主键。照 HTML `#btnVoiceCollapsed`：
-    /// **只有一个作用——开实时语音**（aria-label 就叫「开启实时语音」）。
-    /// 收起态本来就不可能有字（有字就展开了），所以这里不判发送，
-    /// 免得"点语音键没反应、点输入栏反而变语音"那种错乱。
+    /// 收起态主键。照 HTML `#btnVoiceCollapsed` 起步，但**必须跟展开态同一套
+    /// 状态机**，否则两条路各说各话。
     ///
-    /// 图标用 HTML 的五根柱子波形，不是系统的 waveform（后者形状差很多）。
-    /// 按 HTML 的 .primary-action-btn：实心圆、按下 scale(0.86)。
+    /// [collapsed-pause 11-24 醒醒] 原来这颗键无条件 `enterVoiceMode`。
+    /// 当初写的时候收起态只可能出现在"空输入"下，所以"只开语音"说得通；
+    /// 但现在 AI 回复时她**发一句话**，输入框清空 → 收起态 → 键还是语音。
+    /// 结果：生成中按下去既不暂停也不发送，只剩开语音，暂停键等于消失了。
+    ///
+    /// 现在四态跟 `sendPauseKey` 严格对齐（同一组变量名，改动一处两边同步）：
+    ///   生成中 + 没内容 → 暂停（stop）
+    ///   生成中 + 有内容 → 发送（enqueue，插队）
+    ///   空             → 语音（enterVoiceMode，HTML 原始职责）
+    ///   有内容         → 发送
+    ///
+    /// 图标：暂停/发送用系统符号（跟展开态同源），语音才用 HTML 的五根柱子波形。
     private var collapsedPrimaryKey: some View {
-        Button(action: enterVoiceMode) {
+        let generating = vm.isProcessing
+        // 口径跟展开态 sendPauseKey 严格一致：**只看文字**（hasDraftText）。
+        // 这里起初写的是 hasDraftContent（文字+附件），后来发现两边打架：
+        // 只挂一张图不打字时，展开态显示"语音"、收起态显示"发送"，
+        // 同一颗键两个答案。以展开态为准（[T-composer-edit-clear] 她定的：
+        // 没字就是语音键），附件能不能发由 canSend/canEnqueue 另算。
+        let hasContent = hasDraftText
+        let showPause = generating && !canEnqueue
+        let showSend = (hasContent && !generating) || (generating && canEnqueue)
+        let showVoice = !showPause && !showSend
+
+        return Button {
+            if generating {
+                // 跟 sendPauseKey 同一套：有内容就插队，没内容才是停。
+                if canEnqueue { performEnqueue() } else { vm.cancel() }
+                return
+            }
+            if hasContent {
+                if canSend { performSend() } else { notifyNoUsableModel() }
+                return
+            }
+            enterVoiceMode()
+        } label: {
             ZStack {
                 Circle().fill(ChatColors.primaryText)
+                // 语音：HTML 的五根柱子（系统 waveform 形状差很多）。
                 VoiceWaveGlyph()
                     .stroke(ChatColors.background,
                             style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
                     .frame(width: 17, height: 17)
+                    .opacity(showVoice ? 1 : 0)
+                // 发送 / 暂停：跟展开态同一个系统符号，跨态不自相矛盾。
+                Image(systemName: "arrow.up")
+                    .font(ChatFont.font(17, weight: .semibold))
+                    .foregroundStyle(ChatColors.background)
+                    .opacity(showSend ? 1 : 0)
+                Image(systemName: "pause.fill")
+                    .font(ChatFont.font(15, weight: .semibold))
+                    .foregroundStyle(ChatColors.background)
+                    .opacity(showPause ? 1 : 0)
             }
             .frame(width: 35, height: 35)
             .contentShape(Circle())
         }
         .buttonStyle(PrimaryPressStyle())
-        .accessibilityLabel(Text(AppLocalized("语音输入")))
+        .accessibilityLabel(Text(showPause ? AppLocalized("停止")
+                              : (showSend ? AppLocalized("发送") : AppLocalized("语音输入"))))
     }
 
     /// 输入框里有没有非空白文字。收起/展开、主键图标都看它。
@@ -3241,19 +3283,41 @@ struct AIChatView: View {
     /// 话筒、语音转文字全搬进加号抽屉([T-composer-nomic]),这是她点的名。
     private var inputBottomRow: some View {
         // [voice-inline 11-23] 顺序照 HTML 的 .toolbar-normal 抄：
-        //   [+][模型胶囊][弹性空白][猫头][主键]
+        //   [+][模型胶囊][弹性空白][语音][猫头][主键]
         // 原来猫头排在加号后面，她会看到猫头"跑到另一边"——
         // 因为它和发送键之间隔了模型胶囊和一段 Spacer。
         // HTML 里猫头永远贴着主键，中间只隔一个 gap（7）。
+        // [voice-key-restore 11-24] 语音键插在猫头左侧，仍保持"猫头贴主键"。
         HStack(spacing: 7) {
             plusKey
             modelPill
             Spacer(minLength: 0)
+            // [voice-key-restore 11-24 醒醒] 双行态原来只有五颗键，语音入口
+            // 全被搬进加号抽屉，她要发语音得先点加号再找——等于没有。
+            // 收起态一直有语音（主键空态就是语音），展开态反而没有，
+            // 两边不一致。这里把它放回来，位置紧贴猫头左侧。
+            //
+            // 生成中/有内容时语音键**不隐藏**：隐藏会让右侧一整排往左跳，
+            // 每敲一个字都在抖。只用半透明压下去，视觉上让位但不移动。
+            voiceQuickKey
             stickerKey
             sendPauseKey
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
+    }
+
+    /// 展开态常驻的语音入口。视觉上跟加号/猫头同一颗圆键，不另造样式。
+    ///
+    /// 生成中置灰而不是抽走：抽走会让 sendPauseKey 左移 42pt，
+    /// 她打字时那颗键在动，很难点准（[T-key-no-detach] 同理）。
+    private var voiceQuickKey: some View {
+        composerRoundKey("waveform", active: voiceInputActive) {
+            enterVoiceMode()
+        }
+        .opacity(vm.isProcessing ? 0.35 : 1)
+        .disabled(vm.isProcessing)
+        .accessibilityLabel(Text(AppLocalized("语音输入")))
     }
 
     // MARK: - [voice-inline 11-23] 内联听写条
