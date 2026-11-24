@@ -188,6 +188,41 @@ parameters: 6 个（tool_title / action / url / selector / full_page / tab_id）
 
 ---
 
+## 七点五、独立自审（2026-11-24 21:30 补）
+
+原定交独立子代理核，它跑到第 19 轮模型返回空、中断了。以下几条由我自己逐行核完。
+
+### 派发层读到哪些键（完整清单）
+
+`rg -o 'dict\["[a-z_]+"\]'` 在 `Agent/BrowserUse/BrowserUseActions.swift:70-125` 范围内，得到 **22 个键全在读**：
+
+```
+action, amount, cookies, coordinate_x, coordinate_y, direction, full_page,
+fuzzy, item_selector, keywords, max_depth, reset, script, scroll_count,
+selector, tab_id, text, timeout, url, user_agent, viewport_height, viewport_width
+```
+
+**保留的 6 个参数（tool_title / action / url / selector / full_page / tab_id），除 `tool_title` 外全部在这个清单里。** 砍掉的 16 个键派发层照样能读到——按名字传进去就生效。
+
+### 22 个动作分支完整性
+
+- `BrowserAction` 枚举：**22 个 case**（`rg -c "^    case "` → 22）
+- `BrowserUseManager.swift:284-324` 的 switch：**22 个 case 全覆盖**，其中 `case .newTab, .closeTab, .listTabs:` 三个合一行，所以按行数看着只有 20，实际一个不缺。
+
+### 测试影响
+
+`rg -rn "browser_use|BrowserAction" MinisTests/` → **零命中**。本批改动不会被任何测试打破，也没有测试覆盖它。
+
+### CLI 一致性
+
+`minis-browser-use` 是**独立的 Objective-C 实现**（`src/ios/NativeOffloads/BrowserUseOffload.m`），自带完整的 `--help` 和参数定义（`USAGE: minis-browser-use <action> [options]`），与 Swift 侧的 `AgentToolDefinition` schema **完全独立**。
+
+所以：
+- 改工具 schema 不会让 CLI 失效
+- 工具描述里那句「Run `minis-browser-use --help` for the exact flag」是一条**真实可用**的兜底路径
+
+---
+
 ## 八、风险与回退
 
 **唯一风险**：模型会不会主动传 schema 之外的参数。
