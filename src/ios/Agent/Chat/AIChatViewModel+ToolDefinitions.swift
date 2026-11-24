@@ -101,34 +101,40 @@ extension AIChatViewModel {
             ),
             AgentToolDefinition(
                 name: "browser_use",
-                description: "Control a web browser with up to 3 tabs. Do NOT use this tool for minis-clone:// action URLs (open_terminal, views, settings) — those are app deep links, use Markdown links in chat instead. The browser supports both web URLs and minis-clone:// resource URLs. Use minis-clone:// URLs to preview session files (e.g. navigate to minis-clone://workspace/index.html). Sub-resources (JS, CSS, images, fonts) referenced via minis-clone:// absolute paths or relative paths within HTML pages resolve correctly. Use navigate to open URLs, screenshot to see the page (returns an image), click/type to interact with elements, get_text/get_readable to extract content, scroll to navigate long pages, scroll_and_collect to scroll through infinite-scroll/virtual-rendered pages (like Twitter/X timelines) and accumulate unique content items across scroll positions in a single call, find_elements to discover interactive elements, get_page_info for page metadata, get_backbone to get a structural overview of the page DOM as a simplified tree, fetch to download files/resources using the page's session (returns metadata and a minis-clone:// URL), new_tab to open an additional tab, close_tab to close a tab, and list_tabs to see all open tabs. Use set_viewport with viewport_width + viewport_height to override the viewport for the current session (e.g. before screenshotting a 1920×1080 HTML composition that would otherwise be cropped to the phone viewport); pass reset=true to drop the session override and fall back to the global browser setting. Use get_cookies to retrieve cookies for the current page URL / current site root domain only (including HttpOnly cookies). get_cookies supports optional 'keyword' (filter by cookie name) and 'fuzzy' (true=contains match, false=exact match, default true). It returns only a summary and an offload env file path — raw cookie values are NOT included in the tool response. To reuse cookies in shell commands: `. /var/minis/offloads/env_cookies_xxx.sh && command`. You may define alias variables when needed. Use set_cookies to write cookies into the current page's cookie store via the native cookie store (so even HttpOnly cookies, which JS cannot set, land). Pass a 'cookies' array of objects, each with name + value (required) and optional domain (defaults to the current page host), path (defaults to '/'), secure, http_only, and expires (Unix timestamp in seconds; omit for a session cookie). Use wait_for_dom_stable to wait until the page DOM stops changing (useful after navigation or interactions that trigger async data loading — polls every 0.5s, resolves when mutation rate gradient is stable for 3+ intervals, default timeout 10s). Use tab_id to target a specific tab (defaults to the most recently used tab).",
+                // [batch7-browser 11-24 醒醒] 分层披露第一刀。
+                //
+                // 原来这段描述把 22 个动作的用法一口气全写进来，连同 25 个
+                // 参数说明，单独占 6,644 字符 ≈1,661 token（工具段 22%，
+                // 全上下文的 8%），而她今天的日志里这个工具调用 0 次。
+                //
+                // 真正常走的路只有一条：navigate 打开 → get_text 取字
+                // →（需要看）screenshot →（要下文件）fetch。这四个动作用
+                // 到的参数也就那六个。
+                //
+                // 其余 18 个动作没有删，只是不常驻：参数照旧传得进去，派发层
+                // 不认动作白名单（BrowserUseManager 的 switch 直接兜底），
+                // 描述末尾把它们的名字和用途列了一行，模型知道有、要用就调。
+                // 这一行就是「目录」，成本 200 字符换掉 5,000 字符。
+                description: "Control a web browser with up to 3 tabs. Requires a reachable page: open one with navigate first, then read it. "
+                    + "Main actions (full descriptions here): navigate(url), get_text(selector optional — whole page if omitted), "
+                    + "screenshot(full_page optional, returns an image), fetch(url — download a file/resource using the page's session, returns metadata and a minis-clone:// URL). "
+                    + "Do NOT use this tool for minis-clone:// ACTION urls (open_terminal, views, settings) — those are app deep links, use Markdown links in chat. "
+                    + "minis-clone:// RESOURCE urls are fine: navigate to minis-clone://workspace/index.html to preview a page; its relative sub-resources (JS/CSS/images) resolve. "
+                    + "Other actions (call them the same way, pass action=<name>): click, type, hover, scroll, scroll_and_collect (infinite feeds), "
+                    + "get_readable (article body), get_page_info, get_backbone (DOM tree), find_elements, execute_js, "
+                    + "new_tab, close_tab, list_tabs, set_viewport, set_user_agent, get_cookies, set_cookies, wait_for_dom_stable. "
+                    + "Their parameters do not appear in this schema — pass them as named arguments anyway; the dispatcher accepts them. "
+                    + "Run `minis-browser-use --help` in shell_execute for the exact flag of any action.",
                 parameters: [
-                    "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Open Wikipedia homepage', 'Take screenshot of current page'). Use the same language as the user."),
-                    "action": AgentToolParam(type: .string, description: "The browser action to perform", enumValues: BrowserAction.allCases.map(\.rawValue)),
-                    "url": AgentToolParam(type: .string, description: "URL to navigate to (for navigate action) or resource to download (for fetch action)"),
-                    "selector": AgentToolParam(type: .string, description: "CSS selector for targeting elements (click, type, get_text, scroll, hover, find_elements). For scroll: specify a scrollable container to scroll (e.g. 'div.timeline'); if omitted, auto-detects the best scrollable element."),
-                    "text": AgentToolParam(type: .string, description: "Text to type (for type action)"),
-                    "coordinate_x": AgentToolParam(type: .integer, description: "X coordinate for click (alternative to selector)"),
-                    "coordinate_y": AgentToolParam(type: .integer, description: "Y coordinate for click (alternative to selector)"),
-                    "direction": AgentToolParam(type: .string, description: "Scroll direction", enumValues: ["up", "down"]),
-                    "amount": AgentToolParam(type: .integer, description: "Scroll amount in pixels (default: 500)"),
-                    "script": AgentToolParam(type: .string, description: "JavaScript code to execute (for execute_js action). The script runs inside an async function wrapper — `await` and top-level `return` are both supported (e.g. `var r = await fetch(url); return await r.json()`). DOM values may be returned directly — a DOMRect, Date, Error, element or NodeList is converted to plain JSON before it reaches you."),
-                    "user_agent": AgentToolParam(type: .string, description: "User agent profile to switch to", enumValues: ["desktop_safari", "mobile_safari"]),
-                    "max_depth": AgentToolParam(type: .integer, description: "Maximum tree depth for get_backbone (default: 5)"),
-                    "scroll_count": AgentToolParam(type: .integer, description: "Number of scroll steps for scroll_and_collect (default: 10, max: 20). Each step scrolls by 'amount' pixels and waits for new content."),
-                    "item_selector": AgentToolParam(type: .string, description: "CSS selector for individual content items in scroll_and_collect (e.g. 'article', '[data-testid=\"tweet\"]'). If omitted, auto-detects repeated elements."),
-                    "tab_id": AgentToolParam(type: .integer, description: "Target tab ID (optional, defaults to most recently used tab). Use list_tabs to see available tabs."),
-                    "keywords": AgentToolParam(type: .string, description: "Filter cookies by name (for get_cookies). A space-separated string or array of strings. With fuzzy=true (default), ALL keywords must appear in the cookie name (case-insensitive). With fuzzy=false, cookie name must exactly equal any one of the provided keywords (case-insensitive). Omit to return all cookies for the current site."),
-                    "fuzzy": AgentToolParam(type: .boolean, description: "Whether keyword matching is fuzzy (contains-all) or exact-any (for get_cookies, default: true)."),
-                    "cookies": AgentToolParam(type: .string, description: "For set_cookies: a JSON array of cookie objects to write. Pass it as a JSON array (a JSON-encoded string of the array is also accepted). Each object: {\"name\": str (required), \"value\": str (required), \"domain\": str (optional, defaults to current page host), \"path\": str (optional, defaults to \"/\"), \"secure\": bool (optional), \"http_only\": bool (optional — sets an HttpOnly cookie that JS cannot read/set), \"expires\": int (optional, Unix timestamp in seconds; omit for a session cookie)}. Field-name variants from common cookie exports are accepted: httpOnly (=http_only), expirationDate (=expires), sameSite, and case/camel variants — so you can paste cookies verbatim from browser extensions (EditThisCookie / Cookie-Editor) or Playwright/Puppeteer storage."),
-                    "timeout": AgentToolParam(type: .integer, description: "Timeout in seconds for wait_for_dom_stable (default: 10). The action polls every 0.5s and resolves when DOM mutation rate stabilizes."),
-                    "viewport_width": AgentToolParam(type: .integer, description: "Viewport width in CSS pixels for set_viewport (e.g. 1920). Required together with viewport_height unless reset=true."),
-                    "viewport_height": AgentToolParam(type: .integer, description: "Viewport height in CSS pixels for set_viewport (e.g. 1080). Required together with viewport_width unless reset=true."),
-                    "reset": AgentToolParam(type: .boolean, description: "For set_viewport: when true, clear the session-level viewport override and fall back to the global browser setting."),
-                    "full_page": AgentToolParam(type: .boolean, description: "For screenshot: capture the entire scrollable page by temporarily resizing the WebView to document.documentElement.scrollHeight. Default false captures viewport only. Capped at 32768px tall; when capped, result text includes 'Truncated: true' and the original height."),
+                    "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user"),
+                    "action": AgentToolParam(type: .string, description: "The browser action", enumValues: BrowserAction.allCases.map(\.rawValue)),
+                    "url": AgentToolParam(type: .string, description: "URL to open (navigate) or download (fetch)"),
+                    "selector": AgentToolParam(type: .string, description: "CSS selector to scope get_text to an element"),
+                    "full_page": AgentToolParam(type: .boolean, description: "screenshot: capture the whole scrollable page, not just the viewport"),
+                    "tab_id": AgentToolParam(type: .integer, description: "Target tab (defaults to the most recently used)"),
                 ],
                 required: ["tool_title", "action"],
-                propertyOrdering: ["tool_title", "action", "tab_id", "url", "selector", "text", "coordinate_x", "coordinate_y", "direction", "amount", "scroll_count", "item_selector", "script", "user_agent", "max_depth", "keywords", "fuzzy", "cookies", "timeout", "viewport_width", "viewport_height", "reset", "full_page"]
+                propertyOrdering: ["tool_title", "action", "url", "selector", "full_page", "tab_id"]
             ),
         ]
 
