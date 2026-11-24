@@ -281,7 +281,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         await CookieBackupStore.shared.syncIfNeeded()
         // [batch7-guard 11-24 醒醒] 参数缺失闸门。
         //
-        // 背景：batch 7 把 browser_use 的 schema 从 25 个参数砍到 6 个，
+        // 背景：batch 7 把 browser_use 的 schema 从 23 个参数砍到 6 个，
         // 其余 18 个动作的参数靠模型按名字自己传。派发层全键都读，所以
         // 传了就生效；但**没传的话以前会静默失败** —— 比如 action=type
         // 不带 text，parse 把 text 读成 nil，type(selector:text:nil) 往下走，
