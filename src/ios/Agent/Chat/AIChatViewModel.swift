@@ -2145,7 +2145,49 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             PromptSectionTokens(kind: $0.kind, name: $0.name, tokens: BPETokenizer.shared.countTokens($0.text))
         }
         lastBuiltPromptSections = counted
+        // [rectify-batch0 11-24 醒醒] 整改包批 0 第 1 步：把「现在拼出来的
+        // 完整提示词」存一份原样，留作改动前后的对照基线。只写文件，
+        // 不参与拼装、不进模型上下文、不影响返回值。
+        //
+        // 落盘到 /var/minis/workspace/prompt-baseline/，文件按角色分开：
+        //   main.txt     主流程（含 sections 全部）
+        //   base.txt     只看 base 那一段（身份+路由+纪律+环境）
+        //   sections.md  每个 section 的名字/类别/字符数/BPE，做账本
+        // 子代理不写 main.txt，单独 subagent.txt——它的第一层是委派前言，
+        // 和主流程不是同一份东西，混在一起就没法 diff。
+        Self.dumpPromptBaseline(prompt: prompt, base: base, counted: counted,
+                                isSubAgentChild: isSubAgentChild,
+                                sessionId: sessionId)
         return prompt
+    }
+
+    /// 批 0 的基线导出。同步写，失败静默——它不能影响一次真实请求。
+    nonisolated static func dumpPromptBaseline(prompt: String, base: String,
+                                               counted: [PromptSectionTokens],
+                                               isSubAgentChild: Bool,
+                                               sessionId: String?) {
+        let dir = "/var/minis/workspace/prompt-baseline"
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        let name = isSubAgentChild ? "subagent" : "main"
+        // 每轮覆盖：要的是「改动前那一刻」的样子，不是历史堆积。
+        try? prompt.write(toFile: "\(dir)/\(name).txt", atomically: true, encoding: .utf8)
+        try? base.write(toFile: "\(dir)/\(name)-base.txt", atomically: true, encoding: .utf8)
+
+        var ledger = "# 提示词分段账本（\(name)）\n\n"
+        ledger += "生成时间：\(ISO8601DateFormatter().string(from: Date()))\n"
+        ledger += "session：\(sessionId ?? "(nil)")\n"
+        ledger += "总字符：\(prompt.count)\n\n"
+        ledger += "| 类别 | 名称 | BPE | 占合计 |\n|---|---|---|---|\n"
+        let total = max(1, counted.reduce(0) { $0 + $1.tokens })
+        for s in counted {
+            let pct = Double(s.tokens) / Double(total) * 100
+            ledger += "| \(s.kind) | \(s.name) | \(s.tokens) | \(String(format: "%.1f", pct))% |\n"
+        }
+        ledger += "\nbase 段字符数：\(base.count)\n"
+        ledger += "合计 BPE：\(total)\n"
+        try? ledger.write(toFile: "\(dir)/\(name)-ledger.md", atomically: true, encoding: .utf8)
     }
 
     /// [T-ambient-context 11-07] 「她此刻的状态」片段。
