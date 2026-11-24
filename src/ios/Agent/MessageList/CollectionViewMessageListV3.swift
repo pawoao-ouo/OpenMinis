@@ -363,6 +363,20 @@ private struct BridgedAssistantHeaderV3: View {
         }
         .padding(.top, 4)
         .padding(.bottom, 0)
+        // [header-floor 11-24 醒醒] 内容高度兜底：绝不低于头像 + 上下留白。
+        //
+        // 她报的现象：AI 回复时头像被裁成半截、压在气泡下面。
+        // 日志实锤（12:33:07.555 / .617）同一格在 62ms 内被量成 50 → 38，
+        // 而 SelfSizingCell 是 `contentView.clipsToBounds = true`，
+        // 格高一旦落到 38（= 头像直径），头像就顶满被切。
+        //
+        // 这里用 minHeight 把测量地板抬上去：UIKit 再怎么重测、
+        // 缓存再怎么闪，量到的也不会小于这个值。这是渲染层兜底，
+        // 不去碰那套带 FB13213926 闪退史的自适应测量机制。
+        //
+        // 放在横向 frame **里面**（先定最小高，再撑满宽），
+        // 这样 minHeight 只作用于竖向测量，不会影响宽度分配。
+        .frame(minHeight: MinisThemeShape.avatarSize + 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(maxWidth: maxWidth > 0 ? maxWidth : .infinity, alignment: .leading)
         .frame(maxWidth: .infinity)
@@ -3459,8 +3473,23 @@ extension CollectionViewMessageListV3 {
 
                     switch item {
                     case .assistantHeader:
-                        // 38pt paired avatar + top padding; keep the estimate at or above render height.
-                        layout.setEstimatedHeight(44, at: i)
+                        // [header-est 11-24 醒醒] 原来这里写死 44。
+                        //
+                        // 日志实锤（minis-2026-11-24_2.log，12:33:07）：
+                        //   .555  idx=9  0→50pt
+                        //   .617  idx=9  0→38pt
+                        // 同一格 62ms 内先被量成 50、再被量成 38，两次都从
+                        // layoutAttributes 的 0 起步 —— 说明它**每次都当新格子
+                        // 重测**，没吃到缓存。中间那段 0→38 的一帧，格子比
+                        // 头像(38)还矮或刚好等于，而 SelfSizingCell 的
+                        // contentView.clipsToBounds 会裁掉溢出，她看到的
+                        // 「头像露半截压在气泡下」就是这一帧。
+                        //
+                        // 实测渲染高度 50pt，写死的 44 比它矮 6pt，首帧定位
+                        // 就先低了一点，撑开时再顶上去。改成跟 avatarSize
+                        // 联动（38 + 12 = 50，正好对上实测），主题包把头像
+                        // 调到 64 时估值也跟着走，不会再出现“估的值比头像还小”。
+                        layout.setEstimatedHeight(MinisThemeShape.avatarSize + 12, at: i)
 
                     case .assistantFooter:
                         // Prominent banners (error/resume/typing) measure
