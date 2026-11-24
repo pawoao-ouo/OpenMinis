@@ -12,6 +12,7 @@ import com.openminis.app.data.model.LLMStreamChunk
 import com.openminis.app.data.model.LLMUsage
 import com.openminis.app.data.model.ThinkingLevel
 import com.openminis.app.data.model.hasImageInput
+import com.openminis.app.provider.thinking.ContentBlockSplitter
 import com.openminis.app.provider.thinking.ThinkingResolveContext
 import com.openminis.app.provider.thinking.ThinkingRuleResolver
 import com.openminis.app.provider.LLMProvider
@@ -502,6 +503,13 @@ class OpenAIProvider private constructor(
      * over-suppress (harmless — the field is optional for everyone else).
      */
     private val isMistral: Boolean = basePath.lowercase().contains("mistral.ai")
+
+    /**
+     * [thinking-blocks] This endpoint accepts a ROOT `reasoning_effort` string
+     * (user-set per provider, default off). Outranks the hostname-derived
+     * Mistral prohibition — see the gate at the injectThinkingParams call.
+     */
+    private val acceptsRootReasoningEffort: Boolean = false
 
     /**
      * [OpenMinis#163] Talking to xAI's own API (api.x.ai), as opposed to a relay
@@ -1317,15 +1325,32 @@ class OpenAIProvider private constructor(
                         // tag had its prose swallowed into the thinking bubble, and
                         // it passed M3's post-`</think>` "\n\n" straight through so
                         // every such body began with a blank line.
-                        delta?.safeOptString("content", "")?.let { text ->
-                            if (text.isNotEmpty()) {
-                                val out = thinkParser.feed(text)
-                                if (out.thinking.isNotEmpty()) {
-                                    reasoningAccum.append(out.thinking)
-                                    send(LLMStreamChunk.ThinkingDelta(out.thinking))
-                                }
-                                if (out.visible.isNotEmpty()) send(LLMStreamChunk.Text(out.visible))
+                        // [thinking-blocks] `content` may be a plain string OR a list of
+                        // content blocks. Mistral-hosted DeepSeek sends BOTH on
+                        // one stream — leading deltas are `"content": ""`, then
+                        // it switches to
+                        //   [{"type":"thinking","thinking":[{"type":"text","text":"…"}]},
+                        //    {"type":"text","text":"…"}]
+                        // Reading it as a string dropped those turns whole.
+                        val contentSplit = ContentBlockSplitter.split(delta?.opt("content"))
+                        if (contentSplit.thinking.isNotEmpty()) {
+                            reasoningAccum.append(contentSplit.thinking)
+                            if (!sawReasoningDelta) {
+                                sawReasoningDelta = true
+                                com.openminis.app.logging.AppLogger.info(
+                                    "OpenAIProvider",
+                                    "Chat Completions: first thinking-block delta arrived on ${model.id} — streaming Thinking content"
+                                )
                             }
+                            send(LLMStreamChunk.ThinkingDelta(contentSplit.thinking))
+                        }
+                        if (contentSplit.visible.isNotEmpty()) {
+                            val out = thinkParser.feed(contentSplit.visible)
+                            if (out.thinking.isNotEmpty()) {
+                                reasoningAccum.append(out.thinking)
+                                send(LLMStreamChunk.ThinkingDelta(out.thinking))
+                            }
+                            if (out.visible.isNotEmpty()) send(LLMStreamChunk.Text(out.visible))
                         }
 
                         // Tool calls (parallel: keyed by index)
@@ -1967,7 +1992,12 @@ class OpenAIProvider private constructor(
         // OpenMinis#87) — the request-parameter half of that fix was never
         // ported, so an enabled thinking level still put `reasoning_effort` on
         // the wire to api.mistral.ai.
-        if (!isMistral) {
+        // [thinking-blocks] The Mistral prohibition was inherited from a 422
+        // that rejected the NESTED `reasoning` object; the root
+        // `reasoning_effort` string is a different key and is accepted. An
+        // explicit per-provider capability therefore outranks the hostname
+        // guess.
+        if (!isMistral || acceptsRootReasoningEffort) {
             injectThinkingParams(body, thinkingLevel, maxTokens)
         }
 

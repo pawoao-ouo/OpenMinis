@@ -102,6 +102,11 @@ enum ThinkingEvidence: String {
     case endpointIdentity
     /// The model's declared capability (`supportsReasoning`).
     case modelCapability
+    /// [thinking-blocks] The USER declared this endpoint's capability in the
+    /// provider config. Outranks every inferred source above — it is a statement
+    /// about this specific endpoint, not a guess from its hostname or a
+    /// catalog entry describing somebody else's.
+    case endpointCapability
 }
 
 /// [T-thinking-vision-diag] One gate that intervened during emission.

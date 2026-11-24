@@ -162,7 +162,7 @@ final class OpenAIAgentProvider: AgentProvider {
             // site, and it can no longer be lost when a second injection path is added
             // (which is exactly how the Responses API path ended up ungated, 37bab14c).
             let offEffort = Self.explicitOffEffort(for: provider, model: model, level: thinkingLevel)
-            Self.injectThinkingParams(into: &body, model: model, level: thinkingLevel, isOpenRouter: provider.useOpenRouterCompat, maxTokens: maxTokens, offEffort: offEffort, unifiedReasoningEffort: provider.usesUnifiedReasoningEffort, isMistral: provider.isMistral, acceptsRootReasoningEffort: provider.acceptsRootReasoningEffort, isXAI: provider.isXAI, isDashScope: provider.isDashScope, providerInstanceId: provider.providerInstanceId)
+            Self.injectThinkingParams(into: &body, model: model, level: thinkingLevel, isOpenRouter: provider.useOpenRouterCompat, maxTokens: maxTokens, offEffort: offEffort, unifiedReasoningEffort: provider.usesUnifiedReasoningEffort, isMistral: provider.isMistral, isXAI: provider.isXAI, acceptsRootReasoningEffort: provider.acceptsRootReasoningEffort, isDashScope: provider.isDashScope, providerInstanceId: provider.providerInstanceId)
         }
 
         let (lineStream, _) = try await provider.streamRaw(body: body, isResponsesAPI: false)

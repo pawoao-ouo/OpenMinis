@@ -30,6 +30,14 @@ data class ThinkingResolveContext(
      * branch.
      */
     val declaresNoEffortTiers: Boolean = false,
+    /**
+     * [thinking-blocks] The user declared that THIS endpoint accepts a root
+     * `reasoning_effort` string (provider config flag, default off). It
+     * short-circuits the whole registry: Mistral's total prohibition came from
+     * a 422 that rejected a DIFFERENT key, and one hostname sniff should not be
+     * able to silence a capability the endpoint really has.
+     */
+    val acceptsRootReasoningEffort: Boolean = false,
     val level: ThinkingLevel,
     val maxTokens: Int,
     /**
@@ -321,11 +329,41 @@ object ThinkingRuleResolver {
      * branch of the pre-refactor chain exactly — including its guards, which are the part
      * that carries the field evidence.
      */
+    /**
+     * [thinking-blocks] Tier for the explicit per-provider capability path.
+     * Collapses to the three values OpenAI-compatible endpoints actually
+     * document — an invented tier is a 4xx on a strict enum. Null = omit.
+     */
+    fun capabilityEffort(level: ThinkingLevel, declared: List<String>?): String? {
+        val tiers = declared?.map { it.lowercase() }?.toSet().orEmpty()
+        fun pick(candidates: List<String>): String? =
+            if (tiers.isEmpty()) candidates.firstOrNull()
+            else candidates.firstOrNull { tiers.contains(it) }
+        return when (level) {
+            ThinkingLevel.OFF -> null
+            ThinkingLevel.LOW, ThinkingLevel.MEDIUM -> pick(listOf("low", "high"))
+            ThinkingLevel.HIGH -> pick(listOf("high", "low"))
+            ThinkingLevel.XHIGH -> pick(listOf("high"))
+            ThinkingLevel.MAX, ThinkingLevel.ULTRA -> pick(listOf("max", "high"))
+        }
+    }
+
     private fun emit(
         format: ThinkingWireFormat,
         ctx: ThinkingResolveContext,
         body: JSONObject,
     ): Pair<String?, String?> {
+        // [thinking-blocks] Explicit per-provider capability outranks every rule
+        // below, including Mistral's total prohibition. Off sends NOTHING
+        // (never an invented off tier, which a strict enum rejects).
+        if (ctx.acceptsRootReasoningEffort) {
+            if (!ctx.level.isEnabled) return (null, null)
+            val tier = capabilityEffort(ctx.level, ctx.declaredEffortValues)
+                ?: return (null, null)
+            body.put("reasoning_effort", tier)
+            return (tier, tier)
+        }
+
         val lid = ctx.modelId.lowercase()
 
         // [T-thinking-off-explicit] Strict-enum families never receive an off tier:

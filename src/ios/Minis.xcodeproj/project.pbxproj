@@ -393,6 +393,7 @@
 		E5TRE001 /* ThinkingRuleEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TRE002 /* ThinkingRuleEditorView.swift */; };
 		E5TRS001 /* ThinkingRulesSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TRS002 /* ThinkingRulesSection.swift */; };
 		E5TWF001 /* ThinkingWireFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TWF002 /* ThinkingWireFormat.swift */; };
+		E5CBS001 /* ContentBlockSplitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CBS002 /* ContentBlockSplitter.swift */; };
 		E5TWR001 /* ThinkingRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TWR002 /* ThinkingRule.swift */; };
 		E5TWS001 /* ThinkingRuleResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5TWS002 /* ThinkingRuleResolver.swift */; };
 		E5U000001 /* KaTeXRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5U000011 /* KaTeXRenderer.swift */; };
@@ -1078,6 +1079,7 @@
 		E5TRE002 /* ThinkingRuleEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinkingRuleEditorView.swift; sourceTree = "<group>"; };
 		E5TRS002 /* ThinkingRulesSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinkingRulesSection.swift; sourceTree = "<group>"; };
 		E5TWF002 /* ThinkingWireFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ThinkingWireFormat.swift; path = Thinking/ThinkingWireFormat.swift; sourceTree = "<group>"; };
+		E5CBS002 /* ContentBlockSplitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ContentBlockSplitter.swift; path = Thinking/ContentBlockSplitter.swift; sourceTree = "<group>"; };
 		E5TWR002 /* ThinkingRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ThinkingRule.swift; path = Thinking/ThinkingRule.swift; sourceTree = "<group>"; };
 		E5TWS002 /* ThinkingRuleResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ThinkingRuleResolver.swift; path = Thinking/ThinkingRuleResolver.swift; sourceTree = "<group>"; };
 		E5U000011 /* KaTeXRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaTeXRenderer.swift; sourceTree = "<group>"; };
@@ -1506,6 +1508,7 @@
 				E5D00014 /* ModelGroup.swift */,
 				E5TLC0002 /* ThinkingLevelCatalog.swift */,
 				E5TWF002 /* ThinkingWireFormat.swift */,
+				E5CBS002 /* ContentBlockSplitter.swift */,
 				E5TRC002 /* ThinkingRuleCoding.swift */,
 				E5TWR002 /* ThinkingRule.swift */,
 				E5TWS002 /* ThinkingRuleResolver.swift */,
@@ -2908,6 +2911,7 @@
 				E5D00004 /* ModelGroup.swift in Sources */,
 				E5TLC0001 /* ThinkingLevelCatalog.swift in Sources */,
 				E5TWF001 /* ThinkingWireFormat.swift in Sources */,
+				E5CBS001 /* ContentBlockSplitter.swift in Sources */,
 				E5TRC001 /* ThinkingRuleCoding.swift in Sources */,
 				E5TWR001 /* ThinkingRule.swift in Sources */,
 				E5TWS001 /* ThinkingRuleResolver.swift in Sources */,
