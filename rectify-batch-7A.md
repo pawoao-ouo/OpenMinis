@@ -8,7 +8,8 @@
 ## 一、本批定位
 
 - **分支**：`rectify-prompt`
-- **完整 commit**：`69f00b9167191161809531b6b1751eae91292914`
+- **完整 commit**：`31bb9f4cf286aabddcd981d148c1816671b76b91`
+- **代码改动 commit**：`099a1cb6b2e2b68e9336e597ee1dd831bdd52b40`（本版只在其上追加了本报告的自审补充，未动代码）
 - **父 commit**：`c550ee7`（批 0 打底）
 - **只改一个文件**：`src/ios/Agent/Chat/AIChatViewModel+ToolDefinitions.swift`
 
