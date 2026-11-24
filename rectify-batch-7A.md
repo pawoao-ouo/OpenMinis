@@ -8,9 +8,14 @@
 ## 一、本批定位
 
 - **分支**：`rectify-prompt`
-- **完整 commit**：`31bb9f4cf286aabddcd981d148c1816671b76b91`
-- **代码改动 commit**：`099a1cb6b2e2b68e9336e597ee1dd831bdd52b40`（本版只在其上追加了本报告的自审补充，未动代码）
+- **完整 commit**：`28c2a6e7954c5d64caac0f6f5d3e6e6763d266d1` ← **以后拿这个核**
+- **代码改动 commit**：`099a1cb6b2e2b68e9336e597ee1dd831bdd52b40`
+  （之后的两笔 commit 只改本报告这一个文件，没动任何代码；
+  `git diff 099a1cb 28c2a6e --stat` 应该只有 `rectify-batch-7A.md` 一行）
 - **父 commit**：`c550ee7`（批 0 打底）
+
+> 审核方核代码请用：`git diff c550ee7 28c2a6e`
+> 想只看代码改动：`git diff c550ee7 099a1cb`
 - **只改一个文件**：`src/ios/Agent/Chat/AIChatViewModel+ToolDefinitions.swift`
 
 ---
