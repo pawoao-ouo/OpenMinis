@@ -5500,8 +5500,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     NotificationCenter.default.post(name: .minisUserAttachmentsMounted, object: chatMsg.id)
                 }
             }
-            // 空消息（无文字无附件）是 400，跳过。
-            guard !parts.isEmpty else { rowIds.append(nil); continue }
+            // [queue-drop-11-24 修] 这里原来有一句 `guard !parts.isEmpty`
+            // 卡在「只加了附件、还没加文字」的位置 —— 纯文字消息（没有附件）
+            // 走到这里 parts 必然是空的，于是被 rowIds.append(nil) + continue
+            // 直接丢掉：队列被清空、气泡上的小圆圈一直不消失、模型从没见过这几句。
+            // 613 就是这么把「3」「4」「5」全吃掉的。
+            // 空判必须放在**文字也加完**之后，见函数尾部。
 
             // [queue-batch 11-24 醒醒] 时间锚点：每条排队消息都带，界面上不显示。
             //
@@ -5520,6 +5524,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 // 纯附件消息也要有时间锚点，否则模型分不清是刚发还是隔了很久。
                 parts.append(.text(timingNote))
             }
+            // [queue-drop-11-24] 现在文字/附件/时间都加完了，parts 必不为空。
+            // 这里再兜一次底：万一将来有人把上面的赋值改没了，也不能让
+            // 一条 user 消息空着进历史（空 content 会被上游 400 掉整批）。
+            guard !parts.isEmpty else { rowIds.append(nil); continue }
             // 上一条也是 user 就垫一条桥，防止出站被折叠。
             // 用 queuedFollowUpBridgeText 而不是 internalBridgeText：
             // 后者写的是「任务被新消息打断」，连发三条会读成三次打断。
