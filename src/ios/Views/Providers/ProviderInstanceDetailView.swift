@@ -235,6 +235,11 @@ struct ProviderInstanceDetailView: View {
                 azureModeSection(instance)
             }
 
+            // MARK: Root reasoning_effort capability [thinking-blocks]
+            if instance.supportsRootReasoningEffortSetting {
+                rootReasoningEffortSection(instance)
+            }
+
             // MARK: Image Generation Endpoint (OpenAI-compatible providers)
             // Lets the user override the auto-probe choice between
             // /v1/images/generations and /v1/chat/completions for image output.
@@ -589,6 +594,26 @@ struct ProviderInstanceDetailView: View {
             ))
         } footer: {
             Text(AppLocalized("Use Azure OpenAI authentication (api-key header). Paste your full Azure endpoint into Custom API Base above, including the ?api-version=… query. Works with both API formats."))
+        }
+    }
+
+    /// [thinking-blocks] Whether this endpoint accepts a ROOT
+    /// `reasoning_effort` string. Off by default: every existing instance keeps
+    /// its current wire format until the user turns it on, and an endpoint that
+    /// rejects the key will say so with a 4xx the user can act on.
+    @ViewBuilder
+    private func rootReasoningEffortSection(_ instance: ProviderInstance) -> some View {
+        Section {
+            Toggle(AppLocalized("Send reasoning_effort"), isOn: Binding(
+                get: { instance.acceptsRootReasoningEffort },
+                set: { on in
+                    var updated = instance
+                    updated.acceptsRootReasoningEffort = on
+                    store.updateInstance(updated)
+                }
+            ))
+        } footer: {
+            Text(AppLocalized("Send the thinking strength as a root-level reasoning_effort field. Turn on for endpoints that accept it (Mistral-hosted DeepSeek, OpenAI-compatible relays) when the model thinks but the app shows no thinking. Thinking off sends nothing at all."))
         }
     }
 

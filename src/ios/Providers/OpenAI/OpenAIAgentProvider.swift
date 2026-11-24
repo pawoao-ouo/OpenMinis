@@ -162,7 +162,7 @@ final class OpenAIAgentProvider: AgentProvider {
             // site, and it can no longer be lost when a second injection path is added
             // (which is exactly how the Responses API path ended up ungated, 37bab14c).
             let offEffort = Self.explicitOffEffort(for: provider, model: model, level: thinkingLevel)
-            Self.injectThinkingParams(into: &body, model: model, level: thinkingLevel, isOpenRouter: provider.useOpenRouterCompat, maxTokens: maxTokens, offEffort: offEffort, unifiedReasoningEffort: provider.usesUnifiedReasoningEffort, isMistral: provider.isMistral, isXAI: provider.isXAI, isDashScope: provider.isDashScope, providerInstanceId: provider.providerInstanceId)
+            Self.injectThinkingParams(into: &body, model: model, level: thinkingLevel, isOpenRouter: provider.useOpenRouterCompat, maxTokens: maxTokens, offEffort: offEffort, unifiedReasoningEffort: provider.usesUnifiedReasoningEffort, isMistral: provider.isMistral, acceptsRootReasoningEffort: provider.acceptsRootReasoningEffort, isXAI: provider.isXAI, isDashScope: provider.isDashScope, providerInstanceId: provider.providerInstanceId)
         }
 
         let (lineStream, _) = try await provider.streamRaw(body: body, isResponsesAPI: false)
@@ -304,12 +304,31 @@ final class OpenAIAgentProvider: AgentProvider {
                         }
                         if sawReasoningField { sawReasoningFieldEver = true }
 
+                        // [thinking-blocks] `content` may be a plain string OR a
+                        // list of content blocks. Mistral-hosted DeepSeek sends
+                        // BOTH on the same stream — the first deltas are
+                        // `"content": ""`, then it switches to
+                        //   [{"type":"thinking","thinking":[{"type":"text","text":"…"}]},
+                        //    {"type":"text","text":"…"}]
+                        // Reading it as `as? String` dropped those turns whole:
+                        // no thinking AND no body reached the UI.
+                        let contentSplit = ContentBlockSplitter.split(delta["content"])
+                        if !contentSplit.thinking.isEmpty {
+                            // Same downstream as the dedicated `reasoning_content`
+                            // field: accumulate for history, stream live as
+                            // .thinkingDelta only when the user asked for thinking.
+                            sawReasoningField = true
+                            reasoningContent += contentSplit.thinking
+                            if thinkingLevel.isEnabled {
+                                continuation.yield(.thinkingDelta(contentSplit.thinking))
+                            }
+                        }
                         // Text delta — route through the think-prefix parser so
                         // models that embed reasoning in content (MiniMax
                         // M-series, Qwen, DeepSeek via OpenRouter, etc.) stream
                         // their thinking live and get a trimmed body.
-                        if let text = delta["content"] as? String, !text.isEmpty {
-                            emitParsed(thinkParser.consume(text))
+                        if !contentSplit.visible.isEmpty {
+                            emitParsed(thinkParser.consume(contentSplit.visible))
                         }
 
                         // Tool call deltas
@@ -1012,7 +1031,7 @@ final class OpenAIAgentProvider: AgentProvider {
     ///
     /// PHASE 1 SCOPE: OpenAI-compatible endpoints only. Gemini and Anthropic keep their
     /// own emitters and are not routed through the resolver yet.
-    static func injectThinkingParams(into body: inout [String: Any], model: LLMModel, level: ThinkingLevel, isOpenRouter: Bool = false, maxTokens: Int = 0, offEffort: String? = nil, unifiedReasoningEffort: Bool = false, isMistral: Bool = false, isXAI: Bool = false, isDashScope: Bool = false, providerInstanceId: String? = nil) {
+    static func injectThinkingParams(into body: inout [String: Any], model: LLMModel, level: ThinkingLevel, isOpenRouter: Bool = false, maxTokens: Int = 0, offEffort: String? = nil, unifiedReasoningEffort: Bool = false, isMistral: Bool = false, isXAI: Bool = false, isDashScope: Bool = false, acceptsRootReasoningEffort: Bool = false, providerInstanceId: String? = nil) {
         // [T-thinking-rules-phase2] Load this instance's user-authored rules. Absent an
         // instance id (title-gen references, tests) or with no rules stored, this is []
         // and resolution is byte-for-byte the Phase 1 behaviour.
@@ -1031,7 +1050,8 @@ final class OpenAIAgentProvider: AgentProvider {
             isMistral: isMistral,
             isDashScope: isDashScope,
             offEffort: offEffort,
-            userRules: userRules
+            userRules: userRules,
+            acceptsRootReasoningEffort: acceptsRootReasoningEffort
         )
         // [T-thinking-vision-diag] The INPUTS the decision turned on, logged before the
         // decision itself. Every one of these was reconstructed by hand at least once

@@ -151,6 +151,11 @@ enum LLMProviderFactory {
             // load this provider's user-authored rules. Set for every OpenAI-family
             // provider, not just Mistral.
             p.providerInstanceId = instance.id
+            // [thinking-blocks] Per-instance capability, user-controlled. Not
+            // derived from the hostname: whether an endpoint takes
+            // `reasoning_effort` is a property of the endpoint, and the
+            // base-URL guess has already been wrong once (see ProviderInstance).
+            p.acceptsRootReasoningEffort = instance.acceptsRootReasoningEffort
             return p
         }
         switch instance.credentialType {

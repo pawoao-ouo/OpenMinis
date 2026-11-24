@@ -154,6 +154,11 @@ final class OpenAIProvider: LLMProvider {
     /// loop doesn't auto-inject thinking params.
     var isMistral: Bool = false
 
+    /// [thinking-blocks] This endpoint accepts a ROOT `reasoning_effort`
+    /// string. Mirrors `ProviderInstance.acceptsRootReasoningEffort`; the
+    /// resolver short-circuits on it before any vendor predicate runs.
+    var acceptsRootReasoningEffort: Bool = false
+
     /// [T-thinking-rules-phase2] The provider instance this was built from, so the
     /// thinking resolver can load user-authored rules for it. nil for providers built
     /// outside the instance factory (title-gen references, tests) — those simply resolve
@@ -1325,16 +1330,25 @@ final class OpenAIProvider: LLMProvider {
         let usage = (json["usage"] as? [String: Any]).map { parseChatCompletionsUsage($0) }
 
         var text = ""
+        var thinking = ""
         var attachments: [LLMMediaAttachment] = []
 
         // content may be a string or an array of content blocks
         if let stringContent = message["content"] as? String {
             text = stringContent
         } else if let arrayContent = message["content"] as? [[String: Any]] {
+            // [thinking-blocks] Blocks are not all body text. Mistral-hosted
+            // DeepSeek returns the reasoning as
+            //   {"type":"thinking","thinking":[{"type":"text","text":"…"}],"closed":true}
+            // and this loop used to drop it on the floor (only `text` was read),
+            // so a non-streaming call saw the answer but never the thinking.
             for block in arrayContent {
                 let blockType = block["type"] as? String ?? ""
-                if blockType == "text", let t = block["text"] as? String {
-                    text += t
+                if ContentBlockSplitter.isThinkingType(blockType) {
+                    thinking += ContentBlockSplitter.thinkingText(from: block)
+                } else if blockType == "text" || blockType.isEmpty {
+                    let t = ContentBlockSplitter.visibleText(from: block)
+                    if !t.isEmpty { text += t }
                 } else if blockType == "image_url",
                           let imgObj = block["image_url"] as? [String: Any],
                           let url = imgObj["url"] as? String,
@@ -1357,6 +1371,7 @@ final class OpenAIProvider: LLMProvider {
 
         var response = LLMResponse(text: text, stopReason: stopReason, usage: usage)
         response.mediaAttachments = attachments
+        response.thinking = thinking.isEmpty ? nil : thinking
         return response
     }
 

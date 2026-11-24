@@ -67,6 +67,18 @@ struct ThinkingResolveContext {
     /// explicitly by the golden snapshots (which pass no custom rules) plus a dedicated
     /// "empty list changes nothing" regression test.
     var userRules: [ThinkingRule] = []
+
+    /// [thinking-blocks] The user declared that THIS endpoint accepts a root
+    /// `reasoning_effort` string (provider config flag, default off).
+    ///
+    /// It short-circuits the whole registry on purpose. Vendor predicates in
+    /// this file are derived from base-URL substrings, and for Mistral that
+    /// predicate is a TOTAL prohibition inherited from a 422 that rejected a
+    /// different key (the nested `reasoning` object). One wrong sniff therefore
+    /// silenced a capability the endpoint actually has, with no way for the
+    /// user to override it. An explicit per-provider statement outranks any
+    /// guess made from a hostname.
+    var acceptsRootReasoningEffort: Bool = false
 }
 
 /// [T-thinking-vision-diag] What kind of evidence a gate decided on.
@@ -403,12 +415,62 @@ enum ThinkingRuleResolver {
     /// below is unchanged, and nothing in this function reads what has been appended. The
     /// gates were always here; this records which of them fired so the answer stops
     /// requiring a rebuild to obtain.
+    /// [thinking-blocks] The tier to put on the wire for the explicit
+    /// per-provider capability path.
+    ///
+    /// Deliberately NOT `wireEffort`: that ladder is calibrated for vendors
+    /// whose enum the catalog describes (medium/xhigh are real there), while
+    /// this path is used precisely when nothing is known about the endpoint.
+    /// An invented tier is a 4xx on a strict enum, so the mapping collapses to
+    /// the three values OpenAI-compatible endpoints actually document, and
+    /// `nil` means "no tier is safe — omit rather than guess".
+    static func capabilityEffort(for level: ThinkingLevel, declared: [String]?) -> String? {
+        let tiers = Set((declared ?? []).map { $0.lowercased() })
+        func pick(_ candidates: [String]) -> String? {
+            guard !tiers.isEmpty else { return candidates.first }
+            return candidates.first(where: { tiers.contains($0) })
+        }
+        switch level {
+        case .off:              return nil
+        case .low, .medium:     return pick(["low", "high"])
+        case .high:             return pick(["high", "low"])
+        case .xhigh:            return pick(["high"])
+        case .max, .ultra:      return pick(["max", "high"])
+        }
+    }
+
     private static func emit(
         format: ThinkingWireFormat,
         ctx: ThinkingResolveContext,
         into body: inout [String: Any],
         gateEvents: inout [ThinkingGateEvent]
     ) -> (from: String?, to: String?) {
+
+        // [thinking-blocks] Explicit per-provider capability wins over every
+        // rule below, including the Mistral total prohibition. Off sends
+        // NOTHING (not an "off tier") because a strict low/medium/high enum
+        // rejects invented off values, and omission is the shape that has never
+        // produced a 400 here.
+        if ctx.acceptsRootReasoningEffort {
+            guard ctx.level.isEnabled else {
+                gateEvents.append(ThinkingGateEvent(
+                    id: "provider-accepts-root-effort", evidence: .endpointCapability,
+                    verdict: "off-omit"))
+                return (nil, nil)
+            }
+            let requested = Self.capabilityEffort(for: ctx.level, declared: ctx.declaredEffortValues)
+            guard let requested else {
+                gateEvents.append(ThinkingGateEvent(
+                    id: "provider-accepts-root-effort", evidence: .endpointCapability,
+                    verdict: "no-safe-tier"))
+                return (nil, nil)
+            }
+            body["reasoning_effort"] = requested
+            gateEvents.append(ThinkingGateEvent(
+                id: "provider-accepts-root-effort", evidence: .endpointCapability,
+                verdict: "emit:\(requested)"))
+            return (requested, requested)
+        }
 
         // [T-thinking-off-explicit] Strict-enum families never receive an off tier:
         // sending "minimal" to MiMo/Agnes killed the whole request (c5efeb1e). Applied

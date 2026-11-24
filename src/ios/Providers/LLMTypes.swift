@@ -996,6 +996,11 @@ struct LLMResponse: Sendable {
     let usage: LLMUsage?
     /// Media attachments (generated images, audio, etc.) — empty for text-only responses.
     var mediaAttachments: [LLMMediaAttachment] = []
+    /// [thinking-blocks] Reasoning text when the endpoint returned it in the
+    /// `content` block list (Mistral/DeepSeek and anything else on that branch
+    /// of the OpenAI schema). `nil` means "this response carried no thinking",
+    /// which is distinct from "thinking was requested and came back empty".
+    var thinking: String? = nil
 }
 
 enum LLMStreamChunk: Sendable {

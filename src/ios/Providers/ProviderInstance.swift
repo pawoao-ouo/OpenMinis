@@ -43,6 +43,19 @@ struct ProviderInstance: Identifiable, Codable, Hashable {
     /// choice — both work under Azure. Defaults to false so existing OpenAI /
     /// Responses instances are completely unaffected.
     var azureMode: Bool
+    /// [thinking-blocks] This endpoint accepts a ROOT-level `reasoning_effort`
+    /// string. Set by the user on the provider instance, and the only thing the
+    /// request path consults before emitting that key.
+    ///
+    /// Why a per-provider flag instead of recognising the vendor: whether an
+    /// endpoint takes `reasoning_effort` is a property of the ENDPOINT, not of
+    /// the model name or the host. Base-URL sniffing already got this wrong once
+    /// — Mistral was pinned to "send no thinking field at all" after a 422
+    /// rejected the nested `reasoning` object, and that prohibition then also
+    /// suppressed the root `reasoning_effort` the same endpoint accepts.
+    /// Defaults false so every existing instance keeps its exact prior wire
+    /// format until the user opts in.
+    var acceptsRootReasoningEffort: Bool
     /// When `providerType == .unsupported`, the ORIGINAL raw type string from a
     /// newer build, kept so we re-serialize it faithfully (no data loss / no
     /// rewrite to a wrong type). nil for normal instances.
@@ -61,6 +74,7 @@ struct ProviderInstance: Identifiable, Codable, Hashable {
         imageEndpointResolved: ImageEndpointMode? = nil,
         customUserAgent: String? = nil,
         azureMode: Bool = false,
+        acceptsRootReasoningEffort: Bool = false,
         unknownProviderTypeRaw: String? = nil
     ) {
         self.id = id
@@ -75,6 +89,7 @@ struct ProviderInstance: Identifiable, Codable, Hashable {
         self.imageEndpointResolved = imageEndpointResolved
         self.customUserAgent = customUserAgent
         self.azureMode = azureMode
+        self.acceptsRootReasoningEffort = acceptsRootReasoningEffort
         self.unknownProviderTypeRaw = unknownProviderTypeRaw
     }
 
@@ -82,7 +97,7 @@ struct ProviderInstance: Identifiable, Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, label, providerType, credentialType, isEnabled, createdAt, customBaseURL, appendV1Suffix
-        case imageEndpointMode, imageEndpointResolved, customUserAgent, azureMode
+        case imageEndpointMode, imageEndpointResolved, customUserAgent, azureMode, acceptsRootReasoningEffort
     }
 
     init(from decoder: Decoder) throws {
@@ -108,6 +123,7 @@ struct ProviderInstance: Identifiable, Codable, Hashable {
         // [T-ios-azure-openai] Additive + optional: old data → false (off), so
         // existing OpenAI/Responses instances keep their exact prior behavior.
         azureMode = (try? c.decodeIfPresent(Bool.self, forKey: .azureMode)) ?? false
+        acceptsRootReasoningEffort = (try? c.decodeIfPresent(Bool.self, forKey: .acceptsRootReasoningEffort)) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -128,6 +144,7 @@ struct ProviderInstance: Identifiable, Codable, Hashable {
         // [T-ios-azure-openai] Only encode when on, so off-instances serialize
         // byte-identically to before this field existed (no diff/churn, no LWW noise).
         if azureMode { try c.encode(azureMode, forKey: .azureMode) }
+        if acceptsRootReasoningEffort { try c.encode(acceptsRootReasoningEffort, forKey: .acceptsRootReasoningEffort) }
     }
 
     /// Returns customUserAgent if non-nil and non-empty (trimmed), otherwise nil.
@@ -160,6 +177,18 @@ struct ProviderInstance: Identifiable, Codable, Hashable {
     // models" is computed dynamically by `ProviderConfigStore.hasVoiceModels(for:)`
     // (union of its model entries' modalities), and Voice Services shows a
     // read-only SHADOW view of any instance that has audio-modality models.
+
+    /// [thinking-blocks] Whether the reasoning_effort capability toggle applies:
+    /// only the OpenAI-compatible family, which is the only one whose request
+    /// body this key belongs to.
+    var supportsRootReasoningEffortSetting: Bool {
+        switch providerType {
+        case .openAI, .openAIResponses, .openRouter, .xAI, .kimiCode:
+            return true
+        case .anthropic, .gemini, .antigravity, .unsupported:
+            return false
+        }
+    }
 
     /// [T-ios-azure-openai] Whether the Azure toggle applies to this instance —
     /// only OpenAI / OpenAI-Responses instances using an API key (Azure auths
