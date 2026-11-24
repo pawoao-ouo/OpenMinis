@@ -3292,32 +3292,18 @@ struct AIChatView: View {
             plusKey
             modelPill
             Spacer(minLength: 0)
-            // [voice-key-restore 11-24 醒醒] 双行态原来只有五颗键，语音入口
-            // 全被搬进加号抽屉，她要发语音得先点加号再找——等于没有。
-            // 收起态一直有语音（主键空态就是语音），展开态反而没有，
-            // 两边不一致。这里把它放回来，位置紧贴猫头左侧。
+            // [one-key 11-24 醒醒] 不要单独那颗语音键了。
+            // 她原话：「三个按钮不好看，没输入文字的时候发送键是语音状态，
+            // 点一下就语音，输入文字自动变成发送按钮。」
             //
-            // 生成中/有内容时语音键**不隐藏**：隐藏会让右侧一整排往左跳，
-            // 每敲一个字都在抖。只用半透明压下去，视觉上让位但不移动。
-            voiceQuickKey
+            // 所以右侧只留 [猫头][主键] 两颗，语音与发送合并到主键里，
+            // 由 sendPauseKey 自己按状态换字形——跟收起态同一套四态。
+            // 刚加的 voiceQuickKey 一并撤掉，不留在代码里当死码。
             stickerKey
             sendPauseKey
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
-    }
-
-    /// 展开态常驻的语音入口。视觉上跟加号/猫头同一颗圆键，不另造样式。
-    ///
-    /// 生成中置灰而不是抽走：抽走会让 sendPauseKey 左移 42pt，
-    /// 她打字时那颗键在动，很难点准（[T-key-no-detach] 同理）。
-    private var voiceQuickKey: some View {
-        composerRoundKey("waveform", active: voiceInputActive) {
-            enterVoiceMode()
-        }
-        .opacity(vm.isProcessing ? 0.35 : 1)
-        .disabled(vm.isProcessing)
-        .accessibilityLabel(Text(AppLocalized("语音输入")))
     }
 
     // MARK: - [voice-inline 11-23] 内联听写条
@@ -3580,7 +3566,13 @@ struct AIChatView: View {
         let showArrow = (hasText && !generating) || (generating && canEnqueue)
         let showPause = generating && !canEnqueue
         let showClose = editing && !hasText && !generating
-        let showIdle = !editing && !hasText && !generating
+        // [one-key 11-24 醒醒] 原来的 showIdle（空输入时那颗 45% 灰箭头，
+        // 而且 disabled 点不动）换成语音态：空输入时这颗键就是语音入口，
+        // 点一下进语音，有字自动变发送。她要的「一颗键」就是这条。
+        //
+        // 编辑中且没字时仍然是关闭（showClose），不进语音——那时她正在改
+        // 一条已发消息，点进语音会把编辑态丢掉。
+        let showVoice = !editing && !hasText && !generating
 
         // 卡片选的四张图。没选就是 nil,四颗键全走系统符号(默认干净界面)。
         let sendIcon = appearanceStudio.currentThemePack().composerSendImage
@@ -3610,14 +3602,21 @@ struct AIChatView: View {
                 performSend()
             } else if hasText {
                 notifyNoUsableModel()
+            } else if showVoice {
+                // [one-key 11-24] 空输入 → 这颗键就是语音入口。
+                // 跟收起态 collapsedPrimaryKey 的空态走同一个函数，不另造路径。
+                enterVoiceMode()
             }
         } label: {
             ZStack {
-                // 只有发送/暂停态才有实圆底;编辑和空输入都没有。
+                // 只有发送/暂停/语音态才有实圆底;编辑态没有。
+                // [one-key 11-24] 语音态也铺实心圆底（跟收起态一致），
+                // 所以这里并进同一个条件，不再单独叠一层 Circle —— 两层底
+                // 虽然肉眼看不出来，但 ZStack 顺序一变就会盖住箭头。
                 // 实圆底仍挂着(不增删视图,见 [T-key-no-detach]):金色图本身
                 // 是不透明黑底圆,会把它盖住;万一资源丢了,实圆底还能兜住形状。
                 Circle().fill(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
-                    .opacity(showArrow || showPause ? 1 : 0)
+                    .opacity(showArrow || showPause || showVoice ? 1 : 0)
                 // 发送态:卡片选了就显示金箭头图,没选就显示原来的箭头符号。
                 // [T-key-no-detach] 图片支只在点卡片时才挂/摘(抽屉弹着,键盘
                 // 不在动画),打字/生成时的态切换仍只切透明度,不增删视图。
@@ -3650,10 +3649,18 @@ struct AIChatView: View {
                     .font(ChatFont.font(15, weight: .semibold))
                     .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.chat))
                     .opacity(showClose ? 1 : 0)
-                Image(systemName: "arrow.up")
-                    .font(ChatFont.font(17, weight: .semibold))
-                    .foregroundStyle(ChatColors.secondaryText.opacity(0.45))
-                    .opacity(showIdle ? 1 : 0)
+                // [one-key 11-24 醒醒] 空输入态：不再是那颗 45% 灰箭头，
+                // 换成语音波形，跟收起态 collapsedPrimaryKey 同一套语言。
+                // 她要的「没输入文字时是语音状态，输入文字自动变发送」就是这条。
+                // 圆底由上面那颗 Circle 负责（条件里已经带上 showVoice）。
+                //
+                // 波形用 HTML 的五根柱子（VoiceWaveGlyph），不用系统 waveform：
+                // 系统那个形状差很多，跟收起态对不上。
+                VoiceWaveGlyph()
+                    .stroke(ChatColors.background,
+                            style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+                    .frame(width: 17, height: 17)
+                    .opacity(showVoice ? 1 : 0)
             }
             .frame(width: 35, height: 35)
             .contentShape(Circle())
@@ -3662,15 +3669,21 @@ struct AIChatView: View {
             // [T-key-no-detach]), only opacity crossfades — the spring makes
             // the swap read as a morph instead of a blink. One combined key
             // covers all four states (arrow / pause / close / idle).
-            .animation(.spring(response: 0.38, dampingFraction: 0.8), value: "\(editing)-\(generating)-\(hasText)-\(canEnqueue)")
+            // [one-key 11-24] 动画触发值加上 showVoice：空输入 → 语音、
+            // 一打字 → 发送，这次交叉淡入也要走 spring，不然是硬切。
+            .animation(.spring(response: 0.38, dampingFraction: 0.8), value: "\(editing)-\(generating)-\(hasText)-\(canEnqueue)-\(showVoice)")
         }
         .buttonStyle(MorphPressStyle())
         .sensoryFeedback(.impact, trigger: voiceSendTapCount)
         .sensoryFeedback(.impact, trigger: stopTapCount)
-        .disabled(!generating && !editing && !hasText)
+        // [one-key 11-24 醒醒] 原来这里是 `.disabled(!generating && !editing && !hasText)`，
+        // 空输入时整颗键是死的 —— 现在空输入它就是语音入口，必须点得动。
+        // 唯一还要禁用的情形：编辑模式且没字，那颗是"退出编辑"，不能空点。
+        .disabled(editing && !hasText)
         .accessibilityLabel(Text(generating
             ? (canEnqueue ? AppLocalized("发送") : AppLocalized("停止生成"))
-            : (editing ? (hasText ? AppLocalized("提交编辑") : AppLocalized("退出编辑")) : AppLocalized("发送"))))
+            : (editing ? (hasText ? AppLocalized("提交编辑") : AppLocalized("退出编辑"))
+                       : (hasText ? AppLocalized("发送") : AppLocalized("语音输入")))))
     }
 
     /// [Edit Header] 编辑模式提示栏（贴在输入框右上方，AnyView-erased 不增加泛型深度，不挤占单行输入条宽度）
