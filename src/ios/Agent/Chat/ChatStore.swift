@@ -442,9 +442,13 @@ struct RawMessage: Identifiable, Codable, Hashable {
 
     /// True when `text` is any known internal-bridge string. Shared by
     /// RawMessage and ChatMessage so every layer recognizes the same rows.
+    ///
+    /// [queue-batch 11-24] 改成**前缀匹配**：排队消息的桥接文本现在会在尾部
+    /// 追加一条时间锚点（`(Sent at 10:53, 3 seconds after the previous
+    /// message.)`），精确匹配会漏掉它 —— 那条桥就会显示成一句真的 AI 回复。
     static func isInternalBridgeText(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return internalBridgeTexts.contains { trimmed == $0 }
+        return internalBridgeTexts.contains { trimmed == $0 || trimmed.hasPrefix($0) }
     }
 
     var isInternalBridge: Bool {

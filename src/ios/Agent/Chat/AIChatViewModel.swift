@@ -5449,6 +5449,37 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// 沿用它，UI 不会多出气泡。
     ///
     /// 返回每条对应持久化后的 dbRowId（顺序与入参一致），失败的位置为 nil。
+    /// [queue-batch 11-24 醒醒] 每条排队消息都给模型一个时间锚点。
+    ///
+    /// 她的要求：每条都带时间给模型，界面上不显示；隔了半小时以上，
+    /// 下一次提一句隔了多久。模型靠这个判断"她是刚说完"还是
+    /// "隔了很久才补一句"，回话的语气和取舍都会不一样。
+    ///
+    /// 用 relative 而不是绝对钟点：模型没有时区概念，绝对时间
+    /// 对它没意义，间隔才是它能用的信息。
+    private func queuedTimingNote(for prompt: QueuedPrompt, previous: QueuedPrompt?) -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "HH:mm"
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+
+        guard let prev = previous else {
+            return "(Sent at \(fmt.string(from: prompt.timestamp)).)"
+        }
+        let gap = prompt.timestamp.timeIntervalSince(prev.timestamp)
+        let seconds = Int(gap.rounded())
+
+        // 半小时以上：单独提一句，让模型知道这是个明显的停顿。
+        if gap >= 1800 {
+            let minutes = Int(gap / 60)
+            return "(Sent at \(fmt.string(from: prompt.timestamp)), \(minutes) minutes after the previous message — a long pause, treat it as a fresh thought.)"
+        }
+        if seconds <= 2 {
+            return "(Sent at \(fmt.string(from: prompt.timestamp)), right after the previous message — same burst.)"
+        }
+        return "(Sent at \(fmt.string(from: prompt.timestamp)), \(seconds) seconds after the previous message.)"
+    }
+
+    /// 返回每条对应持久化后的 dbRowId（顺序与入参一致），失败的位置为 nil。
     @discardableResult
     private func appendQueuedPromptsAsOwnTurns(
         _ queued: [QueuedPrompt],
@@ -5456,7 +5487,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         nowStr: String
     ) async -> [String?] {
         var rowIds: [String?] = []
-        for prompt in queued {
+        for (qIdx, prompt) in queued.enumerated() {
             // 附件先落盘，UI 上的缩略图跟着换成正式 meta。
             var parts: [AgentContentPart] = []
             if !prompt.attachments.isEmpty {
@@ -5469,10 +5500,26 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                     NotificationCenter.default.post(name: .minisUserAttachmentsMounted, object: chatMsg.id)
                 }
             }
-            if !prompt.text.isEmpty { parts.append(.text(prompt.text)) }
             // 空消息（无文字无附件）是 400，跳过。
             guard !parts.isEmpty else { rowIds.append(nil); continue }
 
+            // [queue-batch 11-24 醒醒] 时间锚点：每条排队消息都带，界面上不显示。
+            //
+            // 挂在**用户消息自己的文本尾部**，不挂在桥接消息上——垫桥要处理
+            // 「连续 assistant 会被 mergeConsecutiveSameRole 合并」这个副作用，
+            // 合并后桥和上一轮回复黏成一条，模型看到的回复是被改过的。
+            //
+            // 挂在用户消息上不碰角色连续性：这条本来就是 user，后面接什么
+            // 角色都不影响。界面上也不显示，因为气泡渲染读的是 ChatMessage
+            // 的 `text`（原始文本），而这里改的是 agentHistory 的 parts。
+            let prevPrompt: QueuedPrompt? = qIdx > 0 ? queued[qIdx - 1] : nil
+            let timingNote = queuedTimingNote(for: prompt, previous: prevPrompt)
+            if !prompt.text.isEmpty {
+                parts.append(.text(prompt.text + "\n\n" + timingNote))
+            } else {
+                // 纯附件消息也要有时间锚点，否则模型分不清是刚发还是隔了很久。
+                parts.append(.text(timingNote))
+            }
             // 上一条也是 user 就垫一条桥，防止出站被折叠。
             // 用 queuedFollowUpBridgeText 而不是 internalBridgeText：
             // 后者写的是「任务被新消息打断」，连发三条会读成三次打断。
@@ -5513,12 +5560,40 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         return rowIds
     }
 
+    /// [queue-batch 11-24 醒醒] 攒批去抖：等队列安静下来再一次性注入。
+    ///
+    /// 她要的效果（她的原话）：第一条来了先等 1 秒，1 秒里又来了就接着等；
+    /// 1 秒没新的了，就把这几条按顺序拼成一次发过去。
+    ///
+    /// 没有这一步的话，她手速比工具循环快，就会出现「发三条、AI 追着回三条」
+    /// ——每批工具跑完检查一次队列，那时只看得见当时那一条。
+    ///
+    /// 等的位置在「工具已经跑完、模型还没被调用」的空档里，用户感知只是
+    /// 「多想了一下」，不是「卡了」。上限 5 秒，防止她一直发导致永不回复。
+    private func awaitQueueSettle() async {
+        guard !promptQueue.isEmpty else { return }
+        let deadline = Date().addingTimeInterval(5)
+        var lastCount = promptQueue.count
+        while !Task.isCancelled {
+            // 1 秒静默窗：这 1 秒内没新增就算攒够了。
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if Task.isCancelled { return }
+            let nowCount = promptQueue.count
+            if nowCount == lastCount { return }   // 安静了，攒够
+            if Date() >= deadline { return }      // 她一直在发，别无限等
+            lastCount = nowCount
+        }
+    }
+
     private func injectQueuedPromptsAsNewTurn(
         msgIdx: inout Int,
         committedBlockCount: inout Int,
         turnUsage: TokenUsage
     ) async -> Bool {
         guard !promptQueue.isEmpty else { return false }
+        // [queue-batch 11-24] 先攒批再取：让她连发的几条一次进历史、一次回。
+        await awaitQueueSettle()
+        guard !promptQueue.isEmpty, !Task.isCancelled else { return false }
         // [S24] Take via the single choke point (see takeQueuedPrompts()).
         let queued = takeQueuedPrompts()
 
