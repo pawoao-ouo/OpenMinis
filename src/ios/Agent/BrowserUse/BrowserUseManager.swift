@@ -279,6 +279,31 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // cookies survive WebKit ITP's site-data wipes. Runs before the
         // action so a restored cookie is already in place for a navigate.
         await CookieBackupStore.shared.syncIfNeeded()
+        // [batch7-guard 11-24 醒醒] 参数缺失闸门。
+        //
+        // 背景：batch 7 把 browser_use 的 schema 从 25 个参数砍到 6 个，
+        // 其余 18 个动作的参数靠模型按名字自己传。派发层全键都读，所以
+        // 传了就生效；但**没传的话以前会静默失败** —— 比如 action=type
+        // 不带 text，parse 把 text 读成 nil，type(selector:text:nil) 往下走，
+        // 既没有效果也没有报错，模型只能瞎猜。
+        //
+        // 这道闸门不出现在提示词里，也不靠模型的自觉：缺什么就当场返回
+        // 一句事实，模型下一轮自己补上。这也是「规矩住在代码里」那一条。
+        var missing: [String] = []
+        switch input.action {
+        case .navigate, .fetch:      if input.url == nil { missing.append("url") }
+        case .type:                  if input.text == nil { missing.append("text") }
+        case .executeJS:             if input.script == nil { missing.append("script") }
+        case .setCookies:            if input.cookies == nil { missing.append("cookies") }
+        case .setUserAgent:          if input.userAgent == nil { missing.append("user_agent") }
+        default:                     break
+        }
+        if !missing.isEmpty {
+            let list = missing.map { "`\($0)`" }.joined(separator: ", ")
+            return .error("browser_use action=\(input.action.rawValue) needs \(list) — that parameter was not passed. "
+                + "Pass it as a named argument in the same call (these parameters are accepted even though they are not in the tool schema).")
+        }
+
         var result: BrowserActionResult
         switch input.action {
         case .navigate:
