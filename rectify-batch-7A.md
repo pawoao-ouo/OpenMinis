@@ -8,14 +8,13 @@
 ## 一、本批定位
 
 - **分支**：`rectify-prompt`
-- **完整 commit**：`28c2a6e7954c5d64caac0f6f5d3e6e6763d266d1` ← **以后拿这个核**
-- **代码改动 commit**：`099a1cb6b2e2b68e9336e597ee1dd831bdd52b40`
-  （之后的两笔 commit 只改本报告这一个文件，没动任何代码；
-  `git diff 099a1cb 28c2a6e --stat` 应该只有 `rectify-batch-7A.md` 一行）
+- **完整 commit**：`3172e795961b0b7ca39d76f1131a69a693413b56` ← **以后拿这个核**
+- **代码改动 commit**：`099a1cb6b2e2b68e9336e597ee1dd831bdd52b40`（schema 分层）+ `3172e79`（参数闸门）
+  之前两笔纯文档提交：`31bb9f4`、`892962e`、`28c2a6e`
 - **父 commit**：`c550ee7`（批 0 打底）
 
-> 审核方核代码请用：`git diff c550ee7 28c2a6e`
-> 想只看代码改动：`git diff c550ee7 099a1cb`
+> 审核方核全部代码：`git diff c550ee7 3172e79`
+> 只看 schema 改动：`git diff c550ee7 099a1cb`
 - **只改一个文件**：`src/ios/Agent/Chat/AIChatViewModel+ToolDefinitions.swift`
 
 ---
@@ -226,6 +225,77 @@ selector, tab_id, text, timeout, url, user_agent, viewport_height, viewport_widt
 所以：
 - 改工具 schema 不会让 CLI 失效
 - 工具描述里那句「Run `minis-browser-use --help` for the exact flag」是一条**真实可用**的兜底路径
+
+---
+
+## 七点六、独立考古结果（2026-11-24 21:45 追加）
+
+派了一个没参与实现的子代理，专门找「模型主动传 schema 外参数」这件事在仓库里有没有先例。
+**结论对我不利，但它是对的。**
+
+### 结论：没有先例
+
+全仓库 35 个工具逐个比对「schema 声明的键」和「派发层读取的键」：
+
+- `browser_use` 是**唯一**一个派发层读了当前 schema 未声明键的工具——而这 17 个键正是本批刚从 schema 删掉的
+- 另外 4 个读未声明键的地方（`authHeader` / `expr` / `file_path` / `progress_report`）全是**开发者手写的固定别名或预留开关**，没有一个是因观察模型行为而加
+
+### 更关键：代码里有两条注释，结论是反的
+
+| 位置 | 原文 | 含义 |
+|---|---|---|
+| `ToolDefinitions.swift:339` | 「这三个参数实现层早就在解析，只是 schema 里一直没露出来，**模型看不见也就用不了**」 | 实现层有 + schema 没写 ⇒ 用不上 |
+| `ToolDefinitions.swift:317` | 「dropped the parameter … so the model **could never ask for it**」 | 同上，第二次 |
+
+**本项目此前遇到同一现象的处理方式是「把参数补回 schema」，而不是依赖模型自己猜。**
+本批是第一次反过来用，且至今没有实测支撑。
+
+### 考古还挖出一个本批引入的静默失败路径
+
+```
+schema 里已无 text
+→ 模型只发 {"action":"type"}
+→ preflight 不拦（传了 action 就过，ToolPreflight.swift:244）
+→ parse 把 text 读成 nil（BrowserUseActions.swift:82）
+→ type(selector:text:nil) 往下走
+→ 没有效果，也没有报错
+```
+
+**这条路径必须堵，否则本批是「交付了一个会静默失败的功能」。**
+
+### 已堵（新增 commit `3172e79`）
+
+`BrowserUseManager.execute` 的 switch 之前加参数闸门，五个动作逐个检查必需参数：
+
+| 动作 | 必需 |
+|---|---|
+| navigate / fetch | `url` |
+| type | `text` |
+| execute_js | `script` |
+| set_cookies | `cookies` |
+| set_user_agent | `user_agent` |
+
+缺了就返回一句事实，走 `.error()` 回给模型：
+
+```
+browser_use action=type needs `text` — that parameter was not passed.
+Pass it as a named argument in the same call (these parameters are accepted
+even though they are not in the tool schema).
+```
+
+**这道闸门不在提示词里，不占 token，也不靠模型自觉**——符合整改包 §1「规矩住在代码里」。
+
+它还顺带成了取证工具：这条错误一旦触发，日志里就有 `tool=browser_use` 和 `argsKeys=[...]`，能直接看出模型传了什么。
+
+### 仍然没有解决的问题
+
+**模型到底会不会主动传 schema 外参数——依然没有数据。** 代码层面证据已穷尽：
+
+- provider 不过滤（四处 `parseJsonToDict`，已核）
+- 派发层不设防（`ConcurrentTools.swift:279` 原样接下）
+- preflight 不删未知键（`ToolPreflight.swift:146` 只当别名排除表）
+
+**管道是通的，行为没有证据。** 必须真机跑几十次 `browser_use` 后再统计。
 
 ---
 
