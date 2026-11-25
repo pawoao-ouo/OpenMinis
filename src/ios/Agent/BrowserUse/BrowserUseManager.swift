@@ -5,6 +5,19 @@ import os.log
 
 private let logger = AppLogger(category: "BrowserUse")
 
+/// [browser-qa-1.3 11-25 醒醒] takeSnapshot 超时信号。
+/// WKWebView 的截图 API 没有超时参数，卡死的页面会让它一直挂着；
+/// 这里用它把 await 打断，让上层返回一个普通失败结果，而不是等到
+/// 池子那层 300 秒的判死逻辑把整个标签拆掉。
+struct BrowserSnapshotTimeout: Error {}
+
+/// 把一个非 Sendable 的引用包起来，供 TaskGroup 闭包捕获。
+/// 只在已确认调用发生在主 actor 的场景下使用。
+struct UncheckedSendableBox<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
+}
+
 @MainActor
 final class BrowserUseManager: NSObject, ObservableObject {
 
@@ -979,7 +992,41 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let config = WKSnapshotConfiguration()
         config.rect = CGRect(origin: .zero, size: targetSize)
         let takeSnapStart = CFAbsoluteTimeGetCurrent()
-        let image = try await webView.takeSnapshot(configuration: config)
+        // [browser-qa-1.3 11-25 醒醒] takeSnapshot 原来裸 await，没有任何超时。
+        //
+        // QA 实测：在卡死的页面上只调 screenshot，就一直等，直到池子那层
+        // 300 秒的 actionDeadTimeout 才被打断 —— 而那一层超时的处理是
+        // 「标签判死 + 拆掉重建」，用户页面上没提交的东西全丢。一个截图
+        // 拖垮整个标签，代价太大。
+        //
+        // WKWebView.takeSnapshot 自己不带超时参数，所以这里用 withThrowingTaskGroup
+        // 竞速：15 秒拿不到图就抛错，**不动标签、不动页面**。上层收到的是一个
+        // 普通的失败结果，用户和模型都还在原来的页面上。
+        let image: UIImage
+        do {
+            // WKWebView 不是 Sendable，但 takeSnapshot 本来就是主线程调用的；
+            // 闭包在主 actor 上启动，捕获一个 @unchecked Sendable 的壳避免
+            // Swift 6 并发检查报警。
+            let snapBox = UncheckedSendableBox(webView)
+            let cfg = config
+            image = try await withThrowingTaskGroup(of: UIImage.self) { group in
+                group.addTask { @MainActor in
+                    try await snapBox.value.takeSnapshot(configuration: cfg)
+                }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 15_000_000_000)
+                    throw BrowserSnapshotTimeout()
+                }
+                guard let first = try await group.next() else {
+                    throw BrowserSnapshotTimeout()
+                }
+                group.cancelAll()
+                return first
+            }
+        } catch is BrowserSnapshotTimeout {
+            logger.warning("[ScreenshotTiming] takeSnapshot TIMEOUT after 15s — tab left untouched")
+            return .error("Screenshot timed out after 15s on this page — the page is probably stuck (a never-finishing script, or the renderer is busy). The tab and its content are untouched. Try navigate to reload it, or another action on the same tab.")
+        }
         let takeSnapMs = Int((CFAbsoluteTimeGetCurrent() - takeSnapStart) * 1000)
         logger.info("[ScreenshotTiming] takeSnapshot elapsed=\(takeSnapMs)ms")
         lastScreenshot = image
@@ -2042,9 +2089,16 @@ final class BrowserUseManager: NSObject, ObservableObject {
     /// the source so it never leaks to the SwiftUI layer. Safe/idempotent.
     @MainActor
     func releaseWebViewKeyboard() {
-        webView.evaluateJavaScript(
-            "if (document.activeElement && document.activeElement.blur) { document.activeElement.blur(); }",
-            completionHandler: nil)
+        // [browser-qa-2.2 11-25 醒醒] 这里原来还跑了一句
+        //   if (document.activeElement && ...) document.activeElement.blur()
+        // 把页面元素的焦点也清了。后果有两层：
+        //   1. 打进去的字之后按回车、或者对同一元素继续 type，都找不到焦点，
+        //      因为 document.activeElement 已经变回 BODY；
+        //   2. WebKit 会把焦点退回视图层，用户看到的是光标跑到了别处
+        //      （QA 里表现为「字进了地址栏」）。
+        //
+        // 这一步本来要解决的只是「iOS 会为看不见的 webView 留一块键盘占位」，
+        // 那是原生侧的事，endEditing 就够了。页面里的焦点该留给谁就留给谁。
         webView.endEditing(true)
     }
 
@@ -2466,6 +2520,22 @@ extension BrowserUseManager: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
             self.isLoading = false
+            // [browser-qa-1.1 11-25 醒醒] 加载失败后别把用户晾在空白页上。
+            //
+            // QA 实测：navigate 到多重重定向的站点，WebKit 报错后标签变成
+            // about:blank —— load() 已经把上一页清掉了，didFail 只是把错误
+            // 传出去，页面本身停在半路。之后在同一个标签上再 navigate 同一
+            // 地址依然是重定向过多，标签实际上废了。
+            //
+            // 修法：失败时先看能不能退回上一页（正常浏览器的行为）。能退就
+            // 退回去，模型和用户都还在一个可用的页面上；退不了（新标签第一
+            // 次导航就失败）就保留错误状态，让 UI 的错误浮层去接管。
+            // 两种情况都仍然把错误抛给调用方，行为对 agent 不变。
+            let hadHistory = webView.canGoBack
+            if hadHistory {
+                webView.goBack()
+                logger.warning("Navigation failed, restored previous page: \(error.localizedDescription)")
+            }
             // [T-ios-webview-error-ui] Show a Safari-style overlay in the
             // browser sheet instead of a blank page. Still thrown to the agent.
             self.loadError = WebLoadError(error: error, failedURL: self.lastRequestedURL)
