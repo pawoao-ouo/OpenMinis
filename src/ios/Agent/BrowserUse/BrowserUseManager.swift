@@ -2551,6 +2551,18 @@ extension BrowserUseManager: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
             self.isLoading = false
+            // [browser-qa-1.1-b 11-25 醒醒] 上一版只改了 didFail，漏了这一条。
+            //
+            // 域名根本不存在（DNS 失败）、TLS 失败、连不上——这些走的是
+            // didFailProvisionalNavigation，不是 didFail。复测里
+            // this-domain-does-not-exist-zzzzz123.invalid 就是这条路，所以
+            // 「退回上一页」那段完全没执行，页面停在白屏。
+            //
+            // 处理与 didFail 一致：能退就退，退不了留错误状态；错误照旧抛给调用方。
+            if webView.canGoBack {
+                webView.goBack()
+                logger.warning("Provisional navigation failed, restored previous page: \(error.localizedDescription)")
+            }
             // [T-ios-webview-error-ui] see didFail above.
             self.loadError = WebLoadError(error: error, failedURL: self.lastRequestedURL)
             logger.error("Provisional navigation failed: \(error.localizedDescription)")
