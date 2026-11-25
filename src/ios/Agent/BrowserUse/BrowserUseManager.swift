@@ -2517,6 +2517,48 @@ extension BrowserUseManager: WKNavigationDelegate {
         }
     }
 
+    /// [browser-qa-1.1-c 11-25 审核指正] 防止 goBack() 自己再失败导致递归。
+    ///
+    /// goBack() 本质上是一次新的导航。如果退回去的那一页也加载失败，
+    /// didFail / didFailProvisionalNavigation 会再触发一次，再 goBack()——
+    /// 一路退到底，甚至来回震荡。审核方指出这一点时前任没有防护。
+    ///
+    /// 这个标志只在「为恢复失败导航而发起的 goBack」期间为 true，
+    /// 那段时间里再来的失败只记日志，不再 goBack。
+    private var isRestoringAfterFailure = false
+
+    /// 失败后尝试退回上一页。返回是否真的退回去了。
+    ///
+    /// 三条判断缺一不可：
+    /// 1. 不能在恢复过程中再恢复（防递归）
+    /// 2. 必须真的有历史可退（新标签第一次导航就失败时没有）
+    /// 3. 退完之后标志要复位，且给 WebKit 一点时间把历史栈稳定下来
+    private func restoreHistoryAfterFailure(_ error: Error, label: String) {
+        guard !isRestoringAfterFailure else {
+            logger.warning("\(label): already restoring after an earlier failure, not going back again — \(error.localizedDescription)")
+            return
+        }
+        guard webView.canGoBack else {
+            logger.warning("\(label): no history to go back to — \(error.localizedDescription)")
+            return
+        }
+        isRestoringAfterFailure = true
+        webView.goBack()
+        logger.warning("\(label): restored previous page after failure — \(error.localizedDescription)")
+        // 恢复动作本身是一次导航；等它 settled（或超时）再解锁。
+        // 用 GCD 而不是 Task.sleep，理由同 evaluateJavaScriptBounded：
+        // Task 定时器会被后台 CPU 节流拉长。
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + 3)
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor in
+                self?.isRestoringAfterFailure = false
+                timer.cancel()
+            }
+        }
+        timer.resume()
+    }
+
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
             self.isLoading = false
@@ -2531,11 +2573,7 @@ extension BrowserUseManager: WKNavigationDelegate {
             // 退回去，模型和用户都还在一个可用的页面上；退不了（新标签第一
             // 次导航就失败）就保留错误状态，让 UI 的错误浮层去接管。
             // 两种情况都仍然把错误抛给调用方，行为对 agent 不变。
-            let hadHistory = webView.canGoBack
-            if hadHistory {
-                webView.goBack()
-                logger.warning("Navigation failed, restored previous page: \(error.localizedDescription)")
-            }
+            self.restoreHistoryAfterFailure(error, label: "didFail")
             // [T-ios-webview-error-ui] Show a Safari-style overlay in the
             // browser sheet instead of a blank page. Still thrown to the agent.
             self.loadError = WebLoadError(error: error, failedURL: self.lastRequestedURL)
@@ -2558,11 +2596,9 @@ extension BrowserUseManager: WKNavigationDelegate {
             // this-domain-does-not-exist-zzzzz123.invalid 就是这条路，所以
             // 「退回上一页」那段完全没执行，页面停在白屏。
             //
-            // 处理与 didFail 一致：能退就退，退不了留错误状态；错误照旧抛给调用方。
-            if webView.canGoBack {
-                webView.goBack()
-                logger.warning("Provisional navigation failed, restored previous page: \(error.localizedDescription)")
-            }
+            // 处理与 didFail 共用同一个函数：能退就退，退不了留错误状态；
+            // 防递归和 continuation 只处理一次的逻辑都在里面。
+            self.restoreHistoryAfterFailure(error, label: "didFailProvisional")
             // [T-ios-webview-error-ui] see didFail above.
             self.loadError = WebLoadError(error: error, failedURL: self.lastRequestedURL)
             logger.error("Provisional navigation failed: \(error.localizedDescription)")
