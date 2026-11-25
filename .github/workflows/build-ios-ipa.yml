@@ -67,13 +67,46 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM=""
 
-      # [04b-2 §7] `build-for-testing` only COMPILES the test target — it never
-      # runs a single assertion, which is how a test that could never pass
-      # survived three rounds. The simulator cannot run the XCTest bundle here:
-      # the native deps (lame/ffmpeg/rclone/ish) are device-only slices, so
-      # `test-without-building` against a simulator destination cannot link.
-      # The standalone suite is a plain Swift script with no app graph, so run
-      # it for real — that is where the theme-pack assertions live.
+      # Generic iOS build-for-testing above is only a compile gate; it does not
+      # execute XCTest assertions. Some native dependency scripts currently
+      # produce device-only slices, so the simulator test step below must determine
+      # whether this app-hosted suite can link and execute on the runner.
+      - name: Run Browser navigation XCTest suite on simulator
+        run: |
+          set -euo pipefail
+          simulator_id="$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          iphones = [d for runtime in devices.values() for d in runtime
+                     if d.get("isAvailable") and d.get("name", "").startswith("iPhone")]
+          if not iphones:
+              raise SystemExit("No available iPhone simulator was found")
+          print(iphones[0]["udid"])
+          ')"
+          mkdir -p build
+          xcodebuild test \
+            -project src/ios/Minis.xcodeproj \
+            -scheme Minis \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -only-testing:MinisTests/BrowserNavigateTimeoutTests \
+            -parallel-testing-enabled NO \
+            -resultBundlePath build/BrowserNavigateTimeoutTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+          xcrun xcresulttool get test-results summary \
+            --path build/BrowserNavigateTimeoutTests.xcresult
+
+      - name: Upload Browser navigation XCTest results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrowserNavigateTimeoutTests-${{ github.run_number }}
+          path: build/BrowserNavigateTimeoutTests.xcresult
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Check standalone sources statically
         run: |
           set -euo pipefail
