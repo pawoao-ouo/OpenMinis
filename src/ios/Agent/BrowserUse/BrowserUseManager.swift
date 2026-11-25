@@ -5,6 +5,88 @@ import os.log
 
 private let logger = AppLogger(category: "BrowserUse")
 
+enum BrowserNavigationWaitError: Error {
+    case webViewRemoved
+    case navigationTimedOut
+}
+
+/// Owns the single continuation for an in-flight navigation and makes every
+/// terminal path one-shot, including removal of its WebView after the pool's
+/// dead-action deadline.
+@MainActor
+final class BrowserNavigationCompletion {
+    private var continuation: CheckedContinuation<Void, Error>?
+    private(set) var didReachDeadline = false
+    private var deadlineUptimeNanoseconds: UInt64?
+
+    var isPending: Bool { continuation != nil }
+
+    func setDeadline(_ deadline: DispatchTime) {
+        precondition(continuation == nil, "Cannot change a pending navigation deadline")
+        deadlineUptimeNanoseconds = deadline.uptimeNanoseconds
+        didReachDeadline = false
+    }
+
+    func wait(starting operation: () -> Void = {}) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            precondition(self.continuation == nil, "Only one navigation may wait per WebView")
+            self.continuation = continuation
+            operation()
+        }
+    }
+
+    @discardableResult
+    func markDeadlineReached() -> Bool {
+        guard continuation != nil else { return false }
+        didReachDeadline = true
+        return true
+    }
+
+    /// Resolves from a WebKit terminal event. Returns whether the deadline had
+    /// already elapsed, so the UI can treat a late successful finish specially.
+    @discardableResult
+    func resolveFromWebKit(error: Error? = nil) -> Bool {
+        guard let continuation else { return false }
+        self.continuation = nil
+        let timedOut = hasReachedDeadline
+        didReachDeadline = false
+        deadlineUptimeNanoseconds = nil
+
+        if timedOut {
+            continuation.resume(throwing: BrowserNavigationWaitError.navigationTimedOut)
+        } else if let error {
+            continuation.resume(throwing: error)
+        } else {
+            continuation.resume()
+        }
+        return timedOut
+    }
+
+    /// Called only after the pool has removed this WebView from its tab list.
+    /// It releases the abandoned waiter without letting another action touch the
+    /// discarded WebView.
+    @discardableResult
+    func resolveAfterWebViewRemoval() -> Bool {
+        guard let continuation else { return false }
+        self.continuation = nil
+        let timedOut = hasReachedDeadline
+        didReachDeadline = false
+        deadlineUptimeNanoseconds = nil
+        if timedOut {
+            continuation.resume(throwing: BrowserNavigationWaitError.navigationTimedOut)
+        } else {
+            continuation.resume(throwing: BrowserNavigationWaitError.webViewRemoved)
+        }
+        return true
+    }
+
+    private var hasReachedDeadline: Bool {
+        if didReachDeadline { return true }
+        guard let deadlineUptimeNanoseconds else { return false }
+        return DispatchTime.now().uptimeNanoseconds >= deadlineUptimeNanoseconds
+    }
+}
+
 /// [browser-qa-1.3 11-25 醒醒] takeSnapshot 超时信号。
 /// WKWebView 的截图 API 没有超时参数，卡死的页面会让它一直挂着；
 /// 这里用它把 await 打断，让上层返回一个普通失败结果，而不是等到
@@ -41,7 +123,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
     // MARK: - Internal
 
     private(set) var webView: WKWebView
-    private var navigationContinuation: CheckedContinuation<Void, Error>?
+    let navigationCompletion = BrowserNavigationCompletion()
     @Published private(set) var currentProfile: UserAgentProfile = .mobileSafari
 
     /// Called when a page requests a new window (target="_blank" / window.open).
@@ -285,6 +367,26 @@ final class BrowserUseManager: NSObject, ObservableObject {
         .navigate, .click, .scroll, .scrollAndCollect, .hover, .type
     ]
 
+    /// A navigation deadline is a failed action, so it must not enter the
+    /// post-action DOM/snapshot path while WebKit may still be loading.
+    static func timedOutNavigationResult(for url: URL) -> BrowserActionResult {
+        BrowserActionResult(
+            text: "Navigation did not complete within \(Int(navigationTimeout))s for \(url.absoluteString). The page may be partially loaded; DOM details and a preview snapshot were skipped.",
+            success: false,
+            pageURL: url.absoluteString
+        )
+    }
+
+    static func shouldRunVisualFollowup(action: BrowserAction, result: BrowserActionResult) -> Bool {
+        result.success && visualChangeActions.contains(action)
+    }
+
+    static func isNavigationDeadlineError(_ error: Error) -> Bool {
+        guard let waitError = error as? BrowserNavigationWaitError else { return false }
+        if case .navigationTimedOut = waitError { return true }
+        return false
+    }
+
     func execute(action input: BrowserActionInput) async throws -> BrowserActionResult {
         let mgrStart = CFAbsoluteTimeGetCurrent()
         logger.info("[MgrTiming] enter action=\(input.action.rawValue)")
@@ -368,7 +470,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
         // After visual-change actions: wait for DOM to settle, append change summary,
         // and take a snapshot for UI preview (not sent to model).
-        if result.success, Self.visualChangeActions.contains(input.action) {
+        if Self.shouldRunVisualFollowup(action: input.action, result: result) {
             let settleStart = CFAbsoluteTimeGetCurrent()
             result = await waitForDomSettleAndSnapshot(result: result)
             let settleMs = Int((CFAbsoluteTimeGetCurrent() - settleStart) * 1000)
@@ -804,18 +906,12 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.navigationTimeout)
         lastRequestedURL = url          // [T-ios-webview-error-ui]
         loadError = nil                 // clear any prior failure overlay
-        webView.load(request)
-        isLoading = true
 
         // Wait for navigation to complete
         // [T-browser-navigate-timeout-reports-success-ios] GH#234. Track whether
-        // we left the wait via the delegate or via the timeout, so the RESULT can
-        // say so. Previously the timeout resumed and navigate returned a normal
-        // BrowserActionResult (success defaults to true), so a frozen renderer
-        // reported `ok: true` while the DOM never updated — the caller then ran
-        // execute_js against the OLD page with no signal anything was wrong. The
-        // only trace was a log line the CLI user never sees.
-        var timedOut = false
+        // the deadline fired so the result reports failure rather than letting
+        // callers run follow-up work against stale page state.
+        var navigationDeadlineExceeded = false
 
         // [T-browser-navigate-timeout-gcd-ios] GCD wall-clock timer, not
         // Task.sleep. Same reason documented on evaluateJavaScriptBounded: a
@@ -824,32 +920,45 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // 30s nav bound overrun the pool's 60s serial wait and even the CLI's
         // 90s ceiling — reintroducing the pile-up this fix exists to prevent.
         let navTimer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        navTimer.schedule(deadline: .now() + Self.navigationTimeout)
+        let navDeadline = DispatchTime.now() + Self.navigationTimeout
+        navigationCompletion.setDeadline(navDeadline)
+        navTimer.schedule(deadline: navDeadline)
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            self.navigationContinuation = continuation
-
+        do {
             navTimer.setEventHandler {
                 Task { @MainActor in
-                    if let cont = self.navigationContinuation {
-                        self.navigationContinuation = nil
-                        self.isLoading = false
-                        timedOut = true
-                        cont.resume()  // Don't fail on timeout, page may be partially loaded
-                        // [T-browser-bg-stuck-diag] Distinguish the two ways navigate
-                        // leaves the wait: this WARN = timed out (didFinish/didFail
-                        // never came — network stall or the load never completed);
-                        // absence of it = the delegate fired normally.
-                        logger.warning("[NavTiming] navigate_TIMEOUT after \(Int(Self.navigationTimeout))s — no didFinish/didFail; url=\(url.absoluteString.prefix(80))")
-                    }
+                    guard self.navigationCompletion.markDeadlineReached() else { return }
+                    // Do not resume or issue another WebKit call here. Keep the
+                    // pool's serial slot until a terminal delegate callback;
+                    // teardown resolves it only after the tab has been removed.
+                    logger.warning("[NavTiming] navigate_TIMEOUT after \(Int(Self.navigationTimeout))s — waiting for terminal callback or dead-tab timeout; url=\(url.absoluteString.prefix(80))")
                 }
             }
-            navTimer.resume()
+            try await navigationCompletion.wait {
+                self.webView.load(request)
+                self.isLoading = true
+                navTimer.resume()
+            }
+        } catch {
+            navTimer.cancel()
+            guard Self.isNavigationDeadlineError(error) else { throw error }
+            navigationDeadlineExceeded = true
+            // The first terminal callback after the deadline ends the wait;
+            // the caller still receives the navigation deadline as its result.
         }
         navTimer.cancel()
 
         let navDoneMs = Int((CFAbsoluteTimeGetCurrent() - navStart) * 1000)
         logger.info("[NavTiming] wait_returned elapsed=\(navDoneMs)ms url=\(url.absoluteString.prefix(100))")
+
+        // WebKit has now reported a terminal callback for the timed-out load.
+        // Do not issue another WebKit call just to build metadata or a preview.
+        if navigationDeadlineExceeded {
+            isLoading = false
+            let totalMs = Int((CFAbsoluteTimeGetCurrent() - navStart) * 1000)
+            logger.info("[NavTiming] total elapsed=\(totalMs)ms url=\(url.absoluteString.prefix(100)) timedOut=true")
+            return Self.timedOutNavigationResult(for: url)
+        }
 
         currentURL = webView.url?.absoluteString ?? normalized
         pageTitle = webView.title ?? ""
@@ -858,14 +967,6 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let meta = await navigationMetadata()
         let totalMs = Int((CFAbsoluteTimeGetCurrent() - navStart) * 1000)
         logger.info("[NavTiming] total elapsed=\(totalMs)ms url=\(url.absoluteString.prefix(100))")
-        // [T-browser-navigate-timeout-reports-success-ios] Report the timeout to
-        // the CALLER, not just the log. The page may still be partially usable,
-        // so this stays a non-error result carrying the metadata — but it now
-        // says the load did not complete, so a script can decide whether to
-        // retry or re-read rather than silently operating on a stale DOM.
-        if timedOut {
-            return BrowserActionResult(text: "Navigation did not complete within \(Int(Self.navigationTimeout))s — the page may be partially loaded or the renderer may be stalled. Content below reflects the current (possibly stale) state.\n\n\(meta)")
-        }
         return BrowserActionResult(text: meta)
     }
 
@@ -2118,9 +2219,34 @@ final class BrowserUseManager: NSObject, ObservableObject {
         webView.reload()
     }
 
+    /// Applies a successful WebKit terminal event. Even if the tool deadline
+    /// elapsed first, the usable page should be shown without a stale error card.
+    @discardableResult
+    func navigationDidFinish(
+        url: URL?,
+        title: String?,
+        canGoBack: Bool,
+        canGoForward: Bool
+    ) -> Bool {
+        let timedOut = resolveNavigationWaitFromWebKit()
+        isLoading = false
+        loadError = nil
+        currentURL = url?.absoluteString ?? currentURL
+        pageTitle = title ?? ""
+        self.canGoBack = canGoBack
+        self.canGoForward = canGoForward
+        return timedOut
+    }
+
     func stopLoading() {
         webView.stopLoading()
         isLoading = false
+    }
+
+    /// Resolves a pending navigate() only at an actual WebKit terminal event.
+    @discardableResult
+    private func resolveNavigationWaitFromWebKit(error: Error? = nil) -> Bool {
+        navigationCompletion.resolveFromWebKit(error: error)
     }
 
     func loadURL(_ urlString: String) {
@@ -2500,25 +2626,21 @@ final class BrowserUseManager: NSObject, ObservableObject {
 extension BrowserUseManager: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
-            self.isLoading = false
-            self.loadError = nil  // [T-ios-webview-error-ui]
-            self.currentURL = webView.url?.absoluteString ?? self.currentURL
-            self.pageTitle = webView.title ?? ""
-            self.canGoBack = webView.canGoBack
-            self.canGoForward = webView.canGoForward
+            self.navigationDidFinish(
+                url: webView.url,
+                title: webView.title,
+                canGoBack: webView.canGoBack,
+                canGoForward: webView.canGoForward
+            )
 
             // Record in browsing history
             BrowserHistoryStore.shared.record(url: self.currentURL, title: self.pageTitle)
-
-            if let cont = self.navigationContinuation {
-                self.navigationContinuation = nil
-                cont.resume()
-            }
         }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
+            let navigationTimedOut = self.resolveNavigationWaitFromWebKit(error: error)
             self.isLoading = false
             // [browser-qa-1.1 11-25 醒醒] 加载失败后别把用户晾在空白页上。
             //
@@ -2527,29 +2649,26 @@ extension BrowserUseManager: WKNavigationDelegate {
             // 传出去，页面本身停在半路。之后在同一个标签上再 navigate 同一
             // 地址依然是重定向过多，标签实际上废了。
             //
-            // 修法：失败时先看能不能退回上一页（正常浏览器的行为）。能退就
-            // 退回去，模型和用户都还在一个可用的页面上；退不了（新标签第一
-            // 次导航就失败）就保留错误状态，让 UI 的错误浮层去接管。
-            // 两种情况都仍然把错误抛给调用方，行为对 agent 不变。
-            let hadHistory = webView.canGoBack
-            if hadHistory {
+            // 常规失败时先看能不能退回上一页；超时路径不再启动 goBack，避免
+            // 同一 WKWebView 上又开一条导航。退不了（例如新标签第一次失败）
+            // 就保留错误状态，让 UI 的错误浮层去接管。两种情况都把错误返回。
+            if !navigationTimedOut && webView.canGoBack {
                 webView.goBack()
                 logger.warning("Navigation failed, restored previous page: \(error.localizedDescription)")
             }
             // [T-ios-webview-error-ui] Show a Safari-style overlay in the
             // browser sheet instead of a blank page. Still thrown to the agent.
-            self.loadError = WebLoadError(error: error, failedURL: self.lastRequestedURL)
+            self.loadError = WebLoadError(
+                error: navigationTimedOut ? URLError(.timedOut) : error,
+                failedURL: self.lastRequestedURL
+            )
             logger.error("Navigation failed: \(error.localizedDescription)")
-
-            if let cont = self.navigationContinuation {
-                self.navigationContinuation = nil
-                cont.resume(throwing: error)
-            }
         }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
+            let navigationTimedOut = self.resolveNavigationWaitFromWebKit(error: error)
             self.isLoading = false
             // [browser-qa-1.1-b 11-25 醒醒] 上一版只改了 didFail，漏了这一条。
             //
@@ -2558,19 +2677,18 @@ extension BrowserUseManager: WKNavigationDelegate {
             // this-domain-does-not-exist-zzzzz123.invalid 就是这条路，所以
             // 「退回上一页」那段完全没执行，页面停在白屏。
             //
-            // 处理与 didFail 一致：能退就退，退不了留错误状态；错误照旧抛给调用方。
-            if webView.canGoBack {
+            // 常规失败时与 didFail 一致：能退就退，退不了留错误状态；
+            // 已超时则不再启动 goBack，保留失败状态并返回超时结果。
+            if !navigationTimedOut && webView.canGoBack {
                 webView.goBack()
                 logger.warning("Provisional navigation failed, restored previous page: \(error.localizedDescription)")
             }
             // [T-ios-webview-error-ui] see didFail above.
-            self.loadError = WebLoadError(error: error, failedURL: self.lastRequestedURL)
+            self.loadError = WebLoadError(
+                error: navigationTimedOut ? URLError(.timedOut) : error,
+                failedURL: self.lastRequestedURL
+            )
             logger.error("Provisional navigation failed: \(error.localizedDescription)")
-
-            if let cont = self.navigationContinuation {
-                self.navigationContinuation = nil
-                cont.resume(throwing: error)
-            }
         }
     }
 
@@ -2600,12 +2718,10 @@ extension BrowserUseManager: WKNavigationDelegate {
                 guard let self else { return }
                 self.isLoading = false
                 self.currentURL = webView.url?.absoluteString ?? self.currentURL
-                if let cont = self.navigationContinuation {
-                    self.navigationContinuation = nil
-                    cont.resume(throwing: URLError(.unsupportedURL, userInfo: [
-                        NSLocalizedDescriptionKey: "Blocked navigation to \(scheme):// — only http(s) and minis-clone:// are allowed in the browser."
-                    ]))
-                }
+                let error = URLError(.unsupportedURL, userInfo: [
+                    NSLocalizedDescriptionKey: "Blocked navigation to \(scheme):// — only http(s) and minis-clone:// are allowed in the browser."
+                ])
+                self.resolveNavigationWaitFromWebKit(error: error)
             }
             return
         }
@@ -2664,10 +2780,7 @@ extension BrowserUseManager: WKNavigationDelegate {
         download.delegate = self
         inflightDownloads[ObjectIdentifier(download)] = download
         isLoading = false
-        if let cont = navigationContinuation {
-            navigationContinuation = nil
-            cont.resume()
-        }
+        resolveNavigationWaitFromWebKit()
     }
 
     /// The WebContent process backing this tab was killed by the system (jetsam
@@ -2695,10 +2808,7 @@ extension BrowserUseManager: WKNavigationDelegate {
                     + "(likely out of memory, or suspended in the background). Retry the action."]
             )
             self.loadError = WebLoadError(error: error, failedURL: self.lastRequestedURL)
-            if let cont = self.navigationContinuation {
-                self.navigationContinuation = nil
-                cont.resume(throwing: error)
-            }
+            self.resolveNavigationWaitFromWebKit(error: error)
         }
     }
 }

@@ -262,6 +262,14 @@ final class BrowserTabPool: ObservableObject {
     /// browser timeout (which is unchanged and applies AFTER the slot is held).
     private static let serialWaitTimeout: TimeInterval = 60
 
+    static func matchingManagerIndex(
+        for tabId: Int,
+        manager: BrowserUseManager,
+        in tabs: [Tab]
+    ) -> Int? {
+        tabs.firstIndex { $0.id == tabId && $0.manager === manager }
+    }
+
     /// One-shot gate: holds EITHER a resume closure OR a pre-arrived
     /// `signal()`. The gate Task installs its continuation atomically; if
     /// the signal fired first, the continuation resumes synchronously the
@@ -406,10 +414,9 @@ final class BrowserTabPool: ObservableObject {
         tabs.contains { $0.manager.isLoading }
     }
 
-    /// Stop in-flight page loads on EVERY tab. A hung `navigate` awaits the
-    /// manager's navigationContinuation, which `stopLoading()` resolves (WebKit
-    /// fires didFailProvisionalNavigation/cancelled), so the awaited
-    /// `execute(action:)` returns and the tool call completes. Mirrors the
+    /// Request that in-flight page loads stop on EVERY tab. A pending `navigate`
+    /// remains serialized until WebKit sends a terminal callback; if it does not,
+    /// the existing action-dead timeout removes that WebView. Mirrors the
     /// "one stop tap cancels every in-flight shell" semantics for the browser
     /// side. Returns the number of tabs that were actually loading.
     /// [T-ios-browser-tool-stop-button]
@@ -633,8 +640,10 @@ final class BrowserTabPool: ObservableObject {
         savedURLs.removeValue(forKey: id)
         // Terminate any in-flight downloads before the manager goes away —
         // otherwise their download-center entries stick at `downloading`.
-        tabs[idx].manager.cancelAllInflightDownloadsForTeardown()
+        let manager = tabs[idx].manager
+        manager.cancelAllInflightDownloadsForTeardown()
         tabs.remove(at: idx)
+        manager.navigationCompletion.resolveAfterWebViewRemoval()
         logger.info("Closed tab \(id), remaining: \(self.tabs.count)")
 
         // If the closed tab was selected, switch to another
@@ -954,6 +963,7 @@ final class BrowserTabPool: ObservableObject {
         guard let idx = tabs.firstIndex(where: { $0.id == targetId }) else {
             return .error("No tab with id \(targetId). Use list_tabs to see open tabs.")
         }
+        let expectedManager = tabs[idx].manager
 
         let tabResolvedMs = Int((CFAbsoluteTimeGetCurrent() - poolStart) * 1000)
         logger.info("[PoolTiming] tab_resolved elapsed=\(tabResolvedMs)ms targetId=\(targetId) action=\(input.action.rawValue)")
@@ -969,7 +979,7 @@ final class BrowserTabPool: ObservableObject {
         tabs[idx].lastActivityDate = Date()
         selectedTabId = targetId
         defer {
-            if let i = tabs.firstIndex(where: { $0.id == targetId }) {
+            if let i = Self.matchingManagerIndex(for: targetId, manager: expectedManager, in: tabs) {
                 tabs[i].lastActivityDate = Date()
                 armPostActionGrace(tabId: targetId)
             }
@@ -991,6 +1001,10 @@ final class BrowserTabPool: ObservableObject {
             logger.info("[PoolTiming] serial_slot_waited elapsed=\(serialAcquiredMs)ms tab=\(targetId)")
         }
         defer { releaseSerialSlot() }
+
+        guard Self.matchingManagerIndex(for: targetId, manager: expectedManager, in: tabs) != nil else {
+            return .error("Browser tab \(targetId) was removed or replaced while this action waited. Retry against the current tab.")
+        }
 
         // [R3-090] UA / viewport changes run UNDER the serial slot, not
         // before it. Both rebuild the WebView(s) (setUserAgentProfile and
@@ -1028,17 +1042,11 @@ final class BrowserTabPool: ObservableObject {
             )
         }
 
-        // Re-resolve the tab by id — `idx` was computed before the serial-slot
-        // await, during which the tabs array may have changed (idle reclaim,
-        // close, registry preempt). Indexing the stale `idx` could trap.
-        guard let liveIdx = tabs.firstIndex(where: { $0.id == targetId }) else {
-            return .error("No tab with id \(targetId). Use list_tabs to see open tabs.")
-        }
-
         // Delegate to the tab's BrowserUseManager.
-        // Capture the manager reference before await — the tabs array may mutate
-        // (e.g. closeTab / idle reclaim / registry preempt) while we're suspended.
-        let manager = tabs[liveIdx].manager
+        // Keep the manager incarnation captured before the serial wait. Tab IDs
+        // can be reused after removal, so a successor must never target a newer
+        // WKWebView that happens to have the same numeric id.
+        let manager = expectedManager
         let managerStart = CFAbsoluteTimeGetCurrent()
         logger.info("[PoolTiming] manager_execute_start elapsed=\(Int((managerStart - poolStart) * 1000))ms tab=\(targetId) action=\(input.action.rawValue)")
         let result: BrowserActionResult
@@ -1221,14 +1229,20 @@ final class BrowserTabPool: ObservableObject {
     /// Returns (newTabId, deadURL). deadURL is the last-known URL of the wedged
     /// tab, surfaced to the model so it can choose to re-navigate.
     private func rebuildDeadTab(oldId: Int) -> (newId: Int, deadURL: String) {
+        let deadManager = tabs.first(where: { $0.id == oldId })?.manager
         // Force-remove the poisoned tab. Its WKWebView is unrecoverable (proven
         // on device), so we simply drop it — removing it from `tabs` frees its
         // slot in the registry, which counts live tabs directly (no separate
         // release call). Stash the last-known URL for the model.
-        let deadURL = tabs.first(where: { $0.id == oldId })?.manager.currentURL ?? ""
-        tabs.first(where: { $0.id == oldId })?.manager.cancelAllInflightDownloadsForTeardown()
+        let deadURL = deadManager?.currentURL ?? ""
+        deadManager?.cancelAllInflightDownloadsForTeardown()
         tabs.removeAll { $0.id == oldId }
         if selectedTabId == oldId { selectedTabId = tabs.first?.id ?? 0 }
+        // The operation race has stopped waiting at this point and the old
+        // manager is no longer addressable by tab id. Resolve its continuation
+        // now, so its serial-chain tail can finish without exposing this dead
+        // WKWebView to a successor action.
+        deadManager?.navigationCompletion.resolveAfterWebViewRemoval()
 
         // Open a fresh tab (its own WebContent process). newTab selects it.
         let r = newTab(url: nil)
@@ -1311,9 +1325,10 @@ final class BrowserTabPool: ObservableObject {
 
     /// Remove tabs that have been idle (not in use) for longer than `idleTimeout`.
     /// Saves their URLs so they can be restored on next use.
-    private func evictIdleTabs() {
+    func evictIdleTabs() {
         let now = Date()
         var evicted = 0
+        var evictedTabs: [Tab] = []
         tabs.removeAll { tab in
             guard !tab.inUse else { return false }
             let idle = now.timeIntervalSince(tab.lastActivityDate)
@@ -1325,10 +1340,14 @@ final class BrowserTabPool: ObservableObject {
                 }
                 tab.manager.cancelAllInflightDownloadsForTeardown()
                 logger.info("Evicting idle tab \(tab.id) (idle \(String(format: "%.0f", idle))s, url=\(url.prefix(60)))")
+                evictedTabs.append(tab)
                 evicted += 1
                 return true
             }
             return false
+        }
+        for tab in evictedTabs {
+            tab.manager.navigationCompletion.resolveAfterWebViewRemoval()
         }
         if evicted > 0 {
             // Fix selected tab if it was evicted
@@ -1355,6 +1374,7 @@ final class BrowserTabPool: ObservableObject {
         }
         tab.manager.cancelAllInflightDownloadsForTeardown()
         tabs.remove(at: idx)
+        tab.manager.navigationCompletion.resolveAfterWebViewRemoval()
         if selectedTabId == id {
             selectedTabId = tabs.first?.id ?? 0
         }
@@ -1379,6 +1399,7 @@ final class BrowserTabPool: ObservableObject {
         tab.manager.stopLoading()
         tab.manager.cancelAllInflightDownloadsForTeardown()
         tabs.remove(at: idx)
+        tab.manager.navigationCompletion.resolveAfterWebViewRemoval()
         preemptedTabIds.insert(id)
         if selectedTabId == id {
             selectedTabId = tabs.first?.id ?? 0
@@ -1391,6 +1412,7 @@ final class BrowserTabPool: ObservableObject {
     /// the number evicted so the registry can log a single summary line.
     func evictAllIdleForMemoryWarning() -> Int {
         var evicted = 0
+        var evictedTabs: [Tab] = []
         tabs.removeAll { tab in
             guard !tab.inUse else { return false }
             let url = tab.manager.currentURL
@@ -1398,8 +1420,12 @@ final class BrowserTabPool: ObservableObject {
                 savedURLs[tab.id] = url
             }
             tab.manager.cancelAllInflightDownloadsForTeardown()
+            evictedTabs.append(tab)
             evicted += 1
             return true
+        }
+        for tab in evictedTabs {
+            tab.manager.navigationCompletion.resolveAfterWebViewRemoval()
         }
         if evicted > 0 {
             if !tabs.contains(where: { $0.id == selectedTabId }) {
