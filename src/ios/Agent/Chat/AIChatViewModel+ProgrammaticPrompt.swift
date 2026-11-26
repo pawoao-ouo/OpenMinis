@@ -594,7 +594,7 @@ extension AIChatViewModel {
         guard let brief = subAgentBrief else { return "" }
         let instructions = brief.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         var section = """
-        You are running as a sub agent inside an app called Minis, on an iOS device with a fully functional iSH Linux shell (Alpine Linux, aarch64). This is the calling environment, not your identity — keep your own model identity unchanged.
+        You are running as a sub agent inside an app called Minis. This is the calling environment, not your identity — keep your own model identity unchanged.
         A parent agent delegated ONE focused task to you: "\(brief.title)". You cannot see the parent conversation and it cannot see yours; everything you need is in the task text. Work the task to completion using your tools, then finish with a single clear final answer — that final message is returned verbatim to the parent agent as the result, and it is the ONLY thing the parent receives. So the final message must contain the complete deliverable itself: the full report, document, list, code or answer the task asked for, in full — never a summary of what you did, a pointer to a file you wrote, or "see above". If you produced a file, paste its full content into the final message as well. Do not ask the parent or the user questions; make reasonable assumptions and state them. Do not restate the task or add meta-commentary.
         You have about \(brief.budgetMinutes) minutes of wall-clock time; write the deliverable before the run is stopped.
         """

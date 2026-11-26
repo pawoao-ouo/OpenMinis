@@ -679,7 +679,7 @@ extension AIChatViewModel {
             name: "switch_persona",
             description: "Switch the app's current persona (the default identity for NEW conversations). This does NOT change the persona of the conversation you are in right now — that one was fixed when the session was created. Use it when the user says 'switch to <name>' or '以后都用 <name>'. If the name does not match exactly one persona, the result lists the available ones — ask the user which, do not guess.",
             parameters: [
-                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user (e.g. 'Switch persona to 小梦')."),
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user (e.g. 'Switch persona to <name>')."),
                 "persona": AgentToolParam(type: .string, description: "The persona name or id. Must match exactly one entry in the persona list."),
             ],
             required: ["tool_title", "persona"],

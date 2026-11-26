@@ -1972,7 +1972,9 @@ final class OpenAIProvider: LLMProvider {
 
         let body: [String: Any] = [
             "model": topLevelModel ?? model.id,
-            "instructions": "You are a helpful assistant. Use tools when available.",
+            // [identity-only 11-27 醒醒] 原为 "You are a helpful assistant. Use tools when available."
+            // 身份只来自用户的 SOUL.md；这里只交代功能事实，不预设身份。
+            "instructions": "Use tools when available.",
             "input": input,
             "store": false,
             "tools": [["type": "image_generation"]],

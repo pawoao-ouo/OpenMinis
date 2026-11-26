@@ -776,7 +776,7 @@ struct SoulMetadata: Equatable {
     var iconIsImage: Bool { SoulIconImage.isImageReference(icon) }
 
     static let `default` = SoulMetadata(
-        name: "嘟嘟",
+        name: "",
         // Default emoji is intentionally empty — the UI renders the fixed
         // SF Symbol sparkle and serialize() no longer writes the
         // `emoji:` line. Kept on the struct only so the parser can
@@ -1059,7 +1059,7 @@ enum SoulStore {
     /// style / lang) is seeded.
     static let defaultContent: String = """
     ---
-    name: "嘟嘟"
+    name: ""
     style: ""
     lang: "auto"
     ---
@@ -1129,7 +1129,7 @@ enum SoulStore {
         sessionPersonaId ?? PersonaStore.currentID()
     }
 
-    /// 指定人设的显示名（读该人设 SOUL.md 的 name；空 → "嘟嘟"），带内存缓存。
+    /// 指定人设的显示名（读该人设 SOUL.md 的 name；空 → "Assistant" 只是 UI 标签，不进提示词），带内存缓存。
     /// 缓存由 refreshCache() 与 save(_:for:) 失效——显示名变化的两条路径。
     @MainActor
     private static var displayNameCache: [String: String] = [:]
@@ -1139,7 +1139,7 @@ enum SoulStore {
         if let hit = displayNameCache[personaID] { return hit }
         let n = (load(for: personaID)?.metadata.name ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolved = n.isEmpty ? "嘟嘟" : n
+        let resolved = n.isEmpty ? "Assistant" : n
         displayNameCache[personaID] = resolved
         return resolved
     }
@@ -1229,17 +1229,17 @@ enum SystemPromptBuilder {
 
     private static let logger = AppLogger(category: "Soul")
 
-    /// The identity sentence template. `{name}` is substituted from the
-    /// SOUL metadata. This wording is owned by the app — users never see
-    /// it in the Personality editor, and it's stable so model-side
-    /// expectations ("Minis, capable AI assistant, iSH Linux shell")
-    /// stay intact regardless of what the user writes in SOUL.md.
+    /// 身份句模板。`{name}` 由 SOUL 元数据替换。
     ///
-    /// IMPORTANT: keep this sentence in sync with the original literal
-    /// that lived in `baseSystemPrompt` before SOUL.md existed. Wording
-    /// changes here affect every chat.
-    private static let identityTemplate =
-        "You are {name}, a capable AI assistant running on an iOS device with a fully functional iSH Linux shell (Alpine Linux, aarch64). "
+    /// [identity-only 11-27 醒醒] 原来这句是
+    /// "You are {name}, a capable AI assistant running on an iOS device
+    ///  with a fully functional iSH Linux shell (Alpine Linux, aarch64). "
+    /// 她把问题点透了：**AI 是什么样子只看提示词**。写死「capable AI
+    /// assistant」等于在用户人设之外又塞了一套身份，多角色人设会被这句
+    /// 拉回同一个壳子；写死「运行在 iOS 设备上」把环境事实混进了身份。
+    ///
+    /// 现在只剩名字。环境能力由环境段讲「我在这里拥有什么」，不在这里。
+    private static let identityTemplate = "You are {name}. "
 
     /// Render the identity sentence (template + name) and optionally
     /// append the user-authored personality body from SOUL.md.
@@ -1396,11 +1396,13 @@ enum SystemPromptBuilder {
     }
 
     private static func identitySection(from file: SoulFile?) -> String {
-        let name: String = {
-            let n = (file?.metadata.name ?? SoulMetadata.default.name)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return n.isEmpty ? "嘟嘟" : n
-        }()
+        // [identity-only 11-27 醒醒] 名字为空时**不写身份句**。
+        // 原来这里回退到 "嘟嘟"，等于给每个没写名字的人设预设了一个身份，
+        // 一开局模型就顶着产品名说话，多人设全被拉回同一个壳子。
+        // 身份只来自用户写的 SOUL.md：填了名字才有 "You are <name>."，
+        // 没填就什么都不写，交给用户自己的 body 去定义它是谁。
+        let name: String = (file?.metadata.name ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let style: String = (file?.metadata.style ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         // [audit-D1] The `lang` field: stored and editable since forever, but
@@ -1408,7 +1410,7 @@ enum SystemPromptBuilder {
         let lang: String = (file?.metadata.lang ?? "auto")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let identity = identityTemplate.replacingOccurrences(of: "{name}", with: name)
+        let identity = name.isEmpty ? "" : identityTemplate.replacingOccurrences(of: "{name}", with: name)
         let identityTrimmed = identity.trimmingCharacters(in: .whitespaces)
 
         // [T-soul-hint] Fixed hint telling the model how SOUL fields can be
@@ -1432,7 +1434,7 @@ enum SystemPromptBuilder {
             + "`--remove` clears. The single source is the contacts entry (Persona.avatar); SOUL.md `icon` "
             + "is only a mirror — change it here, never in two places. UI path: contacts (Soul page is read-only).\n"
             + "· Row icons: `minis-theme icon --list` is the only icon command the AI has. "
-            + "Setting or clearing an icon is locked on purpose — she changes icons in the settings UI.\n"
+            + "Setting or clearing an icon is locked on purpose — the user changes icons in the settings UI.\n"
             + "· Wallpaper: `wallpaper --scope global|home|chat|settings|browser|files|terminal|bottomBar|persona "
             + "--file <img>`; `--remove` clears.\n"
             + "· Single colours: `color --list --scope chat` to read current values, then "
@@ -1444,26 +1446,24 @@ enum SystemPromptBuilder {
             + "· App icon and light/dark mode are NOT under minis-theme yet: "
             + "`minis-config set appearance.appIcon auto|light|dark|legacy_light|legacy_dark` and "
             + "`appearance.theme light|dark|system`.\n\n"
-            + "\n\nTOGETHER (一起听) — a music space the two of you share. One state file, "
-            + "`/var/minis/shared/together/state.json`; you and the panel both write it, so a change "
-            + "shows up on her side within a couple of seconds. All through the `together` command:\n"
-            + "· Read her: `together now` (a sentence about what she is doing — not a field dump), "
+            + "\n\nTOGETHER (一起听) — a shared music player. One state file, "
+            + "`/var/minis/shared/together/state.json`; both the agent and the app panel write it, so a change "
+            + "shows up on the other side within a couple of seconds. All through the `together` command:\n"
+            + "· Read state: `together now` (a sentence about what is playing — not a field dump), "
             + "`together status`, `together events --limit 30`, `together history`.\n"
             + "· Play: `together play <trackId> [--at 秒]` / `pause` / `resume` / `seek <秒>` / "
             + "`handoff [user|ai]` (pass the remote). `together lib` lists the library; "
             + "`together lib add <id> <path> <title>` and `lib rm <id>` manage it.\n"
             + "· Leave a line at a second: `together note <秒> <话>` — it surfaces only when playback "
             + "reaches that second, not before. `together loopline <trackId> <话>` sets the looping "
-            + "line for a song with no lyrics. `together mood <词> [--intensity 1-5]` is your own "
-            + "state, shown on her side. `together reply <话>` speaks now (3 a day, hard cap — the "
-            + "command refuses the 4th). `together radio <trackId> --why <理由>` is you choosing a "
-            + "song unprompted; the reason is stored so you remember next turn why you played it.\n"
+            + "line for a song with no lyrics. `together mood <词> [--intensity 1-5]` is a state tag "
+            + "shown in the panel. `together reply <话>` speaks now (3 a day, hard cap — the "
+            + "command refuses the 4th). `together radio <trackId> --why <理由>` is choosing a "
+            + "song unprompted; the reason is stored so it is still known next turn why it played.\n"
             + "· Playlists: `together playlist new <名> | add <id> <trackId> | rename <id> <名> | rm <id>`.\n"
             + "· Fetching songs/lyrics is `together-fetch`: `search`, `import <file>`, `lyrics <id>`. "
             + "Lyrics come with timestamps; if a song has none, write a loopline instead of inventing "
-            + "lyrics. Never make up song titles that do not exist in `together lib`.\n"
-            + "· When to speak: she loops the same song 3 times, or stops at one second for 30s — that "
-            + "is when a note lands. Fast skipping means let her find it. Silence is also presence."
+            + "lyrics. Never make up song titles that do not exist in `together lib`."
 
         // [T-soul-style-injection 2026-05-18] The `style` frontmatter field
         // (response voice / tone / formatting preference, e.g. a row of
@@ -1550,14 +1550,14 @@ struct AssistantSoulName: View {
     /// 不给则沿用全局当前人设的缓存（老调用点行为不变）。
     var personaId: String? = nil
     @State private var name: String = SoulStore.cachedMetadata.name.isEmpty
-        ? "嘟嘟" : SoulStore.cachedMetadata.name
+        ? "Assistant" : SoulStore.cachedMetadata.name
 
     private func refresh() {
         if let pid = personaId {
             name = SoulStore.displayName(for: SoulStore.displayPersonaId(pid))
         } else {
             let n = SoulStore.cachedMetadata.name
-            name = n.isEmpty ? "嘟嘟" : n
+            name = n.isEmpty ? "Assistant" : n
         }
     }
 

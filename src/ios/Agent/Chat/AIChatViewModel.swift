@@ -1963,7 +1963,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "URL scheme: minis-clone:// (internal app resource and action deep links; percent-encode non-ASCII characters; render as Markdown links [name](minis-clone://...)).\n\n"
             + "File creation guidelines: Use file_write to CREATE new files, file_edit to MODIFY existing files (exact string match). "
             + "Avoid shell heredocs for large files; split content into chunks with append: true. "
-            + "Alpine Linux (aarch64): default shell is ash; bashisms run under bash; install packages with apk add.\n\n"
+            + "Shell: ash by default; bashisms run under bash; install packages with apk add.\n\n"
             + "Tool call style & tone: Be concise and direct. Prefer action over explanation. Reply in the language matching the user's input.\n\n"
             // [F3] Filter the catalog against this turn's schema, so the
             // model is never told it has a tool it cannot call (memory

@@ -413,7 +413,7 @@ final class PersonaStore: ObservableObject {
         }
         return personas.first { $0.id == Self.defaultPersonaID && !$0.isUserProfile }
             ?? chatSelectablePersonas.first
-            ?? Persona(id: Self.defaultPersonaID, name: "嘟嘟", avatar: nil,
+            ?? Persona(id: Self.defaultPersonaID, name: "", avatar: nil,
                        modelId: nil, skillIds: nil, mcpServerIds: nil,
                        localToolIds: nil, sortOrder: 0, isBuiltIn: false)
     }
@@ -701,7 +701,7 @@ final class PersonaStore: ObservableObject {
 
         // 读老 SOUL.md（直接读老路径，不走 persona-aware 的 SoulStore）。
         let oldSoulURL = memDir.appendingPathComponent("SOUL.md")
-        var soulName = "嘟嘟"
+        var soulName = ""
         if let data = try? Data(contentsOf: oldSoulURL),
            let text = String(data: data, encoding: .utf8) {
             let parsed = SoulMDParser.parse(text)
@@ -801,7 +801,7 @@ final class PersonaStore: ObservableObject {
             personas = [
                 // [B28 R11] 重建也带上「我自己」，不然升级后看不到这张卡。
                 Self.makeUserProfilePersona(),
-                Persona(id: Self.defaultPersonaID, name: "嘟嘟", avatar: nil,
+                Persona(id: Self.defaultPersonaID, name: "", avatar: nil,
                         modelId: nil, skillIds: nil, mcpServerIds: nil,
                         localToolIds: nil, sortOrder: 0, isBuiltIn: false),
                 Persona(id: Self.stewardPersonaID, name: "MCP小助手", avatar: nil,
