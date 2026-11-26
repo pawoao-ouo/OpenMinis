@@ -104,9 +104,10 @@ instead:
 ./deps/build_ish.sh release simulator
 ```
 
-LAME and FFmpeg keep per-platform build caches, while their framework outputs
-and iSH's `deps/libs/` outputs are replaced by the last platform built. Rebuild
-the device variants before archiving an iOS device app.
+LAME uses a separate clean working tree and install directory per SDK; FFmpeg
+keeps separate build directories. The generated FFmpeg frameworks and iSH's
+`deps/libs/` outputs are replaced by the last platform built. Rebuild the device
+variants before archiving an iOS device app.
 
 What each produces:
 

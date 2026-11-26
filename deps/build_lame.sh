@@ -50,6 +50,7 @@ case "$MODE" in
 esac
 
 LAME_BUILD_DIR="$SCRIPT_DIR/lame-build/$IOS_SDK_NAME"
+LAME_SOURCE_BUILD_DIR="$LAME_BUILD_DIR/source"
 IOS_SDK="$(xcrun --sdk "$IOS_SDK_NAME" --show-sdk-path)"
 CC="$(xcrun --sdk "$IOS_SDK_NAME" -f clang)"
 
@@ -69,14 +70,22 @@ else
 fi
 
 [[ -x "$LAME_SRC_DIR/configure" ]] || log_error "Missing executable configure script in $LAME_SRC_DIR"
-mkdir -p "$LAME_BUILD_DIR"
+rm -rf "$LAME_SOURCE_BUILD_DIR"
+mkdir -p "$LAME_BUILD_DIR" "$LAME_SOURCE_BUILD_DIR"
+cp -R "$LAME_SRC_DIR/." "$LAME_SOURCE_BUILD_DIR/"
+# The vendored source tree contains tracked .lo/.o files from an older build.
+# Never let libtool mistake those device-era objects for current Simulator input.
+find "$LAME_SOURCE_BUILD_DIR" -type f \
+    \( -name '*.lo' -o -name '*.o' -o -name '*.la' \) -delete
+find "$LAME_SOURCE_BUILD_DIR" -type d \
+    \( -name '.deps' -o -name '.libs' \) -prune -exec rm -rf {} +
 
 log_info "Configuring LAME ${LAME_VERSION} for ${IOS_SDK_NAME} arm64..."
-cd "$LAME_BUILD_DIR"
+cd "$LAME_SOURCE_BUILD_DIR"
 export CC
 export CFLAGS="-arch arm64 ${MIN_VERSION_FLAG} -isysroot ${IOS_SDK} -Oz -fPIC -Wno-implicit-function-declaration"
 export LDFLAGS="-arch arm64 ${MIN_VERSION_FLAG} -isysroot ${IOS_SDK}"
-"$LAME_SRC_DIR/configure" \
+./configure \
     --prefix="$LAME_BUILD_DIR" \
     --host=aarch64-apple-darwin \
     --disable-shared \
