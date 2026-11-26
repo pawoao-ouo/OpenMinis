@@ -132,7 +132,7 @@ jobs:
           from pathlib import Path
 
           summary = json.loads(Path("build/BrowserNavigateTimeoutTests-summary.json").read_text())
-          expected = 13
+          expected = 15
           counts = {
               "total": summary.get("totalTestCount"),
               "passed": summary.get("passedTests"),
@@ -141,7 +141,7 @@ jobs:
           }
           print("XCTest execution counts:", counts)
           if counts != {"total": expected, "passed": expected, "failed": 0, "skipped": 0}:
-              raise SystemExit(f"Expected 13 executed and passed tests with no skips; got {counts}")
+              raise SystemExit(f"Expected {expected} executed and passed tests with no skips; got {counts}")
           PY
 
       - name: Upload Browser navigation XCTest results

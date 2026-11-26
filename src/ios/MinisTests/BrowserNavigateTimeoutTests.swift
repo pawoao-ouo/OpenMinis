@@ -3,6 +3,33 @@ import XCTest
 
 @MainActor
 final class BrowserNavigateTimeoutTests: XCTestCase {
+    func testFailedNavigationDoesNotRestoreInitialAboutBlankPage() {
+        XCTAssertFalse(
+            BrowserUseManager.shouldRestorePreviousPage(
+                canGoBack: true,
+                backItemURL: URL(string: "about:blank")
+            )
+        )
+        XCTAssertFalse(
+            BrowserUseManager.shouldRestorePreviousPage(canGoBack: true, backItemURL: nil)
+        )
+    }
+
+    func testFailedNavigationStillRestoresRealPreviousPage() {
+        XCTAssertTrue(
+            BrowserUseManager.shouldRestorePreviousPage(
+                canGoBack: true,
+                backItemURL: URL(string: "https://example.com/")
+            )
+        )
+        XCTAssertFalse(
+            BrowserUseManager.shouldRestorePreviousPage(
+                canGoBack: false,
+                backItemURL: URL(string: "https://example.com/")
+            )
+        )
+    }
+
     func testTimedOutNavigationIsFailureAndSkipsVisualFollowup() {
         let url = URL(string: "https://example.com/slow")!
         let result = BrowserUseManager.timedOutNavigationResult(for: url)

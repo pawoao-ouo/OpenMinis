@@ -387,6 +387,13 @@ final class BrowserUseManager: NSObject, ObservableObject {
         return false
     }
 
+    static func shouldRestorePreviousPage(canGoBack: Bool, backItemURL: URL?) -> Bool {
+        guard canGoBack, let backItemURL else { return false }
+        let isInitialBlankPage = backItemURL.scheme?.lowercased() == "about"
+            && backItemURL.path.lowercased() == "blank"
+        return !isInitialBlankPage
+    }
+
     func execute(action input: BrowserActionInput) async throws -> BrowserActionResult {
         let mgrStart = CFAbsoluteTimeGetCurrent()
         logger.info("[MgrTiming] enter action=\(input.action.rawValue)")
@@ -2649,10 +2656,13 @@ extension BrowserUseManager: WKNavigationDelegate {
             // 传出去，页面本身停在半路。之后在同一个标签上再 navigate 同一
             // 地址依然是重定向过多，标签实际上废了。
             //
-            // 常规失败时先看能不能退回上一页；超时路径不再启动 goBack，避免
-            // 同一 WKWebView 上又开一条导航。退不了（例如新标签第一次失败）
-            // 就保留错误状态，让 UI 的错误浮层去接管。两种情况都把错误返回。
-            if !navigationTimedOut && webView.canGoBack {
+            // 常规失败时只退回真实历史页面；新标签的 about:blank 占位页不算
+            // 可恢复页面。超时路径不再启动 goBack，避免同一 WKWebView 上又开导航。
+            if !navigationTimedOut,
+               Self.shouldRestorePreviousPage(
+                   canGoBack: webView.canGoBack,
+                   backItemURL: webView.backForwardList.backItem?.url
+               ) {
                 webView.goBack()
                 logger.warning("Navigation failed, restored previous page: \(error.localizedDescription)")
             }
@@ -2677,9 +2687,13 @@ extension BrowserUseManager: WKNavigationDelegate {
             // this-domain-does-not-exist-zzzzz123.invalid 就是这条路，所以
             // 「退回上一页」那段完全没执行，页面停在白屏。
             //
-            // 常规失败时与 didFail 一致：能退就退，退不了留错误状态；
+            // 常规失败时与 didFail 一致：只退回真实历史页面，否则留错误状态；
             // 已超时则不再启动 goBack，保留失败状态并返回超时结果。
-            if !navigationTimedOut && webView.canGoBack {
+            if !navigationTimedOut,
+               Self.shouldRestorePreviousPage(
+                   canGoBack: webView.canGoBack,
+                   backItemURL: webView.backForwardList.backItem?.url
+               ) {
                 webView.goBack()
                 logger.warning("Provisional navigation failed, restored previous page: \(error.localizedDescription)")
             }
