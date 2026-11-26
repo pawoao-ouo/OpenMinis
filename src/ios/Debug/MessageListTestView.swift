@@ -901,7 +901,6 @@ struct BrowserRetryUITestHarness: View {
                 .accessibilityIdentifier("browserRetryRequestSummary")
                 .accessibilityLabel(summary.label)
         }
-        .accessibilityIdentifier("browserRetryUITestHarness")
         .onAppear {
             guard summary.label == "0|exact" else { return }
             manager.loadURL(requestedURL.absoluteString)
