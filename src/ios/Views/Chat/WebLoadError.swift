@@ -105,6 +105,7 @@ struct WebLoadError: Equatable {
 /// Centered Safari-style error card shown over a blank WKWebView, with Retry.
 struct WebLoadErrorOverlay: View {
     let error: WebLoadError
+    var isRetrying: Bool = false
     let onRetry: () -> Void
 
     var body: some View {
@@ -121,11 +122,23 @@ struct WebLoadErrorOverlay: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: onRetry) {
-                Label(AppLocalized("Try Again"), systemImage: "arrow.clockwise")
-                    .font(.subheadline.weight(.medium))
+                if isRetrying {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(AppLocalized("Loading…"))
+                    }
+                    .frame(minWidth: 44, minHeight: 44)
+                } else {
+                    Label(AppLocalized("Try Again"), systemImage: "arrow.clockwise")
+                        .font(.subheadline.weight(.medium))
+                        .frame(minHeight: 44)
+                }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
+            .disabled(isRetrying)
+            .accessibilityLabel(AppLocalized(isRetrying ? "Loading…" : "Try Again"))
+            .accessibilityIdentifier("webLoadErrorRetry")
             .padding(.top, 2)
         }
         .padding(28)

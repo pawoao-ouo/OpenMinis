@@ -206,12 +206,25 @@ struct MinisApp: App {
         WindowGroup {
             ZStack {
                 AppearanceBackdrop(scope: .global, standsDownWhenCovered: true)
+#if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--uitest-browser-retry") {
+                    BrowserRetryUITestHarness()
+                } else {
+                    ContentView()
+                        .overlay(alignment: .top) {
+                            BackgroundInterruptionBanner()
+                        }
+                    // [10-15 5-1 醒醒] 方案A：彻底移除两套悬浮播放控制器，避免打架与遮挡，所有控制收进「AI 语音设置」弹窗
+                    AppLockOverlay()
+                }
+#else
                 ContentView()
                     .overlay(alignment: .top) {
                         BackgroundInterruptionBanner()
                     }
                 // [10-15 5-1 醒醒] 方案A：彻底移除两套悬浮播放控制器，避免打架与遮挡，所有控制收进「AI 语音设置」弹窗
                 AppLockOverlay()
+#endif
             }
                 .tint(appearanceStudio.color(.accent))
                 .foregroundStyle(appearanceStudio.color(.primaryText))

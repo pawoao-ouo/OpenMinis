@@ -181,6 +181,9 @@ final class BrowserUseManager: NSObject, ObservableObject {
     @Published var currentURL: String = ""
     @Published var pageTitle: String = ""
     @Published var isLoading: Bool = false
+    @Published private(set) var isRetryingFailedLoad = false
+    private var retryFeedbackStartedAt: Date?
+    private var retryFeedbackTask: Task<Void, Never>?
     /// [T-ios-webview-error-ui] Non-nil when the last navigation failed
     /// (DNS/host/offline/timeout/TLS). Drives a Safari-style error overlay in
     /// BrowserSheetView so an agent-driven navigation failure isn't a blank
@@ -242,6 +245,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
     private var inflightDownloads: [ObjectIdentifier: WKDownload] = [:]
 
     private static let navigationTimeout: TimeInterval = 30
+    private static let retryFeedbackMinimumVisibleDuration: TimeInterval = 0.6
 
     /// [T-browser-executejs-unbounded-ios] GH#234. Wall-clock bound on a single
     /// `execute_js`. Deliberately BELOW BrowserTabPool.serialWaitTimeout (60s):
@@ -2345,6 +2349,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         navigationGate.clear()
         let timedOut = resolveNavigationWaitFromWebKit()
         isLoading = false
+        resetRetryFeedback()
         loadError = nil
         currentURL = url?.absoluteString ?? currentURL
         pageTitle = title ?? ""
@@ -2356,6 +2361,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
     func stopLoading() {
         webView.stopLoading()
         isLoading = false
+        resetRetryFeedback()
     }
 
     /// Load the failure UI into WebKit itself so screenshots and DOM reads expose it.
@@ -2371,12 +2377,13 @@ final class BrowserUseManager: NSObject, ObservableObject {
                 .replacingOccurrences(of: ">", with: "&gt;")
         }
         let retryHref = "minis-browser://retry"
+        let loadingText = escapeHTML(AppLocalized("Loading…"))
         let html = """
         <!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
         <meta name="minis-browser-error" content="true"><title>\(escapeHTML(error.title))</title>
         <main style="font:17px -apple-system,sans-serif;max-width:360px;margin:18vh auto;padding:24px;text-align:center;color:#222">
         <h2>\(escapeHTML(error.title))</h2><p>\(escapeHTML(error.message))</p>
-        <a href="\(retryHref)" style="display:inline-block;padding:12px 20px;background:#087cff;color:white;border-radius:10px;text-decoration:none">\(escapeHTML(AppLocalized("Try Again")))</a>
+        <a href="\(retryHref)" role="button" data-loading-text="\(loadingText)" onclick="this.textContent=this.dataset.loadingText;this.setAttribute('aria-disabled','true');this.style.pointerEvents='none'" style="display:inline-block;min-width:44px;min-height:44px;padding:12px 20px;background:#087cff;color:white;border-radius:10px;text-decoration:none">\(escapeHTML(AppLocalized("Try Again")))</a>
         </main>
         """
         showingInWebViewError = true
@@ -2395,6 +2402,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
     func handleMainFrameLinkNavigation(to requestURL: URL) {
         resolveNavigationWaitFromWebKit(error: URLError(.cancelled))
         navigationGate.clear()
+        resetRetryFeedback()
         lastRequestedURL = requestURL
         showingInWebViewError = false
         loadError = nil
@@ -2407,6 +2415,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         }
         guard let url = URL(string: normalized) else { return }
         let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.navigationTimeout)
+        resetRetryFeedback()
         lastRequestedURL = url          // [T-ios-webview-error-ui]
         loadError = nil
         showingInWebViewError = false
@@ -2416,15 +2425,53 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
     /// [T-ios-webview-error-ui] Retry the last requested URL after a failure.
     func retryFailedLoad() {
-        loadError = nil
+        guard !isRetryingFailedLoad else { return }
+        beginRetryFeedback()
         showingInWebViewError = false
+        isLoading = true
         if let url = lastRequestedURL {
             let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.navigationTimeout)
             navigationGate.register(webView.load(request))
-            isLoading = true
         } else {
             navigationGate.register(webView.reload())
         }
+    }
+
+    private func beginRetryFeedback() {
+        retryFeedbackTask?.cancel()
+        retryFeedbackTask = nil
+        retryFeedbackStartedAt = Date()
+        isRetryingFailedLoad = true
+    }
+
+    private func finishRetryFeedbackAfterFailure() {
+        guard isRetryingFailedLoad else { return }
+        let elapsed = retryFeedbackStartedAt.map { Date().timeIntervalSince($0) } ?? Self.retryFeedbackMinimumVisibleDuration
+        let remaining = Self.retryFeedbackMinimumVisibleDuration - elapsed
+        guard remaining > 0 else {
+            resetRetryFeedback()
+            return
+        }
+        retryFeedbackTask?.cancel()
+        let delayNanoseconds = UInt64(remaining * 1_000_000_000)
+        retryFeedbackTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: delayNanoseconds)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.retryFeedbackTask = nil
+            self.retryFeedbackStartedAt = nil
+            self.isRetryingFailedLoad = false
+        }
+    }
+
+    private func resetRetryFeedback() {
+        retryFeedbackTask?.cancel()
+        retryFeedbackTask = nil
+        retryFeedbackStartedAt = nil
+        isRetryingFailedLoad = false
     }
 
     // MARK: - JS Evaluation Helper
@@ -2820,6 +2867,7 @@ extension BrowserUseManager: WKNavigationDelegate {
                   self.navigationGate.complete(navigation) else { return }
             self.isLoading = false
             guard !self.showingInWebViewError else { return }
+            self.finishRetryFeedbackAfterFailure()
             let navigationTimedOut = self.resolveNavigationWaitFromWebKit(error: error)
             // [browser-qa-1.1 11-25 醒醒] 加载失败后别把用户晾在空白页上。
             //
@@ -2861,6 +2909,7 @@ extension BrowserUseManager: WKNavigationDelegate {
                   self.navigationGate.complete(navigation) else { return }
             self.isLoading = false
             guard !self.showingInWebViewError else { return }
+            self.finishRetryFeedbackAfterFailure()
             let navigationTimedOut = self.resolveNavigationWaitFromWebKit(error: error)
             // [browser-qa-1.1-b 11-25 醒醒] 上一版只改了 didFail，漏了这一条。
             //
@@ -3039,6 +3088,7 @@ extension BrowserUseManager: WKNavigationDelegate {
             let tabId = self.tabIdProvider?()
             BrowserResourceMonitor.shared.webContentProcessDidTerminate(tabId: tabId, url: url)
 
+            self.resetRetryFeedback()
             self.isLoading = false
             let error = NSError(
                 domain: "BrowserUse",

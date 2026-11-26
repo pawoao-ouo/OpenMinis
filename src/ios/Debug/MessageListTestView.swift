@@ -1,7 +1,9 @@
 #if DEBUG
 import SwiftUI
+import Foundation
 import Combine
 import CoreGraphics
+import WebKit
 
 // MARK: - VisualDiffEngine
 
@@ -791,6 +793,118 @@ struct MessageListTestView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// UI-facing request status; raw request URLs remain private to the scheme handler.
+@MainActor
+private final class BrowserRetryRequestSummary: ObservableObject {
+    @Published private(set) var label = "0|exact"
+    private var requestCount = 0
+
+    func update(requestCount: Int, allRequestsMatch: Bool) {
+        guard requestCount >= self.requestCount else { return }
+        self.requestCount = requestCount
+        label = "\(requestCount)|\(allRequestsMatch ? "exact" : "mismatch")"
+    }
+}
+
+/// Debug-only WKURLSchemeHandler that validates requests, fails twice, then returns a page.
+private final class BrowserRetryUITestSchemeHandler: NSObject, WKURLSchemeHandler {
+    private let lock = NSLock()
+    private let expectedURL: URL
+    private let summary: BrowserRetryRequestSummary
+    private var requestCount = 0
+    private var allRequestsMatch = true
+
+    init(expectedURL: URL, summary: BrowserRetryRequestSummary) {
+        self.expectedURL = expectedURL
+        self.summary = summary
+        super.init()
+    }
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
+        guard let url = urlSchemeTask.request.url else {
+            urlSchemeTask.didFailWithError(URLError(.badURL))
+            return
+        }
+        let matchesExpectedURL = url.absoluteString == expectedURL.absoluteString
+        lock.lock()
+        requestCount += 1
+        allRequestsMatch = allRequestsMatch && matchesExpectedURL
+        let requestNumber = requestCount
+        let requestsMatch = allRequestsMatch
+        lock.unlock()
+
+        let summary = self.summary
+        Task { @MainActor in
+            summary.update(requestCount: requestNumber, allRequestsMatch: requestsMatch)
+        }
+
+        guard matchesExpectedURL else {
+            urlSchemeTask.didFailWithError(URLError(.badURL))
+            return
+        }
+
+        guard requestNumber > 2 else {
+            urlSchemeTask.didFailWithError(URLError(.cannotConnectToHost))
+            return
+        }
+
+        let data = Data("<html><body>browser retry succeeded</body></html>".utf8)
+        let response = URLResponse(url: url, mimeType: "text/html", expectedContentLength: data.count,
+                                   textEncodingName: "utf-8")
+        urlSchemeTask.didReceive(response)
+        urlSchemeTask.didReceive(data)
+        urlSchemeTask.didFinish()
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
+}
+
+/// UI-test host for exercising the actual native browser Retry button and the
+/// production BrowserUseManager against deterministic failures/recovery.
+struct BrowserRetryUITestHarness: View {
+    private let schemeHandler: BrowserRetryUITestSchemeHandler
+    private let requestedURL: URL
+    @StateObject private var summary: BrowserRetryRequestSummary
+    @StateObject private var manager: BrowserUseManager
+
+    init() {
+        let requestedURL = URL(string: "minis-clone://fixture/retry?token=NATIVE_RETRY_UI_46")!
+        let summary = BrowserRetryRequestSummary()
+        let schemeHandler = BrowserRetryUITestSchemeHandler(expectedURL: requestedURL, summary: summary)
+        let configuration = WKWebViewConfiguration()
+        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "minis-clone")
+        self.schemeHandler = schemeHandler
+        self.requestedURL = requestedURL
+        _summary = StateObject(wrappedValue: summary)
+        _manager = StateObject(wrappedValue: BrowserUseManager(
+            profile: .mobileSafari,
+            customString: nil,
+            configuration: configuration
+        ))
+    }
+
+    var body: some View {
+        ZStack {
+            BrowserWebView(manager: manager)
+            BrowserLoadErrorOverlay(manager: manager)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: .systemBackground))
+        .overlay(alignment: .bottom) {
+            Text(summary.label)
+                .font(.system(size: 1))
+                .foregroundStyle(.clear)
+                .accessibilityIdentifier("browserRetryRequestSummary")
+                .accessibilityLabel(summary.label)
+        }
+        .accessibilityIdentifier("browserRetryUITestHarness")
+        .onAppear {
+            guard summary.label == "0|exact" else { return }
+            manager.loadURL(requestedURL.absoluteString)
         }
     }
 }

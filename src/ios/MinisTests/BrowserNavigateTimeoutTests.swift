@@ -442,6 +442,69 @@ extension BrowserNavigateTimeoutTests {
         XCTAssertTrue(fixture.requestTargets.contains("/provisional-failure"), "The local server must observe the actual failed provisional request")
     }
 
+    func testNativeRetryShowsFeedbackAndReissuesExactAddressAfterAnotherFailure() async throws {
+        let fixture = try await LoopbackHTTPRecoveryFixture.start()
+        defer { fixture.stop() }
+        let manager = BrowserUseManager(profile: .mobileSafari, customString: nil)
+        let requested = "http://127.0.0.1:\(fixture.port)/retry?secret=NATIVE_RETRY_46"
+        manager.loadURL(requested)
+        try await waitUntilManagerShowsFailure(manager)
+
+        let initialError = try XCTUnwrap(manager.loadError)
+        XCTAssertEqual(initialError.failedURL?.absoluteString, requested)
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertFalse(manager.isRetryingFailedLoad)
+        let initialErrorDOM = try await waitForDOM(in: manager.webView) {
+            $0.contains("meta name=\"minis-browser-error\"") && $0.contains(AppLocalized("Try Again"))
+        }
+        XCTAssertTrue(initialErrorDOM.contains(AppLocalized("Try Again")))
+
+        // This is the callback wired to the visible SwiftUI Retry button.
+        // Keep the fixture failing once more so the test covers the no-change case.
+        manager.retryFailedLoad()
+        XCTAssertTrue(manager.isRetryingFailedLoad, "A tap must immediately show retry progress")
+        XCTAssertTrue(manager.isLoading)
+        XCTAssertEqual(manager.loadError, initialError, "Keep the explanation visible while retrying")
+        try await waitUntilRequestCountAndNavigationSettles(2, manager: manager, fixture: fixture)
+        XCTAssertNotNil(manager.loadError, "A second failure must leave the error card available")
+        XCTAssertFalse(manager.isLoading)
+
+        for _ in 0..<100 {
+            if !manager.isRetryingFailedLoad { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertFalse(manager.isRetryingFailedLoad, "Retry must become available again after the failed attempt settles")
+        let failedAgainDOM = try await waitForDOM(in: manager.webView) {
+            $0.contains("meta name=\"minis-browser-error\"") && $0.contains(AppLocalized("Try Again"))
+        }
+        XCTAssertTrue(failedAgainDOM.contains(AppLocalized("Try Again")))
+
+        fixture.allowSuccess()
+        manager.retryFailedLoad()
+        XCTAssertTrue(manager.isRetryingFailedLoad)
+        XCTAssertTrue(manager.isLoading)
+        XCTAssertNotNil(manager.loadError)
+        let recovered = try await waitForDOM(in: manager.webView) { $0.contains("loopback recovery succeeded") }
+        XCTAssertTrue(recovered.contains("loopback recovery succeeded"))
+        XCTAssertNil(manager.loadError, "A successful retry must clear the old failure")
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertEqual(fixture.requestTargets, Array(repeating: "/retry?secret=NATIVE_RETRY_46", count: 3),
+                       "Initial navigation and both retries must use the exact same path and query")
+    }
+
+    func testRetryFeedbackResetsWhenWebContentProcessTerminates() {
+        let manager = BrowserUseManager(profile: .mobileSafari, customString: nil)
+        manager.retryFailedLoad()
+        XCTAssertTrue(manager.isRetryingFailedLoad)
+
+        manager.webViewWebContentProcessDidTerminate(manager.webView)
+
+        XCTAssertFalse(manager.isRetryingFailedLoad, "A terminal WebContent failure must re-enable Retry")
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertNotNil(manager.loadError)
+        manager.stopLoading()
+    }
+
     func testHTTPProvisionalFailureIsVisibleAndGetTextCanRetryExactAddress() async throws {
         let fixture = try await LoopbackHTTPRecoveryFixture.start()
         defer { fixture.stop() }
@@ -468,6 +531,8 @@ extension BrowserNavigateTimeoutTests {
         XCTAssertTrue(failureDOM.contains(failure.title), "The failure title must be rendered")
         XCTAssertTrue(failureDOM.contains(failure.message), "The failure explanation must be rendered")
         XCTAssertTrue(failureDOM.contains(AppLocalized("Try Again")), "The localized in-WebView Retry control must be rendered")
+        let loadingLabel = AppLocalized("Loading…")
+        XCTAssertTrue(failureDOM.contains("data-loading-text=\"\(loadingLabel)\""), "The in-WebView Retry control must provide immediate feedback when activated")
         let isFailureDocument = try await manager.webView.evaluateJavaScript("document.querySelector('meta[name=\"minis-browser-error\"]') !== null") as? Bool
         XCTAssertEqual(isFailureDocument, true, "The rendered Retry control must belong to the browser error document")
         XCTAssertFalse(failureDOM.contains("LOOPBACK_PRIVATE_92"), "The failed URL/query must not be exposed in the error document")
@@ -568,6 +633,18 @@ extension BrowserNavigateTimeoutTests {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         XCTFail("Timed out waiting for the local provisional-failure callback to settle")
+    }
+
+    private func waitUntilRequestCountAndNavigationSettles(
+        _ expectedCount: Int,
+        manager: BrowserUseManager,
+        fixture: LoopbackHTTPRecoveryFixture
+    ) async throws {
+        for _ in 0..<200 {
+            if fixture.requestCount >= expectedCount && !manager.isLoading { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Timed out waiting for \(expectedCount) requests and a terminal navigation callback")
     }
 
     private func waitUntilManagerShowsFailure(_ manager: BrowserUseManager) async throws {

@@ -132,7 +132,7 @@ jobs:
           from pathlib import Path
 
           summary = json.loads(Path("build/BrowserNavigateTimeoutTests-summary.json").read_text())
-          expected = 22
+          expected = 24
           counts = {
               "total": summary.get("totalTestCount"),
               "passed": summary.get("passedTests"),
@@ -169,6 +169,59 @@ jobs:
           name: BrowserRecoveryScreenshot-${{ github.run_number }}
           path: build/BrowserRecoveryAttachments/
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Run native browser Retry button UI test
+        run: |
+          set -euo pipefail
+          simulator_id="$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          iphones = [d for runtime in devices.values() for d in runtime
+                     if d.get("isAvailable") and d.get("name", "").startswith("iPhone")]
+          if not iphones:
+              raise SystemExit("No available iPhone simulator was found")
+          print(iphones[0]["udid"])
+          ')"
+          mkdir -p build
+          xcodebuild test \
+            -project src/ios/Minis.xcodeproj \
+            -scheme Minis \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -only-testing:MinisUITests/BrowserRetryUITests \
+            -parallel-testing-enabled NO \
+            -resultBundlePath build/BrowserRetryUITests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+          xcrun xcresulttool get test-results summary \
+            --path build/BrowserRetryUITests.xcresult \
+            > build/BrowserRetryUITests-summary.json
+          cat build/BrowserRetryUITests-summary.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("build/BrowserRetryUITests-summary.json").read_text())
+          counts = {
+              "total": summary.get("totalTestCount"),
+              "passed": summary.get("passedTests"),
+              "failed": summary.get("failedTests"),
+              "skipped": summary.get("skippedTests"),
+          }
+          print("UI XCTest execution counts:", counts)
+          if counts != {"total": 1, "passed": 1, "failed": 0, "skipped": 0}:
+              raise SystemExit(f"Expected exactly one executed and passed UI test with no skips; got {counts}")
+          PY
+
+      - name: Upload native browser Retry UI test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrowserRetryUITests-${{ github.run_number }}
+          path: build/BrowserRetryUITests.xcresult
+          if-no-files-found: ignore
           retention-days: 14
 
       - name: Restore FFmpeg device build cache
