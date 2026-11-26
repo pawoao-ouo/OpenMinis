@@ -1,6 +1,7 @@
 import XCTest
 import UIKit
 import WebKit
+import Network
 @testable import Minis
 
 @MainActor
@@ -391,4 +392,334 @@ private final class BrowserRecoveryFixtureSchemeHandler: NSObject, WKURLSchemeHa
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
+}
+
+@MainActor
+extension BrowserNavigateTimeoutTests {
+    func testRebuiltWebViewDoesNotTreatOldViewPageAsStillVisible() async throws {
+        let fixture = try await LoopbackHTTPRecoveryFixture.start()
+        defer { fixture.stop() }
+        let manager = BrowserUseManager(profile: .mobileSafari, customString: nil)
+        manager.loadURL("http://127.0.0.1:\(fixture.port)/existing-page")
+        _ = try await waitForDOM(in: manager.webView) { $0.contains("existing page remains usable") }
+        for _ in 0..<200 where manager.isLoading {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertFalse(manager.isLoading, "The original page must finish before the view is rebuilt")
+
+        fixture.disableExistingPage()
+        let oldWebView = manager.webView
+        manager.setViewport(width: 390, height: 844, profile: .mobileSafari, customUA: nil)
+        XCTAssertFalse(manager.webView === oldWebView, "The test must exercise a replacement WebView")
+        try await waitUntilManagerShowsFailure(manager)
+        let failureDOM = try await waitForDOM(in: manager.webView) { $0.contains(AppLocalized("Try Again")) }
+        XCTAssertTrue(failureDOM.contains(AppLocalized("Try Again")), "A failed reload in a new view must show its error and retry")
+        XCTAssertFalse(failureDOM.contains("existing page remains usable"))
+        XCTAssertGreaterThanOrEqual(fixture.requestTargets.filter { $0 == "/existing-page" }.count, 2)
+    }
+
+    func testProvisionalFailureWithNoBackHistoryKeepsExistingPageDOMVisible() async throws {
+        let fixture = try await LoopbackHTTPRecoveryFixture.start()
+        defer { fixture.stop() }
+        let manager = BrowserUseManager(profile: .mobileSafari, customString: nil)
+        let originalURL = "http://127.0.0.1:\(fixture.port)/existing-page"
+        manager.loadURL(originalURL)
+        let originalDOM = try await waitForDOM(in: manager.webView) {
+            $0.contains("existing page remains usable")
+        }
+        XCTAssertTrue(originalDOM.contains("existing page remains usable"))
+        XCTAssertFalse(manager.webView.canGoBack, "The setup must exercise the canGoBack=false case")
+
+        manager.loadURL("http://127.0.0.1:\(fixture.port)/provisional-failure")
+        try await waitUntilFailedRequestSettles(manager, fixture: fixture)
+        try await Task.sleep(nanoseconds: 250_000_000)
+        let retainedDOM = try await waitForDOM(in: manager.webView) {
+            $0.contains("existing page remains usable")
+        }
+        XCTAssertTrue(retainedDOM.contains("existing page remains usable"), "A real provisional failure must leave the previously rendered page usable")
+        XCTAssertFalse(retainedDOM.contains("Cannot Open Page"), "The failure UI must not replace the retained page")
+        XCTAssertTrue(fixture.requestTargets.contains("/existing-page"))
+        XCTAssertTrue(fixture.requestTargets.contains("/provisional-failure"), "The local server must observe the actual failed provisional request")
+    }
+
+    func testHTTPProvisionalFailureIsVisibleAndGetTextCanRetryExactAddress() async throws {
+        let fixture = try await LoopbackHTTPRecoveryFixture.start()
+        defer { fixture.stop() }
+        let manager = BrowserUseManager(profile: .mobileSafari, customString: nil)
+        let requested = "http://127.0.0.1:\(fixture.port)/retry?secret=LOOPBACK_PRIVATE_92"
+        let input = try XCTUnwrap(BrowserActionInput.parse(from: """
+        {"action":"navigate","url":"\(requested)"}
+        """))
+
+        do {
+            let navigation = try await manager.execute(action: input)
+            XCTAssertFalse(navigation.success, "The initial transport failure must not be reported as a successful navigation")
+            XCTAssertFalse(navigation.text.contains("fixture success"), "The first request must fail before the retry is armed")
+        } catch {
+            // Ordinary WebKit failures are rethrown by navigate; either outcome
+            // is acceptable only because this fixture deliberately closes TCP.
+            XCTAssertFalse(BrowserUseManager.isNavigationDeadlineError(error), "The immediate fixture failure must not be mistaken for a timeout")
+        }
+        try await waitUntilManagerShowsFailure(manager)
+        let failure = try XCTUnwrap(manager.loadError, "The HTTP failure must have a user-facing explanation")
+        let failureDOM = try await waitForDOM(in: manager.webView) {
+            $0.contains(failure.title) && $0.contains(failure.message) && $0.contains(AppLocalized("Try Again"))
+        }
+        XCTAssertTrue(failureDOM.contains(failure.title), "The failure title must be rendered")
+        XCTAssertTrue(failureDOM.contains(failure.message), "The failure explanation must be rendered")
+        XCTAssertTrue(failureDOM.contains(AppLocalized("Try Again")), "The localized in-WebView Retry control must be rendered")
+        let isFailureDocument = try await manager.webView.evaluateJavaScript("document.querySelector('meta[name=\"minis-browser-error\"]') !== null") as? Bool
+        XCTAssertEqual(isFailureDocument, true, "The rendered Retry control must belong to the browser error document")
+        XCTAssertFalse(failureDOM.contains("LOOPBACK_PRIVATE_92"), "The failed URL/query must not be exposed in the error document")
+
+        let errorText = try await manager.execute(action: XCTUnwrap(BrowserActionInput.parse(from: """
+        {"action":"get_text"}
+        """)))
+        XCTAssertTrue(errorText.success)
+        XCTAssertTrue(errorText.text.contains(failure.title), "get_text must include the actual failure title")
+        XCTAssertTrue(errorText.text.contains(failure.message), "get_text must include the actual failure explanation")
+        XCTAssertTrue(errorText.text.localizedCaseInsensitiveContains(AppLocalized("Try Again")), "get_text must read the localized in-WebView failure UI")
+        XCTAssertFalse(errorText.text.contains("LOOPBACK_PRIVATE_92"), "The failed URL/query must stay out of visible error content")
+        let visibleElements = try await manager.webView.evaluateJavaScript("""
+        ['h2', 'p', 'a'].every(selector => {
+            const element = document.querySelector(selector);
+            if (!element) return false;
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.top >= 0
+                && rect.right <= innerWidth && rect.bottom <= innerHeight
+                && style.display !== 'none' && style.visibility === 'visible' && Number(style.opacity) > 0;
+        })
+        """) as? Bool
+        XCTAssertEqual(visibleElements, true, "The failure title, explanation and retry must fit within the visible viewport")
+
+        let screenshotAction = try XCTUnwrap(BrowserActionInput.parse(from: """
+        {"action":"screenshot"}
+        """))
+        let screenshotResult = try await manager.execute(action: screenshotAction)
+        XCTAssertTrue(screenshotResult.success, "The browser screenshot action must succeed")
+        let screenshotData = try XCTUnwrap(Data(base64Encoded: XCTUnwrap(screenshotResult.base64Image)))
+        let screenshotPath = try XCTUnwrap(screenshotResult.imageFilePath)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: screenshotPath)), screenshotData,
+                       "The returned image and saved browser screenshot must be identical")
+        let attachment = XCTAttachment(data: screenshotData, uniformTypeIdentifier: "public.jpeg")
+        attachment.name = "browser-error-page-screenshot"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let screenshot = try XCTUnwrap(UIImage(data: screenshotData))
+        XCTAssertGreaterThan(screenshot.size.width, 0)
+        XCTAssertGreaterThan(screenshot.size.height, 0)
+        let image = try XCTUnwrap(screenshot.cgImage, "WKWebView snapshot should provide rendered pixels")
+        let bytesPerPixel = 4
+        let bytesPerRow = image.width * bytesPerPixel
+        var rgba = [UInt8](repeating: 0, count: image.height * bytesPerRow)
+        let rendered = rgba.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress,
+                                          width: image.width,
+                                          height: image.height,
+                                          bitsPerComponent: 8,
+                                          bytesPerRow: bytesPerRow,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                                            | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
+        }
+        XCTAssertTrue(rendered, "Snapshot pixels should be renderable as tightly packed RGBA")
+        var visiblyDarkPixels = 0
+        var distinctlyColoredPixels = 0
+        // Iterate only actual x/y pixel coordinates; bytesPerRow is deliberately
+        // explicit so row padding can never be counted as image content.
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                let offset = y * bytesPerRow + x * bytesPerPixel
+                let red = Int(rgba[offset])
+                let green = Int(rgba[offset + 1])
+                let blue = Int(rgba[offset + 2])
+                let luminance = (red * 299 + green * 587 + blue * 114) / 1000
+                if luminance < 190 { visiblyDarkPixels += 1 }
+                if max(red, green, blue) - min(red, green, blue) > 45 { distinctlyColoredPixels += 1 }
+            }
+        }
+        XCTAssertGreaterThan(visiblyDarkPixels, 100, "Rendered snapshot should contain substantial contrasting foreground content")
+        XCTAssertGreaterThan(distinctlyColoredPixels, 20, "Rendered snapshot should contain the colored Retry control, not a blank canvas")
+
+        fixture.allowSuccess()
+        let click = try XCTUnwrap(BrowserActionInput.parse(from: """
+        {"action":"click","selector":"a[href='minis-browser://retry']"}
+        """))
+        let clickResult = try await manager.execute(action: click)
+        XCTAssertTrue(clickResult.success, "browser_use click should activate the in-document Retry link: \(clickResult.text)")
+        let recovered = try await waitForDOM(in: manager.webView) { $0.contains("loopback recovery succeeded") }
+        XCTAssertTrue(recovered.contains("loopback recovery succeeded"))
+        XCTAssertFalse(recovered.contains(AppLocalized("Try Again")), "The visible failure state must be gone after recovery")
+        XCTAssertNil(manager.loadError)
+        XCTAssertTrue(fixture.requestTargets.contains("/retry?secret=LOOPBACK_PRIVATE_92"), "The successful retry must reach the original path and query")
+        XCTAssertTrue(fixture.requestTargets.allSatisfy { $0 == "/retry?secret=LOOPBACK_PRIVATE_92" },
+                      "Every request and retry must preserve the exact original address path and query")
+    }
+
+    private func waitUntilFailedRequestSettles(
+        _ manager: BrowserUseManager,
+        fixture: LoopbackHTTPRecoveryFixture
+    ) async throws {
+        for _ in 0..<200 {
+            if fixture.requestTargets.contains("/provisional-failure"), !manager.isLoading { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Timed out waiting for the local provisional-failure callback to settle")
+    }
+
+    private func waitUntilManagerShowsFailure(_ manager: BrowserUseManager) async throws {
+        for _ in 0..<200 {
+            if manager.loadError != nil { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Timed out waiting for actual WKWebView HTTP failure (10 seconds)")
+    }
+
+}
+
+/// Isolated ephemeral-port HTTP server. Its first request is closed without an
+/// HTTP response (transport failure); after allowSuccess(), retry gets a page.
+private final class LoopbackHTTPRecoveryFixture: @unchecked Sendable {
+    private let lock = NSLock()
+    private let listener: NWListener
+    private var successfulResponseEnabled = false
+    private var existingPageEnabled = true
+    private var requests = 0
+    private var targets: [String] = []
+    private var boundPort: UInt16 = 0
+    var port: UInt16 {
+        lock.lock(); defer { lock.unlock() }
+        return boundPort
+    }
+
+    var requestCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return requests
+    }
+
+    var requestTargets: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return targets
+    }
+
+    private init(listener: NWListener) {
+        self.listener = listener
+        listener.newConnectionHandler = { [weak self] connection in self?.handle(connection) }
+    }
+
+    static func start() async throws -> LoopbackHTTPRecoveryFixture {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host("127.0.0.1"), port: .any)
+        let listener = try NWListener(using: parameters)
+        let fixture = LoopbackHTTPRecoveryFixture(listener: listener)
+        let gate = LoopbackReadyGate()
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                gate.install(continuation)
+            listener.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    guard let port = listener.port?.rawValue else {
+                        gate.resolve(.failure(NSError(domain: "LoopbackHTTPRecoveryFixture", code: 1)))
+                        return
+                    }
+                    fixture.lock.lock()
+                    fixture.boundPort = port
+                    fixture.lock.unlock()
+                    gate.resolve(.success(()))
+                case .failed(let error):
+                    gate.resolve(.failure(error))
+                default:
+                    break
+                }
+            }
+            listener.start(queue: DispatchQueue(label: "BrowserNavigateTimeoutTests.loopback", qos: .userInitiated))
+            Task {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+                gate.resolve(.failure(NSError(domain: "LoopbackHTTPRecoveryFixture", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Loopback listener did not bind within 5 seconds"])))
+            }
+            }
+        } catch {
+            fixture.stop()
+            throw error
+        }
+        return fixture
+    }
+
+    func allowSuccess() {
+        lock.lock(); successfulResponseEnabled = true; lock.unlock()
+    }
+
+    func disableExistingPage() {
+        lock.lock(); existingPageEnabled = false; lock.unlock()
+    }
+
+    func stop() { listener.cancel() }
+
+    private func handle(_ connection: NWConnection) {
+        connection.start(queue: DispatchQueue(label: "BrowserNavigateTimeoutTests.connection", qos: .userInitiated))
+        receiveRequest(connection, accumulated: Data())
+    }
+
+    private func receiveRequest(_ connection: NWConnection, accumulated: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, complete, error in
+            guard let self else { connection.cancel(); return }
+            var request = accumulated
+            if let data { request.append(data) }
+            guard request.range(of: Data("\r\n\r\n".utf8)) != nil else {
+                if complete || error != nil || request.count >= 8192 {
+                    connection.cancel()
+                } else {
+                    self.receiveRequest(connection, accumulated: request)
+                }
+                return
+            }
+            let requestLine = String(data: request, encoding: .utf8)?
+                .components(separatedBy: "\r\n").first ?? ""
+            let target = requestLine.split(separator: " ").dropFirst().first.map(String.init) ?? ""
+            self.lock.lock()
+            self.requests += 1
+            self.targets.append(target)
+            let isExistingPage = target == "/existing-page"
+            let shouldSucceed = (isExistingPage && self.existingPageEnabled) || self.successfulResponseEnabled
+            self.lock.unlock()
+            guard shouldSucceed else { connection.cancel(); return }
+            let body = isExistingPage
+                ? "<html><body>existing page remains usable</body></html>"
+                : "<html><body>loopback recovery succeeded</body></html>"
+            let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+            connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+        }
+    }
+}
+
+private final class LoopbackReadyGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var result: Result<Void, Error>?
+
+    func install(_ continuation: CheckedContinuation<Void, Error>) {
+        lock.lock()
+        if let result {
+            lock.unlock()
+            continuation.resume(with: result)
+        } else {
+            self.continuation = continuation
+            lock.unlock()
+        }
+    }
+
+    func resolve(_ result: Result<Void, Error>) {
+        lock.lock()
+        guard self.result == nil else { lock.unlock(); return }
+        self.result = result
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(with: result)
+    }
 }

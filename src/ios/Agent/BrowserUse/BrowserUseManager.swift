@@ -193,6 +193,9 @@ final class BrowserUseManager: NSObject, ObservableObject {
     private var navigationGate = BrowserNavigationGate<WKNavigation>()
     /// True while the actual WebView contains browser-tool-visible failure UI.
     private var showingInWebViewError = false
+    /// Last successfully finished non-blank page in this WebView. Invalidated
+    /// when a new document commits, the WebView is replaced, or its process dies.
+    private var lastSuccessfulTopLevelURL: URL?
     @Published var canGoBack: Bool = false
     @Published var canGoForward: Bool = false
     @Published var lastScreenshot: UIImage?
@@ -469,6 +472,15 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let isInitialBlankPage = backItemURL.scheme?.lowercased() == "about"
             && backItemURL.path.lowercased() == "blank"
         return !isInitialBlankPage
+    }
+    private static func isRealPageURL(_ url: URL?) -> Bool {
+        guard let url, let scheme = url.scheme?.lowercased() else { return false }
+        return !(scheme == "about" && url.path.lowercased() == "blank")
+    }
+    /// URL and history may describe a provisional or lost document, not usable
+    /// rendered content. Only a finished page in the current view counts.
+    private var hasExistingRealPage: Bool {
+        Self.isRealPageURL(lastSuccessfulTopLevelURL)
     }
 
     func execute(action input: BrowserActionInput) async throws -> BrowserActionResult {
@@ -2199,6 +2211,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let errorToRestore = showingInWebViewError ? loadError : nil
 
         navigationGate.clear()
+        lastSuccessfulTopLevelURL = nil
         webView = newView
 
         if let errorToRestore {
@@ -2772,6 +2785,14 @@ extension BrowserUseManager: WKNavigationDelegate {
         }
     }
 
+    nonisolated func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        MainActor.assumeIsolated {
+            guard webView === self.webView, self.navigationGate.matches(navigation) else { return }
+            // Committing replaces the previous document, even if this load later fails.
+            self.lastSuccessfulTopLevelURL = nil
+        }
+    }
+
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
             guard webView === self.webView,
@@ -2786,6 +2807,7 @@ extension BrowserUseManager: WKNavigationDelegate {
                 canGoBack: webView.canGoBack,
                 canGoForward: webView.canGoForward
             )
+            self.lastSuccessfulTopLevelURL = Self.isRealPageURL(webView.url) ? webView.url : nil
 
             // Record in browsing history
             BrowserHistoryStore.shared.record(url: self.currentURL, title: self.pageTitle)
@@ -2822,7 +2844,10 @@ extension BrowserUseManager: WKNavigationDelegate {
                     error: navigationTimedOut ? URLError(.timedOut) : error,
                     failedURL: self.lastRequestedURL
                 )
-                if let loadError = self.loadError {
+                if self.hasExistingRealPage {
+                    self.loadError = nil
+                    self.showingInWebViewError = false
+                } else if let loadError = self.loadError {
                     self.showInWebViewError(loadError)
                 }
             }
@@ -2860,7 +2885,10 @@ extension BrowserUseManager: WKNavigationDelegate {
                     error: navigationTimedOut ? URLError(.timedOut) : error,
                     failedURL: self.lastRequestedURL
                 )
-                if let loadError = self.loadError {
+                if self.hasExistingRealPage {
+                    self.loadError = nil
+                    self.showingInWebViewError = false
+                } else if let loadError = self.loadError {
                     self.showInWebViewError(loadError)
                 }
             }
@@ -3005,6 +3033,8 @@ extension BrowserUseManager: WKNavigationDelegate {
     /// of hanging until the agent's own timeout — or never. [BrowserToolDiag]
     nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         MainActor.assumeIsolated {
+            guard webView === self.webView else { return }
+            self.lastSuccessfulTopLevelURL = nil
             let url = self.currentURL.isEmpty ? nil : self.currentURL
             let tabId = self.tabIdProvider?()
             BrowserResourceMonitor.shared.webContentProcessDidTerminate(tabId: tabId, url: url)

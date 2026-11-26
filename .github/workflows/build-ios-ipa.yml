@@ -132,7 +132,7 @@ jobs:
           from pathlib import Path
 
           summary = json.loads(Path("build/BrowserNavigateTimeoutTests-summary.json").read_text())
-          expected = 19
+          expected = 22
           counts = {
               "total": summary.get("totalTestCount"),
               "passed": summary.get("passedTests"),
@@ -151,6 +151,24 @@ jobs:
           name: BrowserNavigateTimeoutTests-${{ github.run_number }}
           path: build/BrowserNavigateTimeoutTests.xcresult
           if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Export browser recovery screenshot evidence
+        if: always()
+        run: |
+          if [ -d build/BrowserNavigateTimeoutTests.xcresult ]; then
+            xcrun xcresulttool export attachments \
+              --path build/BrowserNavigateTimeoutTests.xcresult \
+              --output-path build/BrowserRecoveryAttachments
+          fi
+
+      - name: Upload browser recovery screenshot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrowserRecoveryScreenshot-${{ github.run_number }}
+          path: build/BrowserRecoveryAttachments/
+          if-no-files-found: error
           retention-days: 14
 
       - name: Restore FFmpeg device build cache
