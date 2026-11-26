@@ -79,11 +79,11 @@ jobs:
           print(iphones[0]["udid"])
           ')"
           mkdir -p build
+          # The concrete Simulator destination supplies its architecture; xcodebuild rejects a separate -arch here.
           xcodebuild test \
             -project src/ios/Minis.xcodeproj \
             -scheme Minis \
             -destination "platform=iOS Simulator,id=$simulator_id" \
-            -arch arm64 \
             -only-testing:MinisTests/BrowserNavigateTimeoutTests \
             -parallel-testing-enabled NO \
             -resultBundlePath build/BrowserNavigateTimeoutTests.xcresult \
