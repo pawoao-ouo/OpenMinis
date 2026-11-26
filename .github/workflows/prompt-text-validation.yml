@@ -1,0 +1,58 @@
+name: Prompt text validation
+
+on:
+  push:
+    branches:
+      - prompt/rectify-batch0
+    paths:
+      - '.github/workflows/prompt-text-validation.yml'
+      - 'docs/prompt-text-inventory.md'
+      - 'scripts/scan_prompt_text.py'
+      - 'scripts/test_scan_prompt_text.py'
+      - 'src/ios/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/prompt-text-validation.yml'
+      - 'docs/prompt-text-inventory.md'
+      - 'scripts/scan_prompt_text.py'
+      - 'scripts/test_scan_prompt_text.py'
+      - 'src/ios/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prompt-text-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/prompt/rectify-batch0') ||
+      (github.event_name == 'pull_request' && github.head_ref == 'prompt/rectify-batch0')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Fetch frozen batch-0 comparison baseline
+        run: |
+          baseline_commit="$(PYTHONPATH=scripts python -c 'import scan_prompt_text; print(scan_prompt_text.EXPECTED_BASELINE_COMMIT)')"
+          git fetch --no-tags --depth=1 origin "$baseline_commit"
+
+      - name: Compile scanner and tests
+        run: python -m py_compile scripts/scan_prompt_text.py scripts/test_scan_prompt_text.py
+
+      - name: Run synthetic scanner regression tests
+        run: python -m unittest discover -s scripts -p 'test_scan_prompt_text.py' -v
+
+      - name: Enforce default prompt-text candidate ceilings
+        run: python3 scripts/scan_prompt_text.py
