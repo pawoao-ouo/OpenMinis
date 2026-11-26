@@ -104,10 +104,13 @@ instead:
 ./deps/build_ish.sh release simulator
 ```
 
-LAME uses a separate clean working tree and install directory per SDK; FFmpeg
-keeps separate build directories. The generated FFmpeg frameworks and iSH's
-`deps/libs/` outputs are replaced by the last platform built. Rebuild the device
-variants before archiving an iOS device app.
+LAME uses a separate clean working tree and install directory per SDK. FFmpeg
+builds outside its source tree into isolated device and Simulator directories,
+so objects and generated configuration cannot cross-contaminate; CI caches
+these outputs by inputs, target SDK/architecture, and Xcode/SDK version. The
+generated FFmpeg frameworks and iSH's `deps/libs/` outputs are replaced by the
+last platform built. Rebuild the device variants before archiving an iOS device
+app.
 
 What each produces:
 

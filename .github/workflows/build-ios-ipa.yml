@@ -49,11 +49,43 @@ jobs:
           test -f deps/ish/asbestos/guest-arm64/gadgets-aarch64/entry.S
           echo "Native helper target: $(uname -m); ARM64 guest entry.S is present"
 
+      - name: Compute FFmpeg cache fingerprints
+        id: ffmpeg-cache-keys
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          FFMPEG_INPUTS_HASH: ${{ hashFiles('deps/build_ffmpeg.sh', 'deps/build_lame.sh', 'deps/ffmpeg-patch/**', 'deps/lame-3.100/**') }}
+        run: |
+          set -euo pipefail
+          xcode_version="$(xcodebuild -version | awk '/^Xcode / { x=$2 } /^Build version / { b=$3 } END { print x "-" b }')"
+          device_sdk="$(xcrun --sdk iphoneos --show-sdk-version)"
+          simulator_sdk="$(xcrun --sdk iphonesimulator --show-sdk-version)"
+          printf 'device=ffmpeg-6.1.2-%s-%s-iphoneos-xcode-%s-sdk-%s-inputs-%s\n' \
+            "$RUNNER_OS" "$RUNNER_ARCH" "$xcode_version" "$device_sdk" "$FFMPEG_INPUTS_HASH" >> "$GITHUB_OUTPUT"
+          printf 'simulator=ffmpeg-6.1.2-%s-%s-iphonesimulator-xcode-%s-sdk-%s-inputs-%s\n' \
+            "$RUNNER_OS" "$RUNNER_ARCH" "$xcode_version" "$simulator_sdk" "$FFMPEG_INPUTS_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Restore FFmpeg Simulator build cache
+        id: ffmpeg-simulator-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: deps/.cache/ffmpeg/6.1.2/iphonesimulator-arm64
+          key: ${{ steps.ffmpeg-cache-keys.outputs.simulator }}
+
       - name: Build Simulator LAME, FFmpeg, and iSH dependencies
+        env:
+          OPENMINIS_FFMPEG_BUILD_CACHE_KEY: ${{ steps.ffmpeg-cache-keys.outputs.simulator }}
         run: |
           ./deps/build_lame.sh simulator
           ./deps/build_ffmpeg.sh simulator
           ./deps/build_ish.sh release simulator
+
+      - name: Save FFmpeg Simulator build cache
+        if: success() && steps.ffmpeg-simulator-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: deps/.cache/ffmpeg/6.1.2/iphonesimulator-arm64
+          key: ${{ steps.ffmpeg-cache-keys.outputs.simulator }}
 
       - name: Build shared dual-platform dependencies and app resources
         run: |
@@ -121,11 +153,27 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Restore FFmpeg device build cache
+        id: ffmpeg-device-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: deps/.cache/ffmpeg/6.1.2/iphoneos-arm64
+          key: ${{ steps.ffmpeg-cache-keys.outputs.device }}
+
       - name: Rebuild device native dependencies for IPA archive
+        env:
+          OPENMINIS_FFMPEG_BUILD_CACHE_KEY: ${{ steps.ffmpeg-cache-keys.outputs.device }}
         run: |
           ./deps/build_lame.sh device
           ./deps/build_ffmpeg.sh device
           ./deps/build_ish.sh release device
+
+      - name: Save FFmpeg device build cache
+        if: success() && steps.ffmpeg-device-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: deps/.cache/ffmpeg/6.1.2/iphoneos-arm64
+          key: ${{ steps.ffmpeg-cache-keys.outputs.device }}
 
       - name: Check standalone sources statically
         run: |

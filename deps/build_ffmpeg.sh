@@ -27,7 +27,8 @@ set -e
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FFMPEG_DIR="$SCRIPT_DIR/ffmpeg-6.1.2"
+FFMPEG_VERSION="6.1.2"
+FFMPEG_SOURCE_DIR="$SCRIPT_DIR/ffmpeg-$FFMPEG_VERSION"
 MODE="${1:-device}"
 IOS_DEPLOYMENT_TARGET="14.0"
 case "$MODE" in
@@ -51,7 +52,9 @@ case "$MODE" in
         exit 1
         ;;
 esac
-BUILD_DIR="$FFMPEG_DIR/build-ios-$MODE"
+PLATFORM_CACHE_DIR="$SCRIPT_DIR/.cache/ffmpeg/$FFMPEG_VERSION/${IOS_SDK_NAME}-arm64"
+FFMPEG_DIR="$PLATFORM_CACHE_DIR/source"
+BUILD_DIR="$PLATFORM_CACHE_DIR/build"
 FRAMEWORK_DIR="$SCRIPT_DIR/frameworks/FFmpeg.framework"
 FRAMEWORKS_BASE="$SCRIPT_DIR/frameworks"
 
@@ -90,13 +93,15 @@ log_warn() {
 clean_build() {
     log_info "Cleaning build artifacts..."
 
-    rm -rf "$FFMPEG_DIR"/build-ios-*
+    clean_legacy_source_build
+    rm -rf "$SCRIPT_DIR/.cache/ffmpeg/$FFMPEG_VERSION"
+    rm -rf "$FFMPEG_SOURCE_DIR"/build-ios-*
     rm -rf "$FRAMEWORK_DIR"
     rm -rf "$FRAMEWORKS_BASE"/lib*.framework
 
     # Revert main rename patch if applied
-    if [ -f "$FFMPEG_DIR/fftools/ffmpeg.c" ]; then
-        cd "$FFMPEG_DIR"
+    if [ -f "$FFMPEG_SOURCE_DIR/fftools/ffmpeg.c" ]; then
+        cd "$FFMPEG_SOURCE_DIR"
         git checkout -- fftools/ffmpeg.c 2>/dev/null || true
         cd "$SCRIPT_DIR"
     fi
@@ -107,8 +112,8 @@ clean_build() {
     shopt -u nullglob
     for ((i=${#patches[@]}-1; i>=0; i--)); do
         local p="${patches[$i]}"
-        if (cd "$FFMPEG_DIR" && patch -p1 -R --dry-run -s -f < "$p") >/dev/null 2>&1; then
-            (cd "$FFMPEG_DIR" && patch -p1 -R -s < "$p")
+        if (cd "$FFMPEG_SOURCE_DIR" && patch -p1 -R --dry-run -s -f < "$p") >/dev/null 2>&1; then
+            (cd "$FFMPEG_SOURCE_DIR" && patch -p1 -R -s < "$p")
         fi
     done
 
@@ -125,20 +130,31 @@ check_prerequisites() {
         log_error "Xcode command line tools are required. Install with: xcode-select --install"
     fi
 
-    # The FFmpeg source tree is not tracked in git (it is upstream source, not
-    # ours), so fetch it on first run instead of failing on a fresh clone.
-    if [ ! -d "$FFMPEG_DIR" ]; then
-        fetch_ffmpeg_source
-    fi
-
     log_success "Prerequisites check passed"
+}
+
+clean_legacy_source_build() {
+    [ -d "$FFMPEG_SOURCE_DIR" ] || return 0
+
+    if [ -f "$FFMPEG_SOURCE_DIR/ffbuild/config.mak" ]; then
+        log_info "Cleaning legacy in-source FFmpeg build artifacts..."
+        (cd "$FFMPEG_SOURCE_DIR" && make distclean)
+    elif [ -f "$FFMPEG_SOURCE_DIR/config.h" ]; then
+        # A partial legacy configure may have left config.h without the marker
+        # consumed above. Remove only known generated configuration headers.
+        log_info "Removing incomplete legacy FFmpeg configuration..."
+        rm -f "$FFMPEG_SOURCE_DIR/config.h" \
+            "$FFMPEG_SOURCE_DIR/config_components.h" \
+            "$FFMPEG_SOURCE_DIR/config.asm" \
+            "$FFMPEG_SOURCE_DIR/libavutil/avconfig.h"
+    fi
 }
 
 # ============================================================================
 # Download the FFmpeg release tarball (first run / fresh clone)
 # ============================================================================
 fetch_ffmpeg_source() {
-    local version="6.1.2"
+    local version="$FFMPEG_VERSION"
     local tmp
     tmp="$(mktemp -d)"
 
@@ -180,13 +196,13 @@ fetch_ffmpeg_source() {
 
     if [ -z "$got" ]; then
         rm -rf "$tmp"
-        log_error "Failed to download FFmpeg ${version} from every source — place the source at $FFMPEG_DIR manually."
+        log_error "Failed to download FFmpeg ${version} from every source — place the source at $FFMPEG_SOURCE_DIR manually."
     fi
     log_info "  using ${got}"
 
-    mv "$tmp/$dir" "$FFMPEG_DIR"
+    mv "$tmp/$dir" "$FFMPEG_SOURCE_DIR"
     rm -rf "$tmp"
-    log_success "FFmpeg ${version} source ready at $FFMPEG_DIR"
+    log_success "FFmpeg ${version} source ready at $FFMPEG_SOURCE_DIR"
 }
 
 # ============================================================================
@@ -253,13 +269,10 @@ configure_ffmpeg() {
 
     mkdir -p "$BUILD_DIR"
 
-    cd "$FFMPEG_DIR"
-
-    # FFmpeg builds in its source tree. Clear objects/configuration from a prior
-    # platform before switching SDKs so make cannot reuse incompatible objects.
-    if [ -f config.mak ]; then
-        make distclean
-    fi
+    # FFmpeg supports out-of-tree builds. Keep every SDK's generated objects,
+    # configuration, and install tree separate; make does not track compiler
+    # flag changes and must never reuse an object from the other SDK.
+    cd "$BUILD_DIR"
 
     # Check for libmp3lame (built by build_lame.sh)
     LAME_FLAGS=""
@@ -276,7 +289,7 @@ configure_ffmpeg() {
         LAME_LDFLAGS=""
     fi
 
-    ./configure \
+    "$FFMPEG_DIR/configure" \
         --prefix="$BUILD_DIR/install" \
         --enable-cross-compile \
         --arch=arm64 \
@@ -318,14 +331,57 @@ configure_ffmpeg() {
     log_success "FFmpeg configured"
 }
 
+# Use the workflow cache key when CI supplies one. Local builds derive an
+# equivalent SDK/toolchain/configuration fingerprint from their current inputs.
+ffmpeg_cache_key() {
+    if [ -n "${OPENMINIS_FFMPEG_BUILD_CACHE_KEY:-}" ]; then
+        printf '%s\n' "$OPENMINIS_FFMPEG_BUILD_CACHE_KEY"
+        return
+    fi
+
+    local xcode_version sdk_version script_digest patch_digest lame_digest patch
+    xcode_version="$(xcodebuild -version | awk '/^Xcode / { x=$2 } /^Build version / { b=$3 } END { print x "-" b }')"
+    sdk_version="$(xcrun --sdk "$IOS_SDK_NAME" --show-sdk-version)"
+    script_digest="$(shasum -a 256 "$SCRIPT_DIR/build_ffmpeg.sh" | awk '{ print $1 }')"
+    patch_digest="$(for patch in "$SCRIPT_DIR"/ffmpeg-patch/*; do
+        [ -f "$patch" ] && shasum -a 256 "$patch"
+    done | shasum -a 256 | awk '{ print $1 }')"
+
+    local lame_archive="$SCRIPT_DIR/lame-build/$IOS_SDK_NAME/lib/libmp3lame.a"
+    if [ -f "$lame_archive" ]; then
+        lame_digest="$(shasum -a 256 "$lame_archive" | awk '{ print $1 }')"
+    else
+        lame_digest="disabled"
+    fi
+
+    printf 'ffmpeg-%s-%s-arm64-xcode-%s-sdk-%s-script-%s-patches-%s-lame-%s\n' \
+        "$FFMPEG_VERSION" "$IOS_SDK_NAME" "$xcode_version" "$sdk_version" \
+        "$script_digest" "$patch_digest" "$lame_digest"
+}
+
+cached_build_is_valid() {
+    local expected_key="$1" lib dylib
+    local stamp="$BUILD_DIR/.openminis-ffmpeg-cache-key"
+    [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$expected_key" ] || return 1
+    [ -f "$BUILD_DIR/config.h" ] || return 1
+    [ -f "$BUILD_DIR/ffbuild/config.mak" ] || return 1
+    [ -f "$BUILD_DIR/libfftools.a" ] || return 1
+
+    for lib in avcodec avformat avutil avfilter swresample swscale; do
+        dylib="$(find "$BUILD_DIR/install/lib" -maxdepth 1 -type f \
+            -name "lib${lib}.*.*.*.dylib" -print -quit 2>/dev/null)"
+        [ -n "$dylib" ] || return 1
+    done
+}
+
 # ============================================================================
 # Build FFmpeg
 # ============================================================================
 build_ffmpeg() {
     log_info "Building FFmpeg..."
 
-    cd "$FFMPEG_DIR"
-    make -j$(sysctl -n hw.ncpu)
+    cd "$BUILD_DIR"
+    make -j"$(sysctl -n hw.ncpu)"
     make install
     cd "$SCRIPT_DIR"
 
@@ -368,9 +424,10 @@ build_fftools() {
         fftools/opt_common.c
     )
 
-    # Common CFLAGS: use the source tree for headers (has config.h, libav* headers, and libavdevice)
+    # Generated configuration headers live in the per-SDK build directory;
+    # upstream public/private headers and sources live in the source directory.
     FFTOOLS_CFLAGS="-arch arm64 $IOS_MIN_VERSION_FLAG -isysroot $IOS_SDK"
-    FFTOOLS_CFLAGS="$FFTOOLS_CFLAGS -I$FFMPEG_DIR -I$INSTALL_DIR/include"
+    FFTOOLS_CFLAGS="$FFTOOLS_CFLAGS -I$BUILD_DIR -I$FFMPEG_DIR -I$INSTALL_DIR/include"
     FFTOOLS_CFLAGS="$FFTOOLS_CFLAGS -DCONFIG_FFMPEG_MAIN=1 -Oz -fPIC"
     # Force-include the stdio redirect header so all fprintf/printf/fputs/vfprintf
     # calls in fftools are transparently intercepted without modifying ffmpeg source.
@@ -675,11 +732,30 @@ main() {
     fi
 
     check_prerequisites
-    patch_main_symbol
-    apply_source_patches
-    configure_ffmpeg
-    build_ffmpeg
-    build_fftools
+    local cache_key
+    cache_key="$(ffmpeg_cache_key)"
+    if cached_build_is_valid "$cache_key"; then
+        log_info "Reusing complete FFmpeg build cache for ${IOS_SDK_NAME} arm64"
+    else
+        log_info "No matching FFmpeg build cache for ${IOS_SDK_NAME} arm64 — rebuilding"
+        # The source is not tracked. Fetch and clean it only when this SDK's
+        # cache misses, so a complete cache remains usable without network access.
+        if [ ! -d "$FFMPEG_SOURCE_DIR" ]; then
+            fetch_ffmpeg_source
+        fi
+        # Older script revisions built in the shared source tree. Clear their
+        # generated headers and objects before making the per-SDK source copy.
+        clean_legacy_source_build
+        rm -rf "$PLATFORM_CACHE_DIR"
+        mkdir -p "$PLATFORM_CACHE_DIR"
+        cp -R "$FFMPEG_SOURCE_DIR" "$FFMPEG_DIR"
+        patch_main_symbol
+        apply_source_patches
+        configure_ffmpeg
+        build_ffmpeg
+        build_fftools
+        printf '%s\n' "$cache_key" > "$BUILD_DIR/.openminis-ffmpeg-cache-key"
+    fi
     package_framework
     print_summary
 }
