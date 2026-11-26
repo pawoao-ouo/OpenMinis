@@ -1,4 +1,6 @@
 import XCTest
+import UIKit
+import WebKit
 @testable import Minis
 
 @MainActor
@@ -28,6 +30,82 @@ final class BrowserNavigateTimeoutTests: XCTestCase {
                 backItemURL: URL(string: "https://example.com/")
             )
         )
+    }
+
+    func testWebViewFailureDOMHidesFailedURLAndRetryUsesExactAddress() async throws {
+        let schemeHandler = BrowserRecoveryFixtureSchemeHandler()
+        let configuration = WKWebViewConfiguration()
+        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "minis-clone")
+        let manager = BrowserUseManager(profile: .mobileSafari, customString: nil,
+                                        configuration: configuration)
+        let failedURL = URL(string: "minis-clone://fixture/retry?token=PRIVATE_MARKER_71a9&two=three")!
+        manager.loadURL(failedURL.absoluteString)
+
+        _ = try await waitForDOM(in: manager.webView) {
+            $0.contains("Cannot Open Page") && $0.contains("Try Again")
+        }
+        let errorMarkup = try await manager.webView.evaluateJavaScript("document.documentElement.outerHTML") as? String ?? ""
+        XCTAssertFalse(errorMarkup.contains(failedURL.absoluteString))
+        XCTAssertFalse(errorMarkup.contains("PRIVATE_MARKER_71a9"))
+        let errorSnapshot = try await manager.webView.takeSnapshot(configuration: nil)
+        XCTAssertGreaterThan(errorSnapshot.size.width, 0)
+        XCTAssertGreaterThan(errorSnapshot.size.height, 0)
+        let href = try await manager.webView.evaluateJavaScript("document.querySelector('a').href") as? String
+        XCTAssertEqual(href, "minis-browser://retry")
+
+        // Exercise the actual in-document link, not only the native Retry control.
+        try await manager.webView.evaluateJavaScript("document.querySelector('a').click()")
+        let successDocument = try await waitForDOM(in: manager.webView) {
+            $0.contains("fixture navigation recovered")
+        }
+        XCTAssertTrue(successDocument.contains("fixture navigation recovered"))
+        XCTAssertNil(manager.loadError)
+        XCTAssertEqual(schemeHandler.requestURLs, [failedURL, failedURL])
+    }
+
+    func testNavigationGateIgnoresSupersededStartAndTerminalCallbacks() {
+        let oldNavigation = NSObject()
+        let currentNavigation = NSObject()
+        var gate = BrowserNavigationGate<NSObject>()
+
+        gate.register(oldNavigation)
+        gate.register(currentNavigation)
+
+        XCTAssertFalse(gate.adoptStarted(oldNavigation), "A delayed old start must not replace the explicit current load")
+        XCTAssertTrue(gate.matches(currentNavigation))
+        XCTAssertFalse(gate.complete(oldNavigation), "An old terminal callback must not clear the current load")
+        XCTAssertTrue(gate.matches(currentNavigation))
+        XCTAssertTrue(gate.complete(currentNavigation))
+        XCTAssertNil(gate.active)
+        XCTAssertFalse(gate.adoptStarted(oldNavigation), "A delayed old start must stay retired after the current load finishes")
+        XCTAssertFalse(gate.adoptStarted(currentNavigation), "A duplicate start must not resurrect a completed navigation")
+    }
+
+    func testReplacingWebViewWithoutReloadURLReleasesPendingNavigationWaiter() async throws {
+        let manager = BrowserUseManager()
+        let waiting = Task { try await manager.navigationCompletion.wait() }
+        await waitUntilPending(manager.navigationCompletion)
+
+        manager.setViewport(width: 390, height: 844, profile: .mobileSafari, customUA: nil)
+
+        do {
+            try await waiting.value
+            XCTFail("Replacing an empty WebView must not leave its waiter pending")
+        } catch BrowserNavigationWaitError.webViewReplaced {
+            // Expected: there was no requested URL to continue on the new view.
+        }
+        XCTAssertFalse(manager.navigationCompletion.isPending)
+    }
+
+    private func waitForDOM(in webView: WKWebView,
+                            matching predicate: (String) -> Bool) async throws -> String {
+        for _ in 0..<100 {
+            if let text = try? await webView.evaluateJavaScript("document.body.innerText") as? String,
+               predicate(text) { return text }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Timed out waiting for expected WebView DOM")
+        return (try? await webView.evaluateJavaScript("document.body.innerText") as? String) ?? ""
     }
 
     func testTimedOutNavigationIsFailureAndSkipsVisualFollowup() {
@@ -266,4 +344,33 @@ final class BrowserNavigateTimeoutTests: XCTestCase {
         }
         XCTAssertTrue(completion.isPending, "The navigation waiter should be installed")
     }
+}
+/// Deterministic WebKit navigation fixture: first request fails, retry succeeds.
+private final class BrowserRecoveryFixtureSchemeHandler: NSObject, WKURLSchemeHandler {
+    private let lock = NSLock()
+    private var urls: [URL] = []
+    var requestURLs: [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return urls
+    }
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
+        lock.lock()
+        urls.append(urlSchemeTask.request.url!)
+        let requestNumber = urls.count
+        lock.unlock()
+        guard requestNumber > 1 else {
+            urlSchemeTask.didFailWithError(URLError(.cannotConnectToHost))
+            return
+        }
+        let data = Data("<html><body>fixture navigation recovered</body></html>".utf8)
+        let response = URLResponse(url: urlSchemeTask.request.url!, mimeType: "text/html",
+                                   expectedContentLength: data.count, textEncodingName: "utf-8")
+        urlSchemeTask.didReceive(response)
+        urlSchemeTask.didReceive(data)
+        urlSchemeTask.didFinish()
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
 }

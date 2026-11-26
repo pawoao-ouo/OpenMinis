@@ -7,6 +7,7 @@ private let logger = AppLogger(category: "BrowserUse")
 
 enum BrowserNavigationWaitError: Error {
     case webViewRemoved
+    case webViewReplaced
     case navigationTimedOut
 }
 
@@ -80,10 +81,82 @@ final class BrowserNavigationCompletion {
         return true
     }
 
+    /// A replacement view will not receive callbacks for the discarded view's
+    /// navigation. Resume that waiter if the target cannot be restarted.
+    @discardableResult
+    func resolveAfterWebViewReplacement() -> Bool {
+        guard let continuation else { return false }
+        self.continuation = nil
+        let timedOut = hasReachedDeadline
+        didReachDeadline = false
+        deadlineUptimeNanoseconds = nil
+        if timedOut {
+            continuation.resume(throwing: BrowserNavigationWaitError.navigationTimedOut)
+        } else {
+            continuation.resume(throwing: BrowserNavigationWaitError.webViewReplaced)
+        }
+        return true
+    }
+
     private var hasReachedDeadline: Bool {
         if didReachDeadline { return true }
         guard let deadlineUptimeNanoseconds else { return false }
         return DispatchTime.now().uptimeNanoseconds >= deadlineUptimeNanoseconds
+    }
+}
+
+/// Tracks the WKNavigation that currently owns terminal state updates.
+/// WebKit may still deliver callbacks after a newer load has superseded one.
+struct BrowserNavigationGate<Navigation: AnyObject> {
+    private(set) var active: Navigation?
+    private final class WeakNavigationReference {
+        weak var value: Navigation?
+        init(_ value: Navigation) { self.value = value }
+    }
+    private var retired: [WeakNavigationReference] = []
+
+    mutating func clear() {
+        retire(active)
+        active = nil
+    }
+
+    mutating func register(_ navigation: Navigation?) {
+        if let active, active !== navigation {
+            retire(active)
+        }
+        active = navigation
+    }
+
+    /// A delegate start callback may fill an empty gate, but can never replace
+    /// a navigation already returned by the latest explicit WebKit load.
+    @discardableResult
+    mutating func adoptStarted(_ navigation: Navigation?) -> Bool {
+        guard case nil = active, let navigation else { return false }
+        retired.removeAll { $0.value == nil }
+        guard !retired.contains(where: { $0.value === navigation }) else { return false }
+        active = navigation
+        return true
+    }
+
+    func matches(_ navigation: Navigation?) -> Bool {
+        guard let active, let navigation else { return false }
+        return active === navigation
+    }
+
+    /// Returns true and clears the gate only for the current navigation.
+    @discardableResult
+    mutating func complete(_ navigation: Navigation?) -> Bool {
+        guard matches(navigation) else { return false }
+        retire(active)
+        active = nil
+        return true
+    }
+
+    private mutating func retire(_ navigation: Navigation?) {
+        retired.removeAll { $0.value == nil }
+        guard let navigation,
+              !retired.contains(where: { $0.value === navigation }) else { return }
+        retired.append(WeakNavigationReference(navigation))
     }
 }
 
@@ -113,9 +186,13 @@ final class BrowserUseManager: NSObject, ObservableObject {
     /// BrowserSheetView so an agent-driven navigation failure isn't a blank
     /// page. The error is still thrown to the agent via navigate() as before.
     @Published var loadError: WebLoadError?
-    /// Last URL handed to `navigate()`, so the error overlay's Retry and the
-    /// WebLoadError copy can reference the exact address that failed.
+    /// Current top-level URL to retry; updated to WebKit's precise failing URL
+    /// when it differs from the original request.
     private var lastRequestedURL: URL?
+    /// Prevent callbacks from a superseded WebKit load changing current state.
+    private var navigationGate = BrowserNavigationGate<WKNavigation>()
+    /// True while the actual WebView contains browser-tool-visible failure UI.
+    private var showingInWebViewError = false
     @Published var canGoBack: Bool = false
     @Published var canGoForward: Bool = false
     @Published var lastScreenshot: UIImage?
@@ -913,6 +990,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.navigationTimeout)
         lastRequestedURL = url          // [T-ios-webview-error-ui]
         loadError = nil                 // clear any prior failure overlay
+        showingInWebViewError = false
 
         // Wait for navigation to complete
         // [T-browser-navigate-timeout-reports-success-ios] GH#234. Track whether
@@ -942,7 +1020,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
                 }
             }
             try await navigationCompletion.wait {
-                self.webView.load(request)
+                self.navigationGate.register(self.webView.load(request))
                 self.isLoading = true
                 navTimer.resume()
             }
@@ -2107,16 +2185,35 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // no-ops until the tab is recreated (same omission in setViewport).
         registerPrintHandler(on: newView)
 
-        // If there's a current URL, reload in the new webview
-        let oldURL = webView.url
-
-        webView = newView
-
-        if let url = oldURL {
-            webView.load(URLRequest(url: url))
-        }
+        replaceWebView(with: newView)
 
         return BrowserActionResult(text: "Switched to \(newProfile.rawValue) (\(vp.width)x\(vp.height))")
+    }
+
+    /// Rebuilds the WebView without stranding a navigation waiter or dropping
+    /// the in-WebView failure document. A provisional navigation may not yet
+    /// have committed `webView.url`, so use the recorded request while loading.
+    private func replaceWebView(with newView: WKWebView) {
+        let wasLoading = navigationCompletion.isPending || isLoading
+        let urlToLoad = wasLoading ? (lastRequestedURL ?? webView.url) : webView.url
+        let errorToRestore = showingInWebViewError ? loadError : nil
+
+        navigationGate.clear()
+        webView = newView
+
+        if let errorToRestore {
+            showInWebViewError(errorToRestore)
+        } else if let urlToLoad {
+            let navigation = webView.load(URLRequest(url: urlToLoad))
+            navigationGate.register(navigation)
+            if navigation == nil {
+                isLoading = false
+                navigationCompletion.resolveAfterWebViewReplacement()
+            }
+        } else if navigationCompletion.isPending {
+            navigationCompletion.resolveAfterWebViewReplacement()
+            isLoading = false
+        }
     }
 
     // MARK: - Set Viewport
@@ -2136,11 +2233,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // bridge or window.print() silently stops working.
         registerPrintHandler(on: newView)
 
-        let oldURL = webView.url
-        webView = newView
-        if let url = oldURL {
-            webView.load(URLRequest(url: url))
-        }
+        replaceWebView(with: newView)
     }
 
     /// Restore the offscreen webView's frame to the configured viewport and
@@ -2214,16 +2307,16 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
     func goBack() {
         guard webView.canGoBack else { return }
-        webView.goBack()
+        navigationGate.register(webView.goBack())
     }
 
     func goForward() {
         guard webView.canGoForward else { return }
-        webView.goForward()
+        navigationGate.register(webView.goForward())
     }
 
     func reload() {
-        webView.reload()
+        navigationGate.register(webView.reload())
     }
 
     /// Applies a successful WebKit terminal event. Even if the tool deadline
@@ -2235,6 +2328,8 @@ final class BrowserUseManager: NSObject, ObservableObject {
         canGoBack: Bool,
         canGoForward: Bool
     ) -> Bool {
+        guard !showingInWebViewError else { return false }
+        navigationGate.clear()
         let timedOut = resolveNavigationWaitFromWebKit()
         isLoading = false
         loadError = nil
@@ -2248,6 +2343,31 @@ final class BrowserUseManager: NSObject, ObservableObject {
     func stopLoading() {
         webView.stopLoading()
         isLoading = false
+    }
+
+    /// Load the failure UI into WebKit itself so screenshots and DOM reads expose it.
+    /// The document contains only a local retry route; the failed URL stays in
+    /// native state so credentials and signed query values never enter the DOM.
+    private func showInWebViewError(_ error: WebLoadError) {
+        guard let failedURL = error.failedURL else { return }
+        lastRequestedURL = failedURL
+        func escapeHTML(_ value: String) -> String {
+            value.replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+        }
+        let retryHref = "minis-browser://retry"
+        let html = """
+        <!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+        <meta name="minis-browser-error" content="true"><title>\(escapeHTML(error.title))</title>
+        <main style="font:17px -apple-system,sans-serif;max-width:360px;margin:18vh auto;padding:24px;text-align:center;color:#222">
+        <h2>\(escapeHTML(error.title))</h2><p>\(escapeHTML(error.message))</p>
+        <a href="\(retryHref)" style="display:inline-block;padding:12px 20px;background:#087cff;color:white;border-radius:10px;text-decoration:none">\(escapeHTML(AppLocalized("Try Again")))</a>
+        </main>
+        """
+        showingInWebViewError = true
+        navigationGate.register(webView.loadHTMLString(html, baseURL: nil))
     }
 
     /// Resolves a pending navigate() only at an actual WebKit terminal event.
@@ -2265,19 +2385,21 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.navigationTimeout)
         lastRequestedURL = url          // [T-ios-webview-error-ui]
         loadError = nil
-        webView.load(request)
+        showingInWebViewError = false
+        navigationGate.register(webView.load(request))
         isLoading = true
     }
 
     /// [T-ios-webview-error-ui] Retry the last requested URL after a failure.
     func retryFailedLoad() {
         loadError = nil
+        showingInWebViewError = false
         if let url = lastRequestedURL {
             let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.navigationTimeout)
-            webView.load(request)
+            navigationGate.register(webView.load(request))
             isLoading = true
         } else {
-            webView.reload()
+            navigationGate.register(webView.reload())
         }
     }
 
@@ -2631,8 +2753,22 @@ final class BrowserUseManager: NSObject, ObservableObject {
 // MARK: - WKNavigationDelegate
 
 extension BrowserUseManager: WKNavigationDelegate {
+    nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        guard let navigation else { return }
+        MainActor.assumeIsolated {
+            guard webView === self.webView else { return }
+            self.navigationGate.adoptStarted(navigation)
+        }
+    }
+
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
+            guard webView === self.webView,
+                  self.navigationGate.complete(navigation) else { return }
+            guard !self.showingInWebViewError else {
+                self.isLoading = false
+                return
+            }
             self.navigationDidFinish(
                 url: webView.url,
                 title: webView.title,
@@ -2647,8 +2783,11 @@ extension BrowserUseManager: WKNavigationDelegate {
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
-            let navigationTimedOut = self.resolveNavigationWaitFromWebKit(error: error)
+            guard webView === self.webView,
+                  self.navigationGate.complete(navigation) else { return }
             self.isLoading = false
+            guard !self.showingInWebViewError else { return }
+            let navigationTimedOut = self.resolveNavigationWaitFromWebKit(error: error)
             // [browser-qa-1.1 11-25 醒醒] 加载失败后别把用户晾在空白页上。
             //
             // QA 实测：navigate 到多重重定向的站点，WebKit 报错后标签变成
@@ -2658,28 +2797,35 @@ extension BrowserUseManager: WKNavigationDelegate {
             //
             // 常规失败时只退回真实历史页面；新标签的 about:blank 占位页不算
             // 可恢复页面。超时路径不再启动 goBack，避免同一 WKWebView 上又开导航。
-            if !navigationTimedOut,
-               Self.shouldRestorePreviousPage(
-                   canGoBack: webView.canGoBack,
-                   backItemURL: webView.backForwardList.backItem?.url
-               ) {
-                webView.goBack()
-                logger.warning("Navigation failed, restored previous page: \(error.localizedDescription)")
-            }
-            // [T-ios-webview-error-ui] Show a Safari-style overlay in the
-            // browser sheet instead of a blank page. Still thrown to the agent.
-            self.loadError = WebLoadError(
-                error: navigationTimedOut ? URLError(.timedOut) : error,
-                failedURL: self.lastRequestedURL
+            let restoredPreviousPage = !navigationTimedOut && Self.shouldRestorePreviousPage(
+                canGoBack: webView.canGoBack,
+                backItemURL: webView.backForwardList.backItem?.url
             )
+            if restoredPreviousPage {
+                self.navigationGate.register(webView.goBack())
+                logger.warning("Navigation failed, restored previous page: \(error.localizedDescription)")
+                self.loadError = nil
+                self.showingInWebViewError = false
+            } else {
+                self.loadError = WebLoadError(
+                    error: navigationTimedOut ? URLError(.timedOut) : error,
+                    failedURL: self.lastRequestedURL
+                )
+                if let loadError = self.loadError {
+                    self.showInWebViewError(loadError)
+                }
+            }
             logger.error("Navigation failed: \(error.localizedDescription)")
         }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
-            let navigationTimedOut = self.resolveNavigationWaitFromWebKit(error: error)
+            guard webView === self.webView,
+                  self.navigationGate.complete(navigation) else { return }
             self.isLoading = false
+            guard !self.showingInWebViewError else { return }
+            let navigationTimedOut = self.resolveNavigationWaitFromWebKit(error: error)
             // [browser-qa-1.1-b 11-25 醒醒] 上一版只改了 didFail，漏了这一条。
             //
             // 域名根本不存在（DNS 失败）、TLS 失败、连不上——这些走的是
@@ -2689,19 +2835,24 @@ extension BrowserUseManager: WKNavigationDelegate {
             //
             // 常规失败时与 didFail 一致：只退回真实历史页面，否则留错误状态；
             // 已超时则不再启动 goBack，保留失败状态并返回超时结果。
-            if !navigationTimedOut,
-               Self.shouldRestorePreviousPage(
-                   canGoBack: webView.canGoBack,
-                   backItemURL: webView.backForwardList.backItem?.url
-               ) {
-                webView.goBack()
-                logger.warning("Provisional navigation failed, restored previous page: \(error.localizedDescription)")
-            }
-            // [T-ios-webview-error-ui] see didFail above.
-            self.loadError = WebLoadError(
-                error: navigationTimedOut ? URLError(.timedOut) : error,
-                failedURL: self.lastRequestedURL
+            let restoredPreviousPage = !navigationTimedOut && Self.shouldRestorePreviousPage(
+                canGoBack: webView.canGoBack,
+                backItemURL: webView.backForwardList.backItem?.url
             )
+            if restoredPreviousPage {
+                self.navigationGate.register(webView.goBack())
+                logger.warning("Provisional navigation failed, restored previous page: \(error.localizedDescription)")
+                self.loadError = nil
+                self.showingInWebViewError = false
+            } else {
+                self.loadError = WebLoadError(
+                    error: navigationTimedOut ? URLError(.timedOut) : error,
+                    failedURL: self.lastRequestedURL
+                )
+                if let loadError = self.loadError {
+                    self.showInWebViewError(loadError)
+                }
+            }
             logger.error("Provisional navigation failed: \(error.localizedDescription)")
         }
     }
@@ -2712,6 +2863,23 @@ extension BrowserUseManager: WKNavigationDelegate {
         preferences: WKWebpagePreferences,
         decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
+        let isCurrentWebView = MainActor.assumeIsolated { webView === self.webView }
+        guard isCurrentWebView else {
+            decisionHandler(.cancel, preferences)
+            return
+        }
+
+        if navigationAction.request.url?.absoluteString == "minis-browser://retry" {
+            decisionHandler(.cancel, preferences)
+            MainActor.assumeIsolated {
+                guard self.showingInWebViewError,
+                      navigationAction.targetFrame?.isMainFrame == true,
+                      navigationAction.navigationType == .linkActivated else { return }
+                self.retryFailedLoad()
+            }
+            return
+        }
+
         let allowedSchemes: Set<String> = ["http", "https", "about", "blob", "minis-clone"]
 
         // <a download> anchors (including blob: URLs) mark the action as a
@@ -2738,6 +2906,26 @@ extension BrowserUseManager: WKNavigationDelegate {
                 self.resolveNavigationWaitFromWebKit(error: error)
             }
             return
+        }
+
+        if let requestURL = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame == true,
+           navigationAction.navigationType == .linkActivated {
+            MainActor.assumeIsolated {
+                self.navigationGate.clear()
+                self.lastRequestedURL = requestURL
+                self.showingInWebViewError = false
+                self.loadError = nil
+            }
+        } else if let requestURL = navigationAction.request.url {
+            MainActor.assumeIsolated {
+                guard requestURL == self.lastRequestedURL else { return }
+                if self.showingInWebViewError {
+                    self.navigationGate.clear()
+                }
+                self.showingInWebViewError = false
+                self.loadError = nil
+            }
         }
 
         // Use _WKNavigationActionPolicy.allowWithoutTryingAppLink (rawValue 2) to
