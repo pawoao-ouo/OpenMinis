@@ -52,16 +52,20 @@ final class BrowserNavigateTimeoutTests: XCTestCase {
         XCTAssertGreaterThan(errorSnapshot.size.width, 0)
         XCTAssertGreaterThan(errorSnapshot.size.height, 0)
         let href = try await manager.webView.evaluateJavaScript("document.querySelector('a').href") as? String
-        XCTAssertEqual(href, "minis-browser://retry")
+        XCTAssertTrue(href == "minis-browser://retry", "The link must target the local browser retry route")
 
         // Exercise the actual in-document link, not only the native Retry control.
         try await manager.webView.evaluateJavaScript("document.querySelector('a').click()")
         let successDocument = try await waitForDOM(in: manager.webView) {
             $0.contains("fixture navigation recovered")
+                && !manager.isLoading
+                && manager.loadError == nil
+                && !manager.isRetryingFailedLoad
         }
         XCTAssertTrue(successDocument.contains("fixture navigation recovered"))
-        XCTAssertNil(manager.loadError)
-        XCTAssertEqual(schemeHandler.requestURLs, [failedURL, failedURL])
+        XCTAssertTrue(manager.loadError == nil, "In-document Retry must clear the error")
+        XCTAssertTrue(schemeHandler.requestURLs == [failedURL, failedURL],
+                      "In-document Retry must use the exact failed address")
     }
 
     func testNavigationGateIgnoresSupersededStartAndTerminalCallbacks() {
@@ -125,6 +129,27 @@ final class BrowserNavigateTimeoutTests: XCTestCase {
         }
         XCTFail("Timed out waiting for expected WebView DOM")
         return (try? await webView.evaluateJavaScript("document.body.innerText") as? String) ?? ""
+    }
+
+    private func waitForRetryErrorDocumentReplacement(
+        in webView: WKWebView,
+        manager: BrowserUseManager
+    ) async throws -> Bool {
+        for _ in 0..<100 {
+            if let isNewRetryDocument = try? await webView.evaluateJavaScript("""
+                document.querySelector('meta[name="minis-browser-error"]') !== null
+                && document.querySelector('a[href="minis-browser://retry"]') !== null
+                && document.documentElement.getAttribute('data-retry-test-document') === null
+                """) as? Bool,
+               isNewRetryDocument,
+               manager.loadError != nil,
+               !manager.isLoading,
+               !manager.isRetryingFailedLoad {
+                return true
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return false
     }
 
     func testTimedOutNavigationIsFailureAndSkipsVisualFollowup() {
@@ -364,10 +389,17 @@ final class BrowserNavigateTimeoutTests: XCTestCase {
         XCTAssertTrue(completion.isPending, "The navigation waiter should be installed")
     }
 }
-/// Deterministic WebKit navigation fixture: first request fails, retry succeeds.
+/// Deterministic WebKit fixture: fail a configured number of loads, then succeed.
 private final class BrowserRecoveryFixtureSchemeHandler: NSObject, WKURLSchemeHandler {
     private let lock = NSLock()
+    private let failuresBeforeSuccess: Int
     private var urls: [URL] = []
+
+    init(failuresBeforeSuccess: Int = 1) {
+        self.failuresBeforeSuccess = failuresBeforeSuccess
+        super.init()
+    }
+
     var requestURLs: [URL] {
         lock.lock()
         defer { lock.unlock() }
@@ -379,7 +411,7 @@ private final class BrowserRecoveryFixtureSchemeHandler: NSObject, WKURLSchemeHa
         urls.append(urlSchemeTask.request.url!)
         let requestNumber = urls.count
         lock.unlock()
-        guard requestNumber > 1 else {
+        guard requestNumber > failuresBeforeSuccess else {
             urlSchemeTask.didFailWithError(URLError(.cannotConnectToHost))
             return
         }
@@ -443,53 +475,83 @@ extension BrowserNavigateTimeoutTests {
     }
 
     func testNativeRetryShowsFeedbackAndReissuesExactAddressAfterAnotherFailure() async throws {
-        let fixture = try await LoopbackHTTPRecoveryFixture.start()
-        defer { fixture.stop() }
-        let manager = BrowserUseManager(profile: .mobileSafari, customString: nil)
-        let requested = "http://127.0.0.1:\(fixture.port)/retry?secret=NATIVE_RETRY_46"
-        manager.loadURL(requested)
+        let schemeHandler = BrowserRecoveryFixtureSchemeHandler(failuresBeforeSuccess: 2)
+        let configuration = WKWebViewConfiguration()
+        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "minis-clone")
+        let manager = BrowserUseManager(profile: .mobileSafari, customString: nil, configuration: configuration)
+        let requested = URL(string: "minis-clone://fixture/retry?secret=NATIVE_RETRY_46")!
+        manager.loadURL(requested.absoluteString)
         try await waitUntilManagerShowsFailure(manager)
 
         let initialError = try XCTUnwrap(manager.loadError)
-        XCTAssertEqual(initialError.failedURL?.absoluteString, requested)
+        XCTAssertTrue(initialError.failedURL == requested, "The initial failure must retain the exact requested address")
         XCTAssertFalse(manager.isLoading)
         XCTAssertFalse(manager.isRetryingFailedLoad)
         let initialErrorDOM = try await waitForDOM(in: manager.webView) {
-            $0.contains("meta name=\"minis-browser-error\"") && $0.contains(AppLocalized("Try Again"))
+            $0.contains(AppLocalized("Try Again"))
         }
         XCTAssertTrue(initialErrorDOM.contains(AppLocalized("Try Again")))
+        let initialErrorMarker = try await manager.webView.evaluateJavaScript(
+            "document.querySelector('meta[name=\"minis-browser-error\"]') !== null"
+        ) as? Bool
+        XCTAssertEqual(initialErrorMarker, true, "The first retry prompt must be the browser's own error document")
+        XCTAssertTrue(schemeHandler.requestURLs == [requested],
+                      "The initial navigation must use the exact address once")
+        let initialDocumentTagged = try await manager.webView.evaluateJavaScript("""
+            document.documentElement.setAttribute('data-retry-test-document', 'initial');
+            document.documentElement.getAttribute('data-retry-test-document') === 'initial'
+            """) as? Bool
+        guard initialDocumentTagged == true else {
+            XCTFail("The initial error document must be tagged before retry")
+            return
+        }
 
         // This is the callback wired to the visible SwiftUI Retry button.
         // Keep the fixture failing once more so the test covers the no-change case.
         manager.retryFailedLoad()
         XCTAssertTrue(manager.isRetryingFailedLoad, "A tap must immediately show retry progress")
         XCTAssertTrue(manager.isLoading)
-        XCTAssertEqual(manager.loadError, initialError, "Keep the explanation visible while retrying")
-        try await waitUntilRequestCountAndNavigationSettles(2, manager: manager, fixture: fixture)
+        XCTAssertTrue(manager.loadError == initialError, "Keep the explanation visible while retrying")
+        try await waitUntilRequestCountAndNavigationSettles(2, manager: manager) {
+            schemeHandler.requestURLs.count
+        }
+        let secondFailureDocumentInstalled = try await waitForRetryErrorDocumentReplacement(
+            in: manager.webView,
+            manager: manager
+        )
+        guard secondFailureDocumentInstalled else {
+            XCTFail("A second failure must replace the prior error document with a fresh Retry page")
+            return
+        }
         XCTAssertNotNil(manager.loadError, "A second failure must leave the error card available")
         XCTAssertFalse(manager.isLoading)
-
-        for _ in 0..<100 {
-            if !manager.isRetryingFailedLoad { break }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
         XCTAssertFalse(manager.isRetryingFailedLoad, "Retry must become available again after the failed attempt settles")
         let failedAgainDOM = try await waitForDOM(in: manager.webView) {
-            $0.contains("meta name=\"minis-browser-error\"") && $0.contains(AppLocalized("Try Again"))
+            $0.contains(AppLocalized("Try Again"))
         }
         XCTAssertTrue(failedAgainDOM.contains(AppLocalized("Try Again")))
+        let failedAgainMarker = try await manager.webView.evaluateJavaScript(
+            "document.querySelector('meta[name=\"minis-browser-error\"]') !== null"
+        ) as? Bool
+        XCTAssertEqual(failedAgainMarker, true, "A failed retry must keep the browser error document available")
+        XCTAssertTrue(schemeHandler.requestURLs == [requested, requested],
+                      "The failed retry must reuse the exact address")
 
-        fixture.allowSuccess()
         manager.retryFailedLoad()
         XCTAssertTrue(manager.isRetryingFailedLoad)
         XCTAssertTrue(manager.isLoading)
         XCTAssertNotNil(manager.loadError)
-        let recovered = try await waitForDOM(in: manager.webView) { $0.contains("loopback recovery succeeded") }
-        XCTAssertTrue(recovered.contains("loopback recovery succeeded"))
-        XCTAssertNil(manager.loadError, "A successful retry must clear the old failure")
+        let recovered = try await waitForDOM(in: manager.webView) {
+            $0.contains("fixture navigation recovered")
+                && !manager.isLoading
+                && manager.loadError == nil
+                && !manager.isRetryingFailedLoad
+        }
+        XCTAssertTrue(recovered.contains("fixture navigation recovered"))
+        XCTAssertTrue(manager.loadError == nil, "A successful retry must clear the old failure")
         XCTAssertFalse(manager.isLoading)
-        XCTAssertEqual(fixture.requestTargets, Array(repeating: "/retry?secret=NATIVE_RETRY_46", count: 3),
-                       "Initial navigation and both retries must use the exact same path and query")
+        XCTAssertTrue(schemeHandler.requestURLs == Array(repeating: requested, count: 3),
+                      "Initial navigation and both retries must use the exact same path and query")
     }
 
     func testRetryFeedbackResetsWhenWebContentProcessTerminates() {
@@ -510,6 +572,7 @@ extension BrowserNavigateTimeoutTests {
         defer { fixture.stop() }
         let manager = BrowserUseManager(profile: .mobileSafari, customString: nil)
         let requested = "http://127.0.0.1:\(fixture.port)/retry?secret=LOOPBACK_PRIVATE_92"
+        let expectedRequestTarget = "/retry?secret=LOOPBACK_PRIVATE_92"
         let input = try XCTUnwrap(BrowserActionInput.parse(from: """
         {"action":"navigate","url":"\(requested)"}
         """))
@@ -532,7 +595,11 @@ extension BrowserNavigateTimeoutTests {
         XCTAssertTrue(failureDOM.contains(failure.message), "The failure explanation must be rendered")
         XCTAssertTrue(failureDOM.contains(AppLocalized("Try Again")), "The localized in-WebView Retry control must be rendered")
         let loadingLabel = AppLocalized("Loading…")
-        XCTAssertTrue(failureDOM.contains("data-loading-text=\"\(loadingLabel)\""), "The in-WebView Retry control must provide immediate feedback when activated")
+        let loadingTextAttribute = try await manager.webView.evaluateJavaScript(
+            "document.querySelector('a[href=\"minis-browser://retry\"]')?.getAttribute('data-loading-text')"
+        ) as? String
+        XCTAssertEqual(loadingTextAttribute, loadingLabel,
+                       "The in-WebView Retry control must declare the loading label its click handler displays")
         let isFailureDocument = try await manager.webView.evaluateJavaScript("document.querySelector('meta[name=\"minis-browser-error\"]') !== null") as? Bool
         XCTAssertEqual(isFailureDocument, true, "The rendered Retry control must belong to the browser error document")
         XCTAssertFalse(failureDOM.contains("LOOPBACK_PRIVATE_92"), "The failed URL/query must not be exposed in the error document")
@@ -614,13 +681,18 @@ extension BrowserNavigateTimeoutTests {
         {"action":"click","selector":"a[href='minis-browser://retry']"}
         """))
         let clickResult = try await manager.execute(action: click)
-        XCTAssertTrue(clickResult.success, "browser_use click should activate the in-document Retry link: \(clickResult.text)")
-        let recovered = try await waitForDOM(in: manager.webView) { $0.contains("loopback recovery succeeded") }
+        XCTAssertTrue(clickResult.success, "browser_use click should activate the in-document Retry link")
+        let recovered = try await waitForDOM(in: manager.webView) {
+            $0.contains("loopback recovery succeeded")
+                && !manager.isLoading
+                && manager.loadError == nil
+                && !manager.isRetryingFailedLoad
+        }
         XCTAssertTrue(recovered.contains("loopback recovery succeeded"))
         XCTAssertFalse(recovered.contains(AppLocalized("Try Again")), "The visible failure state must be gone after recovery")
-        XCTAssertNil(manager.loadError)
-        XCTAssertTrue(fixture.requestTargets.contains("/retry?secret=LOOPBACK_PRIVATE_92"), "The successful retry must reach the original path and query")
-        XCTAssertTrue(fixture.requestTargets.allSatisfy { $0 == "/retry?secret=LOOPBACK_PRIVATE_92" },
+        XCTAssertTrue(manager.loadError == nil, "A successful retry must clear the failure")
+        XCTAssertTrue(fixture.requestTargets.contains(expectedRequestTarget), "The successful retry must reach the original path and query")
+        XCTAssertTrue(fixture.requestTargets.allSatisfy { $0 == expectedRequestTarget },
                       "Every request and retry must preserve the exact original address path and query")
     }
 
@@ -638,10 +710,10 @@ extension BrowserNavigateTimeoutTests {
     private func waitUntilRequestCountAndNavigationSettles(
         _ expectedCount: Int,
         manager: BrowserUseManager,
-        fixture: LoopbackHTTPRecoveryFixture
+        requestCount: () -> Int
     ) async throws {
         for _ in 0..<200 {
-            if fixture.requestCount >= expectedCount && !manager.isLoading { return }
+            if requestCount() >= expectedCount && !manager.isLoading { return }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         XCTFail("Timed out waiting for \(expectedCount) requests and a terminal navigation callback")
