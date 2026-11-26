@@ -18,7 +18,7 @@ set -e
 #   - libarchive (brew install libarchive)
 #
 # Usage:
-#   ./build_ish.sh [clean|debug|release]
+#   ./build_ish.sh [clean|debug|release] [device|simulator]
 #
 # Output:
 #   deps/libs/      - Static libraries (.a files)
@@ -34,8 +34,28 @@ OUTPUT_RESOURCES="$SCRIPT_DIR/resources"
 
 # Build configuration
 BUILD_TYPE="${1:-release}"
+TARGET_PLATFORM="${2:-device}"
 ARCHS="arm64"
 IOS_DEPLOYMENT_TARGET="14.0"
+case "$TARGET_PLATFORM" in
+    device)
+        IOS_SDK_NAME="iphoneos"
+        IOS_TARGET_TRIPLE="arm64-apple-ios${IOS_DEPLOYMENT_TARGET}"
+        ;;
+    simulator)
+        IOS_SDK_NAME="iphonesimulator"
+        IOS_TARGET_TRIPLE="arm64-apple-ios${IOS_DEPLOYMENT_TARGET}-simulator"
+        ;;
+    *)
+        echo "Unknown iSH target '$TARGET_PLATFORM'. Use: device or simulator." >&2
+        exit 1
+        ;;
+esac
+if [ "$TARGET_PLATFORM" == "simulator" ]; then
+    BUILD_DIR="$ISH_DIR/build-ios-simulator"
+else
+    BUILD_DIR="$ISH_DIR/build-ios"
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -169,6 +189,7 @@ clean_build() {
     log_info "Cleaning build artifacts..."
 
     rm -rf "$ISH_DIR/build-ios"
+    rm -rf "$ISH_DIR/build-ios-simulator"
     rm -rf "$OUTPUT_LIBS"
     rm -rf "$OUTPUT_INCLUDE"
     rm -rf "$OUTPUT_RESOURCES"
@@ -182,18 +203,17 @@ clean_build() {
 setup_cross_compile() {
     log_info "Setting up iOS cross-compilation..."
 
-    BUILD_DIR="$ISH_DIR/build-ios"
     mkdir -p "$BUILD_DIR"
 
     # Get iOS SDK path
-    IOS_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+    IOS_SDK=$(xcrun --sdk "$IOS_SDK_NAME" --show-sdk-path)
 
     # Create cross-compilation file for meson
     CROSS_FILE="$BUILD_DIR/ios-cross.txt"
 
     cat > "$CROSS_FILE" << EOF
 [binaries]
-c = ['clang', '-arch', 'arm64', '-isysroot', '$IOS_SDK', '-miphoneos-version-min=$IOS_DEPLOYMENT_TARGET']
+c = ['clang', '-target', '$IOS_TARGET_TRIPLE', '-isysroot', '$IOS_SDK']
 ar = 'ar'
 strip = 'strip'
 pkg-config = 'false'
@@ -221,9 +241,8 @@ EOF
 # Build iSH Libraries
 # ============================================================================
 build_ish() {
-    log_info "Building iSH libraries for iOS ($BUILD_TYPE)..."
+    log_info "Building iSH libraries for ${IOS_SDK_NAME} ($BUILD_TYPE)..."
 
-    BUILD_DIR="$ISH_DIR/build-ios"
     CROSS_FILE="$BUILD_DIR/ios-cross.txt"
 
     cd "$ISH_DIR"
@@ -282,8 +301,6 @@ build_ish() {
 # ============================================================================
 copy_outputs() {
     log_info "Copying output files..."
-
-    BUILD_DIR="$ISH_DIR/build-ios"
 
     # Create output directories
     mkdir -p "$OUTPUT_LIBS"

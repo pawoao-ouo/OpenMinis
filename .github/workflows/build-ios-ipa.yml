@@ -42,12 +42,22 @@ jobs:
           grep -F -- "-fuse-ld=$lld_prefix/bin/ld.lld" \
             deps/ish/vdso/arm64/meson.build
 
-      - name: Build iOS native dependencies
+      - name: Verify Apple Silicon iSH native helper inputs
         run: |
-          ./deps/build_lame.sh
-          ./deps/build_ffmpeg.sh
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          test -f deps/ish/asbestos/guest-arm64/gadgets-aarch64/entry.S
+          echo "Native helper target: $(uname -m); ARM64 guest entry.S is present"
+
+      - name: Build Simulator LAME, FFmpeg, and iSH dependencies
+        run: |
+          ./deps/build_lame.sh simulator
+          ./deps/build_ffmpeg.sh simulator
+          ./deps/build_ish.sh release simulator
+
+      - name: Build shared dual-platform dependencies and app resources
+        run: |
           ./deps/build_rclone_ios.sh
-          ./deps/build_ish.sh release
           ./deps/prepare_alpine_rootfs.sh
 
       - name: Resolve Swift packages
@@ -56,21 +66,6 @@ jobs:
             -project src/ios/Minis.xcodeproj \
             -scheme Minis
 
-      - name: Build tests (compile gate)
-        run: |
-          xcodebuild build-for-testing \
-            -project src/ios/Minis.xcodeproj \
-            -scheme Minis \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM=""
-
-      # Generic iOS build-for-testing above is only a compile gate; it does not
-      # execute XCTest assertions. Some native dependency scripts currently
-      # produce device-only slices, so the simulator test step below must determine
-      # whether this app-hosted suite can link and execute on the runner.
       - name: Run Browser navigation XCTest suite on simulator
         run: |
           set -euo pipefail
@@ -88,6 +83,7 @@ jobs:
             -project src/ios/Minis.xcodeproj \
             -scheme Minis \
             -destination "platform=iOS Simulator,id=$simulator_id" \
+            -arch arm64 \
             -only-testing:MinisTests/BrowserNavigateTimeoutTests \
             -parallel-testing-enabled NO \
             -resultBundlePath build/BrowserNavigateTimeoutTests.xcresult \
@@ -96,7 +92,25 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM=""
           xcrun xcresulttool get test-results summary \
-            --path build/BrowserNavigateTimeoutTests.xcresult
+            --path build/BrowserNavigateTimeoutTests.xcresult \
+            > build/BrowserNavigateTimeoutTests-summary.json
+          cat build/BrowserNavigateTimeoutTests-summary.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("build/BrowserNavigateTimeoutTests-summary.json").read_text())
+          expected = 13
+          counts = {
+              "total": summary.get("totalTestCount"),
+              "passed": summary.get("passedTests"),
+              "failed": summary.get("failedTests"),
+              "skipped": summary.get("skippedTests"),
+          }
+          print("XCTest execution counts:", counts)
+          if counts != {"total": expected, "passed": expected, "failed": 0, "skipped": 0}:
+              raise SystemExit(f"Expected 13 executed and passed tests with no skips; got {counts}")
+          PY
 
       - name: Upload Browser navigation XCTest results
         if: always()
@@ -106,6 +120,12 @@ jobs:
           path: build/BrowserNavigateTimeoutTests.xcresult
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Rebuild device native dependencies for IPA archive
+        run: |
+          ./deps/build_lame.sh device
+          ./deps/build_ffmpeg.sh device
+          ./deps/build_ish.sh release device
 
       - name: Check standalone sources statically
         run: |

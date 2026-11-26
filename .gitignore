@@ -87,6 +87,7 @@ deps/libs/
 deps/include/
 deps/resources/
 deps/ish/build-ios/
+deps/ish/build-ios-simulator/
 deps/ish/build-native/
 deps/.cache/
 

@@ -89,15 +89,29 @@ Run these from the repository root, **in this order** — FFmpeg links against
 LAME, so LAME must exist first or MP3 encoding is silently dropped:
 
 ```sh
-./deps/build_lame.sh          # → deps/lame-build/lib/libmp3lame.a
-./deps/build_ffmpeg.sh        # → deps/frameworks/*.framework  (LGPL config)
-./deps/build_ish.sh           # → deps/libs/*.a, deps/include/, deps/resources/
+./deps/build_lame.sh device   # → deps/lame-build/iphoneos/lib/libmp3lame.a
+./deps/build_ffmpeg.sh device # → deps/frameworks/*.framework  (LGPL config)
+./deps/build_ish.sh release device # → deps/libs/*.a, deps/include/, deps/resources/
 ./deps/prepare_alpine_rootfs.sh   # → deps/resources/alpine-rootfs.zip
 ```
 
+For an Apple Silicon iOS Simulator build, build the matching dependency slices
+instead:
+
+```sh
+./deps/build_lame.sh simulator
+./deps/build_ffmpeg.sh simulator
+./deps/build_ish.sh release simulator
+```
+
+LAME and FFmpeg keep per-platform build caches, while their framework outputs
+and iSH's `deps/libs/` outputs are replaced by the last platform built. Rebuild
+the device variants before archiving an iOS device app.
+
 What each produces:
 
-- **`build_lame.sh`** — LAME 3.100 as a static library for arm64.
+- **`build_lame.sh`** — LAME 3.100 as an arm64 static library for the selected
+  device or Simulator SDK.
 - **`build_ffmpeg.sh`** — FFmpeg 6.1.2 as per-library `.framework` bundles plus
   an umbrella `FFmpeg.framework`. Configured **LGPL**: do not add
   `--enable-gpl` or `--enable-nonfree` — see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
@@ -128,11 +142,11 @@ xcodebuild -project src/ios/Minis.xcodeproj -scheme Minis \
            CODE_SIGNING_ALLOWED=NO build
 ```
 
-> **Simulator builds need simulator-architecture dependencies.** The scripts
-> above build for **device arm64**. Linking a simulator build against them
-> fails with `building for 'iOS-simulator', but linking in object file built
-> for 'iOS'` (or a missing-symbol error for x86_64 on Intel Macs). Build for a
-> device destination, or rebuild the native deps for the simulator SDK.
+> **Build Simulator dependencies for the Simulator SDK.** Device-built objects
+> cannot be linked into a Simulator app. The iSH native helper currently has
+> the ARM64 host assembly inputs but no `x86_64` helper under the ARM64 guest;
+> the CI Simulator dependency build therefore uses an Apple Silicon runner and
+> its matching `aarch64` helper sources.
 
 ### Targets
 
