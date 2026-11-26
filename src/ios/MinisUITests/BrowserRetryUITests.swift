@@ -34,6 +34,14 @@ final class BrowserRetryUITests: XCTestCase {
             evaluatedWith: requestSummary
         )
         wait(for: [secondRequest], timeout: 4)
+
+        let releasePendingFailure = app.buttons["browserRetryReleasePlannedFailure"]
+        XCTAssertTrue(
+            releasePendingFailure.waitForExistence(timeout: 3),
+            "The retry failure must remain pending until loading feedback has been asserted"
+        )
+        releasePendingFailure.tap()
+
         let retryAvailableAfterFailure = expectation(
             for: NSPredicate(format: "label == %@", "Try Again"),
             evaluatedWith: retryButton

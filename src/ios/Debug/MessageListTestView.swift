@@ -801,7 +801,12 @@ struct MessageListTestView: View {
 @MainActor
 private final class BrowserRetryRequestSummary: ObservableObject {
     @Published private(set) var label = "0|exact"
+    @Published private(set) var isRetryFailurePending = false
     private var requestCount = 0
+
+    func setRetryFailurePending(_ isPending: Bool) {
+        isRetryFailurePending = isPending
+    }
 
     func update(requestCount: Int, allRequestsMatch: Bool) {
         guard requestCount >= self.requestCount else { return }
@@ -810,13 +815,15 @@ private final class BrowserRetryRequestSummary: ObservableObject {
     }
 }
 
-/// Debug-only WKURLSchemeHandler that validates requests, fails twice, then returns a page.
+/// Debug-only WKURLSchemeHandler that validates requests, fails the initial load,
+/// holds the retry until XCTest observes loading feedback, then succeeds on the next retry.
 private final class BrowserRetryUITestSchemeHandler: NSObject, WKURLSchemeHandler {
     private let lock = NSLock()
     private let expectedURL: URL
     private let summary: BrowserRetryRequestSummary
     private var requestCount = 0
     private var allRequestsMatch = true
+    private var pendingRetryFailureTask: (any WKURLSchemeTask)?
 
     init(expectedURL: URL, summary: BrowserRetryRequestSummary) {
         self.expectedURL = expectedURL
@@ -835,15 +842,25 @@ private final class BrowserRetryUITestSchemeHandler: NSObject, WKURLSchemeHandle
         allRequestsMatch = allRequestsMatch && matchesExpectedURL
         let requestNumber = requestCount
         let requestsMatch = allRequestsMatch
+        if matchesExpectedURL && requestNumber == 2 {
+            pendingRetryFailureTask = urlSchemeTask
+        }
         lock.unlock()
 
         let summary = self.summary
         Task { @MainActor in
             summary.update(requestCount: requestNumber, allRequestsMatch: requestsMatch)
+            if matchesExpectedURL && requestNumber == 2 {
+                summary.setRetryFailurePending(true)
+            }
         }
 
         guard matchesExpectedURL else {
             urlSchemeTask.didFailWithError(URLError(.badURL))
+            return
+        }
+
+        if requestNumber == 2 {
             return
         }
 
@@ -860,7 +877,31 @@ private final class BrowserRetryUITestSchemeHandler: NSObject, WKURLSchemeHandle
         urlSchemeTask.didFinish()
     }
 
-    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
+    @MainActor
+    func releasePendingRetryFailure() {
+        lock.lock()
+        let task = pendingRetryFailureTask
+        pendingRetryFailureTask = nil
+        lock.unlock()
+
+        summary.setRetryFailurePending(false)
+        task?.didFailWithError(URLError(.cannotConnectToHost))
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
+        lock.lock()
+        let wasPendingRetryFailure = pendingRetryFailureTask === urlSchemeTask
+        if wasPendingRetryFailure {
+            pendingRetryFailureTask = nil
+        }
+        lock.unlock()
+
+        guard wasPendingRetryFailure else { return }
+        let summary = self.summary
+        Task { @MainActor in
+            summary.setRetryFailurePending(false)
+        }
+    }
 }
 
 /// UI-test host for exercising the actual native browser Retry button and the
@@ -900,6 +941,16 @@ struct BrowserRetryUITestHarness: View {
                 .foregroundStyle(.clear)
                 .accessibilityIdentifier("browserRetryRequestSummary")
                 .accessibilityLabel(summary.label)
+        }
+        .overlay(alignment: .topTrailing) {
+            if summary.isRetryFailurePending {
+                Button("Release planned failure") {
+                    schemeHandler.releasePendingRetryFailure()
+                }
+                .accessibilityIdentifier("browserRetryReleasePlannedFailure")
+                .buttonStyle(.bordered)
+                .padding()
+            }
         }
         .onAppear {
             guard summary.label == "0|exact" else { return }
