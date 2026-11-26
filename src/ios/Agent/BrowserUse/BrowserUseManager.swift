@@ -2376,6 +2376,17 @@ final class BrowserUseManager: NSObject, ObservableObject {
         navigationCompletion.resolveFromWebKit(error: error)
     }
 
+    /// A main-frame user link supersedes any tool-initiated navigation.
+    /// Kept as a manager operation so its waiter semantics can be tested
+    /// without synthesizing undocumented WKNavigationAction instances.
+    func handleMainFrameLinkNavigation(to requestURL: URL) {
+        resolveNavigationWaitFromWebKit(error: URLError(.cancelled))
+        navigationGate.clear()
+        lastRequestedURL = requestURL
+        showingInWebViewError = false
+        loadError = nil
+    }
+
     func loadURL(_ urlString: String) {
         var normalized = urlString
         if !normalized.contains("://") {
@@ -2912,10 +2923,7 @@ extension BrowserUseManager: WKNavigationDelegate {
            navigationAction.targetFrame?.isMainFrame == true,
            navigationAction.navigationType == .linkActivated {
             MainActor.assumeIsolated {
-                self.navigationGate.clear()
-                self.lastRequestedURL = requestURL
-                self.showingInWebViewError = false
-                self.loadError = nil
+                self.handleMainFrameLinkNavigation(to: requestURL)
             }
         } else if let requestURL = navigationAction.request.url {
             MainActor.assumeIsolated {

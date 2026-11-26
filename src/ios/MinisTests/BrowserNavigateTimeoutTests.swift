@@ -81,6 +81,24 @@ final class BrowserNavigateTimeoutTests: XCTestCase {
         XCTAssertFalse(gate.adoptStarted(currentNavigation), "A duplicate start must not resurrect a completed navigation")
     }
 
+    func testMainFrameLinkCancelsPendingToolNavigationBeforeRetiringIt() async throws {
+        let manager = BrowserUseManager()
+        do {
+            try await manager.navigationCompletion.wait {
+                XCTAssertTrue(manager.navigationCompletion.isPending)
+                manager.handleMainFrameLinkNavigation(to: URL(string: "https://example.invalid/user-link")!)
+                if manager.navigationCompletion.isPending {
+                    XCTFail("A user link must immediately release the superseded navigation")
+                    manager.navigationCompletion.resolveAfterWebViewRemoval()
+                }
+            }
+            XCTFail("A user link must cancel the superseded tool navigation")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .cancelled)
+        }
+        XCTAssertFalse(manager.navigationCompletion.isPending)
+    }
+
     func testReplacingWebViewWithoutReloadURLReleasesPendingNavigationWaiter() async throws {
         let manager = BrowserUseManager()
         let waiting = Task { try await manager.navigationCompletion.wait() }

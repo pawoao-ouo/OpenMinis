@@ -132,7 +132,7 @@ jobs:
           from pathlib import Path
 
           summary = json.loads(Path("build/BrowserNavigateTimeoutTests-summary.json").read_text())
-          expected = 18
+          expected = 19
           counts = {
               "total": summary.get("totalTestCount"),
               "passed": summary.get("passedTests"),
