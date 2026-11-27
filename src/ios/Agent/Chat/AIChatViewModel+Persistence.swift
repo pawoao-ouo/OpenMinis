@@ -255,6 +255,8 @@ extension AIChatViewModel {
 
         // Load persisted memory-write toggle
         memoryEnabled = await ChatStore.shared.getMemoryEnabled(sessionId: sessionId)
+        // [batch5-selfcheck 11-27 醒醒] 自审开关按会话从 UserDefaults 读
+        selfCheckEnabled = SelfCheckPrefs.isEnabled(sessionId: sessionId)
         // [T-memory-enabled-new-session-bug DIAG] confirm loadSession set
         // vm.memoryEnabled from the DB/global default, and which session.
         AppLogger(category: "MemDiag").info("[MemDiag] loadSession sid=\(sessionId.prefix(8)) → vm.memoryEnabled=\(self.memoryEnabled)")

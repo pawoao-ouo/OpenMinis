@@ -4517,6 +4517,14 @@ struct AIChatView: View {
                 }
             },
             memoryStatLine: sessionMemoryStatLine,
+            // [batch5-selfcheck 11-27 醒醒] 「让ai先想一下」开关
+            selfCheckEnabled: vm.selfCheckEnabled,
+            onSetSelfCheck: { on in
+                vm.selfCheckEnabled = on
+                if let sid = vm.sessionId {
+                    SelfCheckPrefs.set(on, sessionId: sid)
+                }
+            },
             miniBarOn: togetherHub.state.showMiniBar,
             onSetMiniBar: { enabled in
                 // [T-together-capsule-only 11-10] 常驻小胶囊开关从「一起听」面板搬

@@ -1003,8 +1003,27 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     var pendingSendAttachments: [InputAttachment] = []
     /// When true, skip the needsCompactBeforeSend check (used after compactAndSend to avoid loop).
     var skipCompactCheck = false
+    /// [batch5-selfcheck 11-27 醒醒] 「让ai先想一下」的正文。
+    /// 定稿经过三轮：第一版摘 SOUL 原话（喂答案），否掉；第二版问「我是谁」
+    /// （会诱导表演、分裂成审视者与被审视者），否掉；第三版只问依据和对象，
+    /// 并补「不确定也是一种判断，照实说」——避免给模型一个「没判断就不写」的卡死出口。
+    ///
+    /// 用中文：跟 userProfilePromptSection 的「提醒」段同一性质——都是短句敲醒，
+    /// 不是说明书。提示词主体是英文，但敲醒类短句一直是中文（见 :1910）。
+    static let promptSelfCheckFragment = """
+    （开口前先看三样：我在跟谁说话，眼前这件事是什么，我这句是在推进它还是在往别处走。
+    先有自己的判断再落笔，不确定也是一种判断，照实说。
+    写完再过一遍：这句话换成随便谁来说，是不是一样。一样就重写。
+    这些不用回答出来，让它们影响你怎么说就够了。）
+    """
+
     /// When false, memory_write tool calls are skipped (returns "Memory disabled") in this session.
     @Published var memoryEnabled = true
+
+    /// [batch5-selfcheck 11-27 醒醒] 「让ai先想一下」开关。
+    /// 打开时在系统提示最末尾注入三句自审问话，防长对话人设漂移。
+    /// 存 UserDefaults 按会话走，照 ai.voiceReplies 的先例。
+    @Published var selfCheckEnabled = false
 
     // MARK: - Session Stats
     /// Accumulated streaming duration (seconds) for output token speed calculation.
@@ -2164,6 +2183,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // byte-identical to baseline); shadow records what WOULD be injected;
         // active appends the cached, budgeted fragment.
         sections.append(PromptSection(kind: .system, name: "evolution", separator: "", text: EvolutionInjector.shared.turnFragment(sessionId: sessionId)))
+        // [batch5-selfcheck 11-27 醒醒] 「让ai先想一下」。
+        // 必须是**最后一段**——末尾读到的记得最牢，这是整批的唯一目的。
+        // 不喂答案、不写身份：只问，让它自己出口前顿一下。
+        if selfCheckEnabled {
+            sections.append(PromptSection(kind: .system, name: "self-check", separator: "\n\n", text: Self.promptSelfCheckFragment))
+        }
         // [Phase 0] Single assembly point: the sections join here and nowhere
         // else, so the prompt the model sees is exactly the sections the
         // ledger counts. Record the per-section BPE ledger for the usage

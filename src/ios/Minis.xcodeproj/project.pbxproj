@@ -617,6 +617,7 @@
 		F1M00012 /* AudioPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00011 /* AudioPlayback.swift */; };
 		F1M00022 /* AudioWaveformSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00021 /* AudioWaveformSampler.swift */; };
 		F1M00023 /* UserManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00024 /* UserManualMirror.swift */; };
+		F1M00031 /* SelfCheckPrefs.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00032 /* SelfCheckPrefs.swift */; };
 		F1M00029 /* SoulEditingManual.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00030 /* SoulEditingManual.swift */; };
 		F1M00025 /* AIVoiceMessageComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00026 /* AIVoiceMessageComposer.swift */; };
 		F1M00027 /* PlayHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1M00028 /* PlayHubView.swift */; };
@@ -1412,6 +1413,7 @@
 		F1M00011 /* AudioPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayback.swift; sourceTree = "<group>"; };
 		F1M00021 /* AudioWaveformSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWaveformSampler.swift; sourceTree = "<group>"; };
 		F1M00024 /* UserManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserManualMirror.swift; sourceTree = "<group>"; };
+		F1M00032 /* SelfCheckPrefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfCheckPrefs.swift; sourceTree = "<group>"; };
 		F1M00030 /* SoulEditingManual.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulEditingManual.swift; sourceTree = "<group>"; };
 		F1M00026 /* AIVoiceMessageComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIVoiceMessageComposer.swift; sourceTree = "<group>"; };
 		F1M00028 /* PlayHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayHubView.swift; sourceTree = "<group>"; };
@@ -2101,6 +2103,7 @@
 				E5AT00011 /* AudioTogglePlaybackIntent.swift */,
 				E5Q000013 /* AppLogger.swift */,
 				F1M00024 /* UserManualMirror.swift */,
+				F1M00032 /* SelfCheckPrefs.swift */,
 				F1M00030 /* SoulEditingManual.swift */,
 				LOC00002 /* AppLocalization.swift */,
 				E5Q000011 /* BPETokenizer.swift */,
@@ -3287,6 +3290,7 @@
 				F1M00012 /* AudioPlayback.swift in Sources */,
 				F1M00022 /* AudioWaveformSampler.swift in Sources */,
 				F1M00023 /* UserManualMirror.swift in Sources */,
+				F1M00031 /* SelfCheckPrefs.swift in Sources */,
 				F1M00029 /* SoulEditingManual.swift in Sources */,
 				F1M00025 /* AIVoiceMessageComposer.swift in Sources */,
 				F1M00027 /* PlayHubView.swift in Sources */,

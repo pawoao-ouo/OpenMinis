@@ -288,7 +288,13 @@ struct ChatFeedbackSheet: View {
 
                         FeedbackFlowLayout(hSpacing: 8, vSpacing: 8) {
                             tagButton("太长", systemMsg: "<system_runtime_feedback tag=\"brevity_control\">\n  <directive>Previous response was flagged as verbose. Compress subsequent responses to be concise and punchy.</directive>\n</system_runtime_feedback>")
-                            tagButton("太客服腔", systemMsg: "<system_runtime_feedback tag=\"persona_correction\">\n  <directive>Previous response lapsed into robotic customer service conventions. Discard formal politeness and canned phrases; strictly adhere to authentic SOUL.md voice.</directive>\n</system_runtime_feedback>")
+                            tagButton("太客服腔", systemMsg: "<system_runtime_feedback tag=\"persona_correction\">\n  <directive>Previous response lapsed into robotic customer service conventions. Discard formal politeness and canned phrases; strictly adhere to authentic SOUL.md voice.</directive>\n</system_runtime_feedback>", afterSend: {
+                                // [batch5-selfcheck 11-27 醒醒] 这次纠正只管一轮，防不住长期漂移。
+                                // 弹一句问要不要开「让ai先想一下」——开了每轮都在。
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                                    MinisToast.show(AppLocalized("想让它一直不变味？到 + 号里打开「让ai先想一下」"))
+                                }
+                            })
                             tagButton("没感觉", systemMsg: "<system_runtime_feedback tag=\"emotional_connection\">\n  <directive>Previous response lacked emotional vitality and intimacy. Enrich emotional expressiveness according to current intimacy dynamics.</directive>\n</system_runtime_feedback>")
                             funTagButton("戳一下", systemMsg: "<system_runtime_feedback event=\"haptic_nudge\">\n  <notice>User nudged you (戳了一下). Respond naturally and playfully in character on your next turn.</notice>\n</system_runtime_feedback>")
                             funTagButton("闭嘴", systemMsg: "<system_runtime_feedback event=\"silence_directive\">\n  <notice>User commanded silence (闭嘴). React with genuine character attitude; strictly avoid customer service apologies.</notice>\n</system_runtime_feedback>")
@@ -422,12 +428,16 @@ struct ChatFeedbackSheet: View {
         .background(CSSThemeVariables.card().ignoresSafeArea())
     }
 
-    private func tagButton(_ title: String, systemMsg: String) -> some View {
+    /// [batch5-selfcheck 11-27 醒醒] `afterSend` 用于「太客服腔」联动：
+    /// 这次纠正只管下一轮，防不住长期漂移。点完顺便问一句要不要开自审。
+    private func tagButton(_ title: String, systemMsg: String,
+                           afterSend: (() -> Void)? = nil) -> some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             onSendFeedback(systemMsg)
             MinisToast.show("已记录「\(title)」，下轮静默生效")
             dismiss()
+            afterSend?()
         } label: {
             Text(title)
                 .font(ChatFont.font(12, weight: .regular))

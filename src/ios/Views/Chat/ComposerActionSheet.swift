@@ -33,6 +33,10 @@ struct ComposerActionSheet: View {
     let onOpenSessionMemory: () -> Void
     /// 当前会注入多少行记忆，显示在副标题上——不点开也能看见规模。
     let memoryStatLine: String
+    /// [batch5-selfcheck 11-27 醒醒] 「让ai先想一下」开关。打开后在系统提示
+    /// 最末尾注入三句自审问话，防长对话人设漂移。
+    let selfCheckEnabled: Bool
+    let onSetSelfCheck: (Bool) -> Void
     /// [T-together-capsule-only 11-10] 常驻小胶囊开关。原来挂在「一起听」面板顶栏,
     /// 面板整块删了,开关搬到这儿;存的是同一个 TogetherState.showMiniBar。
     let miniBarOn: Bool
@@ -137,6 +141,13 @@ struct ComposerActionSheet: View {
                 // 右侧开关单独管开关。原来只有开关，用户看不见这三天记了什么，
                 // 关之前不知道自己在关掉什么。
                 memoryRow
+
+                toggleRow(
+                    AppLocalized("让ai先想一下"),
+                    subtitle: AppLocalized("打开后，每轮开口前先自审一遍：这话像不像随便谁说都一样"),
+                    isOn: selfCheckEnabled,
+                    action: onSetSelfCheck
+                )
                 divider
                 // [input-bar-typing-dots] 思考强度:原来顶栏那颗 badge,顶栏
                 // 拿掉之后搬到这儿。当前档位显示在右边,点开同一张
