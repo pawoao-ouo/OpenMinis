@@ -4464,6 +4464,34 @@ struct AIChatView: View {
         return vm.currentThinkingLevel.displayName
     }
 
+    /// [batch6-ui 11-27 醒醒] 加号抽屉里记忆行下面那行字，直接说出规模：
+    /// 「近三天 47 行 · 全量注入」，关着时说「已关，本轮不注入」。
+    /// 用户不用点开面板就知道模型这轮吃进去多少。
+    private var sessionMemoryStatLine: String {
+        guard vm.memoryEnabled else {
+            return AppLocalized("已关，本轮不注入任何记忆")
+        }
+        let personaID = vm.sessionPersonaId ?? PersonaStore.currentID()
+        let dir = PersonaStore.memoryDir(for: personaID)
+        let fm = FileManager.default
+        var total = 0
+        var days = 0
+        // 和 loadRecentDailyMemoryFragment 同一套取法：最近三天有内容的 daily，
+        // 每天最多 200 行。
+        for dateStr in MemoryLogDates.recentDays(count: 30) where days < 3 {
+            let url = dir.appendingPathComponent("\(dateStr).md")
+            guard fm.fileExists(atPath: url.path),
+                  let content = try? String(contentsOf: url, encoding: .utf8),
+                  !content.isEmpty else { continue }
+            total += min(content.components(separatedBy: "\n").count, 200)
+            days += 1
+        }
+        guard days > 0 else {
+            return AppLocalized("近三天还没有记忆")
+        }
+        return String(format: AppLocalized("近三天 %d 行 · 每轮注入"), total)
+    }
+
     private var plusSheet: some View {
 
         ComposerActionSheet(
@@ -4478,6 +4506,17 @@ struct AIChatView: View {
                 }
             },
             onSetMemory: { enabled in vm.setMemoryWrites(enabled) },
+            // [batch6-ui 11-27 醒醒] 会话记忆入口。抽屉正在收，同帧弹 sheet
+            // 会被系统吞掉，走同一个 drawerExitLead。
+            onOpenSessionMemory: {
+                // 先显式收抽屉并归位状态（和 onItemTap 同一套），
+                // 等收干净再弹面板，否则同帧两个 sheet 系统会吞掉第二个。
+                showPlusSheet = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.drawerExitLead) {
+                    showSessionMemory = true
+                }
+            },
+            memoryStatLine: sessionMemoryStatLine,
             miniBarOn: togetherHub.state.showMiniBar,
             onSetMiniBar: { enabled in
                 // [T-together-capsule-only 11-10] 常驻小胶囊开关从「一起听」面板搬

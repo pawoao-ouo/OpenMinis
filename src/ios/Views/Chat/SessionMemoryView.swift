@@ -11,73 +11,190 @@ struct SessionMemoryView: View {
     @ObservedObject var vm: AIChatViewModel
     @Environment(\.dismiss) private var dismiss
 
+    // [batch6-ui 11-27 醒醒] 上游这份是原生 List + Section，配色走
+    // ChatColors.accent / MinisTheme.secondaryText；而加号抽屉是
+    // CSSThemeVariables 卡片风。点「查看」从卡片抽屉跳进一个原生列表，
+    // 像换了个 App，而且不跟用户装扮的主题走。
+    // 现在改成卡片风：ScrollView + CSSThemeVariables.card，
+    // 背景 bg(scope: .sheet)，行样式对齐 ComposerActionSheet.navRow。
+
     var body: some View {
         NavigationStack {
-            List {
-                // Section 1: Auto-injected memories
-                Section {
-                    ForEach(autoInjected, id: \.name) { item in
-                        NavigationLink {
-                            MemoryContentView(title: item.name, content: item.content, fileURL: item.fileURL)
-                        } label: {
-                            row(name: item.name, detail: item.detail, icon: item.icon)
-                        }
+            ScrollView {
+                VStack(spacing: 14) {
+                    if !vm.memoryEnabled {
+                        disabledNotice
                     }
-                } header: {
-                    Text("Auto-injected")
-                } footer: {
-                    Text("Loaded into system prompt at the start of each agent turn.")
-                }
-
-                // Section 2: Tool-recalled memories
-                if !toolMemories.isEmpty {
-                    Section {
-                        ForEach(toolMemories) { item in
-                            NavigationLink {
-                                if item.isWrite {
-                                    MemoryWriteDetailView(item: item, personaID: vm.sessionPersonaId)
-                                } else {
-                                    MemoryGetDetailView(item: item)
-                                }
-                            } label: {
-                                row(name: item.title, detail: item.detail, icon: item.isWrite ? "square.and.pencil" : "magnifyingglass")
+                    summaryBar
+                    section(
+                        title: AppLocalized("每轮自动注入"),
+                        footer: AppLocalized("这些内容在每个 agent turn 开始时被拼进 system prompt。"),
+                        items: autoInjected.map { item in
+                            row(name: item.name, detail: item.detail, icon: item.icon) {
+                                AnyView(MemoryContentView(
+                                    title: item.name,
+                                    content: item.content,
+                                    fileURL: item.fileURL))
                             }
-                        }
-                    } header: {
-                        Text("Tool Activity")
-                    } footer: {
-                        Text("Memory reads and writes performed by the agent during this session.")
+                        })
+                    if !toolMemories.isEmpty {
+                        section(
+                            title: AppLocalized("本次会话的工具读写"),
+                            footer: AppLocalized("agent 在这次会话里读过或写过的记忆。"),
+                            items: toolMemories.map { item in
+                                row(name: item.title, detail: item.detail,
+                                    icon: item.isWrite ? "square.and.pencil" : "magnifyingglass") {
+                                    AnyView(
+                                        Group {
+                                            if item.isWrite {
+                                                MemoryWriteDetailView(item: item, personaID: vm.sessionPersonaId)
+                                            } else {
+                                                MemoryGetDetailView(item: item)
+                                            }
+                                        })
+                                }
+                            })
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 24)
             }
-            .navigationTitle("Memories in Session")
+            .scrollIndicators(.hidden)
+            .background(CSSThemeVariables.bg(scope: ThemeColorLayer.sheet))
+            .navigationTitle(AppLocalized("会话记忆"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button(AppLocalized("完成")) { dismiss() }
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
                 }
             }
         }
     }
 
-    // MARK: - Row
+    /// 记忆关着的时候，顶部说清后果——用户关之前要知道自己关掉了什么。
+    private var disabledNotice: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(ChatFont.font(13))
+            Text(AppLocalized("记忆已关闭，本轮没有注入任何内容"))
+                .font(ChatFont.font(13))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
+        )
+    }
 
-    private func row(name: String, detail: String, icon: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .foregroundStyle(ChatColors.accent)
-                .frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name)
-                    .font(.body)
-                if !detail.isEmpty {
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(MinisTheme.secondaryText)
-                        .lineLimit(2)
-                }
+    /// 一行看完规模：不用逐个点开就知道这轮模型吃进去多少。
+    private var summaryBar: some View {
+        HStack(spacing: 0) {
+            statCell(value: "\(autoInjectedLineCount())", label: AppLocalized("行已注入"))
+            dividerCell
+            statCell(value: "\(autoInjected.count)", label: AppLocalized("个来源"))
+            if !toolMemories.isEmpty {
+                dividerCell
+                statCell(value: "\(toolMemories.count)", label: AppLocalized("次工具读写"))
             }
         }
+        .padding(.vertical, 13)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
+        )
+    }
+
+    private var dividerCell: some View {
+        Rectangle()
+            .fill(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet).opacity(0.18))
+            .frame(width: 1, height: 22)
+    }
+
+    private func statCell(value: String, label: String) -> some View {
+        VStack(spacing: 3) {
+            Text(value)
+                .font(ChatFont.font(17, weight: .semibold))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+            Text(label)
+                .font(ChatFont.font(11))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func autoInjectedLineCount() -> Int {
+        guard vm.memoryEnabled else { return 0 }
+        return autoInjected.reduce(0) { $0 + $1.injectedLines }
+    }
+
+    /// 卡片分组：标题 + 卡片 + 脚注。
+    private func section<Item: View>(title: String, footer: String,
+                                     items: [Item]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(ChatFont.font(12, weight: .medium))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                .padding(.leading, 4)
+            VStack(spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                    if idx > 0 {
+                        Rectangle()
+                            .fill(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet).opacity(0.12))
+                            .frame(height: 1)
+                            .padding(.leading, 46)
+                    }
+                    item
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
+            )
+            Text(footer)
+                .font(ChatFont.font(11))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                .padding(.horizontal, 4)
+                .padding(.top, 1)
+        }
+    }
+
+    // MARK: - Row
+
+    private func row(name: String, detail: String, icon: String,
+                     destination: @escaping () -> AnyView) -> some View {
+        NavigationLink {
+            destination()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(ChatFont.font(15))
+                    .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(ChatFont.font(15))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(ChatFont.font(12))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 8)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
+            .contentShape(Rectangle())
+        }
+        // 不用 .plain：那会把 NavigationLink 自带的 disclosure 箭头一起抹掉，
+        // 看起来像不可点。用 borderless 保留系统箭头，同时不叠按钮底色。
+        .buttonStyle(.borderless)
     }
 
     // MARK: - Auto-injected
@@ -88,6 +205,9 @@ struct SessionMemoryView: View {
         let icon: String
         let content: String
         let fileURL: URL?
+        /// 这一项实际被注入 system prompt 的行数（daily 只取前 200 行；
+        /// SOUL/GLOBAL 全量）。summaryBar 用它说话。
+        var injectedLines: Int = 0
     }
 
     private var autoInjected: [AutoItem] {
@@ -113,13 +233,15 @@ struct SessionMemoryView: View {
             let lineCount = content.components(separatedBy: "\n").count
             items.append(AutoItem(
                 name: "SOUL.md",
-                detail: "\(lineCount) lines (full)",
+                detail: AppLocalized("\(lineCount) 行，全量注入"),
                 icon: "person.fill",
                 content: content,
-                fileURL: soulURL
+                fileURL: soulURL,
+                injectedLines: lineCount
             ))
         } else {
-            items.append(AutoItem(name: "SOUL.md", detail: "Empty", icon: "person", content: "(empty)", fileURL: soulURL))
+            items.append(AutoItem(name: "SOUL.md", detail: AppLocalized("空"),
+                                  icon: "person", content: "(empty)", fileURL: soulURL))
         }
 
         // GLOBAL.md
@@ -130,13 +252,15 @@ struct SessionMemoryView: View {
             let lineCount = content.components(separatedBy: "\n").count
             items.append(AutoItem(
                 name: "GLOBAL.md",
-                detail: "\(lineCount) lines (full)",
+                detail: AppLocalized("\(lineCount) 行，全量注入"),
                 icon: "star.fill",
                 content: content,
-                fileURL: globalURL
+                fileURL: globalURL,
+                injectedLines: lineCount
             ))
         } else {
-            items.append(AutoItem(name: "GLOBAL.md", detail: "Empty", icon: "star.fill", content: "(empty)", fileURL: globalURL))
+            items.append(AutoItem(name: "GLOBAL.md", detail: AppLocalized("空"),
+                                  icon: "star.fill", content: "(empty)", fileURL: globalURL))
         }
 
         // Most recent 3 daily logs with content (matches system prompt injection logic)
@@ -154,20 +278,21 @@ struct SessionMemoryView: View {
                 let lineCount = content.components(separatedBy: "\n").count
                 let injected = min(lineCount, 200)
                 let detail = lineCount > 200
-                    ? "\(injected)/\(lineCount) lines injected"
-                    : "\(lineCount) lines (full)"
+                    ? AppLocalized("注入前 \(injected) 行，共 \(lineCount) 行")
+                    : AppLocalized("\(lineCount) 行，全量注入")
                 let label: String
                 switch dayOffset {
-                case 0: label = AppLocalized("Today")
-                case 1: label = AppLocalized("Yesterday")
+                case 0: label = AppLocalized("今天")
+                case 1: label = AppLocalized("昨天")
                 default: label = dateStr
                 }
                 items.append(AutoItem(
-                    name: "\(label) — \(fileName)",
+                    name: "\(label) · \(fileName)",
                     detail: detail,
                     icon: "calendar",
                     content: content,
-                    fileURL: fileURL
+                    fileURL: fileURL,
+                    injectedLines: injected
                 ))
                 found += 1
             }
@@ -301,6 +426,7 @@ private struct MemoryContentView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .background(CSSThemeVariables.bg(scope: ThemeColorLayer.sheet))
         .toolbar {
             if fileURL != nil {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -321,7 +447,7 @@ private struct MemoryContentView: View {
         }
         .overlay(alignment: .bottom) {
             if saved {
-                Text("Saved")
+                Text(AppLocalized("已保存"))
                     .font(.caption)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -419,7 +545,7 @@ private struct MemoryWriteDetailView: View {
                         SectionHeader(title: "Tool Result")
                         Text(item.content)
                             .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(MinisTheme.secondaryText)
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal)
                             .textSelection(.enabled)
@@ -430,6 +556,7 @@ private struct MemoryWriteDetailView: View {
         }
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
+        .background(CSSThemeVariables.bg(scope: ThemeColorLayer.sheet))
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if isEditing {
@@ -454,7 +581,7 @@ private struct MemoryWriteDetailView: View {
         }
         .overlay(alignment: .bottom) {
             if saved {
-                Text("Saved")
+                Text(AppLocalized("已保存"))
                     .font(.caption)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -470,7 +597,7 @@ private struct MemoryWriteDetailView: View {
                 showResultAlert = true
             }
         } message: {
-            Text("Remove this memory entry from the daily log? This cannot be undone.")
+            Text(AppLocalized("从 daily 里删掉这条记忆？删了找不回来。"))
         }
         .alert(revokeResult ?? "", isPresented: $showResultAlert) {
             Button("OK") {
@@ -577,7 +704,7 @@ private struct MemoryGetDetailView: View {
                 if let kw = item.keywords, !kw.isEmpty {
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass")
-                            .foregroundStyle(MinisTheme.secondaryText)
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
                         Text(kw)
                             .font(.subheadline.bold())
                     }
@@ -595,6 +722,7 @@ private struct MemoryGetDetailView: View {
         }
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
+        .background(CSSThemeVariables.bg(scope: ThemeColorLayer.sheet))
     }
 }
 
@@ -605,7 +733,7 @@ private struct SectionHeader: View {
     var body: some View {
         Text(title)
             .font(.caption.bold())
-            .foregroundStyle(MinisTheme.secondaryText)
+            .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
             .textCase(.uppercase)
             .padding(.horizontal)
     }

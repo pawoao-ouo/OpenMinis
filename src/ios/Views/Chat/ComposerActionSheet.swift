@@ -28,6 +28,11 @@ struct ComposerActionSheet: View {
     let thinkingLevelName: String?
     let onItemTap: (PlusPanelItemType) -> Void
     let onSetMemory: (Bool) -> Void
+    /// [batch6-ui 11-27 醒醒] 打开「会话记忆」面板。记忆开关旁边原本没有
+    /// 任何查看入口，用户关之前不知道自己关掉了什么。
+    let onOpenSessionMemory: () -> Void
+    /// 当前会注入多少行记忆，显示在副标题上——不点开也能看见规模。
+    let memoryStatLine: String
     /// [T-together-capsule-only 11-10] 常驻小胶囊开关。原来挂在「一起听」面板顶栏,
     /// 面板整块删了,开关搬到这儿;存的是同一个 TogetherState.showMiniBar。
     let miniBarOn: Bool
@@ -128,9 +133,10 @@ struct ComposerActionSheet: View {
                     onOpenTogetherRoom()
                 }
                 divider
-                toggleRow(AppLocalized("记忆"),
-                          subtitle: String(format: AppLocalized("这一句起，%@会不会把这次对话记下来"), ChatAddressing.assistant()),
-                          isOn: memoryEnabled) { onSetMemory($0) }
+                // [batch6-ui 11-27 醒醒] 记忆行：整行点击 → 打开会话记忆面板，
+                // 右侧开关单独管开关。原来只有开关，用户看不见这三天记了什么，
+                // 关之前不知道自己在关掉什么。
+                memoryRow
                 divider
                 // [input-bar-typing-dots] 思考强度:原来顶栏那颗 badge,顶栏
                 // 拿掉之后搬到这儿。当前档位显示在右边,点开同一张
@@ -325,6 +331,50 @@ struct ComposerActionSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// 记忆行。左边整块可点（打开面板），右边是开关。
+    /// 两层点击分开：点开关只切开关，点别处才进面板。
+    private var memoryRow: some View {
+        HStack(spacing: 12) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                // 和 onItemTap 一个写法：外层显式把 showPlusSheet 置 false，
+                // 不靠 dismiss()——dismiss 只关视图，不改外层那个 @State，
+                // 不归位的话下次点加号可能打不开。
+                onOpenSessionMemory()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "brain.head.profile")
+                        .font(ChatFont.font(16, weight: .regular))
+                        .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(AppLocalized("记忆"))
+                            .font(ChatFont.font(15))
+                            .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                        Text(memoryStatLine.isEmpty
+                             ? String(format: AppLocalized("这一句起，%@会不会把这次对话记下来"), ChatAddressing.assistant())
+                             : memoryStatLine)
+                            .font(ChatFont.font(12))
+                            .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(ChatFont.font(12, weight: .semibold))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Toggle("", isOn: Binding(get: { memoryEnabled }, set: { onSetMemory($0) }))
+                .labelsHidden()
+                .tint(CSSThemeVariables.accent())
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     private func toggleRow(_ title: String, subtitle: String?, isOn: Bool,
