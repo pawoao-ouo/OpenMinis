@@ -1,19 +1,20 @@
 {
- "total": 34,
+ "total": 29,
  "byFile": {
-  "src/ios/Agent/Chat/AIChatViewModel.swift": 9,
+  "src/ios/Agent/Chat/AIChatViewModel.swift": 7,
   "src/ios/Agent/Chat/AIChatViewModel+ToolDefinitions.swift": 5,
   "src/ios/Agent/Chat/AIChatViewModel+TitleGeneration.swift": 4,
   "src/ios/Agent/Chat/AIChatViewModel+Persistence.swift": 1,
   "src/ios/Agent/Chat/AIChatViewModel+ProgrammaticPrompt.swift": 1,
-  "src/ios/Agent/Session/SoulStore.swift": 4,
+  "src/ios/Agent/Session/SoulStore.swift": 3,
   "src/ios/Agent/Session/PersonaStore.swift": 2,
   "src/ios/Agent/Chat/AIChatViewModel+Compaction.swift": 4,
-  "src/ios/Views/Chat/AIChatView.swift": 4
+  "src/ios/Agent/Jobs/HelperRunner.swift": 1,
+  "src/ios/Agent/Jobs/ScheduledJobRunner.swift": 1
  },
- "docTotal": 12,
+ "docTotal": 2,
  "docByFile": {
-  "src/ios/Agent/Session/SkillStore.swift": 12
+  "src/ios/Agent/Session/SkillStore.swift": 2
  },
  "_note": "只许降不许升。数字是当前存量，不是合格线——每次清理后手动下调基线，新加的祈使句会直接撞红。改动口径（词表/扫描范围）必须同时重写这个文件并在此说明。docTotal 是技能手册正文，只在技能加载时进上下文，单独统计不作验收。"
 }

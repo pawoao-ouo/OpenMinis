@@ -1282,7 +1282,7 @@ final class AgentJobRegistry: ObservableObject {
         // crashed, cut off). Fall back to the last thing the agent actually
         // said, clearly labelled, rather than returning nothing.
         guard let earlier = assistants.dropLast().reversed().map(text(of:)).first(where: { !$0.isEmpty }) else { return nil }
-        return "(The agent did not write a final answer; this is its last message before the run ended.)\n" + earlier
+        return "(No final answer was written; this is the last message before the run ended.)\n" + earlier
     }
 
     // MARK: - then

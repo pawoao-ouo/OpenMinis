@@ -964,8 +964,8 @@ extension AIChatViewModel {
             "budget_minutes": minutes,
             "converted_from_wait": converted,
             "note": converted
-                ? "The user sent a new message while you were waiting, so this delegation was moved to the background. Answer the user now; the agent's result will arrive as a NEW MESSAGE in this conversation (prefixed [Background task finished …]) when it is done. Use agent_status if you need its current state."
-                : "The agent is running in the background. Its result will arrive as a NEW MESSAGE in this conversation (prefixed [Background task finished …]) when it is done — end this turn when you have nothing else to do. Use agent_status to check on it or cancel it; do not poll in a loop.",
+                ? "The user sent a new message while you were waiting, so this delegation was moved to the background. Answer the user now; the background task's result will arrive as a NEW MESSAGE in this conversation (prefixed [Background task finished …]) when it is done. Use agent_status if you need its current state."
+                : "The background task is running. Its result will arrive as a NEW MESSAGE in this conversation (prefixed [Background task finished …]) when it is done — end this turn when you have nothing else to do. Use agent_status to check on it or cancel it; do not poll in a loop.",
         ]
         // This JSON is what the parent persists as the tool_result, so a
         // block reloaded after a restart still knows tier + resolved model

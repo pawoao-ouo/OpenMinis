@@ -121,3 +121,29 @@ FAIL  祈使句比基线多 1 处（9 → 10）：src/ios/Agent/Chat/AIChatViewM
 | `docs/prompt-text-inventory.md` | 改：重写第三节、建例外表 E1–E11 |
 | `docs/prompt-impact-map.md` | 新：牵连清单 P1–P7 / N1–N4 / R1–R4 / O1–O5 |
 | `.github/workflows/build-ios-ipa.yml` | 改：CI 加一行 |
+
+---
+
+## 复审追加（第二轮，2026-11-27）
+
+自审两轮后发现问题，逐条修：
+
+| # | 问题 | 后果 | 处理 |
+|---|---|---|---|
+| R1 | 多行块里同一行带引号会重复计数 | 数字虚高 | 多行块内只按整行算一次 |
+| R2 | 技能手册正文混进系统提示基线 | 数字无意义 | 拆成 `SCAN_FILES_DOC` 单独统计 |
+| R3 | `Task<Void, Never>`、`...FromImageAlways` 被当提示词 | 误报 | 加 Swift 类型/常量过滤 |
+| R4 | 基线文件缺失时自动创建，CI 永远通过 | 检查形同虚设 | 必须本地 `--init`，CI 缺文件直接 FAIL |
+| R5 | 扫描清单里的文件不存在时静默跳过 | 路径写错/改名后数字变小反而"达标" | 报 FAIL |
+| R6 | 基线里有、本次没扫到的文件不报警 | 扫描范围缩小无人知 | 报 FAIL |
+| R7 | 词表含「不要/不能/Always」等弱词 | 参数说明被当命令腔（4 处误报） | 收紧为强祈使词 + 规章标记 |
+| R8 | `AppLocalized(...)` 里的祈使词 | 界面文案被计入 | 按行排除（实测只影响 3 处 preview 文案） |
+
+**口径收紧后的验证**：单行强祈使、多行块强祈使都能抓到；还原后通过。29 处。
+
+**顺带修的提示词问题**（本轮同时做的）：
+- 贴纸目录「核心原则」「规则：1.2.3.」→ 陈述句，并补明「一条回复只认第一个标签，多写的会原样留在文字里」（`parseFirst` 的真实行为）
+- 压缩提示词三处 "agent" 指代 → 被动语态（`MUST PRESERVE` 未动）
+- `AgentJobRegistry` 兜底标记、`HelperRunner` 后台任务 note、`SlashCommands` 记忆开关 systemInfo → 去 "agent"
+
+**待醒醒定**：steward 内置人设（包说保留，实际已清空）、图像生成 instructions（包说不改，实际改了）。

@@ -36,8 +36,8 @@
 | 11 | 子代理委派前言（子会话第一层） | `AIChatViewModel+ProgrammaticPrompt.swift` | 英 | ProgrammaticPrompt |
 | 12 | 非聊天路径：标题生成 / 压缩 / 块摘要 | `+TitleGeneration.swift` / `+Compaction.swift` / `+BlockSummary.swift` | 英 | 各 |
 | 13 | 手册索引（正文按需读） | `Shared/UserManualMirror.swift` ≈45 / `Resources/user-manual.md` | 中 | UserManualMirror |
-| 14 | 内置 steward 人设「MCP小助手」 | `Agent/Session/PersonaStore.swift` ≈1230、1256 | 中 | **已定：保留** |
-| 15 | 图像生成 "You are a helpful assistant" | `Providers/OpenAIProvider.swift` ≈1975 | 英 | **不在聊天链路，只登记不改** |
+| 14 | 内置 steward 人设 | `Agent/Session/PersonaStore.swift:1234` | — | ⚠️ **偏离整合包**：包写「已定：保留」，实际已清成空 body 空名字（`ef2bdce`）。待醒醒定是否退回 |
+| 15 | 图像生成 instructions | `Providers/OpenAI/OpenAIProvider.swift:1977` | 英 | ⚠️ **偏离整合包**：包写「报告位置，不动」，实际改成 `Use tools when available.`。待醒醒定 |
 
 ---
 
@@ -83,7 +83,7 @@ SOUL 正文、用户档案，那是她的。
 
 | 口径 | 数量 | 说明 |
 |---|---|---|
-| **严格祈使句（系统提示类）** | **34 处** | 验收基线，只许降不许升 |
+| **严格祈使句（系统提示类）** | **29 处** | 验收基线，只许降不许升 |
 | 技能手册正文 | 12 处 | **单独统计，不作验收**（见下） |
 
 分布：
@@ -95,19 +95,21 @@ SOUL 正文、用户档案，那是她的。
 | `AIChatViewModel+TitleGeneration.swift` | 4 |
 | `SoulStore.swift` | 4 |
 | `AIChatViewModel+Compaction.swift` | 4 |
-| `AIChatView.swift`（贴纸目录） | 4 |
+| `AIChatView.swift`（识图 JSON） | 1 |
 | `PersonaStore.swift` | 2 |
 | `AIChatViewModel+Persistence.swift` | 1 |
 | `AIChatViewModel+ProgrammaticPrompt.swift` | 1 |
 
-**这个 34 是存量，不是合格线。** 批 0 记的 19 是漏扫出来的——只认单行字符串，提示词正文的 `"""` 多行块全没扫到。
+**这个 29 是存量，不是合格线。** 批 0 记的 19 是漏扫出来的——只认单行字符串，提示词正文的 `"""` 多行块全没扫到。
 
 **技能手册为什么分开算**：`SkillStore.swift` 里那 12 处是 minis-theme 等技能的操作正文，只在技能被加载时进上下文，而且手册里写「不能改什么」「必须明说」是正当的。和系统提示混在一起计数，数字会误导。
 
 严格口径的定义：
 
-- 中文祈使：必须 / 总是 / 绝不 / 不许 / 务必 / 禁止 / 请你 / 不要 / 不能 / 核心原则 / 规则：
-- 英文祈使：MUST / Do NOT / Never / Always / IMPORTANT / You must / You should / You are
+- 中文强祈使：必须 / 绝不 / 不许 / 务必 / 禁止
+- 英文强祈使：MUST / Do NOT / Never / IMPORTANT
+- 规章标记：核心原则 / 规则： / You are / You should
+- **不算**：不要 / 不能 / 总是 / Always / 请你（这些在正常叙述里太常见）
 - 排除：UI 标签（`Never Used`、`Never auto-lock`）、Swift 类型（`Task<Void, Never>`）、常量名（`...FromImageAlways`）
 - `only`、`should` 这类英文正常文法用法不计
 
@@ -117,7 +119,10 @@ SOUL 正文、用户档案，那是她的。
 
 **口径**：登记进这张表的，是「祈使句基线里暂时不能撤」的条目。每项写清：位置、为什么不能撤、什么时候能撤。撤掉后把行删掉，基线数跟着降。
 
-当前基线 **34 处**（2026-11-27，commit `ef2bdce`），另 12 处技能手册正文单独统计。
+当前基线 **29 处**（2026-11-27），另 12 处技能手册正文单独统计。
+
+口径收紧过一轮：只有**强祈使词**（必须/绝不/务必/禁止/不许/MUST/Do NOT/Never/IMPORTANT）和**规章标记**（核心原则/规则：/You are/You should）才计。
+「不要/不能」在参数说明里常是描述性的（"不传就用默认顺序"），不再作判据——之前 33 处里有 4 处是这类误报。
 
 | # | 位置 | 内容 | 为什么不能撤 | 预计撤掉的批次 |
 |---|---|---|---|---|
@@ -133,8 +138,12 @@ SOUL 正文、用户档案，那是她的。
 | E10 | `SoulStore.swift:1242` | `You are {name}.` | 身份模板本体。批 1 定稿：只剩名字，这是唯一身份来源 | 不撤 |
 | E11 | `SoulStore.swift:1393` | `「雷区」写了就必须照做` | 用户档案段的约束。这是**用户自己写的规矩**，不是代码给的 | 不撤。用户内容 |
 | E12 | `SoulStore.swift:1388/1391` | `不要把它当自己的设定` / `规则：以「她明确写下的」为准` | 档案段的边界说明：告诉模型这是「对方」不是「自己」。这是防止身份串味的关键句 | 不撤。这是身份隔离的机制 |
-| E13 | `PersonaStore.swift:493/503` | `绝对不能：（写了 AI 必须照做）` / `不许当定性` | **用户档案模板**，是给用户看的填写说明，用户写进去才进模型 | 不撤。模板内容 |
-| E14 | `AIChatView.swift:8570–8586` | 贴纸目录「核心原则」「规则：1.2.3.」 | **该改没改**：批 2 漏了。中文规章腔，每轮都在上下文里 | **待改**。改成陈述，改完基线降到 30 |
+| E15 | `+Compaction.swift:1231` | `You are a context compaction engine` | 压缩链路的**功能角色**，不是人设。这个调用只产出摘要，不继续对话，所以不污染人设 | 不撤 |
+| E16 | `+Compaction.swift:1236` | `MUST PRESERVE (never omit or shorten)` | **数据保真**：摘要必须原样保留路径、命令、错误。撤掉会丢关键信息 | 不撤 |
+| E17 | `+Compaction.swift:1256/1278` | `Do NOT translate code` / `Do NOT continue the conversation` | 前者防改坏代码，后者防模型把摘要写成续写。都是功能约束 | 不撤 |
+| E18 | `HelperRunner.swift:1330` | `You are a helper sub-agent in Minis` | helper 子代理的身份段，跟 `subAgentIdentitySection` 平行。子代理有自己的第一层，不是人设污染 | 不撤 |
+| E19 | `ScheduledJobRunner.swift:501` | `绝不像闹钟一样硬弹` | 自主心跳提示词里的行为约束。这条提示词是让模型**用自己的人设**主动说话，不是给它安身份 | 不撤 |
+| E14 | `AIChatView.swift:8584` | 识图 JSON 提示词「请严格返回如下 JSON 格式，不要包含任何其他文字」 | 功能性约束：走视觉模型，不聊天；JSON 格式要求是硬性的 | 不撤。非聊天链路 |
 
 **维护规矩**：
 - 新增祈使句导致 CI 红 → 要么改写（改成陈述），要么登记进这张表并说明理由。

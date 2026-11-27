@@ -100,9 +100,9 @@ extension AIChatViewModel {
         // removes the memory tools, and makes the handlers refuse. Say what
         // actually happens; the toggle's behavior is unchanged.
         if enabled {
-            appendSystemInfo("Memory writes enabled. The agent will read GLOBAL.md and daily logs, and memory tools are available.", icon: "brain.head.profile")
+            appendSystemInfo("Memory writes enabled. Memory reads are active: GLOBAL.md and daily logs are in context, and memory tools are available.", icon: "brain.head.profile")
         } else {
-            appendSystemInfo("Memory writes disabled. Memory reads are paused too — the agent won't see GLOBAL.md or daily logs, and memory tools are unavailable for this session.", icon: "brain.head.profile")
+            appendSystemInfo("Memory writes disabled. Memory reads are paused too — GLOBAL.md and daily logs are not in context, and memory tools are unavailable for this session.", icon: "brain.head.profile")
         }
     }
 

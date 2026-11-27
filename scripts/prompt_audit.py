@@ -137,7 +137,15 @@ BASE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompt_imp
 STRICT_EN = ["MUST", "Do NOT", "Never", "Always", "IMPORTANT", "You must", "You should", "You are"]
 STRICT_ZH = ["必须", "总是", "绝不", "不许", "务必", "禁止", "请你",
              "不要", "不能", "核心原则", "规则："]
-LIT_RE = re.compile(r'"((?:[^"\\]|\\.){8,})"')
+# 弱祈使（不要/不能/You should）在参数说明里常是正常表述，短串里不计。
+# 强祈使（必须/绝不/务必/MUST/Never/Do NOT）无论多短都算。
+STRICT_EN_STRONG = ["MUST", "Do NOT", "Never", "IMPORTANT"]
+STRICT_ZH_STRONG = ["必须", "绝不", "务必", "禁止", "不许"]
+STRICT_EN = ["MUST", "Do NOT", "Never", "Always", "IMPORTANT", "You must", "You should", "You are"]
+STRICT_ZH = ["必须", "总是", "绝不", "不许", "务必", "禁止", "请你", "不要", "不能", "核心原则", "规则："]
+
+LIT_RE = re.compile(r'"((?:[^"\\]|\\.){4,})"')
+LIT_RE_LOOSE = re.compile(r'"((?:[^"\\]|\\.){8,})"')
 
 SCAN_FILES = [
     # 系统提示主体、工具描述、标题生成、压缩、兜底提示词
@@ -156,6 +164,12 @@ SCAN_FILES = [
     "src/ios/Agent/Chat/AIChatViewModel+Compaction.swift",
     # 贴纸目录（R3）——中文规章腔
     "src/ios/Views/Chat/AIChatView.swift",
+    # 后台任务 / 子任务链路（工具返回会进上下文）
+    "src/ios/Agent/Jobs/HelperRunner.swift",
+    "src/ios/Agent/Jobs/AgentJobRegistry.swift",
+    "src/ios/Agent/Jobs/ScheduledJobRunner.swift",
+    # 斜杠命令的 systemInfo
+    "src/ios/Agent/Chat/AIChatViewModel+SlashCommands.swift",
 ]
 
 # 技能正文单独统计：它是操作手册，加载时才进上下文，判定标准和系统提示不同
@@ -171,6 +185,9 @@ def _count(rel_list, sink):
     for rel in dict.fromkeys(rel_list):
         p = os.path.join(ROOT, rel)
         if not os.path.isfile(p):
+            # 路径写错、文件被改名/删除都会静默跳过，数字变小反而"达标"。
+            # 这里必须报出来，否则基线失去意义。
+            fail("扫描清单里的文件不存在：%s（路径写错，或文件被改名/删除）" % rel)
             continue
         src = open(p, encoding="utf-8", errors="ignore").read()
         n = 0
@@ -187,12 +204,18 @@ def _count(rel_list, sink):
             if in_block:
                 # 多行块内部：整行算一次。不能再走 LIT_RE，否则同一行里的引号
                 # 会被重复计一次（多行块里的引号不是字符串边界）。
-                if any(w in line for w in STRICT_EN) or any(w in line for w in STRICT_ZH):
+                # 口径和单行一致：强词或规章标记才算。
+                if (any(w in line for w in STRICT_EN_STRONG)
+                        or any(w in line for w in STRICT_ZH_STRONG)
+                        or any(w in line for w in ("核心原则", "规则：", "You are", "You should"))):
                     n += 1
                 continue
             for m in LIT_RE.finditer(line):
                 text = m.group(1)
                 if text in ("Never Used", "Never auto-lock", "Never"):
+                    continue
+                # AppLocalized("...") 是界面文案，模型看不到
+                if 'AppLocalized(' in line:
                     continue
                 # Swift 类型/常量误报：`Task<Void, Never>`、`...FromImageAlways`
                 # 这类是代码不是文案。中文词不会出现在这里，英文才要过滤。
@@ -201,7 +224,13 @@ def _count(rel_list, sink):
                         continue
                     if re.match(r"^[A-Za-z0-9_.]*(Always|Never)$", text):
                         continue
-                if any(w in text for w in STRICT_EN) or any(w in text for w in STRICT_ZH):
+                # 强祈使词（必须/绝不/务必/MUST/Never/Do NOT）一律计。
+                # 弱词只在「规章标记」上计：核心原则/规则：/You are/You should。
+                # 「不要/不能」在参数说明里常是描述性的（"不传就用默认"），不作判据。
+                strong = (any(w in text for w in STRICT_EN_STRONG)
+                          or any(w in text for w in STRICT_ZH_STRONG))
+                marker = any(w in text for w in ("核心原则", "规则：", "You are", "You should"))
+                if strong or marker:
                     n += 1
         if n:
             sink[rel] = n
@@ -239,6 +268,10 @@ else:
 if base is not None:
     base_total = base.get("total", 0)
     print("严格祈使句 %d 处（基线 %d）" % (total_now, base_total))
+    # 基线里有的文件这次没扫到 → 扫描范围缩小，数字变小会掩盖问题
+    vanished = [k for k in base.get("byFile", {}) if k not in current]
+    for v in vanished:
+        fail("基线里的文件这次没扫到：%s（扫描范围缩小，基线数字不可比）" % v)
     if total_now > base_total:
         grew = {k: v for k, v in current.items() if v > base.get("byFile", {}).get(k, 0)}
         if grew:

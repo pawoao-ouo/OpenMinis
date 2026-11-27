@@ -1229,8 +1229,8 @@ extension AIChatViewModel {
 
         let systemPrompt = """
         You are a context compaction engine. Your summary will REPLACE the original messages in the \
-        conversation context window. The agent will read your summary as past context, then proceed \
-        based on the user's NEXT message — your summary is background, not a standing work order. \
+        conversation context window. It is then read as past context, and the conversation proceeds \
+        from the user's NEXT message — the summary is background, not a standing work order. \
         Write the summary in the same language the user used in the conversation.
 
         MUST PRESERVE (never omit or shorten):
@@ -1243,8 +1243,8 @@ extension AIChatViewModel {
         - Any tool calls and their results that affect current state
 
         STRUCTURE:
-        1. Start with a one-line description of what the conversation was about (use past tense — \
-           "User asked X, agent did Y", NOT "Goal: X").
+        1. Start with a one-line description of what the conversation was about (use past tense and \
+           passive voice — "User asked X; Y was done", NOT "Goal: X").
         2. Then a concise narrative of what happened, preserving technical details.
         3. End with a "What had been done so far" section listing completed work — NOT a "todo" \
            or "pending" list. Do not invent ongoing objectives or carry-over tasks from old turns; \
@@ -1254,7 +1254,7 @@ extension AIChatViewModel {
         references are most useful for continuity.
 
         Do NOT translate or alter code snippets, file paths, identifiers, or error messages. \
-        Be concise but never lose information the agent needs.
+        Be concise but never lose information needed for continuity.
         """
 
         // Estimate input tokens and cap maxTokens to fit in context window
