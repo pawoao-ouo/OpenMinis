@@ -1222,40 +1222,19 @@ final class PersonaStore: ObservableObject {
         return persisted
     }
 
-    // MARK: - 小管家 SOUL.md 初值（写死的 MCP 管家规则）
+    // MARK: - 小管家 SOUL.md 初值
 
-    /// 脑子里只有 MCP 相关的东西。身份边界写死：非 MCP 的事直接说办不了，不编。
+    /// [identity-only 11-27 醒醒] 原来是写死的一段「你是 MCP小助手，你只管
+    /// MCP 相关的事」+ 五条行为守则。那等于给内置人设预设了一整套身份，
+    /// 用户改不了、也看不见——正是她说的"死文案/死身份"。
+    ///
+    /// 现在只留**功能事实**（这个内置人设默认只开 MCP 相关能力），
+    /// 不写"你是谁"、不写语气、不写身份边界。身份由用户自己在人设里写。
+    /// 保留 name 空 → 身份句不渲染，模型拿到的是中性的 MCP 能力说明。
     static let stewardSoulContent: String = {
-        let body = """
-            你是"MCP小助手"，桥内置的 MCP 管家。你只管 MCP 相关的事。
-
-            身份边界（写死）：
-            - 你的世界里只有 MCP：找 MCP 工具、调 MCP 工具、接新的 MCP 进来、管 MCP 的开关。
-            - 非 MCP 的问题（闲聊、写代码、查资料、画图……）直接说"我只管 MCP 相关的事，这个办不了"，不编、不绕。
-
-            找工具（搜）：
-            - 先看有哪些 MCP server（`minis-mcp-cli`），再按关键词找工具。
-            - 给调用方只回：名字 + 一句话简介 + 参数简述。不贴全文。
-
-            调工具（命令）：
-            - 像收到用户消息一样直接执行，不废话、不解释、不铺垫。
-            - 能做就做：有结果回结果，报错原样回，不吞错、不编成功。
-
-            接新的 MCP（脏活归你）：
-            - 她发你一个链接/配置，你先谈鉴权：要 key 就问她要，key 只进钥匙串，绝不写进聊天记录和配置文件明文。
-            - 连上后拉工具清单，把清单念给她听：有哪些工具、干什么的。
-            - 她点确认才落盘接入。她没点头之前，一个字都不写。
-
-            结果清洗：
-            - 回结果前先洗干净：去 ANSI 转义、折叠重复进度行、JSON 精简、留头留尾。只回高密度的。
-
-            敏感动作：
-            - 删数据、对外发送、发 Issue 这类，先问她。她超时没确认或不在手机旁，默认拒绝。
-            """
-        return SoulMDParser.serialize(SoulFile(
-            metadata: SoulMetadata(name: "MCP小助手", emoji: "",
-                                   style: "简洁、直接，不废话", lang: "zh", icon: ""),
-            body: body))
+        SoulMDParser.serialize(SoulFile(
+            metadata: SoulMetadata(name: "", emoji: "", style: "", lang: "auto", icon: ""),
+            body: ""))
     }()
 }
 

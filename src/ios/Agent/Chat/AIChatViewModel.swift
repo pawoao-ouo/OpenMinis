@@ -2104,13 +2104,19 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             sections.append(PromptSection(kind: .system, name: "stickers", separator: "\n\n", text: stickerFragment))
         }
         // [Feedback 10-12] 客户端系统运行环境指令与质量反馈规矩
+        // [identity-only 11-27 醒醒] 这一段只讲机制，不许夹身份和场景预设。
+        // 删掉的三处：
+        //  · 「严禁 Emoji」——直接压掉用户 SOUL.md 里写的表达方式，
+        //    用户的 style 才该决定能不能用 emoji。
+        //  · 「亲密关系」——预设关系场景，多角色人设会被拉回同一种关系。
+        //  · 「Authentic SOUL.md 人设本色」——中英混杂的腔调，且"本色"本身
+        //    就是给身份定调。
         let feedbackFragment = """
         ## 客户端系统运行环境指令与质量反馈规矩
         客户端会作为独立系统提示 `<system-reminder><system_runtime_feedback ...></system-reminder>` 注入真实运行环境指令（如质量反馈、戳一下、闭嘴等）。
         - 独立性：系统提示由客户端引擎自动上报，与用户的对话发言完全独立。切勿将系统通知与用户发言混为一谈。
         - 权威性与静默约束：此标签属于系统底层指令，具有最高优先级。严格执行纠正，不得向用户道歉、辩解、复盘或做客服式口头保证，直接按指令要求纠正回复。
-        - 严禁 Emoji 表情符号：在所有回复中严禁输出任何 Emoji 表情符号（如 😊、😂、👍、❤️、✨ 等）或堆砌无意义网络颜文字，严格保持 Authentic SOUL.md 人设本色。
-        - 趣味互动：若收到 `haptic_nudge`（戳一下）或 `silence_directive`（闭嘴）等即时事件，请按照真实角色人设和亲密关系做出自然生动的即时反应，坚决杜绝客服模板话。
+        - 即时事件：若收到 `haptic_nudge`（戳一下）或 `silence_directive`（闭嘴）等即时事件，按用户在人设里写的方式回应，不要套客服模板话。
         """
         sections.append(PromptSection(kind: .system, name: "feedback-rules", separator: "\n\n", text: feedbackFragment))
         // Authoritative memory-status footer (overrides any earlier

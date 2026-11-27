@@ -67,9 +67,16 @@ struct PersonaContactsView: View {
 
     /// [B28 R11] 卡片标题：档案显示她档案里填的称呼，人设显示人设名。
     static func displayName(for persona: Persona) -> String {
-        guard persona.isUserProfile else { return persona.name }
+        // [identity-only 11-27 醒醒] 人设名可以为空（身份只来自用户提示词，
+        // App 不再预设名字）。空名时给一个中性占位，别让列表显示成空白。
+        if !persona.isUserProfile {
+            let n = persona.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return n.isEmpty ? "未命名" : n
+        }
         let called = SystemPromptBuilder.userProfileAddressingName()
-        return called.isEmpty ? persona.name : called
+        if !called.isEmpty { return called }
+        let n = persona.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return n.isEmpty ? "我自己" : n
     }
 
     var body: some View {

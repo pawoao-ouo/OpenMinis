@@ -25,7 +25,9 @@ struct PersonaListSheet: View {
                             PersonaAvatarView(iconRef: persona.avatar, size: 34)
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
-                                    Text(persona.name)
+                                    // [identity-only 11-27 醒醒] 名字可以为空，占位别空白
+                                    Text(persona.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                         ? "未命名" : persona.name)
                                         .font(.body)
                                     if persona.isBuiltIn {
                                         Text("内置")

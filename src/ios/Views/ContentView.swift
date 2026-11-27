@@ -5489,7 +5489,14 @@ struct ContentView: View {
                 done += 1
                 if msg.isToolResultOnly { continue }
 
-                let role = msg.role == .user ? "User" : "嘟嘟"
+                // [identity-only 11-27 醒醒] 导出文件里的角色标签，原来写死「嘟嘟」。
+                // 用该会话人设的真实名字；没有名字就用中性标签。
+                let assistantLabel: String = {
+                    let n = SoulStore.displayName(for: SoulStore.displayPersonaId(session.personaId))
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    return n.isEmpty ? "Assistant" : n
+                }()
+                let role = msg.role == .user ? "User" : assistantLabel
                 let time = timeFmt.string(from: msg.createdAt)
                 var parts: [String] = []
                 for part in msg.parts {
