@@ -187,6 +187,9 @@ struct MinisApp: App {
         // /var/minis/shared/user-manual.md so the agent (file tools / shell) can
         // actually read it — the bundle itself is invisible to the iSH rootfs.
         UserManualMirror.syncFromBundle()
+        // [batch1-soul-hint 11-27 醒醒] 人设/外观编辑手册的正文，同样要能被
+        // 模型 file_read 到。提示词里只留路径，正文在磁盘上。
+        SoulEditingManual.syncToSharedDir()
         // Clean up Live Activities left over from a previous app session (e.g. app was killed)
         AgentLiveActivityManager.shared.cleanupStaleActivities(source: "MinisApp.init")
         // Start screen-awake controller — it will observe running tasks

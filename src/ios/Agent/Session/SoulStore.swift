@@ -1421,49 +1421,15 @@ enum SystemPromptBuilder {
         // [B28 R20] 这一段的唯一职责：让模型知道"哪些东西能用哪条命令改"。
         // 以前只写了 SOUL 五个字段和头像，配色/壁纸/行图标/主题包全没提，
         // 结果它想改外观只能瞎试。参数一律写真实存在的（--file，不是 --path）。
-        let soulEditHint =
-            "---\n"
-            + "What you can change, and the only commands that do it. Do not invent parameters. "
-            + "Every image argument is `--file <path inside iSH>` — never a URL or base64.\n\n"
-            + "PERSONA / IDENTITY — `minis-config topic-help soul` lists every field; "
-            + "write with `minis-config set soul.name '\"X\"'` (style / lang / body the same shape; "
-            + "long text via `--file <json>`). This edits the CURRENT persona only, and every write "
-            + "asks the user to approve. UI path: Settings → Soul.\n\n"
-            + "APPEARANCE — all of it goes through `minis-theme`:\n"
-            + "· Avatars: `minis-theme avatar --role assistant --file <png>` (yours) / `--role user` (hers); "
-            + "`--remove` clears. The single source is the contacts entry (Persona.avatar); SOUL.md `icon` "
-            + "is only a mirror — change it here, never in two places. UI path: contacts (Soul page is read-only).\n"
-            + "· Row icons: `minis-theme icon --list` is the only icon command the AI has. "
-            + "Setting or clearing an icon is locked on purpose — the user changes icons in the settings UI.\n"
-            + "· Wallpaper: `wallpaper --scope global|home|chat|settings|browser|files|terminal|bottomBar|persona "
-            + "--file <img>`; `--remove` clears.\n"
-            + "· Single colours: `color --list --scope chat` to read current values, then "
-            + "`color --role accent --hex D4778B --scope chat --variant light|dark`; `--clear` restores the default.\n"
-            + "· Whole skin (bubbles / corner radius / fonts / thinking card / input bar / category tiles): "
-            + "`get` → edit the JSON → `apply --file`; `save --name` stores a pack, `list` / `use --id` loads one, "
-            + "`reset` restores, `undo` reverses the last reset. Delete / rename / avatar / wallpaper / reset all stop at a confirmation sheet the user must approve."
-            + " A wallpaper inside a pack lands in the `global` scope — the same slot `wallpaper --scope global` writes, so they replace each other rather than stack.\n"
-            + "· App icon and light/dark mode are NOT under minis-theme yet: "
-            + "`minis-config set appearance.appIcon auto|light|dark|legacy_light|legacy_dark` and "
-            + "`appearance.theme light|dark|system`.\n\n"
-            + "\n\nTOGETHER (一起听) — a shared music player. One state file, "
-            + "`/var/minis/shared/together/state.json`; both the agent and the app panel write it, so a change "
-            + "shows up on the other side within a couple of seconds. All through the `together` command:\n"
-            + "· Read state: `together now` (a sentence about what is playing — not a field dump), "
-            + "`together status`, `together events --limit 30`, `together history`.\n"
-            + "· Play: `together play <trackId> [--at 秒]` / `pause` / `resume` / `seek <秒>` / "
-            + "`handoff [user|ai]` (pass the remote). `together lib` lists the library; "
-            + "`together lib add <id> <path> <title>` and `lib rm <id>` manage it.\n"
-            + "· Leave a line at a second: `together note <秒> <话>` — it surfaces only when playback "
-            + "reaches that second, not before. `together loopline <trackId> <话>` sets the looping "
-            + "line for a song with no lyrics. `together mood <词> [--intensity 1-5]` is a state tag "
-            + "shown in the panel. `together reply <话>` speaks now (3 a day, hard cap — the "
-            + "command refuses the 4th). `together radio <trackId> --why <理由>` is choosing a "
-            + "song unprompted; the reason is stored so it is still known next turn why it played.\n"
-            + "· Playlists: `together playlist new <名> | add <id> <trackId> | rename <id> <名> | rm <id>`.\n"
-            + "· Fetching songs/lyrics is `together-fetch`: `search`, `import <file>`, `lyrics <id>`. "
-            + "Lyrics come with timestamps; if a song has none, write a loopline instead of inventing "
-            + "lyrics. Never make up song titles that do not exist in `together lib`."
+        // [batch1-soul-hint 11-27 醒醒] 原来这里是一段 4,158 字符的常驻说明：
+        // 改 SOUL 的命令、改主题的每条命令、TOGETHER 全部子命令、调度器参数。
+        // 批 1 要求：改成"目录里留一行说明，正文用到时再读"。
+        // 身份段本来只剩一行 "You are <name>."，结果后面跟着一份编辑手册，
+        // 模型每轮读到的第一段大半是操作说明——身份被淹了。
+        //
+        // 正文搬进 Shared/SoulEditingManual.swift，启动时同步到
+        // /var/minis/shared/soul-editing.md。这里只留路径和一句用途。
+        let soulEditHint = SoulEditingManual.indexFragment
 
         // [T-soul-style-injection 2026-05-18] The `style` frontmatter field
         // (response voice / tone / formatting preference, e.g. a row of
