@@ -1439,11 +1439,11 @@ enum SystemPromptBuilder {
         // a hard constraint on response style rather than free-form context.
         func styleBlock(_ s: String) -> String {
             guard !s.isEmpty else { return "" }
-            // [T-agent-prompt-consistency-pass] Language priority made explicit:
-            // the base prompt's "reply in the language matching the user's input"
-            // rule is the generic default; a user-authored style that prescribes
-            // a reply language is a more specific user preference and wins.
-            return "\n\nResponse style (from SOUL.md `style` — apply to every reply unless the user explicitly asks otherwise; if it prescribes a reply language, it overrides the default match-the-user's-language rule):\n\(s)"
+            // [identity-only 11-27 醒醒] 原来这里写的是「base prompt 的
+            // "reply in the language matching the user's input" 是通用默认」——
+            // 那句话已经从基础段删掉了，注释跟着改。
+            // 现在没有平台层的语言默认，用户的 style / lang 就是唯一来源。
+            return "\n\nResponse style (from SOUL.md `style` — apply to every reply unless the user explicitly asks otherwise; if it prescribes a reply language, that is the reply language):\n\(s)"
         }
 
         // [audit-D1] Mirrors `styleBlock`: the user's explicit reply-language

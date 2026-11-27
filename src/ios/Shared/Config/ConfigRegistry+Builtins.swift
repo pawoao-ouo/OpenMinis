@@ -278,7 +278,7 @@ extension ConfigRegistry {
         r.register(ClosureField(
             path: "soul.lang",
             displayName: "Soul language preference",
-            description: "Reply language: auto / zh / en. Injected into the system prompt as a HARD reply-language constraint; `auto` injects nothing and falls back to matching the user's language.",
+            description: "Reply language: auto / zh / en. Injected into the system prompt as a HARD reply-language constraint; `auto` injects nothing — with no platform-level language default, the model just follows the conversation.",
             valueSchema: .stringEnum(["auto", "zh", "en"]),
             risk: .normal, revertable: true,
             reader: {

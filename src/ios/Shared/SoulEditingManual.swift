@@ -11,6 +11,13 @@ enum SoulEditingManual {
     /// 模型看到的路径。
     nonisolated static let linuxPath = "/var/minis/shared/soul-editing.md"
 
+    /// iOS 侧真实落盘位置。**不能直接写 `/var/minis/shared/`**——
+    /// 那是 iSH 沙箱里的路径，App 进程写不进去。必须走 app group 映射，
+    /// 和 UserManualMirror 同一个机制。
+    nonisolated static var mirroredURL: URL {
+        AIChatViewModel.minisSharedPersistentDir.appendingPathComponent("soul-editing.md")
+    }
+
     /// 常驻索引，替代原来 4,158 字符的 soulEditHint。
     nonisolated static var indexFragment: String {
         """
@@ -79,23 +86,13 @@ enum SoulEditingManual {
       Lyrics come with timestamps; if a song has none, write a loopline instead of inventing
       lyrics. Never make up song titles that do not exist in `together lib`.
 
-    ## Scheduled tasks
-
-    `minis-scheduled create --prompt "…" --after 30m` (once),
-    `--interval 10m --count 6` (loop), `--time 09:00 --repeat daily|weekdays|custom --days mon,fri`
-    (calendar), `--trigger on-completion --of <jobId>` (chain).
-    `--target follow-up` (default: each fire is a new turn in this chat) |
-    `new` (each fire opens a separate new chat) | `child-of-current` (a hidden helper).
-    Read the `delivery` line `create` prints and re-create with the right target if it is wrong.
-    `--command "<shell>"` pre-runs a command at each fire.
-    `list`, `delete --id`, `enable/disable --id`, `run --id`.
-    Timers live only while the app process is alive; for guaranteed execution after the app
-    is killed the user needs an Apple Shortcuts automation.
+    Scheduled tasks (`minis-scheduled`) are documented in the main system prompt already —
+    do not duplicate them here.
     """
 
     /// 把正文写到 /var/minis/shared/，内容不同才写（保持 mtime 稳定）。
     nonisolated static func syncToSharedDir() {
-        let url = URL(fileURLWithPath: linuxPath)
+        let url = mirroredURL
         let fm = FileManager.default
         try? fm.createDirectory(at: url.deletingLastPathComponent(),
                                 withIntermediateDirectories: true)
