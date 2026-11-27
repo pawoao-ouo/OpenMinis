@@ -63,39 +63,83 @@ SOUL 正文、用户档案，那是她的。
 
 ---
 
-## 三、自动检查（批 0 建）
+## 三、自动检查（批 0 建，§2.2）
 
-脚本：`/var/minis/workspace/scan_prompt_text.py`
-输出：`/var/minis/workspace/prompt-baseline/scan-baseline.json`
+**已进仓库，已接 CI。**
 
-### 基线数字（2026-11-24，commit 7833a57）
+- 脚本：`scripts/prompt_audit.py`（跑法 `python3 scripts/prompt_audit.py`，退出码 0 通过）
+- 基线：`scripts/prompt_imperative_baseline.json`（脚本首次运行时自动写，之后只许降不许升）
+- CI：`.github/workflows/build-ios-ipa.yml` 的「Check standalone sources statically」步骤里，跟括号配平一起跑
+
+它查五类事：
+
+1. 路由表点名的工具，schema 里有没有
+2. 提示词提到的 `/var/minis/` 路径存不存在（**只在真机上查**，CI 是 macOS runner 没有这些路径）
+3. 手册索引能不能切出来
+4. 目录总 token 数、有没有重复条目
+5. **祈使句基线**：严格口径计数，比基线多就红，并指出是哪个文件多了几处
+
+### 基线数字（2026-11-27，commit `ef2bdce`）
 
 | 口径 | 数量 | 说明 |
 |---|---|---|
-| 宽松命中（含 only/should 等普通用法） | 175 处 / 34,054 字符 | 用来找线索，不作验收 |
-| **严格祈使句** | **19 处** | 验收基线，只许降不许升 |
-| 越权主语（你/助手/帮助…） | 54 处 | 批 2 主战场 |
+| **严格祈使句（系统提示类）** | **34 处** | 验收基线，只许降不许升 |
+| 技能手册正文 | 12 处 | **单独统计，不作验收**（见下） |
 
-严格口径命中分布：
+分布：
 
 | 文件 | 处数 |
 |---|---|
-| `AIChatViewModel.swift`（路由/纪律段） | 9 |
-| `AIChatViewModel+ToolDefinitions.swift`（工具描述） | 6 |
-| `SoulStore.swift` | 2 |
-| `+TitleGeneration.swift` | 1 |
-| `+Persistence.swift` | 1 |
+| `AIChatViewModel.swift`（路由/纪律/记忆段） | 9 |
+| `AIChatViewModel+ToolDefinitions.swift` | 5 |
+| `AIChatViewModel+TitleGeneration.swift` | 4 |
+| `SoulStore.swift` | 4 |
+| `AIChatViewModel+Compaction.swift` | 4 |
+| `AIChatView.swift`（贴纸目录） | 4 |
+| `PersonaStore.swift` | 2 |
+| `AIChatViewModel+Persistence.swift` | 1 |
+| `AIChatViewModel+ProgrammaticPrompt.swift` | 1 |
 
-### 严格口径的定义
+**这个 34 是存量，不是合格线。** 批 0 记的 19 是漏扫出来的——只认单行字符串，提示词正文的 `"""` 多行块全没扫到。
 
-中文祈使：必须 / 总是 / 绝不 / 不许 / 务必 / 禁止 / 请你 / 你来
-英文祈使：MUST / Do NOT / Never / Always / IMPORTANT / You must / You should / You can / You are
+**技能手册为什么分开算**：`SkillStore.swift` 里那 12 处是 minis-theme 等技能的操作正文，只在技能被加载时进上下文，而且手册里写「不能改什么」「必须明说」是正当的。和系统提示混在一起计数，数字会误导。
 
-`only`、`should`、单独一个 `never` 的小写形在宽松口径里，不计入验收基线——英文里正常文法的用法太多，计进来数字就废了。
+严格口径的定义：
+
+- 中文祈使：必须 / 总是 / 绝不 / 不许 / 务必 / 禁止 / 请你 / 不要 / 不能 / 核心原则 / 规则：
+- 英文祈使：MUST / Do NOT / Never / Always / IMPORTANT / You must / You should / You are
+- 排除：UI 标签（`Never Used`、`Never auto-lock`）、Swift 类型（`Task<Void, Never>`）、常量名（`...FromImageAlways`）
+- `only`、`should` 这类英文正常文法用法不计
+
+**每清掉一批就手动下调基线**，数字往下走才算真在改。新加任何一条撞红，就得先想清楚它该不该由代码闸门来管。
 
 ### 例外表
 
-还没建。批 2 开始填，每项写：位置、为什么暂时不能撤、预计撤掉的批次。
+**口径**：登记进这张表的，是「祈使句基线里暂时不能撤」的条目。每项写清：位置、为什么不能撤、什么时候能撤。撤掉后把行删掉，基线数跟着降。
+
+当前基线 **34 处**（2026-11-27，commit `ef2bdce`），另 12 处技能手册正文单独统计。
+
+| # | 位置 | 内容 | 为什么不能撤 | 预计撤掉的批次 |
+|---|---|---|---|---|
+| E1 | `AIChatViewModel.swift:1943` | `Never use grep/awk/sed/find` | **有事故背景**：曾因用 grep 扫大目录超时卡死。换成 `rg` 是硬要求，且没有代码闸门（无法在派发层拦住「用 grep」这个行为） | 不撤。永久保留 |
+| E2 | `AIChatViewModel.swift:2027` | `Never record passwords, API keys, tokens, secrets` | **安全**：写进记忆文件后会被后续所有会话读到。没有代码闸门能拦住 memory_write 的内容语义 | 不撤。永久保留 |
+| E3 | `AIChatViewModel.swift:1965` | `use ripgrep (rg) for EVERY scan of files` | 同 E1，是 E1 的正向表述。两句都在，因为一句讲「用什么」，一句讲「不用什么」 | 不撤。永久保留 |
+| E4 | `AIChatViewModel+Persistence.swift:1739` | `You MUST continue`（空回复续写） | **协议**：这是模型协议层的重试指令，不是人设措辞。空回复时模型必须继续，否则这一轮就断了 | 不撤。这是 wire 协议的一部分 |
+| E5 | `AIChatViewModel+TitleGeneration.swift:539` | `You MUST respond with a JSON object` | **协议**：标题生成走独立的非聊天链路，要求严格 JSON。不写 MUST 会返回带解释的文字，解析失败 | 不撤。非聊天链路 |
+| E6 | `ToolDefinitions.swift:121` | `Do NOT use this tool for minis-clone:// ACTION urls` | **参数约束**：open_terminal 的 URL 必须是 minis-clone:// 而非 minis://，写错会静默失败。没有代码校验能拦住「模型传了错误 scheme」 | 不撤。等 add_mcp 之类有校验后再评估 |
+| E7 | `ToolDefinitions.swift:265/419/431` | `Do NOT synthesize audio yourself with shell commands` | **有事故背景**：曾用 ffmpeg 手搓音频绕过 TTS，音质和格式都不对 | 不撤。永久保留 |
+| E8 | `ToolDefinitions.swift:667` | `Never`（Tool call style 摘要示例里） | 误报：`Never guess` 是示例文本的一部分，不是给模型的指令 | 不用撤。口径误报，已登记 |
+| E9 | `AIChatViewModel.swift:1938/1944/1951/2026` | 路由表里的 `Never` | 这些是「X 场景 → 用什么工具」的路由条目，`Never` 出现是因为它们和 E1/E2 在同一段字符串里被一起扫到 | 不用撤。口径连带，不是独立指令 |
+| E10 | `SoulStore.swift:1242` | `You are {name}.` | 身份模板本体。批 1 定稿：只剩名字，这是唯一身份来源 | 不撤 |
+| E11 | `SoulStore.swift:1393` | `「雷区」写了就必须照做` | 用户档案段的约束。这是**用户自己写的规矩**，不是代码给的 | 不撤。用户内容 |
+| E12 | `SoulStore.swift:1388/1391` | `不要把它当自己的设定` / `规则：以「她明确写下的」为准` | 档案段的边界说明：告诉模型这是「对方」不是「自己」。这是防止身份串味的关键句 | 不撤。这是身份隔离的机制 |
+| E13 | `PersonaStore.swift:493/503` | `绝对不能：（写了 AI 必须照做）` / `不许当定性` | **用户档案模板**，是给用户看的填写说明，用户写进去才进模型 | 不撤。模板内容 |
+| E14 | `AIChatView.swift:8570–8586` | 贴纸目录「核心原则」「规则：1.2.3.」 | **该改没改**：批 2 漏了。中文规章腔，每轮都在上下文里 | **待改**。改成陈述，改完基线降到 30 |
+
+**维护规矩**：
+- 新增祈使句导致 CI 红 → 要么改写（改成陈述），要么登记进这张表并说明理由。
+- 登记时基线文件同步更新（`scripts/prompt_imperative_baseline.json`），否则下次 CI 还是红。
+- 每批做完，回头看一眼有没有能撤的。
 
 ---
 

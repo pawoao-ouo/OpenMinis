@@ -82,6 +82,9 @@ jobs:
           # 这些错在 swift 运行时才炸，而且炸在断言脚本自己身上，看不出
           # 是断言写错还是代码写错。先在这里拦掉，省一次完整的排队。
           python3 scripts/theme/check-standalone.py
+          # [整改包 §2.2] 祈使句基线：只许降不许升。新加一条「必须/绝不/Do NOT」
+          # 会撞在这里——先想清楚它该不该由代码闸门来管，再决定登记例外还是改写。
+          python3 scripts/prompt_audit.py
 
       - name: Run standalone source assertions
         run: |

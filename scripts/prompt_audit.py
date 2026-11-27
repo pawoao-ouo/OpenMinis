@@ -66,14 +66,16 @@ for n in sorted(named):
 paths = set(re.findall(r"/var/minis/[A-Za-z0-9_./<>-]+", vm))
 skip_frag = ("<", ">", "YYYY", "filename", "name")
 checked = 0
+# CI 是 macOS runner，没有 /var/minis —— 那边的「不存在」没有意义，只在真机上查
+_on_device = os.path.isdir("/var/minis")
 for p in sorted(paths):
     if any(s in p for s in skip_frag):
         continue
     p2 = p.rstrip(".,)")
     checked += 1
-    if not os.path.exists(p2):
+    if _on_device and not os.path.exists(p2):
         warn("提示词提到 %s，本机不存在（真机上可能由 App 创建）" % p2)
-print("检查路径 %d 个" % checked)
+print("检查路径 %d 个%s" % (checked, "" if _on_device else "（非真机，跳过存在性检查）"))
 
 # ---------------------------------------------------------------- 3. 手册索引
 begin = "<!-- MANUAL-INDEX-BEGIN"
@@ -122,6 +124,129 @@ for cid, name, cat in cat_items:
     blk = blk[: blk.index("),")]
     if 'synopsis: ""' in blk or 'quickSyntax: ""' in blk:
         fail("目录条目 %s 的 synopsis/quickSyntax 是空的" % name)
+
+# ---------------------------------------------------------------- 5. 祈使句基线（整改包 §2.2）
+# 只统计「会进模型上下文」的字符串字面量里的严格祈使词。基线存在同目录的
+# prompt_imperative_baseline.json，只许降不许升——升了说明有人新加了一条
+# 「必须/绝不/Do NOT」，得先想清楚它是不是该由代码闸门来管。
+import json
+
+BASE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompt_imperative_baseline.json")
+
+# 严口径：真正在给模型下命令的词。only/should 这类英文正常文法用法太多，不计。
+STRICT_EN = ["MUST", "Do NOT", "Never", "Always", "IMPORTANT", "You must", "You should", "You are"]
+STRICT_ZH = ["必须", "总是", "绝不", "不许", "务必", "禁止", "请你",
+             "不要", "不能", "核心原则", "规则："]
+LIT_RE = re.compile(r'"((?:[^"\\]|\\.){8,})"')
+
+SCAN_FILES = [
+    # 系统提示主体、工具描述、标题生成、压缩、兜底提示词
+    "src/ios/Agent/Chat/AIChatViewModel.swift",
+    "src/ios/Agent/Chat/AIChatViewModel+ToolDefinitions.swift",
+    "src/ios/Agent/Chat/AIChatViewModel+TitleGeneration.swift",
+    "src/ios/Agent/Chat/AIChatViewModel+Persistence.swift",
+    "src/ios/Agent/Chat/AIChatViewModel+MemoryTools.swift",
+    "src/ios/Agent/Chat/AIChatViewModel+ProgrammaticPrompt.swift",
+    "src/ios/Agent/Chat/AIChatViewModel+ManualTools.swift",
+    "src/ios/Agent/Chat/AIChatViewModel+Fallback.swift",
+    # 身份正文
+    "src/ios/Agent/Session/SoulStore.swift",
+    "src/ios/Agent/Session/PersonaStore.swift",
+    # 压缩引擎（P6/P7）——它也用第二人称称呼模型
+    "src/ios/Agent/Chat/AIChatViewModel+Compaction.swift",
+    # 贴纸目录（R3）——中文规章腔
+    "src/ios/Views/Chat/AIChatView.swift",
+]
+
+# 技能正文单独统计：它是操作手册，加载时才进上下文，判定标准和系统提示不同
+# （手册里写「不能改什么」「必须明说」是正当的，不该和系统提示混在一起计数）。
+SCAN_FILES_DOC = [
+    "src/ios/Agent/Session/SkillStore.swift",
+]
+
+current = {}
+# 多行字符串 """...""" 才是提示词正文的主要形态（单行字面量只是零星几处）。
+# 先把每行归到所属的字符串块里，再按块判断命中，避免漏掉压缩/贴纸这类长段。
+def _count(rel_list, sink):
+    for rel in dict.fromkeys(rel_list):
+        p = os.path.join(ROOT, rel)
+        if not os.path.isfile(p):
+            continue
+        src = open(p, encoding="utf-8", errors="ignore").read()
+        n = 0
+        in_block = False
+        for line in src.split("\n"):
+            s = line.lstrip()
+            if not in_block and s.startswith("//"):
+                continue
+            # 进入/退出多行字符串
+            if '"""' in line:
+                if line.count('"""') == 1:
+                    in_block = not in_block
+                    continue
+            if in_block:
+                # 多行块内部：整行算一次。不能再走 LIT_RE，否则同一行里的引号
+                # 会被重复计一次（多行块里的引号不是字符串边界）。
+                if any(w in line for w in STRICT_EN) or any(w in line for w in STRICT_ZH):
+                    n += 1
+                continue
+            for m in LIT_RE.finditer(line):
+                text = m.group(1)
+                if text in ("Never Used", "Never auto-lock", "Never"):
+                    continue
+                # Swift 类型/常量误报：`Task<Void, Never>`、`...FromImageAlways`
+                # 这类是代码不是文案。中文词不会出现在这里，英文才要过滤。
+                if not any(w in text for w in STRICT_ZH):
+                    if re.search(r"Task<[^>]*Never", text):
+                        continue
+                    if re.match(r"^[A-Za-z0-9_.]*(Always|Never)$", text):
+                        continue
+                if any(w in text for w in STRICT_EN) or any(w in text for w in STRICT_ZH):
+                    n += 1
+        if n:
+            sink[rel] = n
+
+_count(SCAN_FILES, current)
+doc_hits = {}
+_count(SCAN_FILES_DOC, doc_hits)
+total_now = sum(current.values())
+doc_total = sum(doc_hits.values())
+print("技能正文（单独统计，不作验收基线）%d 处" % doc_total)
+
+if not os.path.exists(BASE_FILE):
+    # CI 上基线文件必须已经提交进仓库。缺失时自动写一份等于让检查失效——
+    # 首次运行只允许在本地发生（用 --init 显式声明）。
+    if "--init" not in sys.argv:
+        fail("基线文件 %s 不存在。首次建立基线请本地跑 `python3 scripts/prompt_audit.py --init`，"
+             "然后把生成的文件一起提交。" % os.path.basename(BASE_FILE))
+        total_now = 0
+        base = None
+    else:
+        with open(BASE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"total": total_now,
+                       "byFile": current,
+                       "docTotal": doc_total,
+                       "docByFile": doc_hits,
+                       "_note": "只许降不许升。数字是当前存量，不是合格线——每次清理后手动下调基线，"
+                                "新加的祈使句会直接撞红。改动口径（词表/扫描范围）必须同时重写这个文件并在此说明。"
+                                "docTotal 是技能手册正文，只在技能加载时进上下文，单独统计不作验收。"},
+                      f, ensure_ascii=False, indent=1)
+        print("严格祈使句 %d 处（首次运行，已写入基线）" % total_now)
+        base = None
+else:
+    base = json.load(open(BASE_FILE, encoding="utf-8"))
+
+if base is not None:
+    base_total = base.get("total", 0)
+    print("严格祈使句 %d 处（基线 %d）" % (total_now, base_total))
+    if total_now > base_total:
+        grew = {k: v for k, v in current.items() if v > base.get("byFile", {}).get(k, 0)}
+        if grew:
+            for k, v in sorted(grew.items(), key=lambda x: -x[1]):
+                fail("祈使句比基线多 %d 处（%d → %d）：%s"
+                     % (v - base.get("byFile", {}).get(k, 0), base.get("byFile", {}).get(k, 0), v, k))
+        else:
+            fail("祈使句总数比基线多（%d → %d）" % (base_total, total_now))
 
 # ---------------------------------------------------------------- 报告
 print()
