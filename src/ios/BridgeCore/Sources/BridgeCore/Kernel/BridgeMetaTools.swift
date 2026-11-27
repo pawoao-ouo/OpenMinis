@@ -18,7 +18,7 @@ public enum BridgeMetaTools {
             instructions: """
                 你连上的是「桥」。桥对外只有两个工具：
                 先用「搜」按关键词找到能干活的工具（返回名字、一句话简介与参数简述），
-                再用「命令」下指令让桥里的小管家执行，只回清洗后的高密度结果。
+                再用「命令」下指令让桥里的 MCP 聚合服务执行，只回清洗后的高密度结果。
                 """,
             capabilities: .init(tools: .init(listChanged: false))
         )
@@ -39,17 +39,17 @@ public enum BridgeMetaTools {
         )
         let commandTool = Tool(
             name: commandName,
-            description: "下达一条指令，桥里的小管家负责找工具、执行、清洗，只回高密度结果。可点名 tool 指定工具，不点名则由管家按指令智能路由。敏感动作（如删照片、发 GitHub Issue）执行前会弹框请主人在手机上确认，主人超时未确认或不在手机旁则默认拒绝。",
+            description: "下达一条指令，桥里的 MCP 聚合服务负责找工具、执行、清洗，只回高密度结果。可点名 tool 指定工具，不点名则由 MCP 聚合服务按指令智能路由。敏感动作（如删照片、发 GitHub Issue）执行前会弹框请主人在手机上确认，主人超时未确认或不在手机旁则默认拒绝。",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "instruction": .object([
                         "type": .string("string"),
-                        "description": .string("一句话告诉小管家要干什么，比如：帮我查一下手机现在的位置。小管家会自己找工具办。"),
+                        "description": .string("一句话告诉 MCP 聚合服务要干什么，比如：帮我查一下手机现在的位置。MCP 聚合服务会自己找工具办。"),
                     ]),
                     "tool": .object([
                         "type": .string("string"),
-                        "description": .string("可选：点名要用哪个工具（名字先用「搜」查到）；不填小管家就按指令自己挑"),
+                        "description": .string("可选：点名要用哪个工具（名字先用「搜」查到）；不填则由 MCP 聚合服务按指令自己挑"),
                     ]),
                     "arguments": .object([
                         "type": .string("object"),

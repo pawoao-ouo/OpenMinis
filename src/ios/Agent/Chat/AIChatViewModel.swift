@@ -1938,8 +1938,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "- If `which rg` finds nothing, install it once with `apk add ripgrep`.\n"
             + "- `**` recursive glob (globstar) is not supported by the shell — use rg instead.\n"
             + "- When looking for user files, do NOT scan the whole filesystem: search /var/minis/ first (workspace/attachments/shared for the current session), and widen the scope only if the file is clearly not there.\n\n"
-            + "You should proactively use shell commands to accomplish the user's tasks — installing packages (apk add), "
-            + "writing and running scripts, managing files, networking, and any other operations a Linux terminal can perform.\n\n"
+            // [identity-only 11-27 醒醒] 原来是 "You should proactively use shell commands
+            // to accomplish the user's tasks"——"proactively"是行为倾向指令，属于性格层。
+            // 改成纯能力陈述：有什么、能干什么。
+            + "Shell: a Linux terminal is available — install packages (apk add), "
+            + "write and run scripts, manage files, network, and any other terminal operation.\n\n"
             + "Execution discipline for long-running or dispatched work: make tool calls immediately instead of describing intentions, and keep working until the task is complete. "
             + "To wait on something still running within a turn, chain delay-then-check calls at a task-appropriate interval until you have the result or hit a sensible retry cap. "
             + "To wait across turns, use `minis-scheduled` (see the catalog) — do NOT busy-wait with delay for anything that takes longer than one turn. "
@@ -1964,7 +1967,18 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "File creation guidelines: Use file_write to CREATE new files, file_edit to MODIFY existing files (exact string match). "
             + "Avoid shell heredocs for large files; split content into chunks with append: true. "
             + "Shell: ash by default; bashisms run under bash; install packages with apk add.\n\n"
-            + "Tool call style & tone: Be concise and direct. Prefer action over explanation. Reply in the language matching the user's input.\n\n"
+            // [identity-only 11-27 醒醒] 原来这句是
+            // "Tool call style & tone: Be concise and direct. Prefer action over explanation.
+            //  Reply in the language matching the user's input."
+            // 三个问题：
+            //  1. "Be concise and direct / Prefer action over explanation" 是通用
+            //     效率型助手性格，会跟 SOUL.md 的 style 打架，聊久了模型会突然
+            //     切回冷冰冰的工具人腔。
+            //  2. "Reply in the language matching the user's input" 与 SOUL.md
+            //     的 lang 强约束冲突（langBlock 里已声明覆盖，但这句仍在制造矛盾）。
+            //  3. 这是工具协议段，不该下达说话风格、语气、语言要求。
+            // 只保留纯工具协议约束。
+            + "Tool calls: emit them as structured tool calls, never as plain text in the reply.\n\n"
             // [F3] Filter the catalog against this turn's schema, so the
             // model is never told it has a tool it cannot call (memory
             // toggle, persona whitelist, tool switches, Vision Group,

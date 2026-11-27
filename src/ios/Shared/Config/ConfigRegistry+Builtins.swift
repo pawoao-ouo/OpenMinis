@@ -108,7 +108,7 @@ extension ConfigRegistry {
         r.register(ClosureField(
             path: "soul.name",
             displayName: "Soul name",
-            description: "Assistant display name (applies to the CURRENT persona only — switching persona switches the name). Shown in the sidebar title, chat bubble header, and substituted into the identity line of the system prompt (`You are <name>, a capable AI assistant ...`).",
+            description: "Assistant display name (applies to the CURRENT persona only — switching persona switches the name). Shown in the sidebar title, chat bubble header, and substituted into the identity line of the system prompt (`You are <name>.`). Empty name means no identity line is written at all.",
             valueSchema: .string(maxLength: 64),
             risk: .normal, revertable: true,
             reader: { .string(try currentFile().metadata.name) },

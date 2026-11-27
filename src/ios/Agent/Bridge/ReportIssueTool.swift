@@ -4,7 +4,7 @@ import Security
 import UIKit
 import BridgeCore
 
-/// 报问题工具（合并第 21 条）：主人在桥里张嘴说哪里有问题，小管家把
+/// 报问题工具（合并第 21 条）：主人在桥里张嘴说哪里有问题，MCP 聚合服务把
 /// 问题连同发送时的小快照和相关日志打包，POST 到 GitHub 仓库
 /// imcat-owo/OpenMinis 的 Issues，不用填表。
 ///
@@ -36,7 +36,7 @@ enum ReportIssueTool {
                     参数 title（一句话问题标题，必填）：简短说清是什么问题，比如"深色模式下输入框看不清"。
                     参数 detail（主人的原话描述，可选）：尽量原样转述主人的话，别改写、别脑补；\
                     主人没细说就留空，不要编。
-                    工具会自动附上发送时的小快照（App 版本、系统版本、发送时间、小管家\
+                    工具会自动附上发送时的小快照（App 版本、系统版本、发送时间、MCP 聚合服务\
                     当时在忙的任务）和最近的共享事件日志片段，不用再另外传。
                     发完之后：工具会返回 Issue 编号和链接，一定要转述给主人（比如"已发到 GitHub，\
                     编号 #123，链接 https://…"），让主人知道去哪看。
@@ -273,7 +273,7 @@ enum ReportIssueTool {
     }
 
     /// 组装 Issue 正文。只有三部分：主人原话、发送时的情况（版本/时间/
-    /// 小管家在忙什么）、最近共享事件日志片段。日志落盘时已脱敏，
+    /// MCP 聚合服务在忙什么）、最近共享事件日志片段。日志落盘时已脱敏，
     /// 这里再限长；正文里一切主人侧的自由文本（title/detail/
     /// 其他任务的 instruction）先过 sanitize 消毒；任何情况下
     /// 都不附令牌/口令。
@@ -287,7 +287,7 @@ enum ReportIssueTool {
         timeFormatter.timeZone = TimeZone.current
         let nowText = timeFormatter.string(from: Date())
 
-        // 小管家当时在忙什么（排除正在执行的 report_issue 自己），
+        // MCP 聚合服务当时在忙什么（排除正在执行的 report_issue 自己），
         // 外加最近终结的任务（含报错原文，AI-P1-4/AI-P2-7）。
         let otherTasks = await steward.activeTaskSummaries()
             .filter { $0.toolName != toolName }
@@ -319,7 +319,7 @@ enum ReportIssueTool {
                 }
                 return line
             }.joined(separator: "；")
-            taskText += "\n- 小管家最近终结的任务：\(finishedText)"
+            taskText += "\n- MCP 聚合服务最近终结的任务：\(finishedText)"
         }
 
         let logLines = SharedEventLog.shared.recentEntries(limit: 20)
@@ -337,7 +337,7 @@ enum ReportIssueTool {
             - 发送时间：\(nowText)
             - App 版本：\(appVersion)（build \(appBuild)）
             - 系统：\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)（\(UIDevice.current.model)）
-            - 小管家当时在忙：\(taskText)
+            - MCP 聚合服务当时在忙：\(taskText)
             """)
         sections.append("## 最近的共享事件日志")
         sections.append("```\n\(logText)\n```")

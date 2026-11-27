@@ -2,8 +2,8 @@ import Foundation
 import BridgeCore
 
 /// MCP 聚合点（桥）：把她在 App 里接入并启用的 MCP 服务器的工具，
-/// 聚合进小管家的 ToolRegistry —— 外部 AI 经「搜」能按关键词找到，
-/// 经「命令」点名调用，小管家执行完走统一清洗返回。
+/// 聚合进MCP 聚合服务的 ToolRegistry —— 外部 AI 经「搜」能按关键词找到，
+/// 经「命令」点名调用，MCP 聚合服务执行完走统一清洗返回。
 ///
 /// 做法借鉴（功课二 `F-steward-persona.md`）：
 /// - ameshkov/mcp-compress-router（MIT）：多 server 压成一个对外的口，
@@ -198,7 +198,7 @@ actor MCPAggregator {
         var parts: [String] = []
         let desc = tool.description.trimmingCharacters(in: .whitespacesAndNewlines)
         if !desc.isEmpty { parts.append(desc) }
-        parts.append("这是 MCP 服务器「\(serverId)」上的工具 \(tool.name)，由小管家聚合进来。")
+        parts.append("这是 MCP 服务器「\(serverId)」上的工具 \(tool.name)，由MCP 聚合服务聚合进来。")
         parts.append("点名调用时 tool 填完整名 `\(qualifiedName)`，arguments 按参数 schema 传。")
         if needsApproval {
             parts.append("敏感动作：执行前需主人在手机上确认，未确认不执行。")

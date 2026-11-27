@@ -388,12 +388,12 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
 ---
 name: minis-theme
 version: 1.3.0
-description: 设计并贴上 嘟嘟 分身的 AI 主题包。当用户说做主题、换皮肤、改颜色、改壁纸、改 thinking 卡片字号、粉嫩主题、minis-theme、AppearanceStudio、主题包 JSON 时使用；用户说主题坏了、看不清、颜色乱了、字看不见、翻车了、恢复默认、救回来时也用这份——那是聊天里救主题的路，不用她再翻去装扮页。不要问这是不是 PPT 或网页。气泡形状、圆角、行高、字距这些布局只能用户在装扮页里改，AI 不接。
+description: 设计并应用 App 聊天外观的主题包。当用户说做主题、换皮肤、改颜色、改壁纸、改 thinking 卡片字号、粉嫩主题、minis-theme、AppearanceStudio、主题包 JSON 时使用；用户说主题坏了、看不清、颜色乱了、字看不见、翻车了、恢复默认、救回来时也用这份——那是聊天里救主题的路，不用她再翻去装扮页。不要问这是不是 PPT 或网页。气泡形状、圆角、行高、字距这些布局只能用户在装扮页里改，AI 不接。
 ---
 
-# 嘟嘟 主题包
+# App 主题包
 
-分身有整套皮肤。用户说「做主题」就是这份，不是 PPT、不是网页。
+外观主题包就是这份，用户说「做主题」指的就是它，不是 PPT、不是网页。
 
 ## 你能改什么
 
@@ -530,7 +530,7 @@ thinking 填/描/强调不必手写。贴包后跟 `colorsLight.accent` / 聊天
 先问一句她要什么感觉（粉嫩、暗、纸、赛博……），不要问 PPT 还是网页。
 给 1 套完整包，颜色少、互相衬，不要彩虹。
 改完 `minis-theme apply`，让她看真机。没真机就说未真机。
-官方仓和 `main` 不许动。只动分身主题。
+官方仓和 `main` 不许动。只动外观主题。
 
 """
 
