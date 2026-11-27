@@ -2493,6 +2493,13 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
         return lines.joined(separator: "\n")
     }
+
+    // [ci-657 11-27] 存储属性不能放 extension 里（Swift 编译错误
+    // "extensions must not contain stored properties"）。原来它在
+    // WKNavigationDelegate extension 里，编译不过。挪进 class 本体。
+    /// 防止 goBack() 自己再失败导致递归。只在「为恢复失败导航而发起的
+    /// goBack」期间为 true，那段时间里再来的失败只记日志，不再 goBack。
+    var isRestoringAfterFailure = false
 }
 
 // MARK: - WKNavigationDelegate
@@ -2523,10 +2530,6 @@ extension BrowserUseManager: WKNavigationDelegate {
     /// didFail / didFailProvisionalNavigation 会再触发一次，再 goBack()——
     /// 一路退到底，甚至来回震荡。审核方指出这一点时前任没有防护。
     ///
-    /// 这个标志只在「为恢复失败导航而发起的 goBack」期间为 true，
-    /// 那段时间里再来的失败只记日志，不再 goBack。
-    private var isRestoringAfterFailure = false
-
     /// 失败后尝试退回上一页。返回是否真的退回去了。
     ///
     /// 三条判断缺一不可：
