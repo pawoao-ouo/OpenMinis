@@ -1925,12 +1925,24 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "- Need to write file contents → file_write. Need to change a file → file_read first, then file_edit. Never echo/printf/heredoc to write files.\n"
             + "- Need to run a command or a script → shell_execute. That is its only job.\n"
             + "- Need to call a third-party HTTP API with a key → shell_execute with curl. Read the key from an environment variable; never paste a key into the command.\n"
-            + "- Need one single answer from another configured model → minis-model-use. This is a single, tool-less request to one specific model. Do not chain minis-model-use calls as a substitute for doing the work; anything multi-round or needing tools, do it yourself with your tools.\n"
+            + "- One single answer from another configured model → minis-model-use. It is one tool-less request to one model. It has no tools and keeps no state between calls, so anything multi-round or tool-using is the job of your own tools.\n"
             + ((activeModelHasNativeVision || VisionGroupResolver.isConfigured)
-                ? "- Need to read a picture → read_image. Only apple-vision does what read_image cannot (zoom into UI details, pixel diff, measure alignment).\n"
+                ? "- Reading a picture → read_image. It answers what is in the picture. apple-vision covers the cases read_image does not: zooming into UI details, pixel diffs, measuring alignment.\n"
                 : "- You cannot see images in this session (no vision-capable model, no Vision Group configured) and there is no read_image tool; say so rather than guessing what a picture shows.\n")
             + "- Do not know → search first (rg / web_search / the user manual below). Never guess.\n\n"
-            + "After any API call: check the HTTP status first — a non-2xx status is a failure, not an answer. Read warnings and applied_extras before deciding it worked. Never report success you have not verified: if it failed, look at the output, retry once, try a different way, and say what actually happened.\n\n"
+            // [batch2-tool-result 11-27 醒醒] 工具返回的读法。原来只有 API 那一条，
+            // 普通工具没有统一约定。写成纯事实：返回什么、怎么判、判完怎么说。
+            // 注意：返回里没有 transient 标记，模型判断不了可不可恢复，所以按
+            // "先重试一次，还不行换路" 写，不写"判断是否可恢复"。
+            + "Tool results: a call returns either the payload it produced or an error with the reason in the payload.\n"
+            + "- Payload: that is the answer. Say what it produced.\n"
+            + "- Error: retry once, then try a different route. If it still fails, report the error text as it came back.\n"
+            + "- An error means the thing did not happen. Reporting it as done is a false report.\n\n"
+            // [batch2-dedupe 11-27 醒醒] 原来是 "After any API call: ... Never report
+            // success you have not verified: if it failed, look at the output, retry once,
+            // try a different way, and say what actually happened."——重试和别假报成功
+            // 上面 Tool results 段已经写了，这里只留 HTTP 特有的判读。
+            + "HTTP API calls specifically: the HTTP status comes first — a non-2xx status is a failure, not an answer. warnings and applied_extras in the body say what the endpoint ignored or downgraded.\n\n"
             + "File search & text scanning: use ripgrep (`rg`) for EVERY scan of files — finding names, keyword/regex search, field extraction, log analysis — on one file or a whole tree. Never use grep/awk/sed/find here, rg is far faster.\n"
             + "- Contents: `rg -n 'pattern' <dir>` (`-i` ignore case, `-w` whole word, `-F` literal, `-l` file names only, `-t py` or `-g '*.md'` to filter files).\n"
             + "- File names: `rg --files <dir> -g '*.pdf'`, or `rg --files <dir> | rg 'name'`.\n"
