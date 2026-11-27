@@ -383,11 +383,11 @@ Skills use three loading levels:
 Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, etc. The skill should only contain what an AI agent needs to do the job.
 """
 
-    private static let minisThemeVersion = "1.3.0"
+    private static let minisThemeVersion = "1.3.1"
     private static let minisThemeContent = """
 ---
 name: minis-theme
-version: 1.3.0
+version: 1.3.1
 description: 设计并应用 App 聊天外观的主题包。当用户说做主题、换皮肤、改颜色、改壁纸、改 thinking 卡片字号、粉嫩主题、minis-theme、AppearanceStudio、主题包 JSON 时使用；用户说主题坏了、看不清、颜色乱了、字看不见、翻车了、恢复默认、救回来时也用这份——那是聊天里救主题的路，不用她再翻去装扮页。不要问这是不是 PPT 或网页。气泡形状、圆角、行高、字距这些布局只能用户在装扮页里改，AI 不接。
 ---
 
