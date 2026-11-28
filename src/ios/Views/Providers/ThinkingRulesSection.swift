@@ -85,9 +85,6 @@ struct ThinkingRulesSection: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: "info.circle.fill")
                     .foregroundStyle(MinisTheme.secondaryText)
-                Text("This provider uses an official protocol, so its thinking parameters are maintained by 嘟嘟. Custom rules apply to OpenAI-compatible providers on the Chat Completions API.")
-                    .font(.footnote)
-                    .foregroundStyle(MinisTheme.secondaryText)
             }
         } header: {
             Text("Thinking Rules")

@@ -176,11 +176,6 @@ private struct MemoryFileEditView: View {
     var body: some View {
         VStack(spacing: 0) {
             if isGlobal {
-                Text("Persistent instructions the agent sees in every session. Edit it here, or ask the agent to update it.")
-                    .font(.system(size: fontSettings.scaledApp(12)))
-                    .foregroundStyle(MinisTheme.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                 // [F14] The agent does not receive the whole file: only the
                 // first 500 lines (up to 20 KB) are injected (MemoryTools).

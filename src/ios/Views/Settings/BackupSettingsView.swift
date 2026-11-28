@@ -319,11 +319,6 @@ struct BackupSettingsView: View {
                 // Honest trade-off, stated where the user starts the backup
                 // rather than discovered afterwards: this is a manual save
                 // per backup, not a silent scheduled copy to a fixed folder.
-                Text("No destination: a Save to Files sheet opens when each backup finishes. No silent copy to a fixed folder.")
-                    .font(.system(size: fontSettings.scaledApp(13)))
-                    .foregroundStyle(MinisTheme.secondaryText)
-                    .frame(maxWidth: .infinity)
-                    .multilineTextAlignment(.center)
                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
 
                 // A disabled button with no explanation is a dead end — say
@@ -1034,8 +1029,6 @@ struct BackupSettingsView: View {
                 // lost phone takes the backup with it. Presenting that as a
                 // working fallback invited the user to consider themselves
                 // backed up when nothing had left the device.
-                Text("Optional. Without one, a Save to Files sheet opens when the backup finishes.")
-                    .foregroundStyle(MinisTheme.secondaryText)
             }
             // ONE entry point. The picker shows saved servers first and
             // offers to add a new one.

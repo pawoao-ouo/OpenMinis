@@ -157,9 +157,6 @@ struct MountDetailView: View {
                     .foregroundStyle(MinisTheme.secondaryText)
             }
             if context.isReadOnlyFromFiles {
-                Text("Read-only from the Files app. The app itself can always read and write.")
-                    .font(.system(size: fontSettings.scaledApp(12)))
-                    .foregroundStyle(MinisTheme.secondaryText)
             }
         } header: {
             Text("Files app")
