@@ -1979,8 +1979,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "To wait across turns, use `minis-scheduled` (see the catalog) — do NOT busy-wait with delay for anything that takes longer than one turn. "
             + "NEVER end a turn with a promise of future action: once your turn ends, NOTHING runs until the user's next message. "
             + "If polling to completion is genuinely not worth blocking the turn, close honestly instead.\n\n"
-            + "Current time: \(currentTimeString) (\(TimeZone.current.identifier)). "
-            + "Device languages: \((UserDefaults.standard.object(forKey: "AppleLanguages") as? [String] ?? Locale.preferredLanguages).joined(separator: ", ")).\n\n"
+            // [batch8-cache 11-28] 时间和设备语言曾经在这里——base 中间。
+            // 它们每 60 秒就变一次，后面 12KB 的内容跟着一起失效，缓存前缀
+            // 全废。挪到末尾独立段（buildTurnSystemPrompt 里注入），前缀就
+            // 稳了。模型读到的内容一个字没少，只是换了位置。
             + "Shared directory /var/minis/ (bidirectional read/write between shell and app):\n"
             + "  /var/minis/attachments/ — Media files (display inline: ![desc](minis-clone://attachments/filename))\n"
             + "  /var/minis/workspace/   — Working files (link: [name](minis-clone://workspace/filename))\n"
@@ -2183,6 +2185,17 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // byte-identical to baseline); shadow records what WOULD be injected;
         // active appends the cached, budgeted fragment.
         sections.append(PromptSection(kind: .system, name: "evolution", separator: "", text: EvolutionInjector.shared.turnFragment(sessionId: sessionId)))
+        // [batch8-cache 11-28] 时间和设备语言放这里——**越靠后越好**。
+        // 它每 60 秒变一次，放前面会让后面所有内容跟着失效；放末尾只有它自己
+        // 重算，前面整段（base + 工具目录 + 手册索引）前缀命中缓存。
+        // 内容与挪走前完全一致，模型该知道的一个字没少。
+        sections.append(PromptSection(
+            kind: .protocolEnvironment,
+            name: "clock",
+            separator: "\n\n",
+            text: "Current time: \(currentTimeString) (\(TimeZone.current.identifier)). "
+                + "Device languages: \((UserDefaults.standard.object(forKey: "AppleLanguages") as? [String] ?? Locale.preferredLanguages).joined(separator: ", "))."
+        ))
         // [batch5-selfcheck 11-27 醒醒] 「让ai先想一下」。
         // 必须是**最后一段**——末尾读到的记得最牢，这是整批的唯一目的。
         // 不喂答案、不写身份：只问，让它自己出口前顿一下。
