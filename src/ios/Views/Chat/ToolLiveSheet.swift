@@ -758,7 +758,7 @@ struct ToolLiveSheet: View {
         case .fileEditTool: Image(systemName: "square.and.pencil")
         case .browserTool: Image(systemName: "globe")
         case .readImageTool: Image(systemName: "photo.fill")
-        case .memoryTool: Image(systemName: "brain.head.profile")
+        case .memoryTool: Image("MemoryBranch")
         case .askUserTool: Image(systemName: "questionmark.circle.fill")
         case .delegateTool: Image(systemName: "person.2.fill")
         case .genericTool: Image(systemName: "wrench.adjustable.fill")
@@ -1439,8 +1439,9 @@ struct ToolLiveSheet: View {
                 VStack(spacing: 0) {
                     // Title bar
                     HStack(spacing: 6) {
-                        Image(systemName: "brain.head.profile")
-                            .font(.system(size: 12))
+                        Image("MemoryBranch")
+                            .resizable().scaledToFit()
+                            .frame(width: 14, height: 14)
                             .foregroundStyle(ChatColors.accent.opacity(0.6))
                         Text(action)
                             .font(.system(size: fontSettings.scaledApp(13), weight: .medium))

@@ -2563,8 +2563,19 @@ struct QuietAppIcon: View {
                 //
                 // 圆角沿用原来的 8pt（size 21 时约 0.38 倍，比 0.25 更圆润），
                 // 不动，因为它本来就在她要的"圆润"一侧。
-                Image(systemName: Self.filledSymbolName(systemName))
-                    .font(.system(size: max(9, size * 0.44), weight: .semibold))
+                //
+                // [batch9-ui 11-28 醒醒] 记忆那格换成自画的树枝资源（脑子太渗人）。
+                // 资源图不吃 font，走 resizable；实心(SF)和这套走两个分支。
+                Group {
+                    if systemName == "MemoryBranch" {
+                        Image("MemoryBranch")
+                            .resizable().scaledToFit()
+                            .frame(width: size * 0.62, height: size * 0.62)
+                    } else {
+                        Image(systemName: Self.filledSymbolName(systemName))
+                            .font(.system(size: max(9, size * 0.44), weight: .semibold))
+                    }
+                }
                     .foregroundStyle(Color.black)
                     .frame(width: size, height: size)
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -2664,7 +2675,7 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
         case .appearance: return "paintbrush.fill"
         case .skills: return "puzzlepiece.extension.fill"
         case .soul: return "sparkles"
-        case .memory: return "brain.head.profile"
+        case .memory: return "MemoryBranch"   // [batch9] 自画树枝，脑子太丑
         case .mcp: return "square.stack.3d.up.fill"
         case .env: return "terminal.fill"
         case .storage: return "archivebox.fill"

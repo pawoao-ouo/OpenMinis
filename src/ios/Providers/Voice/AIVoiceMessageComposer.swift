@@ -69,14 +69,19 @@ enum AIVoiceMessageComposer {
         }
     }
 
-    private static func prefKey(_ sid: String) -> String { "ai.voiceReplies.\(sid)" }
+    // [batch9 11-28 醒醒] 语音回复开关改成纯全局（原来按会话存
+    // ai.voiceReplies.<sid>，用户在一个会话里开了，切走又变关）。
+    // sessionId 参数保留，调用方不用改。
+    private static let globalPrefKey = "ai.voiceReplies.enabled"
 
     static func voiceRepliesEnabled(sessionId: String) -> Bool {
-        UserDefaults.standard.bool(forKey: prefKey(sessionId))
+        _ = sessionId
+        return UserDefaults.standard.bool(forKey: globalPrefKey)
     }
 
     static func setVoiceReplies(enabled: Bool, sessionId: String) {
-        UserDefaults.standard.set(enabled, forKey: prefKey(sessionId))
+        _ = sessionId
+        UserDefaults.standard.set(enabled, forKey: globalPrefKey)
     }
 
     /// [T-voice-bubble-context-clean 09-12] True when an assistant text part is

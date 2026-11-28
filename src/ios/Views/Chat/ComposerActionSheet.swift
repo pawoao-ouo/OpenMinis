@@ -144,6 +144,7 @@ struct ComposerActionSheet: View {
 
                 toggleRow(
                     AppLocalized("让ai先想一下"),
+                    icon: "sparkles",
                     subtitle: AppLocalized("打开后，每轮开口前先自审一遍：这话像不像随便谁说都一样"),
                     isOn: selfCheckEnabled,
                     action: onSetSelfCheck
@@ -161,6 +162,7 @@ struct ComposerActionSheet: View {
                 // 不然关掉之后就没地方再打开。整页在 11-11 重做完,
                 // 入口是上面那行「一起听」——它一直在,不跟着歌走。
                 toggleRow(AppLocalized("音乐小胶囊"),
+                          icon: "music.note",
                           subtitle: AppLocalized("放歌时出现在输入栏上面,点它展开播放器"),
                           isOn: miniBarLocal) { next in
                     onSetMiniBar(next)
@@ -202,6 +204,7 @@ struct ComposerActionSheet: View {
         VStack(spacing: 0) {
             ForEach(skillsSorted) { skill in
                 toggleRow(skill.name,
+                          icon: "puzzlepiece.extension",
                           subtitle: skill.description.trimmingCharacters(in: .whitespacesAndNewlines),
                           isOn: skillEnabled(skill)) {
                     onToggleSkill(skill.id, $0)
@@ -219,6 +222,7 @@ struct ComposerActionSheet: View {
         VStack(spacing: 0) {
             ForEach(connectorsSorted) { server in
                 toggleRow(server.id,
+                          icon: "wrench.and.screwdriver",
                           subtitle: server.transportSummary,
                           isOn: connectorEnabled(server)) {
                     onToggleConnector(server.id, $0)
@@ -356,8 +360,12 @@ struct ComposerActionSheet: View {
                 onOpenSessionMemory()
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: "brain.head.profile")
-                        .font(ChatFont.font(16, weight: .regular))
+                    // [batch9-ui 11-28 醒醒] 脑子太渗人，换成自画的树枝。
+                    // 资源图不吃 font，尺寸靠 resizable+frame 定；19pt 是照
+                    // 原来 16pt 系统符号的视觉高度量的，外框 24 保持行首对齐。
+                    Image("MemoryBranch")
+                        .resizable().scaledToFit()
+                        .frame(width: 19, height: 19)
                         .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
                         .frame(width: 24)
                     VStack(alignment: .leading, spacing: 2) {
@@ -388,9 +396,16 @@ struct ComposerActionSheet: View {
         .padding(.vertical, 12)
     }
 
-    private func toggleRow(_ title: String, subtitle: String?, isOn: Bool,
+    /// [batch9-ui 11-28 醒醒] 原来这个行没有图标，和上面的 navRow 摆在一起看
+    /// 是两种风格。加 icon 参数统一：图标宽度和 navRow 一样是 24，
+    /// 分隔线的 leading 也是 50，两边才对得齐。
+    private func toggleRow(_ title: String, icon: String, subtitle: String?, isOn: Bool,
                            action: @escaping (Bool) -> Void) -> some View {
         HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(ChatFont.font(16))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(ChatFont.font(15))

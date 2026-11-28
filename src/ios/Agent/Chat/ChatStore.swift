@@ -2517,54 +2517,20 @@ actor ChatStore {
     }
 
     func getMemoryEnabled(sessionId: String) -> Bool {
-        // [T-memory-global-toggle-settings-ui-ios] If the session row
-        // already exists, return its stored per-session value. If no
-        // row exists (genuinely new session — loadSession ran before
-        // the session was persisted), fall back to the global default
-        // from UserDefaults("memory.global.enabled"), defaulting to
-        // true so users upgrading without the key set see no change.
-        // Already-existing sessions keep their stored value when the
-        // global toggle changes — only NEW sessions inherit it.
-        let sql = "SELECT memory_enabled FROM sessions WHERE id = ?"
-        var stmt: OpaquePointer?
-        var rowFound = false
-        var enabled = true
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                enabled = sqlite3_column_int(stmt, 0) != 0
-                rowFound = true
-            }
-        }
-        sqlite3_finalize(stmt)
-        // [T-memory-enabled-new-session-bug DIAG]
-        let rawObj = UserDefaults.standard.object(forKey: "memory.global.enabled")
-        if rowFound {
-            memDiagLogger.info("[MemDiag] getMemoryEnabled sid=\(sessionId.prefix(8)) rowFound=true storedRow=\(enabled) (returning storedRow) globalRaw=\(String(describing: rawObj))")
-            return enabled
-        }
-        // No row — apply global default. UserDefaults.bool returns false
-        // for unset keys, so probe presence via object(forKey:) first
-        // and treat absent as true (matches @AppStorage default).
-        if let stored = UserDefaults.standard.object(forKey: "memory.global.enabled") as? Bool {
-            memDiagLogger.info("[MemDiag] getMemoryEnabled sid=\(sessionId.prefix(8)) rowFound=false → global=\(stored)")
-            return stored
-        }
-        memDiagLogger.info("[MemDiag] getMemoryEnabled sid=\(sessionId.prefix(8)) rowFound=false global unset → true")
-        return true
+        // [batch9 11-28 醒醒] 纯全局：这个开关不再按会话走。
+        // 原来先读会话行、行不存在才落全局默认，结果是「A 会话关了，
+        // 切到 B 会话又开着」，同一个开关在不同会话里值不一样，用户
+        // 以为没记住。现在只认 memory.global.enabled；sessionId 参数
+        // 留着是为了不动调用方。
+        _ = sessionId
+        return (UserDefaults.standard.object(forKey: "memory.global.enabled") as? Bool) ?? true
     }
 
     func setMemoryEnabled(sessionId: String, enabled: Bool) {
-        // [batch6b / W3A-08] Metadata edit — bump the LWW clock.
-        let sql = "UPDATE sessions SET memory_enabled = ?, meta_updated_at = ? WHERE id = ?"
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_int(stmt, 1, enabled ? 1 : 0)
-            sqlite3_bind_double(stmt, 2, Date().timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 3, (sessionId as NSString).utf8String, -1, nil)
-            sqlite3_step(stmt)
-        }
-        sqlite3_finalize(stmt)
+        // [batch9] 写全局。会话行 memory_enabled 照旧写一份（历史记录和
+        // 会话包导出还要这个字段），但它不再是真值来源。
+        _ = sessionId
+        UserDefaults.standard.set(enabled, forKey: "memory.global.enabled")
     }
 
     /// ［persona］查会话归属的人设。Fail closed：prepare 失败或行缺失返回 nil，
