@@ -319,7 +319,6 @@ struct BackupSettingsView: View {
                 // Honest trade-off, stated where the user starts the backup
                 // rather than discovered afterwards: this is a manual save
                 // per backup, not a silent scheduled copy to a fixed folder.
-                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
 
                 // A disabled button with no explanation is a dead end — say
                 // which requirement is unmet rather than leaving the user to

@@ -176,7 +176,6 @@ private struct MemoryFileEditView: View {
     var body: some View {
         VStack(spacing: 0) {
             if isGlobal {
-                    .padding(.vertical, 8)
                 // [F14] The agent does not receive the whole file: only the
                 // first 500 lines (up to 20 KB) are injected (MemoryTools).
                 // Say so here, or the editor shows more than the model ever
