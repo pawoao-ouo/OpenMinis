@@ -233,7 +233,7 @@ enum AmbientContext {
         let df = DateFormatter()
         df.locale = Locale(identifier: zhLocale)
         df.dateFormat = "M月d日 HH:mm"
-        return "- 距上条消息：\(parts.joined(separator: " "))（她上一句在 \(df.string(from: last))）"
+        return "- 距上条消息：\(parts.joined(separator: " "))（用户上一句在 \(df.string(from: last))）"
     }
 
     /// 一起听正在放什么。没在放就是 nil——她说「没听歌就只有时间」。

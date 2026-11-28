@@ -57,7 +57,7 @@ struct AmbientContextSettingsView: View {
                 Text(AppLocalized("照当前真实状态算的：歌没在放就不会有歌，间隔不到 3 分钟就不会有间隔。"))
             }
         }
-        .navigationTitle(AppLocalized("她此刻的状态"))
+        .navigationTitle(AppLocalized("当前状态"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             customRule = UserDefaults.standard.string(forKey: "ambient.usageRule") ?? AmbientContext.defaultUsageRule

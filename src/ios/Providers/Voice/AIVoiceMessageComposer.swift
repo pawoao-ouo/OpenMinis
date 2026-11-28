@@ -64,7 +64,7 @@ enum AIVoiceMessageComposer {
             case .serviceNotUsable(let name):
                 return "TTS 服务「\(name)」的凭证不完整，合成不了。让主人去「设置 > Voice Services」里重新填一遍密钥（讯飞要 appId;apiKey;apiSecret 三段），或换个服务。"
             case .synthesisFailed(let detail):
-                return "语音合成失败（\(detail)）。如实告诉主人这条语音没发出去，不要谎称已发送；可以建议她检查 TTS 服务配置。"
+                return "语音合成失败（\(detail)）。如实告诉用户这条语音没发出去，不要谎称已发送；可以建议检查 TTS 服务配置。"
             }
         }
     }

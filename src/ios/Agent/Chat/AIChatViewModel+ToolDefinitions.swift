@@ -290,7 +290,7 @@ extension AIChatViewModel {
         // Catalog 里的 together 条目），不许自己编。
         tools.append(AgentToolDefinition(
             name: "together_play",
-            description: "Play a track from the Together (一起听) music library by trackId, through the native player. Get the trackId first with `together lib` (shell_execute) — do not guess it. The result is the truth about what happened: ONLY when the result says the track is playing may you tell the user it is playing. On any other result, report the failure reason from the result and do NOT say it is playing. A held pause (the user pressed pause) is never overridden — tell the user to press play when she wants music.",
+            description: "Play a track from the Together (一起听) music library by trackId, through the native player. Get the trackId first with `together lib` (shell_execute) — do not guess it. The result is the truth about what happened: ONLY when the result says the track is playing may you tell the user it is playing. On any other result, report the failure reason from the result and do NOT say it is playing. A held pause (the user pressed pause) is never overridden — tell the user to press play when the user wants music.",
             parameters: [
                 "tool_title": AgentToolParam(type: .string, description: "Optional: a concise 5-10 word summary of what you're playing, shown to the user (e.g. 'Play Night Cocoa'). Omit it and a summary is generated from the track title. Use the same language as the user."),
                 "trackId": AgentToolParam(type: .string, description: "The track id from `together lib` (e.g. the id listed for the song). Required — do not guess an id."),

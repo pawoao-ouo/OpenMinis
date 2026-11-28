@@ -44,7 +44,7 @@ enum TogetherAIPlayResult {
         case .fileMissing(let title):
             return "Could not play \"\(title)\": the audio file is missing. Do not say it is playing."
         case .heldPause(let title):
-            return "Did not play \"\(title)\": the user pressed pause and is holding it. Do not override a held pause — tell the user to press play when she wants music."
+            return "Did not play \"\(title)\": the user pressed pause and is holding it. Do not override a held pause — tell the user to press play when the user wants music."
         case .quietWindow(let title):
             return "Did not play \"\(title)\": the user just acted (within 2s). Wait and retry later; do not say it is playing."
         case .itemFailed(let title):

@@ -2654,7 +2654,7 @@ enum QuietIconSlot: String, CaseIterable, Identifiable {
         case .webSearch: return AppLocalized("联网搜索")
         case .scheduled: return AppLocalized("定时任务与脉搏")
         case .subAgents: return AppLocalized("Sub agent")
-        case .ambient: return AppLocalized("她此刻的状态")
+        case .ambient: return AppLocalized("当前状态")
         case .agentTools: return AppLocalized("工具开关")
         }
     }

@@ -364,7 +364,7 @@ private let logger = AppLogger(category: "ScheduledOffload")
                 // [T-scheduled-prefill-and-pulse] The model should confirm in its own voice,
                 // not only report the CLI envelope; hand it the fact it can mention.
                 out["pulse"] = true
-                out["reply_hint"] = "This is a proactive pulse: fires are your own heartbeat, not a task report. Tell her you set it up in your own voice — what you might do with the free time — and she can tap the heart icon to see or poke it. Never announce reminders mechanically."
+                out["reply_hint"] = "This is a proactive pulse: fires are your own heartbeat, not a task report. Tell the user you set it up in your own voice — what you might do with the free time — and the user can tap the heart icon to see or poke it. Never announce reminders mechanically."
             }
             return out as NSDictionary
         } ?? ["ok": false, "error": "timeout",

@@ -86,7 +86,7 @@ enum TTSPaper {
             }
         } else if let defId = groupStore.defaultGroupId, let g = groupStore.group(id: defId) {
             if defaultCandidates.isEmpty {
-                lines.append("默认 TTS 分组「\(g.name)」里没有可用的服务——先跟主人说 TTS 还没配好，让她去「设置 > Voice Services」里配。")
+                lines.append("默认 TTS 分组「\(g.name)」里没有可用的服务——先跟用户说 TTS 还没配好，去「设置 > Voice Services」里配。")
             } else {
                 lines.append("默认 TTS 分组「\(g.name)」：")
                 for (i, s) in defaultCandidates.enumerated() {
@@ -107,7 +107,7 @@ enum TTSPaper {
         lines.append("")
         lines.append("调用方法：send_voice(text=要说的话，tool_title=一句话摘要)。text 写口语化的中文，直接是主人会听到的话，别带 markdown 符号；别太长，太长分段调多次。")
         lines.append("换声音：你可以用 send_voice 的 voice 参数点名这次用哪个服务、group 参数点名用哪个分组。名字只能从上面这份清单里挑，原样照抄（别自己编、别翻译）；清单外的会被拒绝。不传就用默认顺序，一般不用传。")
-        lines.append("失败时：工具会明确报错。如实告诉主人这条语音没发出去，不要谎称已发送；可以建议她检查 TTS 服务配置。")
+        lines.append("失败时：工具会明确报错。如实告诉用户这条语音没发出去，不要谎称已发送；可以建议检查 TTS 服务配置。")
         return lines.joined(separator: "\n")
     }
 

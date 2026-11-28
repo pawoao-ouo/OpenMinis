@@ -1910,7 +1910,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         let section = SystemPromptBuilder.userProfileSection()
         guard !section.isEmpty else { return "" }
         if messages.count > 40 {
-            return section + "\n（提醒：上面是她的档案，不是你的性格。这一轮开口前先照一遍——尤其是「雷区」和「怎么称呼」。）\n"
+            return section + "\n（提醒：上面是用户的档案，不是你的性格。这一轮开口前先照一遍——尤其是「雷区」和「怎么称呼」。）\n"
         }
         return section
     }

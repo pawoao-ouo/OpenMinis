@@ -7087,7 +7087,7 @@ private struct SettingsSheet: View {
                         AmbientContextSettingsView()
                     } label: {
                         Label {
-                            Text("她此刻的状态")
+                            Text("当前状态")
                         } icon: {
                             QuietAppIcon(id: QuietIconSlot.ambient.id, systemName: QuietIconSlot.ambient.systemName)
                         }

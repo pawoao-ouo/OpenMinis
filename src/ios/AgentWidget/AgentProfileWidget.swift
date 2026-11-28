@@ -121,7 +121,7 @@ struct AgentProfileWidget: Widget {
         StaticConfiguration(kind: kind, provider: AgentProfileProvider()) { entry in
             AgentProfileWidgetView(entry: entry)
         }
-        .configurationDisplayName("她和我")
+        .configurationDisplayName("你和我")
         .description("把称呼和最近一句摊在桌面上")
         .supportedFamilies([.systemSmall, .systemMedium])
     }

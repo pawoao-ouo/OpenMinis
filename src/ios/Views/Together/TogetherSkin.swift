@@ -122,7 +122,7 @@ enum TogetherCopy {
     static var noEchoes: String { AppLocalized("Nothing echoing yet", comment: "一起听 · 回声墙空态") }
     static var saveFailed: String { AppLocalized("Could not save, try again", comment: "一起听 · 没存上") }
     static var takeBack: String { AppLocalized("Take it back", comment: "一起听 · 遥控自己接回来") }
-    static var handoffFailed: String { AppLocalized("Could not reach her, try again", comment: "一起听 · 遥控没递出去") }
+    static var handoffFailed: String { AppLocalized("Could not reach you, try again", comment: "一起听 · 遥控没递出去") }
     static var queueEmptyTitle: String { AppLocalized("Queue is empty", comment: "一起听 · 队列空态") }
     static var queueEmptyHint: String { AppLocalized("Play something from a list and it will show up here.", comment: "一起听 · 队列空态说明") }
     @MainActor static func driving(_ name: String) -> String {

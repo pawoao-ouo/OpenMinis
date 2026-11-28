@@ -134,7 +134,7 @@ extension AIChatViewModel {
             // [F7] No answer arrived in this turn, so this is an error
             // result like .timedOut — the text still tells the model to
             // carry on without the answer; only the flag changes.
-            return ("{\"status\":\"deferred\",\"ask_id\":\"\(askId)\",\"detail\":\"The question card is on screen. This turn does not wait for it — the answer arrives as the user's next message. Tell the user you asked and carry on with what you can do without the answer.\"}", false, "已提问，等她的回答。")
+            return ("{\"status\":\"deferred\",\"ask_id\":\"\(askId)\",\"detail\":\"The question card is on screen. This turn does not wait for it — the answer arrives as the user's next message. Tell the user you asked and carry on with what you can do without the answer.\"}", false, "已提问，等用户的回答。")
         case .approved, .denied:
             return ("{\"error\":\"question dismissed\"}", false, "提问被关闭。")
         }
