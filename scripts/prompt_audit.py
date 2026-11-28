@@ -179,6 +179,72 @@ SCAN_FILES_DOC = [
 ]
 
 current = {}
+
+# ---------------------------------------------------------------- 字符串提取
+# 按行猜边界会漏：块注释 /* */、字符串拼接 "a" + "b"、多行块前有带 """ 的注释、
+# 原始字符串 #"..."#。改成字符级状态机，一次扫完整个文件，只吐真正的字符串内容。
+# 注释（// 和 /* */）整体跳过，代码标识符不吐。
+def extract_string_literals(src):
+    out = []
+    i, n = 0, len(src)
+    while i < n:
+        # 行注释
+        if src.startswith("//", i):
+            j = src.find("\n", i)
+            i = n if j < 0 else j + 1
+            continue
+        # 块注释（Swift 允许嵌套）
+        if src.startswith("/*", i):
+            depth, i = 1, i + 2
+            while i < n and depth:
+                if src.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif src.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+            # 注释没闭合（文件被截断等）：直接到结尾，别让 i 卡在末尾原地打转
+            if i >= n:
+                break
+            continue
+        # 原始字符串 #"..."# / ##"..."##
+        # 注意：不能用 src[i:] 切片（每个字符切一次是 O(n²)，大文件会卡死）
+        if src[i] == "#":
+            j = i
+            while j < n and src[j] == "#":
+                j += 1
+            if j < n and src[j] == '"':
+                hashes = src[i:j]
+                close = '"' + hashes
+                start = j + 1
+                k = src.find(close, start)
+                if k < 0:
+                    break
+                out.append(src[start:k])
+                i = k + len(close)
+                continue
+        # 普通字符串（含多行 """..."""）
+        if src[i] == '"':
+            triple = src.startswith('"""', i)
+            delim = '"""' if triple else '"'
+            start = i + len(delim)
+            j, buf = start, []
+            while j < n:
+                if src[j] == "\\" and j + 1 < n:
+                    buf.append(src[j:j + 2])
+                    j += 2
+                    continue
+                if src.startswith(delim, j):
+                    break
+                buf.append(src[j])
+                j += 1
+            out.append("".join(buf))
+            i = j + len(delim)
+            continue
+        i += 1
+    return out
+
+
 # 多行字符串 """...""" 才是提示词正文的主要形态（单行字面量只是零星几处）。
 # 先把每行归到所属的字符串块里，再按块判断命中，避免漏掉压缩/贴纸这类长段。
 def _count(rel_list, sink):
@@ -191,47 +257,31 @@ def _count(rel_list, sink):
             continue
         src = open(p, encoding="utf-8", errors="ignore").read()
         n = 0
-        in_block = False
-        for line in src.split("\n"):
-            s = line.lstrip()
-            if not in_block and s.startswith("//"):
+        for text in extract_string_literals(src):
+            text = text.strip()
+            if not text:
                 continue
-            # 进入/退出多行字符串
-            if '"""' in line:
-                if line.count('"""') == 1:
-                    in_block = not in_block
-                    continue
-            if in_block:
-                # 多行块内部：整行算一次。不能再走 LIT_RE，否则同一行里的引号
-                # 会被重复计一次（多行块里的引号不是字符串边界）。
-                # 口径和单行一致：强词或规章标记才算。
-                if (any(w in line for w in STRICT_EN_STRONG)
-                        or any(w in line for w in STRICT_ZH_STRONG)
-                        or any(w in line for w in ("核心原则", "规则：", "You are", "You should"))):
-                    n += 1
+            if text in ("Never Used", "Never auto-lock", "Never"):
                 continue
-            for m in LIT_RE.finditer(line):
-                text = m.group(1)
-                if text in ("Never Used", "Never auto-lock", "Never"):
+            # Swift 类型/常量误报：`Task<Void, Never>`、`...FromImageAlways`
+            if not any(w in text for w in STRICT_ZH):
+                if re.search(r"Task<[^>]*Never", text):
                     continue
-                # AppLocalized("...") 是界面文案，模型看不到
-                if 'AppLocalized(' in line:
+                if re.match(r"^[A-Za-z0-9_.]*(Always|Never)$", text):
                     continue
-                # Swift 类型/常量误报：`Task<Void, Never>`、`...FromImageAlways`
-                # 这类是代码不是文案。中文词不会出现在这里，英文才要过滤。
-                if not any(w in text for w in STRICT_ZH):
-                    if re.search(r"Task<[^>]*Never", text):
-                        continue
-                    if re.match(r"^[A-Za-z0-9_.]*(Always|Never)$", text):
-                        continue
-                # 强祈使词（必须/绝不/务必/MUST/Never/Do NOT）一律计。
-                # 弱词只在「规章标记」上计：核心原则/规则：/You are/You should。
-                # 「不要/不能」在参数说明里常是描述性的（"不传就用默认"），不作判据。
-                strong = (any(w in text for w in STRICT_EN_STRONG)
-                          or any(w in text for w in STRICT_ZH_STRONG))
-                marker = any(w in text for w in ("核心原则", "规则：", "You are", "You should"))
-                if strong or marker:
-                    n += 1
+            # 内部日志，不是给模型的话：`[MoveTo] ...`、`[T-agent-wrapup-turn] ...`
+            if re.match(r"^\[[A-Za-z][A-Za-z0-9_-]*\]\s", text):
+                continue
+            # 强祈使词（必须/绝不/务必/MUST/Never/Do NOT）一律计。
+            # 弱词只在「规章标记」上计：核心原则/规则：/You are/You should。
+            # 「不要/不能」在参数说明里常是描述性的（"不传就用默认"），不作判据。
+            low = text.lower()
+            strong = (any(w in text for w in STRICT_EN_STRONG)
+                      or any(w in text for w in STRICT_ZH_STRONG)
+                      or "do not" in low or "you must" in low or "never " in low)
+            marker = any(w in text for w in ("核心原则", "规则：", "规则:", "You are", "You should"))
+            if strong or marker:
+                n += 1
         if n:
             sink[rel] = n
 

@@ -83,24 +83,28 @@ SOUL 正文、用户档案，那是她的。
 
 | 口径 | 数量 | 说明 |
 |---|---|---|
-| **严格祈使句（系统提示类）** | **29 处** | 验收基线，只许降不许升 |
-| 技能手册正文 | 12 处 | **单独统计，不作验收**（见下） |
+| **严格祈使句（系统提示类）** | **73 处** | 验收基线，只许降不许升 |
+| 技能手册正文 | 2 处 | **单独统计，不作验收**（见下） |
 
 分布：
 
 | 文件 | 处数 |
 |---|---|
-| `AIChatViewModel.swift`（路由/纪律/记忆段） | 9 |
-| `AIChatViewModel+ToolDefinitions.swift` | 5 |
+| `AIChatViewModel+ToolDefinitions.swift` | 17 |
+| `AIChatViewModel.swift` | 16 |
+| `AIChatViewModel+ProgrammaticPrompt.swift` | 10 |
+| `HelperRunner.swift` | 8 |
+| `AIChatViewModel+ManualTools.swift` | 6 |
 | `AIChatViewModel+TitleGeneration.swift` | 4 |
-| `SoulStore.swift` | 4 |
-| `AIChatViewModel+Compaction.swift` | 4 |
-| `AIChatView.swift`（识图 JSON） | 1 |
-| `PersonaStore.swift` | 2 |
-| `AIChatViewModel+Persistence.swift` | 1 |
-| `AIChatViewModel+ProgrammaticPrompt.swift` | 1 |
+| `SoulStore.swift` | 3 |
+| `AIChatViewModel+Compaction.swift` | 3 |
+| `AIChatViewModel+Persistence.swift` | 2 |
+| `AIChatViewModel+MemoryTools.swift` | 1 |
+| `PersonaStore.swift` | 1 |
+| `AIChatView.swift` | 1 |
+| `ScheduledJobRunner.swift` | 1 |
 
-**这个 29 是存量，不是合格线。** 批 0 记的 19 是漏扫出来的——只认单行字符串，提示词正文的 `"""` 多行块全没扫到。
+**这个 73 是存量，不是合格线。** 批 0 记的 19 是漏扫出来的——只认单行字符串，提示词正文的 `"""` 多行块全没扫到。
 
 **技能手册为什么分开算**：`SkillStore.swift` 里那 12 处是 minis-theme 等技能的操作正文，只在技能被加载时进上下文，而且手册里写「不能改什么」「必须明说」是正当的。和系统提示混在一起计数，数字会误导。
 
@@ -119,10 +123,18 @@ SOUL 正文、用户档案，那是她的。
 
 **口径**：登记进这张表的，是「祈使句基线里暂时不能撤」的条目。每项写清：位置、为什么不能撤、什么时候能撤。撤掉后把行删掉，基线数跟着降。
 
-当前基线 **29 处**（2026-11-27），另 12 处技能手册正文单独统计。
+当前基线 **73 处**（2026-11-28，commit `36bf7db` 之后），另 2 处技能手册正文单独统计。
 
-口径收紧过一轮：只有**强祈使词**（必须/绝不/务必/禁止/不许/MUST/Do NOT/Never/IMPORTANT）和**规章标记**（核心原则/规则：/You are/You should）才计。
-「不要/不能」在参数说明里常是描述性的（"不传就用默认顺序"），不再作判据——之前 33 处里有 4 处是这类误报。
+**扫描器重写过一次。** 之前按行猜字符串边界，漏掉一半以上：
+
+- 块注释 `/* */` 里的 `"""` 会打乱状态
+- 字符串拼接 `"你必须" + "先读文件"` 拆成两段后都太短
+- 小写 `you must` / `do not` 不在词表
+- 原始字符串 `#"..."#` 不认
+
+现在改成字符级状态机（`extract_string_literals`），一次扫完整个文件，注释整体跳过。数字从 29 涨到 73——**涨的是漏检，不是新问题**。
+
+口径：**强祈使词**（必须/绝不/务必/禁止/不许/MUST/Do NOT/Never/IMPORTANT/do not/you must/never ）和**规章标记**（核心原则/规则：/You are/You should）才计。「不要/不能」在参数说明里常是描述性的（"不传就用默认顺序"），不作判据。
 
 | # | 位置 | 内容 | 为什么不能撤 | 预计撤掉的批次 |
 |---|---|---|---|---|
