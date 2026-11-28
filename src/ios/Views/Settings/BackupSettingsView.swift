@@ -216,7 +216,7 @@ struct BackupSettingsView: View {
                         // Fix 3 — unlimited is the default: every file is
                         // included, so there is no "left out" case to warn about.
                         // Picking a size above reintroduces one.
-                        Text("Chats includes every file in each conversation, not just the messages. No per-file size limit — every file is included.")
+                        Text("Every file in a chat, not just messages. No size limit.")
                     }
                     // [A1] Four whole areas never enter any package — say so
                     // here, next to the category list, instead of letting
@@ -360,7 +360,7 @@ struct BackupSettingsView: View {
                 // Honest trade-off, stated where the user starts the backup
                 // rather than discovered afterwards: this is a manual save
                 // per backup, not a silent scheduled copy to a fixed folder.
-                Text("Without a destination, each backup is saved by hand: when it finishes, a Save to Files sheet opens and you pick where it goes. There is no silent scheduled copy to a fixed folder.")
+                Text("No destination: a Save to Files sheet opens when each backup finishes. No silent copy to a fixed folder.")
                     .font(.system(size: fontSettings.scaledApp(13)))
                     .foregroundStyle(MinisTheme.secondaryText)
                     .frame(maxWidth: .infinity)
@@ -432,7 +432,7 @@ struct BackupSettingsView: View {
                     }
                 }
             } footer: {
-                Text("Automatic snapshots are off — the app only backs up when you tap Start Backup. Snapshots already in the Backups folder stay there and open from Files like any other backup; delete them yourself if you need the space back.")
+                Text("Off: only backs up when you tap Start Backup. Existing snapshots stay in the Backups folder — delete them yourself.")
             }
 
             historySection
@@ -910,7 +910,7 @@ struct BackupSettingsView: View {
             // Says what the name is FOR — the whole point is the filename —
             // and how to get back to the default, which an empty field does
             // not otherwise advertise.
-            Text("Used to identify this device in backup filenames. Leave empty to use “\(DeviceIdentity.automaticName)”.")
+            Text("Device name used in backup filenames. Empty = “\(DeviceIdentity.automaticName)”.")
         }
         // Seeded in onAppear rather than defaulted, so reopening the screen
         // shows what is actually stored instead of an empty field over a set
@@ -1095,7 +1095,7 @@ struct BackupSettingsView: View {
                 // lost phone takes the backup with it. Presenting that as a
                 // working fallback invited the user to consider themselves
                 // backed up when nothing had left the device.
-                Text("No destinations — optional. A backup works without one: when it finishes, a Save to Files sheet opens so you can save it by hand.")
+                Text("Optional. Without one, a Save to Files sheet opens when the backup finishes.")
                     .foregroundStyle(MinisTheme.secondaryText)
             }
             // ONE entry point. The picker shows saved servers first and
@@ -1115,7 +1115,7 @@ struct BackupSettingsView: View {
         } header: {
             Text("Backup Destinations")
         } footer: {
-            Text("Optional: each backup is also uploaded to the enabled servers. Without one, each backup is still saved by hand through the Save to Files sheet when it finishes; there is no silent scheduled copy to a fixed folder.")
+            Text("Optional: also uploads each backup to the enabled servers. Without one, you save each one by hand.")
         }
     }
 

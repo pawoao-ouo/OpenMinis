@@ -26,7 +26,7 @@ struct EnhancedBackgroundSettingsView: View {
                 Toggle("Enhanced Background Execution", isOn: $keepAlive.enhancedBackgroundEnabled)
                     .focusHighlight(shouldFocus("enhancedBackgroundExecution", current: keepAlive.enhancedBackgroundEnabled))
             } footer: {
-                Text("Keeps agent tasks running when the app is in the background. Shows progress via Live Activity on the Lock Screen and Dynamic Island. Also turns on Background Speak so text-to-speech narration keeps playing.")
+                Text("Keeps agent tasks running in the background. Shows progress on the Lock Screen and Dynamic Island. Also turns on Background Speak.")
             }
 
             // [T-ipad16-liveactivity-restore-crash] Hidden on devices where
@@ -43,14 +43,14 @@ struct EnhancedBackgroundSettingsView: View {
                     // leg the app suspends ~30s after backgrounding and the
                     // Live Activity freezes; the location heartbeat is what
                     // keeps it refreshing.
-                    Text("Show agent task progress on the Lock Screen and in the Dynamic Island. Turning this off also removes the currently displayed Live Activity. Tip: enable Location Tracking below so the Live Activity keeps refreshing while the app stays in the background — without it, updates pause about 30 seconds after you leave the app.")
+                    Text("Shows task progress on the Lock Screen and Dynamic Island. Turning it off removes the current Live Activity. Without Location Tracking below, updates pause ~30s after you leave the app.")
                 }
             }
 
             Section {
                 Toggle("Task Notifications", isOn: $keepAlive.backgroundNotificationsEnabled)
             } footer: {
-                Text("Show local notifications when agent tasks start and complete, including tasks triggered by Shortcuts.")
+                Text("Notify when agent tasks start and finish, including Shortcuts-triggered ones.")
             }
 
             // [T-ios-live-activity-privacy-mode] Sits right after the two
@@ -61,14 +61,14 @@ struct EnhancedBackgroundSettingsView: View {
                 // `liveActivityPrivacyMode` so existing installs keep their setting.
                 Toggle("Task Status Privacy", isOn: $keepAlive.liveActivityPrivacyMode)
             } footer: {
-                Text("Hide session content on the Lock Screen, in the Dynamic Island and in notifications. Only the number of completed tasks and the elapsed time are shown — no session titles, tool status or reply content.")
+                Text("Hide session content on the Lock Screen, Dynamic Island and notifications. Only the task count and elapsed time show.")
             }
 
             Section {
                 Toggle("Background Speak", isOn: $keepAlive.backgroundSpeakEnabled)
                     .focusHighlight(shouldFocus("backgroundSpeakEnabled", current: keepAlive.backgroundSpeakEnabled))
             } footer: {
-                Text("Enables background audio playback for text-to-speech narration and music/audio playback while the app is in the background.")
+                Text("Keeps TTS narration and audio playing in the background.")
             }
 
             // MARK: - Speech Settings
@@ -120,7 +120,7 @@ struct EnhancedBackgroundSettingsView: View {
             } header: {
                 Text("Voice")
             } footer: {
-                Text("Choose a specific voice for each language. Download more voices in Settings > Accessibility > Spoken Content > Voices.")
+                Text("Pick a voice per language. More voices in Settings > Accessibility > Spoken Content.")
             }
 
             Section {
@@ -144,7 +144,7 @@ struct EnhancedBackgroundSettingsView: View {
                         }
                     }
             } footer: {
-                Text("Lets the agent keep working in the background and keeps the task Live Activity refreshing in real time. Uses coarse, low-accuracy location only as a background heartbeat — it does not track or store your precise location.")
+                Text("Keeps the agent working and the Live Activity refreshing. Uses coarse location only as a heartbeat — never tracks or stores your precise location.")
             }
 
             Section {
@@ -179,7 +179,7 @@ struct EnhancedBackgroundSettingsView: View {
             } header: {
                 Text("Status")
             } footer: {
-                Text("How long the app can keep working after moving to the background. Without any keep-alive mechanism, iOS suspends apps after roughly 30 seconds; enabling Location Tracking (and granting location permission) or Background Speak extends this for the duration of a task.")
+                Text("How long the app keeps working in the background. Without a keep-alive, iOS suspends it after ~30s; Location Tracking or Background Speak extends it while a task runs.")
             }
         }
         .navigationTitle("Background")
