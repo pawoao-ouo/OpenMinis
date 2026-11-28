@@ -758,7 +758,7 @@ struct ToolLiveSheet: View {
         case .fileEditTool: Image(systemName: "square.and.pencil")
         case .browserTool: Image(systemName: "globe")
         case .readImageTool: Image(systemName: "photo.fill")
-        case .memoryTool: Image("MemoryBranch")
+        case .memoryTool: Image("MemoryBranch").resizable().scaledToFit().frame(width: 17, height: 17)
         case .askUserTool: Image(systemName: "questionmark.circle.fill")
         case .delegateTool: Image(systemName: "person.2.fill")
         case .genericTool: Image(systemName: "wrench.adjustable.fill")

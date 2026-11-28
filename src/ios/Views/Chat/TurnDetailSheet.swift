@@ -555,7 +555,10 @@ struct TurnDetailSheet: View {
 
     // MARK: - Helpers
 
-    private func toolIcon(for kind: AssistantBlockKind) -> Image {
+    /// [batch9-ui 11-28] 返回 some View 而不是 Image：记忆那格换成自画
+    /// 资源图，资源图不吃 font，得自己带 resizable+frame。
+    @ViewBuilder
+    private func toolIcon(for kind: AssistantBlockKind) -> some View {
         switch kind {
         case .shellTool: Image(systemName: "terminal.fill")
         case .fileReadTool: Image(systemName: "doc.text.fill")
@@ -563,7 +566,7 @@ struct TurnDetailSheet: View {
         case .fileEditTool: Image(systemName: "square.and.pencil")
         case .browserTool: Image(systemName: "globe")
         case .readImageTool: Image(systemName: "photo.fill")
-        case .memoryTool: Image("MemoryBranch")
+        case .memoryTool: Image("MemoryBranch").resizable().scaledToFit().frame(width: 15, height: 15)
         case .askUserTool: Image(systemName: "questionmark.circle.fill")
         case .delegateTool: Image(systemName: "person.2.fill")
         case .genericTool: Image(systemName: "wrench.adjustable.fill")

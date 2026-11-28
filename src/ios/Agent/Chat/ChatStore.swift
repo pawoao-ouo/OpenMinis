@@ -2527,10 +2527,20 @@ actor ChatStore {
     }
 
     func setMemoryEnabled(sessionId: String, enabled: Bool) {
-        // [batch9] 写全局。会话行 memory_enabled 照旧写一份（历史记录和
-        // 会话包导出还要这个字段），但它不再是真值来源。
+        // [batch9] 真值写全局。会话行 memory_enabled 也照旧写一份——
+        // 会话导出/导入和存量会话的列表展示还要这个字段，只是它不再是
+        // 判断依据（读只读全局）。
         _ = sessionId
         UserDefaults.standard.set(enabled, forKey: "memory.global.enabled")
+        let sql = "UPDATE sessions SET memory_enabled = ?, meta_updated_at = ? WHERE id = ?"
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_int(stmt, 1, enabled ? 1 : 0)
+            sqlite3_bind_double(stmt, 2, Date().timeIntervalSince1970)
+            sqlite3_bind_text(stmt, 3, (sessionId as NSString).utf8String, -1, nil)
+            sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
     }
 
     /// ［persona］查会话归属的人设。Fail closed：prepare 失败或行缺失返回 nil，
