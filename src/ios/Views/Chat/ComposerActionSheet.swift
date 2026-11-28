@@ -51,6 +51,9 @@ struct ComposerActionSheet: View {
     @ObservedObject private var mcpStore = MCPStore.shared
     @ObservedObject private var studio = AppearanceStudio.shared
     @State private var page: Page = .root
+    /// [batch9-ui 11-28 醒醒] 技能/连接器二级页的搜索词。她说列表一长
+    /// 就得翻半天，「为什么没有搜索」。切二级页时清空，免得下次进来还带着旧词。
+    @State private var query = ""
     /// 开关的本地镜像:点完立刻反映到界面,不等磁盘回读(和原面板同一套写法)。
     @State private var miniBarLocal = true
     @Environment(\.dismiss) private var dismiss
@@ -76,6 +79,7 @@ struct ComposerActionSheet: View {
             // 开关初值来自外层传进来的真实状态,抽屉打开时同步一次。
             .onAppear { miniBarLocal = miniBarOn }
             .onChange(of: miniBarOn) { _, next in miniBarLocal = next }
+            .onChange(of: page) { _, _ in query = "" }
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -201,39 +205,146 @@ struct ComposerActionSheet: View {
     // MARK: 二级列表
 
     private var skillList: some View {
-        VStack(spacing: 0) {
-            ForEach(skillsSorted) { skill in
-                toggleRow(skill.name,
-                          icon: "puzzlepiece.extension",
-                          subtitle: skill.description.trimmingCharacters(in: .whitespacesAndNewlines),
-                          isOn: skillEnabled(skill)) {
-                    onToggleSkill(skill.id, $0)
+        VStack(spacing: 12) {
+            searchField
+            listHeader(filteredSkills.count, skillsSorted.count,
+                       allOn: !skillsSorted.isEmpty && skillsSorted.allSatisfy { skillEnabled($0) }) { on in
+                for s in skillsSorted where skillEnabled(s) != on {
+                    onToggleSkill(s.id, on)
                 }
-                divider
+            }
+            VStack(spacing: 0) {
+                if filteredSkills.isEmpty {
+                    emptyHint
+                } else {
+                    ForEach(filteredSkills) { skill in
+                        toggleRow(skill.name,
+                                  icon: "puzzlepiece.extension",
+                                  subtitle: skill.description.trimmingCharacters(in: .whitespacesAndNewlines),
+                                  isOn: skillEnabled(skill)) {
+                            onToggleSkill(skill.id, $0)
+                        }
+                        divider
+                    }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
+            )
+        }
+    }
+
+    private var connectorList: some View {
+        VStack(spacing: 12) {
+            searchField
+            listHeader(filteredConnectors.count, connectorsSorted.count,
+                       allOn: !connectorsSorted.isEmpty && connectorsSorted.allSatisfy { connectorEnabled($0) }) { on in
+                for s in connectorsSorted where connectorEnabled(s) != on {
+                    onToggleConnector(s.id, on)
+                }
+            }
+            VStack(spacing: 0) {
+                if filteredConnectors.isEmpty {
+                    emptyHint
+                } else {
+                    ForEach(filteredConnectors) { server in
+                        toggleRow(server.id,
+                                  icon: "wrench.and.screwdriver",
+                                  subtitle: server.transportSummary,
+                                  isOn: connectorEnabled(server)) {
+                            onToggleConnector(server.id, $0)
+                        }
+                        divider
+                    }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
+            )
+        }
+    }
+
+    /// [batch9-ui 11-28 醒醒] 二级页顶部的搜索框。列表一长就得往下
+    /// 翻半天，她说「为什么没有搜索」。
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(ChatFont.font(13))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+            TextField(AppLocalized("搜索"), text: $query)
+                .font(ChatFont.font(14))
+                .foregroundStyle(CSSThemeVariables.textMain(scope: ThemeColorLayer.sheet))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(ChatFont.font(13))
+                        .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                }
+                .buttonStyle(.plain)
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
         )
     }
 
-    private var connectorList: some View {
-        VStack(spacing: 0) {
-            ForEach(connectorsSorted) { server in
-                toggleRow(server.id,
-                          icon: "wrench.and.screwdriver",
-                          subtitle: server.transportSummary,
-                          isOn: connectorEnabled(server)) {
-                    onToggleConnector(server.id, $0)
-                }
-                divider
-            }
+    /// 计数 + 全开/全关。全开时「全开」变灰，反之亦然，一眼知道当前状态。
+    private func listHeader(_ shown: Int, _ total: Int, allOn: Bool,
+                            toggleAll: @escaping (Bool) -> Void) -> some View {
+        HStack(spacing: 10) {
+            Text("\(shown)/\(total)")
+                .font(ChatFont.font(12))
+                .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+            Spacer(minLength: 8)
+            Button(AppLocalized("全开")) { toggleAll(true) }
+                .font(ChatFont.font(12))
+                .foregroundStyle(allOn
+                                 ? CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet)
+                                 : CSSThemeVariables.accent())
+                .disabled(allOn || total == 0)
+            Button(AppLocalized("全关")) { toggleAll(false) }
+                .font(ChatFont.font(12))
+                .foregroundStyle(allOn
+                                 ? CSSThemeVariables.accent()
+                                 : CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+                .disabled(!allOn || total == 0)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(CSSThemeVariables.card(scope: ThemeColorLayer.sheet))
-        )
+        .buttonStyle(.plain)
+        .padding(.horizontal, 4)
+    }
+
+    private var emptyHint: some View {
+        Text(AppLocalized("没有匹配的项"))
+            .font(ChatFont.font(13))
+            .foregroundStyle(CSSThemeVariables.textDim(scope: ThemeColorLayer.sheet))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 26)
+    }
+
+    private var filteredSkills: [Skill] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return skillsSorted }
+        return skillsSorted.filter {
+            $0.name.lowercased().contains(q) || $0.description.lowercased().contains(q)
+        }
+    }
+
+    private var filteredConnectors: [MCPServerConfig] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return connectorsSorted }
+        return connectorsSorted.filter {
+            $0.id.lowercased().contains(q) || $0.transportSummary.lowercased().contains(q)
+        }
     }
 
     private var skillsSorted: [Skill] {
