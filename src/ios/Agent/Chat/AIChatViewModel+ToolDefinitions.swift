@@ -712,6 +712,19 @@ extension AIChatViewModel {
         // survivors above).
         tools.removeAll { !AgentToolSwitch.isToolEnabled($0.name) }
 
+        // [batch3-voice 11-28] AI 语音开关：关着就让它从 schema 里消失，跟
+        // AgentToolSwitch 一个待遇。原来只在派发时拒绝——模型看得见、调不动，
+        // 白占定义、还会以为自己能发语音。没配 TTS 时同理（发了也合成不出来）。
+        // 三个名字共用一套实现，一起摘。
+        let voiceTools: Set<String> = ["send_voice", "textToSpeech", "text_to_speech"]
+        // sessionId 为 nil（还没绑定会话）时不摘：这种状态下开关读不出值，
+        // 摘掉会把语音功能整个弄没，而派发层此时也不拦。只在拿到明确「关」
+        // 的时候才摘。
+        let voiceOff = sessionId.map { !AIVoiceMessageComposer.voiceRepliesEnabled(sessionId: $0) } ?? false
+        if voiceOff || !TTSPaper.hasConfiguredVoice() {
+            tools.removeAll { voiceTools.contains($0.name) }
+        }
+
         return tools
     }
 
