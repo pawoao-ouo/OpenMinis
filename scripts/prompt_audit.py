@@ -300,6 +300,11 @@ if not os.path.exists(BASE_FILE):
              "然后把生成的文件一起提交。" % os.path.basename(BASE_FILE))
         total_now = 0
         base = None
+    elif os.environ.get("CI"):
+        # CI 上禁止 --init：否则谁都能在流水线里加一个 --init 把基线刷成当前值。
+        fail("CI 环境不允许 --init。基线只能在本地建立，改完代码后本地重跑 --init 并提交。")
+        total_now = 0
+        base = None
     else:
         with open(BASE_FILE, "w", encoding="utf-8") as f:
             json.dump({"total": total_now,
@@ -317,19 +322,27 @@ else:
 
 if base is not None:
     base_total = base.get("total", 0)
+    base_by = base.get("byFile", {})
     print("严格祈使句 %d 处（基线 %d）" % (total_now, base_total))
     # 基线里有的文件这次没扫到 → 扫描范围缩小，数字变小会掩盖问题
-    vanished = [k for k in base.get("byFile", {}) if k not in current]
-    for v in vanished:
+    for v in [k for k in base_by if k not in current]:
         fail("基线里的文件这次没扫到：%s（扫描范围缩小，基线数字不可比）" % v)
-    if total_now > base_total:
-        grew = {k: v for k, v in current.items() if v > base.get("byFile", {}).get(k, 0)}
-        if grew:
-            for k, v in sorted(grew.items(), key=lambda x: -x[1]):
-                fail("祈使句比基线多 %d 处（%d → %d）：%s"
-                     % (v - base.get("byFile", {}).get(k, 0), base.get("byFile", {}).get(k, 0), v, k))
-        else:
-            fail("祈使句总数比基线多（%d → %d）" % (base_total, total_now))
+    # 逐文件对比，不只比总数。总数不变也能「删一处加一处」——净零置换会骗过总数检查。
+    for k in sorted(set(current) | set(base_by)):
+        now, was = current.get(k, 0), base_by.get(k, 0)
+        if now > was:
+            fail("祈使句比基线多 %d 处（%d → %d）：%s" % (now - was, was, now, k))
+        elif now < was:
+            # 降了是好事，但必须是有意的。提醒提交者把基线文件一起改掉。
+            print("NOTE  %s 比基线少 %d 处（%d → %d），记得提交新的基线文件"
+                  % (k, was - now, was, now))
+    if total_now > base_total and not fails:
+        fail("祈使句总数比基线多（%d → %d）" % (base_total, total_now))
+    # 基线比实际松：总数和逐文件都要对得上。允许「少」是因为清理后要下调基线，
+    # 但基线数字绝不能大于实际——那是把标准往后挪，数字会越拉越大。
+    if total_now < base_total:
+        print("NOTE  基线比实际松 %d 处（%d → %d）。清理后请重跑 --init 或手动下调基线，"
+              "否则这个口子会越拉越大。" % (base_total - total_now, base_total, total_now))
 
 # ---------------------------------------------------------------- 报告
 print()
