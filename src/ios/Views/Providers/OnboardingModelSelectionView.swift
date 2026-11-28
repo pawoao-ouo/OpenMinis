@@ -32,8 +32,6 @@ struct OnboardingModelSelectionView: View {
                     .padding(.vertical, 8)
                 } header: {
                     Text("Models")
-                } footer: {
-                    Text("Fetching model list from your provider…")
                 }
             } else {
                 // Group entries by provider instance

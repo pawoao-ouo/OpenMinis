@@ -68,8 +68,6 @@ struct AgentLoopModelsSection: View {
                         .font(.caption)
                 }
             }
-        } footer: {
-            Text("During a 嘟嘟 task, the agent calls these models for sub-tasks such as generating an image or summarizing text — work its own model can't do. Also callable from the terminal via minis-model-use. Only these are visible to the agent.")
         }
     }
 

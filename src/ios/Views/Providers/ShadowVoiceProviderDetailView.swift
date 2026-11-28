@@ -46,9 +46,6 @@ struct ShadowVoiceProviderDetailView: View {
                         }
                     }
                 }
-            } footer: {
-                Text("This voice service shares the API key and endpoint of its provider. To change them, edit that provider.",
-                     comment: "Shadow voice provenance note")
             }
 
             if let asr = shadow?.inputModels, !asr.isEmpty {
@@ -74,9 +71,6 @@ struct ShadowVoiceProviderDetailView: View {
                 )) {
                     Text("Show in Voice Services", comment: "Shadow voice enable toggle")
                 }
-            } footer: {
-                Text("Turn off to hide this voice service. The provider's text models are unaffected.",
-                     comment: "Shadow voice toggle note")
             }
         }
         .navigationTitle(shadow?.displayName ?? instance?.label ?? AppLocalized("Voice Service"))

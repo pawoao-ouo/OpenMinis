@@ -124,13 +124,6 @@ struct ThinkingRuleEditorView: View {
                     }
                 } header: {
                     Text("Applies to")
-                } footer: {
-                    if !scopeIsAllModels {
-                        // The most likely user error is a pattern that matches nothing,
-                        // and its failure is silent (the rule just never fires), so say
-                        // plainly how matching works.
-                        Text("“*” matches any characters. Matching ignores case and treats “.” and “-” as the same character.")
-                    }
                 }
 
                 Section {
@@ -153,8 +146,6 @@ struct ThinkingRuleEditorView: View {
                         .textSelection(.enabled)
                 } header: {
                     Text("Request preview")
-                } footer: {
-                    Text("The thinking fields this rule adds to a request at the High level.")
                 }
             }
             .navigationTitle(existing == nil ? Text("New Rule") : Text("Edit Rule"))

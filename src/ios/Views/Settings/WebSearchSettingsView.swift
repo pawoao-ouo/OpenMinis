@@ -32,8 +32,6 @@ struct WebSearchSettingsView: View {
                 }
             } header: {
                 Text(AppLocalized("服务商"))
-            } footer: {
-                Text(AppLocalized("两家都是公开 API：Brave Search（独立索引，免费 2000 次/月）、Tavily（专为 AI 优化的搜索，免费 1000 点/月）。官网注册免费拿 key，粘进来就能用。"))
             }
 
             ForEach(WebSearchService.providers, id: \.providerId) { provider in
@@ -86,16 +84,6 @@ struct WebSearchSettingsView: View {
             }
         } header: {
             Text(provider.displayName)
-        } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(AppLocalized("一行粘一把 key；也支持一次粘一串（按行/逗号/空格自动拆开），多把 key 会自动轮换、用坏自动换下一把。填好按回车保存。"))
-                if let msg = testMessage, testedId == pid {
-                    Text(msg)
-                        .foregroundStyle(testOk ? .green : .red)
-                }
-                Text(AppLocalized("申请 key：\(provider.keySignupURL)"))
-                    .foregroundStyle(MinisTheme.secondaryText)
-            }
         }
     }
 

@@ -149,8 +149,6 @@ struct TTSServiceEditorView: View {
             Toggle("Enabled", isOn: $enabled)
         } header: {
             Text("Service")
-        } footer: {
-            Text("The vendor's own voice id — e.g. OpenAI 'alloy', Azure 'zh-CN-XiaoxiaoNeural'.")
         }
     }
 
@@ -168,8 +166,6 @@ struct TTSServiceEditorView: View {
             }
         } header: {
             Text("Tuning")
-        } footer: {
-            Text("Left empty, a knob is simply not sent — the vendor uses its default.")
         }
     }
 
@@ -203,8 +199,6 @@ struct TTSServiceEditorView: View {
             }
         } header: {
             Text("Test")
-        } footer: {
-            Text("Plays the current editor state, including unsaved changes.")
         }
     }
 

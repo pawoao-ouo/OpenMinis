@@ -537,8 +537,6 @@ struct UnifiedModelPicker: View {
                     }
                 } header: {
                     Text("TTS Services")
-                } footer: {
-                    Text("Independent speech services configured in Settings → Voice. Selecting one makes it the active voice for read-aloud and AI voice replies.")
                 }
             }
 
@@ -563,17 +561,6 @@ struct UnifiedModelPicker: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.tint)
-                    }
-                } footer: {
-                    if searchText.isEmpty {
-                        switch config.groupScope {
-                        case .all:
-                            Text("Bind this session to a group for automatic fallback or load balancing.")
-                        case .single:
-                            Text("Pick a group whose audio-capable models drive this direction.")
-                        case .none:
-                            EmptyView()
-                        }
                     }
                 }
             }

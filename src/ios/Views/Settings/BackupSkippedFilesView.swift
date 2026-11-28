@@ -69,14 +69,6 @@ struct BackupSkippedFilesView: View {
                 LabeledContent("Total size", value: ByteCountFormatter.string(
                     fromByteCount: record.skippedEntries.reduce(0) { $0 + $1.size },
                     countStyle: .file))
-            } footer: {
-                // Say so when the list is partial rather than letting the
-                // numbers quietly disagree with the rows below.
-                if shownCount < record.skippedFiles {
-                    Text("Showing the \(shownCount) largest of \(record.skippedFiles) excluded files. Their contents are not in the backup — the backup records that they existed.")
-                } else {
-                    Text("These files' contents are not in the backup — it records that they existed, at these sizes.")
-                }
             }
 
             ForEach(groups) { group in

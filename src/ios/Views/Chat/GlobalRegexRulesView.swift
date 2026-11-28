@@ -60,8 +60,6 @@ struct GlobalRegexRulesView: View {
                             .font(ChatFont.font(13))
                     }
                 }
-            } footer: {
-                Text("规则按顺序应用于生成的内容，对所有会话生效。可用于清洗思考标签、特定前缀或格式修正。")
             }
         }
         .listStyle(.insetGrouped)
@@ -234,8 +232,6 @@ struct GlobalRegexRulesView: View {
                     }
                 } header: {
                     Text("深度")
-                } footer: {
-                    Text("开启后只对最近的 N 条消息生效，更早的不动。关掉就是全部。")
                 }
 
                 Section("高级选项") {

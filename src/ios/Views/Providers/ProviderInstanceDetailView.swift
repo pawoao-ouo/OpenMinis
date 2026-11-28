@@ -105,8 +105,6 @@ struct ProviderInstanceDetailView: View {
                             .font(.system(.body, design: .monospaced))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                    } footer: {
-                        Text("Paste the token — spaces and newlines are stripped.")
                     }
                     // Same red-caption error style as keySaveError below.
                     if let tokenError = manualTokenSaveError {
@@ -201,10 +199,6 @@ struct ProviderInstanceDetailView: View {
                 credentialSection(instance)
             } header: {
                 Text("Credential")
-            } footer: {
-                Text(instance.credentialType == .apiKey
-                     ? "API key is stored securely in the iOS Keychain."
-                     : "OAuth tokens are stored per-instance in the iOS Keychain.")
             }
 
             // MARK: Custom Base URL
@@ -261,10 +255,6 @@ struct ProviderInstanceDetailView: View {
                         Text("Chat Completions").tag(false)
                         Text("Responses API").tag(true)
                     }
-                } footer: {
-                    Text(instance.providerType == .openAIResponses
-                        ? "Uses /v1/responses endpoint format."
-                        : "Standard /v1/chat/completions format.")
                 }
             }
 
@@ -363,35 +353,6 @@ struct ProviderInstanceDetailView: View {
                         .disabled(isFetchingModels)
                     }
                 }
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    // Source info (green)
-                    if let source = fetchSource {
-                        Label("Loaded from \(source)", systemImage: "checkmark.circle")
-                            .font(.caption)
-                            .foregroundStyle(MinisTheme.success)
-                    }
-                    // Warnings (yellow) — diagnostic tips for each fallback step
-                    ForEach(fetchWarnings, id: \.self) { warning in
-                        Label(warning, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(MinisTheme.warning)
-                            .textSelection(.enabled)
-                    }
-                    // Error (red)
-                    if let error = fetchError {
-                        let lines = error.components(separatedBy: .newlines)
-                        let truncated = lines.prefix(4).joined(separator: "\n")
-                            + (lines.count > 4 ? "\n…" : "")
-                        Text(truncated)
-                            .font(.caption)
-                            .foregroundStyle(MinisTheme.destructive)
-                            .textSelection(.enabled)
-                        Text(AppLocalized("You may need to add the model ID manually."))
-                            .font(.caption)
-                            .foregroundStyle(MinisTheme.secondaryText)
-                    }
-                }
             }
 
             // MARK: Custom Model
@@ -417,9 +378,6 @@ struct ProviderInstanceDetailView: View {
                             }
                         }
                     }
-                } footer: {
-                    Text("Manage ASR/TTS models and Voice Services visibility.",
-                         comment: "Voice service section footer")
                 }
             }
 
@@ -675,10 +633,6 @@ struct ProviderInstanceDetailView: View {
             }
         } header: {
             Text("Custom API Base")
-        } footer: {
-            Text(instance.appendV1Suffix
-                 ? "Empty = default endpoint. \"/v1\" is added automatically — base host only."
-                 : "Used verbatim. Include the path up to the endpoint, e.g. \"/chat/completions\".")
         }
     }
 
@@ -712,8 +666,6 @@ struct ProviderInstanceDetailView: View {
                     .foregroundStyle(MinisTheme.destructive)
                     .textSelection(.enabled)
             }
-        } footer: {
-            Text(AppLocalized("Azure auth. Paste the full endpoint, including ?api-version=…"))
         }
     }
 
@@ -728,8 +680,6 @@ struct ProviderInstanceDetailView: View {
                 .onDisappear { saveCustomUserAgent(instance) }
         } header: {
             Text(AppLocalized("Custom User-Agent"))
-        } footer: {
-            Text(AppLocalized("Override the User-Agent. Empty = 嘟嘟 default. For relays that only accept specific clients."))
         }
     }
 
@@ -791,8 +741,6 @@ struct ProviderInstanceDetailView: View {
             }
         } header: {
             Text(AppLocalized("Custom Headers"))
-        } footer: {
-            Text(AppLocalized("Extra headers per request (e.g. X-Gateway-Token). Authorization, Content-Type and User-Agent can't be overridden."))
         }
     }
 
@@ -818,8 +766,6 @@ struct ProviderInstanceDetailView: View {
             }
         } header: {
             Text(AppLocalized("生成参数"))
-        } footer: {
-            Text(AppLocalized("Default sampling params for all models here; each can override. Off = provider default."))
         }
     }
 
@@ -848,8 +794,6 @@ struct ProviderInstanceDetailView: View {
             }
         } header: {
             Text(AppLocalized("Image Generation"))
-        } footer: {
-            imageEndpointFooter(instance)
         }
     }
 
@@ -920,8 +864,6 @@ struct ProviderInstanceDetailView: View {
             }
         } header: {
             Text("Manual Token")
-        } footer: {
-            Text("Use a static token instead of OAuth sign-in. For custom proxies.")
         }
     }
 
@@ -1353,13 +1295,6 @@ struct AddCustomModelSheet: View {
                         .autocorrectionDisabled()
                 } header: {
                     Text("Model")
-                } footer: {
-                    if let duplicateError {
-                        Text(duplicateError)
-                            .foregroundColor(.red)
-                    } else {
-                        Text("Leave display name empty to use the model ID.")
-                    }
                 }
 
                 Section {
@@ -1374,8 +1309,6 @@ struct AddCustomModelSheet: View {
                     Toggle(AppLocalized("Thinking"), isOn: $supportsThinking)
                 } header: {
                     Text(AppLocalized("Capabilities"))
-                } footer: {
-                    Text(AppLocalized("Context window size in tokens. Leave empty for default."))
                 }
 
                 Section {
@@ -1385,8 +1318,6 @@ struct AddCustomModelSheet: View {
                     Toggle("Video input", isOn: $videoInput)
                 } header: {
                     Text("Input Modality")
-                } footer: {
-                    Text("Text input is always on. Turn off modalities the model can't take.")
                 }
 
                 Section {
@@ -1394,8 +1325,6 @@ struct AddCustomModelSheet: View {
                     Toggle("Audio output", isOn: $audioOutput)
                 } header: {
                     Text("Output Modality")
-                } footer: {
-                    Text("Enable only for models that output images or audio. Text output is always on.")
                 }
             }
             .navigationTitle("Add Custom Model")
@@ -1608,8 +1537,6 @@ struct ModelEntryDetailSheet: View {
                         Toggle(AppLocalized("Thinking"), isOn: $supportsThinking)
                     } header: {
                         Text(AppLocalized("Capabilities"))
-                    } footer: {
-                        Text(AppLocalized("Context window in tokens. Leave empty for default."))
                     }
                 } else {
                     Section {
@@ -1649,8 +1576,6 @@ struct ModelEntryDetailSheet: View {
                         }
                     } header: {
                         Text(AppLocalized("Capabilities"))
-                    } footer: {
-                        Text(AppLocalized("Leave Context Window empty to use auto-detected value."))
                     }
                 }
 
@@ -1677,14 +1602,10 @@ struct ModelEntryDetailSheet: View {
                     maxTokensField()
                 } header: {
                     Text(AppLocalized("生成参数"))
-                } footer: {
-                    Text(AppLocalized("Leave a param off to use the provider default."))
                 }
 
                 Section {
                     Toggle("Hidden", isOn: $isHidden)
-                } footer: {
-                    Text("Hidden models won't appear in the model picker.")
                 }
 
                 Section {
@@ -1694,8 +1615,6 @@ struct ModelEntryDetailSheet: View {
                     Toggle("Video input", isOn: $videoInput)
                 } header: {
                     Text("Input Modality")
-                } footer: {
-                    Text("Text input is always enabled. Configure which additional input modalities this model supports.")
                 }
 
                 Section {
@@ -1703,8 +1622,6 @@ struct ModelEntryDetailSheet: View {
                     Toggle("Audio output", isOn: $audioOutput)
                 } header: {
                     Text("Output Modality")
-                } footer: {
-                    Text("Enable only for models that output images or audio. Text output is always on.")
                 }
 
                 if !entry.isCustom && !entry.overrides.isEmpty {
@@ -1717,8 +1634,6 @@ struct ModelEntryDetailSheet: View {
                                 Text(AppLocalized("Reset to Default"))
                             }
                         }
-                    } footer: {
-                        Text(AppLocalized("Clear your customizations and restore the values reported by the provider."))
                     }
                 }
 
@@ -1733,8 +1648,6 @@ struct ModelEntryDetailSheet: View {
                         Label(AppLocalized("Quick Test"), systemImage: "bolt.badge.checkmark")
                     }
                     .buttonStyle(.borderless)
-                } footer: {
-                    Text(AppLocalized("Run a quick test matching this model's main capability."))
                 }
             }
             .navigationTitle("Model Details")
@@ -2099,8 +2012,6 @@ fileprivate struct SamplingParamSheet: View {
             Form {
                 Section {
                     Toggle(AppLocalized("Custom value"), isOn: $enabled)
-                } footer: {
-                    Text(AppLocalized("Off = provider default."))
                 }
                 if enabled {
                     Section {

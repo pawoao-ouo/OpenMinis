@@ -307,8 +307,6 @@ struct BackupRestoreView: View {
             .disabled(isWorking)
         } header: {
             Text("Other Sources")
-        } footer: {
-            Text("Pick a .minisbak from Files, iCloud, or a server.")
         }
     }
 
@@ -345,8 +343,6 @@ struct BackupRestoreView: View {
                     .disabled(isWorking)
                 } header: {
                     Text("Safety Copy")
-                } footer: {
-                    Text("Auto-saved before the last overwrite. Restoring it brings back what was removed.")
                 }
             }
         }
@@ -617,12 +613,6 @@ struct BackupRestoreView: View {
             }
         } header: {
             Text("Restore")
-        } footer: {
-            if restoreMode == .overwrite {
-                Text("Overwrite: local items in the selected categories that are not in this backup will be deleted. A safety copy is made first.")
-            } else {
-                Text("Merge: match by id, replace only when the backup's copy is newer. Nothing is deleted.")
-            }
         }
     }
 
@@ -717,8 +707,6 @@ struct BackupRestoreView: View {
                 .textContentType(.password)
         } header: {
             Text("Encryption")
-        } footer: {
-            Text("This backup is encrypted. Without its passphrase it cannot be opened.")
         }
     }
 
@@ -940,43 +928,6 @@ struct BackupRestoreView: View {
             // recorded a failure.
             Text(r.hasFailures ? AppLocalized("Completed with issues")
                                : AppLocalized("Restore Complete"))
-        } footer: {
-            if let prov = r.categories.first(where: { $0.category == BackupCategory.providers.rawValue }) {
-                if prov.credentialsRestored > 0 {
-                    // Credentials now always travel with Providers, so this is
-                    // the normal outcome rather than a bonus.
-                    Text("API keys were restored for \(prov.credentialsRestored) credential(s) along with their settings. Existing keys on this device were kept. OAuth logins may still need to be renewed if their tokens have expired.")
-                } else if prov.credentialsKept > 0 {
-                    // [T-backup-credentials-message-inverted] Nothing was
-                    // WRITTEN, but only because every key in the package is
-                    // already on this device — `credentialsRestored` counts
-                    // keys actually written (BackupSecretsImporter increments
-                    // it only `if wrote`), while an existing key increments
-                    // `providersSkippedExisting` instead.
-                    //
-                    // This is the normal outcome when restoring onto the device
-                    // that made the backup, and it used to fall into the branch
-                    // below — telling the user "this backup was created without
-                    // API keys… enter each API key again" on a fully
-                    // credentialed device, which is exactly backwards.
-                    // `credentialsKept` was already being computed for this and
-                    // simply never read by any view.
-                    Text("Your existing API keys were kept — the backup's keys matched credentials already on this device, so nothing needed to be overwritten.")
-                } else if prov.credentialsUndecodable > 0 {
-                    // [A12] The keys WERE in the package; they simply could
-                    // not be decoded. Before this branch existed the footer
-                    // fell through to the "created without API keys" line
-                    // below, blaming the backup for a read failure and hiding
-                    // that the user must re-enter the keys.
-                    Text("This service's saved credentials are incomplete — open it and re-enter the key")
-                } else {
-                    // Reachable for OLDER packages: exports used to offer a
-                    // credential-free "share copy", and those must keep
-                    // restoring. Says why nothing arrived instead of implying
-                    // the restore misbehaved.
-                    Text("This backup was created without API keys, so restored providers have no credentials — enter each API key or sign in again before use.")
-                }
-            }
         }
     }
 
@@ -1374,8 +1325,6 @@ struct ServerRestorePickerSheet: View {
                     } label: {
                         Label("Add Server…", systemImage: "plus")
                     }
-                } footer: {
-                    Text("Add the server your backups are on. It can also be a backup destination.")
                 }
             }
             .navigationTitle("Restore from Server")
@@ -1491,8 +1440,6 @@ struct ServerPackageListView: View {
                     }
 
                     entryRows
-                } footer: {
-                    Text("Only .minisbak files are shown.")
                 }
             }
             .refreshable { await reload() }

@@ -6879,8 +6879,6 @@ private struct SettingsSheet: View {
                     }
                 } header: {
                     Text("LLM Providers")
-                } footer: {
-                    Text("Configure models, API keys & OAuth for each provider, and model groups.")
                 }
 
                 // [T-tts-services 09-11] kelivo-style independent TTS layer:
@@ -6907,8 +6905,6 @@ private struct SettingsSheet: View {
                     }
                 } header: {
                     Text("Speech")
-                } footer: {
-                    Text("Choose the voice for read-aloud and AI voice replies. Each service is a full synthesis target, independent of model groups.")
                 }
 
                 // [T-scheduled-prompt 09-13] W1: agent self-wake schedules.
@@ -6920,8 +6916,6 @@ private struct SettingsSheet: View {
                     }
                 } header: {
                     Text("Automation")
-                } footer: {
-                    Text("A scheduled prompt fires a local notification at the time you pick. Nothing runs unless you tap it. Timers that run while the app is open are under Agent Runtime ▸ Scheduled Tasks & Pulses.")
                 }
 
                 Section("Appearance") {

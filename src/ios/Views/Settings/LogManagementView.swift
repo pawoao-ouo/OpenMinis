@@ -87,8 +87,6 @@ struct LogManagementView: View {
         List {
             Section {
                 Toggle("Enable Logging", isOn: $loggingManager.isEnabled)
-            } footer: {
-                Text("When enabled, all console output is captured to daily log files.")
             }
 
             Section("Log Files") {
@@ -157,8 +155,6 @@ struct LogManagementView: View {
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
                     }
-                } footer: {
-                    Text("Total log storage: \(vm.format(vm.totalSize))")
                 }
             }
         }

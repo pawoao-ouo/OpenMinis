@@ -7570,8 +7570,6 @@ struct ChatVoiceSettingsSheet: View {
 
                 } header: {
                     Text(AppLocalized("AI voice replies"))
-                } footer: {
-                    Text(AppLocalized("Applies to this session only."))
                 }
 
                 // 朗读状态与控制（收口悬浮播放器全部调节）
@@ -7688,8 +7686,6 @@ struct ChatVoiceSettingsSheet: View {
                     }
                 } header: {
                     Text(AppLocalized("Read-aloud settings"))
-                } footer: {
-                    Text(AppLocalized("Playback, speed and voice are all handled here."))
                 }
 
                 // [batch9-voice/3 · VT-F2] 系统语音闸门回显——设置页是权威，
@@ -7708,8 +7704,6 @@ struct ChatVoiceSettingsSheet: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
-                } footer: {
-                    Text(AppLocalized("Change this in Settings › Voice Services."))
                 }
 
                 // [B09 2026-10-22] The sheet is where users land when a reply
@@ -9007,10 +9001,6 @@ struct StickerEditSheet: View {
                                     .font(.subheadline)
                             }
                         }
-                    } footer: {
-                        Text(VisionGroupResolver.isConfigured
-                             ? "开启后选图即由助手后台识图并自动预填，可随时修改。"
-                             : "可前往 Minis 设置配置识图助手以支持自动识图。")
                     }
                 }
 

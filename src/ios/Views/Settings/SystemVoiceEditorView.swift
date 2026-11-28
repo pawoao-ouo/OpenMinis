@@ -156,8 +156,6 @@ struct SystemVoiceEditorView: View {
             }
         } header: {
             Text("Voice")
-        } footer: {
-            Text("Download more voices in Settings › Accessibility › Spoken Content › Voices. Premium voices sound best.")
         }
     }
 
@@ -189,8 +187,6 @@ struct SystemVoiceEditorView: View {
             }
         } header: {
             Text("Tuning")
-        } footer: {
-            Text("Speed baseline: final playback speed = this Speed × the read-aloud rate in Voice settings.")
         }
     }
 
@@ -213,8 +209,6 @@ struct SystemVoiceEditorView: View {
             }
         } header: {
             Text("Test")
-        } footer: {
-            Text("Plays with the CURRENT sliders — save with Done.")
         }
     }
 

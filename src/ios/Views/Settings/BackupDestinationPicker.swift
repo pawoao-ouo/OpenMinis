@@ -116,8 +116,6 @@ struct BackupDestinationPicker: View {
 
         } header: {
             Text("Saved Destinations")
-        } footer: {
-            Text("Backups are copied to the enabled destinations. Tap for details, or swipe to remove.")
         }
     }
 

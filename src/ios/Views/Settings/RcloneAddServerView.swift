@@ -207,8 +207,6 @@ struct RcloneAddServerView: View {
                     .textInputAutocapitalization(.never)
             } header: {
                 Text("Name")
-            } footer: {
-                Text("Shown in the destination list.")
             }
 
             Section {
@@ -252,11 +250,6 @@ struct RcloneAddServerView: View {
                 }
             } header: {
                 Text("Connection")
-            } footer: {
-                // Say where the password goes. "Stored in the Keychain" is the
-                // difference between this and typing a password into a text
-                // file, and the user cannot see that from the form itself.
-                Text("Passwords are stored in the iOS Keychain on this device only — never in the backup file.")
             }
         }
     }
@@ -393,8 +386,6 @@ struct RcloneAddServerView: View {
                 .disabled(isListing)
             }
             .textCase(nil)
-        } footer: {
-            Text("Browse to the folder where backups should be saved, then tap Save Here.")
         }
     }
 

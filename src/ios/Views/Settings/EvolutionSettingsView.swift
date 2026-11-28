@@ -24,23 +24,17 @@ struct EvolutionSettingsView: View {
                 } label: {
                     Text("模式")
                 }
-            } footer: {
-                Text("影子模式会照常检索、并记录「本来会参考哪几条」给你看，但一条都不会真正使用——攒够对比数据、你审过之后，再开「启用」。")
             }
 
             Section {
                 Toggle("记录工具轨迹", isOn: $settings.isRecordingEnabled)
                 Toggle("自动整理候选经验", isOn: $extractionEnabled)
-            } footer: {
-                Text("记录只存脱敏后的轨迹（工具名 / 耗时 / 成败 / 参数摘要），原始内容不落库；关掉即只停「采集」——库里已有的经验照常参与注入，不受影响。")
             }
 
             Section {
                 Stepper(value: $settings.injectionBudgetTokens, in: 50...800, step: 50) {
                     Text("注入预算：约 \(settings.injectionBudgetTokens) token")
                 }
-            } footer: {
-                Text("「启用」模式下每轮最多注入的经验长度；影子模式下只用来估算这份对比。预算最低 50——要完全停用请把上面的模式切到「关闭」。")
             }
 
             Section {
@@ -63,8 +57,6 @@ struct EvolutionSettingsView: View {
                         .font(.system(size: fontSettings.scaledApp(13)))
                         .foregroundStyle(MinisTheme.secondaryText)
                 }
-            } footer: {
-                Text("平时任务收尾会自动低频整理一次；这里可以手动催它跑一趟。")
             }
         }
         .navigationTitle("自我进化")

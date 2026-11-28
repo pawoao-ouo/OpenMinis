@@ -147,12 +147,6 @@ struct ModelGroupDetailView: View {
                 .labelsHidden()
             } header: {
                 Text("Routing Strategy")
-            } footer: {
-                if group.strategy == .fallback {
-                    Text("Models are tried in order. If one fails, the next is used.")
-                } else {
-                    Text("Sessions are distributed across models. Each session sticks to its assigned model unless it fails.")
-                }
             }
 
             // MARK: Fallback Strategy
@@ -181,12 +175,6 @@ struct ModelGroupDetailView: View {
                     .labelsHidden()
                 } header: {
                     Text("Fallback Strategy")
-                } footer: {
-                    if group.fallbackStrategy == .limited {
-                        Text("Only switch to the next model on provider-level errors such as rate limiting, invalid API key, or provider rejection. Network and server errors are retried on the current model first.")
-                    } else {
-                        Text("Switch to the next model on any error — including network failures and server unavailability — without retrying. All models in the group are tried in order until one succeeds.")
-                    }
                 }
             }
 
@@ -233,10 +221,6 @@ struct ModelGroupDetailView: View {
                         }
                     }
                     .font(.caption)
-                }
-            } footer: {
-                if group.strategy == .fallback {
-                    Text("Drag to reorder. The first model is tried first.")
                 }
             }
 
@@ -338,8 +322,6 @@ struct ModelGroupDetailView: View {
                 }
             } header: {
                 Text("Session Defaults")
-            } footer: {
-                Text("Applied automatically when a new session is bound to this group.")
             }
 
             // MARK: Danger Zone

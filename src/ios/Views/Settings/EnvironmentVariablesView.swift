@@ -46,8 +46,6 @@ struct EnvironmentVariablesView: View {
         List {
             Section {
                 Toggle("Privacy Mode", isOn: $privacy.enabled)
-            } footer: {
-                Text("Masks variable values in shell output before they reach the model (e.g. `sk-1*****ajhks`). Values under 8 chars become all `*`. Chat output is unchanged.")
             }
 
             // [Batch 23] One inline place for list-action failures
@@ -372,11 +370,6 @@ private struct EnvVarFormSheet: View {
                     .onSubmit { focusedField = .value }
                 } header: {
                     Text("Name")
-                } footer: {
-                    if !key.isEmpty && !isKeyValid {
-                        Text("Must start with a letter and contain only letters, digits, and underscores.")
-                            .foregroundStyle(MinisTheme.destructive)
-                    }
                 }
 
                 Section("Value") {

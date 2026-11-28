@@ -182,8 +182,6 @@ struct PersonaContactsView: View {
                 }
             } header: {
                 Text("所有联系人")
-            } footer: {
-                Text("点进去微调；左滑可复制或删除。最上面的「我自己」是你的档案，不能复制或删。")
             }
         }
         .listStyle(.insetGrouped)
@@ -501,8 +499,6 @@ struct PersonaDetailHomeView: View {
                         }
                     } header: {
                         Text("微调与能力")
-                    } footer: {
-                        Text("人设各参数与规则实时生效。")
                     }
 
                     // 对话与快捷操作
@@ -797,8 +793,6 @@ struct PersonaBasicSettingsView: View {
                         .padding(.vertical, 4)
                     } header: {
                         Text("采样与推理")
-                    } footer: {
-                        Text("未启用的项将自动采用底层供应商或全局默认参数。")
                     }
 
                     // MARK: 上下文历史限制
@@ -820,8 +814,6 @@ struct PersonaBasicSettingsView: View {
                         }
                     } header: {
                         Text("上下文控制")
-                    } footer: {
-                        Text("开启后将自动截断更早的历史消息，避免上下文窗口过满并降低 Token 消耗。")
                     }
 
                     // MARK: 模型与独立绑定
@@ -849,8 +841,6 @@ struct PersonaBasicSettingsView: View {
                             }
                     } header: {
                         Text("模型与生成")
-                    } footer: {
-                        Text("为人设单独指定模型后，对话该人设时将自动路由至此模型。")
                     }
 
                     // MARK: 外观与个性化
@@ -893,8 +883,6 @@ struct PersonaBasicSettingsView: View {
                             }
                     } header: {
                         Text("工作区")
-                    } footer: {
-                        Text("终端与文件操作默认以此目录为根路径。")
                     }
                 }
                 .listStyle(.insetGrouped)
@@ -1039,8 +1027,6 @@ struct PersonaPresetMessagesView: View {
                                     .font(ChatFont.font(13))
                             }
                         }
-                    } footer: {
-                        Text("预设短语可在输入栏中快速调用，或作为该人设发起会话时的示例范例。")
                     }
                 }
                 .listStyle(.insetGrouped)
@@ -1204,8 +1190,6 @@ struct PersonaCustomRequestView: View {
                         }
                     } header: {
                         Text("自定义请求头 (Headers)")
-                    } footer: {
-                        Text("大模型发起网络请求时，会将上述 Header 注入到 HTTP 请求中，例如特定网关路由标签。")
                     }
 
                     // MARK: 请求体 (Extra Body)
@@ -1261,8 +1245,6 @@ struct PersonaCustomRequestView: View {
                         }
                     } header: {
                         Text("自定义请求体 (Extra Body)")
-                    } footer: {
-                        Text("向请求体顶层或 extra_body 注入自定义参数字段（例如供应商专用扩展）。")
                     }
                 }
                 .listStyle(.insetGrouped)
@@ -1397,8 +1379,6 @@ struct PersonaPromptSettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
-                    } footer: {
-                        Text("定义助手的核心人设、口吻、底线与思考模式。保存后立即同步到大模型对话中。")
                     }
 
                     Section {
@@ -1562,8 +1542,6 @@ struct PersonaLocalToolsSettingsView: View {
                             }
                             .font(ChatFont.font(12))
                         }
-                    } footer: {
-                        Text("开启的工具将被注入给模型作为 function call 工具使用。未启用的工具模型将不可见。")
                     }
                 }
                 .listStyle(.insetGrouped)
@@ -1604,8 +1582,6 @@ struct PersonaMemorySettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(MinisTheme.secondaryText)
                         }
-                    } footer: {
-                        Text("该人设跨会话持久保存的核心记忆与背景知识。")
                     }
 
                     Section {
@@ -1684,8 +1660,6 @@ struct PersonaSkillsSettingsView: View {
                         ))
                     } header: {
                         Text("通用规则")
-                    } footer: {
-                        Text("开启后新安装的技能将自动对该人设生效。关闭后可手动勾选白名单。")
                     }
 
                     if !isAll {
@@ -1749,8 +1723,6 @@ struct PersonaMcpSettingsView: View {
                         ))
                     } header: {
                         Text("通用规则")
-                    } footer: {
-                        Text("开启后所有已配置的 MCP 服务器均对该人设生效。关闭后可单独勾选可用服务器。")
                     }
 
                     if !isAll {

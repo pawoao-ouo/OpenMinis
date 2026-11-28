@@ -177,8 +177,6 @@ struct VoiceServicesView: View {
             }
         } header: {
             Text("Text-to-Speech")
-        } footer: {
-            Text(LocalizedStringKey(VoiceServicesCopy.routingNote))
         }
     }
 
@@ -209,8 +207,6 @@ struct VoiceServicesView: View {
                 }
             } header: {
                 Text("From your providers")
-            } footer: {
-                Text("Voice models you already configured on a provider. They use that provider's key and endpoint.")
             }
         }
     }
@@ -291,8 +287,6 @@ struct VoiceServicesView: View {
             }
         } header: {
             Text("Group")
-        } footer: {
-            Text(LocalizedStringKey(VoiceServicesCopy.routingNote))
         }
     }
 

@@ -197,32 +197,6 @@ struct BackupSettingsView: View {
                 }
             } header: {
                 Text("Include")
-            } footer: {
-                // The cap's consequence is stated, because §3.4's whole point is
-                // that a skipped file leaves a tombstone rather than silently
-                // vanishing — the user should know that before it happens, not
-                // discover it at restore time.
-                VStack(alignment: .leading, spacing: 4) {
-                    if selected.contains(where: \.carriesFileTree),
-                       maxFileSizeMB == Self.noFilesTag {
-                        // Worth stating plainly: this is the one setting that makes
-                        // the backup unable to restore a conversation's files at
-                        // all, so it should not read like just another size.
-                        Text("Chats includes every file in each conversation, not just the messages. File contents are not being backed up — the backup lists which files existed, but restoring won't bring them back.")
-                    } else if selected.contains(where: \.carriesFileTree),
-                              maxFileSizeMB != Self.unlimitedTag {
-                        Text("Chats includes every file in each conversation, not just the messages. Files larger than \(maxFileSizeMB) MB are listed in the backup but not included.")
-                    } else {
-                        // Fix 3 — unlimited is the default: every file is
-                        // included, so there is no "left out" case to warn about.
-                        // Picking a size above reintroduces one.
-                        Text("Every file in a chat, not just messages. No size limit.")
-                    }
-                    // [A1] Four whole areas never enter any package — say so
-                    // here, next to the category list, instead of letting
-                    // "all 12 boxes ticked" read as "everything backed up".
-                    Text(AppLocalized("Not backed up: evolution, subagents, TTS settings, and browser history."))
-                }
             }
 
             // Encryption is a CHOICE; the passphrase only appears once it's on.
@@ -263,19 +237,6 @@ struct BackupSettingsView: View {
                 }
             } header: {
                 Text("Encryption")
-            } footer: {
-                if encryptBackup {
-                    // Both halves are load-bearing: what the passphrase covers,
-                    // and that losing it is final. A user who doesn't
-                    // understand the second can lose everything.
-                    Text("This passphrase encrypts the entire backup, including chats, files, and credentials. There is no way to recover a forgotten passphrase — the backup cannot be opened without it.")
-                } else if selected.contains(.providers) {
-                    // Say what turning it off actually costs, in the one case
-                    // where it costs something.
-                    Text("Without encryption the backup is not protected, and API keys are left out — restored providers will need their keys entered again. Anyone with the file can read everything else in it.")
-                } else {
-                    Text("Without encryption the backup is not protected — anyone with the file can read its contents.")
-                }
             }
 
             destinationSection
@@ -295,8 +256,6 @@ struct BackupSettingsView: View {
                                 .background(.indigo, in: Circle())
                         }
                     }
-                } footer: {
-                    Text("Restoring merges a backup into your existing data. Nothing is deleted.")
                 }
             }
 
@@ -431,8 +390,6 @@ struct BackupSettingsView: View {
                         .foregroundStyle(MinisTheme.secondaryText)
                     }
                 }
-            } footer: {
-                Text("Off: only backs up when you tap Start Backup. Existing snapshots stay in the Backups folder — delete them yourself.")
             }
 
             historySection
@@ -518,17 +475,6 @@ struct BackupSettingsView: View {
                     }
                 } header: {
                     Text("Backup Ready")
-                } footer: {
-                    if localCopyRemoved {
-                        Text("Delivered to all \(deliveryResults.count) destination(s) and verified. The copy on this iPhone was removed to save space.")
-                    } else if deliveryResults.isEmpty {
-                        Text("Saved in 嘟嘟 ▸ Backups. Use Save to Files to copy it to iCloud Drive, a connected server, or another cloud provider.")
-                    } else {
-                        let ok = deliveryResults.filter(\.succeeded).count
-                        // The local copy is stated explicitly so a user whose
-                        // NAS was offline can see the backup still exists.
-                        Text("Saved in 嘟嘟 ▸ Backups, and copied to \(ok) of \(deliveryResults.count) selected folder(s).")
-                    }
                 }
             }
         }
@@ -906,11 +852,6 @@ struct BackupSettingsView: View {
             }
         } header: {
             Text("Device Name")
-        } footer: {
-            // Says what the name is FOR — the whole point is the filename —
-            // and how to get back to the default, which an empty field does
-            // not otherwise advertise.
-            Text("Device name used in backup filenames. Empty = “\(DeviceIdentity.automaticName)”.")
         }
         // Seeded in onAppear rather than defaulted, so reopening the screen
         // shows what is actually stored instead of an empty field over a set
@@ -964,8 +905,6 @@ struct BackupSettingsView: View {
                 }
             } header: {
                 Text("Backup History")
-            } footer: {
-                Text("Records from the past month. Older ones are removed automatically.")
             }
         }
     }
@@ -1114,8 +1053,6 @@ struct BackupSettingsView: View {
             }
         } header: {
             Text("Backup Destinations")
-        } footer: {
-            Text("Optional: also uploads each backup to the enabled servers. Without one, you save each one by hand.")
         }
     }
 

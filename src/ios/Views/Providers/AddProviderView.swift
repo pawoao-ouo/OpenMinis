@@ -449,11 +449,6 @@ struct AddProviderView: View {
             }
         } header: {
             Text("Choose Provider")
-        } footer: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("You can add multiple instances of the same provider (e.g. work and personal accounts).")
-                Text("OpenAI and Anthropic also work with compatible third-party endpoints — set a custom API Base URL after choosing the matching protocol.")
-            }
         }
 
         voiceProviderSection
@@ -481,8 +476,6 @@ struct AddProviderView: View {
                         .foregroundStyle(MinisTheme.secondaryText.opacity(0.7))
                 }
             }
-        } footer: {
-            Text("Import a provider configuration that was exported from another device.")
         }
     }
 
@@ -524,13 +517,6 @@ struct AddProviderView: View {
             }
         } header: {
             Text("Voice Chat Providers")
-        } footer: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Speech-to-text and text-to-speech vendors. The provider type and base URL are prefilled — just add your API key.")
-                ForEach(notes, id: \.self) { note in
-                    Text(note)
-                }
-            }
         }
     }
 
@@ -694,8 +680,6 @@ struct AddProviderView: View {
                     }
                 } header: {
                     Text("API Key")
-                } footer: {
-                    Text("Your key is stored in the iOS Keychain. If iCloud Keychain is on, a copy syncs through your own iCloud account (base64-encoded, not end-to-end encrypted); otherwise it stays on this device.")
                 }
 
             if selectedType != .antigravity {
@@ -709,10 +693,6 @@ struct AddProviderView: View {
                         Text("Chat Completions").tag(false)
                         Text("Responses API").tag(true)
                     }
-                } footer: {
-                    Text(useResponsesAPI
-                        ? "Uses /v1/responses endpoint format. Required for some Responses-API-only services."
-                        : "Standard /v1/chat/completions format. Compatible with most OpenAI-compatible services.")
                 }
             }
 
@@ -826,8 +806,6 @@ struct AddProviderView: View {
                 .disabled(manualOAuthTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } header: {
                 Text("Or Configure Manually")
-            } footer: {
-                Text("For third-party Coding Plans (e.g. MiniMax, Kimi) or compatible proxy endpoints, enter the API base URL and bearer token manually.")
             }
         }
 
@@ -863,16 +841,6 @@ struct AddProviderView: View {
             }
         } header: {
             Text("Custom API Base (Optional)")
-        } footer: {
-            if enteredViaVoiceTemplate {
-                Text("The voice service endpoint URL.")
-            } else if selectedType == .gemini {
-                Text("Leave empty to use the default Google endpoint. Enter the full base URL including version path.")
-            } else {
-                Text(appendV1SuffixInput
-                     ? "Leave empty to use the default endpoint. \"/v1\" is appended automatically — enter the base host only."
-                     : "The URL is used verbatim. Include the full path up to (but not including) the endpoint.")
-            }
         }
     }
 

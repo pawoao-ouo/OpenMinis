@@ -21,8 +21,6 @@ struct MemoryManagementView: View {
         List {
             Section {
                 Toggle(AppLocalized("settings_memory_global_enabled"), isOn: $memoryGlobalEnabled)
-            } footer: {
-                Text(AppLocalized("settings_memory_global_enabled_footer"))
             }
 
             ForEach(memoryFiles) { file in

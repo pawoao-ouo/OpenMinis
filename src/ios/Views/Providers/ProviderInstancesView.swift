@@ -100,8 +100,6 @@ struct ProviderInstancesView: View {
                             }
                         }
                     }
-                } footer: {
-                    Text("Voice providers you already configured here show up in Settings › Voice Services, together with the standalone voice services.")
                 }
             }
 

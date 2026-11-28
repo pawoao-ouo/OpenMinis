@@ -146,20 +146,6 @@ struct ThinkingRulesSection: View {
                     EditButton().font(.caption)
                 }
             }
-        } footer: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Rules are evaluated top to bottom. The first rule matching the model decides which thinking parameters are sent.")
-                if let hit = resolvedHitDescription() {
-                    // Design §8.2 — the minimum useful trace: which rule actually wins for
-                    // a real model. Without it the rule list is another hidden variable.
-                    Label(hit, systemImage: "scope")
-                        .font(.caption)
-                        .foregroundStyle(MinisTheme.accent)
-                }
-                Text("Default rules are built in and cannot be deleted. Add a rule above them to override one.")
-                    .foregroundStyle(MinisTheme.secondaryText)
-            }
-            .font(.caption)
         }
         .task(id: instanceId) {
             guard !didLoad else { return }

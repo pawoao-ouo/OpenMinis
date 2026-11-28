@@ -48,8 +48,6 @@ struct FaceIDProtectionSettingsView: View {
                         }
                     }
                 }
-            } footer: {
-                Text("Required every time you open the app: \(BiometricAuth.biometryDisplayName) or the passcode.")
             }
 
             if appLockEnabled {
@@ -64,8 +62,6 @@ struct FaceIDProtectionSettingsView: View {
                     }
                 } header: {
                     Text("App Lock Timeout")
-                } footer: {
-                    Text("How long after leaving the app before the lock re-engages.")
                 }
             }
 
@@ -89,8 +85,6 @@ struct FaceIDProtectionSettingsView: View {
                         }
                     }
                 }
-            } footer: {
-                Text("Locked sessions need \(BiometricAuth.biometryDisplayName) or the passcode before opening.")
             }
 
             if enabled {
@@ -105,8 +99,6 @@ struct FaceIDProtectionSettingsView: View {
                     // lock has its own separate "App Lock Timeout" above bound to
                     // `appLockIdleSeconds` — so this stays session-scoped.
                     Text("Session Lock Timeout")
-                } footer: {
-                    Text("After leaving an unlocked session, the lock re-engages once the idle window elapses.")
                 }
 
                 Section {

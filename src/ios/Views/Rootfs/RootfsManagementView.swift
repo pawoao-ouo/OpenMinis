@@ -104,8 +104,6 @@ struct RootfsManagementView: View {
                     .disabled(viewModel.isProcessing || !viewModel.breakdownLoaded)
                 } header: {
                     Text("Storage")
-                } footer: {
-                    Text("Clean Up deletes only package cache, temporary files, and logs — plus old reset backups (keeps the newest one). Your files in /root and /home, chats, skills, and memory are never touched.")
                 }
 
                 Section("Browse") {

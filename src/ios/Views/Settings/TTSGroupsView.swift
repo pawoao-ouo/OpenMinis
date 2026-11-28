@@ -76,8 +76,6 @@ struct TTSGroupsView: View {
                             Text(g.name).tag(g.id)
                         }
                     }
-                } footer: {
-                    Text(LocalizedStringKey(VoiceServicesCopy.routingNote))
                 }
             }
         }
@@ -279,10 +277,6 @@ struct TTSGroupDetailView: View {
                         }
                     } header: {
                         Text(AppLocalized("Add a service"))
-                    } footer: {
-                        if hiddenCount > 0 {
-                            Text(AppLocalized("Some services are hidden here because they are turned off or have no API key."))
-                        }
                     }
                 }
             }

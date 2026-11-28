@@ -25,8 +25,6 @@ struct AmbientContextSettingsView: View {
                 }
             } header: {
                 Text(AppLocalized("每轮随消息一起发给模型"))
-            } footer: {
-                Text(AppLocalized("这些内容会随每条消息发给模型服务商。关掉的项连一行字都不会出现。它们不会出现在聊天记录里，模型也不会复述——同一条规矩写在它收到的指令里。"))
             }
 
             Section {
@@ -40,8 +38,6 @@ struct AmbientContextSettingsView: View {
                     }
             } header: {
                 Text(AppLocalized("AI 如何感知这些信息"))
-            } footer: {
-                Text(AppLocalized("这里是写给模型的指令，解释该怎么用上面那些信息。你可以修改这段话，让它更符合你的期望。"))
             }
 
             Section {
@@ -53,8 +49,6 @@ struct AmbientContextSettingsView: View {
                     .textSelection(.enabled)
             } header: {
                 Text(AppLocalized("这一轮实际会发的内容"))
-            } footer: {
-                Text(AppLocalized("照当前真实状态算的：歌没在放就不会有歌，间隔不到 3 分钟就不会有间隔。"))
             }
         }
         .navigationTitle(AppLocalized("当前状态"))

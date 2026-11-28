@@ -22,8 +22,6 @@ struct OffloadPermissionSettingsView: View {
                 Toggle("Allow minis-config", isOn: $configGate.enabled)
             } header: {
                 Text("Configuration Tool")
-            } footer: {
-                Text("Off: the agent can't read or change settings via minis-config. It gets permission_denied and can still guide you with deep links. History stays in Logs → Config Changes.")
             }
 
             Section("Privacy") {
@@ -40,8 +38,6 @@ struct OffloadPermissionSettingsView: View {
                 }
             } header: {
                 Text("Appearance")
-            } footer: {
-                Text("主题命令会改配色、壁纸、头像和主题套。第一次用时问一次；只读命令不打扰。删除、改名、换头像、换壁纸、重置每次都单独确认。")
             }
 
             // [s2-approve] 工作区命令（shell_execute）审批总开关，默认关。
@@ -49,8 +45,6 @@ struct OffloadPermissionSettingsView: View {
                 Toggle("执行前先询问", isOn: $shellApproval.needsApproval)
             } header: {
                 Text("Workspace Commands")
-            } footer: {
-                Text("打开后执行每条命令都先问你，可在弹窗里选「本次会话不再询问」。默认关闭。MCP、日历/提醒写入走各自的审批，不受影响。")
             }
 
             Section {
@@ -66,8 +60,6 @@ struct OffloadPermissionSettingsView: View {
                 }
             } header: {
                 Text("Voice Correction Learning")
-            } footer: {
-                Text("Stores your voice-transcript fixes, accepted/rejected AI corrections, and frequent terms on-device to improve future corrections. Nothing is uploaded. Off by default.")
             }
             .confirmationDialog(
                 AppLocalized("Clear all collected voice correction data?",

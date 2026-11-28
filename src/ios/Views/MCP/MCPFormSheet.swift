@@ -280,10 +280,6 @@ struct MCPFormSheet: View {
             }
         } header: {
             Text("Authentication")
-        } footer: {
-            if authMode == .oauthStatic {
-                Text("Standard OAuth Authorization Code + PKCE with your own app credentials. Register \(MCPOAuthController.defaultRedirectURI) as the Redirect URI in your OAuth client (Google: create a \"Web application\" or \"Desktop\" client — localhost redirects are accepted). Client Secret and tokens are stored in the device Keychain only — they never sync to iCloud, so other devices authorize separately.")
-            }
         }
     }
 
@@ -321,16 +317,12 @@ struct MCPFormSheet: View {
                                showEnvPicker: true)
             } header: {
                 Text("Environment Variables")
-            } footer: {
-                Text("Use the braces button to insert a reference to an App environment variable as $$NAME. Its value is filled in at runtime.")
             }
             Section {
                 TextField(AppLocalized("Default 60"), text: $startupTimeoutText)
                     .keyboardType(.numberPad)
             } header: {
                 Text("Startup timeout (seconds)")
-            } footer: {
-                Text("How long to wait for this server's first initialize. Raise it for slow-starting servers (e.g. uvx). Leave blank for the default (60s). 嘟嘟 setting, not part of the MCP protocol.")
             }
         }
     }

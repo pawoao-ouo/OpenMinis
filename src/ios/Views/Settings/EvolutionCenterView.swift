@@ -52,8 +52,6 @@ struct EvolutionCenterView: View {
                     } label: {
                         Label("开关与预算", systemImage: "switch.2")
                     }
-                } footer: {
-                    Text("默认「影子」：只记录、不使用——攒够对比数据、你审过之后，再考虑开「启用」。")
                 }
 
                 // [E05] 把影子模式"记录「本来会参考哪几条」给你看"的承诺兑现：
@@ -70,8 +68,6 @@ struct EvolutionCenterView: View {
                     }
                 } header: {
                     Text("最近注入")
-                } footer: {
-                    Text("影子与启用都会记账：影子记「本来会参考哪几条」，启用记「真的注入了哪几条」；上面的「影子命中」是总数。")
                 }
 
                 // [audit-D4] 维护入口：此前 prune() / clearAll() 全仓零调用，
@@ -94,8 +90,6 @@ struct EvolutionCenterView: View {
                     }
                 } header: {
                     Text("维护")
-                } footer: {
-                    Text("维护只删过期 / 超限的轨迹与注入记账（经验条目永不物理删除）；清空会抹掉全部进化数据，不可恢复。")
                 }
 
                 Section {

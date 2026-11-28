@@ -114,16 +114,6 @@ struct BackupHistoryDetailView: View {
             )) {
                 Label("Keep Screen Awake", systemImage: "sun.max")
             }
-        } footer: {
-            // An interrupted encrypted backup cannot be resumed — its staged
-            // tree may already hold `.enc` members under a salt the next
-            // attempt cannot reproduce — so starting a new backup begins a
-            // fresh export. Say so here, or the "can be resumed later"
-            // promise would be a lie for exactly the runs that show this
-            // footer while live.
-            Text(record.encrypted
-                 ? "Stopping keeps what's done, but an encrypted backup can't be resumed — a new one starts over. Deleting the record discards it."
-                 : "Stopping keeps what's done; this run can be resumed later. Deleting the record discards it.")
         }
     }
 
@@ -215,8 +205,6 @@ struct BackupHistoryDetailView: View {
             }
         } header: {
             Text("Summary")
-        } footer: {
-            Text("Included: \(record.categories.map(displayName).joined(separator: ", "))")
         }
     }
 

@@ -238,8 +238,6 @@ struct BackupDestinationDetailView: View {
             }
         } header: {
             Text("Configuration")
-        } footer: {
-            Text("Tap the name or folder to change it; edit the connection for address and password.")
         }
 
         if let errorText {
@@ -309,10 +307,6 @@ struct BackupDestinationDetailView: View {
                     BackupActionIcon(systemName: "trash.fill", tint: .red)
                 }
             }
-        } footer: {
-            // Say what is NOT destroyed — otherwise "remove" next to a list of
-            // stored backups reads as though it deletes them.
-            Text("Removing forgets this server and its password on this iPhone. Backups already stored on the server are left untouched.")
         }
 
         Section {
@@ -347,13 +341,6 @@ struct BackupDestinationDetailView: View {
             }
         } header: {
             Text("Backups Stored Here")
-        } footer: {
-            // The gesture is invisible until tried, and what it does here is
-            // irreversible — so it is stated rather than left to be
-            // discovered by someone swiping to see what happens.
-            if !packages.isEmpty {
-                Text("Swipe a backup left to delete it. Deleted backup files cannot be recovered.")
-            }
         }
 
         // Keyed on the current remote's identity (configName embeds name +
@@ -709,10 +696,6 @@ struct RcloneConnectionEditor: View {
                             Toggle("No password (anonymous)", isOn: $clearSecret.animation())
                         } header: {
                             Text("Password")
-                        } footer: {
-                            Text(clearSecret
-                                 ? "The stored password will be removed."
-                                 : "Leave blank to keep the current password.")
                         }
                     }
                 }

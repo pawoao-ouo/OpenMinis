@@ -109,8 +109,6 @@ struct BridgeExternalConnectionView: View {
                 }
             } header: {
                 Text(AppLocalized("本地服务"))
-            } footer: {
-                Text(AppLocalized("在本机开一个 MCP 入口，只对外露出「搜」和「命令」两个口。局域网里的 AI 和下面的中继都经它进来。默认关。"))
             }
 
             Section {
@@ -166,12 +164,6 @@ struct BridgeExternalConnectionView: View {
                 }
             } header: {
                 Text(AppLocalized("中继连接"))
-            } footer: {
-                // 用户-P3-7：两个开关是独立的——关「中继连接」只断开
-                // Cloudflare 中转，「本地服务」那节的 MCP 对外服务还会
-                // 继续在 127.0.0.1 监听；要全关，两个开关都要关。写清楚，
-                // 不让用户以为"桥关了"。
-                Text(AppLocalized("先填地址和口令再打开。口令只存钥匙串。注意：「中继连接」和「本地服务」里的 MCP 对外是两个开关——关中继只断 Cloudflare，本地入口还在监听，要全关得两个都关。"))
             }
 
             Section {
@@ -200,8 +192,6 @@ struct BridgeExternalConnectionView: View {
                 }
             } header: {
                 Text(AppLocalized("报问题到 GitHub"))
-            } footer: {
-                Text(AppLocalized("在桥里说哪里有问题，它打包发到 GitHub Issues，不用填表。要一把 fine-grained PAT：只选这个仓库、只给 Issues 读写。令牌只存本机钥匙串，不回显。"))
             }
         }
         .navigationTitle(AppLocalized("桥·对外连接"))
