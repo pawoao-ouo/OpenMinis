@@ -254,8 +254,6 @@ struct BackupRestoreView: View {
                 }
             } header: {
                 Text("Backup Destinations")
-            } footer: {
-                Text("Tap a destination to browse its folders and pick a backup.")
             }
         }
     }
@@ -310,7 +308,7 @@ struct BackupRestoreView: View {
         } header: {
             Text("Other Sources")
         } footer: {
-            Text("Pick a .minisbak file from Files, iCloud Drive, or any connected storage — or add a server your backups were saved to.")
+            Text("Pick a .minisbak from Files, iCloud, or a server.")
         }
     }
 
@@ -348,7 +346,7 @@ struct BackupRestoreView: View {
                 } header: {
                     Text("Safety Copy")
                 } footer: {
-                    Text("Saved before your last overwrite restore. Restoring it brings back what the overwrite removed — nothing is deleted.")
+                    Text("Auto-saved before the last overwrite. Restoring it brings back what was removed.")
                 }
             }
         }
@@ -623,7 +621,7 @@ struct BackupRestoreView: View {
             if restoreMode == .overwrite {
                 Text("Overwrite: local items in the selected categories that are not in this backup will be deleted. A safety copy is made first.")
             } else {
-                Text("Merge: items are matched by id. Existing items are only replaced when the backup's copy is newer. Nothing is deleted.")
+                Text("Merge: match by id, replace only when the backup's copy is newer. Nothing is deleted.")
             }
         }
     }
@@ -649,12 +647,8 @@ struct BackupRestoreView: View {
                 }
             }
 
-            if restoreMode == .merge {
-                Text("Merge keeps everything on this device. Items from the backup are added, and an existing item is only replaced when the backup's copy is newer.")
-                    .font(.system(size: fontSettings.scaledApp(13)))
-                    .foregroundStyle(MinisTheme.secondaryText)
-            } else {
-                Text(AppLocalized("Overwrite deletes local items in the selected categories that are not in this backup. A few things stay as they are on this device: provider default pointers, voice-correction learning, and persona-registry and regex-rule files the package does not carry. A full safety copy of your current data is made first — if the safety copy fails, nothing is deleted and the restore is refused."))
+            if restoreMode == .overwrite {
+                Text(AppLocalized("Overwrite deletes local items not in this backup. A few things stay as they are on this device. A full safety copy is made first — if it fails, nothing is deleted and the restore is refused."))
                     .font(.system(size: fontSettings.scaledApp(13)))
                     .foregroundStyle(MinisTheme.secondaryText)
                 if previewLoading {
@@ -714,7 +708,7 @@ struct BackupRestoreView: View {
                 .map(displayName).joined(separator: ", ")
             return "Overwrite will delete local \(names) that are not in this backup. A full safety copy of your current data is made first, and if that copy fails nothing is deleted."
         }
-        return "Items from the backup are merged into your existing data. Nothing is deleted, and anything you've changed more recently is kept."
+        return "Items are merged in. Nothing is deleted, and anything you've changed more recently is kept."
     }
 
     private var passphraseSection: some View {
@@ -1381,7 +1375,7 @@ struct ServerRestorePickerSheet: View {
                         Label("Add Server…", systemImage: "plus")
                     }
                 } footer: {
-                    Text("Add the server your backups were saved to. Servers added here are also available as backup destinations.")
+                    Text("Add the server your backups are on. It can also be a backup destination.")
                 }
             }
             .navigationTitle("Restore from Server")
@@ -1498,7 +1492,7 @@ struct ServerPackageListView: View {
 
                     entryRows
                 } footer: {
-                    Text("Open folders to browse. Only .minisbak files are shown.")
+                    Text("Only .minisbak files are shown.")
                 }
             }
             .refreshable { await reload() }

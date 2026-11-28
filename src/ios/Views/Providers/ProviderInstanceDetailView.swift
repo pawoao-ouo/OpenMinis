@@ -106,7 +106,7 @@ struct ProviderInstanceDetailView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     } footer: {
-                        Text("Paste the bearer token. Whitespace and newlines will be stripped automatically.")
+                        Text("Paste the token — spaces and newlines are stripped.")
                     }
                     // Same red-caption error style as keySaveError below.
                     if let tokenError = manualTokenSaveError {
@@ -677,8 +677,8 @@ struct ProviderInstanceDetailView: View {
             Text("Custom API Base")
         } footer: {
             Text(instance.appendV1Suffix
-                 ? "Leave empty to use the default endpoint. \"/v1\" is appended automatically — enter the base host only."
-                 : "The URL is used verbatim. Include the full path up to (but not including) the endpoint, e.g. \"/chat/completions\".")
+                 ? "Empty = default endpoint. \"/v1\" is added automatically — base host only."
+                 : "Used verbatim. Include the path up to the endpoint, e.g. \"/chat/completions\".")
         }
     }
 
@@ -713,7 +713,7 @@ struct ProviderInstanceDetailView: View {
                     .textSelection(.enabled)
             }
         } footer: {
-            Text(AppLocalized("Use Azure OpenAI authentication (api-key header). Paste your full Azure endpoint into Custom API Base above, including the ?api-version=… query. Works with both API formats."))
+            Text(AppLocalized("Azure auth. Paste the full endpoint, including ?api-version=…"))
         }
     }
 
@@ -729,7 +729,7 @@ struct ProviderInstanceDetailView: View {
         } header: {
             Text(AppLocalized("Custom User-Agent"))
         } footer: {
-            Text(AppLocalized("Override the User-Agent header sent to this endpoint. Leave empty to use the 嘟嘟 default. Useful for relays that only accept specific clients (e.g. \"claude-cli/1.0\")."))
+            Text(AppLocalized("Override the User-Agent. Empty = 嘟嘟 default. For relays that only accept specific clients."))
         }
     }
 
@@ -792,7 +792,7 @@ struct ProviderInstanceDetailView: View {
         } header: {
             Text(AppLocalized("Custom Headers"))
         } footer: {
-            Text(AppLocalized("Extra HTTP headers sent with every request to this provider (e.g. X-Gateway-Token for relays). Authorization, Content-Type and User-Agent can never be overridden."))
+            Text(AppLocalized("Extra headers per request (e.g. X-Gateway-Token). Authorization, Content-Type and User-Agent can't be overridden."))
         }
     }
 
@@ -819,7 +819,7 @@ struct ProviderInstanceDetailView: View {
         } header: {
             Text(AppLocalized("生成参数"))
         } footer: {
-            Text(AppLocalized("Default sampling parameters for every model under this provider. A model can override each of these in its own details. Off = provider default."))
+            Text(AppLocalized("Default sampling params for all models here; each can override. Off = provider default."))
         }
     }
 
@@ -861,9 +861,9 @@ struct ProviderInstanceDetailView: View {
                 let resolvedLabel = resolved == .imagesGenerations
                     ? "/v1/images/generations"
                     : "/v1/chat/completions"
-                Text(AppLocalized("Auto: tries /v1/images/generations first, falls back to /v1/chat/completions. Last successful endpoint: \(resolvedLabel)."))
+                Text(AppLocalized("Auto: images/generations, then chat/completions. Last good: \(resolvedLabel)."))
             } else {
-                Text(AppLocalized("Auto: tries /v1/images/generations first, falls back to /v1/chat/completions. Caches the working endpoint after the first call."))
+                Text(AppLocalized("Auto: images/generations, then chat/completions. Caches the working one."))
             }
         case .imagesGenerations:
             Text(AppLocalized("Always use /v1/images/generations."))
@@ -921,7 +921,7 @@ struct ProviderInstanceDetailView: View {
         } header: {
             Text("Manual Token")
         } footer: {
-            Text("Use a static bearer token instead of the OAuth sign-in flow. Useful with custom proxy endpoints.")
+            Text("Use a static token instead of OAuth sign-in. For custom proxies.")
         }
     }
 
@@ -1386,7 +1386,7 @@ struct AddCustomModelSheet: View {
                 } header: {
                     Text("Input Modality")
                 } footer: {
-                    Text("Text input is always supported. Disable modalities the model doesn't actually support to prevent sending unsupported attachments.")
+                    Text("Text input is always on. Turn off modalities the model can't take.")
                 }
 
                 Section {
@@ -1395,7 +1395,7 @@ struct AddCustomModelSheet: View {
                 } header: {
                     Text("Output Modality")
                 } footer: {
-                    Text("Enable for models that generate images (e.g. gpt-image-1, dall-e-3, flux) or audio (e.g. TTS models). Text output is always enabled.")
+                    Text("Enable only for models that output images or audio. Text output is always on.")
                 }
             }
             .navigationTitle("Add Custom Model")
@@ -1678,7 +1678,7 @@ struct ModelEntryDetailSheet: View {
                 } header: {
                     Text(AppLocalized("生成参数"))
                 } footer: {
-                    Text(AppLocalized("Leave a parameter off to use the provider default. Temperature and Top P apply to Anthropic, Gemini and OpenAI-compatible models; penalties apply to OpenAI-compatible models."))
+                    Text(AppLocalized("Leave a param off to use the provider default."))
                 }
 
                 Section {
@@ -1704,7 +1704,7 @@ struct ModelEntryDetailSheet: View {
                 } header: {
                     Text("Output Modality")
                 } footer: {
-                    Text("Enable for models that generate images (e.g. gpt-image-1, dall-e-3, flux) or audio (e.g. TTS models). Text output is always enabled.")
+                    Text("Enable only for models that output images or audio. Text output is always on.")
                 }
 
                 if !entry.isCustom && !entry.overrides.isEmpty {
@@ -1772,7 +1772,7 @@ struct ModelEntryDetailSheet: View {
                 }
                 Button(AppLocalized("Cancel"), role: .cancel) {}
             } message: {
-                Text(AppLocalized("The provider has not declared whether this model supports thinking. Force-enabling may cause errors — you can disable it or retry if needed."))
+                Text(AppLocalized("Provider didn't declare thinking support. Forcing it may error — disable or retry if so."))
             }
             .alert(
                 AppLocalized("Reset Model Settings"),
