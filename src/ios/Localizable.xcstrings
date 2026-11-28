@@ -20106,7 +20106,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose the voice for read-aloud and AI voice replies. A service is a complete synthesis target — vendor, endpoint, key, model, voice id and tuning knobs — independent of model groups."
+            "value": "Choose the voice for read-aloud and AI voice replies. Each service is a full synthesis target, independent of model groups."
           }
         },
         "es": {
@@ -20142,13 +20142,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "选朗读和 AI 语音回复用的声音。一个服务就是一套完整的合成目标：厂商、地址、密钥、模型、音色、调音项，和模型分组互不相干。"
+            "value": "选朗读和 AI 语音回复用的声音。一个服务就是一套完整的合成目标，和模型分组无关。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "選擇朗讀和 AI 語音回覆用的聲音。一個服務就是一套完整的合成目標：廠商、位址、金鑰、模型、音色、調音項，與模型分組互不相干。"
+            "value": "選擇朗讀和 AI 語音回覆用的聲音。一個服務就是一套完整的合成目標，與模型分組無關。"
           }
         }
       }
@@ -23371,13 +23371,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "配置 Agent 使用的模型，管理各 AI 服务商的 API Key 和 OAuth，以及创建模型分组以实现回退或负载均衡。"
+            "value": "配置模型、各服务商的 API Key 和 OAuth、模型分组。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "配置智能體使用的模型，管理各 AI 服務商的 API Key 和 OAuth，以及創建模型分組以實現回退或負載均衡。"
+            "value": "配置模型、各服務商的 API Key 和 OAuth、模型分組。"
           }
         }
       }

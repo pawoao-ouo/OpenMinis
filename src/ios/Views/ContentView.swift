@@ -6880,7 +6880,7 @@ private struct SettingsSheet: View {
                 } header: {
                     Text("LLM Providers")
                 } footer: {
-                    Text("Configure which models the agent uses, manage API keys & OAuth for each provider, and create model groups for fallback or load balancing.")
+                    Text("Configure models, API keys & OAuth for each provider, and model groups.")
                 }
 
                 // [T-tts-services 09-11] kelivo-style independent TTS layer:
@@ -6908,7 +6908,7 @@ private struct SettingsSheet: View {
                 } header: {
                     Text("Speech")
                 } footer: {
-                    Text("Choose the voice for read-aloud and AI voice replies. A service is a complete synthesis target — vendor, endpoint, key, model, voice id and tuning knobs — independent of model groups.")
+                    Text("Choose the voice for read-aloud and AI voice replies. Each service is a full synthesis target, independent of model groups.")
                 }
 
                 // [T-scheduled-prompt 09-13] W1: agent self-wake schedules.
@@ -6921,7 +6921,7 @@ private struct SettingsSheet: View {
                 } header: {
                     Text("Automation")
                 } footer: {
-                    Text("A scheduled prompt fires a local notification at the time you pick. Tapping it wakes the agent with your preset prompt — untapped, nothing runs (iOS does not allow apps to execute unattended in the background). For timers that Minis itself runs while it is open, see Agent Runtime ▸ Scheduled Tasks & Pulses.")
+                    Text("A scheduled prompt fires a local notification at the time you pick. Nothing runs unless you tap it. Timers that run while the app is open are under Agent Runtime ▸ Scheduled Tasks & Pulses.")
                 }
 
                 Section("Appearance") {
