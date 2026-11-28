@@ -150,7 +150,7 @@ struct TTSServiceEditorView: View {
         } header: {
             Text("Service")
         } footer: {
-            Text("Voice ID is the vendor's own voice identifier — e.g. OpenAI 'alloy', Azure 'zh-CN-XiaoxiaoNeural', MiniMax 'female-shaonv'. Anything the vendor accepts can be pasted here.")
+            Text("The vendor's own voice id — e.g. OpenAI 'alloy', Azure 'zh-CN-XiaoxiaoNeural'.")
         }
     }
 
@@ -204,7 +204,7 @@ struct TTSServiceEditorView: View {
         } header: {
             Text("Test")
         } footer: {
-            Text("Plays through the CURRENT editor state — the key above, unsaved included.")
+            Text("Plays the current editor state, including unsaved changes.")
         }
     }
 
@@ -302,10 +302,10 @@ struct TTSServiceEditorView: View {
                     // work at all — say so. An existing service keeps its old
                     // key, so the old wording still holds there.
                     if service == nil {
-                        MinisToast.show(AppLocalized("API key could not be saved to the Keychain — check Settings → Privacy & Security. This service cannot work until the key is saved."),
+                        MinisToast.show(AppLocalized("Key could not be saved to the Keychain — check Settings → Privacy & Security. The service won't work until it is."),
                                        systemImage: "exclamationmark.triangle.fill")
                     } else {
-                        MinisToast.show(AppLocalized("API key could not be saved to the Keychain — check Settings → Privacy & Security. The service still works but will keep asking."),
+                        MinisToast.show(AppLocalized("Key could not be saved to the Keychain — check Settings → Privacy & Security. It still works but will keep asking."),
                                        systemImage: "exclamationmark.triangle.fill")
                     }
                     return

@@ -183,7 +183,7 @@ struct StorageManagementView: View {
                 } header: {
                     Text(AppLocalized("Voice files"))
                 } footer: {
-                    Text(AppLocalized("Voice messages are stored as audio files in each chat. Deleting old ones frees space; those bubbles lose their audio, their text stays."))
+                    Text(AppLocalized("Voice messages are audio files in each chat. Deleting old ones frees space — the bubbles lose audio, text stays."))
                 }
             }
 

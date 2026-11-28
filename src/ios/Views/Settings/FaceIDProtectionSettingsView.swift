@@ -49,7 +49,7 @@ struct FaceIDProtectionSettingsView: View {
                     }
                 }
             } footer: {
-                Text("When enabled, \(BiometricAuth.biometryDisplayName) (or device passcode) is required every time you open the app.")
+                Text("Required every time you open the app: \(BiometricAuth.biometryDisplayName) or the passcode.")
             }
 
             if appLockEnabled {
@@ -90,7 +90,7 @@ struct FaceIDProtectionSettingsView: View {
                     }
                 }
             } footer: {
-                Text("When enabled, locked sessions require \(BiometricAuth.biometryDisplayName) (or device passcode) before their contents are revealed.")
+                Text("Locked sessions need \(BiometricAuth.biometryDisplayName) or the passcode before opening.")
             }
 
             if enabled {

@@ -178,7 +178,7 @@ private struct MemoryFileEditView: View {
     var body: some View {
         VStack(spacing: 0) {
             if isGlobal {
-                Text("Persistent instructions and preferences visible to the agent in every session. You can edit it here, or just ask the agent to help organize and update this memory.")
+                Text("Persistent instructions the agent sees in every session. Edit it here, or ask the agent to update it.")
                     .font(.system(size: fontSettings.scaledApp(12)))
                     .foregroundStyle(MinisTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)

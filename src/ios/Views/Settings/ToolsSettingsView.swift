@@ -132,7 +132,7 @@ struct ToolsSettingsView: View {
             Section {
                 toolRow(AppLocalized("Browser Use"), tool: "browser_use", icon: "globe", isOn: $browserEnabled)
             } footer: {
-                Text(AppLocalized("Browse the web in the in-app browser: open pages, read them, click and type. Stable and on by default. When off, the tool is removed from every conversation — the model does not see it at all."))
+                Text(AppLocalized("Open pages, read them, click and type in the in-app browser. On by default; off removes the tool entirely."))
             }
             // [batch1] The Agents switch lives HERE now: its former home (a
             // "Sub Agents page") was never built — the switch was unreachable
@@ -140,14 +140,14 @@ struct ToolsSettingsView: View {
             Section {
                 toolRow(AppLocalized("Sub Agents"), tool: SubAgentDefinition.toolName, icon: "person.2.fill", isOn: $agentsEnabled)
             } footer: {
-                Text(AppLocalized("Let the assistant delegate work to background sub-agents. Each one spends real tokens while it runs. When off, the tool is removed from every conversation — the model does not see it at all."))
+                Text(AppLocalized("Delegate work to background sub-agents. Each spends real tokens. Off removes the tool entirely."))
             }
             // [T-manual-phase2-3a] 问用户的开关：关掉后模型连"可以问她"
             // 都不知道，只能自己决定或者干等。
             Section {
                 toolRow(AppLocalized("User Interaction"), tool: AIChatViewModel.askUserToolName, icon: "questionmark.bubble", isOn: $userInteractionEnabled)
             } footer: {
-                Text(AppLocalized("Let the assistant stop and ask you a question or ask you to approve one specific action before doing it. When off, the tool is removed from every conversation — the model does not see it at all."))
+                Text(AppLocalized("Lets the assistant ask you a question or get approval for one action. When off, the tool is removed — the model never sees it."))
             }
         }
         .navigationTitle(AppLocalized("Agent Tools"))

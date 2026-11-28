@@ -8,7 +8,7 @@ enum VoiceServicesCopy {
     /// [B09-N01 2026-10-22] English source string (the xcstrings key), same as
     /// every other string in this layer — the old Chinese literal was shown
     /// verbatim to every language. Call sites wrap it in LocalizedStringKey.
-    static let routingNote = "Who speaks: the service you ticked, then the default voice group's services in order, then the voice model group. The built-in System voice only joins when it is allowed below."
+    static let routingNote = "Who speaks: your ticked service, then the default voice group in order, then the voice model group. System voice joins only if allowed below."
 }
 
 // MARK: - Voice Services (kelivo-style TTS service list)
@@ -114,7 +114,7 @@ struct VoiceServicesView: View {
             }
             Button("Keep current setting", role: .cancel) {}
         } message: {
-            Text("System voice is muted. Allowing it lets it speak for read-aloud and AI voice replies; you can turn it off here anytime.")
+            Text("System voice is muted. Allow it to speak read-aloud and AI replies; turn it off here anytime.")
         }
         // [B09-N11 2026-10-22] Deleting a service also deletes its stored API
         // key from the Keychain — irreversible, and the old swipe deleted it

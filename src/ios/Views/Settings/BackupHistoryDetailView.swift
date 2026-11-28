@@ -70,8 +70,8 @@ struct BackupHistoryDetailView: View {
             // history needs to know the first option does NOT reach into their
             // NAS, and that the second one does and cannot be undone.
             Text(canDeleteRemoteFiles
-                 ? AppLocalized("“Delete Record Only” removes this entry and leaves the backup files on your destinations. “Delete Record and Files” also deletes the package from each destination — that cannot be undone.")
-                 : AppLocalized("This removes the record from this list. The backup files already saved to your destinations are not deleted."))
+                 ? AppLocalized("“Delete Record Only” drops this entry, files stay. “Delete Record and Files” also deletes them from every destination — can't be undone.")
+                 : AppLocalized("Removes this entry from the list. Files already saved to your destinations are not deleted."))
         }
     }
 
@@ -122,8 +122,8 @@ struct BackupHistoryDetailView: View {
             // promise would be a lie for exactly the runs that show this
             // footer while live.
             Text(record.encrypted
-                 ? "Stopping keeps what has been backed up so far, but this encrypted backup cannot be resumed — starting a new backup begins a fresh export. Deleting the record discards it."
-                 : "Stopping keeps what has been backed up so far, and this run can be resumed later. Deleting the record discards it.")
+                 ? "Stopping keeps what's done, but an encrypted backup can't be resumed — a new one starts over. Deleting the record discards it."
+                 : "Stopping keeps what's done; this run can be resumed later. Deleting the record discards it.")
         }
     }
 

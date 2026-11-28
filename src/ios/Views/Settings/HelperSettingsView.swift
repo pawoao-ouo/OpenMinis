@@ -41,7 +41,7 @@ struct HelperSettingsView: View {
                     }
                 }
             } footer: {
-                Text(AppLocalized("Delegate self-contained sub-tasks to a sub agent that works in its own hidden session and reports back. The same tool also lets the assistant check on or stop what it started. Several agents can run at once, so a large fan-out uses correspondingly more of your quota. On by default; when off, it is not offered to the model at all."))
+                Text(AppLocalized("Hand self-contained sub-tasks to a sub agent in its own hidden session. Several can run at once, each spending tokens. On by default; off removes the tool entirely."))
             }
 
             Section {
@@ -74,7 +74,7 @@ struct HelperSettingsView: View {
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(AppLocalized("The assistant picks a sub agent by its description, so write the description as “when to use this”. Order is the order it sees them in."))
+                    Text(AppLocalized("Write the description as “when to use this” — that's how the assistant picks. Order is what it sees."))
                     if !store.canAddSubAgent {
                         Text(String(format: AppLocalized("You can define up to %d sub agents."), SubAgentLimits.maxCount))
                             .foregroundStyle(MinisTheme.secondaryText)
@@ -227,8 +227,8 @@ struct SubAgentEditorView: View {
                     Text(AppLocalized("Description"))
                 } footer: {
                     Text(isBuiltIn
-                         ? AppLocalized("The built-in sub agent's name and description are fixed. You can still change its model and instructions.")
-                         : AppLocalized("Describe when this sub agent should be used. Keep it short — details go in Instructions."))
+                         ? AppLocalized("The built-in agent's name and description are fixed; model and instructions are editable.")
+                         : AppLocalized("When should it be used? Keep it short — details go in Instructions."))
                 }
 
                 Section {
@@ -244,7 +244,7 @@ struct SubAgentEditorView: View {
                     // here, a user would reasonably expect the built-in's text
                     // to be a global prefix — it deliberately is not.
                     Text(isBuiltIn
-                         ? AppLocalized("These instructions apply to every delegation that does not name a sub agent. Custom sub agents use their own.")
+                         ? AppLocalized("Applies to every delegation that doesn't name a sub agent. Custom ones use their own.")
                          : AppLocalized("These instructions apply only to this sub agent."))
                 }
 
@@ -258,7 +258,7 @@ struct SubAgentEditorView: View {
                 } header: {
                     Text(AppLocalized("Model"))
                 } footer: {
-                    Text(AppLocalized("Auto lets the assistant choose per task: the same model as the conversation, your Default group for hard reasoning, or your light group for simple well-defined work. Pick a specific Model Group instead to run this sub agent on it every time."))
+                    Text(AppLocalized("Auto: the assistant picks per task — conversation model, Default for hard reasoning, light for simple work. Or pin one Model Group."))
                 }
 
                 // [T-subagent-thinking-override] Same shape as a Model Group's
@@ -307,8 +307,8 @@ struct SubAgentEditorView: View {
                     Text(AppLocalized("Reasoning"))
                 } footer: {
                     Text(thinkingOverride == nil
-                         ? AppLocalized("Off: runs use the reasoning level of the Model Group above, or of the conversation that delegated when the model is Auto.")
-                         : AppLocalized("Every run of this sub agent uses this level, overriding the Model Group's own default. Models that cannot reason this hard are clamped to their own ceiling."))
+                         ? AppLocalized("Off: uses the Model Group's level, or the delegating conversation's when on Auto.")
+                         : AppLocalized("Every run uses this level, overriding the Model Group default. Models that can't reason this hard are clamped."))
                 }
             }
             .navigationTitle(existing == nil ? AppLocalized("New Sub Agent") : AppLocalized("Edit Sub Agent"))

@@ -47,7 +47,7 @@ struct EnvironmentVariablesView: View {
             Section {
                 Toggle("Privacy Mode", isOn: $privacy.enabled)
             } footer: {
-                Text("When enabled, any environment variable value that appears in shell-execute output is replaced with a masked form (e.g. `sk-1********ajhks`) before reaching the model. Values shorter than 8 characters become all `*`. The user-visible output in chat is unchanged.")
+                Text("Masks variable values in shell output before they reach the model (e.g. `sk-1*****ajhks`). Values under 8 chars become all `*`. Chat output is unchanged.")
             }
 
             // [Batch 23] One inline place for list-action failures
@@ -70,7 +70,7 @@ struct EnvironmentVariablesView: View {
                             .foregroundStyle(MinisTheme.secondaryText)
                         Text("No Environment Variables")
                             .font(.system(size: fontSettings.scaledApp(17), weight: .semibold))
-                        Text("Add variables like API keys or tokens that will be available in the shell environment.")
+                        Text("Add API keys or tokens available in the shell.")
                             .font(.system(size: fontSettings.scaledApp(12)))
                             .foregroundStyle(MinisTheme.secondaryText)
                             .multilineTextAlignment(.center)

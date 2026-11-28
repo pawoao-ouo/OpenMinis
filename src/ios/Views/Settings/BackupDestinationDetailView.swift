@@ -239,7 +239,7 @@ struct BackupDestinationDetailView: View {
         } header: {
             Text("Configuration")
         } footer: {
-            Text("Tap the name or folder to change them, or edit the connection to change the address and password.")
+            Text("Tap the name or folder to change it; edit the connection for address and password.")
         }
 
         if let errorText {
@@ -787,7 +787,7 @@ struct RcloneConnectionEditor: View {
             }
             _ = try? RcloneRemoteStore.update(name: remote.name, newParams: rollbackParams,
                                               newSecret: previousSecret ?? "")
-            errorText = AppLocalized("Couldn't connect with these settings, so they weren't saved. \(error.localizedDescription)")
+            errorText = AppLocalized("Couldn't connect, so nothing was saved. \(error.localizedDescription)")
         }
     }
 

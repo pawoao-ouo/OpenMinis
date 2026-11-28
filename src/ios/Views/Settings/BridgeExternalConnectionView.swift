@@ -171,7 +171,7 @@ struct BridgeExternalConnectionView: View {
                 // Cloudflare 中转，「本地服务」那节的 MCP 对外服务还会
                 // 继续在 127.0.0.1 监听；要全关，两个开关都要关。写清楚，
                 // 不让用户以为"桥关了"。
-                Text(AppLocalized("先填中继地址和口令，再打开中继连接；改完按「保存」或按回车生效。口令只存本机钥匙串，不会上传；中继只转手，防重发缓存最多保留 600 秒。注意：「中继连接」和上面「本地服务」里的 MCP 对外服务是两个独立开关——关掉中继只断开 Cloudflare 中转，本地的 MCP 入口还会继续在本机监听；要全关，两个开关都要关。"))
+                Text(AppLocalized("先填地址和口令再打开。口令只存钥匙串。注意：「中继连接」和「本地服务」里的 MCP 对外是两个开关——关中继只断 Cloudflare，本地入口还在监听，要全关得两个都关。"))
             }
 
             Section {
@@ -201,7 +201,7 @@ struct BridgeExternalConnectionView: View {
             } header: {
                 Text(AppLocalized("报问题到 GitHub"))
             } footer: {
-                Text(AppLocalized("在桥里跟小管家说哪里有问题，它会把问题连同当时的情况打包发到 GitHub 仓库 imcat-owo/OpenMinis 的问题列表里，不用填表。发送需要一把令牌：在 GitHub 里生成一个 fine-grained 个人访问令牌（PAT），只选 imcat-owo/OpenMinis 这一个仓库、权限只给 Issues 的读写。令牌只存本机钥匙串，界面不回显，也不会发到别处。填好按「保存」或按回车保存。"))
+                Text(AppLocalized("在桥里说哪里有问题，它打包发到 GitHub Issues，不用填表。要一把 fine-grained PAT：只选这个仓库、只给 Issues 读写。令牌只存本机钥匙串，不回显。"))
             }
         }
         .navigationTitle(AppLocalized("桥·对外连接"))
@@ -274,7 +274,7 @@ struct BridgeExternalConnectionView: View {
                 pendingNewToken = nil
             }
         } message: {
-            Text(AppLocalized("两步才算换完：① App 这边已换上新口令，已用新口令自动重连（去 CF 更新前显示「启动中」，更新完自动连上，不用手动开关中继）；② 去 Cloudflare 控制台 → bridge-relay → 设置 → 环境变量，把 RELAY_TOKEN 改成刚复制的新口令并保存。两步都做完，旧口令立刻作废。"))
+            Text(AppLocalized("两步才算换完：① App 这边已换并自动重连；② 去 Cloudflare → bridge-relay → 环境变量，把 RELAY_TOKEN 改成新口令。两步都做完，旧口令才作废。"))
         }
         .settingsPage()
     }

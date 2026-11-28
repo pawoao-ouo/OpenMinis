@@ -23,7 +23,7 @@ struct OffloadPermissionSettingsView: View {
             } header: {
                 Text("Configuration Tool")
             } footer: {
-                Text("When disabled, the agent cannot read or modify any settings via minis-config. The change history at Logs → Config Changes remains accessible. The agent will receive a permission_denied error and can guide you via deep links instead.")
+                Text("Off: the agent can't read or change settings via minis-config. It gets permission_denied and can still guide you with deep links. History stays in Logs → Config Changes.")
             }
 
             Section("Privacy") {
@@ -41,7 +41,7 @@ struct OffloadPermissionSettingsView: View {
             } header: {
                 Text("Appearance")
             } footer: {
-                Text("主题命令会改你的配色、壁纸、头像和已保存的主题套。默认第一次使用时先问一次；只读命令（查看当前主题）不打扰你。删除、改名、换头像、换壁纸、重置这些动作每次都会单独弹确认单。")
+                Text("主题命令会改配色、壁纸、头像和主题套。第一次用时问一次；只读命令不打扰。删除、改名、换头像、换壁纸、重置每次都单独确认。")
             }
 
             // [s2-approve] 工作区命令（shell_execute）审批总开关，默认关。
@@ -50,7 +50,7 @@ struct OffloadPermissionSettingsView: View {
             } header: {
                 Text("Workspace Commands")
             } footer: {
-                Text("打开后，AI 在工作区执行每条命令前都会先弹窗问你；也可以在弹窗里打开「本次会话不再询问」一键放行。默认关闭。MCP 工具调用、日历/提醒写入与上面的系统命令走各自的审批，不受此开关影响。")
+                Text("打开后执行每条命令都先问你，可在弹窗里选「本次会话不再询问」。默认关闭。MCP、日历/提醒写入走各自的审批，不受影响。")
             }
 
             Section {
@@ -67,7 +67,7 @@ struct OffloadPermissionSettingsView: View {
             } header: {
                 Text("Voice Correction Learning")
             } footer: {
-                Text("When enabled, your manual fixes to voice transcripts (original → corrected pairs), accepted/rejected AI corrections, and frequently typed terms are stored in a local on-device database to make future voice corrections smarter. Nothing is uploaded. Default is off; existing data stays until you clear it.")
+                Text("Stores your voice-transcript fixes, accepted/rejected AI corrections, and frequent terms on-device to improve future corrections. Nothing is uploaded. Off by default.")
             }
             .confirmationDialog(
                 AppLocalized("Clear all collected voice correction data?",
