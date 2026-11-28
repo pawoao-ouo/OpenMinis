@@ -29,29 +29,29 @@ enum ReportIssueTool {
                 name: toolName,
                 summary: "报问题：把 App 的问题连同发送时的情况打包发到 GitHub 问题列表",
                 detail: """
-                    主人说 App 哪里有问题、哪里不好用时用这个工具：把问题打包发到 \
-                    GitHub 仓库 \(repoFullName) 的 Issues，主人不用填表。
-                    什么时候调：主人明确说了哪里有问题、不好用、报错了才调；主人只是在问\
+                    用户说 App 哪里有问题、哪里不好用时用这个工具：把问题打包发到 \
+                    GitHub 仓库 \(repoFullName) 的 Issues，用户不用填表。
+                    什么时候调：用户明确说了哪里有问题、不好用、报错了才调；对方只是在问\
                     怎么用、提意见但没说"这是问题"时，先问一句再调，不要自作主张发出去。
                     参数 title（一句话问题标题，必填）：简短说清是什么问题，比如"深色模式下输入框看不清"。
-                    参数 detail（主人的原话描述，可选）：尽量原样转述主人的话，别改写、别脑补；\
-                    主人没细说就留空，不要编。
+                    参数 detail（用户的原话描述，可选）：尽量原样转述对方的话，别改写、别脑补；\
+                    用户没细说就留空，不要编。
                     工具会自动附上发送时的小快照（App 版本、系统版本、发送时间、MCP 聚合服务\
                     当时在忙的任务）和最近的共享事件日志片段，不用再另外传。
-                    发完之后：工具会返回 Issue 编号和链接，一定要转述给主人（比如"已发到 GitHub，\
-                    编号 #123，链接 https://…"），让主人知道去哪看。
+                    发完之后：工具会返回 Issue 编号和链接，一定要转述给用户（比如"已发到 GitHub，\
+                    编号 #123，链接 https://…"），让用户知道去哪看。
                     同一内容 15 分钟内不会重复发：超时以为没发出去时，直接重发一次就行，\
                     不会建出第二条 Issue。
-                    如果设置页还没填 GitHub 令牌，工具会明确报错：这时跟主人说去"设置 > 桥·对外连接 > \
+                    如果设置页还没填 GitHub 令牌，工具会明确报错：这时跟用户说去"设置 > 桥·对外连接 > \
                     报问题到 GitHub"里粘贴令牌，不要反复重试。
-                    这是往外发东西的敏感动作，执行前必须经主人确认（手机上弹框，主人点了"允许"才发；\
-                    主人超时没点或不在手机旁就按拒绝处理）。
+                    这是往外发东西的敏感动作，执行前必须经用户确认（手机上弹框，点了"允许"才发；\
+                    用户超时没点或不在手机旁就按拒绝处理）。
                     """,
                 keywords: ["报问题", "反馈", "问题", "毛病", "bug", "issue", "报错", "故障", "不好用", "report"],
                 parameterSchemaJSON: #"""
                     {"type":"object","properties":{
                       "title":{"type":"string","description":"一句话问题标题"},
-                      "detail":{"type":"string","description":"主人的原话描述（可选）"}},
+                      "detail":{"type":"string","description":"用户的原话描述（可选）"}},
                      "required":["title"]}
                     """#,
                 permission: .sensitive
@@ -172,7 +172,7 @@ enum ReportIssueTool {
                 \(head)
                 Issue 编号：#\(number)
                 链接：\(url)
-                请把编号和链接转述给主人。
+                请把编号和链接转述给用户。
                 """)
         }
         return ToolOutput(text: "\(head)请到仓库 \(repoFullName) 的 Issues 列表里看最新一条。")
@@ -252,7 +252,7 @@ enum ReportIssueTool {
                 已经把问题发到 GitHub 了。
                 Issue 编号：#\(number)
                 链接：\(htmlURL)
-                请把编号和链接转述给主人。
+                请把编号和链接转述给用户。
                 """)
         }
 
@@ -310,7 +310,7 @@ enum ReportIssueTool {
                 case .failed: "失败"
                 case .timedOut: "超时"
                 case .cancelled: "已取消"
-                case .interruptedByOwner: "主人打断"
+                case .interruptedByOwner: "用户打断"
                 default: "终结"
                 }
                 var line = "\(name)（\(stateText)）：\(instruction)"
@@ -330,7 +330,7 @@ enum ReportIssueTool {
             : String(sanitize(logLines.joined(separator: "\n")).prefix(3000))
 
         var sections: [String] = []
-        sections.append("## 主人反馈的问题")
+        sections.append("## 用户反馈的问题")
         sections.append(detail.map { String($0.prefix(4000)) } ?? title)
         sections.append("## 发送时的情况")
         sections.append("""

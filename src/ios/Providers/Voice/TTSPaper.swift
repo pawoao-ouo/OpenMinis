@@ -55,7 +55,7 @@ enum TTSPaper {
             desc = "TTS 服务「\(s.name)」（音色 \(s.voice)）"
         }
         let what = desc.isEmpty ? "TTS 语音" : desc
-        return "你有声音：\(what)已配置。你可以用 send_voice 工具随时发语音消息——像人一样，想发就发，不用等主人开口；觉得某句话用声音说比打字更合适时（晚安、撒娇、安慰、惊喜），就直接发语音。"
+        return "你有声音：\(what)已配置。你可以用 send_voice 工具随时发语音消息——像人一样，想发就发，不用等用户开口；觉得某句话用声音说比打字更合适时（晚安、撒娇、安慰、惊喜），就直接发语音。"
     }
 
     /// 拼出纸条正文。没配任何可用 TTS 服务/分组时返回 nil。
@@ -71,7 +71,7 @@ enum TTSPaper {
         var lines: [String] = []
         if !skipIntro {
             lines.append("【纸条·TTS 语音】")
-            lines.append("你有一个 send_voice 工具：把文字合成为语音消息发给主人（微信式语音气泡，点一下就能听，会自动播放）。主人说\"发条语音\"\"用语音说\"\"读出来\"\"念给我听\"这类话时，调这个工具——别自己去沙箱里跑命令合成音频。")
+            lines.append("你有一个 send_voice 工具：把文字合成为语音消息发给用户（微信式语音气泡，点一下就能听，会自动播放）。对方说\"发条语音\"\"用语音说\"\"读出来\"\"念给我听\"这类话时，调这个工具——别自己去沙箱里跑命令合成音频。")
             lines.append("")
         }
 
@@ -80,7 +80,7 @@ enum TTSPaper {
         // 播放链是"选中优先"——说明书和实际反着，模型按错的清单解释声音。
         let defaultCandidates = groupStore.usableDefaultGroupCandidates()
         if let s = VoiceChain.selectedService() {
-            lines.append("当前 TTS 服务：\(s.name)（\(s.kind.displayName)·音色 \(s.voice)）。这个是主人点选的，优先于分组。")
+            lines.append("当前 TTS 服务：\(s.name)（\(s.kind.displayName)·音色 \(s.voice)）。这个是用户点选的，优先于分组。")
             if !defaultCandidates.isEmpty, let g = groupStore.defaultGroup() {
                 lines.append("默认 TTS 分组「\(g.name)」作为备选，顺序：\(defaultCandidates.map { $0.name }.joined(separator: " → "))。选中服务失败时按这个顺序换。")
             }
@@ -105,7 +105,7 @@ enum TTSPaper {
             lines.append("备选服务（不在默认分组里）：\(others.map { "\($0.name)（音色 \($0.voice)）" }.joined(separator: "、"))。")
         }
         lines.append("")
-        lines.append("调用方法：send_voice(text=要说的话，tool_title=一句话摘要)。text 写口语化的中文，直接是主人会听到的话，别带 markdown 符号；别太长，太长分段调多次。")
+        lines.append("调用方法：send_voice(text=要说的话，tool_title=一句话摘要)。text 写口语化的中文，直接是用户会听到的话，别带 markdown 符号；别太长，太长分段调多次。")
         lines.append("换声音：你可以用 send_voice 的 voice 参数点名这次用哪个服务、group 参数点名用哪个分组。名字只能从上面这份清单里挑，原样照抄（别自己编、别翻译）；清单外的会被拒绝。不传就用默认顺序，一般不用传。")
         lines.append("失败时：工具会明确报错。如实告诉用户这条语音没发出去，不要谎称已发送；可以建议检查 TTS 服务配置。")
         return lines.joined(separator: "\n")

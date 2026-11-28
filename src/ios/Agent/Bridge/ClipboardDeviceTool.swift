@@ -20,7 +20,7 @@ enum ClipboardDeviceTool {
                 detail: """
                     参数 action：set 写入，clear 清空，status 看剪贴板里有什么类型的内容。
                     set 时 text 必填；set 可带 image（沙箱内图片路径）把该路径的图片复制进剪贴板。
-                    读剪贴板内容请用 device_clipboard_read 工具（需主人确认）。
+                    读剪贴板内容请用 device_clipboard_read 工具（需用户确认）。
                     执行上限 30 秒：「命令」口的 timeoutSeconds 传更大也不会延长，以这个为准。
                     """,
                 keywords: ["剪贴板", "粘贴", "复制", "clipboard", "pasteboard", "拷贝"],
@@ -58,10 +58,10 @@ enum ClipboardDeviceTool {
         try await registry.register(
             descriptor: ToolDescriptor(
                 name: readToolName,
-                summary: "剪贴板读取：读手机剪贴板里的文字（敏感动作，需主人确认）",
+                summary: "剪贴板读取：读手机剪贴板里的文字（敏感动作，需用户确认）",
                 detail: """
                     读剪贴板当前内容。可带 image（沙箱内图片路径）：把剪贴板里的图片存到该路径。
-                    剪贴板里可能有主人刚复制的密码、验证码，执行前必须经主人确认。
+                    剪贴板里可能有用户刚复制的密码、验证码，执行前必须经对方确认。
                     写入/清空/看状态用 device_clipboard 工具。
                     执行上限 30 秒：「命令」口的 timeoutSeconds 传更大也不会延长，以这个为准。
                     """,

@@ -26,8 +26,8 @@ enum PhotosDeviceTool {
                     near 找某经纬度附近的照片（lat、lon 必填，radius 半径公里，limit）；
                     albums 列相册（type user/smart/all）；album 列某个相册里的内容（id 或 name，limit）；
                     stats 相册统计。
-                    写动作（导出/导入/建相册/加进相册/收藏）请用 device_photos_write 工具（需主人确认）；
-                    删除照片用 device_photos_delete 工具（需主人确认）。
+                    写动作（导出/导入/建相册/加进相册/收藏）请用 device_photos_write 工具（需用户确认）；
+                    删除照片用 device_photos_delete 工具（需用户确认）。
                     执行上限 120 秒；注意「命令」口的中继转发上限是 60 秒，传超 60 秒的超时第一次必吃 504。
                     """,
                 keywords: ["相册", "照片", "图片", "视频", "photos", "album", "图库"],
@@ -93,7 +93,7 @@ enum PhotosDeviceTool {
         try await registry.register(
             descriptor: ToolDescriptor(
                 name: writeToolName,
-                summary: "相册写入：导出原图、导入图片、建相册、收藏（敏感动作，需主人确认）",
+                summary: "相册写入：导出原图、导入图片、建相册、收藏（敏感动作，需用户确认）",
                 detail: """
                     参数 action：
                     export 导出一张到 /var/minis/offloads/（id 必填，size thumb/medium/original）；
@@ -174,10 +174,10 @@ enum PhotosDeviceTool {
         try await registry.register(
             descriptor: ToolDescriptor(
                 name: deleteToolName,
-                summary: "相册删除：删除指定照片/视频（敏感动作，需主人确认）",
+                summary: "相册删除：删除指定照片/视频（敏感动作，需用户确认）",
                 detail: """
                     参数 ids：逗号分隔的照片/视频标识（先用 device_photos 的 list 查到 id）。
-                    删除会进系统相册的删除流程，执行前必须经主人确认。
+                    删除会进系统相册的删除流程，执行前必须经用户确认。
                     执行上限 120 秒；注意「命令」口的中继转发上限是 60 秒，传超 60 秒的超时第一次必吃 504。
                     """,
                 keywords: ["删除照片", "删图", "delete photo", "相册删除", "照片删除"],

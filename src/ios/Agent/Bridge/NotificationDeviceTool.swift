@@ -22,8 +22,8 @@ enum NotificationDeviceTool {
                 summary: "本地通知：查看手机本地通知（待触发/已送达/授权状态）",
                 detail: """
                     参数 action：pending 看待触发的通知，delivered 看已送达的，settings 看通知授权状态。
-                    取消通知请用 device_notification_cancel 工具（需主人确认）。
-                    安排新通知请用 device_notification_schedule 工具（需主人确认）。
+                    取消通知请用 device_notification_cancel 工具（需用户确认）。
+                    安排新通知请用 device_notification_schedule 工具（需用户确认）。
                     执行上限 30 秒：「命令」口的 timeoutSeconds 传更大也不会延长，以这个为准。
                     """,
                 keywords: ["通知", "提醒", "notification"],
@@ -51,10 +51,10 @@ enum NotificationDeviceTool {
         try await registry.register(
             descriptor: ToolDescriptor(
                 name: cancelToolName,
-                summary: "取消通知：取消一条或全部待触发本地通知（敏感动作，需主人确认）",
+                summary: "取消通知：取消一条或全部待触发本地通知（敏感动作，需用户确认）",
                 detail: """
                     取消本地通知。id 指定取消一条（先用 device_notification 的 pending 查到 id），
-                    all=true 取消全部待触发通知。删掉设好的提醒不可恢复，执行前必须经主人确认。
+                    all=true 取消全部待触发通知。删掉设好的提醒不可恢复，执行前必须经用户确认。
                     执行上限 30 秒：「命令」口的 timeoutSeconds 传更大也不会延长，以这个为准。
                     """,
                 keywords: ["取消通知", "取消提醒", "删除提醒", "cancel notification"],
@@ -82,12 +82,12 @@ enum NotificationDeviceTool {
         try await registry.register(
             descriptor: ToolDescriptor(
                 name: scheduleToolName,
-                summary: "安排通知：在手机上安排一条本地通知提醒（敏感动作，需主人确认）",
+                summary: "安排通知：在手机上安排一条本地通知提醒（敏感动作，需用户确认）",
                 detail: """
                     安排一条本地通知。title/body 至少给一个；时间给 after（多少秒后）或 at（ISO 时间）至少一个，
                     repeat=true 为重复提醒（配合 at 为每天该时刻，配合 after 为每 N 秒、最短 60），
                     action_spec 可带交互按钮，格式 "按钮名:id" 逗号分隔。
-                    会在主人手机上弹出提醒，执行前必须经主人确认。
+                    会在用户手机上弹出提醒，执行前必须经对方确认。
                     查看通知用 device_notification 工具，取消通知用 device_notification_cancel 工具。
                     执行上限 30 秒：「命令」口的 timeoutSeconds 传更大也不会延长，以这个为准。
                     """,

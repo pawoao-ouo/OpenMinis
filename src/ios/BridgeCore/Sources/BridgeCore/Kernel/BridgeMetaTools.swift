@@ -39,7 +39,7 @@ public enum BridgeMetaTools {
         )
         let commandTool = Tool(
             name: commandName,
-            description: "下达一条指令，桥里的 MCP 聚合服务负责找工具、执行、清洗，只回高密度结果。可点名 tool 指定工具，不点名则由 MCP 聚合服务按指令智能路由。敏感动作（如删照片、发 GitHub Issue）执行前会弹框请主人在手机上确认，主人超时未确认或不在手机旁则默认拒绝。",
+            description: "下达一条指令，桥里的 MCP 聚合服务负责找工具、执行、清洗，只回高密度结果。可点名 tool 指定工具，不点名则由 MCP 聚合服务按指令智能路由。敏感动作（如删照片、发 GitHub Issue）执行前会弹框请用户在手机上确认，超时未确认或不在手机旁则默认拒绝。",
             inputSchema: .object([
                 "type": .string("object"),
                 "properties": .object([

@@ -24,13 +24,13 @@ enum MCPManagementTools {
         [
             AgentToolDefinition(
                 name: "add_mcp",
-                description: "接入一个新的 MCP 服务器（MCP 聚合点专用）。两段式：第一段先探一下 MCP 的 URL、鉴权、能拉到哪些工具，并把清单列出来请主人确认；主人点头后第二段带 confirm=true 再调一次——这时手机上会弹框，必须主人亲手点「允许」才真落盘（confirm 参数只是回执，不当权限）。陌生链接必须先确认再接。确认接入后，这家 MCP 的工具会进本地 MCP 聚合点的「搜」和「命令」，外部 AI 也能调。鉴权信息绝不许传明文 key：如需鉴权，先请主人去「设置 → 环境变量」新建变量（值由主人亲自填写，只进钥匙串），再把 \"Key: $$变量名\" 传给我（如 \"Authorization: $$MY_MCP_KEY\"）。",
+                description: "接入一个新的 MCP 服务器（MCP 聚合点专用）。两段式：第一段先探一下 MCP 的 URL、鉴权、能拉到哪些工具，并把清单列出来请用户确认；对方点头后第二段带 confirm=true 再调一次——这时手机上会弹框，必须对方亲手点「允许」才真落盘（confirm 参数只是回执，不当权限）。陌生链接必须先确认再接。确认接入后，这家 MCP 的工具会进本地 MCP 聚合点的「搜」和「命令」，外部 AI 也能调。鉴权信息绝不许传明文 key：如需鉴权，先请用户去「设置 → 环境变量」新建变量（值由本人填写，只进钥匙串），再把 \"Key: $$变量名\" 传给我（如 \"Authorization: $$MY_MCP_KEY\"）。",
                 parameters: [
                     "url": AgentToolParam(type: .string, description: "MCP 服务器地址（http/https，必填）"),
                     "name": AgentToolParam(type: .string, description: "给这家 MCP 起的名字（只允许字母数字 _.-；不填就用域名）"),
-                    "note": AgentToolParam(type: .string, description: "备注（给主人看的，比如这是谁家的服务）"),
+                    "note": AgentToolParam(type: .string, description: "备注（给用户看的，比如这是谁家的服务）"),
                     "authHeaderRef": AgentToolParam(type: .string, description: "鉴权头引用，\"Key: $$变量名\" 格式（如 \"Authorization: $$MY_MCP_KEY\"）；变量必须是「设置 → 环境变量」里已建好的。不需要鉴权就空着。传明文 key 会被直接拒绝。"),
-                    "confirm": AgentToolParam(type: .boolean, description: "确认接入。第一次调不传（只探、只列清单）；主人点头后再调一次并传 confirm=true——这时手机会弹框，必须主人亲手点允许才真落盘"),
+                    "confirm": AgentToolParam(type: .boolean, description: "确认接入。第一次调不传（只探、只列清单）；对方点头后再调一次并传 confirm=true——这时手机会弹框，必须对方亲手点允许才真落盘"),
                 ],
                 required: ["url"]),
             AgentToolDefinition(
@@ -40,10 +40,10 @@ enum MCPManagementTools {
                 required: []),
             AgentToolDefinition(
                 name: "remove_mcp",
-                description: "移除本地 MCP 聚合点已接入的 MCP 服务器。两段式：第一次调先列出这家 MCP 的工具清单请主人确认；主人点头后带 confirm=true 再调一次——这时手机上会弹框，必须主人亲手点「允许」才真删（confirm 参数只是回执，不当权限）。删掉后这家的工具会从「搜」和「命令」里下掉。",
+                description: "移除本地 MCP 聚合点已接入的 MCP 服务器。两段式：第一次调先列出这家 MCP 的工具清单请用户确认；对方点头后带 confirm=true 再调一次——这时手机上会弹框，必须对方亲手点「允许」才真删（confirm 参数只是回执，不当权限）。删掉后这家的工具会从「搜」和「命令」里下掉。",
                 parameters: [
                     "name": AgentToolParam(type: .string, description: "要删的 MCP 名字（必填）"),
-                    "confirm": AgentToolParam(type: .boolean, description: "确认删除。第一次调不传（只列清单）；主人点头后再调一次并传 confirm=true——这时手机会弹框，必须主人亲手点允许才真删"),
+                    "confirm": AgentToolParam(type: .boolean, description: "确认删除。第一次调不传（只列清单）；对方点头后再调一次并传 confirm=true——这时手机会弹框，必须对方亲手点允许才真删"),
                 ],
                 required: ["name"]),
             AgentToolDefinition(
@@ -174,7 +174,7 @@ enum MCPManagementTools {
         // 一律按明文 key 拒绝——key 只许以 $$变量名 引用的形式来。
         if let legacy = args["authHeader"] as? String,
            !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return ("Error: 鉴权信息不许传明文 key。请主人去「设置 → 环境变量」新建一个变量（值由主人亲自填写，只进钥匙串），再把 \"Key: $$变量名\" 传给我。", false)
+            return ("Error: 鉴权信息不许传明文 key。请用户去「设置 → 环境变量」新建一个变量（值由本人填写，只进钥匙串），再把 \"Key: $$变量名\" 传给我。", false)
         }
         // 鉴权头引用：必须是 "Key: $$VARNAME" 形状，值原样进 servers.json，
         // 运行时由 minis-mcp-cli 从 App 环境变量（钥匙串）解析，明文永不落盘。
@@ -197,7 +197,7 @@ enum MCPManagementTools {
                 EnvVarStore.shared.entries.contains(where: { $0.key == varName })
             }
             guard varExists else {
-                return ("Error: 环境变量「\(varName)」还没建。请主人去「设置 → 环境变量」新建它（值由主人亲自填写），建好后我再调一次 add_mcp，参数完全一样。", false)
+                return ("Error: 环境变量「\(varName)」还没建。请用户去「设置 → 环境变量」新建它（值由本人填写），建好后我再调一次 add_mcp，参数完全一样。", false)
             }
             headerArg = "\(hKey): \(hVal)"
         }
@@ -241,7 +241,7 @@ enum MCPManagementTools {
             工具（\(tools.count) 个）：
             \(list)
 
-            请主人确认：接吗？主人点头后，我再调一次 add_mcp（参数完全一样，再加 confirm=true）——那时手机上会弹框，还必须主人亲手点「允许」才真接入。
+            请用户确认：接吗？对方点头后，我再调一次 add_mcp（参数完全一样，再加 confirm=true）——那时手机上会弹框，还必须对方亲手点「允许」才真接入。
             """, true)
         }
 
@@ -251,11 +251,11 @@ enum MCPManagementTools {
             instruction: "接入 MCP「\(name)」(\(url))，\(tools.count) 个工具")
         if !ok {
             _ = try? await runCLI("minis-mcp-cli remove \(shellQuote(name))")
-            return ("主人没点头（拒绝/超时/人不在手机旁），这家 MCP 没有落盘，已撤掉。", false)
+            return ("用户没点头（拒绝/超时/人不在手机旁），这家 MCP 没有落盘，已撤掉。", false)
         }
 
         await afterChange()
-        return ("已接入 MCP「\(name)」（\(tools.count) 个工具）。本地 MCP 聚合点的「搜」现在能搜到它们，外部 AI 经「命令」也能点名调用（敏感工具执行前会弹框请主人确认）。", true)
+        return ("已接入 MCP「\(name)」（\(tools.count) 个工具）。本地 MCP 聚合点的「搜」现在能搜到它们，外部 AI 经「命令」也能点名调用（敏感工具执行前会弹框请用户确认）。", true)
     }
 
     // MARK: list_mcp
@@ -263,7 +263,7 @@ enum MCPManagementTools {
     private static func listMCP() async -> (String, Bool) {
         let servers = await MainActor.run { MCPStore.shared.servers }
         if servers.isEmpty {
-            return ("还没接入任何 MCP。发个 MCP 链接，我来走接入流程（先探、请主人确认再接）。", true)
+            return ("还没接入任何 MCP。发个 MCP 链接，我来走接入流程（先探、请用户确认再接）。", true)
         }
         var lines: [String] = []
         for s in servers {
@@ -304,7 +304,7 @@ enum MCPManagementTools {
             它的工具（\(tools.count) 个）：
             \(describeTools(tools))
 
-            请主人确认：删吗？删掉后这家的工具会从「搜」和「命令」里下掉。主人点头后，我再调一次 remove_mcp（name=\(name)，再加 confirm=true）——那时手机上会弹框，还必须主人亲手点「允许」才真删。
+            请用户确认：删吗？删掉后这家的工具会从「搜」和「命令」里下掉。对方点头后，我再调一次 remove_mcp（name=\(name)，再加 confirm=true）——那时手机上会弹框，还必须对方亲手点「允许」才真删。
             """, true)
         }
 
@@ -313,7 +313,7 @@ enum MCPManagementTools {
             toolName: "remove_mcp",
             instruction: "移除 MCP「\(name)」")
         if !ok {
-            return ("主人没点头（拒绝/超时/人不在手机旁），这家 MCP 还在，没删。", false)
+            return ("用户没点头（拒绝/超时/人不在手机旁），这家 MCP 还在，没删。", false)
         }
 
         do {

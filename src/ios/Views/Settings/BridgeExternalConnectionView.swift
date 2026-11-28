@@ -239,7 +239,7 @@ struct BridgeExternalConnectionView: View {
             }
             Button(AppLocalized("取消"), role: .cancel) {}
         } message: {
-            Text(AppLocalized("正在跑和排队的任务都会停掉，外部 AI 会收到「主人打断」。"))
+            Text(AppLocalized("正在跑和排队的任务都会停掉，外部 AI 会收到「用户打断」。"))
         }
         // 用户-P3-3：清除令牌二次确认——钥匙串条目删掉就没了，
         // 之后报问题前要重新填。

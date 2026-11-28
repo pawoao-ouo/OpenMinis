@@ -159,12 +159,12 @@ final class StewardTests: XCTestCase {
         await steward.interruptByOwner(id)
         let result = await steward.waitForCompletion(id)
         let elapsed = Date().timeIntervalSince(started)
-        XCTAssertEqual(result.state, .interruptedByOwner, "主人打断必须单列终态，不能混进一般取消")
+        XCTAssertEqual(result.state, .interruptedByOwner, "用户打断必须单列终态，不能混进一般取消")
         XCTAssertTrue(result.isError)
         XCTAssertTrue(
-            result.cleanedText?.contains("主人打断") ?? false,
-            "回给外部调用方的文案必须能区分主人打断：\(result.cleanedText ?? "nil")")
-        XCTAssertLessThan(elapsed, 5, "主人打断应很快收尾，不该等满 30 秒")
+            result.cleanedText?.contains("用户打断") ?? false,
+            "回给外部调用方的文案必须能区分用户打断：\(result.cleanedText ?? "nil")")
+        XCTAssertLessThan(elapsed, 5, "用户打断应很快收尾，不该等满 30 秒")
     }
 
     func testInterruptQueuedTaskByOwner() async throws {
@@ -292,21 +292,21 @@ final class StewardTests: XCTestCase {
         }
         XCTAssertTrue(noGateReason.contains("已拒绝"))
 
-        // 主人拒绝：失败，不执行。
+        // 用户拒绝：失败，不执行。
         let denied = await (try makeStewardWithGate(DenyGate())).execute(
             StewardRequest(instruction: "执行", toolName: "danger_op"))
         guard case .failed(let deniedReason) = denied.state else {
-            return XCTFail("主人拒绝时敏感工具应失败，实际：\(denied.state)")
+            return XCTFail("用户拒绝时敏感工具应失败，实际：\(denied.state)")
         }
         XCTAssertTrue(deniedReason.contains("已拒绝"))
 
-        // 主人不在手机旁：失败，文案明确告知。
+        // 用户不在手机旁：失败，文案明确告知。
         let away = await (try makeStewardWithGate(AwayGate())).execute(
             StewardRequest(instruction: "执行", toolName: "danger_op"))
         guard case .failed(let awayReason) = away.state else {
-            return XCTFail("主人不在时敏感工具应失败，实际：\(away.state)")
+            return XCTFail("用户不在时敏感工具应失败，实际：\(away.state)")
         }
-        XCTAssertTrue(awayReason.contains("主人未在手机旁"))
+        XCTAssertTrue(awayReason.contains("用户未在手机旁"))
 
         // 主人批准：执行。
         let approved = await (try makeStewardWithGate(ApproveGate())).execute(

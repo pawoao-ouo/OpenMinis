@@ -60,9 +60,9 @@ enum AIVoiceMessageComposer {
                 let opts = available.isEmpty ? "（还没有配任何 TTS 服务）" : "可用服务：" + available.joined(separator: "、")
                 return "没有这个 TTS 服务「\(name)」。\(opts)不传 voice 就用默认分组。"
             case .serviceDisabled(let name):
-                return "TTS 服务「\(name)」已停用。让主人去「设置 > Voice Services」里启用，或换个服务。"
+                return "TTS 服务「\(name)」已停用。让用户去「设置 > Voice Services」里启用，或换个服务。"
             case .serviceNotUsable(let name):
-                return "TTS 服务「\(name)」的凭证不完整，合成不了。让主人去「设置 > Voice Services」里重新填一遍密钥（讯飞要 appId;apiKey;apiSecret 三段），或换个服务。"
+                return "TTS 服务「\(name)」的凭证不完整，合成不了。让用户去「设置 > Voice Services」里重新填一遍密钥（讯飞要 appId;apiKey;apiSecret 三段），或换个服务。"
             case .synthesisFailed(let detail):
                 return "语音合成失败（\(detail)）。如实告诉用户这条语音没发出去，不要谎称已发送；可以建议检查 TTS 服务配置。"
             }

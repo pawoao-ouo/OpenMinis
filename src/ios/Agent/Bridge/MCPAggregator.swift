@@ -201,7 +201,7 @@ actor MCPAggregator {
         parts.append("这是 MCP 服务器「\(serverId)」上的工具 \(tool.name)，由MCP 聚合服务聚合进来。")
         parts.append("点名调用时 tool 填完整名 `\(qualifiedName)`，arguments 按参数 schema 传。")
         if needsApproval {
-            parts.append("敏感动作：执行前需主人在手机上确认，未确认不执行。")
+            parts.append("敏感动作：执行前需用户在手机上确认，未确认不执行。")
         }
         return parts.joined(separator: "\n")
     }

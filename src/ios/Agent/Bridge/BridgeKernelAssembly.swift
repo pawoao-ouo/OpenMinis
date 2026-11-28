@@ -224,7 +224,7 @@ final class BridgeKernelAssembly {
             // 字段里填；任务归属在 summary 的工具/指令里已说明。
             SharedEventLog.shared.emit(
                 event: "bridge.task_interrupted",
-                summary: "主人打断了小管家任务（工具：\(task.toolName ?? "未定")，指令：\(instruction)）")
+                summary: "用户打断了小管家任务（工具：\(task.toolName ?? "未定")，指令：\(instruction)）")
         }
         return tasks
     }

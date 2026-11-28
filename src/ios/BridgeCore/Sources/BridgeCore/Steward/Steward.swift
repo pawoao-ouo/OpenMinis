@@ -137,7 +137,7 @@ public actor Steward {
     /// 超时、失败明确区分：点明是主人在 App 里手动打断，并要求外部 AI
     /// 先向主人询问原因、不许自行重试。
     public static let ownerInterruptedText =
-        "【主人打断】这次任务被主人在 App 里手动打断，已经停止。主人可能有新的安排或对执行方式不满意；请先向主人询问打断的原因和下一步，不要把这当成普通失败自行重试。"
+        "【用户打断】这次任务被用户在 App 里手动打断，已经停止。可能有新的安排或对执行方式不满意；请先询问打断的原因和下一步，不要把这当成普通失败自行重试。"
 
     private let registry: ToolRegistry
     private let cleaner: ResultCleaner
@@ -355,14 +355,14 @@ public actor Steward {
                 break
             case .denied:
                 let reason =
-                    "工具 \(toolName) 是敏感操作，需要主人在手机上确认后才能执行；未获批准，已拒绝"
+                    "工具 \(toolName) 是敏感操作，需要用户在手机上确认后才能执行；未获批准，已拒绝"
                 finish(
                     id: id, state: .failed(reason: reason), toolName: toolName,
                     rawText: nil, cleanedText: reason, isError: true)
                 completeRun(id: id)
                 return
             case .ownerAway:
-                let reason = "主人未在手机旁，已拒绝"
+                let reason = "用户未在手机旁，已拒绝"
                 finish(
                     id: id, state: .failed(reason: reason), toolName: toolName,
                     rawText: nil, cleanedText: reason, isError: true)

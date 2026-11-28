@@ -196,7 +196,7 @@ struct LLMCorrectionStrategy: CorrectionStrategy {
             if !kept.isEmpty {
                 confusionChars = used
                 diagnostics?.confusionLines = kept
-                blocks.append("以下是该用户过去亲手纠正的语音识别错误（高置信度，ASR 将目标词误识为下方原文，用户主动修改）：\n\(kept.joined(separator: "\n"))")
+                blocks.append("以下是该用户过去亲手纠正的语音识别错误（高置信度，ASR 将目标词误识为下方原文，对方主动修改）：\n\(kept.joined(separator: "\n"))")
             }
         }
 

@@ -109,13 +109,13 @@ enum OffloadToolRunner {
     /// 设置入口的深链保留在文案末尾，方便主人点开改权限）。
     private static func chinesePermissionHint(_ original: String) -> String {
         if original.contains("has disabled") {
-            return "主人在设置里把这项能力关掉了。要开启：设置 > 权限，或点开 [打开权限设置](minis-clone://settings/permissions)"
+            return "用户在设置里把这项能力关掉了。要开启：设置 > 权限，或点开 [打开权限设置](minis-clone://settings/permissions)"
         }
         if original.contains("timed out") {
             return "刚才的授权询问超时了，请重试一次并在弹窗里确认。要改设置：[打开权限设置](minis-clone://settings/permissions)"
         }
         if original.contains("declined") {
-            return "主人刚才在授权弹窗里拒绝了这一次。要改设置：[打开权限设置](minis-clone://settings/permissions)"
+            return "用户刚才在授权弹窗里拒绝了这一次。要改设置：[打开权限设置](minis-clone://settings/permissions)"
         }
         return original
     }
