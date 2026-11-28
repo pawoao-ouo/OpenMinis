@@ -529,7 +529,12 @@ struct ComposerActionSheet: View {
                 }
             }
             Spacer(minLength: 8)
-            Toggle("", isOn: Binding(get: { isOn }, set: { action($0) }))
+            Toggle("", isOn: Binding(get: { isOn }, set: { v in
+                // [batch9-ui 11-28 醒醒] 这一行原来没有触感反馈，和上面的
+                // navRow（每个都震一下）手感不一致。拨开关也震一下。
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                action(v)
+            }))
                 .labelsHidden()
                 .tint(CSSThemeVariables.accent())
         }
